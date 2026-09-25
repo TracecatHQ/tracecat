@@ -6186,6 +6186,351 @@ export const $AwsAssumeRoleAccessRead = {
     "Workspace-scoped AWS AssumeRole details shown in the credentials UI.",
 } as const
 
+export const $AwsSecretJsonField = {
+  properties: {
+    key: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$",
+      title: "Key",
+    },
+    field: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Field",
+    },
+  },
+  type: "object",
+  required: ["key", "field"],
+  title: "AwsSecretJsonField",
+  description: "One declared output key sourced from a top-level JSON field.",
+} as const
+
+export const $AwsSecretKeyMapping = {
+  properties: {
+    mode: {
+      $ref: "#/components/schemas/AwsSecretMappingMode",
+    },
+    keys: {
+      items: {
+        type: "string",
+        pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Keys",
+    },
+    fields: {
+      items: {
+        $ref: "#/components/schemas/AwsSecretJsonField",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Fields",
+    },
+  },
+  type: "object",
+  required: ["mode"],
+  title: "AwsSecretKeyMapping",
+  description: `Declares how a remote AWS secret value maps onto output keys.
+
+\`\`whole_string\`\` maps the entire \`\`SecretString\`\` onto exactly one key.
+\`\`json\`\` maps selected top-level string fields onto declared keys.`,
+} as const
+
+export const $AwsSecretMappingMode = {
+  type: "string",
+  enum: ["whole_string", "json"],
+  title: "AwsSecretMappingMode",
+  description:
+    "How an AWS Secrets Manager value maps onto declared secret keys.",
+} as const
+
+export const $AwsSecretReferenceCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      pattern: "^[a-z_][a-z0-9_]*$",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    environment: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Environment",
+      default: "default",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    store_id: {
+      type: "string",
+      format: "uuid",
+      title: "Store Id",
+    },
+    remote_reference: {
+      type: "string",
+      maxLength: 2048,
+      pattern:
+        "^(?:arn:aws(?:-[a-z]+)*:secretsmanager:[a-z0-9-]+:\\d{12}:secret:[^\\s]+|[A-Za-z0-9/_+=.@-]{1,512})$",
+      title: "Remote Reference",
+    },
+    key_mapping: {
+      $ref: "#/components/schemas/AwsSecretKeyMapping",
+    },
+  },
+  type: "object",
+  required: ["name", "store_id", "remote_reference", "key_mapping"],
+  title: "AwsSecretReferenceCreate",
+  description:
+    "Create a workspace custom secret backed by AWS Secrets Manager.",
+} as const
+
+export const $AwsSecretReferenceUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          pattern: "^[a-z_][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    environment: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Environment",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    store_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Store Id",
+    },
+    remote_reference: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          pattern:
+            "^(?:arn:aws(?:-[a-z]+)*:secretsmanager:[a-z0-9-]+:\\d{12}:secret:[^\\s]+|[A-Za-z0-9/_+=.@-]{1,512})$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Remote Reference",
+    },
+    key_mapping: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AwsSecretKeyMapping",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "AwsSecretReferenceUpdate",
+  description:
+    "Update an AWS-backed workspace secret. Values are never accepted.",
+} as const
+
+export const $AwsSecretResolutionErrorCode = {
+  type: "string",
+  enum: [
+    "store_disabled",
+    "store_not_authorized",
+    "assume_role_failed",
+    "access_denied",
+    "not_found",
+    "decryption_failed",
+    "throttled",
+    "timeout",
+    "binary_value",
+    "malformed_json",
+    "missing_field",
+    "non_string_field",
+    "invalid_mapping",
+    "region_mismatch",
+    "unknown",
+  ],
+  title: "AwsSecretResolutionErrorCode",
+  description: "Sanitized failure classes for AWS Secrets Manager resolution.",
+} as const
+
+export const $AwsSecretsManagerStoreConfig = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "aws_secrets_manager",
+      title: "Provider",
+      default: "aws_secrets_manager",
+    },
+    role_arn: {
+      type: "string",
+      maxLength: 2048,
+      pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+      title: "Role Arn",
+    },
+    region: {
+      type: "string",
+      maxLength: 64,
+      pattern: "^[a-z]{2}(?:-[a-z]+)+-\\d$",
+      title: "Region",
+    },
+    external_id: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "External Id",
+    },
+  },
+  type: "object",
+  required: ["role_arn", "region", "external_id"],
+  title: "AwsSecretsManagerStoreConfig",
+  description:
+    "Persisted provider configuration for an AWS Secrets Manager store.",
+} as const
+
+export const $AwsSecretsManagerStoreCreate = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "aws_secrets_manager",
+      title: "Provider",
+      default: "aws_secrets_manager",
+    },
+    role_arn: {
+      type: "string",
+      maxLength: 2048,
+      pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+      title: "Role Arn",
+    },
+    region: {
+      type: "string",
+      maxLength: 64,
+      pattern: "^[a-z]{2}(?:-[a-z]+)+-\\d$",
+      title: "Region",
+    },
+  },
+  type: "object",
+  required: ["role_arn", "region"],
+  title: "AwsSecretsManagerStoreCreate",
+  description:
+    "Client-supplied fields when creating an AWS Secrets Manager store.",
+} as const
+
+export const $AwsSecretsManagerStoreUpdate = {
+  properties: {
+    role_arn: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Arn",
+    },
+    region: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 64,
+          pattern: "^[a-z]{2}(?:-[a-z]+)+-\\d$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Region",
+    },
+  },
+  type: "object",
+  title: "AwsSecretsManagerStoreUpdate",
+  description:
+    "Client-supplied fields when updating an AWS Secrets Manager store.",
+} as const
+
 export const $AzureAICatalogCreate = {
   properties: {
     display_name: {
@@ -13951,6 +14296,13 @@ export const $EffectiveEntitlements = {
         "Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)",
       default: false,
     },
+    external_secret_stores: {
+      type: "boolean",
+      title: "External secret stores",
+      description:
+        "Whether workspace secrets may reference external secret stores such as AWS Secrets Manager",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -14162,6 +14514,12 @@ export const $EntitlementsDict = {
       title: "Watchtower",
       description:
         "Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)",
+    },
+    external_secret_stores: {
+      type: "boolean",
+      title: "External secret stores",
+      description:
+        "Whether workspace secrets may reference external secret stores such as AWS Secrets Manager",
     },
   },
   type: "object",
@@ -20590,6 +20948,84 @@ export const $OutputType = {
   ],
 } as const
 
+export const $Page_SecretStoreRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SecretStoreRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[SecretStoreRead]",
+} as const
+
+export const $Page_WorkspaceSecretStoreRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceSecretStoreRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[WorkspaceSecretStoreRead]",
+} as const
+
 export const $PayloadChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -24832,6 +25268,43 @@ export const $SecretRead = {
       format: "uuid",
       title: "Workspace Id",
     },
+    source: {
+      $ref: "#/components/schemas/SecretSource",
+      default: "local",
+    },
+    store_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Store Id",
+    },
+    remote_reference: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Remote Reference",
+    },
+    remote_key_mapping: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AwsSecretKeyMapping",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   required: [
@@ -24889,10 +25362,355 @@ export const $SecretReadMinimal = {
       title: "Is Corrupted",
       default: false,
     },
+    source: {
+      $ref: "#/components/schemas/SecretSource",
+      default: "local",
+    },
+    store_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Store Id",
+    },
+    store_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Store Name",
+    },
+    remote_reference: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Remote Reference",
+    },
   },
   type: "object",
   required: ["id", "type", "name", "keys", "environment"],
   title: "SecretReadMinimal",
+} as const
+
+export const $SecretReferenceCheckResult = {
+  properties: {
+    ok: {
+      type: "boolean",
+      title: "Ok",
+    },
+    error_code: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AwsSecretResolutionErrorCode",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    message: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Message",
+    },
+    resolved_keys: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Resolved Keys",
+    },
+  },
+  type: "object",
+  required: ["ok"],
+  title: "SecretReferenceCheckResult",
+  description: "Outcome of a reference check. Never contains the remote value.",
+} as const
+
+export const $SecretSource = {
+  type: "string",
+  enum: ["local", "aws_secrets_manager"],
+  title: "SecretSource",
+  description: "Where a workspace secret's values live.",
+} as const
+
+export const $SecretStoreAuthorizationCreate = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+  },
+  type: "object",
+  required: ["workspace_id"],
+  title: "SecretStoreAuthorizationCreate",
+  description: "Authorize a workspace to reference a store.",
+} as const
+
+export const $SecretStoreAuthorizationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    store_id: {
+      type: "string",
+      format: "uuid",
+      title: "Store Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["id", "store_id", "workspace_id", "created_at"],
+  title: "SecretStoreAuthorizationRead",
+} as const
+
+export const $SecretStoreCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/SecretStoreProvider",
+      default: "aws_secrets_manager",
+    },
+    config: {
+      $ref: "#/components/schemas/AwsSecretsManagerStoreCreate",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: true,
+    },
+    all_workspaces: {
+      type: "boolean",
+      title: "All Workspaces",
+      description: "Allow all current and future workspaces.",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["name", "config"],
+  title: "SecretStoreCreate",
+  description: "Create an organization-owned external secret store.",
+} as const
+
+export const $SecretStoreProvider = {
+  type: "string",
+  enum: ["aws_secrets_manager"],
+  title: "SecretStoreProvider",
+  description: "Supported external secret store providers.",
+} as const
+
+export const $SecretStoreRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/SecretStoreProvider",
+    },
+    config: {
+      $ref: "#/components/schemas/AwsSecretsManagerStoreConfig",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+    all_workspaces: {
+      type: "boolean",
+      title: "All Workspaces",
+    },
+    tracecat_aws_account_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tracecat Aws Account Id",
+    },
+    tracecat_aws_principal_arn: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tracecat Aws Principal Arn",
+    },
+    authorized_workspace_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Authorized Workspace Ids",
+    },
+    reference_count: {
+      type: "integer",
+      title: "Reference Count",
+      default: 0,
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "name",
+    "provider",
+    "config",
+    "enabled",
+    "all_workspaces",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SecretStoreRead",
+  description:
+    "Organization view of a secret store, including trust-policy inputs.",
+} as const
+
+export const $SecretStoreUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    config: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AwsSecretsManagerStoreUpdate",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enabled",
+    },
+    all_workspaces: {
+      type: "boolean",
+      title: "All Workspaces",
+      description: "Allow all current and future workspaces.",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "SecretStoreUpdate",
+  description:
+    "Update an organization-owned secret store. Server-owned fields are immutable.",
 } as const
 
 export const $SecretType = {
@@ -24931,7 +25749,7 @@ export const $SecretUpdate = {
       anyOf: [
         {
           type: "string",
-          maxLength: 1000,
+          maxLength: 255,
           minLength: 0,
         },
         {
@@ -35710,6 +36528,47 @@ export const $WorkspaceReadMinimal = {
   type: "object",
   required: ["id", "name"],
   title: "WorkspaceReadMinimal",
+} as const
+
+export const $WorkspaceSecretStoreRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/SecretStoreProvider",
+    },
+    region: {
+      type: "string",
+      title: "Region",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "provider", "region", "enabled"],
+  title: "WorkspaceSecretStoreRead",
+  description:
+    "Workspace view of an authorized store. Never exposes the external ID.",
 } as const
 
 export const $WorkspaceSettingsRead = {

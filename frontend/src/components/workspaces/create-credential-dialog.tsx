@@ -24,6 +24,7 @@ import {
 } from "react-hook-form"
 import { z } from "zod"
 import type { SecretCreate, SecretDefinition } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CreateSecretTooltip } from "@/components/secrets/create-secret-tooltip"
 import { sshKeyRegex } from "@/components/ssh-keys/ssh-key-utils"
 import { SshPrivateKeyField } from "@/components/ssh-keys/ssh-private-key-field"
@@ -57,6 +58,8 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
+import { AwsSecretReferenceForm } from "@/components/workspaces/aws-secret-reference-form"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useAwsAssumeRoleAccess, useWorkspaceSecrets } from "@/lib/hooks"
 import { cn, copyToClipboard } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -589,8 +592,27 @@ export function CreateCredentialDialog({
     })
   }, [open, selectedTool, methods])
 
+  const { hasEntitlement } = useEntitlements()
+  // The store picker lists stores via a secret:read route.
+  const canReadSecrets = useScopeCheck("secret:read") === true
+  const externalSecretStoresEnabled =
+    hasEntitlement("external_secret_stores") && canReadSecrets
+  const credentialSourceId = React.useId()
+  const [credentialSource, setCredentialSource] = React.useState<
+    "local" | "aws_secrets_manager"
+  >("local")
+  React.useEffect(() => {
+    if (open) {
+      setCredentialSource("local")
+    }
+  }, [open])
+
   const { control, register } = methods
   const secretType = methods.watch("type")
+  const isAwsReference =
+    secretType === "custom" &&
+    externalSecretStoresEnabled &&
+    credentialSource === "aws_secrets_manager"
   const secretName = methods.watch("name")
   const isOktaCredentialForm = isOktaCredential({
     type: secretType,
@@ -902,239 +924,245 @@ export function CreateCredentialDialog({
           </DialogTitle>
         </DialogHeader>
 
-        <CreateSecretTooltip />
-        <Form {...methods}>
-          <form
-            onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
-            className="flex flex-col flex-1 min-h-0"
-          >
-            <div className="space-y-4 overflow-y-auto flex-1 py-2 px-1">
-              <FormField
-                key="name"
-                control={control}
-                name="name"
-                render={() => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Name</FormLabel>
-                    {isTemplateSecret && (
-                      <FormDescription className="text-sm">
-                        This name is fixed by the selected template.
-                      </FormDescription>
-                    )}
-                    <FormControl>
-                      <Input
-                        className="text-sm"
-                        placeholder="Name (snake case)"
-                        readOnly={isTemplateSecret}
-                        aria-readonly={isTemplateSecret}
-                        {...register("name")}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                key="description"
-                control={control}
-                name="description"
-                render={() => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Description</FormLabel>
-                    <FormDescription className="text-sm">
-                      A description for this secret.
-                    </FormDescription>
-                    <FormControl>
-                      <Input
-                        className="text-sm"
-                        placeholder="Description"
-                        {...register("description")}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                key="environment"
-                control={control}
-                name="environment"
-                render={() => (
-                  <FormItem>
-                    <FormLabel className="text-sm">Environment</FormLabel>
-                    <FormDescription className="text-sm">
-                      The workflow&apos;s target execution environment.
-                    </FormDescription>
-                    <FormControl>
-                      <Input
-                        className="text-sm"
-                        placeholder='Default environment: "default"'
-                        {...register("environment")}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {!selectedTool && (
+        {!isAwsReference && <CreateSecretTooltip />}
+        {secretType === "custom" && externalSecretStoresEnabled && (
+          <div className="flex-shrink-0 space-y-2 px-1">
+            <Label htmlFor={credentialSourceId}>Secret source</Label>
+            <Select
+              value={credentialSource}
+              onValueChange={(value) =>
+                setCredentialSource(value as "local" | "aws_secrets_manager")
+              }
+            >
+              <SelectTrigger id={credentialSourceId} className="text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="local">Tracecat</SelectItem>
+                <SelectItem value="aws_secrets_manager">
+                  AWS Secrets Manager
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {isAwsReference ? (
+          <AwsSecretReferenceForm
+            initialName={selectedTool?.name}
+            initialKeys={[
+              ...(selectedTool?.keys ?? []),
+              ...(selectedTool?.optional_keys ?? []),
+            ]}
+            onSaved={() => onOpenChange(false)}
+          />
+        ) : (
+          <Form {...methods}>
+            <form
+              onSubmit={methods.handleSubmit(onSubmit, onValidationFailed)}
+              className="flex flex-col flex-1 min-h-0"
+            >
+              <div className="space-y-4 overflow-y-auto flex-1 py-2 px-1">
                 <FormField
-                  key="type"
+                  key="name"
                   control={control}
-                  name="type"
-                  render={({ field }) => (
+                  name="name"
+                  render={() => (
                     <FormItem>
-                      <FormLabel className="text-sm">Type</FormLabel>
-                      <FormDescription className="text-sm">
-                        Choose how this secret is stored.
-                      </FormDescription>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger className="text-sm">
-                            <SelectValue placeholder="Select a type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectItem value="custom">
-                            <span className="flex items-center gap-2">
-                              <Braces className="size-4" />
-                              Key-value pair
-                            </span>
-                          </SelectItem>
-                          <SelectItem value="ssh_key">
-                            <span className="flex items-center gap-2">
-                              <FileKey2 className="size-4" />
-                              SSH private key
-                            </span>
-                          </SelectItem>
-                          <SelectItem value="mtls">
-                            <span className="flex items-center gap-2">
-                              <KeyRoundIcon className="size-4" />
-                              mTLS certificate + key
-                            </span>
-                          </SelectItem>
-                          <SelectItem value="ca_cert">
-                            <span className="flex items-center gap-2">
-                              <ShieldCheck className="size-4" />
-                              CA certificate
-                            </span>
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <FormLabel className="text-sm">Name</FormLabel>
+                      {isTemplateSecret && (
+                        <FormDescription className="text-sm">
+                          This name is fixed by the selected template.
+                        </FormDescription>
+                      )}
+                      <FormControl>
+                        <Input
+                          className="text-sm"
+                          placeholder="Name (snake case)"
+                          readOnly={isTemplateSecret}
+                          aria-readonly={isTemplateSecret}
+                          {...register("name")}
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
-              )}
+                <FormField
+                  key="description"
+                  control={control}
+                  name="description"
+                  render={() => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Description</FormLabel>
+                      <FormDescription className="text-sm">
+                        A description for this secret.
+                      </FormDescription>
+                      <FormControl>
+                        <Input
+                          className="text-sm"
+                          placeholder="Description"
+                          {...register("description")}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  key="environment"
+                  control={control}
+                  name="environment"
+                  render={() => (
+                    <FormItem>
+                      <FormLabel className="text-sm">Environment</FormLabel>
+                      <FormDescription className="text-sm">
+                        The workflow&apos;s target execution environment.
+                      </FormDescription>
+                      <FormControl>
+                        <Input
+                          className="text-sm"
+                          placeholder='Default environment: "default"'
+                          {...register("environment")}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
-              {secretType === "custom" && isOktaCredentialForm && (
-                <div className="space-y-4">
+                {!selectedTool && (
                   <FormField
-                    key="okta_auth_method"
+                    key="type"
                     control={control}
-                    name="okta_auth_method"
+                    name="type"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-sm">Auth method</FormLabel>
+                        <FormLabel className="text-sm">Type</FormLabel>
+                        <FormDescription className="text-sm">
+                          Choose how this secret is stored.
+                        </FormDescription>
                         <Select
-                          onValueChange={(value) => {
-                            const authMethod = value as OktaAuthMethod
-                            field.onChange(authMethod)
-                            methods.clearErrors([
-                              "okta_api_token",
-                              "okta_access_token",
-                              "okta_service_token",
-                              "okta_client_id",
-                              "okta_scopes",
-                              "okta_private_key",
-                              "okta_dpop_key_rotation_interval",
-                            ])
-                          }}
+                          onValueChange={field.onChange}
                           value={field.value}
                         >
                           <FormControl>
                             <SelectTrigger className="text-sm">
-                              <SelectValue placeholder="Select auth method" />
+                              <SelectValue placeholder="Select a type" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {oktaAuthMethodOptions.map((option) => (
-                              <SelectItem
-                                key={option.value}
-                                value={option.value}
-                              >
-                                {option.label}
-                              </SelectItem>
-                            ))}
+                            <SelectItem value="custom">
+                              <span className="flex items-center gap-2">
+                                <Braces className="size-4" />
+                                Key-value pair
+                              </span>
+                            </SelectItem>
+                            <SelectItem value="ssh_key">
+                              <span className="flex items-center gap-2">
+                                <FileKey2 className="size-4" />
+                                SSH private key
+                              </span>
+                            </SelectItem>
+                            <SelectItem value="mtls">
+                              <span className="flex items-center gap-2">
+                                <KeyRoundIcon className="size-4" />
+                                mTLS certificate + key
+                              </span>
+                            </SelectItem>
+                            <SelectItem value="ca_cert">
+                              <span className="flex items-center gap-2">
+                                <ShieldCheck className="size-4" />
+                                CA certificate
+                              </span>
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+                )}
 
-                  <FormField
-                    key="okta_base_url"
-                    control={control}
-                    name="okta_base_url"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-sm">Org URL</FormLabel>
-                        <FormControl>
-                          <Input
-                            className="text-sm"
-                            placeholder="https://dev-123456.okta.com"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormDescription className="text-sm">
-                          Optional when actions pass an org URL.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {oktaAuthMethod === "ssws" && (
+                {secretType === "custom" && isOktaCredentialForm && (
+                  <div className="space-y-4">
                     <FormField
-                      key="okta_api_token"
+                      key="okta_auth_method"
                       control={control}
-                      name="okta_api_token"
+                      name="okta_auth_method"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel className="text-sm">API token</FormLabel>
-                          <FormControl>
-                            <Input
-                              className="text-sm"
-                              placeholder="Okta SSWS API token"
-                              type="password"
-                              {...field}
-                            />
-                          </FormControl>
+                          <FormLabel className="text-sm">Auth method</FormLabel>
+                          <Select
+                            onValueChange={(value) => {
+                              const authMethod = value as OktaAuthMethod
+                              field.onChange(authMethod)
+                              methods.clearErrors([
+                                "okta_api_token",
+                                "okta_access_token",
+                                "okta_service_token",
+                                "okta_client_id",
+                                "okta_scopes",
+                                "okta_private_key",
+                                "okta_dpop_key_rotation_interval",
+                              ])
+                            }}
+                            value={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger className="text-sm">
+                                <SelectValue placeholder="Select auth method" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {oktaAuthMethodOptions.map((option) => (
+                                <SelectItem
+                                  key={option.value}
+                                  value={option.value}
+                                >
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-                  )}
 
-                  {oktaAuthMethod === "bearer" && (
-                    <div className="grid gap-4 md:grid-cols-2">
+                    <FormField
+                      key="okta_base_url"
+                      control={control}
+                      name="okta_base_url"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-sm">Org URL</FormLabel>
+                          <FormControl>
+                            <Input
+                              className="text-sm"
+                              placeholder="https://dev-123456.okta.com"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormDescription className="text-sm">
+                            Optional when actions pass an org URL.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {oktaAuthMethod === "ssws" && (
                       <FormField
-                        key="okta_access_token"
+                        key="okta_api_token"
                         control={control}
-                        name="okta_access_token"
+                        name="okta_api_token"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel className="text-sm">
-                              Access token
-                            </FormLabel>
+                            <FormLabel className="text-sm">API token</FormLabel>
                             <FormControl>
                               <Input
                                 className="text-sm"
-                                placeholder="OAuth access token"
+                                placeholder="Okta SSWS API token"
                                 type="password"
                                 {...field}
                               />
@@ -1143,46 +1171,24 @@ export function CreateCredentialDialog({
                           </FormItem>
                         )}
                       />
-                      <FormField
-                        key="okta_service_token"
-                        control={control}
-                        name="okta_service_token"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-sm">
-                              Service token
-                            </FormLabel>
-                            <FormControl>
-                              <Input
-                                className="text-sm"
-                                placeholder="OAuth service token"
-                                type="password"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                  )}
+                    )}
 
-                  {oktaAuthMethod === "private_key" && (
-                    <div className="space-y-4">
+                    {oktaAuthMethod === "bearer" && (
                       <div className="grid gap-4 md:grid-cols-2">
                         <FormField
-                          key="okta_client_id"
+                          key="okta_access_token"
                           control={control}
-                          name="okta_client_id"
+                          name="okta_access_token"
                           render={({ field }) => (
                             <FormItem>
                               <FormLabel className="text-sm">
-                                Client ID
+                                Access token
                               </FormLabel>
                               <FormControl>
                                 <Input
                                   className="text-sm"
-                                  placeholder="Okta OAuth client ID"
+                                  placeholder="OAuth access token"
+                                  type="password"
                                   {...field}
                                 />
                               </FormControl>
@@ -1191,377 +1197,430 @@ export function CreateCredentialDialog({
                           )}
                         />
                         <FormField
-                          key="okta_scopes"
+                          key="okta_service_token"
                           control={control}
-                          name="okta_scopes"
+                          name="okta_service_token"
                           render={({ field }) => (
                             <FormItem>
-                              <FormLabel className="text-sm">Scopes</FormLabel>
+                              <FormLabel className="text-sm">
+                                Service token
+                              </FormLabel>
                               <FormControl>
                                 <Input
                                   className="text-sm"
-                                  placeholder="okta.users.read okta.groups.read"
+                                  placeholder="OAuth service token"
+                                  type="password"
                                   {...field}
                                 />
                               </FormControl>
-                              <FormDescription className="text-sm">
-                                Space or comma separated.
-                              </FormDescription>
                               <FormMessage />
                             </FormItem>
                           )}
                         />
                       </div>
+                    )}
 
-                      <FormField
-                        key="okta_kid"
-                        control={control}
-                        name="okta_kid"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-sm">Key ID</FormLabel>
-                            <FormControl>
-                              <Input
-                                className="text-sm"
-                                placeholder="Optional JWK key ID"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        key="okta_dpop_enabled"
-                        control={control}
-                        name="okta_dpop_enabled"
-                        render={({ field }) => (
-                          <FormItem className="space-y-3">
-                            <div className="flex items-center justify-between gap-4">
-                              <div className="space-y-1">
-                                <FormLabel className="text-sm">DPoP</FormLabel>
+                    {oktaAuthMethod === "private_key" && (
+                      <div className="space-y-4">
+                        <div className="grid gap-4 md:grid-cols-2">
+                          <FormField
+                            key="okta_client_id"
+                            control={control}
+                            name="okta_client_id"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm">
+                                  Client ID
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    className="text-sm"
+                                    placeholder="Okta OAuth client ID"
+                                    {...field}
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            key="okta_scopes"
+                            control={control}
+                            name="okta_scopes"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel className="text-sm">
+                                  Scopes
+                                </FormLabel>
+                                <FormControl>
+                                  <Input
+                                    className="text-sm"
+                                    placeholder="okta.users.read okta.groups.read"
+                                    {...field}
+                                  />
+                                </FormControl>
                                 <FormDescription className="text-sm">
-                                  Enable proof-of-possession tokens.
+                                  Space or comma separated.
                                 </FormDescription>
-                              </div>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value}
-                                  onCheckedChange={(checked) => {
-                                    field.onChange(checked)
-                                    if (!checked) {
-                                      methods.clearErrors(
-                                        "okta_dpop_key_rotation_interval"
-                                      )
-                                    }
-                                  }}
-                                />
-                              </FormControl>
-                            </div>
-                            {oktaDpopEnabled && (
-                              <FormField
-                                key="okta_dpop_key_rotation_interval"
-                                control={control}
-                                name="okta_dpop_key_rotation_interval"
-                                render={({ field: intervalField }) => (
-                                  <FormItem>
-                                    <FormLabel className="text-sm">
-                                      Key rotation interval
-                                    </FormLabel>
-                                    <FormControl>
-                                      <Input
-                                        className="text-sm"
-                                        inputMode="numeric"
-                                        placeholder="86400"
-                                        {...intervalField}
-                                      />
-                                    </FormControl>
-                                    <FormDescription className="text-sm">
-                                      Optional seconds; SDK default is 86400.
-                                    </FormDescription>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
+                                <FormMessage />
+                              </FormItem>
                             )}
-                          </FormItem>
-                        )}
-                      />
-
-                      <FormField
-                        key="okta_private_key"
-                        control={control}
-                        name="okta_private_key"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel className="text-sm">
-                              Private key
-                            </FormLabel>
-                            <input
-                              ref={oktaPrivateKeyFileInputRef}
-                              type="file"
-                              accept=".pem,.json,application/json"
-                              className="hidden"
-                              onChange={handleOktaPrivateKeyInputChange}
-                            />
-                            <div
-                              onDrop={handleOktaPrivateKeyDrop}
-                              onDragEnter={handleOktaPrivateKeyDragOver}
-                              onDragOver={handleOktaPrivateKeyDragOver}
-                              onDragLeave={handleOktaPrivateKeyDragLeave}
-                              className={cn(
-                                "rounded-md transition-colors",
-                                isOktaPrivateKeyDragOver &&
-                                  "ring-1 ring-inset ring-ring"
-                              )}
-                            >
-                              <FormControl>
-                                <Textarea
-                                  className="h-36 font-mono text-xs"
-                                  placeholder="-----BEGIN PRIVATE KEY-----"
-                                  {...field}
-                                  onChange={(event) => {
-                                    oktaPrivateKeyReadIdRef.current += 1
-                                    setOktaPrivateKeyFileName(null)
-                                    methods.clearErrors("okta_private_key")
-                                    field.onChange(event)
-                                  }}
-                                />
-                              </FormControl>
-                            </div>
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <FormDescription className="text-sm">
-                                Paste PEM or JWK JSON, or drop a .pem/.json file
-                                into the field.
-                              </FormDescription>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={handleOktaPrivateKeyFileChoose}
-                              >
-                                <UploadCloudIcon className="mr-2 size-4" />
-                                {oktaPrivateKeyFileName
-                                  ? "Replace file"
-                                  : "Upload file"}
-                              </Button>
-                            </div>
-                            {oktaPrivateKeyFileName && (
-                              <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                                <FileTextIcon className="size-3.5" />
-                                {oktaPrivateKeyFileName}
-                              </p>
-                            )}
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {secretType === "custom" && !isOktaCredentialForm && (
-                <FormField
-                  key={inputKey}
-                  control={control}
-                  name={typedKey}
-                  render={() => (
-                    <FormItem>
-                      <FormLabel className="text-sm">Keys</FormLabel>
-                      {isAwsAssumeRoleTemplate && (
-                        <div className="space-y-3">
-                          {awsAssumeRoleAccess ? (
-                            <>
-                              <Alert>
-                                <InfoIcon className="size-4" />
-                                <AlertTitle className="text-xs">
-                                  Cross-role AWS access
-                                </AlertTitle>
-                                <AlertDescription className="space-y-3 text-xs">
-                                  <p>
-                                    Set <code>AWS_ROLE_ARN</code> to the role in
-                                    the target AWS account. Tracecat assumes it
-                                    with the principal and External ID below.{" "}
-                                    <code>AWS_ROLE_SESSION_NAME</code> is not
-                                    used and should not be added.
-                                  </p>
-                                  <dl className="grid gap-2 md:grid-cols-[140px_1fr]">
-                                    <dt className="text-muted-foreground">
-                                      Tracecat account
-                                    </dt>
-                                    <dd className="break-all font-mono text-foreground">
-                                      {
-                                        awsAssumeRoleAccess.tracecat_aws_account_id
-                                      }
-                                    </dd>
-                                    <dt className="text-muted-foreground">
-                                      Principal ARN
-                                    </dt>
-                                    <dd className="break-all font-mono text-foreground">
-                                      {
-                                        awsAssumeRoleAccess.tracecat_aws_principal_arn
-                                      }
-                                    </dd>
-                                    <dt className="text-muted-foreground">
-                                      External ID
-                                    </dt>
-                                    <dd className="break-all font-mono text-foreground">
-                                      {awsAssumeRoleAccess.external_id}
-                                    </dd>
-                                    <dt className="text-muted-foreground">
-                                      Target role
-                                    </dt>
-                                    <dd className="break-all font-mono text-foreground">
-                                      {roleArn || "Paste AWS_ROLE_ARN below"}
-                                    </dd>
-                                  </dl>
-                                </AlertDescription>
-                              </Alert>
-                              <div className="space-y-1">
-                                <Label className="text-xs font-medium">
-                                  Trust policy
-                                </Label>
-                                <JsonSyntaxBlock value={awsTrustPolicy} />
-                              </div>
-                              <p className="text-xs text-muted-foreground">
-                                Create the role in the third-party account, add
-                                the trust policy above, then paste that role ARN
-                                into <code>AWS_ROLE_ARN</code>.
-                              </p>
-                            </>
-                          ) : awsAssumeRoleAccessIsLoading ? (
-                            <p className="text-xs text-muted-foreground">
-                              Loading AWS role access details...
-                            </p>
-                          ) : shouldHideAwsAssumeRoleNote ? null : (
-                            <p className="text-xs text-destructive">
-                              {awsAssumeRoleAccessError?.message ||
-                                "Unable to load AWS role access details."}
-                            </p>
-                          )}
+                          />
                         </div>
-                      )}
-                      <div className="flex flex-col space-y-2">
-                        {fields.map((field, index) => {
-                          return (
-                            <div
-                              key={`${field.id}.${index}`}
-                              className="flex w-full items-center gap-2"
-                            >
-                              <FormControl className="flex-1">
-                                <Input
-                                  id={`key-${index}`}
-                                  className="text-sm"
-                                  {...register(
-                                    `${inputKey}.${index}.key` as const,
-                                    {
-                                      required: true,
-                                    }
-                                  )}
-                                  placeholder="Key"
-                                  disabled={
-                                    !!selectedTool &&
-                                    (selectedTool.keys?.includes(
-                                      field.key || ""
-                                    ) ||
-                                      selectedTool.optional_keys?.includes(
-                                        field.key || ""
-                                      ))
-                                  }
-                                />
-                              </FormControl>
-                              <FormControl className="flex-1">
-                                <Input
-                                  id={`value-${index}`}
-                                  className="text-sm"
-                                  {...register(
-                                    `${inputKey}.${index}.value` as const,
-                                    {
-                                      required: !field.isOptional,
-                                    }
-                                  )}
-                                  placeholder={
-                                    field.isOptional
-                                      ? "Value (optional)"
-                                      : "Value"
-                                  }
-                                  type="password"
-                                />
-                              </FormControl>
 
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                onClick={() => remove(index)}
-                                disabled={
-                                  (!!selectedTool &&
-                                    (selectedTool.keys?.includes(
-                                      field.key || ""
-                                    ) ||
-                                      selectedTool.optional_keys?.includes(
-                                        field.key || ""
-                                      ))) ||
-                                  (!selectedTool && fields.length === 1)
-                                }
+                        <FormField
+                          key="okta_kid"
+                          control={control}
+                          name="okta_kid"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm">Key ID</FormLabel>
+                              <FormControl>
+                                <Input
+                                  className="text-sm"
+                                  placeholder="Optional JWK key ID"
+                                  {...field}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          key="okta_dpop_enabled"
+                          control={control}
+                          name="okta_dpop_enabled"
+                          render={({ field }) => (
+                            <FormItem className="space-y-3">
+                              <div className="flex items-center justify-between gap-4">
+                                <div className="space-y-1">
+                                  <FormLabel className="text-sm">
+                                    DPoP
+                                  </FormLabel>
+                                  <FormDescription className="text-sm">
+                                    Enable proof-of-possession tokens.
+                                  </FormDescription>
+                                </div>
+                                <FormControl>
+                                  <Switch
+                                    checked={field.value}
+                                    onCheckedChange={(checked) => {
+                                      field.onChange(checked)
+                                      if (!checked) {
+                                        methods.clearErrors(
+                                          "okta_dpop_key_rotation_interval"
+                                        )
+                                      }
+                                    }}
+                                  />
+                                </FormControl>
+                              </div>
+                              {oktaDpopEnabled && (
+                                <FormField
+                                  key="okta_dpop_key_rotation_interval"
+                                  control={control}
+                                  name="okta_dpop_key_rotation_interval"
+                                  render={({ field: intervalField }) => (
+                                    <FormItem>
+                                      <FormLabel className="text-sm">
+                                        Key rotation interval
+                                      </FormLabel>
+                                      <FormControl>
+                                        <Input
+                                          className="text-sm"
+                                          inputMode="numeric"
+                                          placeholder="86400"
+                                          {...intervalField}
+                                        />
+                                      </FormControl>
+                                      <FormDescription className="text-sm">
+                                        Optional seconds; SDK default is 86400.
+                                      </FormDescription>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              )}
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          key="okta_private_key"
+                          control={control}
+                          name="okta_private_key"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel className="text-sm">
+                                Private key
+                              </FormLabel>
+                              <input
+                                ref={oktaPrivateKeyFileInputRef}
+                                type="file"
+                                accept=".pem,.json,application/json"
+                                className="hidden"
+                                onChange={handleOktaPrivateKeyInputChange}
+                              />
+                              <div
+                                onDrop={handleOktaPrivateKeyDrop}
+                                onDragEnter={handleOktaPrivateKeyDragOver}
+                                onDragOver={handleOktaPrivateKeyDragOver}
+                                onDragLeave={handleOktaPrivateKeyDragLeave}
+                                className={cn(
+                                  "rounded-md transition-colors",
+                                  isOktaPrivateKeyDragOver &&
+                                    "ring-1 ring-inset ring-ring"
+                                )}
                               >
-                                <Trash2Icon className="size-3.5" />
-                              </Button>
-                            </div>
-                          )
-                        })}
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => append({ key: "", value: "" })}
-                          className="space-x-2 text-xs"
-                        >
-                          <PlusCircle className="mr-2 size-4" />
-                          Add Item
-                        </Button>
+                                <FormControl>
+                                  <Textarea
+                                    className="h-36 font-mono text-xs"
+                                    placeholder="-----BEGIN PRIVATE KEY-----"
+                                    {...field}
+                                    onChange={(event) => {
+                                      oktaPrivateKeyReadIdRef.current += 1
+                                      setOktaPrivateKeyFileName(null)
+                                      methods.clearErrors("okta_private_key")
+                                      field.onChange(event)
+                                    }}
+                                  />
+                                </FormControl>
+                              </div>
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <FormDescription className="text-sm">
+                                  Paste PEM or JWK JSON, or drop a .pem/.json
+                                  file into the field.
+                                </FormDescription>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={handleOktaPrivateKeyFileChoose}
+                                >
+                                  <UploadCloudIcon className="mr-2 size-4" />
+                                  {oktaPrivateKeyFileName
+                                    ? "Replace file"
+                                    : "Upload file"}
+                                </Button>
+                              </div>
+                              {oktaPrivateKeyFileName && (
+                                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <FileTextIcon className="size-3.5" />
+                                  {oktaPrivateKeyFileName}
+                                </p>
+                              )}
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                       </div>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-              {secretType === "ssh_key" && (
-                <SshPrivateKeyField
-                  control={control}
-                  register={register}
-                  name="private_key"
-                />
-              )}
-              {secretType === "mtls" && (
-                <>
-                  {renderTextareaField(
-                    "tls_certificate",
-                    "TLS certificate",
+                    )}
+                  </div>
+                )}
+
+                {secretType === "custom" && !isOktaCredentialForm && (
+                  <FormField
+                    key={inputKey}
+                    control={control}
+                    name={typedKey}
+                    render={() => (
+                      <FormItem>
+                        <FormLabel className="text-sm">Keys</FormLabel>
+                        {isAwsAssumeRoleTemplate && (
+                          <div className="space-y-3">
+                            {awsAssumeRoleAccess ? (
+                              <>
+                                <Alert>
+                                  <InfoIcon className="size-4" />
+                                  <AlertTitle className="text-xs">
+                                    Cross-role AWS access
+                                  </AlertTitle>
+                                  <AlertDescription className="space-y-3 text-xs">
+                                    <p>
+                                      Set <code>AWS_ROLE_ARN</code> to the role
+                                      in the target AWS account. Tracecat
+                                      assumes it with the principal and External
+                                      ID below.{" "}
+                                      <code>AWS_ROLE_SESSION_NAME</code> is not
+                                      used and should not be added.
+                                    </p>
+                                    <dl className="grid gap-2 md:grid-cols-[140px_1fr]">
+                                      <dt className="text-muted-foreground">
+                                        Tracecat account
+                                      </dt>
+                                      <dd className="break-all font-mono text-foreground">
+                                        {
+                                          awsAssumeRoleAccess.tracecat_aws_account_id
+                                        }
+                                      </dd>
+                                      <dt className="text-muted-foreground">
+                                        Principal ARN
+                                      </dt>
+                                      <dd className="break-all font-mono text-foreground">
+                                        {
+                                          awsAssumeRoleAccess.tracecat_aws_principal_arn
+                                        }
+                                      </dd>
+                                      <dt className="text-muted-foreground">
+                                        External ID
+                                      </dt>
+                                      <dd className="break-all font-mono text-foreground">
+                                        {awsAssumeRoleAccess.external_id}
+                                      </dd>
+                                      <dt className="text-muted-foreground">
+                                        Target role
+                                      </dt>
+                                      <dd className="break-all font-mono text-foreground">
+                                        {roleArn || "Paste AWS_ROLE_ARN below"}
+                                      </dd>
+                                    </dl>
+                                  </AlertDescription>
+                                </Alert>
+                                <div className="space-y-1">
+                                  <Label className="text-xs font-medium">
+                                    Trust policy
+                                  </Label>
+                                  <JsonSyntaxBlock value={awsTrustPolicy} />
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  Create the role in the third-party account,
+                                  add the trust policy above, then paste that
+                                  role ARN into <code>AWS_ROLE_ARN</code>.
+                                </p>
+                              </>
+                            ) : awsAssumeRoleAccessIsLoading ? (
+                              <p className="text-xs text-muted-foreground">
+                                Loading AWS role access details...
+                              </p>
+                            ) : shouldHideAwsAssumeRoleNote ? null : (
+                              <p className="text-xs text-destructive">
+                                {awsAssumeRoleAccessError?.message ||
+                                  "Unable to load AWS role access details."}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        <div className="flex flex-col space-y-2">
+                          {fields.map((field, index) => {
+                            return (
+                              <div
+                                key={`${field.id}.${index}`}
+                                className="flex w-full items-center gap-2"
+                              >
+                                <FormControl className="flex-1">
+                                  <Input
+                                    id={`key-${index}`}
+                                    className="text-sm"
+                                    {...register(
+                                      `${inputKey}.${index}.key` as const,
+                                      {
+                                        required: true,
+                                      }
+                                    )}
+                                    placeholder="Key"
+                                    disabled={
+                                      !!selectedTool &&
+                                      (selectedTool.keys?.includes(
+                                        field.key || ""
+                                      ) ||
+                                        selectedTool.optional_keys?.includes(
+                                          field.key || ""
+                                        ))
+                                    }
+                                  />
+                                </FormControl>
+                                <FormControl className="flex-1">
+                                  <Input
+                                    id={`value-${index}`}
+                                    className="text-sm"
+                                    {...register(
+                                      `${inputKey}.${index}.value` as const,
+                                      {
+                                        required: !field.isOptional,
+                                      }
+                                    )}
+                                    placeholder={
+                                      field.isOptional
+                                        ? "Value (optional)"
+                                        : "Value"
+                                    }
+                                    type="password"
+                                  />
+                                </FormControl>
+
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  onClick={() => remove(index)}
+                                  disabled={
+                                    (!!selectedTool &&
+                                      (selectedTool.keys?.includes(
+                                        field.key || ""
+                                      ) ||
+                                        selectedTool.optional_keys?.includes(
+                                          field.key || ""
+                                        ))) ||
+                                    (!selectedTool && fields.length === 1)
+                                  }
+                                >
+                                  <Trash2Icon className="size-3.5" />
+                                </Button>
+                              </div>
+                            )
+                          })}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => append({ key: "", value: "" })}
+                            className="space-x-2 text-xs"
+                          >
+                            <PlusCircle className="mr-2 size-4" />
+                            Add Item
+                          </Button>
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+                {secretType === "ssh_key" && (
+                  <SshPrivateKeyField
+                    control={control}
+                    register={register}
+                    name="private_key"
+                  />
+                )}
+                {secretType === "mtls" && (
+                  <>
+                    {renderTextareaField(
+                      "tls_certificate",
+                      "TLS certificate",
+                      "-----BEGIN CERTIFICATE-----"
+                    )}
+                    {renderTextareaField(
+                      "tls_private_key",
+                      "TLS private key",
+                      "-----BEGIN PRIVATE KEY-----"
+                    )}
+                  </>
+                )}
+                {secretType === "ca_cert" &&
+                  renderTextareaField(
+                    "ca_certificate",
+                    "CA certificate",
                     "-----BEGIN CERTIFICATE-----"
                   )}
-                  {renderTextareaField(
-                    "tls_private_key",
-                    "TLS private key",
-                    "-----BEGIN PRIVATE KEY-----"
-                  )}
-                </>
-              )}
-              {secretType === "ca_cert" &&
-                renderTextareaField(
-                  "ca_certificate",
-                  "CA certificate",
-                  "-----BEGIN CERTIFICATE-----"
-                )}
-            </div>
-            <DialogFooter className="flex-shrink-0 pt-4">
-              <Button className="ml-auto space-x-2" type="submit">
-                <KeyRoundIcon className="mr-2 size-4" />
-                Create secret
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
+              </div>
+              <DialogFooter className="flex-shrink-0 pt-4">
+                <Button className="ml-auto space-x-2" type="submit">
+                  <KeyRoundIcon className="mr-2 size-4" />
+                  Create secret
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        )}
       </DialogContent>
     </Dialog>
   )

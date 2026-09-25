@@ -237,7 +237,7 @@ from tracecat.registry.repositories.schemas import RegistryRepositorySync
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.service import SecretsService, secret_key_names
 from tracecat.storage import blob
 from tracecat.storage.object import (
     CollectionObject,
@@ -8284,7 +8284,7 @@ async def list_secrets_metadata(
             for secret in workspace_secrets:
                 if secret.environment != environment:
                     continue
-                keys = [kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)]
+                keys = secret_key_names(svc, secret)
                 result.append(
                     SecretMetadataResponse(
                         id=secret.id,
@@ -8341,7 +8341,7 @@ async def get_secret_metadata(
                 name=secret.name,
                 type=secret.type,
                 environment=secret.environment,
-                keys=[kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)],
+                keys=secret_key_names(svc, secret),
                 tags=secret.tags,
             )
     except ToolError:
