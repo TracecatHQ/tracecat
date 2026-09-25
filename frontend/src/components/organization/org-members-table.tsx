@@ -597,12 +597,19 @@ function ManageUserRolesDialog({
 }) {
   const [roleId, setRoleId] = useState("")
   const [workspaceId, setWorkspaceId] = useState<string>("org-wide")
+  const [pendingOrgRemovalId, setPendingOrgRemovalId] = useState<string | null>(
+    null
+  )
   const userId = member.user_id ?? undefined
 
   const {
     userAssignments,
+    isLoading: userAssignmentsIsLoading,
+    error: userAssignmentsError,
     createUserAssignment,
     createUserAssignmentIsPending,
+    updateUserAssignment,
+    updateUserAssignmentIsPending,
     deleteUserAssignment,
     deleteUserAssignmentIsPending,
   } = useRbacUserAssignments({ userId })
@@ -610,21 +617,53 @@ function ManageUserRolesDialog({
   const { workspaces } = useWorkspaceManager()
   const canReadRbac = useScopeCheck("org:rbac:read") === true
   const canCreateAssignment = useScopeCheck("org:rbac:create") === true
+  const canUpdateAssignment = useScopeCheck("org:rbac:update") === true
   const canDeleteAssignment = useScopeCheck("org:rbac:delete") === true
 
+  // A user holds at most one org-wide assignment, so changing that role is an
+  // update: creating a second one would conflict.
+  const existingOrgAssignment = userAssignments.find(
+    (assignment) => assignment.workspace_id == null
+  )
+  const isUpdate = workspaceId === "org-wide" && Boolean(existingOrgAssignment)
+  const canSubmit =
+    !userAssignmentsIsLoading &&
+    !userAssignmentsError &&
+    (isUpdate ? canUpdateAssignment : canCreateAssignment)
+
   const handleAddRole = async () => {
-    if (!roleId || !userId) return
-    await createUserAssignment({
-      user_id: userId,
-      role_id: roleId,
-      workspace_id: workspaceId === "org-wide" ? null : workspaceId,
-    })
+    if (!roleId || !userId || !canSubmit) return
+    if (workspaceId === "org-wide" && existingOrgAssignment) {
+      await updateUserAssignment({
+        assignmentId: existingOrgAssignment.id,
+        role_id: roleId,
+      })
+    } else {
+      await createUserAssignment({
+        user_id: userId,
+        role_id: roleId,
+        workspace_id: workspaceId === "org-wide" ? null : workspaceId,
+      })
+    }
     setRoleId("")
     setWorkspaceId("org-wide")
   }
 
+  // An org-wide role carries org permissions, so confirm its removal;
+  // workspace-scoped removals stay one click.
   const handleRemoveRole = async (assignmentId: string) => {
+    const assignment = userAssignments.find((a) => a.id === assignmentId)
+    if (assignment?.workspace_id == null) {
+      setPendingOrgRemovalId(assignmentId)
+      return
+    }
     await deleteUserAssignment(assignmentId)
+  }
+
+  const handleConfirmOrgRemoval = async () => {
+    if (!pendingOrgRemovalId) return
+    await deleteUserAssignment(pendingOrgRemovalId)
+    setPendingOrgRemovalId(null)
   }
 
   return (
@@ -637,7 +676,7 @@ function ManageUserRolesDialog({
         </DialogDescription>
       </DialogHeader>
       <div className="space-y-4 py-4">
-        {canCreateAssignment && (
+        {(canCreateAssignment || canUpdateAssignment) && (
           <div className="space-y-2">
             <Label>Add role assignment</Label>
             <div className="flex gap-2">
@@ -677,7 +716,12 @@ function ManageUserRolesDialog({
               <Button
                 type="button"
                 onClick={handleAddRole}
-                disabled={!roleId || createUserAssignmentIsPending}
+                disabled={
+                  !roleId ||
+                  createUserAssignmentIsPending ||
+                  updateUserAssignmentIsPending ||
+                  !canSubmit
+                }
               >
                 <PlusIcon className="size-4" />
               </Button>
@@ -749,6 +793,32 @@ function ManageUserRolesDialog({
           Done
         </Button>
       </DialogFooter>
+      <AlertDialog
+        open={pendingOrgRemovalId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingOrgRemovalId(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove organization role?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {member.email} loses this organization role and its permissions.
+              They stay an organization member, and workspace roles are kept.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleteUserAssignmentIsPending}
+              onClick={handleConfirmOrgRemoval}
+            >
+              Remove role
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DialogContent>
   )
 }

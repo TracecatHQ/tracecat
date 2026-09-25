@@ -68,10 +68,9 @@ export function WorkspaceMembersTable({
   const {
     userAssignments,
     isLoading: userAssignmentsIsLoading,
+    error: userAssignmentsError,
     updateUserAssignment,
     updateUserAssignmentIsPending,
-    createUserAssignment,
-    createUserAssignmentIsPending,
   } = useRbacUserAssignments({
     workspaceId: workspace.id,
     enabled: isChangeRoleOpen,
@@ -98,6 +97,12 @@ export function WorkspaceMembersTable({
             description: "Wait a moment and try changing the role again.",
           })
         }
+        if (userAssignmentsError) {
+          return toast({
+            title: "Could not load role assignments",
+            description: "Check that you can read organization RBAC settings.",
+          })
+        }
         // Find the existing RBAC assignment for this user in this workspace
         const existingAssignment = userAssignments?.find(
           (a) =>
@@ -110,11 +115,10 @@ export function WorkspaceMembersTable({
             role_id: roleId,
           })
         } else {
-          // No existing assignment — create one
-          await createUserAssignment({
-            user_id: selectedUser.user_id,
-            role_id: roleId,
-            workspace_id: workspace.id,
+          // No direct assignment means the role comes from a group.
+          return toast({
+            title: "Role granted through a group",
+            description: "Change it from organization settings under Groups.",
           })
         }
         await queryClient.invalidateQueries({
@@ -132,14 +136,13 @@ export function WorkspaceMembersTable({
       userAssignments,
       workspace.id,
       updateUserAssignment,
-      createUserAssignment,
       userAssignmentsIsLoading,
+      userAssignmentsError,
       queryClient,
     ]
   )
 
-  const isRoleMutationPending =
-    updateUserAssignmentIsPending || createUserAssignmentIsPending
+  const isRoleMutationPending = updateUserAssignmentIsPending
 
   return (
     <Dialog open={isChangeRoleOpen} onOpenChange={setIsChangeRoleOpen}>

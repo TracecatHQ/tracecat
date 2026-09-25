@@ -131,9 +131,12 @@ SEARCH_POLICY_TABLES = frozenset(
         "search_chunk",
     }
 )
+# group_member.organization_id is a nullable denormalization for the membership
+# foreign key; the table is governed by its parent group's policy.
 SPECIAL_WORKSPACE_POLICY_TABLES = frozenset({"oauth_state"}) | SEARCH_POLICY_TABLES
 SPECIAL_ORG_POLICY_TABLES = (
-    frozenset({"workspace", "scope", "agent_catalog"}) | SEARCH_POLICY_TABLES
+    frozenset({"workspace", "scope", "agent_catalog", "group_member"})
+    | SEARCH_POLICY_TABLES
 )
 
 CURRENT_WORKSPACE_SCOPED_TABLES = (
@@ -217,6 +220,25 @@ def disable_oauth_state_special_rls() -> str:
     return f"""
         DROP POLICY IF EXISTS {policy_name("oauth_state")} ON "oauth_state";
         ALTER TABLE "oauth_state" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def enable_group_member_table_rls() -> str:
+    """Scope legacy nullable membership rows through their owning group."""
+    return f"""
+        ALTER TABLE group_member ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY {policy_name("group_member")} ON group_member
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR EXISTS (
+                    SELECT 1 FROM "group" AS parent_group
+                    WHERE parent_group.id = group_member.group_id
+                      AND parent_group.organization_id = NULLIF(
+                          current_setting('app.current_org_id', true), ''
+                      )::uuid
+                )
+            );
     """
 
 
