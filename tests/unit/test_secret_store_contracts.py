@@ -232,6 +232,8 @@ def test_reference_description_fits_column() -> None:
         )
     with pytest.raises(ValidationError):
         AwsSecretReferenceUpdate.model_validate({"description": "x" * 256})
+    with pytest.raises(ValidationError):
+        SecretUpdate.model_validate({"description": "x" * 256})
 
 
 @pytest.mark.parametrize("environment", ["", "x" * 101])

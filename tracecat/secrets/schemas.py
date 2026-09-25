@@ -282,7 +282,7 @@ class SecretUpdate(BaseModel):
 
     type: SecretType | None = None
     name: str | None = Field(default=None, min_length=1, max_length=100)
-    description: str | None = Field(default=None, min_length=0, max_length=1000)
+    description: str | None = Field(default=None, min_length=0, max_length=255)
     keys: list[SecretKeyValue] | None = Field(
         default=None, min_length=1, max_length=100
     )
