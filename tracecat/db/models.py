@@ -37,7 +37,9 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    and_,
     func,
+    null,
     select,
     text,
     type_coerce,
@@ -58,7 +60,7 @@ from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
-from tracecat.authz.enums import ScopeSource
+from tracecat.authz.enums import ScimConnectionStatus, ScopeSource
 from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import (
@@ -95,6 +97,15 @@ CASE_VERSION_FIELD_ENUM = Enum(CaseVersionField, name="caseversionfield")
 INTERACTION_STATUS_ENUM = Enum(InteractionStatus, name="interactionstatus")
 APPROVAL_STATUS_ENUM = Enum(ApprovalStatus, name="approvalstatus")
 INVITATION_STATUS_ENUM = Enum(InvitationStatus, name="invitationstatus")
+# Keep the existing lowercase VARCHAR storage compatible with deployed writers.
+SCIM_CONNECTION_STATUS_ENUM = Enum(
+    ScimConnectionStatus,
+    name="scimconnectionstatus",
+    native_enum=False,
+    length=32,
+    values_callable=lambda enum: [status.value for status in enum],
+    validate_strings=True,
+)
 # Naming convention for constraints so Alembic can generate deterministic names
 # See: https://alembic.sqlalchemy.org/en/latest/naming.html
 NAMING_CONVENTION: dict[str, str] = {
@@ -247,6 +258,8 @@ class Organization(Base, TimestampMixin):
         "OrganizationTier",
         back_populates="organization",
         uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
     domains: Mapped[list[OrganizationDomain]] = relationship(
         "OrganizationDomain",
@@ -1207,6 +1220,55 @@ class MCPPersonalAccessToken(RecordModel):
         nullable=True,
     )
     revoked_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+
+class ScimConnection(RecordModel):
+    """Bearer credential the identity provider uses to reach the SCIM endpoints.
+
+    One connection per organization. It carries no scopes column: the authority
+    is fixed in code by what the SCIM paths write, not configured per row.
+    """
+
+    __tablename__ = "scim_connection"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    organization_id: Mapped[OrganizationID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    key_id: Mapped[str] = mapped_column(
+        String(32), nullable=False, unique=True, index=True
+    )
+    hashed: Mapped[str] = mapped_column(String(128), nullable=False)
+    salt: Mapped[str] = mapped_column(String(64), nullable=False)
+    preview: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Pending until an admin reviews what arrived; nothing is admitted before.
+    status: Mapped[ScimConnectionStatus] = mapped_column(
+        SCIM_CONNECTION_STATUS_ENUM,
+        nullable=False,
+        default=ScimConnectionStatus.PENDING,
+        server_default=ScimConnectionStatus.PENDING,
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("user.id", ondelete="SET NULL"),
         nullable=True,
@@ -5714,7 +5776,11 @@ class Group(Base, TimestampMixin):
     """
 
     __tablename__ = "group"
-    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+    __table_args__ = (
+        UniqueConstraint("organization_id", "name"),
+        # Tenant-qualified target for composite foreign keys into this table.
+        UniqueConstraint("id", "organization_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(128), index=True)
@@ -6111,60 +6177,6 @@ class SearchChunk(TimestampMixin, Base):
     embedding: Mapped[NDArray[np.float32] | None] = mapped_column(Vector())
     state: Mapped[str] = mapped_column(Text, server_default="prepared")
     error_code: Mapped[str | None] = mapped_column(Text)
-
-
-# Workspace membership is derived, never stored: a user is present in a
-# workspace iff they hold a role path there, directly or through a group.
-# type_coerce strips the source columns' foreign keys: the composite one to
-# organization_membership would otherwise propagate into the subquery and the
-# mapper would try to resolve it as a real table.
-role_paths = union_all(
-    select(
-        type_coerce(UserRoleAssignment.user_id, UUID).label("user_id"),
-        type_coerce(UserRoleAssignment.organization_id, UUID).label("organization_id"),
-        type_coerce(UserRoleAssignment.workspace_id, UUID).label("workspace_id"),
-    ),
-    select(
-        type_coerce(GroupMember.user_id, UUID).label("user_id"),
-        type_coerce(GroupRoleAssignment.organization_id, UUID).label("organization_id"),
-        type_coerce(GroupRoleAssignment.workspace_id, UUID).label("workspace_id"),
-    ).join_from(
-        GroupRoleAssignment,
-        GroupMember,
-        GroupMember.group_id == GroupRoleAssignment.group_id,
-    ),
-).subquery("role_paths")
-
-# Workspace rows only: org presence is the stored OrganizationMembership row.
-membership_select = (
-    select(
-        role_paths.c.user_id,
-        role_paths.c.organization_id,
-        role_paths.c.workspace_id,
-    )
-    .where(role_paths.c.workspace_id.is_not(None))
-    .distinct()
-    .subquery("membership_derived")
-)
-
-
-class Membership(Base):
-    """Read-only workspace membership derived from role assignments."""
-
-    __table__ = membership_select
-    __mapper_args__ = {
-        "primary_key": [
-            membership_select.c.user_id,
-            membership_select.c.organization_id,
-            membership_select.c.workspace_id,
-        ]
-    }
-
-    user_id: Mapped[uuid.UUID]
-    organization_id: Mapped[uuid.UUID]
-    workspace_id: Mapped[uuid.UUID]
-
-
 # Organization presence is stored: `organization_membership` is the aggregate
 # root and children hang off it by composite foreign key.
 class OrganizationMembership(Base, TimestampMixin):
@@ -6187,6 +6199,203 @@ class OrganizationMembership(Base, TimestampMixin):
         ForeignKey("organization.id", ondelete="CASCADE"),
         primary_key=True,
     )
+
+
+# =============================================================================
+# External Directory Sync (SCIM) Tables
+# =============================================================================
+
+
+class ExternalUser(Base, TimestampMixin):
+    """A user's linkage to the identity provider, per organization.
+
+    SCIM ownership is per-tenant: a row here means this organization's provider
+    manages the user, and says nothing about their other organizations.
+    """
+
+    __tablename__ = "external_user"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "user_id"),
+        UniqueConstraint("organization_id", "external_id"),
+        # Tenant-qualified target for composite foreign keys into this table.
+        UniqueConstraint("id", "organization_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id", ondelete="CASCADE"), index=True
+    )
+    external_id: Mapped[str] = mapped_column(String(255))
+    # Deprovisioned users keep their row so re-activation relinks the same
+    # resource id; no FK to organization_membership, which the row outlives.
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+
+
+class ExternalGroup(Base, TimestampMixin):
+    """A group as pushed by the identity provider.
+
+    Shadow state only: these rows grant nothing on their own. Scopes reach users
+    through an ExternalGroupMapping into a Tracecat Group.
+    """
+
+    __tablename__ = "external_group"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "external_id"),
+        # Tenant-qualified target for composite foreign keys into this table.
+        UniqueConstraint("id", "organization_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    external_id: Mapped[str] = mapped_column(String(255))
+    display_name: Mapped[str] = mapped_column(String(255))
+
+
+class ExternalGroupMember(Base):
+    """An external group's member list exactly as pushed by the provider."""
+
+    __tablename__ = "external_group_member"
+    __table_args__ = (
+        Index("ix_external_group_member_external_user_id", "external_user_id"),
+        # Group and user must belong to the membership's own tenant.
+        ForeignKeyConstraint(
+            ["external_group_id", "organization_id"],
+            ["external_group.id", "external_group.organization_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["external_user_id", "organization_id"],
+            ["external_user.id", "external_user.organization_id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    external_group_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    external_user_id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+
+
+class ExternalGroupMapping(Base, TimestampMixin):
+    """Admin-authored M:N link projecting an external group into a Tracecat group."""
+
+    __tablename__ = "external_group_mapping"
+    __table_args__ = (
+        UniqueConstraint("external_group_id", "group_id"),
+        # Both ends must belong to the mapping's own tenant, not merely exist.
+        ForeignKeyConstraint(
+            ["external_group_id", "organization_id"],
+            ["external_group.id", "external_group.organization_id"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["group_id", "organization_id"],
+            ["group.id", "group.organization_id"],
+            ondelete="CASCADE",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    external_group_id: Mapped[uuid.UUID] = mapped_column(UUID, index=True)
+    group_id: Mapped[uuid.UUID] = mapped_column(UUID, index=True)
+
+
+# One effective person per target group; shadow membership has no added_at.
+# An IdP group supplies membership in a Tracecat group; admission to the
+# organization is a precondition, so deprovisioned users reach nothing.
+_group_member_paths = union_all(
+    select(GroupMember.group_id, GroupMember.user_id, GroupMember.added_at),
+    select(
+        ExternalGroupMapping.group_id, ExternalUser.user_id, null().label("added_at")
+    )
+    .join_from(
+        ExternalGroupMapping,
+        ExternalGroupMember,
+        ExternalGroupMember.external_group_id == ExternalGroupMapping.external_group_id,
+    )
+    .join(ExternalUser, ExternalUser.id == ExternalGroupMember.external_user_id)
+    .join(
+        OrganizationMembership,
+        and_(
+            OrganizationMembership.user_id == ExternalUser.user_id,
+            OrganizationMembership.organization_id == ExternalUser.organization_id,
+        ),
+    )
+    .where(ExternalUser.active),
+).subquery("group_member_paths")
+effective_group_members = (
+    select(
+        _group_member_paths.c.group_id,
+        _group_member_paths.c.user_id,
+        func.max(_group_member_paths.c.added_at).label("added_at"),
+    )
+    .group_by(_group_member_paths.c.group_id, _group_member_paths.c.user_id)
+    .subquery("effective_group_members")
+)
+
+
+# Workspace membership is derived, never stored: a user is present in a
+# workspace iff they hold a role path there, directly or through a group.
+# type_coerce strips the source columns' foreign keys: the composite one to
+# organization_membership would otherwise propagate into the subquery and the
+# mapper would try to resolve it as a real table.
+_role_paths = union_all(
+    select(
+        type_coerce(UserRoleAssignment.user_id, UUID).label("user_id"),
+        type_coerce(UserRoleAssignment.organization_id, UUID).label("organization_id"),
+        type_coerce(UserRoleAssignment.workspace_id, UUID).label("workspace_id"),
+    ),
+    # Manual and IdP group members reach roles by the same path.
+    select(
+        type_coerce(effective_group_members.c.user_id, UUID).label("user_id"),
+        type_coerce(GroupRoleAssignment.organization_id, UUID).label("organization_id"),
+        type_coerce(GroupRoleAssignment.workspace_id, UUID).label("workspace_id"),
+    ).join_from(
+        GroupRoleAssignment,
+        effective_group_members,
+        effective_group_members.c.group_id == GroupRoleAssignment.group_id,
+    ),
+).subquery("role_paths")
+
+# Workspace rows only: org presence is the stored OrganizationMembership row.
+membership_select = (
+    select(
+        _role_paths.c.user_id,
+        _role_paths.c.organization_id,
+        _role_paths.c.workspace_id,
+    )
+    .where(_role_paths.c.workspace_id.is_not(None))
+    .distinct()
+    .subquery("membership_derived")
+)
+
+
+class Membership(Base):
+    """Read-only workspace membership derived from role assignments."""
+
+    __table__ = membership_select
+    __mapper_args__ = {
+        "primary_key": [
+            membership_select.c.user_id,
+            membership_select.c.organization_id,
+            membership_select.c.workspace_id,
+        ]
+    }
+
+    user_id: Mapped[uuid.UUID]
+    organization_id: Mapped[uuid.UUID]
+    workspace_id: Mapped[uuid.UUID]
 
 
 # Physical workspace link table the app no longer reads. Writers keep it in

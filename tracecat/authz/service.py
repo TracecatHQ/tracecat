@@ -30,7 +30,7 @@ from tracecat.db.models import (
     User,
     UserRoleAssignment,
     Workspace,
-    role_paths,
+    _role_paths,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
@@ -139,7 +139,7 @@ async def workspace_membership_exists(
 ) -> bool:
     """Check whether a user holds any role path into a workspace.
 
-    Reads the role-path union directly, so arms added to ``role_paths`` are
+    Reads the role-path union directly, so arms added to ``_role_paths`` are
     covered without changing this helper.
 
     Args:
@@ -153,10 +153,10 @@ async def workspace_membership_exists(
     stmt = select(
         exists(
             select(1)
-            .select_from(role_paths)
+            .select_from(_role_paths)
             .where(
-                role_paths.c.user_id == user_id,
-                role_paths.c.workspace_id == workspace_id,
+                _role_paths.c.user_id == user_id,
+                _role_paths.c.workspace_id == workspace_id,
             )
         )
     )

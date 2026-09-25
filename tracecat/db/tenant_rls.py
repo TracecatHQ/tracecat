@@ -99,6 +99,11 @@ POST_RLS_ORG_SCOPED_TABLES = (
     "watchtower_agent",
     "mcp_refresh_token",
     "agent_custom_provider",
+    "external_user",
+    "external_group",
+    "external_group_mapping",
+    "external_group_member",
+    "scim_connection",
 )
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
