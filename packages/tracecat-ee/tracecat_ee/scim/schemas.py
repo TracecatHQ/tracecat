@@ -109,8 +109,23 @@ class ScimMappingPlanRead(Schema):
     group_name: str
     manual_members_purged: list[UUID]
     manual_member_emails: dict[UUID, str]
+    # Manual members the mapped IdP group also lists; the rest stay via another mapping.
+    manual_members_in_source: list[UUID] = Field(default_factory=list)
     users_gaining_access: list[UUID]
+    gaining_member_emails: dict[UUID, str] = Field(default_factory=dict)
     users_losing_access: list[UUID]
+
+
+class ScimRemovalPlanRead(Schema):
+    """What removing one mapping would do to its Tracecat group's members."""
+
+    mapping_id: UUID
+    external_group_display_name: str
+    group_name: str
+    # The group's last mapping: its IdP members are kept as manual rows.
+    becoming_manual: list[UUID]
+    losing_access: list[UUID]
+    member_emails: dict[UUID, str]
 
 
 class ScimActivationReviewRead(Schema):
@@ -118,6 +133,25 @@ class ScimActivationReviewRead(Schema):
 
     users: list[ScimDirectoryUserRead]
     plans: list[ScimMappingPlanRead]
+    removals: list[ScimRemovalPlanRead] = Field(default_factory=list)
+
+
+class ScimMappingChangesRequest(BaseModel):
+    """Mapping removals and additions to apply in one transaction."""
+
+    create: list[ExternalGroupMappingCreate] = Field(
+        default_factory=list, max_length=100
+    )
+    delete: list[UUID] = Field(default_factory=list, max_length=100)
+
+
+class ScimReviewRequest(BaseModel):
+    """Mapping additions and removals to preview without applying them."""
+
+    mappings: list[ExternalGroupMappingCreate] = Field(
+        default_factory=list, max_length=100
+    )
+    delete: list[UUID] = Field(default_factory=list, max_length=100)
 
 
 class ScimActivationRequest(BaseModel):

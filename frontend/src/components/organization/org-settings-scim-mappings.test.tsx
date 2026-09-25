@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import type { ReactNode } from "react"
+import userEvent from "@testing-library/user-event"
 import ScimSettingsPage from "@/app/organization/settings/scim/page"
 import type {
   ExternalGroupMappingRead,
@@ -14,6 +14,7 @@ import type { TracecatApiError } from "@/lib/errors"
 let mappings: ExternalGroupMappingRead[] = []
 const createMapping = jest.fn()
 const deleteMapping = jest.fn()
+const applyMappingChanges = jest.fn()
 const fetchNextMappings = jest.fn()
 let mappingsHasNextPage = false
 let mappingsIsFetchingNextPage = false
@@ -22,6 +23,7 @@ const review = { mutateAsync: jest.fn(), isPending: false }
 const activate = { mutateAsync: jest.fn(), isPending: false }
 const refetchConnection = jest.fn()
 const issueToken = jest.fn()
+const disconnect = jest.fn()
 const readConnection = jest.fn()
 const initialConnection: ScimConnectionRead = {
   id: "connection",
@@ -62,6 +64,7 @@ jest.mock("@/hooks/use-scim", () => ({
     mappings,
     createMapping,
     deleteMapping,
+    applyMappingChanges,
     mappingsHasNextPage,
     mappingsIsFetchingNextPage,
     mappingsError,
@@ -83,6 +86,7 @@ jest.mock("@/hooks/use-scim", () => ({
       refetchConnection,
       issueToken,
       revokeToken: jest.fn(),
+      disconnect,
     }
   },
 }))
@@ -91,34 +95,6 @@ jest.mock("@/lib/hooks", () => ({
   useOrgMembers: () => {
     throw new Error("SCIM review must not depend on org:member:read")
   },
-}))
-jest.mock("@/components/ui/select", () => ({
-  Select: ({
-    value,
-    disabled,
-    onValueChange,
-    children,
-  }: {
-    value: string
-    disabled?: boolean
-    onValueChange: (value: string) => void
-    children: ReactNode
-  }) => (
-    <select
-      value={value}
-      disabled={disabled}
-      onChange={(event) => onValueChange(event.target.value)}
-    >
-      <option value="" />
-      {children}
-    </select>
-  ),
-  SelectTrigger: () => null,
-  SelectValue: () => null,
-  SelectContent: ({ children }: { children: ReactNode }) => <>{children}</>,
-  SelectItem: ({ value, children }: { value: string; children: ReactNode }) => (
-    <option value={value}>{children}</option>
-  ),
 }))
 
 const preview = {
@@ -139,6 +115,7 @@ const preview = {
       manual_members_purged: ["manual"],
       manual_member_emails: { manual: "manual@example.com" },
       users_gaining_access: ["user"],
+      gaining_member_emails: { user: "eligible@example.com" },
       users_losing_access: ["manual"],
     },
   ],
@@ -167,6 +144,7 @@ beforeEach(() => {
   review.mutateAsync.mockResolvedValue(preview)
   activate.mutateAsync.mockResolvedValue(undefined)
   createMapping.mockResolvedValue(undefined)
+  applyMappingChanges.mockResolvedValue(undefined)
 })
 
 function renderScim() {
@@ -177,28 +155,38 @@ function renderScim() {
   )
 }
 
-function addTarget() {
-  fireEvent.change(screen.getAllByRole("combobox")[0], {
-    target: { value: "target" },
-  })
+const PICKER = "Tracecat groups for IdP team"
+
+async function toggleTarget(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: PICKER }))
+  await user.type(
+    screen.getByPlaceholderText("Search Tracecat groups"),
+    "target"
+  )
+  await user.click(screen.getByRole("option", { name: "Target team" }))
+  if (screen.queryByRole("listbox")) await user.keyboard("{Escape}")
 }
 
 test("pending mappings stay local until reviewed activation", async () => {
+  const user = userEvent.setup()
   renderScim()
-  addTarget()
-  expect(screen.getByText("Draft")).toBeInTheDocument()
-  expect(screen.getByText(/applied only when you activate/)).toBeInTheDocument()
+  await toggleTarget(user)
+  expect(screen.getByRole("button", { name: PICKER })).toHaveTextContent(
+    "Target team"
+  )
+  expect(
+    screen.getByText(/1 draft applies when you activate/)
+  ).toBeInTheDocument()
   expect(createMapping).not.toHaveBeenCalled()
   expect(activate.mutateAsync).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole("button", { name: "Review and activate" }))
   expect(await screen.findByText("manual@example.com")).toBeInTheDocument()
-  expect(review.mutateAsync).toHaveBeenCalledWith([
-    { external_group_id: "source", group_id: "target" },
-  ])
-  fireEvent.click(
-    screen.getByRole("button", { name: /Users joining the organization/ })
-  )
-  expect(screen.getByText("eligible@example.com")).toBeInTheDocument()
+  expect(review.mutateAsync).toHaveBeenCalledWith({
+    mappings: [{ external_group_id: "source", group_id: "target" }],
+    delete: [],
+  })
+  fireEvent.click(screen.getByRole("button", { name: /Organization members/ }))
+  expect(screen.getByText("joins")).toBeInTheDocument()
   fireEvent.click(screen.getByRole("button", { name: "Activate for 1 user" }))
   await waitFor(() =>
     expect(activate.mutateAsync).toHaveBeenCalledWith([
@@ -208,26 +196,35 @@ test("pending mappings stay local until reviewed activation", async () => {
   expect(createMapping).not.toHaveBeenCalled()
 })
 
-test("discarding drafts clears them without writing", () => {
+test("discarding drafts clears them without writing", async () => {
+  const user = userEvent.setup()
   renderScim()
-  addTarget()
-  fireEvent.click(screen.getByRole("button", { name: "Discard drafts" }))
-  expect(screen.queryByText("Draft")).toBeNull()
-  expect(screen.getByText("No access")).toBeInTheDocument()
+  await toggleTarget(user)
+  await user.click(screen.getByRole("button", { name: "Discard drafts" }))
+  expect(screen.queryByText(/draft applies/)).toBeNull()
+  expect(screen.getByRole("button", { name: PICKER })).toHaveTextContent(
+    "Not mapped"
+  )
 })
 
-test("active mapping discloses purge before committing", async () => {
+test("active changes stay drafts until one review applies them", async () => {
+  const user = userEvent.setup()
   connection = { ...initialConnection, status: "active" }
   renderScim()
-  addTarget()
+  await toggleTarget(user)
+  expect(review.mutateAsync).not.toHaveBeenCalled()
+  expect(screen.getByText(/1 draft applies after review/)).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Review changes" }))
   expect(await screen.findByText("manual@example.com")).toBeInTheDocument()
-  expect(screen.getByText(/Loses Target team access/)).toBeInTheDocument()
-  expect(createMapping).not.toHaveBeenCalled()
-  fireEvent.click(screen.getByRole("button", { name: "Apply mapping" }))
+  expect(screen.getByText("manual → removed")).toBeInTheDocument()
+  expect(screen.getByText("eligible@example.com")).toBeInTheDocument()
+  expect(screen.queryByText("new → IdP")).toBeNull()
+  expect(applyMappingChanges).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole("button", { name: "Apply 1 change" }))
   await waitFor(() =>
-    expect(createMapping).toHaveBeenCalledWith({
-      externalGroupId: "source",
-      groupId: "target",
+    expect(applyMappingChanges).toHaveBeenCalledWith({
+      create: [{ external_group_id: "source", group_id: "target" }],
+      delete: [],
     })
   )
 })
@@ -238,12 +235,14 @@ test("missing affected-user labels prevent confirmation", async () => {
     ...preview,
     plans: [{ ...preview.plans[0], manual_member_emails: {} }],
   })
+  const user = userEvent.setup()
   renderScim()
-  addTarget()
+  await toggleTarget(user)
+  await user.click(screen.getByRole("button", { name: "Review changes" }))
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Affected user details could not be loaded"
   )
-  expect(screen.getByRole("button", { name: "Apply mapping" })).toBeDisabled()
+  expect(screen.getByRole("button", { name: "Apply 1 change" })).toBeDisabled()
   expect(createMapping).not.toHaveBeenCalled()
 })
 
@@ -256,7 +255,7 @@ test("cancelling review leaves memberships untouched", async () => {
   expect(createMapping).not.toHaveBeenCalled()
 })
 
-test("search and the unmapped filter narrow the group rows", () => {
+test("search narrows the group rows", () => {
   connection = { ...initialConnection, status: "active" }
   mappings = [mapped]
   externalGroups = [
@@ -270,19 +269,15 @@ test("search and the unmapped filter narrow the group rows", () => {
   ]
   renderScim()
   expect(screen.getByText("Ops")).toBeInTheDocument()
-  fireEvent.click(screen.getByRole("button", { name: "Unmapped 1" }))
-  expect(screen.queryByText("IdP team")).toBeNull()
-  expect(screen.getByText("Ops")).toBeInTheDocument()
-  fireEvent.click(screen.getByRole("button", { name: "All 2" }))
-  fireEvent.change(
-    screen.getByRole("searchbox", { name: "Search identity provider groups" }),
-    { target: { value: "idp t" } }
-  )
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search groups" }), {
+    target: { value: "idp t" },
+  })
   expect(screen.getByText("IdP team")).toBeInTheDocument()
   expect(screen.queryByText("Ops")).toBeNull()
 })
 
-test("mapping pages load on request and removal asks before deleting", () => {
+test("mapping pages load on request and removals apply after review", async () => {
+  const user = userEvent.setup()
   connection = { ...initialConnection, status: "active" }
   mappingsHasNextPage = true
   mappings = [mapped]
@@ -308,11 +303,38 @@ test("mapping pages load on request and removal asks before deleting", () => {
   expect(screen.getByRole("alert")).toHaveTextContent(
     "Unable to load more mappings"
   )
-  fireEvent.click(
-    screen.getByRole("button", { name: "Remove Target team from IdP team" })
+  review.mutateAsync.mockResolvedValue({
+    users: [],
+    plans: [],
+    removals: [
+      {
+        mapping_id: "mapping",
+        external_group_display_name: "IdP team",
+        group_name: "Target team",
+        becoming_manual: ["kept"],
+        losing_access: ["gone"],
+        member_emails: { kept: "kept@example.com", gone: "gone@example.com" },
+      },
+    ],
+  })
+  await toggleTarget(user)
+  expect(applyMappingChanges).not.toHaveBeenCalled()
+  await user.click(screen.getByRole("button", { name: "Review changes" }))
+  expect(review.mutateAsync).toHaveBeenCalledWith({
+    mappings: [],
+    delete: ["mapping"],
+  })
+  expect(await screen.findByText("kept@example.com")).toBeInTheDocument()
+  expect(screen.getByText("IdP → manual")).toBeInTheDocument()
+  expect(screen.getByText("gone@example.com")).toBeInTheDocument()
+  expect(screen.getByText("IdP → removed")).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Apply 1 change" }))
+  await waitFor(() =>
+    expect(applyMappingChanges).toHaveBeenCalledWith({
+      create: [],
+      delete: ["mapping"],
+    })
   )
-  expect(screen.getByText(/retained as manual members/)).toBeInTheDocument()
-  expect(deleteMapping).not.toHaveBeenCalled()
 })
 
 test("generic RBAC permissions cannot administer mappings", () => {
@@ -326,14 +348,12 @@ test("generic RBAC permissions cannot administer mappings", () => {
   connection = { ...initialConnection, status: "active" }
   mappings = [mapped]
   const { unmount } = renderScim()
-  expect(
-    screen.getByRole("button", { name: "Remove Target team from IdP team" })
-  ).toBeDisabled()
+  expect(screen.getByRole("button", { name: PICKER })).toBeDisabled()
   unmount()
   connection = initialConnection
   mappings = []
   renderScim()
-  expect(screen.getAllByRole("combobox")[0]).toBeDisabled()
+  expect(screen.getByRole("button", { name: PICKER })).toBeDisabled()
   expect(
     screen.getByRole("button", { name: "Review and activate" })
   ).toBeDisabled()
@@ -343,8 +363,13 @@ test("pending connection is labelled pending, with directory counts", () => {
   renderScim()
   expect(screen.getByText("Pending activation")).toBeInTheDocument()
   expect(screen.queryByText("Active")).not.toBeInTheDocument()
-  expect(screen.getByText("2 active · 1 inactive")).toBeInTheDocument()
-  expect(screen.getByText("1 not mapped")).toBeInTheDocument()
+  expect(
+    screen.getByText(
+      (_, element) =>
+        element?.tagName === "DD" &&
+        element.textContent === "3 users (1 inactive) · 1 group"
+    )
+  ).toBeInTheDocument()
 })
 
 test.each([undefined, initialConnection])(
@@ -411,16 +436,20 @@ test.each([
       <OrgSettingsScimConnection />
     </TooltipProvider>
   )
-  expect(screen.getByRole("button", { name: "Rotate token" })).toBeDisabled()
+  expect(
+    screen.getByRole("button", { name: "Connection actions" })
+  ).toBeDisabled()
 })
 
-test("rotation asks for confirmation before issuing a token", () => {
+test("rotation asks for confirmation before issuing a token", async () => {
+  const user = userEvent.setup()
   render(
     <TooltipProvider>
       <OrgSettingsScimConnection />
     </TooltipProvider>
   )
-  fireEvent.click(screen.getByRole("button", { name: "Rotate token" }))
+  await user.click(screen.getByRole("button", { name: "Connection actions" }))
+  await user.click(screen.getByRole("menuitem", { name: "Rotate token" }))
   expect(
     screen.getByText(/current token stops working immediately/)
   ).toBeInTheDocument()
@@ -434,14 +463,58 @@ test("users without SCIM authority cannot load the directory settings", () => {
   expect(readConnection).not.toHaveBeenCalled()
 })
 
-test("SCIM authority alone enables token management", () => {
+test("SCIM authority alone enables token management", async () => {
+  const user = userEvent.setup()
   render(
     <TooltipProvider>
       <OrgSettingsScimConnection />
     </TooltipProvider>
   )
-  expect(screen.getByRole("button", { name: "Rotate token" })).toBeEnabled()
+  await user.click(screen.getByRole("button", { name: "Connection actions" }))
+  expect(screen.getByRole("menuitem", { name: "Rotate token" })).toBeEnabled()
+  expect(screen.getByRole("menuitem", { name: "Disconnect" })).toBeEnabled()
+  expect(screen.queryByRole("menuitem", { name: /Revoke/ })).toBeNull()
+})
+
+test("disconnect confirms before detaching", async () => {
+  const user = userEvent.setup()
+  connection = { ...initialConnection, status: "active" }
+  disconnect.mockResolvedValue(undefined)
+  renderScim()
+  await user.click(screen.getByRole("button", { name: "Connection actions" }))
+  await user.click(screen.getByRole("menuitem", { name: "Disconnect" }))
+  expect(screen.getByText(/nobody loses access/)).toBeInTheDocument()
+  expect(disconnect).not.toHaveBeenCalled()
+  await user.click(screen.getByRole("button", { name: "Disconnect" }))
+  await waitFor(() => expect(disconnect).toHaveBeenCalledTimes(1))
+})
+
+test("a disconnected directory offers a new token instead", async () => {
+  const user = userEvent.setup()
+  connection = {
+    ...initialConnection,
+    status: "disabled",
+    revoked_at: "2026-01-02T00:00:00Z",
+  }
+  renderScim()
+  expect(screen.getByText("Disconnected")).toBeInTheDocument()
+  expect(screen.getByText("SCIM disconnected")).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Connection actions" }))
   expect(
-    screen.getByRole("button", { name: "More connection actions" })
-  ).toBeEnabled()
+    screen.getByRole("menuitem", { name: "Generate new token" })
+  ).toBeInTheDocument()
+  expect(screen.queryByRole("menuitem", { name: "Disconnect" })).toBeNull()
+})
+
+test("a picker with several groups shows a count, not one name", () => {
+  connection = { ...initialConnection, status: "active" }
+  mappings = [
+    mapped,
+    { ...mapped, id: "second", group_id: "other", group_name: "Other team" },
+    { ...mapped, id: "third", group_id: "third", group_name: "Third team" },
+  ]
+  renderScim()
+  const picker = screen.getByRole("button", { name: PICKER })
+  expect(picker).toHaveTextContent("3 groups")
+  expect(picker).not.toHaveTextContent("Target team")
 })

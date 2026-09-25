@@ -5,7 +5,6 @@ import { KeyRoundIcon, Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
 import type { ScimConnectionRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { ConfirmDestructiveDialog } from "@/components/confirm-destructive-dialog"
 import { CopyButton } from "@/components/copy-button"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -41,17 +40,11 @@ import {
   EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty"
-import { useScimConnection } from "@/hooks/use-scim"
+import { useScimConnection, useScimDirectorySummary } from "@/hooks/use-scim"
 import { getBaseUrl } from "@/lib/api"
 import { formatRelative } from "@/lib/time"
 
 const SCIM_DOCS_URL = "https://docs.tracecat.com/authentication/scim"
-
-const SETUP_GUIDES = [
-  { label: "Okta", anchor: "okta" },
-  { label: "Microsoft Entra ID", anchor: "microsoft-entra-id" },
-  { label: "Other SCIM 2.0", anchor: "other-providers" },
-]
 
 /**
  * Absolute SCIM base URL an administrator pastes into their IdP.
@@ -83,6 +76,9 @@ function ConnectionDetails({
   connection: ScimConnectionRead
   baseUrl: string | null
 }) {
+  const { directorySummary } = useScimDirectorySummary({ enabled: true })
+  const users = directorySummary?.users
+  const groups = directorySummary?.groups
   return (
     <dl className="grid grid-cols-[140px_1fr] items-center gap-x-6 gap-y-3 px-5 py-4 text-sm">
       <dt className="text-muted-foreground">SCIM base URL</dt>
@@ -106,12 +102,27 @@ function ConnectionDetails({
           {tokenUsage(connection)}
         </span>
       </dd>
+
+      <dt className="text-muted-foreground">Directory</dt>
+      <dd>
+        {users && groups ? (
+          <>
+            {users.total} {users.total === 1 ? "user" : "users"}{" "}
+            <span className="text-muted-foreground">
+              ({users.inactive} inactive)
+            </span>{" "}
+            · {groups.total} {groups.total === 1 ? "group" : "groups"}
+          </>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        )}
+      </dd>
     </dl>
   )
 }
 
 /**
- * Issue, rotate, and revoke the SCIM connection token.
+ * Issue and rotate the SCIM connection token, or disconnect SCIM.
  *
  * The raw token is held only in local component state for the lifetime of the
  * dialog that displays it. It is never written to the query cache or refetched,
@@ -128,13 +139,13 @@ export function OrgSettingsScimConnection() {
     refetchConnection,
     issueToken,
     issueTokenIsPending,
-    revokeToken,
-    revokeTokenIsPending,
+    disconnect,
+    disconnectIsPending,
   } = useScimConnection()
 
   const [issuedToken, setIssuedToken] = useState<string | null>(null)
   const [rotateOpen, setRotateOpen] = useState(false)
-  const [revokeOpen, setRevokeOpen] = useState(false)
+  const [disconnectOpen, setDisconnectOpen] = useState(false)
 
   async function handleIssue() {
     const issued = await issueToken()
@@ -149,16 +160,16 @@ export function OrgSettingsScimConnection() {
     }
   }
 
-  async function handleRevoke() {
-    await revokeToken()
-    setRevokeOpen(false)
+  async function handleDisconnect() {
+    await disconnect()
+    setDisconnectOpen(false)
   }
 
   if (connectionIsLoading) {
     return <CenteredSpinner />
   }
 
-  const isActive = Boolean(connection) && !connection?.revoked_at
+  const isDisconnected = connection?.status === "disabled"
 
   return (
     <div className="space-y-4">
@@ -185,65 +196,50 @@ export function OrgSettingsScimConnection() {
         <div className="rounded-lg border">
           <div className="flex items-center gap-3 border-b px-5 py-3">
             <h3 className="flex-1 text-sm font-semibold">Connection</h3>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setRotateOpen(true)}
-              disabled={canManage !== true || issueTokenIsPending}
-            >
-              {issueTokenIsPending ? (
-                <Loader2 className="mr-2 size-4 animate-spin" />
-              ) : null}
-              Rotate token
-            </Button>
-            {isActive ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="size-8"
-                    aria-label="More connection actions"
-                  >
-                    <DotsHorizontalIcon className="size-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    className="text-rose-500 focus:text-rose-600"
-                    disabled={canManage !== true || revokeTokenIsPending}
-                    onSelect={() => setRevokeOpen(true)}
-                  >
-                    Revoke token
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-          </div>
-          <ConnectionDetails connection={connection} baseUrl={baseUrl} />
-          <div className="flex items-center gap-4 rounded-b-lg border-t bg-muted/30 px-5 py-3 text-xs">
-            <span className="text-muted-foreground">Setup guides</span>
-            {SETUP_GUIDES.map((guide) => (
-              <a
-                key={guide.anchor}
-                href={`${SCIM_DOCS_URL}#${guide.anchor}`}
-                target="_blank"
-                rel="noreferrer"
-                className="underline decoration-muted-foreground/40 underline-offset-4 hover:decoration-foreground"
-              >
-                {guide.label}
-              </a>
-            ))}
-            <span className="flex-1" />
             <a
-              href={`${SCIM_DOCS_URL}#limitations`}
+              href={SCIM_DOCS_URL}
               target="_blank"
               rel="noreferrer"
-              className="underline decoration-muted-foreground/40 underline-offset-4 hover:decoration-foreground"
+              className="text-sm underline decoration-muted-foreground/40 underline-offset-4 hover:decoration-foreground"
             >
-              Known limitations
+              Setup guide
             </a>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="size-8"
+                  aria-label="Connection actions"
+                  disabled={canManage !== true}
+                >
+                  {issueTokenIsPending || disconnectIsPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <DotsHorizontalIcon className="size-4" />
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  disabled={issueTokenIsPending}
+                  onSelect={() => setRotateOpen(true)}
+                >
+                  {isDisconnected ? "Generate new token" : "Rotate token"}
+                </DropdownMenuItem>
+                {isDisconnected ? null : (
+                  <DropdownMenuItem
+                    className="text-rose-500 focus:text-rose-600"
+                    disabled={disconnectIsPending}
+                    onSelect={() => setDisconnectOpen(true)}
+                  >
+                    Disconnect
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
+          <ConnectionDetails connection={connection} baseUrl={baseUrl} />
         </div>
       )}
 
@@ -303,6 +299,33 @@ export function OrgSettingsScimConnection() {
         </DialogContent>
       </Dialog>
 
+      <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Disconnect your identity provider?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The token is revoked and group mappings are removed. Members of
+              mapped groups stay as manual members, so nobody loses access.
+              Reconnect anytime with a new token.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={disconnectIsPending}>
+              Cancel
+            </AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={disconnectIsPending}
+              onClick={() => void handleDisconnect().catch(() => {})}
+            >
+              Disconnect
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={rotateOpen} onOpenChange={setRotateOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -326,17 +349,6 @@ export function OrgSettingsScimConnection() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      <ConfirmDestructiveDialog
-        open={revokeOpen}
-        onOpenChange={setRevokeOpen}
-        confirmPhrase="revoke"
-        title="Revoke SCIM token"
-        description="Your identity provider can no longer provision users or groups. Existing mappings stay in place but stop receiving updates."
-        confirmLabel="Revoke token"
-        isPending={revokeTokenIsPending}
-        onConfirm={handleRevoke}
-      />
     </div>
   )
 }

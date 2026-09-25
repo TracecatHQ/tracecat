@@ -1,7 +1,12 @@
 "use client"
 
-import { AlertTriangleIcon, SearchIcon, UsersIcon, XIcon } from "lucide-react"
-import { type ReactNode, useState } from "react"
+import {
+  AlertTriangleIcon,
+  ChevronDownIcon,
+  SearchIcon,
+  UsersIcon,
+} from "lucide-react"
+import { useState } from "react"
 import type {
   ExternalGroupMappingRead,
   ExternalGroupRead,
@@ -10,17 +15,16 @@ import type {
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { CheckIndicator } from "@/components/ui/check-indicator"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import {
   Empty,
   EmptyDescription,
@@ -30,12 +34,10 @@ import {
 } from "@/components/ui/empty"
 import { Input } from "@/components/ui/input"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import {
   Table,
   TableBody,
@@ -72,37 +74,40 @@ function ErrorAlert({ title, children }: { title: string; children?: string }) {
 /**
  * Map synced IdP groups onto Tracecat groups, one row per IdP group.
  *
- * While the connection is pending, additions are local drafts applied on
- * activation. Once active, each addition is reviewed before it is created.
+ * Every change is a local draft. Pending connections apply drafts on
+ * activation; active ones apply them together after one review.
  */
 export function OrgSettingsScimMappings({
   connected,
   status,
   revoked,
   drafts,
+  removals,
   reviewIsPending,
   onAdd,
-  onRemoveDraft,
+  onRemove,
   onDiscardDrafts,
+  onReviewChanges,
 }: {
   connected: boolean
   status?: ScimConnectionStatus
   revoked: boolean
   drafts: ScimMappingDraft[]
+  removals: ExternalGroupMappingRead[]
   reviewIsPending: boolean
   onAdd: (draft: ScimMappingDraft) => void
-  onRemoveDraft: (draft: ScimMappingDraft) => void
+  onRemove: (
+    draft: ScimMappingDraft,
+    mapping?: ExternalGroupMappingRead
+  ) => void
   onDiscardDrafts: () => void
+  onReviewChanges: () => void
 }) {
   const canManage = useScopeCheck("org:scim:manage") === true
   const isPending = status === "pending"
   const canEdit = canManage && !revoked && (isPending || status === "active")
 
   const [query, setQuery] = useState("")
-  const [unmappedOnly, setUnmappedOnly] = useState(false)
-  const [removing, setRemoving] = useState<ExternalGroupMappingRead | null>(
-    null
-  )
 
   const {
     externalGroups,
@@ -119,8 +124,6 @@ export function OrgSettingsScimMappings({
     mappingsHasNextPage,
     mappingsIsFetchingNextPage,
     fetchNextMappings,
-    deleteMapping,
-    deleteMappingIsPending,
   } = useScimMappings()
   const {
     groups,
@@ -129,12 +132,26 @@ export function OrgSettingsScimMappings({
   } = useRbacGroups()
 
   const header = (
-    <div className="space-y-1">
-      <h3 className="text-lg font-medium">Group mappings</h3>
-      <p className="text-sm text-muted-foreground">
-        Members of a mapped IdP group get that Tracecat group&apos;s access.
-        Unmapped groups grant nothing.
-      </p>
+    <div className="flex items-end gap-4">
+      <div className="flex-1 space-y-1">
+        <h3 className="text-lg font-medium">Group mappings</h3>
+        <p className="text-sm text-muted-foreground">
+          Unmapped groups grant no access.
+        </p>
+      </div>
+      {externalGroups && externalGroups.length > 0 ? (
+        <div className="relative w-60">
+          <SearchIcon className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search groups"
+            aria-label="Search groups"
+            className="h-8 pl-8 text-sm"
+          />
+        </div>
+      ) : null}
     </div>
   )
 
@@ -189,24 +206,34 @@ export function OrgSettingsScimMappings({
     if (isPending) {
       return drafts.filter((draft) => draft.external_group_id === group.id)
     }
-    return (mappings ?? [])
-      .filter((mapping) => mapping.external_group_id === group.id)
+    const removed = new Set(removals.map((mapping) => mapping.id))
+    const live: Target[] = (mappings ?? [])
+      .filter(
+        (mapping) =>
+          mapping.external_group_id === group.id && !removed.has(mapping.id)
+      )
       .map((mapping) => ({ ...mapping, mapping }))
+    return [
+      ...live,
+      ...drafts.filter((draft) => draft.external_group_id === group.id),
+    ]
   }
 
   const rows = allGroups.map((group) => ({ group, targets: targetsFor(group) }))
-  const unmappedCount = rows.filter((row) => row.targets.length === 0).length
   const needle = query.trim().toLowerCase()
   const visibleRows = rows.filter(
-    (row) =>
-      (!unmappedOnly || row.targets.length === 0) &&
-      (!needle || row.group.display_name.toLowerCase().includes(needle))
+    (row) => !needle || row.group.display_name.toLowerCase().includes(needle)
   )
 
   return (
     <div className="space-y-4">
       {header}
-      {revoked && (
+      {status === "disabled" && (
+        <ErrorAlert title="SCIM disconnected">
+          Generate a new token to reconnect.
+        </ErrorAlert>
+      )}
+      {revoked && status !== "disabled" && (
         <ErrorAlert title="Token revoked">
           Rotate the token before changing SCIM configuration.
         </ErrorAlert>
@@ -227,41 +254,12 @@ export function OrgSettingsScimMappings({
         </Empty>
       ) : (
         <div className="overflow-hidden rounded-lg border">
-          <div className="flex items-center gap-3 border-b px-4 py-3">
-            <div className="relative flex-1">
-              <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search identity provider groups"
-                aria-label="Search identity provider groups"
-                className="pl-9"
-              />
-            </div>
-            <div className="flex gap-0.5 rounded-md border p-0.5">
-              <FilterButton
-                active={!unmappedOnly}
-                onClick={() => setUnmappedOnly(false)}
-              >
-                All {rows.length}
-              </FilterButton>
-              <FilterButton
-                active={unmappedOnly}
-                onClick={() => setUnmappedOnly(true)}
-              >
-                Unmapped {unmappedCount}
-              </FilterButton>
-            </div>
-          </div>
-
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead>Identity provider group</TableHead>
                 <TableHead className="w-24">Members</TableHead>
-                <TableHead className="w-[340px]">Tracecat groups</TableHead>
-                <TableHead className="w-28">Status</TableHead>
+                <TableHead className="w-[320px]">Tracecat group</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -274,63 +272,23 @@ export function OrgSettingsScimMappings({
                     {group.member_count}
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {targets.map((target) => (
-                        <Badge
-                          key={target.group_id}
-                          variant="secondary"
-                          className="gap-1 pr-1 font-normal"
-                        >
-                          {target.group_name}
-                          <button
-                            type="button"
-                            className="rounded-sm p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-50"
-                            disabled={
-                              !canEdit ||
-                              reviewIsPending ||
-                              deleteMappingIsPending
-                            }
-                            aria-label={`Remove ${target.group_name} from ${group.display_name}`}
-                            onClick={() => {
-                              if (target.mapping) setRemoving(target.mapping)
-                              else onRemoveDraft(target)
-                            }}
-                          >
-                            <XIcon className="size-3" />
-                          </button>
-                        </Badge>
-                      ))}
-                      <AddTargetSelect
-                        group={group}
-                        tracecatGroups={tracecatGroups.filter(
-                          (candidate) =>
-                            !targets.some(
-                              (target) => target.group_id === candidate.id
-                            )
-                        )}
-                        hasTargets={targets.length > 0}
-                        disabled={!canEdit || reviewIsPending}
-                        onAdd={onAdd}
-                      />
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {targets.length === 0 ? (
-                      <span className="text-sm text-muted-foreground">
-                        No access
-                      </span>
-                    ) : (
-                      <Badge variant="secondary" className="font-normal">
-                        {isPending ? "Draft" : "Mapped"}
-                      </Badge>
-                    )}
+                    <TargetPicker
+                      group={group}
+                      targets={targets}
+                      tracecatGroups={tracecatGroups}
+                      disabled={!canEdit || reviewIsPending}
+                      onAdd={onAdd}
+                      onRemove={(target) => {
+                        onRemove(target, target.mapping)
+                      }}
+                    />
                   </TableCell>
                 </TableRow>
               ))}
               {visibleRows.length === 0 && (
                 <TableRow className="hover:bg-transparent">
                   <TableCell
-                    colSpan={4}
+                    colSpan={3}
                     className="py-6 text-center text-sm text-muted-foreground"
                   >
                     No groups match.
@@ -342,8 +300,10 @@ export function OrgSettingsScimMappings({
 
           <ListFooter
             isPending={isPending}
-            drafts={drafts}
+            changeCount={drafts.length + removals.length}
+            reviewIsPending={reviewIsPending}
             onDiscardDrafts={onDiscardDrafts}
+            onReviewChanges={onReviewChanges}
             externalGroupsError={Boolean(externalGroupsError)}
             externalGroupsHasNextPage={Boolean(externalGroupsHasNextPage)}
             externalGroupsIsFetchingNextPage={externalGroupsIsFetchingNextPage}
@@ -355,128 +315,112 @@ export function OrgSettingsScimMappings({
           />
         </div>
       )}
-
-      <AlertDialog
-        open={Boolean(removing)}
-        onOpenChange={(open) => {
-          if (!open && !deleteMappingIsPending) setRemoving(null)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove mapping</AlertDialogTitle>
-            <AlertDialogDescription>
-              {removing
-                ? `${removing.external_group_display_name} stops granting ${removing.group_name}. `
-                : ""}
-              If this is the final mapping, current members are retained as
-              manual members. Other grants are unchanged.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteMappingIsPending}>
-              Cancel
-            </AlertDialogCancel>
-            <Button
-              variant="destructive"
-              disabled={deleteMappingIsPending}
-              onClick={() => {
-                if (!removing) return
-                void deleteMapping(removing.id)
-                  .then(() => setRemoving(null))
-                  .catch(() => {})
-              }}
-            >
-              Remove mapping
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }
 
-function FilterButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  children: ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn(
-        "h-7 rounded-sm px-3 text-xs font-medium transition-colors",
-        active
-          ? "bg-muted text-foreground"
-          : "text-muted-foreground hover:text-foreground"
-      )}
-    >
-      {children}
-    </button>
-  )
+function pickerLabel(targets: Target[]): string {
+  if (targets.length === 0) return "Not mapped"
+  if (targets.length === 1) return targets[0]?.group_name ?? ""
+  return `${targets.length} groups`
 }
 
-function AddTargetSelect({
+/** One picker per IdP group: shows its Tracecat groups, toggles each one. */
+function TargetPicker({
   group,
+  targets,
   tracecatGroups,
-  hasTargets,
   disabled,
   onAdd,
+  onRemove,
 }: {
   group: ExternalGroupRead
+  targets: Target[]
   tracecatGroups: { id: string; name: string }[]
-  hasTargets: boolean
   disabled: boolean
   onAdd: (draft: ScimMappingDraft) => void
+  onRemove: (target: Target) => void
 }) {
-  if (hasTargets && tracecatGroups.length === 0) {
-    return null
-  }
+  const [open, setOpen] = useState(false)
+  const mapped = targets.length > 0
   return (
-    <Select
-      value=""
-      disabled={disabled}
-      onValueChange={(groupId) => {
-        const target = tracecatGroups.find((item) => item.id === groupId)
-        if (!target) return
-        onAdd({
-          external_group_id: group.id,
-          external_group_display_name: group.display_name,
-          group_id: target.id,
-          group_name: target.name,
-        })
-      }}
-    >
-      <SelectTrigger
-        aria-label={`Add Tracecat group to ${group.display_name}`}
-        className={cn(
-          "h-7 text-xs",
-          hasTargets ? "w-auto gap-1 border-dashed" : "w-full"
-        )}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          disabled={disabled}
+          aria-label={`Tracecat groups for ${group.display_name}`}
+          className={cn(
+            "h-9 w-full justify-between px-3 font-normal shadow-none",
+            !mapped && "border-dashed bg-muted/30 text-muted-foreground"
+          )}
+        >
+          <span
+            className="truncate"
+            title={
+              targets.length > 1
+                ? targets.map((target) => target.group_name).join(", ")
+                : undefined
+            }
+          >
+            {pickerLabel(targets)}
+          </span>
+          <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[var(--radix-popover-trigger-width)] p-0"
       >
-        <SelectValue placeholder={hasTargets ? "Add" : "Select a group"} />
-      </SelectTrigger>
-      <SelectContent>
-        {tracecatGroups.map((target) => (
-          <SelectItem key={target.id} value={target.id}>
-            {target.name}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+        <Command>
+          <CommandInput
+            placeholder="Search Tracecat groups"
+            className="text-sm"
+          />
+          <CommandList>
+            <CommandEmpty>No groups found.</CommandEmpty>
+            <CommandGroup>
+              {tracecatGroups.map((candidate) => {
+                const target = targets.find(
+                  (item) => item.group_id === candidate.id
+                )
+                return (
+                  <CommandItem
+                    key={candidate.id}
+                    value={candidate.id}
+                    keywords={[candidate.name]}
+                    onSelect={() => {
+                      if (target) {
+                        onRemove(target)
+                        return
+                      }
+                      onAdd({
+                        external_group_id: group.id,
+                        external_group_display_name: group.display_name,
+                        group_id: candidate.id,
+                        group_name: candidate.name,
+                      })
+                    }}
+                  >
+                    <CheckIndicator checked={Boolean(target)} />
+                    <span className="truncate">{candidate.name}</span>
+                  </CommandItem>
+                )
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   )
 }
 
 function ListFooter({
   isPending,
-  drafts,
+  changeCount,
+  reviewIsPending,
   onDiscardDrafts,
+  onReviewChanges,
   externalGroupsError,
   externalGroupsHasNextPage,
   externalGroupsIsFetchingNextPage,
@@ -487,8 +431,10 @@ function ListFooter({
   fetchNextMappings,
 }: {
   isPending: boolean
-  drafts: ScimMappingDraft[]
+  changeCount: number
+  reviewIsPending: boolean
   onDiscardDrafts: () => void
+  onReviewChanges: () => void
   externalGroupsError: boolean
   externalGroupsHasNextPage: boolean
   externalGroupsIsFetchingNextPage: boolean
@@ -498,7 +444,7 @@ function ListFooter({
   mappingsIsFetchingNextPage: boolean
   fetchNextMappings: () => void
 }) {
-  const showDrafts = isPending && drafts.length > 0
+  const showDrafts = changeCount > 0
   const showMappingPages = !isPending && (mappingsHasNextPage || mappingsError)
   if (
     !showDrafts &&
@@ -512,10 +458,8 @@ function ListFooter({
     <div className="flex flex-wrap items-center gap-3 border-t bg-muted/30 px-4 py-2.5 text-sm">
       {showDrafts ? (
         <span className="flex-1 text-muted-foreground">
-          <span className="font-medium text-foreground">
-            {drafts.length} draft {drafts.length === 1 ? "mapping" : "mappings"}
-          </span>{" "}
-          · applied only when you activate
+          {changeCount} {changeCount === 1 ? "draft applies" : "drafts apply"}{" "}
+          {isPending ? "when you activate." : "after review."}
         </span>
       ) : (
         <span className="flex-1" />
@@ -557,6 +501,11 @@ function ListFooter({
       {showDrafts && (
         <Button variant="ghost" size="sm" onClick={onDiscardDrafts}>
           Discard drafts
+        </Button>
+      )}
+      {showDrafts && !isPending && (
+        <Button size="sm" disabled={reviewIsPending} onClick={onReviewChanges}>
+          Review changes
         </Button>
       )}
     </div>
