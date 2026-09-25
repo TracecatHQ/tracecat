@@ -103,10 +103,10 @@ Tracecat supports `GET`, `POST`, `PUT`, `PATCH`, and `DELETE` on both resources,
 
 Create your target groups and assign their roles in [Custom roles and groups](/manage-platform/custom-roles) first.
 
-The `Group mappings` table lists pushed IdP groups, one row per group. The Connection card shows the directory's user, inactive-user, and group counts.
+The `Group mappings` table lists pushed IdP groups, with an arrow pointing to each group's Tracecat targets. The Connection card shows the directory's user, inactive-user, and group counts.
 
 1. Find your IdP group in the table. Use `Load more groups` when available; `Search groups` filters the groups already loaded.
-2. Open the dropdown in the `Tracecat group` column and select one or more target groups. Select a checked group again to remove that mapping.
+2. Open the dropdown in the `Tracecat groups` column and select one or more target groups. Each selected target appears by name, in alphabetical order. Select a checked group again to remove that mapping.
 3. Check the draft count below the table. Select `Discard drafts` to undo your changes.
 
 You can map several IdP groups to the same Tracecat group. Their memberships combine. An unmapped IdP group grants no group access.
