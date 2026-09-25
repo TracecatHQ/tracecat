@@ -21,7 +21,7 @@ from tracecat.parse import traverse_expressions
 from tracecat.secrets.masking import SecretMaskCollector
 
 if TYPE_CHECKING:
-    from tracecat.expressions.policy import TaintState
+    from tracecat.expressions.policy import ProvenanceMap
 
 ExtractorResult = TypeVar("ExtractorResult", covariant=True)
 ValidatorResult = TypeVar("ValidatorResult")
@@ -67,7 +67,7 @@ class Expression:
         policy: ExprResolutionPolicy | None = None,
         source: str | None = None,
         standalone: bool = True,
-        taint: TaintState | None = None,
+        provenance: ProvenanceMap | None = None,
     ) -> None:
         self._expr = expression
         self._operand = operand
@@ -76,7 +76,7 @@ class Expression:
         self._policy = policy
         self._source = source
         self._standalone = standalone
-        self._taint = taint
+        self._provenance = provenance
 
     def __str__(self) -> str:
         return self.__repr__()
@@ -118,7 +118,7 @@ class Expression:
 
         masks = ctx_secret_masks.get() or SecretMaskCollector()
         masks.observe((self._operand or {}).get(ExprContext.SECRETS, {}))
-        observer = SecretValueObserver(masks, self._taint)
+        observer = SecretValueObserver(masks, self._provenance)
         try:
             visitor = ExprEvaluator(operand=self._operand, observe=observer.observe)
             if parse_tree is None:
@@ -205,7 +205,7 @@ class TemplateExpression:
         pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
         policy: ExprResolutionPolicy | None = None,
         standalone: bool = True,
-        taint: TaintState | None = None,
+        provenance: ProvenanceMap | None = None,
         **kwargs: Any,
     ) -> None:
         match = pattern.match(template)
@@ -224,7 +224,7 @@ class TemplateExpression:
             policy=policy,
             source=match.group("template"),
             standalone=standalone,
-            taint=taint,
+            provenance=provenance,
         )
 
     def __str__(self) -> str:

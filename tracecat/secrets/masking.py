@@ -21,14 +21,16 @@ class SecretMaskCollector:
 
     values: set[str] = field(default_factory=set, repr=False)
 
-    def observe(self, value: Any) -> None:
-        """Register scalar values without stringifying arbitrary objects."""
+    def observe(self, value: Any, *, include_keys: bool = False) -> None:
+        """Register values, including keys only for secret-derived containers."""
         if isinstance(value, Mapping):
-            for item in value.values():
-                self.observe(item)
+            for key, item in value.items():
+                if include_keys:
+                    self.observe(key, include_keys=True)
+                self.observe(item, include_keys=include_keys)
         elif isinstance(value, (list, tuple)):
             for item in value:
-                self.observe(item)
+                self.observe(item, include_keys=include_keys)
         elif isinstance(value, (str, bytes, int, float, bool)):
             text = str(value)
             if not text:

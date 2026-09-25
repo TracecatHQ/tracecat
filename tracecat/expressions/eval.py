@@ -19,7 +19,7 @@ from tracecat.expressions.core import (
 from tracecat.parse import traverse_expressions
 
 if TYPE_CHECKING:
-    from tracecat.expressions.policy import TaintState
+    from tracecat.expressions.policy import ProvenanceMap
 
 
 def _eval_templated_obj_rec(
@@ -60,7 +60,7 @@ def _eval_expression_op(
     match: re.Match[str],
     operand: ExprOperand | None,
     policy: ExprResolutionPolicy | None,
-    taint: TaintState | None,
+    provenance: ProvenanceMap | None,
 ) -> str:
     expr = match.group("template")
     result = TemplateExpression(
@@ -68,7 +68,7 @@ def _eval_expression_op(
         operand=operand,
         policy=policy,
         standalone=False,
-        taint=taint,
+        provenance=provenance,
     ).result()
     try:
         return str(result)
@@ -81,17 +81,17 @@ def _make_templated_string_operator(
     operand: ExprOperand | None,
     pattern: re.Pattern[str],
     policy: ExprResolutionPolicy | None,
-    taint: TaintState | None,
+    provenance: ProvenanceMap | None,
 ) -> Callable[[str], Any]:
     evaluator = partial(
-        _eval_expression_op, operand=operand, policy=policy, taint=taint
+        _eval_expression_op, operand=operand, policy=policy, provenance=provenance
     )
 
     def operator(line: str) -> Any:
         """Evaluate one standalone or inline templated string."""
         if is_template_only(line) and len(pattern.findall(line)) == 1:
             return TemplateExpression(
-                line, operand=operand, policy=policy, taint=taint
+                line, operand=operand, policy=policy, provenance=provenance
             ).result()
         return pattern.sub(evaluator, line)
 
@@ -105,21 +105,21 @@ def eval_templated_object(
     pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
     policy: ExprResolutionPolicy | None = None,
     key_policy: ExprResolutionPolicy | None = None,
-    taint: TaintState | None = None,
+    provenance: ProvenanceMap | None = None,
 ) -> Any:
     """Populate templated fields with actual values."""
     operator = _make_templated_string_operator(
         operand=operand,
         pattern=pattern,
         policy=policy,
-        taint=taint,
+        provenance=provenance,
     )
     key_operator = (
         _make_templated_string_operator(
             operand=operand,
             pattern=pattern,
             policy=key_policy,
-            taint=taint,
+            provenance=provenance,
         )
         if key_policy is not None
         else None

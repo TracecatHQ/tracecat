@@ -66,7 +66,6 @@ from tracecat.expressions.expectations import create_expectation_model
 from tracecat.expressions.policy import (
     ActionArgumentPlan,
     ProvenanceMap,
-    TaintState,
     build_provenance,
     resolve_action_args,
 )
@@ -75,7 +74,6 @@ from tracecat.logger import logger
 from tracecat.observability.sentry import capture_activity_failure
 from tracecat.registry.actions.schemas import TemplateActionDefinition
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
-from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorOwner
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import (
@@ -333,31 +331,6 @@ def _sanitized_validation_message(
     return f"Validation error for template action {action!r}: {joined}"
 
 
-async def _step_action_reaches_secrets(
-    action_name: str,
-    registry_lock: RegistryLock,
-    organization_id: OrganizationID | None,
-) -> bool:
-    """Whether a step's action declares secrets, walking nested templates.
-
-    Fails closed: an unresolvable manifest taints the step.
-    """
-    if organization_id is None:
-        # Unreachable: run_action_from_input rejects a missing organization.
-        raise ValueError("organization_id is required for template step execution")
-    try:
-        secrets = await registry_resolver.collect_action_secrets_from_manifest(
-            action_name, registry_lock, organization_id
-        )
-    except Exception:
-        logger.warning(
-            "Could not resolve step action secrets; tainting step",
-            step_action=action_name,
-        )
-        return True
-    return bool(secrets)
-
-
 async def _prepare_step_context(
     step_action: str,
     evaluated_args: dict[str, Any],
@@ -548,8 +521,6 @@ async def _execute_template_action(
         steps=len(template_def.steps),
     )
 
-    taint = TaintState(provenance=provenance)
-
     # Execute each step
     for step in template_def.steps:
         logger.trace(
@@ -558,22 +529,11 @@ async def _execute_template_action(
             step_action=step.action,
         )
 
-        # Declared secrets reach the step through the environment sandbox, never
-        # through authored args; the manifest walk already recurses nested steps.
-        taint = taint.after_step(
-            step.ref,
-            step.args,
-            action_reaches_secrets=await _step_action_reaches_secrets(
-                step.action, input.registry_lock, role.organization_id
-            ),
-        )
-
         evaled_args = resolve_action_args(
             step.action,
             step.args,
             template_context,
             provenance,
-            taint,
         )
 
         # Prepare step context (reuses parent secrets, no re-fetch)
@@ -587,7 +547,7 @@ async def _execute_template_action(
 
         # Nested templates receive provenance derived in this scope.
         child_provenance = (
-            build_provenance(step.args, provenance, taint=taint)
+            build_provenance(step.args, provenance)
             if step_resolved.action_impl.type == "template"
             else {}
         )
@@ -612,7 +572,7 @@ async def _execute_template_action(
 
     # Evaluate returns expression with final template context
     return eval_templated_object(
-        template_def.returns, operand=template_context, taint=taint
+        template_def.returns, operand=template_context, provenance=provenance
     )
 
 

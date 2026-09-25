@@ -16,7 +16,7 @@ from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.executor.secret_preprocessors import collect_mask_values
 from tracecat.expressions.common import ExprContext
 from tracecat.expressions.eval import eval_templated_object
-from tracecat.expressions.policy import TaintState, build_provenance
+from tracecat.expressions.policy import build_provenance
 from tracecat.secrets.common import (
     MaskedSecretError,
     await_with_masked_errors,
@@ -231,9 +231,7 @@ def test_known_template_input_expressions_are_masked(expression: str) -> None:
         eval_templated_object(
             {"value": expression},
             operand=context,
-            taint=TaintState(
-                provenance=build_provenance({"value": "${{ SECRETS.svc.value }}"})
-            ),
+            provenance=build_provenance({"value": "${{ SECRETS.svc.value }}"}),
         )
 
     message = str(exc_info.value)
@@ -341,45 +339,6 @@ def test_from_exc_does_not_duck_type_unrelated_exceptions() -> None:
     assert info.type == "OSError"
 
 
-@pytest.mark.parametrize(
-    "expression",
-    [
-        "steps.fetch.result",
-        "int(steps.fetch.result)",
-        "ACTIONS.fetch.result",
-        "int(ACTIONS.fetch.result)",
-        "int(ACTIONS.fetch.result.token)",
-        "var.item",
-        "int(var.item)",
-        "int(inputs.value)",
-    ],
-)
-def test_secret_capable_carriers_have_conservative_provenance(expression: str) -> None:
-    """Authored provenance retains conservative sensitivity for runtime carriers."""
-
-    from tracecat.expressions.parser.core import parser
-    from tracecat.expressions.policy import references_secret_derived_value
-
-    assert references_secret_derived_value(parser.parse(expression)) is True
-
-
-@pytest.mark.parametrize(
-    "expression",
-    ["int(TRIGGER.value)", "int(VARS.workspace_var)", "int(ENV.some_var)"],
-)
-def test_non_secret_carriers_still_report_their_error(expression: str) -> None:
-    """The gate must not swallow diagnostics for contexts that carry no secret.
-
-    Pins the other direction: over-gating everything would satisfy the test
-    above while destroying ordinary debuggability. Trigger payloads, workspace
-    variables, and runtime env are not secret carriers.
-    """
-    from tracecat.expressions.parser.core import parser
-    from tracecat.expressions.policy import references_secret_derived_value
-
-    assert references_secret_derived_value(parser.parse(expression)) is False
-
-
 @pytest.mark.anyio
 async def test_stdio_env_value_validation_does_not_echo_resolved_keys(
     monkeypatch: pytest.MonkeyPatch,
@@ -451,8 +410,6 @@ async def _run_template(
     from unittest import mock
     from uuid import UUID
 
-    from tracecat_registry import RegistrySecret
-
     from tracecat.auth.types import Role
     from tracecat.dsl.schemas import ActionStatement
     from tracecat.executor import service as service_module
@@ -488,7 +445,7 @@ async def _run_template(
                 "name": "stub",
                 "namespace": "testing",
                 "title": "stub",
-                "description": "taint regression",
+                "description": "secret masking regression",
                 "display_group": "testing",
                 "steps": [
                     {"ref": ref, "action": f"testing.{ref}", "args": args}
@@ -507,14 +464,6 @@ async def _run_template(
 
     def load(action_name: str, *_args: Any) -> ActionImplementation:
         return ActionImplementation(type="udf", action_name=action_name)
-
-    def secrets(action_name: str, *_args: Any) -> set[RegistrySecret]:
-        ref = action_name.rsplit(".", 1)[-1]
-        return (
-            {RegistrySecret(name="runtime", keys=["TOKEN"])}
-            if ref in declaring
-            else set()
-        )
 
     async def execute(
         **kwargs: Any,
@@ -542,11 +491,6 @@ async def _run_template(
             service_module.registry_resolver,
             "resolve_action",
             mock.AsyncMock(side_effect=load),
-        ),
-        mock.patch.object(
-            service_module.registry_resolver,
-            "collect_action_secrets_from_manifest",
-            mock.AsyncMock(side_effect=secrets),
         ),
         mock.patch.object(
             service_module, "_mint_action_executor_token", return_value="step-token"
@@ -594,7 +538,7 @@ async def test_secret_backed_template_input_is_masked() -> None:
 
 
 @pytest.mark.anyio
-async def test_step_reference_inherits_secret_taint() -> None:
+async def test_step_reference_masks_known_secret() -> None:
     with pytest.raises(TracecatExpressionError) as exc_info:
         await _run_template(
             caller_args={"value": "${{ SECRETS.svc.value }}"},
@@ -612,7 +556,7 @@ async def test_step_reference_inherits_secret_taint() -> None:
 
 
 @pytest.mark.anyio
-async def test_step_reference_without_taint_keeps_full_error() -> None:
+async def test_step_reference_without_known_secrets_keeps_full_error() -> None:
     with pytest.raises(TracecatExpressionError) as exc_info:
         await _run_template(
             caller_args={"value": "abc"},
@@ -631,7 +575,7 @@ async def test_step_reference_without_taint_keeps_full_error() -> None:
 
 
 @pytest.mark.anyio
-async def test_step_taint_is_transitive() -> None:
+async def test_known_secret_is_masked_across_steps() -> None:
     with pytest.raises(TracecatExpressionError) as exc_info:
         await _run_template(
             caller_args={"value": "${{ SECRETS.svc.value }}"},
@@ -650,13 +594,8 @@ async def test_step_taint_is_transitive() -> None:
 
 
 @pytest.mark.anyio
-async def test_step_with_declared_secrets_taints_despite_clean_args() -> None:
-    """A registry action's own secrets taint its result.
-
-    The step's args are literals, so arg inspection alone clears it. The secret
-    arrives through the environment sandbox instead, and the result is still
-    secret-derived.
-    """
+async def test_step_result_masks_declared_secret_with_literal_args() -> None:
+    """Secrets supplied through the environment are known invocation masks."""
     with pytest.raises(TracecatExpressionError) as exc_info:
         await _run_template(
             caller_args={"url": "https://example.test/usage"},
@@ -767,30 +706,16 @@ async def test_template_action_error_masks_known_values(
         assert CANARY in message
 
 
-def test_unparseable_step_ref_fails_closed() -> None:
-    from tracecat.expressions.parser.core import parser
-    from tracecat.expressions.policy import TaintState, references_secret_derived_value
-
-    taint = TaintState(provenance={})
-    assert references_secret_derived_value(parser.parse("steps[*].result"), taint=taint)
-
-
 @pytest.mark.parametrize(
-    ("carrier", "tainted_steps"),
+    "carrier",
     [
-        ("${{ ACTIONS.fetch.result }}", frozenset()),
-        ("${{ var.item }}", frozenset()),
-        ("${{ steps.fetch.result }}", frozenset({"fetch"})),
+        "${{ ACTIONS.fetch.result }}",
+        "${{ var.item }}",
+        "${{ steps.fetch.result }}",
     ],
 )
-def test_known_runtime_carrier_renamed_to_child_input_is_masked(
-    carrier: str, tainted_steps: frozenset[str]
-) -> None:
-    from tracecat.expressions.policy import TaintState, build_provenance
-
-    parent_taint = TaintState(tainted_steps=tainted_steps)
-    child = build_provenance({"value": carrier}, taint=parent_taint)
-    assert child["value"].tainted
+def test_known_runtime_carrier_renamed_to_child_input_is_masked(carrier: str) -> None:
+    child = build_provenance({"value": carrier})
 
     masks = ctx_secret_masks.get()
     assert masks is not None
@@ -800,7 +725,7 @@ def test_known_runtime_carrier_renamed_to_child_input_is_masked(
         eval_templated_object(
             {"n": "${{ int(inputs.value) }}"},
             operand={ExprContext.TEMPLATE_ACTION_INPUTS: {"value": CANARY}},
-            taint=TaintState(provenance=child),
+            provenance=child,
         )
 
     assert WITHHELD_TEXT not in str(exc_info.value)
@@ -811,16 +736,13 @@ def test_known_runtime_carrier_renamed_to_child_input_is_masked(
 
 
 def test_non_carrier_renamed_to_child_input_keeps_full_error() -> None:
-    from tracecat.expressions.policy import TaintState, build_provenance
-
     child = build_provenance({"value": "${{ TRIGGER.value }}"})
-    assert not child["value"].tainted
 
     with pytest.raises(TracecatExpressionError) as exc_info:
         eval_templated_object(
             {"n": "${{ int(inputs.value) }}"},
             operand={ExprContext.TEMPLATE_ACTION_INPUTS: {"value": "abc"}},
-            taint=TaintState(provenance=child),
+            provenance=child,
         )
 
     message = str(exc_info.value)
@@ -828,16 +750,12 @@ def test_non_carrier_renamed_to_child_input_keeps_full_error() -> None:
     assert WITHHELD_TEXT not in message
 
 
-def test_carrier_taint_is_transitive_through_nested_inputs() -> None:
-    from tracecat.expressions.policy import TaintState, build_provenance
-
+def test_known_carrier_is_masked_through_nested_inputs() -> None:
     parent = build_provenance({"v": "${{ ACTIONS.fetch.result }}"})
     child = build_provenance(
         {"value": "${{ inputs.v }}"},
         parent,
-        taint=TaintState(provenance=parent),
     )
-    assert child["value"].tainted
 
     masks = ctx_secret_masks.get()
     assert masks is not None
@@ -847,7 +765,7 @@ def test_carrier_taint_is_transitive_through_nested_inputs() -> None:
         eval_templated_object(
             {"n": "${{ int(inputs.value) }}"},
             operand={ExprContext.TEMPLATE_ACTION_INPUTS: {"value": CANARY}},
-            taint=TaintState(provenance=child),
+            provenance=child,
         )
 
     assert WITHHELD_TEXT not in str(exc_info.value)

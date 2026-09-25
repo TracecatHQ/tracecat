@@ -17,7 +17,7 @@ from tracecat.executor.schemas import (
     ResolvedContext,
 )
 from tracecat.expressions.eval import eval_templated_object
-from tracecat.expressions.policy import TaintState, build_provenance
+from tracecat.expressions.policy import build_provenance
 from tracecat.secrets.masking import SecretMaskCollector
 
 SECRET = "synthetic-credential-value"
@@ -99,7 +99,7 @@ def test_public_sibling_does_not_inherit_secret_dependency(
             operand={
                 "inputs": {"payload": {"token": SECRET, "public": "not-a-number"}}
             },
-            taint=TaintState(provenance=provenance),
+            provenance=provenance,
         )
     assert "not-a-number" in str(caught.value)
     assert "not-a-number" not in masks.values
@@ -293,3 +293,71 @@ def test_sensitive_mapping_key_does_not_mask_public_keys(
     assert "status" not in masks.values
     assert "public-value" not in masks.values
     assert "public-status" not in masks.values
+
+
+@pytest.mark.parametrize(
+    "transform",
+    ["FN.to_keys(steps.fetch.result)[0]", "FN.serialize_json(steps.fetch.result)"],
+)
+def test_mapping_key_transformations_are_masked(
+    masks: SecretMaskCollector, transform: str
+) -> None:
+    masks.observe(SECRET)
+    value = {SECRET: "public-value"}
+    encoded = eval_templated_object(
+        "${{ FN.to_base64(" + transform + ") }}",
+        operand={"steps": {"fetch": {"result": value}}},
+    )
+    assert encoded in masks.values
+    masks.values.clear()
+    masks.observe(SECRET)
+
+    with pytest.raises(TracecatExpressionError) as caught:
+        eval_templated_object(
+            "${{ int(FN.to_base64(" + transform + ")) }}",
+            operand={"steps": {"fetch": {"result": value}}},
+        )
+
+    assert "invalid literal for int()" in str(caught.value)
+    assert encoded not in str(caught.value)
+    assert encoded not in str(caught.value.detail)
+    assert SECRET not in str(caught.value)
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_decoded_secret_mapping_keys_are_masked(
+    masks: SecretMaskCollector, nested: bool
+) -> None:
+    secret_json = '{"synthetic-key-fragment":"public-value"}'
+    if nested:
+        secret_json = '{"payload":[' + secret_json + "]}"
+    decoded = "FN.deserialize_json(SECRETS.api.TOKEN)"
+    if nested:
+        decoded += "['payload'][0]"
+
+    with pytest.raises(TracecatExpressionError) as caught:
+        eval_templated_object(
+            "${{ FN.map_keys(" + decoded + ', {"dummy": "dummy"}) }}',
+            operand={"SECRETS": {"api": {"TOKEN": secret_json}}},
+        )
+
+    assert "Key '***' not found in keys mapping" in str(caught.value)
+    assert "synthetic-key-fragment" not in str(caught.value)
+    assert "synthetic-key-fragment" not in str(caught.value.detail)
+    assert "api" not in masks.values
+    assert "TOKEN" not in masks.values
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+
+
+def test_reading_secret_mapping_does_not_collect_field_names(
+    masks: SecretMaskCollector,
+) -> None:
+    eval_templated_object(
+        "${{ SECRETS.api }}", operand={"SECRETS": {"api": {"TOKEN": SECRET}}}
+    )
+    assert SECRET in masks.values
+    assert "api" not in masks.values
+    assert "TOKEN" not in masks.values
