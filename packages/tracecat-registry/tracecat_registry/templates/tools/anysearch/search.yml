@@ -1,0 +1,72 @@
+type: action
+definition:
+  title: Search
+  description: >-
+    Search the web with AnySearch. Omit `tag` for general web search, or set `tag` to a
+    sub-domain capability returned by `tools.anysearch.list_sub_domains` for vertical
+    search. Works without an API key through anonymous access with lower rate limits.
+  display_group: AnySearch
+  doc_url: https://anysearch.com/docs/api-endpoints/v1-search
+  namespace: tools.anysearch
+  name: search
+  secrets:
+    - name: anysearch
+      keys: ["ANYSEARCH_API_KEY"]
+      optional: true
+  expects:
+    query:
+      type: str
+      description: Search query.
+    max_results:
+      type: int | None
+      description: Number of results to return, e.g. 10. Defaults to 10. Range 1-10.
+      default: null
+    tag:
+      type: str | None
+      description: >-
+        Sub-domain capability tag, a single value in the form {domain}.{sub_domain},
+        e.g. `code.doc`. Omit for general web search.
+      default: null
+    zone:
+      type: str | None
+      description: Region, one of `cn` or `intl`.
+      default: null
+    language:
+      type: str | None
+      description: Preferred language, e.g. `zh-CN` or `en`.
+      default: null
+    params:
+      # Generic: AnySearch documents `params` as a free-form object whose keys depend on
+      # the selected `tag`, as listed by GET /v1/sub-domains.
+      type: dict[str, Any] | None
+      description: >-
+        Extended parameters for the selected `tag`, e.g. `{"ioc": "8.8.8.8"}` for
+        `security.intel`. Include every parameter that GET /v1/sub-domains marks as
+        required, using an empty string when a required parameter does not apply.
+      default: null
+    format:
+      type: str | None
+      description: Output format, one of `json` or `markdown`.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the AnySearch API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.anysearch.base_url || "https://api.anysearch.com" }}/v1/search
+        method: POST
+        headers:
+          Content-Type: application/json
+          Authorization: ${{ "Bearer " + SECRETS.anysearch.ANYSEARCH_API_KEY if SECRETS.anysearch.ANYSEARCH_API_KEY else None }}
+        payload:
+          query: ${{ inputs.query }}
+          max_results: ${{ inputs.max_results }}
+          tag: ${{ inputs.tag }}
+          zone: ${{ inputs.zone }}
+          language: ${{ inputs.language }}
+          params: ${{ inputs.params }}
+          format: ${{ inputs.format }}
+  returns: ${{ steps.request.result }}

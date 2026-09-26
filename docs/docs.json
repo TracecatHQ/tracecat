@@ -240,6 +240,7 @@
               "tools/amazon_s3",
               "tools/ansible",
               "tools/anyrun",
+              "tools/anysearch",
               "tools/aws_boto3",
               "tools/azure_devops",
               "tools/azure_log_analytics",
