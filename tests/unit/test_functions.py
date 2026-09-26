@@ -82,6 +82,7 @@ from tracecat.expressions.functions import (
     not_null,
     now,
     or_,
+    parse_csv,
     parse_datetime,
     parse_time,
     pow,
@@ -156,6 +157,28 @@ def test_add_suffix(
 )
 def test_deserialize_ndjson(input, expected):
     assert deserialize_ndjson(input) == expected
+
+
+@pytest.mark.parametrize(
+    "input,expected",
+    [
+        ("a,b\n1,2\n", [{"a": "1", "b": "2"}]),
+        ("a,b\r\n1,2\r\n", [{"a": "1", "b": "2"}]),
+        (
+            'id,description\n1,"line one\nline two"\n2,plain\n',
+            [
+                {"id": "1", "description": "line one\nline two"},
+                {"id": "2", "description": "plain"},
+            ],
+        ),
+        (
+            'id,description\r\n1,"line one\r\nline two"\r\n',
+            [{"id": "1", "description": "line one\r\nline two"}],
+        ),
+    ],
+)
+def test_parse_csv(input: str, expected: list[dict[str, str]]) -> None:
+    assert parse_csv(input) == expected
 
 
 @pytest.mark.parametrize(
