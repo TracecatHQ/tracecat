@@ -128,6 +128,9 @@ async def execute_action(
         args,
         registry_lock,
         agent_session_id=claims.session_id,
+        unsafe_disable_secret_error_withholding=(
+            claims.unsafe_disable_secret_error_withholding
+        ),
     )
     stored = await _execute_action_workflow(
         ExecuteRegistryToolWorkflowInput(role=role, run_input=run_input),
@@ -162,6 +165,7 @@ def build_run_input(
     logical_time: datetime | None = None,
     environment: str = "default",
     agent_session_id: UUID | None = None,
+    unsafe_disable_secret_error_withholding: bool = False,
 ) -> RunActionInput:
     """Build a minimal RunActionInput for ActionRunner.
 
@@ -170,11 +174,14 @@ def build_run_input(
         args: Arguments for the action
         registry_lock: Registry lock with origin→version mappings for action resolution
         agent_session_id: Verified agent session provenance, when available.
+        unsafe_disable_secret_error_withholding: Per-action error-details
+            opt-in cascaded from the parent agent action's token claims.
     """
     task = ActionStatement(
         ref=f"mcp_{action_name.replace('.', '_')}",
         action=action_name,
         args=args,
+        unsafe_disable_secret_error_withholding=unsafe_disable_secret_error_withholding,
     )
 
     wf_id = WorkflowUUID.from_uuid(workflow_id or uuid4())

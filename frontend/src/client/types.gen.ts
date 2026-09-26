@@ -1300,6 +1300,7 @@ export type AppSettingsRead = {
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
   app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
+  app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids?: Array<string>
 }
 
 /**
@@ -1334,6 +1335,10 @@ export type AppSettingsUpdate = {
    * UNSAFE: workspaces whose actions may opt into showing their original error message when secrets are in scope. Each action must still enable 'Show error details' individually. Known secret values are still masked.
    */
   app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
+  /**
+   * UNSAFE: workspaces where secret error withholding is disabled for every action, without a per-action opt-in. Known secret values are still masked. Intended for temporary debugging; remove the workspace once done.
+   */
+  app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids?: Array<string>
 }
 
 /**
@@ -10908,6 +10913,10 @@ export type WorkspaceRead = {
    * Whether the organization lets this workspace's actions opt into showing original error details when secrets are in scope.
    */
   unsafe_disable_secret_error_withholding_allowed?: boolean
+  /**
+   * Whether the organization has disabled secret error withholding for every action in this workspace, regardless of the per-action setting.
+   */
+  unsafe_disable_secret_error_withholding_forced?: boolean
 }
 
 export type WorkspaceReadMinimal = {

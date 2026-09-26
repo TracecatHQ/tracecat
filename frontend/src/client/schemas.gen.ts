@@ -5127,6 +5127,15 @@ export const $AppSettingsRead = {
       type: "array",
       title: "App Unsafe Disable Secret Error Withholding Workspace Ids",
     },
+    app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title:
+        "App Unsafe Disable Secret Error Withholding All Actions Workspace Ids",
+    },
   },
   type: "object",
   required: [
@@ -5191,6 +5200,17 @@ export const $AppSettingsUpdate = {
       title: "App Unsafe Disable Secret Error Withholding Workspace Ids",
       description:
         "UNSAFE: workspaces whose actions may opt into showing their original error message when secrets are in scope. Each action must still enable 'Show error details' individually. Known secret values are still masked.",
+    },
+    app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title:
+        "App Unsafe Disable Secret Error Withholding All Actions Workspace Ids",
+      description:
+        "UNSAFE: workspaces where secret error withholding is disabled for every action, without a per-action opt-in. Known secret values are still masked. Intended for temporary debugging; remove the workspace once done.",
     },
   },
   type: "object",
@@ -36505,6 +36525,13 @@ export const $WorkspaceRead = {
       title: "Unsafe Disable Secret Error Withholding Allowed",
       description:
         "Whether the organization lets this workspace's actions opt into showing original error details when secrets are in scope.",
+      default: false,
+    },
+    unsafe_disable_secret_error_withholding_forced: {
+      type: "boolean",
+      title: "Unsafe Disable Secret Error Withholding Forced",
+      description:
+        "Whether the organization has disabled secret error withholding for every action in this workspace, regardless of the per-action setting.",
       default: false,
     },
   },

@@ -49,6 +49,14 @@ class AgentWorkflowArgs(BaseModel):
         default=False,
         description=("If true, session_id is caller-supplied and must already exist."),
     )
+    unsafe_disable_secret_error_withholding: bool = Field(
+        default=False,
+        description=(
+            "Cascade the parent agent action's 'Show error details' opt-in to "
+            "every registry tool the agent calls. Still gated by the org's "
+            "workspace allow-list at execution time."
+        ),
+    )
 
 
 class WorkflowApprovalSubmission(BaseModel):

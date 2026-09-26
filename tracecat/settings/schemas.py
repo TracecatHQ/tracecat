@@ -107,6 +107,9 @@ class AppSettingsRead(BaseSettingsGroup):
     app_unsafe_disable_secret_error_withholding_workspace_ids: list[WorkspaceID] = (
         Field(default_factory=list)
     )
+    app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids: list[
+        WorkspaceID
+    ] = Field(default_factory=list)
 
 
 class AppSettingsUpdate(BaseSettingsGroup):
@@ -145,6 +148,17 @@ class AppSettingsUpdate(BaseSettingsGroup):
                 "secret values are still masked."
             ),
         )
+    )
+    app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids: list[
+        WorkspaceID
+    ] = Field(
+        default_factory=list,
+        description=(
+            "UNSAFE: workspaces where secret error withholding is "
+            "disabled for every action, without a per-action opt-in. Known "
+            "secret values are still masked. Intended for temporary debugging; "
+            "remove the workspace once done."
+        ),
     )
 
 

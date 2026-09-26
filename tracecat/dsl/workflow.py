@@ -1196,6 +1196,9 @@ class DSLWorkflow:
                         agent_preset_version_id=preset_ref.preset_version_id,
                         continue_existing_session=preset_action_args.session_id
                         is not None,
+                        unsafe_disable_secret_error_withholding=(
+                            task.unsafe_disable_secret_error_withholding
+                        ),
                     )
                     action_result = await workflow.execute_child_workflow(
                         DurableAgentWorkflow.run,
@@ -1887,6 +1890,9 @@ class DSLWorkflow:
             entity_type=AgentSessionEntity.WORKFLOW,
             entity_id=self.run_context.wf_id,
             continue_existing_session=action_args.session_id is not None,
+            unsafe_disable_secret_error_withholding=(
+                task.unsafe_disable_secret_error_withholding
+            ),
         )
         return await workflow.execute_child_workflow(
             DurableAgentWorkflow.run,

@@ -43,6 +43,7 @@ from tracecat.settings.schemas import (
     SettingCreate,
     SettingUpdate,
 )
+from tracecat.settings.types import WorkspaceErrorDetailsPolicy
 
 AUDIT_SETTINGS_KEYS = frozenset(AuditSettingsUpdate.keys())
 
@@ -425,26 +426,28 @@ async def get_setting_from_bypass_session(
     return no_default_val
 
 
-async def workspace_allows_error_details(
+async def _workspace_in_setting_list(
+    key: str,
     *,
     organization_id: OrganizationID,
     workspace_id: WorkspaceID,
     session: SupportsExecute,
 ) -> bool:
-    """Whether the org lets this workspace's actions opt out of secret error withholding.
+    """Whether `workspace_id` is in the org's list-valued setting `key`.
 
-    Fails closed: any lookup failure or malformed value denies the workspace.
+    Fails closed: any lookup failure or malformed value returns False.
     """
     try:
         value = await get_setting_from_bypass_session(
-            "app_unsafe_disable_secret_error_withholding_workspace_ids",
+            key,
             organization_id=organization_id,
             session=session,
             default=[],
         )
     except SQLAlchemyError as e:
         logger.warning(
-            "Failed to read error-details workspace allow-list; denying",
+            "Failed to read error-details workspace list; denying",
+            key=key,
             organization_id=organization_id,
             workspace_id=workspace_id,
             error=str(e),
@@ -453,6 +456,34 @@ async def workspace_allows_error_details(
     if not isinstance(value, list):
         return False
     return str(workspace_id) in {str(item) for item in value}
+
+
+async def workspace_error_details_policy(
+    *,
+    organization_id: OrganizationID,
+    workspace_id: WorkspaceID,
+    session: SupportsExecute,
+) -> WorkspaceErrorDetailsPolicy:
+    """Resolve how secret error withholding applies to a workspace.
+
+    The org-level all-actions list wins over the per-action allow-list. Fails
+    closed to ``WITHHOLD`` on any lookup failure or malformed value.
+    """
+    if await _workspace_in_setting_list(
+        "app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids",
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        session=session,
+    ):
+        return WorkspaceErrorDetailsPolicy.DISABLED
+    if await _workspace_in_setting_list(
+        "app_unsafe_disable_secret_error_withholding_workspace_ids",
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+        session=session,
+    ):
+        return WorkspaceErrorDetailsPolicy.PER_ACTION
+    return WorkspaceErrorDetailsPolicy.WITHHOLD
 
 
 async def get_setting(

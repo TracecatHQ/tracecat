@@ -143,8 +143,12 @@ function normalizeOptionalExpression(
 
 function errorDetailsStatusLabel(
   workspaceAllows: boolean,
+  workspaceForces: boolean,
   enabled: boolean
 ): string {
+  if (workspaceForces) {
+    return "Always enabled for this workspace by organization settings"
+  }
   if (!workspaceAllows) {
     return "Not allowed for this workspace by organization settings"
   }
@@ -326,6 +330,8 @@ function ActionPanelContent({
   const { workspace } = useWorkspaceDetails()
   const workspaceAllowsErrorDetails =
     workspace?.unsafe_disable_secret_error_withholding_allowed ?? false
+  const workspaceForcesErrorDetails =
+    workspace?.unsafe_disable_secret_error_withholding_forced ?? false
   const { validationErrors } = useWorkflow()
   const { action, actionIsLoading, updateAction } = useAction(
     actionId,
@@ -1568,14 +1574,21 @@ function ActionPanelContent({
                               <div className="flex items-center gap-2">
                                 <FormControl>
                                   <Switch
-                                    checked={field.value ?? false}
+                                    checked={
+                                      workspaceForcesErrorDetails ||
+                                      (field.value ?? false)
+                                    }
                                     onCheckedChange={field.onChange}
-                                    disabled={!workspaceAllowsErrorDetails}
+                                    disabled={
+                                      !workspaceAllowsErrorDetails ||
+                                      workspaceForcesErrorDetails
+                                    }
                                   />
                                 </FormControl>
                                 <span className="text-xs text-muted-foreground">
                                   {errorDetailsStatusLabel(
                                     workspaceAllowsErrorDetails,
+                                    workspaceForcesErrorDetails,
                                     field.value ?? false
                                   )}
                                 </span>

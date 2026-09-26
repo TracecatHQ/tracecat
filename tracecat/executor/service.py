@@ -85,7 +85,8 @@ from tracecat.secrets.common import (
     ctx_unsafe_disable_secret_error_withholding,
     secret_error_withholding_disabled,
 )
-from tracecat.settings.service import workspace_allows_error_details
+from tracecat.settings.service import workspace_error_details_policy
+from tracecat.settings.types import WorkspaceErrorDetailsPolicy
 from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
 
@@ -833,26 +834,44 @@ async def prepare_resolved_context(
     )
 
 
-async def _workspace_allows_error_details(role: Role) -> bool:
-    """Whether the org allow-lists this workspace for per-action error details."""
+async def _workspace_error_details_policy(role: Role) -> WorkspaceErrorDetailsPolicy:
+    """Resolve the org's error-details policy for the role's workspace."""
     if role.organization_id is None or role.workspace_id is None:
-        return False
-    return await _workspace_allows_error_details_cached(
+        return WorkspaceErrorDetailsPolicy.WITHHOLD
+    return await _workspace_error_details_policy_cached(
         role.organization_id, role.workspace_id
     )
 
 
 @alru_cache(maxsize=4096, ttl=15)
-async def _workspace_allows_error_details_cached(
+async def _workspace_error_details_policy_cached(
     organization_id: OrganizationID, workspace_id: WorkspaceID
-) -> bool:
-    """TTL-cached allow-list lookup so hot loops don't hit the DB per action."""
+) -> WorkspaceErrorDetailsPolicy:
+    """TTL-cached policy lookup so hot loops don't hit the DB per action."""
     async with get_async_session_bypass_rls_context_manager() as session:
-        return await workspace_allows_error_details(
+        return await workspace_error_details_policy(
             organization_id=organization_id,
             workspace_id=workspace_id,
             session=session,
         )
+
+
+async def _secret_error_withholding_disabled_for(
+    role: Role, task_opts_in: bool
+) -> bool:
+    """Whether this invocation surfaces original errors when secrets are in scope.
+
+    The org all-actions list disables withholding for every action; otherwise
+    the per-action opt-in only counts when the org allow-lists the workspace.
+    """
+    policy = await _workspace_error_details_policy(role)
+    match policy:
+        case WorkspaceErrorDetailsPolicy.DISABLED:
+            return True
+        case WorkspaceErrorDetailsPolicy.PER_ACTION:
+            return task_opts_in
+        case WorkspaceErrorDetailsPolicy.WITHHOLD:
+            return False
 
 
 async def invoke_once(
@@ -880,14 +899,15 @@ async def invoke_once(
     # Bound before the try so context-preparation failures stay safe.
     mask_values: set[str] | None = None
 
-    # The per-action opt-in only takes effect when the org allows it. The
-    # lookup is inside the error wrapper so a failure here still withholds.
+    # The org policy decides whether errors are surfaced. The lookup is inside
+    # the error wrapper so a failure here still withholds.
     withholding_token = ctx_unsafe_disable_secret_error_withholding.set(False)
     try:
-        if input.task.unsafe_disable_secret_error_withholding:
-            ctx_unsafe_disable_secret_error_withholding.set(
-                await _workspace_allows_error_details(role)
+        ctx_unsafe_disable_secret_error_withholding.set(
+            await _secret_error_withholding_disabled_for(
+                role, input.task.unsafe_disable_secret_error_withholding
             )
+        )
 
         # Prefetch registry lock manifests into cache for O(1) resolution.
         # Keep this inside the error wrapper so entitlement failures are

@@ -17,6 +17,7 @@ from tracecat.contexts import ctx_role
 from tracecat.db.models import Workspace
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
+from tracecat.settings.types import WorkspaceErrorDetailsPolicy
 from tracecat.workspaces import router as workspaces_router
 
 
@@ -309,8 +310,21 @@ async def test_search_workspaces_allows_workspace_service_account(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("policy", "expect_allowed", "expect_forced"),
+    [
+        (WorkspaceErrorDetailsPolicy.WITHHOLD, False, False),
+        (WorkspaceErrorDetailsPolicy.PER_ACTION, True, False),
+        (WorkspaceErrorDetailsPolicy.DISABLED, True, True),
+    ],
+)
 async def test_get_workspace_success(
-    client: TestClient, test_admin_role: Role, mock_workspace_data: Workspace
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workspace_data: Workspace,
+    policy: WorkspaceErrorDetailsPolicy,
+    expect_allowed: bool,
+    expect_forced: bool,
 ) -> None:
     """Test GET /workspaces/{workspace_id} returns workspace details."""
     with (
@@ -318,8 +332,8 @@ async def test_get_workspace_success(
         patch.object(workspaces_router, "MembershipService") as MockMembershipService,
         patch.object(
             workspaces_router,
-            "workspace_allows_error_details",
-            AsyncMock(return_value=True),
+            "workspace_error_details_policy",
+            AsyncMock(return_value=policy),
         ),
     ):
         # Mock workspace service
@@ -347,7 +361,8 @@ async def test_get_workspace_success(
         logger.info("DATA", data=data)
         assert response.status_code == status.HTTP_200_OK
         assert data["name"] == mock_workspace_data.name
-        assert data["unsafe_disable_secret_error_withholding_allowed"] is True
+        assert data["unsafe_disable_secret_error_withholding_allowed"] is expect_allowed
+        assert data["unsafe_disable_secret_error_withholding_forced"] is expect_forced
 
 
 @pytest.mark.anyio

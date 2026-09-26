@@ -1,8 +1,9 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
+import { type Control, useForm } from "react-hook-form"
 import { z } from "zod"
+import type { WorkspaceReadMinimal } from "@/client"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
@@ -29,9 +30,81 @@ const appFormSchema = z.object({
   app_unsafe_disable_secret_error_withholding_workspace_ids: z.array(
     z.string()
   ),
+  app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids:
+    z.array(z.string()),
 })
 
 type AppFormValues = z.infer<typeof appFormSchema>
+
+type WorkspaceListFieldName =
+  | "app_unsafe_disable_secret_error_withholding_workspace_ids"
+  | "app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids"
+
+function WorkspaceListField({
+  control,
+  name,
+  label,
+  description,
+  workspaces,
+  workspacesLoading,
+}: {
+  control: Control<AppFormValues>
+  name: WorkspaceListFieldName
+  label: string
+  description: string
+  workspaces: WorkspaceReadMinimal[] | undefined
+  workspacesLoading: boolean
+}) {
+  return (
+    <FormField
+      control={control}
+      name={name}
+      render={({ field }) => (
+        <FormItem className="rounded-lg border p-4">
+          <div className="space-y-0.5">
+            <FormLabel>{label}</FormLabel>
+            <FormDescription>{description}</FormDescription>
+          </div>
+          <div className="space-y-2 pt-2">
+            {workspacesLoading && (
+              <p className="text-xs text-muted-foreground">
+                Loading workspaces...
+              </p>
+            )}
+            {!workspacesLoading && (workspaces?.length ?? 0) === 0 && (
+              <p className="text-xs text-muted-foreground">
+                No workspaces found.
+              </p>
+            )}
+            {workspaces?.map((workspace) => {
+              const checked = field.value.includes(workspace.id)
+              return (
+                <label
+                  key={workspace.id}
+                  className="flex items-center gap-2 text-sm"
+                >
+                  <Checkbox
+                    checked={checked}
+                    onCheckedChange={(next) => {
+                      if (next === true) {
+                        field.onChange([...field.value, workspace.id])
+                      } else {
+                        field.onChange(
+                          field.value.filter((id) => id !== workspace.id)
+                        )
+                      }
+                    }}
+                  />
+                  <span>{workspace.name}</span>
+                </label>
+              )
+            })}
+          </div>
+        </FormItem>
+      )}
+    />
+  )
+}
 
 export function OrgSettingsAppForm() {
   const {
@@ -59,6 +132,9 @@ export function OrgSettingsAppForm() {
       app_unsafe_disable_secret_error_withholding_workspace_ids:
         appSettings?.app_unsafe_disable_secret_error_withholding_workspace_ids ??
         [],
+      app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids:
+        appSettings?.app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids ??
+        [],
     },
   })
   const { workspaces, workspacesLoading } = useWorkspaceManager()
@@ -76,6 +152,8 @@ export function OrgSettingsAppForm() {
           app_action_form_mode_enabled: data.app_action_form_mode_enabled,
           app_unsafe_disable_secret_error_withholding_workspace_ids:
             data.app_unsafe_disable_secret_error_withholding_workspace_ids,
+          app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids:
+            data.app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids,
         },
       })
     } catch {
@@ -229,56 +307,22 @@ export function OrgSettingsAppForm() {
           )}
         />
 
-        <FormField
+        <WorkspaceListField
           control={form.control}
           name="app_unsafe_disable_secret_error_withholding_workspace_ids"
-          render={({ field }) => (
-            <FormItem className="rounded-lg border p-4">
-              <div className="space-y-0.5">
-                <FormLabel>Workspaces allowed to show error details</FormLabel>
-                <FormDescription>
-                  Unsafe: actions in these workspaces can opt into showing
-                  original error messages when secrets are in scope. Known
-                  secret values are still masked.
-                </FormDescription>
-              </div>
-              <div className="space-y-2 pt-2">
-                {workspacesLoading && (
-                  <p className="text-xs text-muted-foreground">
-                    Loading workspaces...
-                  </p>
-                )}
-                {!workspacesLoading && (workspaces?.length ?? 0) === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    No workspaces found.
-                  </p>
-                )}
-                {workspaces?.map((workspace) => {
-                  const checked = field.value.includes(workspace.id)
-                  return (
-                    <label
-                      key={workspace.id}
-                      className="flex items-center gap-2 text-sm"
-                    >
-                      <Checkbox
-                        checked={checked}
-                        onCheckedChange={(next) => {
-                          if (next === true) {
-                            field.onChange([...field.value, workspace.id])
-                          } else {
-                            field.onChange(
-                              field.value.filter((id) => id !== workspace.id)
-                            )
-                          }
-                        }}
-                      />
-                      <span>{workspace.name}</span>
-                    </label>
-                  )
-                })}
-              </div>
-            </FormItem>
-          )}
+          label="Workspaces allowed to show error details"
+          description="Unsafe: actions in these workspaces can opt into showing original error messages when secrets are in scope. Known secret values are still masked."
+          workspaces={workspaces}
+          workspacesLoading={workspacesLoading}
+        />
+
+        <WorkspaceListField
+          control={form.control}
+          name="app_unsafe_disable_secret_error_withholding_all_actions_workspace_ids"
+          label="Workspaces with error details shown for all actions"
+          description="Unsafe: every action in these workspaces shows its original error message when secrets are in scope, without a per-action opt-in. Known secret values are still masked. Intended for temporary debugging; remove the workspace when done."
+          workspaces={workspaces}
+          workspacesLoading={workspacesLoading}
         />
 
         <Button type="submit" disabled={updateAppSettingsIsPending}>

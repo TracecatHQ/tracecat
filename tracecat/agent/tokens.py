@@ -129,6 +129,9 @@ class MCPTokenClaims(BaseModel):
     Optional for tokens minted before registry locks were embedded in MCP claims.
     New tokens should always include this claim.
     """
+    unsafe_disable_secret_error_withholding: bool = False
+    """Cascaded from the parent agent action: registry tools this token runs opt
+    into surfacing original errors. Still gated by the org's workspace allow-list."""
 
 
 def mint_mcp_token(
@@ -144,6 +147,7 @@ def mint_mcp_token(
     user_mcp_servers: list[UserMCPServerClaim] | None = None,
     allowed_internal_tools: list[str] | None = None,
     internal_tool_context: InternalToolContext | None = None,
+    unsafe_disable_secret_error_withholding: bool = False,
     ttl_seconds: int | None = None,
 ) -> str:
     """Create a signed MCP JWT containing workspace identity and allowed actions.
@@ -165,6 +169,8 @@ def mint_mcp_token(
         user_mcp_servers: User-defined MCP server configs for proxying
         allowed_internal_tools: Set of allowed internal tool names
         internal_tool_context: Context for internal tools (preset_id, entity_type)
+        unsafe_disable_secret_error_withholding: Cascade the parent agent
+            action's error-details opt-in to the tools this token executes
         ttl_seconds: Token TTL in seconds (defaults to the agent sandbox timeout
             plus a small buffer so the token outlives one full turn)
 
@@ -196,6 +202,7 @@ def mint_mcp_token(
             allowed_internal_tools=allowed_internal_tools or [],
             internal_tool_context=internal_tool_context,
             registry_lock=registry_lock,
+            unsafe_disable_secret_error_withholding=unsafe_disable_secret_error_withholding,
         ).model_dump(mode="json", exclude_none=True)
     )
 
