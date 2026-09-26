@@ -675,6 +675,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       iconClassName: "fill-current",
     }),
     // New brand marks
+    "tools.anysearch": createIconRenderer(AnySearchIcon),
     "tools.confluence": createIconRenderer(ConfluenceIcon),
     "tools.databricks": createIconRenderer(DatabricksIcon),
     "tools.databricks_sdk": createIconRenderer(DatabricksIcon),
@@ -1228,6 +1229,11 @@ export const secretIcons: Record<
   exa: ({ className, ...rest }) => (
     <div className={className}>
       <ExaIcon {...rest} />
+    </div>
+  ),
+  anysearch: ({ className, ...rest }) => (
+    <div className={className}>
+      <AnySearchIcon {...rest} />
     </div>
   ),
   alertmedia: ({ className, ...rest }) => (
@@ -2941,6 +2947,29 @@ export function ExaIcon({ className, ...rest }: IconProps) {
         fill="#1F40ED"
         fillRule="evenodd"
       />
+    </svg>
+  )
+}
+
+export function AnySearchIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 40 40"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      {...rest}
+    >
+      <path
+        d="M20 30H9.99997V10H30V20H40V0H-3.05176e-05V40H20V30Z"
+        fill="#3559F0"
+      />
+      <path d="M40 30H30V40H40V30Z" fill="#3559F0" />
+      <path d="M20 30H10V40H20V30Z" fill="#3E84FF" />
+      <path d="M9.99999 0H-1.52588e-05V10H9.99999V0Z" fill="#3559F0" />
+      <path d="M30 0H10V10H30V0Z" fill="#3E84FF" />
+      <path d="M40 0H30V10H40V0Z" fill="#3559F0" />
+      <path d="M40 10.0039H30V20.0039H40V10.0039Z" fill="#3E84FF" />
     </svg>
   )
 }
