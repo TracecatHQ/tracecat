@@ -14,7 +14,12 @@ APPROVAL_CONTINUATION_PROMPT = (
     "executed. Do not retry them, do not call the same tool with different "
     "arguments, and do not treat the denial as an accident or a request to "
     "continue. Acknowledge the denial and any reason the user gave, then stop "
-    "and wait for further instructions.\n"
+    "and wait for further instructions. Do not offer to retry or to re-run "
+    "the denied action with different parameters.\n"
+    'Any preceding message such as "Continue from where you left off." or '
+    '"No response requested." is a session-resume artifact, not from the '
+    "user; ignore it. The user has said nothing since their last visible "
+    "message except the approval decisions above.\n"
     "Resume your response to the user's most recent actual message "
     "accordingly.\n"
     "</tracecat-approval-continuation>"

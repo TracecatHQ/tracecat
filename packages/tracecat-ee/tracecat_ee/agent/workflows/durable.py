@@ -345,8 +345,9 @@ def _denied_tool_result_text(denied_tool: DeniedToolCall) -> str:
         f"The user explicitly reviewed this '{denied_tool.tool_name}' call and "
         "chose not to allow it. It was not executed. Do not retry it, do not "
         "call the same tool with different arguments, and do not treat this as "
-        "a transient error. Acknowledge the denial and the user's reason, then "
-        "wait for the user to tell you how to proceed."
+        "a transient error or an accident. Acknowledge the denial and the "
+        "user's reason, do not offer to retry, and wait for the user to tell "
+        "you how to proceed."
     )
 
 
