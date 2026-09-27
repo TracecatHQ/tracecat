@@ -2401,7 +2401,7 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
     ]
     denied_result = pending_results[1]
     assert denied_result.is_error is True
-    assert denied_result.raw_result == "Tool denied by user: too risky"
+    assert denied_result.raw_result.startswith("Tool denied by user: too risky")
 
     decisions_by_tool_call_id = {
         decision.tool_call_id: decision for decision in captured_approval_decisions

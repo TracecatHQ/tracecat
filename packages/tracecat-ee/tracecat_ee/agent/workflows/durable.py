@@ -338,6 +338,18 @@ def _start_registry_tool_call(
     )
 
 
+def _denied_tool_result_text(denied_tool: DeniedToolCall) -> str:
+    """Build the tool_result text the model sees for a user-denied tool call."""
+    return (
+        f"Tool denied by user: {denied_tool.reason}\n\n"
+        f"The user explicitly reviewed this '{denied_tool.tool_name}' call and "
+        "chose not to allow it. It was not executed. Do not retry it, do not "
+        "call the same tool with different arguments, and do not treat this as "
+        "a transient error. Acknowledge the denial and the user's reason, then "
+        "wait for the user to tell you how to proceed."
+    )
+
+
 def _cancelled_tool_result(
     tool_call: ApprovedToolCall, *, started: bool
 ) -> PendingToolResult:
@@ -2007,7 +2019,7 @@ class DurableAgentWorkflow:
                 PendingToolResult(
                     tool_call_id=denied_tool.tool_call_id,
                     tool_name=denied_tool.tool_name,
-                    raw_result=f"Tool denied by user: {denied_tool.reason}",
+                    raw_result=_denied_tool_result_text(denied_tool),
                     is_error=True,
                 )
             )

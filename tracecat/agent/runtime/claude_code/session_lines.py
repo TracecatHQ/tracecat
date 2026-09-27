@@ -4,7 +4,21 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-APPROVAL_CONTINUATION_PROMPT = "Continue."
+APPROVAL_CONTINUATION_PROMPT = (
+    "<tracecat-approval-continuation>\n"
+    "This is an automated system notice, not a message from the user. The user "
+    "has reviewed the tool calls that required approval; the results are "
+    "recorded in the tool_result blocks above.\n"
+    "- Approved tool calls were executed. Use their results.\n"
+    "- Denied tool calls (tool_result marked as denied by the user) were NOT "
+    "executed. Do not retry them, do not call the same tool with different "
+    "arguments, and do not treat the denial as an accident or a request to "
+    "continue. Acknowledge the denial and any reason the user gave, then stop "
+    "and wait for further instructions.\n"
+    "Resume your response to the user's most recent actual message "
+    "accordingly.\n"
+    "</tracecat-approval-continuation>"
+)
 MODEL_CONTEXT_PROMPT_PREFIX = "<tracecat-model-context>\n"
 DISPLAY_ONLY_SESSION_LINE_FLAG = "isDisplayOnly"
 APPROVAL_INTERRUPT_CONTENT_EXACT = "interrupted"
