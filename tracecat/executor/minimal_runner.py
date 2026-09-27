@@ -485,23 +485,28 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
     """
     action_impl: dict[str, Any] | None = None
     secret_env: dict[str, str] = input_data.get("secret_env", {})
+    mask_values: set[str] = set()
     mask_pattern: re.Pattern[str] | None = None
-    try:
-        mask_values: set[str] = set(input_data.get("secret_mask_values", ()))
-        mask_values.update(_collect_secret_mask_values(secret_env))
-        if mask_values:
-            mask_values.add("***")  # Keep masking idempotent for short secrets.
-        mask_pattern = (
-            re.compile(
+
+    def redact(text: str) -> str:
+        nonlocal mask_pattern
+        if not text or not mask_values:
+            return text
+        if mask_pattern is None:
+            # Successful, quiet actions never need a diagnostic matcher.
+            # Include the replacement token to keep short-mask passes idempotent.
+            mask_pattern = re.compile(
                 "|".join(
                     re.escape(value)
-                    for value in sorted(mask_values, key=len, reverse=True)
+                    for value in sorted(mask_values | {"***"}, key=len, reverse=True)
                     if value
                 )
             )
-            if mask_values
-            else None
-        )
+        return mask_pattern.sub("***", text)
+
+    try:
+        mask_values.update(input_data.get("secret_mask_values", ()))
+        mask_values.update(_collect_secret_mask_values(secret_env))
         # Extract what we need from resolved_context
         resolved_context = input_data.get("resolved_context", {})
         action_impl = resolved_context.get("action_impl")
@@ -526,19 +531,15 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
 
         # Mask secret values in captured output to prevent leaking credentials
         if captured_stdout := action_stdout.getvalue().strip():
-            if mask_pattern is not None:
-                captured_stdout = mask_pattern.sub("***", captured_stdout)
             _emit_suppressed_output_notice(
                 stream_name="stdout",
-                output=captured_stdout,
+                output=redact(captured_stdout),
                 truncated=action_stdout.truncated,
             )
         if captured_stderr := action_stderr.getvalue().strip():
-            if mask_pattern is not None:
-                captured_stderr = mask_pattern.sub("***", captured_stderr)
             _emit_suppressed_output_notice(
                 stream_name="stderr",
-                output=captured_stderr,
+                output=redact(captured_stderr),
                 truncated=action_stderr.truncated,
             )
 
@@ -562,9 +563,17 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         tb = traceback.extract_tb(e.__traceback__)
         last_frame = tb[-1] if tb else None
 
-        message = str(e)
-        if mask_pattern is not None:
-            message = mask_pattern.sub("***", message)
+        try:
+            message = redact(str(e))
+        except Exception as masking_error:
+            # Lazy compilation can exhaust memory while handling an action
+            # failure. Preserve the runner's structured resource-limit response.
+            if (limit := resource_limit_from_error(masking_error)) is None:
+                raise
+            release_exception_chain(masking_error)
+            return _resource_limit_envelope(
+                limit, action_name=_action_display_name(action_impl)
+            )
 
         return {
             "success": False,

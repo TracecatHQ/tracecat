@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import errno
 import io
+import re
 import sys
 import types
 from dataclasses import dataclass
@@ -451,6 +452,83 @@ def test_main_minimal_masks_secrets_in_suppressed_output(monkeypatch) -> None:
     assert "AKIAIOSFODNN7EXAMPLE" not in warnings_emitted[0]
     assert "IQoJb3JpZ2luX2VjEBAReallyLongSessionToken" not in warnings_emitted[0]
     assert "***" in warnings_emitted[0]
+
+
+@pytest.mark.parametrize("outcome", ["quiet", "noisy", "error"])
+def test_main_minimal_compiles_masks_only_for_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, outcome: str
+) -> None:
+    original = re.compile
+    compiled: list[str] = []
+    notices: list[str] = []
+
+    def counted(pattern: str) -> re.Pattern[str]:
+        compiled.append(pattern)
+        return original(pattern)
+
+    def action(*_args: object) -> str:
+        if outcome == "error":
+            raise ValueError("rejected synthetic-secret")
+        if outcome == "noisy":
+            print("stdout synthetic-secret")
+            print("stderr synthetic-secret", file=sys.stderr)
+        return "ok"
+
+    monkeypatch.setattr(minimal_runner, "run_action_minimal", action)
+    # Isolate the spy from regex use elsewhere in the process.
+    monkeypatch.setattr(
+        minimal_runner, "re", types.SimpleNamespace(compile=counted, escape=re.escape)
+    )
+    monkeypatch.setattr(
+        minimal_runner.warnings,
+        "warn",
+        lambda message, *_args, **_kwargs: notices.append(message),
+    )
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {"type": "udf", "module": "synthetic", "name": "run"},
+                "evaluated_args": {},
+            },
+            "secret_mask_values": ["synthetic-secret"],
+        }
+    )
+    assert len(compiled) == (0 if outcome == "quiet" else 1)
+    if outcome == "error":
+        assert result["error"]["message"] == "rejected ***"
+    else:
+        assert result == {"success": True, "result": "ok"}
+    assert len(notices) == (2 if outcome == "noisy" else 0)
+    assert all(
+        "synthetic-secret" not in notice and "***" in notice for notice in notices
+    )
+
+
+def test_lazy_mask_compilation_preserves_resource_limit_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def action(*_args: object) -> None:
+        raise ValueError("rejected synthetic-secret")
+
+    def exhausted(pattern: str) -> re.Pattern[str]:
+        raise MemoryError
+
+    monkeypatch.setattr(minimal_runner, "run_action_minimal", action)
+    monkeypatch.setattr(
+        minimal_runner, "re", types.SimpleNamespace(compile=exhausted, escape=re.escape)
+    )
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {"type": "udf", "module": "synthetic", "name": "run"},
+                "evaluated_args": {},
+            },
+            "secret_mask_values": ["synthetic-secret"],
+        }
+    )
+    assert result["success"] is False
+    assert result["error_code"] == "resource_limit_exceeded"
+    assert "synthetic-secret" not in result["error"]["message"]
 
 
 def test_main_minimal_masks_non_string_secret_env_values(monkeypatch) -> None:
