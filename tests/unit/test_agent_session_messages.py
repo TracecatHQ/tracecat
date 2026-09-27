@@ -171,14 +171,9 @@ async def test_load_session_history_omits_cancelled_marker_rows() -> None:
 @pytest.mark.anyio
 async def test_display_only_context_splits_ui_from_model_history() -> None:
     """Raw source text is visible while the full prompt only reaches the model."""
-    service, _ = _build_service()
-    session_id = uuid.uuid4()
-    sdk_session = SimpleNamespace(
-        id=session_id,
-        parent_session_id=None,
-        sdk_session_id="sdk-session-123",
-        curr_run_id=None,
-    )
+    service, sdk_session = _build_service()
+    session_id = sdk_session.id
+    sdk_session.sdk_session_id = "sdk-session-123"
     context_prompt = f"{MODEL_CONTEXT_PROMPT_PREFIX}hidden thread instructions"
     entries = [
         SimpleNamespace(
@@ -402,13 +397,8 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
 
 @pytest.mark.anyio
 async def test_list_messages_skips_misclassified_continuation_artifacts() -> None:
-    service, _ = _build_service()
-    session_id = uuid.uuid4()
-    agent_session = SimpleNamespace(
-        id=session_id,
-        parent_session_id=None,
-        curr_run_id=None,
-    )
+    service, agent_session = _build_service()
+    session_id = agent_session.id
     prompt_uuid = "prompt-uuid"
     thinking_uuid = "thinking-uuid"
     entries = [

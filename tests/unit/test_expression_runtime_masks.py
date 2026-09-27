@@ -587,7 +587,8 @@ def test_mapping_key_transformations_are_masked(
         operand={"steps": {"fetch": {"result": value}}},
     )
     assert encoded in masks.values
-    masks.values.clear()
+    masks = SecretMaskCollector()
+    ctx_secret_masks.set(masks)
     masks.observe(SECRET)
 
     with pytest.raises(TracecatExpressionError) as caught:

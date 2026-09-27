@@ -15,7 +15,7 @@ from fastapi_users.db import (
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyBaseAccessTokenTableUUID
 from numpy.typing import NDArray
 from pgvector.sqlalchemy import Vector
-from pydantic import GetCoreSchemaHandler
+from pydantic import GetCoreSchemaHandler, JsonValue
 from pydantic_core import CoreSchema, core_schema, to_json
 from sqlalchemy import (
     TIMESTAMP,
@@ -727,12 +727,114 @@ class PlatformSecret(PlatformModel, BaseSecret):
 
 
 class Secret(WorkspaceModel, BaseSecret):
-    """Workspace secrets."""
+    """Workspace secrets.
+
+    ``source`` is ``local`` for values encrypted in ``encrypted_keys`` and
+    ``aws_secrets_manager`` for references resolved at runtime from an
+    organization-owned store. AWS-backed rows never carry remote values in
+    ``encrypted_keys``; ``remote_key_mapping`` only declares output key names.
+    """
 
     __tablename__ = "secret"
-    __table_args__ = (UniqueConstraint("name", "environment", "workspace_id"),)
+    __table_args__ = (
+        UniqueConstraint("name", "environment", "workspace_id"),
+        # A reference can only exist while its workspace authorization exists.
+        ForeignKeyConstraint(
+            ["workspace_id", "store_id"],
+            [
+                "workspace_secret_store_authorization.workspace_id",
+                "workspace_secret_store_authorization.store_id",
+            ],
+            ondelete="RESTRICT",
+            name="fk_secret_store_authorization",
+        ),
+    )
+
+    source: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="local", server_default=text("'local'")
+    )
+    store_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("organization_secret_store.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    remote_reference: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    remote_key_mapping: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
 
     workspace: Mapped[Workspace] = relationship(back_populates="secrets")
+    store: Mapped[OrganizationSecretStore | None] = relationship(
+        "OrganizationSecretStore", back_populates="secrets"
+    )
+
+
+class OrganizationSecretStore(OrganizationModel):
+    """Organization-owned external secret store (AWS Secrets Manager)."""
+
+    __tablename__ = "organization_secret_store"
+    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    provider: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="aws_secrets_manager"
+    )
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    all_workspaces: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+
+    secrets: Mapped[list[Secret]] = relationship(
+        "Secret", back_populates="store", passive_deletes="all"
+    )
+    authorizations: Mapped[list[WorkspaceSecretStoreAuthorization]] = relationship(
+        "WorkspaceSecretStoreAuthorization",
+        back_populates="store",
+        cascade="all, delete-orphan",
+    )
+
+
+class WorkspaceSecretStoreAuthorization(OrganizationModel):
+    """Grants a workspace permission to reference an organization secret store."""
+
+    __tablename__ = "workspace_secret_store_authorization"
+    __table_args__ = (UniqueConstraint("workspace_id", "store_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    store_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("organization_secret_store.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    store: Mapped[OrganizationSecretStore] = relationship(
+        "OrganizationSecretStore", back_populates="authorizations"
+    )
 
 
 class WorkspaceVariable(WorkspaceModel):
@@ -3102,6 +3204,10 @@ class AgentSession(WorkspaceModel):
         JSONB,
         nullable=True,
         doc="Normalized subagent bindings for this session",
+    )
+    # Stable dispatcher identity, independent of the execution harness.
+    backend_id: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="oss", server_default="oss"
     )
     # Agent harness fields
     harness_type: Mapped[str | None] = mapped_column(
@@ -5829,6 +5935,8 @@ class SearchEmbeddingConfig(TimestampMixin, Base):
 
     Records contain no credential secrets. Collections and chunks reference the
     configuration version, and chunks must match its embedding dimensions.
+    Embedding semantics are immutable within a version; only the credential
+    reference/environment may rotate after validation without rebuilding vectors.
     """
 
     __tablename__ = "search_embedding_config"
@@ -5849,6 +5957,8 @@ class SearchEmbeddingConfig(TimestampMixin, Base):
     credential_environment: Mapped[str] = mapped_column(Text)
     dimensions: Mapped[int] = mapped_column(Integer)
     input_token_limit: Mapped[int] = mapped_column(Integer)
+    # NULL identifies configurations written before recipe pinning.
+    recipe_revision: Mapped[str | None] = mapped_column(Text)
 
 
 class SearchCollection(TimestampMixin, Base):
@@ -5881,7 +5991,7 @@ class SearchCollection(TimestampMixin, Base):
     source_id: Mapped[uuid.UUID] = mapped_column(UUID)
     selected_column_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID))
     generation: Mapped[int] = mapped_column(BigInteger, server_default="1")
-    config_version: Mapped[int] = mapped_column(BigInteger)
+    config_version: Mapped[int | None] = mapped_column(BigInteger)
     chunker_settings: Mapped[dict[str, str | int]] = mapped_column(JSONB)
     enabled: Mapped[bool] = mapped_column(Boolean, server_default="false")
     backfill_cursor: Mapped[uuid.UUID | None] = mapped_column(UUID)
@@ -5945,7 +6055,7 @@ class SearchDocument(TimestampMixin, Base):
     build_revision: Mapped[int | None] = mapped_column(BigInteger)
     indexed_revision: Mapped[int | None] = mapped_column(BigInteger)
     state: Mapped[str] = mapped_column(Text, server_default="pending")
-    enumeration_cursor: Mapped[dict[str, int] | None] = mapped_column(JSONB)
+    enumeration_cursor: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB)
     enumeration_complete: Mapped[bool] = mapped_column(Boolean, server_default="false")
     expected_chunks: Mapped[int] = mapped_column(BigInteger, server_default="0")
     fence: Mapped[int] = mapped_column(BigInteger, server_default="0")

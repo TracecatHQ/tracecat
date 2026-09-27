@@ -48,6 +48,7 @@ from tracecat.agent.gateway_providers import (
     resolve_gateway_provider_config,
 )
 from tracecat.agent.observability import get_load_tracker
+from tracecat.agent.sandbox.shim_entrypoint import HTTPRequestError, read_http_request
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
@@ -118,6 +119,8 @@ _ERROR_MESSAGES = {
     403: "Access denied - check your API permissions",
     404: "Model not found - check your model configuration",
     405: "HTTP method not allowed by the LLM socket proxy",
+    413: "Content Too Large",
+    431: "Request Header Fields Too Large",
     429: "Rate limit exceeded - please try again later",
     500: "LLM provider internal error",
     502: "LLM provider unavailable",
@@ -923,6 +926,14 @@ class LLMSocketProxy:
             # Forward to the selected backend and stream response back
             await self._forward_request(request, writer)
 
+        except HTTPRequestError as exc:
+            await self._write_error_response(
+                writer,
+                status_code=exc.status_code,
+                detail=str(exc),
+                request_counter=0,
+                trace_request_id=str(uuid4()),
+            )
         except asyncio.IncompleteReadError:
             logger.debug("Client disconnected during request")
         except ConnectionError:
@@ -958,62 +969,22 @@ class LLMSocketProxy:
         Returns:
             Dict with method, path, headers, and body, or None if connection closed.
         """
-        # Read request line
-        request_line = await reader.readline()
-        if not request_line:
+        raw_request = await read_http_request(reader, max_body_size=MAX_BODY_SIZE)
+        if raw_request is None:
             return None
-
+        header_block, body = raw_request
+        request_line, *header_lines = header_block.split(b"\r\n")
         try:
-            request_line_str = request_line.decode("utf-8").strip()
-            parts = request_line_str.split(" ", 2)
-            if len(parts) < 2:
-                self._emit_error(
-                    "Malformed request line",
-                    agent_executor_protocol_failed(),
-                )
-                return None
-            method = parts[0]
-            path = parts[1]
-        except (UnicodeDecodeError, ValueError):
-            self._emit_error(
-                "Invalid request encoding",
-                agent_executor_protocol_failed(),
-            )
-            return None
-
-        # Read headers
+            method, path, version = request_line.decode("ascii").split(" ")
+        except ValueError:
+            raise HTTPRequestError("Malformed request line") from None
+        if version not in {"HTTP/1.0", "HTTP/1.1"}:
+            raise HTTPRequestError("Unsupported HTTP version")
         headers: dict[str, str] = {}
-        content_length = 0
-        while True:
-            line = await reader.readline()
-            if not line or line == b"\r\n":
-                break
-            try:
-                header_str = line.decode("utf-8").strip()
-                if ":" in header_str:
-                    key, value = header_str.split(":", 1)
-                    key = key.strip()
-                    value = value.strip()
-                    headers[key] = value
-                    if key.lower() == "content-length":
-                        content_length = int(value)
-            except (UnicodeDecodeError, ValueError):
-                continue
-
-        # Validate content length to prevent memory exhaustion DoS
-        if content_length > MAX_BODY_SIZE:
-            logger.warning(
-                "Request body too large",
-                content_length=content_length,
-                max_size=MAX_BODY_SIZE,
-            )
-            self._emit_error("Request body too large", user_agent_execution_failed())
-            return None
-
-        # Read body if present
-        body = b""
-        if content_length > 0:
-            body = await reader.readexactly(content_length)
+        for line in header_lines:
+            if line:
+                key, value = line.decode("latin-1").split(":", 1)
+                headers[key] = value.strip()
 
         return {
             "method": method,
@@ -1168,6 +1139,12 @@ class LLMSocketProxy:
                 ):
                     response_phase = "error_body"
                     error_body = await response.aread()
+                    logger.warning(
+                        "LLM upstream returned an error",
+                        status_code=response.status_code,
+                        request_body_bytes=len(upstream_request.body),
+                        trace_request_id=trace_request_id,
+                    )
                     classification = _http_error_classification(
                         response.status_code,
                         route_is_direct=route.is_direct,

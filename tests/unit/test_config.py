@@ -486,6 +486,18 @@ def test_bound_env_uses_default_for_empty_string(
     assert result == 10
 
 
+def test_agent_runtime_feature_flag_is_loaded_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__FEATURE_FLAGS", "agent-runtime")
+            reloaded_config = importlib.reload(tracecat_config)
+            assert reloaded_config.TRACECAT__FEATURE_FLAGS == {"agent-runtime"}
+    finally:
+        importlib.reload(tracecat_config)
+
+
 def test_action_gateway_socket_uses_default_for_empty_string(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

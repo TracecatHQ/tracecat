@@ -125,6 +125,34 @@ def test_search_migration_enables_vector_and_preserves_source_data(
                 == 5
             )
             assert conn.scalar(text("SELECT count(*) FROM search_workspace_state")) == 0
+        recipe_upgrade = run_alembic(url, "upgrade", "391f391da70b")
+        assert recipe_upgrade.returncode == 0, recipe_upgrade.stderr
+        with engine.begin() as conn:
+            # An old writer omits the new column and still succeeds.
+            conn.execute(
+                text("""
+                INSERT INTO search_embedding_config
+                (organization_id, workspace_id, version, provider, model, endpoint,
+                 credential_id, credential_environment, dimensions, input_token_limit)
+                VALUES (:org, :workspace, 1, 'openai', 'text-embedding-3-small',
+                        'https://api.openai.com/v1/embeddings', :secret, 'default', 1536, 8191)
+            """),
+                {
+                    "org": uuid.uuid4(),
+                    "workspace": uuid.uuid4(),
+                    "secret": uuid.uuid4(),
+                },
+            )
+            assert (
+                conn.scalar(text("SELECT recipe_revision FROM search_embedding_config"))
+                is None
+            )
+        recipe_downgrade = run_alembic(url, "downgrade", "9680c861644a")
+        assert recipe_downgrade.returncode == 0, recipe_downgrade.stderr
+        with engine.connect() as conn:
+            assert (
+                conn.scalar(text("SELECT count(*) FROM search_embedding_config")) == 1
+            )
         downgraded = run_alembic(url, "downgrade", "a7c3e9f1b2d4")
         assert downgraded.returncode == 0, downgraded.stderr
         with engine.begin() as conn:

@@ -1413,7 +1413,7 @@ async def test_agent_workflow_resolves_turn_bindings_and_replays(
 
     if session_activity != "stub":
         # Keep real activity validation; only database/Redis I/O is mocked.
-        stored_session = MagicMock()
+        stored_session = MagicMock(backend_id="oss", harness_type="claude_code")
         stored_session.agents_binding = stored_binding.model_dump(mode="json")
         stored_session.sdk_session_id = "sdk-session"
         service = AsyncMock()
