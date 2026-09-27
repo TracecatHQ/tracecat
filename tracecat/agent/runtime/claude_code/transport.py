@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import platform
 import socket
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager, suppress
@@ -129,6 +130,12 @@ class SandboxedCLITransport(Transport):
         self._connect_started_at: float | None = None
         self._logged_first_message = False
         self._exit_code: int | None = None
+        self._runtime_logger = logger.bind(
+            session_id=session_id,
+            claude_agent_sdk_version=__version__,
+            architecture=platform.machine(),
+            sandbox_mode="nsjail" if use_jailed_paths else "direct",
+        )
 
     def _log_benchmark_phase(self, phase: str, **extra: object) -> None:
         """Emit a temporary structured benchmark log for transport phases."""
@@ -202,10 +209,12 @@ class SandboxedCLITransport(Transport):
                 otel_socket_path=self._otel_socket_path,
             )
         self._process = self._spawned_runtime.process
+        self._exit_code = None
         if self._process.stdin is None or self._process.stdout is None:
             raise CLIConnectionError("Sandbox shim stdio was not initialized")
 
         self._ready = True
+        self._runtime_logger.info("Agent CLI process started")
         self._log_benchmark_phase(
             "broker_transport_sandbox_spawned",
             pid=self._process.pid,
@@ -222,7 +231,14 @@ class SandboxedCLITransport(Transport):
         own, and deliberately never from ``close()``, where the host may have
         killed the process itself.
         """
+        first_observation = self._exit_code is None
         self._exit_code = returncode
+        if first_observation and returncode != 0:
+            # Both the reader and writer can observe the same death. Count it
+            # once, without copying command arguments, stderr, or payloads.
+            self._runtime_logger.warning(
+                "Agent CLI process exited unexpectedly", exit_code=returncode
+            )
 
     async def write(self, data: str) -> None:
         """Write raw stream-json data to the sandbox shim stdin."""

@@ -135,6 +135,7 @@ class _DuckDBSmokeMessage(TypedDict):
 
 
 _STDIO_MCP_BURST_SERVER_COUNT = 12
+_STDIO_MCP_BURST_READY_TIMEOUT_SECONDS = 30
 _STDIO_MCP_BURST_FLOWS_PER_SERVER = 128
 _STDIO_MCP_BURST_FLOW_COUNT = (
     _STDIO_MCP_BURST_SERVER_COUNT * _STDIO_MCP_BURST_FLOWS_PER_SERVER
@@ -667,6 +668,7 @@ class _FakeProxy:
 class _FakeLLMSocketProxy:
     instances: list[_FakeLLMSocketProxy] = []
     scripted_bash_command: str | None = None
+    scripted_bash_ready: asyncio.Event | None = None
 
     def __init__(
         self,
@@ -683,6 +685,7 @@ class _FakeLLMSocketProxy:
         self.stopped = False
         self.request_count = 0
         self.message_request_count = 0
+        self.scripted_bash_readiness_error: str | None = None
         self.requests: list[_LiteLLMRequestPayload] = []
         self._server: asyncio.Server | None = None
         type(self).instances.append(self)
@@ -746,11 +749,26 @@ class _FakeLLMSocketProxy:
         if is_nonstream_messages_request:
             self.message_request_count += 1
 
-        if (
+        request_bash = (
             self.scripted_bash_command is not None
             and self.message_request_count == 1
             and is_nonstream_messages_request
-        ):
+        )
+        if request_bash and self.scripted_bash_ready is not None:
+            try:
+                await asyncio.wait_for(
+                    self.scripted_bash_ready.wait(),
+                    timeout=_STDIO_MCP_BURST_READY_TIMEOUT_SECONDS,
+                )
+            except TimeoutError:
+                # End the fake turn so the harness can clean up, then surface
+                # the timeout in the test instead of an unhandled server task.
+                self.scripted_bash_readiness_error = (
+                    "Timed out waiting for all MCP initialization signals before Bash"
+                )
+                request_bash = False
+
+        if request_bash:
             content = [
                 {
                     "type": "tool_use",
@@ -1131,6 +1149,7 @@ async def _run_full_claude_harness_runtime_case(
     executor_input: AgentExecutorInput | None = None,
     job_dir: Path | None = None,
     scripted_bash_command: str | None = None,
+    scripted_bash_ready: asyncio.Event | None = None,
 ) -> None:
     _patch_agent_management_credentials(monkeypatch)
     _FakeLLMSocketProxy.instances.clear()
@@ -1169,6 +1188,7 @@ async def _run_full_claude_harness_runtime_case(
         "scripted_bash_command",
         scripted_bash_command,
     )
+    monkeypatch.setattr(_FakeLLMSocketProxy, "scripted_bash_ready", scripted_bash_ready)
     monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
     monkeypatch.setattr(
         nsjail_module,
@@ -1218,14 +1238,18 @@ async def _run_full_claude_harness_runtime_case(
         await broker.stop()
         shutil.rmtree(job_dir, ignore_errors=True)
 
+    assert len(_FakeLLMSocketProxy.instances) == 1
+    proxy = _FakeLLMSocketProxy.instances[0]
+    assert proxy.scripted_bash_readiness_error is None, (
+        proxy.scripted_bash_readiness_error
+    )
+
     assert result.success is True
     assert result.error is None
     assert result.output == "fake claude response"
     assert result.result_num_turns == (2 if scripted_bash_command else 1)
     assert result.messages is None
 
-    assert len(_FakeLLMSocketProxy.instances) == 1
-    proxy = _FakeLLMSocketProxy.instances[0]
     assert proxy.request_count >= 1
     assert proxy.started is True
     assert proxy.stopped is True
@@ -1342,6 +1366,10 @@ async def _run_stdio_mcp_startup_burst_case(
 
     received_packets = 0
     initialized_servers: set[str] = set()
+    expected_initialized_servers = {
+        str(server_index) for server_index in range(_STDIO_MCP_BURST_SERVER_COUNT)
+    }
+    mcp_ready = asyncio.Event()
     loop = asyncio.get_running_loop()
 
     def echo_startup_packet(sink: socket.socket) -> None:
@@ -1354,6 +1382,8 @@ async def _run_stdio_mcp_startup_burst_case(
             received_packets += 1
         elif data.startswith(b"initialized:"):
             initialized_servers.add(data.decode().partition(":")[2])
+            if initialized_servers == expected_initialized_servers:
+                mcp_ready.set()
         sink.sendto(b"ack", source)
 
     for sink in udp_sinks:
@@ -1368,17 +1398,17 @@ async def _run_stdio_mcp_startup_burst_case(
             executor_input=executor_input,
             job_dir=job_dir,
             scripted_bash_command=bash_command,
+            # The CLI can call the model while MCP batches still initialize.
+            # Keep the turn alive until all startup flows are retained, so Bash
+            # exercises the combined flow budget rather than racing cleanup.
+            scripted_bash_ready=mcp_ready,
         )
-        await asyncio.sleep(0.1)
     finally:
         for sink in udp_sinks:
             loop.remove_reader(sink.fileno())
             sink.close()
 
     assert received_packets == _STDIO_MCP_COMBINED_FLOW_COUNT, received_packets
-    expected_initialized_servers = {
-        str(server_index) for server_index in range(_STDIO_MCP_BURST_SERVER_COUNT)
-    }
     assert initialized_servers == expected_initialized_servers, initialized_servers
 
     [proxy] = _FakeLLMSocketProxy.instances
