@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import errno
 import io
+import re
 import sys
 import types
 from dataclasses import dataclass
@@ -453,6 +454,83 @@ def test_main_minimal_masks_secrets_in_suppressed_output(monkeypatch) -> None:
     assert "***" in warnings_emitted[0]
 
 
+@pytest.mark.parametrize("outcome", ["quiet", "noisy", "error"])
+def test_main_minimal_compiles_masks_only_for_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, outcome: str
+) -> None:
+    original = re.compile
+    compiled: list[str] = []
+    notices: list[str] = []
+
+    def counted(pattern: str) -> re.Pattern[str]:
+        compiled.append(pattern)
+        return original(pattern)
+
+    def action(*_args: object) -> str:
+        if outcome == "error":
+            raise ValueError("rejected synthetic-secret")
+        if outcome == "noisy":
+            print("stdout synthetic-secret")
+            print("stderr synthetic-secret", file=sys.stderr)
+        return "ok"
+
+    monkeypatch.setattr(minimal_runner, "run_action_minimal", action)
+    # Isolate the spy from regex use elsewhere in the process.
+    monkeypatch.setattr(
+        minimal_runner, "re", types.SimpleNamespace(compile=counted, escape=re.escape)
+    )
+    monkeypatch.setattr(
+        minimal_runner.warnings,
+        "warn",
+        lambda message, *_args, **_kwargs: notices.append(message),
+    )
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {"type": "udf", "module": "synthetic", "name": "run"},
+                "evaluated_args": {},
+            },
+            "secret_mask_values": ["synthetic-secret"],
+        }
+    )
+    assert len(compiled) == (0 if outcome == "quiet" else 1)
+    if outcome == "error":
+        assert result["error"]["message"] == "rejected ***"
+    else:
+        assert result == {"success": True, "result": "ok"}
+    assert len(notices) == (2 if outcome == "noisy" else 0)
+    assert all(
+        "synthetic-secret" not in notice and "***" in notice for notice in notices
+    )
+
+
+def test_lazy_mask_compilation_preserves_resource_limit_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def action(*_args: object) -> None:
+        raise ValueError("rejected synthetic-secret")
+
+    def exhausted(pattern: str) -> re.Pattern[str]:
+        raise MemoryError
+
+    monkeypatch.setattr(minimal_runner, "run_action_minimal", action)
+    monkeypatch.setattr(
+        minimal_runner, "re", types.SimpleNamespace(compile=exhausted, escape=re.escape)
+    )
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {"type": "udf", "module": "synthetic", "name": "run"},
+                "evaluated_args": {},
+            },
+            "secret_mask_values": ["synthetic-secret"],
+        }
+    )
+    assert result["success"] is False
+    assert result["error_code"] == "resource_limit_exceeded"
+    assert "synthetic-secret" not in result["error"]["message"]
+
+
 def test_main_minimal_masks_non_string_secret_env_values(monkeypatch) -> None:
     test_module: Any = types.ModuleType("test_module")
 
@@ -574,10 +652,10 @@ def test_main_minimal_errors_when_secret_value_stringify_fails(monkeypatch) -> N
     )
 
     assert result["success"] is False
-    # Secrets are in scope, so the message is withheld like any other failure.
+    # The error reports the invalid env entry without invoking its repr.
     assert result["error"]["type"] == "TypeError"
-    assert "Details withheld" in result["error"]["message"]
-    assert "BROKEN" not in result["error"]["message"]
+    assert "Failed to stringify secret env value" in result["error"]["message"]
+    assert "BROKEN" in result["error"]["message"]
 
 
 def test_main_minimal_keeps_error_message_when_withholding_disabled(
@@ -914,8 +992,8 @@ def test_serialize_result_passes_through_when_serialization_succeeds() -> None:
     assert orjson.loads(payload) == {"success": True, "result": 1}
 
 
-def test_main_minimal_withholds_error_when_secrets_in_scope(monkeypatch) -> None:
-    """With secrets in scope the raw message is withheld, phrased like the gate."""
+def test_main_minimal_masks_error_when_secrets_in_scope(monkeypatch) -> None:
+    """Known secrets are masked without discarding the diagnostic."""
     test_module: Any = types.ModuleType("test_module")
 
     def boom_action() -> None:
@@ -946,5 +1024,36 @@ def test_main_minimal_withholds_error_when_secrets_in_scope(monkeypatch) -> None
     assert result["success"] is False
     assert result["error"]["type"] == "ValueError"
     assert "CANARY" not in result["error"]["message"]
-    # Phrasing pinned to the expression gate's "Details withheld:" contract.
-    assert "Details withheld:" in result["error"]["message"]
+    assert result["error"]["message"] == "invalid literal: '***'"
+
+
+@pytest.mark.parametrize("escaped", [False, True])
+def test_main_minimal_masks_observed_derived_values_without_env_secrets(
+    monkeypatch, escaped: bool
+) -> None:
+    """Host-observed values cross the subprocess protocol even without env secrets."""
+    derived = "encoded-derived-value\nsecond-line"
+    test_module = types.ModuleType("test_module")
+
+    def fail() -> None:
+        value = repr(derived) if escaped else derived
+        raise ValueError(f"upstream rejected {value}")
+
+    monkeypatch.setattr(test_module, "fail", fail, raising=False)
+    monkeypatch.setattr(
+        minimal_runner.importlib, "import_module", lambda *_args: test_module
+    )
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {"type": "udf", "module": "test_module", "name": "fail"},
+                "evaluated_args": {},
+            },
+            "secret_env": {},
+            "secret_mask_values": [derived, repr(derived)[1:-1]],
+        }
+    )
+    assert result["success"] is False
+    assert "upstream rejected" in result["error"]["message"]
+    assert "encoded-derived-value" not in result["error"]["message"]
+    assert "***" in result["error"]["message"]

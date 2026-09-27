@@ -116,7 +116,7 @@ export const $ActionControlFlow = {
       type: "boolean",
       title: "Unsafe Disable Secret Error Withholding",
       description:
-        "UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked.",
+        "Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.",
       default: false,
     },
   },
@@ -647,7 +647,7 @@ export const $ActionStatement_Input = {
       type: "boolean",
       title: "Unsafe Disable Secret Error Withholding",
       description:
-        "UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked, but the original text may echo transformed secret values that exact-string masking cannot catch.",
+        "Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.",
       default: false,
     },
   },
@@ -801,7 +801,7 @@ export const $ActionStatement_Output = {
       type: "boolean",
       title: "Unsafe Disable Secret Error Withholding",
       description:
-        "UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked, but the original text may echo transformed secret values that exact-string masking cannot catch.",
+        "Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.",
       default: false,
     },
   },
@@ -5190,7 +5190,7 @@ export const $AppSettingsUpdate = {
       type: "array",
       title: "App Unsafe Disable Secret Error Withholding Workspace Ids",
       description:
-        "UNSAFE: workspaces whose actions may opt into showing their original error message when secrets are in scope. Each action must still enable 'Show error details' individually. Known secret values are still masked.",
+        "Legacy allow-list, ignored by action execution. Error diagnostics always mask known secrets and observed secret-derived values.",
     },
   },
   type: "object",

@@ -2622,8 +2622,7 @@ async def test_scheduled_workflow_legacy_role_auto_heals_organization_id(
     assert "get_schedule_trigger_inputs_activity" in activity_names
 
 
-# Get the line number dynamically
-PARTIAL_DIVISION_BY_ZERO_MESSAGE = (
+DIVISION_BY_ZERO_MESSAGE = (
     "There was an error in the executor when calling action 'core.transform.reshape'.\n"
     "\n"
     "\n"
@@ -2636,25 +2635,20 @@ PARTIAL_DIVISION_BY_ZERO_MESSAGE = (
     "  literal\t0\n"
     "\n"
     "```\n"
-    'Reason: Error trying to process rule "div_op":\n'
-    "\n"
-    "Cannot divide by zero\n"
-    "\n"
-    "\n"
-    "------------------------------\n"
+    "Reason: Cannot divide by zero"
 )
 PARTIAL_DIVISION_BY_ZERO_ERROR = {
     "classification": {
         "cause_type": "ExecutionError",
         "kind": "action.execution.failed",
-        "message": PARTIAL_DIVISION_BY_ZERO_MESSAGE,
+        "message": DIVISION_BY_ZERO_MESSAGE,
         "owner": "user",
         "retry_disposition": "retryable",
         "schema": "tracecat.error.v1",
     },
     "diagnostic": {
         "ref": "start",
-        "message": PARTIAL_DIVISION_BY_ZERO_MESSAGE,
+        "message": DIVISION_BY_ZERO_MESSAGE,
         "type": "ExecutionError",
         "expr_context": "ACTIONS",
         "attempt": 1,
@@ -3662,31 +3656,13 @@ def assert_error_handler_initiated_correctly(
         if isinstance(group.action_input.trigger_inputs, InlineObject)
         else group.action_input.trigger_inputs
     )
-    expected_error_message = (
-        "There was an error in the executor when calling action 'core.transform.reshape'.\n\n"
-        "\n"
-        "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
-        "[evaluator] Evaluation failed at node:\n"
-        "```\n"
-        "div_op\n"
-        "  literal\t1\n"
-        "  literal\t0\n\n"
-        "```\n"
-        'Reason: Error trying to process rule "div_op":\n\n'
-        "Cannot divide by zero\n\n"
-        "\n"
-        "------------------------------\n"
-        "File: /app/tracecat/expressions/core.py\n"
-        "Function: result\n"
-        "Line: 77"
-    )
     assert normalize_error_line_numbers(trigger_data) == normalize_error_line_numbers(
         {
             "errors": [
                 {
                     "attempt": 1,
                     "expr_context": "ACTIONS",
-                    "message": expected_error_message,
+                    "message": DIVISION_BY_ZERO_MESSAGE,
                     "ref": "failing_action",
                     "type": "ExecutionError",
                     "stream_id": "<root>:0",
@@ -3694,7 +3670,7 @@ def assert_error_handler_initiated_correctly(
                 }
             ],
             "handler_wf_id": str(WorkflowUUID.new(handler_wf.id)),
-            "message": expected_error_message,
+            "message": DIVISION_BY_ZERO_MESSAGE,
             "orig_wf_exec_id": failing_wf_exec_id,
             "orig_wf_exec_url": wf_exec_url,
             "orig_wf_title": "Division by zero",
@@ -5805,7 +5781,7 @@ async def test_scatter_with_child_workflow(
                             "error": [
                                 {
                                     "ref": "throw",
-                                    "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
+                                    "message": DIVISION_BY_ZERO_MESSAGE,
                                     "type": "ExecutionError",
                                     "expr_context": "ACTIONS",
                                     "attempt": 1,
@@ -5814,7 +5790,7 @@ async def test_scatter_with_child_workflow(
                                 },
                                 {
                                     "ref": "throw",
-                                    "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
+                                    "message": DIVISION_BY_ZERO_MESSAGE,
                                     "type": "ExecutionError",
                                     "expr_context": "ACTIONS",
                                     "attempt": 1,
@@ -5918,7 +5894,7 @@ async def test_scatter_with_child_workflow(
                             "result": [
                                 {
                                     "ref": "throw",
-                                    "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
+                                    "message": DIVISION_BY_ZERO_MESSAGE,
                                     "type": "ExecutionError",
                                     "expr_context": "ACTIONS",
                                     "attempt": 1,
@@ -5927,7 +5903,7 @@ async def test_scatter_with_child_workflow(
                                 },
                                 {
                                     "ref": "throw",
-                                    "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
+                                    "message": DIVISION_BY_ZERO_MESSAGE,
                                     "type": "ExecutionError",
                                     "expr_context": "ACTIONS",
                                     "attempt": 1,
