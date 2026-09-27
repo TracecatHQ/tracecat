@@ -15,7 +15,13 @@ from tracecat.dsl.schemas import ROOT_STREAM, RunContext, StreamID
 from tracecat.interactions.schemas import InteractionContext
 
 if TYPE_CHECKING:
+    from tracecat.secrets.error_masking import ErrorMaskingContext
     from tracecat.secrets.masking import SecretMaskCollector
+
+
+ctx_error_masking: ContextVar[ErrorMaskingContext | None] = ContextVar(
+    "error-masking", default=None
+)
 
 
 ctx_secret_masks: ContextVar[SecretMaskCollector | None] = ContextVar(

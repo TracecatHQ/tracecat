@@ -16,6 +16,7 @@ from tracecat.auth.executor_tokens import ExecutionOrigin, mint_executor_token
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_action_scope
 from tracecat.contexts import (
+    ctx_error_masking,
     ctx_interaction,
     ctx_logical_time,
     ctx_role,
@@ -74,14 +75,25 @@ from tracecat.logger import logger
 from tracecat.observability.sentry import capture_activity_failure
 from tracecat.registry.actions.schemas import TemplateActionDefinition
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
-from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorOwner
+from tracecat.runtime.errors import (
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import (
     apply_masks_object,
     await_with_masked_errors,
     call_with_masked_errors,
 )
+from tracecat.secrets.error_masking import (
+    WITHHELD_ERROR_MESSAGE,
+    ErrorMaskingContext,
+    ErrorMaskingMode,
+    may_reference_secrets,
+)
 from tracecat.secrets.masking import SecretMaskCollector
+from tracecat.settings.service import get_error_masking_mode
 from tracecat.variables.schemas import VariableSearch
 from tracecat.variables.service import VariablesService
 
@@ -95,6 +107,8 @@ type ExecutionResult = Any | ExecutorActionErrorInfo
 def _sanitize_error_info(
     info: ExecutorActionErrorInfo,
     classification: RuntimeErrorClassification | None,
+    *,
+    action_name: str | None = None,
 ) -> ExecutorActionErrorInfo:
     """Keep diagnostics, masking observed secrets before transport or logging."""
     if (
@@ -102,6 +116,27 @@ def _sanitize_error_info(
         and classification.owner is RuntimeErrorOwner.PLATFORM
     ):
         info = info.model_copy(update={"message": classification.message})
+    policy = ctx_error_masking.get()
+    if policy is not None and policy.withhold:
+        # Names and paths supplied by arbitrary code can themselves contain
+        # transformed secrets. Keep only trusted classification text and numbers.
+        return info.model_copy(
+            update={
+                "action_name": action_name or "<withheld>",
+                "message": classification.message
+                if classification is not None
+                and (
+                    classification.owner is RuntimeErrorOwner.PLATFORM
+                    or classification.kind
+                    is RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED
+                )
+                else WITHHELD_ERROR_MESSAGE,
+                "type": "ActionError",
+                "filename": "<withheld>",
+                "function": "<withheld>",
+                "loop_vars": None,
+            }
+        )
     masks = ctx_secret_masks.get()
     return (
         ExecutorActionErrorInfo.model_validate(
@@ -109,6 +144,17 @@ def _sanitize_error_info(
         )
         if masks is not None
         else info.model_copy()
+    )
+
+
+def _sanitized_classification(
+    classification: RuntimeErrorClassification | None,
+    info: ExecutorActionErrorInfo,
+) -> RuntimeErrorClassification | None:
+    if classification is None:
+        return None
+    return classification.model_copy(
+        update={"message": info.message, "cause_type": info.type}
     )
 
 
@@ -397,13 +443,15 @@ async def _invoke_template_step(
             provenance=provenance,
         )
     except ExecutionError as e:
-        if e.info is None:
-            raise
         classification = chained_error_classification(e)
-        info = _sanitize_error_info(e.info, classification)
+        info = _sanitize_error_info(
+            e.info or ExecutorActionErrorInfo.from_exc(e, action_name=step_action),
+            classification,
+            action_name=step_action,
+        )
         error = ExecutionError(
             info=info,
-            classification=classification,
+            classification=_sanitized_classification(classification, info),
             sentry_capture=e.sentry_capture,
         )
     except Exception as e:
@@ -411,16 +459,21 @@ async def _invoke_template_step(
             "Template step failed",
             step_ref=step_ref,
             step_action=step_action,
-            error_type=type(e).__name__,
         )
         info = ExecutorActionErrorInfo.from_exc(e, action_name=step_action)
         classification = chained_error_classification(e)
-        info = _sanitize_error_info(info, classification)
+        info = _sanitize_error_info(info, classification, action_name=step_action)
         error = ExecutionError(
             info=info,
-            classification=classification,
+            classification=_sanitized_classification(classification, info),
             sentry_capture=(
-                capture_activity_failure(e, classification)
+                capture_activity_failure(
+                    ExecutionError(info=info)
+                    if (policy := ctx_error_masking.get()) is not None
+                    and policy.withhold
+                    else e,
+                    _sanitized_classification(classification, info) or classification,
+                )
                 if classification is not None
                 else None
             ),
@@ -529,6 +582,8 @@ async def _execute_template_action(
             step_action=step.action,
         )
 
+        if (policy := ctx_error_masking.get()) is not None:
+            policy.sensitive |= may_reference_secrets(step.args)
         evaled_args = resolve_action_args(
             step.action,
             step.args,
@@ -571,6 +626,8 @@ async def _execute_template_action(
         logger.trace("Template step completed", step_ref=step.ref)
 
     # Evaluate returns expression with final template context
+    if (policy := ctx_error_masking.get()) is not None:
+        policy.sensitive |= may_reference_secrets(template_def.returns)
     return eval_templated_object(
         template_def.returns, operand=template_context, provenance=provenance
     )
@@ -601,6 +658,11 @@ async def _invoke_step(
     Returns:
         The step execution result (unmasked)
     """
+    if (policy := ctx_error_masking.get()) is not None:
+        policy.sensitive |= bool(resolved_context.secrets) or bool(
+            resolved_context.secret_projection
+            and resolved_context.secret_projection.env
+        )
     match resolved_context.action_impl.type:
         case "template":
             # Nested template - recurse
@@ -625,12 +687,17 @@ async def _invoke_step(
                 # Register its output before a later template expression can
                 # expose it. Steps inherit the parent's secret environment, so
                 # literal arguments alone do not make their results public.
-                if (masks := ctx_secret_masks.get()) is not None and (
-                    masks.contains(resolved_context.evaluated_args)
-                    or masks.contains(resolved_context.secrets)
-                    or (
-                        resolved_context.secret_projection is not None
-                        and masks.contains(resolved_context.secret_projection.env)
+                policy = ctx_error_masking.get()
+                if (
+                    (policy is None or policy.mode is ErrorMaskingMode.PROVENANCE)
+                    and (masks := ctx_secret_masks.get()) is not None
+                    and (
+                        masks.contains(resolved_context.evaluated_args)
+                        or masks.contains(resolved_context.secrets)
+                        or (
+                            resolved_context.secret_projection is not None
+                            and masks.contains(resolved_context.secret_projection.env)
+                        )
                     )
                 ):
                     masks.observe(result.result, include_keys=True)
@@ -698,10 +765,17 @@ async def prepare_resolved_context(
     provenance = build_provenance(task.args) if action_impl.type == "template" else None
     collected = collect_expressions(argument_plan.evaluable)
 
+    # Establish sensitivity before secret lookup/evaluation can fail. This is
+    # deliberately independent of ActionArgumentPlan and provenance analysis.
+    if policy := ctx_error_masking.get():
+        policy.sensitive = bool(action_secrets) or may_reference_secrets(task.args)
+
     # Fetch secrets and variables
     secrets = await secrets_manager.get_action_secrets(
         secret_exprs=collected.secrets, action_secrets=action_secrets
     )
+    if (policy := ctx_error_masking.get()) is not None and secrets:
+        policy.sensitive = True
     workspace_variables = await get_workspace_variables(
         variable_exprs=collected.variables,
         environment=input.run_context.environment,
@@ -830,6 +904,8 @@ async def invoke_once(
     # Bound before the try so context-preparation failures stay safe.
     mask_values: set[str] | None = None
 
+    mode = await get_error_masking_mode(role)
+    policy_token = ctx_error_masking.set(ErrorMaskingContext(mode=mode))
     masks = SecretMaskCollector()
     masks_token = ctx_secret_masks.set(masks)
     try:
@@ -865,14 +941,16 @@ async def invoke_once(
 
     except ExecutionError as e:
         # ExecutionError already has proper error info, just add loop context if needed
-        if e.info is None:
-            raise
         classification = chained_error_classification(e)
-        exec_result = _sanitize_error_info(e.info, classification).model_copy()
+        exec_result = _sanitize_error_info(
+            e.info or ExecutorActionErrorInfo.from_exc(e, action_name=action_name),
+            classification,
+            action_name=action_name,
+        ).model_copy()
         _attach_loop_context(exec_result, iteration)
         safe_error = ExecutionError(
             info=exec_result,
-            classification=classification,
+            classification=_sanitized_classification(classification, exec_result),
             sentry_capture=e.sentry_capture,
         )
     except Exception as e:
@@ -880,7 +958,9 @@ async def invoke_once(
         exec_result = ExecutorActionErrorInfo.from_exc(e, action_name=action_name)
         classification = chained_error_classification(e)
         _attach_loop_context(exec_result, iteration)
-        exec_result = _sanitize_error_info(exec_result, classification)
+        exec_result = _sanitize_error_info(
+            exec_result, classification, action_name=action_name
+        )
         # Log only the safe diagnostic when secrets may be in scope.
         logger.error(
             "Backend execution failed",
@@ -894,9 +974,16 @@ async def invoke_once(
         # chained __cause__/__context__ is re-serialized downstream.
         safe_error = ExecutionError(
             info=exec_result,
-            classification=classification,
+            classification=_sanitized_classification(classification, exec_result),
             sentry_capture=(
-                capture_activity_failure(e, classification)
+                capture_activity_failure(
+                    ExecutionError(info=exec_result)
+                    if (policy := ctx_error_masking.get()) is not None
+                    and policy.withhold
+                    else e,
+                    _sanitized_classification(classification, exec_result)
+                    or classification,
+                )
                 if classification is not None
                 else None
             ),
@@ -913,6 +1000,7 @@ async def invoke_once(
         return action_result
     finally:
         ctx_secret_masks.reset(masks_token)
+        ctx_error_masking.reset(policy_token)
     # Raise outside the handlers so the plaintext original is not attached.
     raise safe_error
 
@@ -960,7 +1048,15 @@ async def dispatch_action(backend: ExecutorBackend, input: RunActionInput) -> An
     base_context = input.exec_context
     # We have a list of iterators that give a variable assignment path ".path.to.value"
     # and a collection of values as a tuple.
-    iterators = get_iterables_from_expression(expr=task.for_each, operand=base_context)
+    loop_policy_token = ctx_error_masking.set(
+        ErrorMaskingContext(mode=await get_error_masking_mode(role))
+    )
+    try:
+        iterators = get_iterables_from_expression(
+            expr=task.for_each, operand=base_context
+        )
+    finally:
+        ctx_error_masking.reset(loop_policy_token)
 
     max_concurrency = max(1, config.TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY)
     # Use a fixed worker pool instead of a semaphore around one task per loop item.

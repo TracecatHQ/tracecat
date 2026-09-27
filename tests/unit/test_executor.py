@@ -3,6 +3,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
@@ -42,6 +43,7 @@ from tracecat.registry.lock.types import RegistryLock
 from tracecat.registry.repository import Repository
 from tracecat.registry.versions.schemas import RegistryVersionManifestAction
 from tracecat.registry.versions.service import RegistryVersionsService
+from tracecat.secrets.error_masking import ErrorMaskingMode
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 
@@ -1132,3 +1134,12 @@ def test_flatten_nested_exception_groups(
     assert isinstance(result, list)
     assert len(result) == 3  # 1 from outer + 2 from inner
     assert all(isinstance(err, ExecutionError) for err in result)
+
+
+@pytest.fixture(autouse=True)
+def provenance_error_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Executor tests run with the default mode without accessing settings storage."""
+    monkeypatch.setattr(
+        "tracecat.executor.service.get_error_masking_mode",
+        AsyncMock(return_value=ErrorMaskingMode.PROVENANCE),
+    )

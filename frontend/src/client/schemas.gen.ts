@@ -112,13 +112,6 @@ export const $ActionControlFlow = {
         "If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.",
       default: false,
     },
-    unsafe_disable_secret_error_withholding: {
-      type: "boolean",
-      title: "Unsafe Disable Secret Error Withholding",
-      description:
-        "Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.",
-      default: false,
-    },
   },
   type: "object",
   title: "ActionControlFlow",
@@ -643,13 +636,6 @@ export const $ActionStatement_Input = {
         "If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.",
       default: false,
     },
-    unsafe_disable_secret_error_withholding: {
-      type: "boolean",
-      title: "Unsafe Disable Secret Error Withholding",
-      description:
-        "Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.",
-      default: false,
-    },
   },
   type: "object",
   required: ["ref", "action"],
@@ -795,13 +781,6 @@ export const $ActionStatement_Output = {
       title: "Mask Output",
       description:
         "If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.",
-      default: false,
-    },
-    unsafe_disable_secret_error_withholding: {
-      type: "boolean",
-      title: "Unsafe Disable Secret Error Withholding",
-      description:
-        "Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.",
       default: false,
     },
   },
@@ -5048,13 +5027,11 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Action Form Mode Enabled",
     },
-    app_unsafe_disable_secret_error_withholding_workspace_ids: {
-      items: {
-        type: "string",
-        format: "uuid",
-      },
-      type: "array",
-      title: "App Unsafe Disable Secret Error Withholding Workspace Ids",
+    app_error_masking_mode: {
+      $ref: "#/components/schemas/ErrorMaskingMode",
+      description:
+        "Default error masking mode. Workspaces may override this setting.",
+      default: "provenance",
     },
   },
   type: "object",
@@ -5111,15 +5088,11 @@ export const $AppSettingsUpdate = {
         "Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
       default: true,
     },
-    app_unsafe_disable_secret_error_withholding_workspace_ids: {
-      items: {
-        type: "string",
-        format: "uuid",
-      },
-      type: "array",
-      title: "App Unsafe Disable Secret Error Withholding Workspace Ids",
+    app_error_masking_mode: {
+      $ref: "#/components/schemas/ErrorMaskingMode",
       description:
-        "Legacy allow-list, ignored by action execution. Error diagnostics always mask known secrets and observed secret-derived values.",
+        "Default error masking mode. Workspaces may override this setting.",
+      default: "provenance",
     },
   },
   type: "object",
@@ -13938,6 +13911,12 @@ export const $EntitlementsDict = {
   description: `TypedDict for tier entitlements stored in JSONB.
 
 All keys are optional (total=False) to support partial overrides.`,
+} as const
+
+export const $ErrorMaskingMode = {
+  type: "string",
+  enum: ["provenance", "conservative"],
+  title: "ErrorMaskingMode",
 } as const
 
 export const $ErrorModel = {
@@ -35051,12 +35030,9 @@ export const $WorkspaceRead = {
       format: "uuid",
       title: "Organization Id",
     },
-    unsafe_disable_secret_error_withholding_allowed: {
-      type: "boolean",
-      title: "Unsafe Disable Secret Error Withholding Allowed",
-      description:
-        "Whether the organization lets this workspace's actions opt into showing original error details when secrets are in scope.",
-      default: false,
+    effective_error_masking_mode: {
+      $ref: "#/components/schemas/ErrorMaskingMode",
+      default: "conservative",
     },
   },
   type: "object",
@@ -35083,6 +35059,16 @@ export const $WorkspaceReadMinimal = {
 
 export const $WorkspaceSettingsRead = {
   properties: {
+    error_masking_mode: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ErrorMaskingMode",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     git_provider: {
       anyOf: [
         {
@@ -35196,6 +35182,18 @@ export const $WorkspaceSettingsRead = {
 
 export const $WorkspaceSettingsUpdate = {
   properties: {
+    error_masking_mode: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ErrorMaskingMode",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Error masking override. Null inherits the organization default.",
+    },
     git_provider: {
       anyOf: [
         {

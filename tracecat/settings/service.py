@@ -8,7 +8,6 @@ from cryptography.fernet import InvalidToken
 from pydantic import BaseModel, SecretStr
 from pydantic_core import to_jsonable_python
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import get_default_organization_id
@@ -23,12 +22,13 @@ from tracecat.db.engine import (
     SupportsExecute,
     get_async_session_bypass_rls_context_manager,
 )
-from tracecat.db.models import OrganizationSetting
+from tracecat.db.models import OrganizationSetting, Workspace
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
+from tracecat.secrets.error_masking import ErrorMaskingMode
 from tracecat.service import BaseOrgService
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.schemas import (
@@ -425,34 +425,77 @@ async def get_setting_from_bypass_session(
     return no_default_val
 
 
-async def workspace_allows_error_details(
+async def resolve_error_masking_mode(
     *,
     organization_id: OrganizationID,
     workspace_id: WorkspaceID,
     session: SupportsExecute,
-) -> bool:
-    """Whether the org lets this workspace's actions opt out of secret error withholding.
+) -> ErrorMaskingMode:
+    """Resolve workspace override then org default; unreadable state fails closed.
 
-    Fails closed: any lookup failure or malformed value denies the workspace.
+    Explicit organization and workspace predicates are required even with RLS
+    bypass sessions. No cache is shared between executions or tenants.
     """
     try:
-        value = await get_setting_from_bypass_session(
-            "app_unsafe_disable_secret_error_withholding_workspace_ids",
-            organization_id=organization_id,
-            session=session,
-            default=[],
+        result = await session.execute(
+            select(Workspace.settings).where(
+                Workspace.id == workspace_id,
+                Workspace.organization_id == organization_id,
+            )
         )
-    except SQLAlchemyError as e:
-        logger.warning(
-            "Failed to read error-details workspace allow-list; denying",
-            organization_id=organization_id,
-            workspace_id=workspace_id,
-            error=str(e),
+        settings = result.scalar_one()
+        if settings is None:
+            settings = {}
+        if not isinstance(settings, dict):
+            return ErrorMaskingMode.CONSERVATIVE
+        override = settings.get("error_masking_mode")
+        if override is not None:
+            return ErrorMaskingMode(override)
+        return await _read_error_masking_default(organization_id, session)
+    except Exception:
+        # Includes malformed JSON/encrypted settings and unavailable storage.
+        # Never log setting contents or a database exception containing them.
+        logger.warning("Could not resolve error masking mode; using conservative mode")
+        return ErrorMaskingMode.CONSERVATIVE
+
+
+async def _read_error_masking_default(
+    organization_id: OrganizationID, session: SupportsExecute
+) -> ErrorMaskingMode:
+    key = "app_error_masking_mode"
+    override = _resolve_setting_override(key)
+    if override is not UNSET:
+        return ErrorMaskingMode(override)
+    result = await session.execute(
+        select(OrganizationSetting).where(
+            OrganizationSetting.organization_id == organization_id,
+            OrganizationSetting.key == key,
         )
-        return False
-    if not isinstance(value, list):
-        return False
-    return str(workspace_id) in {str(item) for item in value}
+    )
+    setting = result.scalar_one_or_none()
+    # A missing row has the product default. A present but malformed value,
+    # including JSON null, must fail closed in the caller instead.
+    return (
+        ErrorMaskingMode(_deserialize_setting_value(setting))
+        if setting is not None
+        else ErrorMaskingMode.PROVENANCE
+    )
+
+
+async def get_error_masking_mode(role: Role) -> ErrorMaskingMode:
+    """Read a fresh execution policy, including failures to acquire a session."""
+    if role.organization_id is None or role.workspace_id is None:
+        return ErrorMaskingMode.CONSERVATIVE
+    try:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            return await resolve_error_masking_mode(
+                organization_id=role.organization_id,
+                workspace_id=role.workspace_id,
+                session=session,
+            )
+    except Exception:
+        logger.warning("Could not read error masking mode; using conservative mode")
+        return ErrorMaskingMode.CONSERVATIVE
 
 
 async def get_setting(

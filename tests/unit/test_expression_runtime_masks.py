@@ -18,6 +18,7 @@ from tracecat.executor.schemas import (
 )
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.expressions.policy import build_provenance
+from tracecat.secrets.error_masking import ErrorMaskingMode
 from tracecat.secrets.masking import SecretMaskCollector
 
 SECRET = "synthetic-credential-value"
@@ -638,3 +639,12 @@ def test_reading_secret_mapping_does_not_collect_field_names(
     assert SECRET in masks.values
     assert "api" not in masks.values
     assert "TOKEN" not in masks.values
+
+
+@pytest.fixture(autouse=True)
+def provenance_error_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Executor tests run with the default mode without accessing settings storage."""
+    monkeypatch.setattr(
+        "tracecat.executor.service.get_error_masking_mode",
+        AsyncMock(return_value=ErrorMaskingMode.PROVENANCE),
+    )

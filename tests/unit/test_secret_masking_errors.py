@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from tracecat.contexts import ctx_secret_masks
+from tracecat.contexts import ctx_error_masking, ctx_secret_masks
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.executor.schemas import ExecutorActionErrorInfo
 from tracecat.executor.secret_preprocessors import collect_mask_values
@@ -23,6 +23,11 @@ from tracecat.secrets.common import (
     await_with_masked_errors,
     call_with_masked_errors,
     mask_exception,
+)
+from tracecat.secrets.error_masking import (
+    WITHHELD_ERROR_MESSAGE,
+    ErrorMaskingContext,
+    ErrorMaskingMode,
 )
 from tracecat.secrets.masking import SecretMaskCollector
 
@@ -871,3 +876,34 @@ def test_loop_context_withholds_loop_variables() -> None:
     rendered = str(info)
     assert CANARY not in rendered
     assert "Iteration 0" in rendered
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("mode", ["provenance", "conservative"])
+@pytest.mark.usefixtures("async_mask_scope")
+async def test_masking_modes_across_opaque_template_result(mode: str) -> None:
+    """A later expression must not expose a secret transformed by a prior step."""
+    encoded = base64.b64encode(CANARY.encode()).decode()
+    token = ctx_error_masking.set(ErrorMaskingContext(ErrorMaskingMode(mode)))
+    try:
+        with pytest.raises(TracecatExpressionError) as caught:
+            await _run_template(
+                caller_args={"token": "${{ SECRETS.api.TOKEN }}"},
+                steps=[("encode", {"token": "${{ inputs.token }}"})],
+                returns="${{ int(steps.encode.result) }}",
+                inputs={"token": CANARY},
+                step_results={"encode": {"result": encoded}},
+                steps_declaring_secrets={"encode"},
+            )
+        assert encoded not in str(caught.value)
+        assert CANARY not in str(caught.value)
+        assert caught.value.__context__ is None
+        if mode == "conservative":
+            assert str(caught.value) == WITHHELD_ERROR_MESSAGE
+            masks = ctx_secret_masks.get()
+            assert masks is not None
+            assert encoded not in masks.values
+        else:
+            assert "ValueError in int(***)" in str(caught.value)
+    finally:
+        ctx_error_masking.reset(token)

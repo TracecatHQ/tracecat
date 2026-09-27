@@ -44,6 +44,7 @@ from tracecat.sandbox.types import (
 )
 from tracecat.sandbox.unsafe_pid_executor import UnsafePidExecutor
 from tracecat.sandbox.wrapper import INSTALL_SCRIPT, WRAPPER_SCRIPT
+from tracecat.secrets.diagnostics import sanitize_diagnostic
 
 
 async def _await_task_rejoined(task: asyncio.Task[Any]) -> Any:
@@ -270,7 +271,7 @@ class SandboxService:
 
         logger.info(
             "Installing packages",
-            dependencies=dependencies,
+            dependencies=sanitize_diagnostic(dependencies),
             cache_key=cache_key,
         )
 
@@ -282,9 +283,9 @@ class SandboxService:
         if not result.success:
             logger.error(
                 "Package installation failed",
-                dependencies=dependencies,
-                error=result.error,
-                stderr=result.stderr[:500],
+                dependencies=sanitize_diagnostic(dependencies),
+                error=sanitize_diagnostic(result.error),
+                stderr=sanitize_diagnostic(result.stderr[:500]),
             )
             if result.error_code is SandboxErrorCode.INFRASTRUCTURE_FAILURE:
                 raise_for_sandbox_error_code(
@@ -515,9 +516,13 @@ class SandboxService:
                 error_msg = result.error or "Unknown error"
                 logger.error(
                     "Script execution failed (unsafe PID executor)",
-                    error=error_msg,
-                    stdout=result.stdout[:500] if result.stdout else None,
-                    stderr=result.stderr[:500] if result.stderr else None,
+                    error=sanitize_diagnostic(error_msg),
+                    stdout=sanitize_diagnostic(result.stdout[:500])
+                    if result.stdout
+                    else None,
+                    stderr=sanitize_diagnostic(result.stderr[:500])
+                    if result.stderr
+                    else None,
                 )
                 # Same trust boundary as the nsjail path: a rejected result
                 # envelope was produced by sandbox-controlled code and must
@@ -633,9 +638,13 @@ class SandboxService:
                 error_msg = result.error or "Unknown error"
                 logger.error(
                     "Script execution failed",
-                    error=error_msg,
-                    stdout=result.stdout[:500] if result.stdout else None,
-                    stderr=result.stderr[:500] if result.stderr else None,
+                    error=sanitize_diagnostic(error_msg),
+                    stdout=sanitize_diagnostic(result.stdout[:500])
+                    if result.stdout
+                    else None,
+                    stderr=sanitize_diagnostic(result.stderr[:500])
+                    if result.stderr
+                    else None,
                 )
                 # Envelope errors may carry a structured dict; the typed
                 # exceptions take plain strings only. A resource-limit death

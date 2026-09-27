@@ -505,14 +505,6 @@ TRACECAT__UNSAFE_DISABLE_SM_MASKING = env_bool(
     development and should never be enabled in production.
 """
 
-TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING = env_bool(
-    "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", default=False
-)
-"""Legacy setting accepted by existing deployments; no longer changes behavior.
-Action and expression errors always use selective masking of known secrets and
-observed secret-derived values.
-"""
-
 # === M2M config === #
 TRACECAT__SERVICE_KEY = os.environ.get("TRACECAT__SERVICE_KEY")
 TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS = int(

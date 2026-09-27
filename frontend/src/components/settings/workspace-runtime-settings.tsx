@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { WorkspaceRead } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import {
   Form,
@@ -14,11 +15,22 @@ import {
   FormLabel,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useWorkspaceSettings } from "@/lib/hooks"
 
 export const runtimeSettingsSchema = z
   .object({
+    error_masking_mode: z
+      .enum(["inherit", "provenance", "conservative"])
+      .default("inherit"),
     workflow_unlimited_timeout_enabled: z.boolean().optional(),
     workflow_default_timeout_seconds: z.number().optional(),
   })
@@ -46,6 +58,10 @@ interface WorkspaceRuntimeSettingsProps {
 
 export function buildRuntimeSettingsUpdate(values: RuntimeSettingsForm) {
   return {
+    error_masking_mode:
+      values.error_masking_mode === "inherit"
+        ? null
+        : values.error_masking_mode,
     workflow_unlimited_timeout_enabled:
       values.workflow_unlimited_timeout_enabled,
     workflow_default_timeout_seconds:
@@ -56,12 +72,14 @@ export function buildRuntimeSettingsUpdate(values: RuntimeSettingsForm) {
 export function WorkspaceRuntimeSettings({
   workspace,
 }: WorkspaceRuntimeSettingsProps) {
+  const canUpdate = useScopeCheck("workspace:update") === true
   const { updateWorkspace, isUpdating } = useWorkspaceSettings(workspace.id)
 
   const form = useForm<RuntimeSettingsForm>({
     resolver: zodResolver(runtimeSettingsSchema),
     mode: "onChange",
     defaultValues: {
+      error_masking_mode: workspace.settings?.error_masking_mode ?? "inherit",
       workflow_unlimited_timeout_enabled:
         workspace.settings?.workflow_unlimited_timeout_enabled ?? false,
       workflow_default_timeout_seconds:
@@ -132,7 +150,44 @@ export function WorkspaceRuntimeSettings({
           )}
         />
 
-        <Button type="submit" disabled={isUpdating} size="sm">
+        <FormField
+          control={form.control}
+          name="error_masking_mode"
+          render={({ field }) => (
+            <FormItem className="flex flex-col gap-2 rounded-lg border p-4">
+              <FormLabel>Error masking</FormLabel>
+              <FormDescription>
+                Provenance masks known secrets and observed secret-derived
+                values. Conservative disables error value tracking and withholds
+                potentially sensitive details, including transformations inside
+                action code. Saved effective mode:{" "}
+                {workspace.effective_error_masking_mode}.
+              </FormDescription>
+              <Select
+                value={field.value}
+                onValueChange={field.onChange}
+                disabled={!canUpdate}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="inherit">
+                      Inherit organization
+                    </SelectItem>
+                    <SelectItem value="provenance">Provenance</SelectItem>
+                    <SelectItem value="conservative">Conservative</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </FormItem>
+          )}
+        />
+
+        <Button type="submit" disabled={isUpdating || !canUpdate} size="sm">
           {isUpdating ? "Saving..." : "Save"}
         </Button>
       </form>

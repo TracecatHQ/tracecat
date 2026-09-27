@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from lark import Token, Tree, Visitor
 
-from tracecat.contexts import ctx_secret_masks
+from tracecat.contexts import ctx_error_masking, ctx_secret_masks
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, ExprType
@@ -19,6 +19,11 @@ from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.validator.validator import BaseExprValidator
 from tracecat.logger import logger
 from tracecat.parse import traverse_expressions
+from tracecat.secrets.error_masking import (
+    WITHHELD_ERROR_MESSAGE,
+    ErrorMaskingMode,
+    may_reference_secrets,
+)
 from tracecat.secrets.masking import SecretMaskCollector
 
 if TYPE_CHECKING:
@@ -119,14 +124,26 @@ class Expression:
 
         masks = ctx_secret_masks.get() or SecretMaskCollector()
         masks.observe((self._operand or {}).get(ExprContext.SECRETS, {}))
-        observer = SecretValueObserver(masks, self._provenance)
+        policy = ctx_error_masking.get()
+        conservative = (
+            policy is not None and policy.mode is ErrorMaskingMode.CONSERVATIVE
+        )
+        sensitive = may_reference_secrets(self._expr)
+        # The fallback never constructs the provenance observer or instruments
+        # JSONPath transforms. Authored runtime references are unsafe regardless
+        # of whether a concrete secret value has already been observed.
+        observer = (
+            None if conservative else SecretValueObserver(masks, self._provenance)
+        )
         try:
             visitor = ExprEvaluator(
                 operand=self._operand,
-                observe=observer.observe,
-                format_error=observer.format_error,
-                find_jsonpath=lambda path, data: find_with_secret_masks(
-                    path, data, masks
+                observe=observer.observe if observer else None,
+                format_error=observer.format_error if observer else None,
+                find_jsonpath=(
+                    (lambda path, data: find_with_secret_masks(path, data, masks))
+                    if observer
+                    else None
                 ),
             )
             if parse_tree is None:
@@ -144,10 +161,17 @@ class Expression:
                 )
             return default()
         except TracecatExpressionError as e:
-            error = TracecatExpressionError(
-                masks.redact(f"Error evaluating expression `{self._expr}`\n\n{e}"),
-                detail=masks.redact(e.detail if e.detail is not None else str(e)),
+            message = (
+                WITHHELD_ERROR_MESSAGE
+                if conservative and sensitive
+                else masks.redact(f"Error evaluating expression `{self._expr}`\n\n{e}")
             )
+            detail = (
+                WITHHELD_ERROR_MESSAGE
+                if conservative and sensitive
+                else masks.redact(e.detail if e.detail is not None else str(e))
+            )
+            error = TracecatExpressionError(message, detail=detail)
         # Raise outside the handler so no unmasked exception remains reachable.
         raise error
 

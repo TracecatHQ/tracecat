@@ -481,6 +481,8 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
     action_impl: dict[str, Any] | None = None
     secret_env: dict[str, str] = input_data.get("secret_env", {})
     mask_pattern: re.Pattern[str] | None = None
+    withhold = input_data.get("withhold_error_details", False)
+    withheld_message = "Details withheld because this operation may involve secrets."
     try:
         mask_values: set[str] = set(input_data.get("secret_mask_values", ()))
         mask_values.update(_collect_secret_mask_values(secret_env))
@@ -521,6 +523,8 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
 
         # Mask secret values in captured output to prevent leaking credentials
         if captured_stdout := action_stdout.getvalue().strip():
+            if withhold:
+                captured_stdout = withheld_message
             if mask_pattern is not None:
                 captured_stdout = mask_pattern.sub("***", captured_stdout)
             _emit_suppressed_output_notice(
@@ -529,6 +533,8 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
                 truncated=action_stdout.truncated,
             )
         if captured_stderr := action_stderr.getvalue().strip():
+            if withhold:
+                captured_stderr = withheld_message
             if mask_pattern is not None:
                 captured_stderr = mask_pattern.sub("***", captured_stderr)
             _emit_suppressed_output_notice(
@@ -557,7 +563,7 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         tb = traceback.extract_tb(e.__traceback__)
         last_frame = tb[-1] if tb else None
 
-        message = str(e)
+        message = withheld_message if withhold else str(e)
         if mask_pattern is not None:
             message = mask_pattern.sub("***", message)
 
@@ -565,11 +571,15 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
             "success": False,
             "result": None,
             "error": {
-                "type": type(e).__name__,
+                "type": "ActionError" if withhold else type(e).__name__,
                 "message": message,
                 "action_name": _action_display_name(action_impl),
-                "filename": last_frame.filename if last_frame else "<unknown>",
-                "function": last_frame.name if last_frame else "<unknown>",
+                "filename": "<withheld>"
+                if withhold
+                else (last_frame.filename if last_frame else "<unknown>"),
+                "function": "<withheld>"
+                if withhold
+                else (last_frame.name if last_frame else "<unknown>"),
                 "lineno": last_frame.lineno if last_frame else None,
             },
         }

@@ -7,10 +7,12 @@ describe("workspace runtime settings", () => {
   it("sends null when clearing the default timeout", () => {
     expect(
       buildRuntimeSettingsUpdate({
+        error_masking_mode: "inherit",
         workflow_unlimited_timeout_enabled: false,
         workflow_default_timeout_seconds: undefined,
       })
     ).toEqual({
+      error_masking_mode: null,
       workflow_unlimited_timeout_enabled: false,
       workflow_default_timeout_seconds: null,
     })
@@ -19,10 +21,12 @@ describe("workspace runtime settings", () => {
   it("keeps numeric timeout values when present", () => {
     expect(
       buildRuntimeSettingsUpdate({
+        error_masking_mode: "inherit",
         workflow_unlimited_timeout_enabled: false,
         workflow_default_timeout_seconds: 300,
       })
     ).toEqual({
+      error_masking_mode: null,
       workflow_unlimited_timeout_enabled: false,
       workflow_default_timeout_seconds: 300,
     })
@@ -55,3 +59,13 @@ describe("workspace runtime settings", () => {
     expect(result.success).toBe(false)
   })
 })
+
+it.each(["provenance", "conservative"] as const)(
+  "sends explicit %s override",
+  (mode) => {
+    expect(
+      buildRuntimeSettingsUpdate({ error_masking_mode: mode })
+        .error_masking_mode
+    ).toBe(mode)
+  }
+)

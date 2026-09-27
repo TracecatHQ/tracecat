@@ -22,7 +22,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import InvitationID, UserID, WorkspaceID
 from tracecat.logger import logger
-from tracecat.settings.service import workspace_allows_error_details
+from tracecat.settings.service import resolve_error_masking_mode
 from tracecat.workspaces.schemas import (
     WorkspaceCreate,
     WorkspaceInvitationCreate,
@@ -157,8 +157,8 @@ async def get_workspace(
         name=workspace.name,
         settings=WorkspaceSettingsRead.model_validate(workspace.settings or {}),
         organization_id=workspace.organization_id,
-        unsafe_disable_secret_error_withholding_allowed=(
-            await workspace_allows_error_details(
+        effective_error_masking_mode=(
+            await resolve_error_masking_mode(
                 organization_id=workspace.organization_id,
                 workspace_id=workspace.id,
                 session=session,
@@ -190,6 +190,11 @@ async def update_workspace(
         name=updated.name,
         settings=WorkspaceSettingsRead.model_validate(updated.settings or {}),
         organization_id=updated.organization_id,
+        effective_error_masking_mode=await resolve_error_masking_mode(
+            organization_id=updated.organization_id,
+            workspace_id=updated.id,
+            session=session,
+        ),
     )
 
 

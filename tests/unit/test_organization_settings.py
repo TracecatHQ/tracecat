@@ -1,13 +1,12 @@
 import uuid
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import orjson
 import pytest
 from fastapi import HTTPException
 from pydantic import HttpUrl
 from pydantic_core import to_jsonable_python
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -15,8 +14,9 @@ from tracecat.agent.otel_config import AgentOtelConfig
 from tracecat.auth.enums import AuthType
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.models import OrganizationDomain
+from tracecat.db.models import OrganizationDomain, Workspace
 from tracecat.organization.domains import normalize_domain
+from tracecat.secrets.error_masking import ErrorMaskingMode
 from tracecat.settings import service as settings_service_module
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.router import (
@@ -25,6 +25,7 @@ from tracecat.settings.router import (
 )
 from tracecat.settings.schemas import (
     AgentOtelSettingsUpdate,
+    AppSettingsUpdate,
     AuditSettingsUpdate,
     GitSettingsUpdate,
     SAMLSettingsUpdate,
@@ -37,8 +38,10 @@ from tracecat.settings.service import (
     SettingsService,
     get_setting,
     get_setting_override,
-    workspace_allows_error_details,
+    resolve_error_masking_mode,
 )
+from tracecat.workspaces.schemas import WorkspaceSettingsUpdate, WorkspaceUpdate
+from tracecat.workspaces.service import WorkspaceService
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -823,47 +826,47 @@ async def test_setting_with_override(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("stored", "expected"),
-    [
-        pytest.param(None, False, id="missing"),
-        pytest.param([], False, id="empty"),
-        pytest.param("not-a-list", False, id="malformed"),
-        pytest.param([str(uuid.UUID(int=9))], False, id="other-workspace"),
-        pytest.param([str(uuid.UUID(int=7))], True, id="allowed"),
-        pytest.param([uuid.UUID(int=7)], True, id="allowed-uuid-objects"),
-    ],
-)
-async def test_workspace_allows_error_details(
-    stored: object, expected: bool, monkeypatch: pytest.MonkeyPatch
+async def test_masking_default_workspace_override_and_tenant_isolation(
+    settings_service: SettingsService,
+    session: AsyncSession,
+    svc_admin_role: Role,
+    svc_workspace: Workspace,
 ) -> None:
-    """The allow-list check only passes for a listed workspace and fails closed."""
-    monkeypatch.setattr(
-        settings_service_module,
-        "get_setting_from_bypass_session",
-        AsyncMock(return_value=[] if stored is None else stored),
+    """Persist modes through normal settings services and resolve with tenant scope."""
+    workspace_service = WorkspaceService(session, role=svc_admin_role)
+    await settings_service.update_app_settings(
+        AppSettingsUpdate(app_error_masking_mode=ErrorMaskingMode.CONSERVATIVE)
     )
-    result = await workspace_allows_error_details(
-        organization_id=uuid.uuid4(),
-        workspace_id=uuid.UUID(int=7),
-        session=MagicMock(),
-    )
-    assert result is expected
 
+    async def effective() -> ErrorMaskingMode:
+        return await resolve_error_masking_mode(
+            organization_id=svc_workspace.organization_id,
+            workspace_id=svc_workspace.id,
+            session=session,
+        )
 
-@pytest.mark.anyio
-async def test_workspace_allows_error_details_fails_closed_on_db_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A failed allow-list lookup denies the workspace instead of raising."""
-    monkeypatch.setattr(
-        settings_service_module,
-        "get_setting_from_bypass_session",
-        AsyncMock(side_effect=SQLAlchemyError("boom")),
+    assert await effective() is ErrorMaskingMode.CONSERVATIVE
+    await workspace_service.update_workspace(
+        svc_workspace,
+        WorkspaceUpdate(
+            settings=WorkspaceSettingsUpdate(
+                error_masking_mode=ErrorMaskingMode.PROVENANCE
+            )
+        ),
     )
-    result = await workspace_allows_error_details(
-        organization_id=uuid.uuid4(),
-        workspace_id=uuid.UUID(int=7),
-        session=MagicMock(),
+    assert await effective() is ErrorMaskingMode.PROVENANCE
+    assert (
+        await resolve_error_masking_mode(
+            organization_id=uuid.uuid4(), workspace_id=svc_workspace.id, session=session
+        )
+        is ErrorMaskingMode.CONSERVATIVE
     )
-    assert result is False
+    await workspace_service.update_workspace(
+        svc_workspace,
+        WorkspaceUpdate(settings=WorkspaceSettingsUpdate(error_masking_mode=None)),
+    )
+    assert await effective() is ErrorMaskingMode.CONSERVATIVE
+    await settings_service.update_app_settings(
+        AppSettingsUpdate(app_error_masking_mode=ErrorMaskingMode.PROVENANCE)
+    )
+    assert await effective() is ErrorMaskingMode.PROVENANCE
