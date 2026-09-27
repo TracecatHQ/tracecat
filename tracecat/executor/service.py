@@ -659,9 +659,16 @@ async def _invoke_step(
         The step execution result (unmasked)
     """
     if (policy := ctx_error_masking.get()) is not None:
-        policy.sensitive |= bool(resolved_context.secrets) or bool(
-            resolved_context.secret_projection
-            and resolved_context.secret_projection.env
+        # Code can read its SDK credential even without declared user secrets.
+        # A credential-bearing runtime cannot establish that arbitrary diagnostics
+        # are public merely from the absence of SECRETS expressions.
+        policy.sensitive |= (
+            bool(resolved_context.executor_token)
+            or bool(resolved_context.secrets)
+            or bool(
+                resolved_context.secret_projection
+                and resolved_context.secret_projection.env
+            )
         )
     match resolved_context.action_impl.type:
         case "template":

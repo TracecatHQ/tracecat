@@ -240,7 +240,8 @@ def action_input(args):
 
 
 @pytest.mark.anyio
-async def test_invocation_mode_and_sensitivity_isolation(monkeypatch):
+@pytest.mark.parametrize("action_name", ["testing.probe", "core.script.run_python"])
+async def test_invocation_mode_and_sensitivity_isolation(monkeypatch, action_name):
     async def mode_for_role(role):
         return (
             ErrorMaskingMode.CONSERVATIVE
@@ -254,7 +255,7 @@ async def test_invocation_mode_and_sensitivity_isolation(monkeypatch):
         service.registry_resolver,
         "resolve_action",
         AsyncMock(
-            return_value=ActionImplementation(type="udf", action_name="testing.probe")
+            return_value=ActionImplementation(type="udf", action_name=action_name)
         ),
     )
     monkeypatch.setattr(
@@ -285,7 +286,13 @@ async def test_invocation_mode_and_sensitivity_isolation(monkeypatch):
         with pytest.raises(ExecutionError) as caught:
             await service.invoke_once(
                 backend,
-                action_input(args),
+                action_input(args).model_copy(
+                    update={
+                        "task": ActionStatement(
+                            ref="probe", action=action_name, args=args
+                        )
+                    }
+                ),
                 service.DispatchActionContext(
                     ROLE.model_copy(update={"workspace_id": UUID(int=workspace)})
                 ),
@@ -295,12 +302,14 @@ async def test_invocation_mode_and_sensitivity_isolation(monkeypatch):
         assert caught.value.__context__ is None
         return str(caught.value)
 
-    conservative, public, provenance = await asyncio.gather(
+    conservative, public, provenance, credential_only = await asyncio.gather(
         invoke(2, {"value": "${{ TRIGGER }}"}),
-        invoke(2, {"value": "literal"}),
+        invoke(2, {"value": "${{ int('public diagnostic') }}"}),
         invoke(4, {"value": "${{ TRIGGER }}"}),
+        invoke(2, {"value": "literal"}),
     )
     assert WITHHELD_ERROR_MESSAGE in conservative
+    assert WITHHELD_ERROR_MESSAGE in credential_only
     assert "public diagnostic" in public
     assert "public diagnostic" in provenance
 
