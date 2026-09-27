@@ -713,6 +713,10 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       CirclePlay,
       "bg-amber-500/10 text-amber-600 dark:text-amber-400"
     ),
+    "tools.browserless": createColoredLucideRenderer(
+      Laptop,
+      "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+    ),
     "tools.caldera": createColoredLucideRenderer(
       Swords,
       "bg-red-500/10 text-red-600 dark:text-red-400"
