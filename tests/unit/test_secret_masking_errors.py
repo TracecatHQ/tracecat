@@ -5,7 +5,7 @@ sinks when expression evaluation fails with a secret as the operand.
 """
 
 import io
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 import pytest
@@ -34,6 +34,16 @@ def mask_scope() -> Iterator[SecretMaskCollector]:
     token = ctx_secret_masks.set(masks)
     try:
         yield masks
+    finally:
+        ctx_secret_masks.reset(token)
+
+
+@pytest.fixture
+async def async_mask_scope(mask_scope: SecretMaskCollector) -> AsyncIterator[None]:
+    """Set context in the same AnyIO task that runs async tests and fixtures."""
+    token = ctx_secret_masks.set(mask_scope)
+    try:
+        yield
     finally:
         ctx_secret_masks.reset(token)
 
@@ -175,7 +185,7 @@ def test_secret_expression_keeps_masked_diagnostic(
 
     message = str(exc_info.value)
     assert "Details withheld:" not in message
-    assert "invalid literal for int()" in message
+    assert "ValueError in int(***)" in message
 
 
 def test_policy_errors_preserve_their_structured_diagnostic() -> None:
@@ -193,6 +203,7 @@ def test_policy_errors_preserve_their_structured_diagnostic() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("async_mask_scope")
 async def test_registry_jsonpath_miss_omits_runtime_operand() -> None:
     import logging as stdlib_logging
 
@@ -273,6 +284,7 @@ def test_call_with_masked_errors_severs_context() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("async_mask_scope")
 async def test_await_with_masked_errors_severs_context() -> None:
     async def boom() -> None:
         int(CANARY)
@@ -340,6 +352,7 @@ def test_from_exc_does_not_duck_type_unrelated_exceptions() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("async_mask_scope")
 async def test_stdio_env_value_validation_does_not_echo_resolved_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -507,6 +520,7 @@ async def _run_template(
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("async_mask_scope")
 async def test_non_secret_template_input_keeps_full_error() -> None:
     with pytest.raises(TracecatExpressionError) as exc_info:
         await _run_template(
@@ -522,6 +536,7 @@ async def test_non_secret_template_input_keeps_full_error() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("async_mask_scope")
 async def test_secret_backed_template_input_is_masked() -> None:
     with pytest.raises(TracecatExpressionError) as exc_info:
         await _run_template(
@@ -533,11 +548,12 @@ async def test_secret_backed_template_input_is_masked() -> None:
 
     assert WITHHELD_TEXT not in str(exc_info.value)
     assert CANARY not in str(exc_info.value)
-    assert "invalid literal for int()" in str(exc_info.value.detail)
+    assert "ValueError in int(***)" in str(exc_info.value.detail)
     assert CANARY not in str(exc_info.value.detail)
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("async_mask_scope")
 async def test_step_reference_masks_known_secret() -> None:
     with pytest.raises(TracecatExpressionError) as exc_info:
         await _run_template(
@@ -556,6 +572,7 @@ async def test_step_reference_masks_known_secret() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("async_mask_scope")
 async def test_step_reference_without_known_secrets_keeps_full_error() -> None:
     with pytest.raises(TracecatExpressionError) as exc_info:
         await _run_template(
@@ -575,6 +592,7 @@ async def test_step_reference_without_known_secrets_keeps_full_error() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("async_mask_scope")
 async def test_known_secret_is_masked_across_steps() -> None:
     with pytest.raises(TracecatExpressionError) as exc_info:
         await _run_template(
@@ -594,6 +612,7 @@ async def test_known_secret_is_masked_across_steps() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("async_mask_scope")
 async def test_step_result_masks_declared_secret_with_literal_args() -> None:
     """Secrets supplied through the environment are known invocation masks."""
     with pytest.raises(TracecatExpressionError) as exc_info:
@@ -615,6 +634,7 @@ async def test_step_result_masks_declared_secret_with_literal_args() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("async_mask_scope")
 async def test_step_without_declared_secrets_keeps_full_error() -> None:
     with pytest.raises(TracecatExpressionError) as exc_info:
         await _run_template(
@@ -634,6 +654,7 @@ async def test_step_without_declared_secrets_keeps_full_error() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.usefixtures("async_mask_scope")
 async def test_returns_expression_follows_the_same_rules() -> None:
     with pytest.raises(TracecatExpressionError) as exc_info:
         await _run_template(
@@ -679,6 +700,7 @@ async def test_returns_expression_follows_the_same_rules() -> None:
     ],
 )
 @pytest.mark.anyio
+@pytest.mark.usefixtures("async_mask_scope")
 async def test_template_action_error_masks_known_values(
     caller_args: dict[str, Any],
     inputs: dict[str, Any],

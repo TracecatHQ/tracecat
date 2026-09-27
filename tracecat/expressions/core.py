@@ -13,6 +13,7 @@ from tracecat.contexts import ctx_secret_masks
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, ExprType
+from tracecat.expressions.jsonpath import find_with_secret_masks
 from tracecat.expressions.parser.core import parser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.validator.validator import BaseExprValidator
@@ -120,7 +121,14 @@ class Expression:
         masks.observe((self._operand or {}).get(ExprContext.SECRETS, {}))
         observer = SecretValueObserver(masks, self._provenance)
         try:
-            visitor = ExprEvaluator(operand=self._operand, observe=observer.observe)
+            visitor = ExprEvaluator(
+                operand=self._operand,
+                observe=observer.observe,
+                format_error=observer.format_error,
+                find_jsonpath=lambda path, data: find_with_secret_masks(
+                    path, data, masks
+                ),
+            )
             if parse_tree is None:
                 raise ValueError(f"Parser returned None for expression `{self._expr}`")
 

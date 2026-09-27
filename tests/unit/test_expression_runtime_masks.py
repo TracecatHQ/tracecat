@@ -2,7 +2,7 @@
 
 import asyncio
 import base64
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -34,6 +34,16 @@ def masks() -> Iterator[SecretMaskCollector]:
         ctx_secret_masks.reset(token)
 
 
+@pytest.fixture
+async def async_masks(masks: SecretMaskCollector) -> AsyncIterator[SecretMaskCollector]:
+    """Bind masks inside AnyIO's task even when its runner already exists."""
+    token = ctx_secret_masks.set(masks)
+    try:
+        yield masks
+    finally:
+        ctx_secret_masks.reset(token)
+
+
 @pytest.mark.parametrize(
     "expression",
     [
@@ -53,7 +63,7 @@ def test_failed_parent_keeps_diagnostic_and_masks_intermediate(
 
     assert ENCODED in masks.values
     error = caught.value
-    assert "invalid literal for int()" in str(error)
+    assert "ValueError in int(***)" in str(error)
     assert "***" in str(error)
     assert "Details withheld" not in str(error)
     assert SECRET not in str(error)
@@ -77,6 +87,148 @@ def test_diagnostic_representations_are_masked(secret: str) -> None:
         or masks.redact(f"Rejected {secret!r}") == 'Rejected "***"'
     )
     assert masks.redact({secret: {"reason": secret}}) == {"***": {"reason": "***"}}
+
+
+@pytest.mark.parametrize(
+    "secret",
+    [
+        "x" * 198,
+        "x" * 199,
+        "synthetic-private-credential-" + "abcdef0123456789" * 30,
+        "escaped\n\\\"'" * 40,
+        "é漢字" * 100,
+        b"synthetic-private-credential-" * 20,
+    ],
+)
+@pytest.mark.parametrize(
+    "expression", ["int(SECRETS.api.TOKEN)", "SECRETS.api.TOKEN -> int"]
+)
+def test_truncated_integer_errors_mask_observed_secret(
+    masks: SecretMaskCollector, secret: str | bytes, expression: str
+) -> None:
+    with pytest.raises(TracecatExpressionError) as caught:
+        eval_templated_object(
+            "${{ " + expression + " }}",
+            operand={"SECRETS": {"api": {"TOKEN": secret}}},
+        )
+
+    for diagnostic in (str(caught.value), str(caught.value.detail)):
+        assert diagnostic.endswith("ValueError in int(***)")
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+
+    info = ExecutorActionErrorInfo.from_exc(caught.value, action_name="testing.probe")
+    assert service._sanitize_error_info(info, None).message == info.message
+
+
+def test_truncated_integer_error_masks_transformed_secret(
+    masks: SecretMaskCollector,
+) -> None:
+    secret = "synthetic-private-credential-" * 20
+    encoded = base64.b64encode(secret.encode()).decode()
+    with pytest.raises(TracecatExpressionError) as caught:
+        eval_templated_object(
+            "${{ int(FN.to_base64(SECRETS.api.TOKEN)) }}",
+            operand={"SECRETS": {"api": {"TOKEN": secret}}},
+        )
+
+    assert encoded in masks.values
+    assert str(caught.value).endswith("ValueError in int(***)")
+    assert str(caught.value.detail).endswith("ValueError in int(***)")
+
+
+def test_long_public_integer_error_preserves_diagnostic(
+    masks: SecretMaskCollector,
+) -> None:
+    masks.observe("unrelated-private-token" * 20)
+    public = "public-non-numeric-value-" * 20
+    with pytest.raises(ValueError) as original:
+        int(public)
+    with pytest.raises(TracecatExpressionError) as caught:
+        eval_templated_object(
+            "${{ int(TRIGGER.value) }}", operand={"TRIGGER": {"value": public}}
+        )
+    assert str(original.value) in str(caught.value)
+    assert str(original.value) in str(caught.value.detail)
+
+
+@pytest.mark.parametrize(
+    ("operation", "argument", "fragment"),
+    [
+        (
+            'FN.parse_datetime(VALUE, "%Y-%m-%d")',
+            "2026-09-25-synthetic-credential-value",
+            "synthetic-credential-value",
+        ),
+        (
+            'FN.regex_match(VALUE, "a")',
+            "(?P<synthetic-credential-value>a)",
+            "synthetic-credential-value",
+        ),
+        (
+            "FN.deserialize_yaml(VALUE)",
+            "public: ok\n  synthetic-credential-value: [\n",
+            "synthetic-credential-value",
+        ),
+    ],
+)
+@pytest.mark.parametrize("secret", [False, True])
+def test_partial_operand_diagnostics_are_safe_only_when_needed(
+    masks: SecretMaskCollector,
+    operation: str,
+    argument: str,
+    fragment: str,
+    secret: bool,
+) -> None:
+    reference = "SECRETS.api.TOKEN" if secret else "TRIGGER.value"
+    expression = operation.replace("VALUE", reference)
+    with pytest.raises(TracecatExpressionError) as caught:
+        eval_templated_object(
+            "${{ " + expression + " }}",
+            operand=(
+                {"SECRETS": {"api": {"TOKEN": argument}}}
+                if secret
+                else {"TRIGGER": {"value": argument}}
+            ),
+        )
+    for diagnostic in (str(caught.value), str(caught.value.detail)):
+        if secret:
+            assert fragment not in diagnostic
+            assert operation.split("(")[0] + "(***)" in diagnostic
+        else:
+            assert fragment in diagnostic
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+
+
+@pytest.mark.parametrize(
+    "context", ["ACTIONS", "steps", "var", "TRIGGER", "VARS", "ENV"]
+)
+def test_known_secret_fragments_are_protected_in_runtime_carriers(
+    masks: SecretMaskCollector, context: str
+) -> None:
+    secret = "2026-09-25-synthetic-credential-value"
+    masks.observe(secret)
+    with pytest.raises(TracecatExpressionError) as caught:
+        eval_templated_object(
+            "${{ FN.parse_datetime(" + context + '.value, "%Y-%m-%d") }}',
+            operand={context: {"value": secret}},
+        )
+    assert "synthetic-credential-value" not in str(caught.value)
+    assert "synthetic-credential-value" not in str(caught.value.detail)
+    assert "ValueError in FN.parse_datetime(***)" in str(caught.value)
+
+
+def test_public_failure_keeps_diagnostic_after_secret_sibling_evaluation(
+    masks: SecretMaskCollector,
+) -> None:
+    with pytest.raises(TracecatExpressionError) as caught:
+        eval_templated_object(
+            '${{ [SECRETS.api.TOKEN, int("public-invalid-number")] }}',
+            operand={"SECRETS": {"api": {"TOKEN": SECRET}}},
+        )
+    assert "invalid literal for int()" in str(caught.value)
+    assert "public-invalid-number" in str(caught.value.detail)
 
 
 @pytest.mark.parametrize(
@@ -145,8 +297,9 @@ def test_unknown_runtime_carrier_retains_diagnostic(masks: SecretMaskCollector) 
 
 @pytest.mark.anyio
 async def test_invocations_isolate_masks_and_restore_parent(
-    monkeypatch: pytest.MonkeyPatch, masks: SecretMaskCollector
+    monkeypatch: pytest.MonkeyPatch, async_masks: SecretMaskCollector
 ) -> None:
+    masks = async_masks
     barrier = asyncio.Event()
     arrived = 0
     secrets = ("first-private-token", "second-private-token")
@@ -296,6 +449,130 @@ def test_sensitive_mapping_key_does_not_mask_public_keys(
 
 
 @pytest.mark.parametrize(
+    "reference",
+    [
+        "steps.fetch.result.status",
+        "(steps.fetch.result)['status']",
+        "(steps.fetch.result)['nested']['status']",
+        "(steps.fetch.result)['items'][-1]['status']",
+    ],
+)
+def test_selecting_public_value_does_not_inherit_parent_key_sensitivity(
+    masks: SecretMaskCollector, reference: str
+) -> None:
+    masks.observe(SECRET)
+    public = "not-a-number"
+    encoded = base64.b64encode(public.encode()).decode()
+    value = {
+        SECRET: "public-value",
+        "status": public,
+        "nested": {"status": public},
+        "items": [{"status": public}],
+    }
+    with pytest.raises(TracecatExpressionError) as caught:
+        eval_templated_object(
+            "${{ int(FN.to_base64(" + reference + ")) }}",
+            operand={"steps": {"fetch": {"result": value}}},
+        )
+    assert encoded in str(caught.value)
+    assert encoded in str(caught.value.detail)
+    assert public not in masks.values
+    assert encoded not in masks.values
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "inputs.payload.status",
+        "inputs.payload['status']",
+        "(inputs.payload)['status']",
+        "inputs.payload.nested.status",
+        "inputs.payload.items[-1].status",
+    ],
+)
+def test_template_input_selection_ignores_ancestor_key_sensitivity(
+    masks: SecretMaskCollector, reference: str
+) -> None:
+    masks.observe(SECRET)
+    public = "not-a-number"
+    encoded = base64.b64encode(public.encode()).decode()
+    source = {
+        "${{ SECRETS.api.TOKEN }}": "public-value",
+        "status": public,
+        "nested": {"status": public},
+        "items": [{"status": public}],
+    }
+    runtime = {**source, SECRET: source["${{ SECRETS.api.TOKEN }}"]}
+    del runtime["${{ SECRETS.api.TOKEN }}"]
+    with pytest.raises(TracecatExpressionError) as caught:
+        eval_templated_object(
+            "${{ int(FN.to_base64(" + reference + ")) }}",
+            operand={"inputs": {"payload": runtime}},
+            provenance=build_provenance({"payload": source}),
+        )
+    assert encoded in str(caught.value)
+    assert encoded in str(caught.value.detail)
+    assert public not in masks.values
+    assert encoded not in masks.values
+
+
+@pytest.mark.parametrize("depth", [1, 2])
+@pytest.mark.parametrize("container", [False, True])
+def test_public_projection_remains_public_across_nested_templates(
+    masks: SecretMaskCollector, depth: int, container: bool
+) -> None:
+    masks.observe(SECRET)
+    public = {"status": "not-a-number"} if container else "not-a-number"
+    provenance = build_provenance(
+        {"payload": {"${{ SECRETS.api.TOKEN }}": "public", "value": public}}
+    )
+    source = "${{ inputs.payload.value }}"
+    for _ in range(depth):
+        provenance = build_provenance({"child": source}, provenance)
+        source = "${{ inputs.child }}"
+    value_expression = (
+        "FN.serialize_json(inputs.child)" if container else "inputs.child"
+    )
+    with pytest.raises(TracecatExpressionError) as caught:
+        eval_templated_object(
+            "${{ int(" + value_expression + ") }}",
+            operand={"inputs": {"child": public}},
+            provenance=provenance,
+        )
+    assert "not-a-number" in str(caught.value)
+    assert "not-a-number" in str(caught.value.detail)
+    assert "not-a-number" not in masks.values
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "(steps.fetch.result)['token']",
+        "FN.to_keys((steps.fetch.result)['nested'])[0]",
+        "FN.deserialize_json(SECRETS.api.TOKEN)['token']",
+    ],
+)
+def test_selecting_secret_value_or_nested_secret_keys_retains_sensitivity(
+    masks: SecretMaskCollector, reference: str
+) -> None:
+    masks.observe(SECRET)
+    with pytest.raises(TracecatExpressionError) as caught:
+        eval_templated_object(
+            "${{ int(FN.to_base64(" + reference + ")) }}",
+            operand={
+                "steps": {
+                    "fetch": {"result": {"token": SECRET, "nested": {SECRET: "public"}}}
+                },
+                "SECRETS": {"api": {"TOKEN": '{"token":"' + SECRET + '"}'}},
+            },
+        )
+    assert ENCODED in masks.values
+    assert ENCODED not in str(caught.value)
+    assert ENCODED not in str(caught.value.detail)
+    assert "ValueError in int(***)" in str(caught.value)
+
+
+@pytest.mark.parametrize(
     "transform",
     ["FN.to_keys(steps.fetch.result)[0]", "FN.serialize_json(steps.fetch.result)"],
 )
@@ -318,7 +595,7 @@ def test_mapping_key_transformations_are_masked(
             operand={"steps": {"fetch": {"result": value}}},
         )
 
-    assert "invalid literal for int()" in str(caught.value)
+    assert "ValueError in int(***)" in str(caught.value)
     assert encoded not in str(caught.value)
     assert encoded not in str(caught.value.detail)
     assert SECRET not in str(caught.value)
@@ -343,7 +620,7 @@ def test_decoded_secret_mapping_keys_are_masked(
             operand={"SECRETS": {"api": {"TOKEN": secret_json}}},
         )
 
-    assert "Key '***' not found in keys mapping" in str(caught.value)
+    assert "ValueError in FN.map_keys(***)" in str(caught.value)
     assert "synthetic-key-fragment" not in str(caught.value)
     assert "synthetic-key-fragment" not in str(caught.value.detail)
     assert "api" not in masks.values

@@ -208,14 +208,21 @@ class _SecretDependencies:
             else _NO_DEPENDENCIES
         )
 
-    def select(self, path: DataPath) -> _SecretDependencies:
-        """Dependencies of the subtree at ``path``, inheriting marked ancestors."""
+    def select(
+        self, path: DataPath, *, include_parent_keys: bool = True
+    ) -> _SecretDependencies:
+        """Select dependencies, optionally retaining ancestor mapping-key policy.
+
+        Authored-field policy includes ancestor keys. Runtime value selection
+        excludes them because reading a value does not consume sibling keys.
+        Whole-value sensitivity is always inherited.
+        """
         node = self
         value = False
         keys = False
         for segment in path:
             value = value or node.value
-            keys = keys or node.keys
+            keys = keys or (include_parent_keys and node.keys)
             node = node.children.get(segment, _NO_DEPENDENCIES)
         if not (value or keys):
             return node
@@ -271,6 +278,13 @@ class _InputProvenance:
     dependencies: _SecretDependencies
     """Secret dependencies that directly or transitively apply to the value."""
 
+    runtime_dependencies: _SecretDependencies
+    """Value dependencies without ancestor-key policy from source projections.
+
+    Keep this precision when a public projection is passed to a child template;
+    field policy still uses the conservative dependencies above.
+    """
+
 
 type ProvenanceMap = Mapping[str, _InputProvenance]
 
@@ -303,6 +317,31 @@ class SecretValueObserver:
         elif tree.data not in {"arg_list", "kvpair", "list", "dict", "indexer"}:
             self._observe_paths(value, dependencies)
 
+    def format_error(self, tree: Tree[Token], error: Exception) -> str:
+        """Render sensitive failures without copying partial operand diagnostics.
+
+        Successful children identify the inputs to the failing operation. An
+        exception can expose arbitrary fragments of those inputs, so preserve
+        the error type and authored operation rather than its untrusted prose.
+        """
+        sensitive = tree.data == "secrets" or any(
+            self._dependencies.get(id(child), _NO_DEPENDENCIES).secret
+            for child in tree.children
+            if isinstance(child, Tree)
+        )
+        if not sensitive:
+            return self.masks.redact(str(error))
+        match tree.data:
+            case "function":
+                operation = f"FN.{tree.children[0]}"
+            case "typecast":
+                operation = str(tree.children[0])
+            case "trailing_typecast_expression":
+                operation = str(tree.children[-1])
+            case _:
+                operation = str(tree.data)
+        return f"{type(error).__name__} in {operation}(***)"
+
     def _node_dependencies(
         self, tree: Tree[Token], children: list[Tree[Token]], value: Any
     ) -> _SecretDependencies:
@@ -315,11 +354,20 @@ class SecretValueObserver:
             case "template_action_inputs":
                 return _SecretDependencies.merged(
                     (
-                        _tree_dependencies(tree, self.provenance),
+                        _tree_dependencies(
+                            tree, self.provenance, include_parent_keys=False
+                        ),
                         self._known_dependencies(value),
                     )
                 )
-            case "actions" | "local_vars" | "template_action_steps":
+            case (
+                "actions"
+                | "local_vars"
+                | "template_action_steps"
+                | "trigger"
+                | "vars"
+                | "env"
+            ):
                 return self._known_dependencies(value)
             case "arg_list":
                 return _SecretDependencies(
@@ -352,7 +400,7 @@ class SecretValueObserver:
                     ):
                         index += len(base)
                     if isinstance(index, (str, int)):
-                        selected = selected.select((index,))
+                        selected = selected.select((index,), include_parent_keys=False)
                     else:
                         selected = selected.collapsed()
                     # Do not invoke arbitrary __getitem__ implementations a
@@ -399,10 +447,14 @@ class SecretValueObserver:
             for key, item in value.items():
                 if dependencies.keys and self.masks.contains(key):
                     self.masks.observe(key)
-                self._observe_paths(item, dependencies.select((key,)))
+                self._observe_paths(
+                    item, dependencies.select((key,), include_parent_keys=False)
+                )
         elif isinstance(value, (list, tuple)):
             for index, item in enumerate(value):
-                self._observe_paths(item, dependencies.select((index,)))
+                self._observe_paths(
+                    item, dependencies.select((index,), include_parent_keys=False)
+                )
 
 
 @dataclass(frozen=True, slots=True)
@@ -421,7 +473,7 @@ def build_provenance(
     arguments: Mapping[str, Any],
     parent: ProvenanceMap | None = None,
 ) -> dict[str, _InputProvenance]:
-    """Scan authored arguments once and build the template-input mapping."""
+    """Build field-policy and runtime provenance for template inputs."""
     provenance: dict[str, _InputProvenance] = {}
     for parameter, value in arguments.items():
         dependencies = _derive_dependencies(value, parent)
@@ -436,6 +488,11 @@ def build_provenance(
         provenance[parameter] = _InputProvenance(
             source=source,
             dependencies=dependencies,
+            runtime_dependencies=(
+                dependencies
+                if parent is None
+                else _derive_dependencies(value, parent, include_parent_keys=False)
+            ),
         )
     return provenance
 
@@ -635,11 +692,15 @@ def resolve_action_args(
 def _derive_dependencies(
     value: Any,
     parent: ProvenanceMap | None,
+    *,
+    include_parent_keys: bool = True,
 ) -> _SecretDependencies:
     match value:
         case str():
             if parent is not None and (ref := _template_input_ref(value)) is not None:
-                return _select_input(ref, parent).dependencies
+                return _select_input(
+                    ref, parent, include_parent_keys=include_parent_keys
+                ).dependencies
 
             secret = False
             secret_keys = False
@@ -650,13 +711,16 @@ def _derive_dependencies(
                 tree_dependencies = _tree_dependencies(
                     _parse_expression(expression),
                     parent,
+                    include_parent_keys=include_parent_keys,
                 )
                 secret = secret or tree_dependencies.secret
                 secret_keys = secret_keys or tree_dependencies.secret_keys
             return _SecretDependencies(value=secret, keys=secret_keys)
         case list():
             return _SecretDependencies.merged(
-                _derive_dependencies(item, parent).nested(index)
+                _derive_dependencies(
+                    item, parent, include_parent_keys=include_parent_keys
+                ).nested(index)
                 for index, item in enumerate(value)
             )
         case dict():
@@ -665,11 +729,20 @@ def _derive_dependencies(
             secret_key = False
             for key, item in value.items():
                 if isinstance(key, str):
-                    secret_key = secret_key or _derive_dependencies(key, parent).secret
+                    secret_key = (
+                        secret_key
+                        or _derive_dependencies(
+                            key, parent, include_parent_keys=include_parent_keys
+                        ).secret
+                    )
                     dynamic_key = dynamic_key or bool(
                         patterns.TEMPLATE_STRING.search(key)
                     )
-                collected.append(_derive_dependencies(item, parent).nested(key))
+                collected.append(
+                    _derive_dependencies(
+                        item, parent, include_parent_keys=include_parent_keys
+                    ).nested(key)
+                )
             merged = _SecretDependencies.merged(collected)
             if secret_key:
                 merged = replace(merged, keys=True)
@@ -683,22 +756,32 @@ def _derive_dependencies(
 def _select_input(
     ref: _InputRef,
     provenance: ProvenanceMap,
+    *,
+    include_parent_keys: bool = True,
 ) -> _InputSelection:
     sources = {parameter: binding.source for parameter, binding in provenance.items()}
     root_dependencies = _SecretDependencies(
         children={
-            parameter: binding.dependencies
+            parameter: (
+                binding.dependencies
+                if include_parent_keys
+                else binding.runtime_dependencies
+            )
             for parameter, binding in provenance.items()
             if binding.dependencies.secret
         }
     )
 
     if ref.path is None:
-        dependencies = root_dependencies.select(ref.concrete_prefix).collapsed()
+        dependencies = root_dependencies.select(
+            ref.concrete_prefix, include_parent_keys=include_parent_keys
+        ).collapsed()
     elif (dependency_path := _normalize_negative_indices(ref.path, sources)) is None:
         dependencies = root_dependencies.collapsed()
     else:
-        dependencies = root_dependencies.select(dependency_path)
+        dependencies = root_dependencies.select(
+            dependency_path, include_parent_keys=include_parent_keys
+        )
 
     try:
         source = eval_jsonpath(
@@ -741,13 +824,19 @@ def _normalize_negative_indices(path: DataPath, source: Any) -> DataPath | None:
 def _tree_dependencies(
     tree: Tree[Token],
     provenance: ProvenanceMap | None,
+    *,
+    include_parent_keys: bool = True,
 ) -> _SecretDependencies:
     collected = [_SecretDependencies(value=True) for _ in tree.find_data("secrets")]
     if provenance is not None:
         for node in tree.find_data("template_action_inputs"):
             if (ref := _direct_input_ref(node)) is None:
                 continue
-            collected.append(_select_input(ref, provenance).dependencies)
+            collected.append(
+                _select_input(
+                    ref, provenance, include_parent_keys=include_parent_keys
+                ).dependencies
+            )
     return _SecretDependencies.merged(collected)
 
 

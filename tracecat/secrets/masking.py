@@ -44,7 +44,13 @@ class SecretMaskCollector:
                     self.values.add(json.dumps(value, ensure_ascii=ensure_ascii)[1:-1])
 
     def contains(self, value: Any) -> bool:
-        """Whether a scalar contains a known representation of a secret."""
+        """Whether a value or container contains a known secret representation."""
+        if isinstance(value, Mapping):
+            return any(
+                self.contains(key) or self.contains(item) for key, item in value.items()
+            )
+        if isinstance(value, (list, tuple)):
+            return any(self.contains(item) for item in value)
         if not isinstance(value, (str, bytes, int, float, bool)):
             return False
         text = str(value)

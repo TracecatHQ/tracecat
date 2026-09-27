@@ -1325,14 +1325,22 @@ async def test_invoke_once_selectively_masks_all_error_fields(mocker):
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("failure_site", ["step", "returns", "nested-returns"])
+@pytest.mark.parametrize(
+    "failure_site", ["step", "returns", "nested-returns", "jsonpath-returns"]
+)
 @pytest.mark.parametrize("encoded", [False, True])
 async def test_invoke_once_masks_template_expression_errors(
     mocker, failure_site, encoded
 ):
     """Real template failures retain diagnostics, but never known secret values."""
     canary = "secret-template-canary"
-    operand = "FN.to_base64(SECRETS.api.KEY)" if encoded else "SECRETS.api.KEY"
+    operand = (
+        "steps.probe.result.`split(-, 0, -1)`"
+        if failure_site == "jsonpath-returns"
+        else "SECRETS.api.KEY"
+    )
+    if encoded:
+        operand = f"FN.to_base64({operand})"
     expression = "${{ int(" + operand + ") }}"
     role = _expression_policy_role("tracecat-executor")
     action_input = _expression_policy_input("testing.error_details", {})
@@ -1418,7 +1426,11 @@ async def test_invoke_once_masks_template_expression_errors(
         executor_service, "_mint_action_executor_token", return_value="step-token"
     )
     backend = mocker.Mock()
-    backend.execute = mocker.AsyncMock(return_value=ExecutorResultSuccess(result=None))
+    backend.execute = mocker.AsyncMock(
+        return_value=ExecutorResultSuccess(
+            result=canary if failure_site == "jsonpath-returns" else None
+        )
+    )
     error_log = mocker.patch.object(executor_service.logger, "error")
 
     with pytest.raises(ExecutionError) as exc_info:
@@ -1435,7 +1447,11 @@ async def test_invoke_once_masks_template_expression_errors(
         base64.b64encode(canary.encode()).decode() not in error.info.model_dump_json()
     )
     assert canary not in str(error)
-    assert "invalid literal for int()" in error.info.message
+    if failure_site == "jsonpath-returns":
+        fragment = canary.split("-")[0]
+        assert fragment not in error.info.message
+        assert base64.b64encode(fragment.encode()).decode() not in error.info.message
+    assert "ValueError in int(***)" in error.info.message
     assert MASK_VALUE in error.info.message
     assert "Details withheld" not in error.info.message
     assert error.info.type == "TracecatExpressionError"
