@@ -848,8 +848,8 @@ async def test_template_step_applies_target_action_expression_policy(
 
 
 @pytest.mark.anyio
-async def test_template_step_result_is_not_tainted_by_its_arguments(mocker):
-    """Step results stay runtime data across the accepted implementation boundary."""
+async def test_template_step_result_stays_runtime_data_for_field_policy(mocker):
+    """Diagnostic masking does not rewrite values supplied to later actions."""
     source_value = "${{ SECRETS.runtime.TOKEN }}"
     action_input = _expression_policy_input(
         "testing.policy_wrapper",
@@ -1326,7 +1326,15 @@ async def test_invoke_once_selectively_masks_all_error_fields(mocker):
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "failure_site", ["step", "returns", "nested-returns", "jsonpath-returns"]
+    "failure_site",
+    [
+        "step",
+        "returns",
+        "nested-returns",
+        "jsonpath-returns",
+        "opaque-returns",
+        "opaque-nested-returns",
+    ],
 )
 @pytest.mark.parametrize("encoded", [False, True])
 async def test_invoke_once_masks_template_expression_errors(
@@ -1334,11 +1342,16 @@ async def test_invoke_once_masks_template_expression_errors(
 ):
     """Real template failures retain diagnostics, but never known secret values."""
     canary = "secret-template-canary"
-    operand = (
-        "steps.probe.result.`split(-, 0, -1)`"
-        if failure_site == "jsonpath-returns"
-        else "SECRETS.api.KEY"
-    )
+    match failure_site:
+        case "jsonpath-returns":
+            operand = "steps.probe.result.`split(-, 0, -1)`"
+            probe_result = canary
+        case "opaque-returns" | "opaque-nested-returns":
+            operand = "steps.probe.result"
+            probe_result = base64.b64encode(canary.encode()).decode()
+        case _:
+            operand = "SECRETS.api.KEY"
+            probe_result = None
     if encoded:
         operand = f"FN.to_base64({operand})"
     expression = "${{ int(" + operand + ") }}"
@@ -1365,7 +1378,7 @@ async def test_invoke_once_masks_template_expression_errors(
         action_name="testing.error_details",
         template_definition=template_definition,
     )
-    if failure_site == "nested-returns":
+    if failure_site in {"nested-returns", "opaque-nested-returns"}:
         # The nested failure is wrapped in ExecutionError before reaching the
         # root; the other cases reach invoke_once as ordinary exceptions.
         action_impl = action_impl.model_copy(
@@ -1417,7 +1430,7 @@ async def test_invoke_once_masks_template_expression_errors(
                     ),
                     ActionImplementation(type="udf", action_name="core.probe"),
                 ]
-                if failure_site == "nested-returns"
+                if failure_site in {"nested-returns", "opaque-nested-returns"}
                 else [ActionImplementation(type="udf", action_name="core.probe")]
             )
         ),
@@ -1427,9 +1440,7 @@ async def test_invoke_once_masks_template_expression_errors(
     )
     backend = mocker.Mock()
     backend.execute = mocker.AsyncMock(
-        return_value=ExecutorResultSuccess(
-            result=canary if failure_site == "jsonpath-returns" else None
-        )
+        return_value=ExecutorResultSuccess(result=probe_result)
     )
     error_log = mocker.patch.object(executor_service.logger, "error")
 
@@ -1459,8 +1470,11 @@ async def test_invoke_once_masks_template_expression_errors(
     assert error.__cause__ is None
     assert error.__context__ is None
     assert canary not in str(error_log.call_args_list)
+    assert base64.b64encode(canary.encode()).decode() not in str(
+        error_log.call_args_list
+    )
     error_log.assert_called()
-    if failure_site != "nested-returns":
+    if failure_site not in {"nested-returns", "opaque-nested-returns"}:
         assert error_log.call_args.kwargs["error"] == error.info.message
     assert backend.execute.await_count == (0 if failure_site == "step" else 1)
 

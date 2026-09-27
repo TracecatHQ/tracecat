@@ -137,8 +137,10 @@ Common role types:
   `Expression.result()` uses input provenance and observed AST intermediate
   values to mask diagnostics. The executor shares an invocation-scoped mask
   collector across template steps and sanitizes errors before transport.
-  Transformations inside opaque action code are not tracked; do not claim
-  complete redaction of values the evaluator has not observed.
+  Results from opaque code receiving secret arguments or environment values
+  are registered before later template steps consume them. Transformations
+  inside code that fails before returning are not tracked; do not claim
+  complete redaction of unobserved values.
 - A sanitized replacement exception must be raised only after the handler has
   exited: `raise ... from None` clears `__cause__` but not `__context__`, so
   raising in place leaves the plaintext original attached. Use

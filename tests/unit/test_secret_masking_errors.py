@@ -4,6 +4,7 @@ Secret plaintext must not reach exception messages, error info payloads, or log
 sinks when expression evaluation fails with a secret as the operand.
 """
 
+import base64
 import io
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
@@ -609,6 +610,66 @@ async def test_known_secret_is_masked_across_steps() -> None:
 
     assert WITHHELD_TEXT not in str(exc_info.value)
     assert CANARY not in str(exc_info.value)
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("async_mask_scope")
+@pytest.mark.parametrize("secret_source", ["input", "environment"])
+@pytest.mark.parametrize("mapping_key", [False, True])
+async def test_opaque_step_transformations_remain_secret_derived(
+    secret_source: str, mapping_key: bool
+) -> None:
+    """Opaque results stay protected across multiple steps and mapping keys."""
+    encoded = base64.b64encode(CANARY.encode()).decode()
+    transformed = encoded[::-1]
+    from_input = secret_source == "input"
+    result = {transformed: "public"} if mapping_key else transformed
+    reference = (
+        "FN.to_keys(steps.rewrite.result)[0]" if mapping_key else "steps.rewrite.result"
+    )
+    with pytest.raises(TracecatExpressionError) as caught:
+        await _run_template(
+            caller_args={"value": "${{ SECRETS.svc.value }}"} if from_input else {},
+            inputs={"value": CANARY} if from_input else {},
+            steps=[
+                ("encode", {"token": "${{ inputs.value }}"} if from_input else {}),
+                ("rewrite", {"value": "${{ steps.encode.result }}"}),
+                ("convert", {"n": "${{ int(" + reference + ") }}"}),
+            ],
+            step_results={
+                "encode": {"result": encoded},
+                "rewrite": {"result": result},
+            },
+            steps_declaring_secrets=set() if from_input else {"encode"},
+            returns="ok",
+        )
+
+    assert "ValueError in int(***)" in str(caught.value)
+    for value in (CANARY, encoded, transformed):
+        assert value not in str(caught.value)
+        assert value not in str(caught.value.detail)
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("async_mask_scope")
+async def test_opaque_secret_result_does_not_hide_unrelated_public_input() -> None:
+    with pytest.raises(TracecatExpressionError) as caught:
+        await _run_template(
+            caller_args={"value": "${{ SECRETS.svc.value }}", "public": "not-a-number"},
+            inputs={"value": CANARY, "public": "not-a-number"},
+            steps=[
+                ("encode", {"token": "${{ inputs.value }}"}),
+                ("convert", {"n": "${{ int(inputs.public) }}"}),
+            ],
+            step_results={
+                "encode": {"result": base64.b64encode(CANARY.encode()).decode()}
+            },
+            returns="ok",
+        )
+
+    assert "invalid literal for int() with base 10: 'not-a-number'" in str(caught.value)
 
 
 @pytest.mark.anyio

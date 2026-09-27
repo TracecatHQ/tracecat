@@ -1,8 +1,9 @@
 """Runtime values observed at secret-dependent expression nodes.
 
 The collection lives only for an invocation. It is never persisted with workflow
-history or sent to telemetry. Transformations inside opaque action code are not
-observable here.
+history or sent to telemetry. Secret-dependent opaque action results are
+registered by the executor; transformations in code that fails before returning
+are not observable here.
 """
 
 from __future__ import annotations

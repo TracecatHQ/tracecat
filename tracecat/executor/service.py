@@ -621,6 +621,19 @@ async def _invoke_step(
                 timeout=timeout,
             )
             if isinstance(result, ExecutorResultSuccess):
+                # Opaque code can transform credentials without an AST observer.
+                # Register its output before a later template expression can
+                # expose it. Steps inherit the parent's secret environment, so
+                # literal arguments alone do not make their results public.
+                if (masks := ctx_secret_masks.get()) is not None and (
+                    masks.contains(resolved_context.evaluated_args)
+                    or masks.contains(resolved_context.secrets)
+                    or (
+                        resolved_context.secret_projection is not None
+                        and masks.contains(resolved_context.secret_projection.env)
+                    )
+                ):
+                    masks.observe(result.result, include_keys=True)
                 return result.result
             else:
                 # Error response from backend
