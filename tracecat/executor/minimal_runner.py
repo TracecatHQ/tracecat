@@ -16,7 +16,9 @@ import asyncio
 import contextlib
 import errno
 import importlib
+import json
 import os
+import re
 import resource
 import sys
 import warnings
@@ -449,15 +451,23 @@ def _clear_env_secrets(secret_env: Mapping[str, Any]) -> None:
         os.environ.pop(key, None)
 
 
-def _collect_secret_mask_values(secret_env: Mapping[str, Any]) -> list[str]:
+def _collect_secret_mask_values(secret_env: Mapping[str, Any]) -> set[str]:
     """Normalize env values into mask candidates, failing closed on bad __str__."""
     mask_values: set[str] = set()
     for key, value in secret_env.items():
-        if (secret_str := _stringify_secret_env_value(key, value)) is None:
+        if not (secret_str := _stringify_secret_env_value(key, value)):
             continue
-        if len(secret_str) > 1:
-            mask_values.add(secret_str)
-    return sorted(mask_values, key=len, reverse=True)
+        # Exceptions and JSON escape secrets; mask the unquoted interiors too.
+        mask_values.update(
+            (
+                secret_str,
+                repr(secret_str)[1:-1],
+                ascii(secret_str)[1:-1],
+                json.dumps(secret_str)[1:-1],
+                json.dumps(secret_str, ensure_ascii=False)[1:-1],
+            )
+        )
+    return mask_values
 
 
 def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
@@ -467,8 +477,7 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         input_data: Dict containing:
             - resolved_context: ResolvedContext with action_impl and evaluated_args
             - secret_env: Flat env-ready secret mapping
-            - unsafe_disable_secret_error_withholding: Surface the original
-              error text even when secrets are in scope (defaults to False)
+            - secret_mask_values: Observed secret-derived diagnostic representations
             - input: RunActionInput (for metadata only)
 
     Returns:
@@ -476,10 +485,28 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
     """
     action_impl: dict[str, Any] | None = None
     secret_env: dict[str, str] = input_data.get("secret_env", {})
-    unsafe_disable_secret_error_withholding: bool = input_data.get(
-        "unsafe_disable_secret_error_withholding", False
-    )
+    mask_values: set[str] = set()
+    mask_pattern: re.Pattern[str] | None = None
+
+    def redact(text: str) -> str:
+        nonlocal mask_pattern
+        if not text or not mask_values:
+            return text
+        if mask_pattern is None:
+            # Successful, quiet actions never need a diagnostic matcher.
+            # Include the replacement token to keep short-mask passes idempotent.
+            mask_pattern = re.compile(
+                "|".join(
+                    re.escape(value)
+                    for value in sorted(mask_values | {"***"}, key=len, reverse=True)
+                    if value
+                )
+            )
+        return mask_pattern.sub("***", text)
+
     try:
+        mask_values.update(input_data.get("secret_mask_values", ()))
+        mask_values.update(_collect_secret_mask_values(secret_env))
         # Extract what we need from resolved_context
         resolved_context = input_data.get("resolved_context", {})
         action_impl = resolved_context.get("action_impl")
@@ -503,21 +530,16 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
             result = run_action_minimal(action_impl, evaluated_args, secret_env)
 
         # Mask secret values in captured output to prevent leaking credentials
-        mask_values = _collect_secret_mask_values(secret_env)
         if captured_stdout := action_stdout.getvalue().strip():
-            for mask in mask_values:
-                captured_stdout = captured_stdout.replace(mask, "***")
             _emit_suppressed_output_notice(
                 stream_name="stdout",
-                output=captured_stdout,
+                output=redact(captured_stdout),
                 truncated=action_stdout.truncated,
             )
         if captured_stderr := action_stderr.getvalue().strip():
-            for mask in mask_values:
-                captured_stderr = captured_stderr.replace(mask, "***")
             _emit_suppressed_output_notice(
                 stream_name="stderr",
-                output=captured_stderr,
+                output=redact(captured_stderr),
                 truncated=action_stderr.truncated,
             )
 
@@ -541,11 +563,17 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         tb = traceback.extract_tb(e.__traceback__)
         last_frame = tb[-1] if tb else None
 
-        # Action exceptions can echo transformed secrets that exact masking misses.
-        if secret_env and not unsafe_disable_secret_error_withholding:
-            message = "The action failed. Details withheld: this action uses secrets."
-        else:
-            message = str(e)
+        try:
+            message = redact(str(e))
+        except Exception as masking_error:
+            # Lazy compilation can exhaust memory while handling an action
+            # failure. Preserve the runner's structured resource-limit response.
+            if (limit := resource_limit_from_error(masking_error)) is None:
+                raise
+            release_exception_chain(masking_error)
+            return _resource_limit_envelope(
+                limit, action_name=_action_display_name(action_impl)
+            )
 
         return {
             "success": False,
