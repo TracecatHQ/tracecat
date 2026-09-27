@@ -451,18 +451,23 @@ def _clear_env_secrets(secret_env: Mapping[str, Any]) -> None:
         os.environ.pop(key, None)
 
 
-def _collect_secret_mask_values(secret_env: Mapping[str, Any]) -> list[str]:
+def _collect_secret_mask_values(secret_env: Mapping[str, Any]) -> set[str]:
     """Normalize env values into mask candidates, failing closed on bad __str__."""
     mask_values: set[str] = set()
     for key, value in secret_env.items():
-        if (secret_str := _stringify_secret_env_value(key, value)) is None:
+        if not (secret_str := _stringify_secret_env_value(key, value)):
             continue
-        if secret_str:
-            mask_values.update(
-                (secret_str, repr(secret_str)[1:-1], ascii(secret_str)[1:-1])
+        # Exceptions and JSON escape secrets; mask the unquoted interiors too.
+        mask_values.update(
+            (
+                secret_str,
+                repr(secret_str)[1:-1],
+                ascii(secret_str)[1:-1],
+                json.dumps(secret_str)[1:-1],
+                json.dumps(secret_str, ensure_ascii=False)[1:-1],
             )
-            mask_values.add(json.dumps(secret_str)[1:-1])
-    return sorted(mask_values, key=len, reverse=True)
+        )
+    return mask_values
 
 
 def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
