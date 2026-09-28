@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tests.support.membership import grant_workspace_membership
+from tests.support.membership import grant_org_membership, grant_workspace_membership
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.membership import ensure_member
@@ -132,7 +132,8 @@ def actor_role(
         organization_id=organization.id,
         workspace_id=workspace.id,
         service_id="tracecat-api",
-        scopes=ADMIN_SCOPES,
+        # Presets no longer carry the add scope; API callers hold it explicitly.
+        scopes=ADMIN_SCOPES | {"workspace:member:invite"},
     )
 
 
@@ -405,6 +406,10 @@ async def test_create_membership_allows_admin_inviter(
     actor_user: User,
 ) -> None:
     """An admin inviter still grants membership once the ceiling applies."""
+    # The grant admits an existing org member to a workspace, not an outsider.
+    await grant_org_membership(
+        session, user_id=member_user.id, organization_id=organization.id
+    )
     admin_role = DBRole(
         id=uuid.uuid4(),
         name="Workspace Admin",
@@ -509,10 +514,13 @@ async def test_list_workspace_members_reports_each_path_once(
 
     members = await membership_service.list_workspace_members(workspace.id)
 
-    by_user = {m.user_id: m.role_name for m in members}
+    by_user = {m.user_id: m for m in members}
     assert len(members) == len(by_user) == 2
-    assert by_user[actor_user.id] == "Reviewer"
-    assert by_user[member_user.id] == workspace_editor_role.name
+    assert by_user[actor_user.id].role_name == "Reviewer"
+    assert by_user[member_user.id].role_name == workspace_editor_role.name
+    # The winning path is what via_group reports.
+    assert by_user[actor_user.id].via_group is True
+    assert by_user[member_user.id].via_group is False
 
 
 async def test_delete_membership_rejects_when_group_grant_remains(

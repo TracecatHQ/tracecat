@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { PlusIcon } from "@radix-ui/react-icons"
 import { FolderIcon, GlobeIcon, Trash2Icon } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -69,8 +69,6 @@ type InviteFormValues = z.infer<typeof inviteFormSchema>
 export interface InviteMemberDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Workspace to pre-fill as the first grant's scope, if any. */
-  initialWorkspaceId?: string | null
 }
 
 /**
@@ -80,18 +78,12 @@ export interface InviteMemberDialogProps {
 export function InviteMemberDialog({
   open,
   onOpenChange,
-  initialWorkspaceId,
 }: InviteMemberDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[calc(100%-2rem)] max-w-lg">
         {/* Mounted only while open so its queries stay idle when closed. */}
-        {open && (
-          <InviteMemberForm
-            onOpenChange={onOpenChange}
-            initialWorkspaceId={initialWorkspaceId}
-          />
-        )}
+        {open && <InviteMemberForm onOpenChange={onOpenChange} />}
       </DialogContent>
     </Dialog>
   )
@@ -100,20 +92,16 @@ export function InviteMemberDialog({
 /** Form body owning the invite queries; mounted only while the dialog is open. */
 function InviteMemberForm({
   onOpenChange,
-  initialWorkspaceId,
 }: {
   onOpenChange: (open: boolean) => void
-  initialWorkspaceId?: string | null
 }) {
   const { createInvitation, createInvitationIsPending } = useOrgMembers()
   const { roles } = useRbacRoles()
-  // Everyone gets organization-member on join; it is never something to grant.
-  const grantableRoles = roles.filter((r) => r.slug !== "organization-member")
   // A preset role only fits the scope it was built for: a workspace role
   // granted org-wide would apply its scopes across every workspace. Custom
   // roles have no slug prefix, so they stay offered on both.
   const rolesForScope = (scope: string) =>
-    grantableRoles.filter(
+    roles.filter(
       (r) =>
         !r.slug ||
         r.slug.startsWith(scope === ORG_WIDE ? "organization-" : "workspace-")
@@ -124,7 +112,7 @@ function InviteMemberForm({
     resolver: zodResolver(inviteFormSchema),
     defaultValues: {
       email: "",
-      grants: [{ scope: initialWorkspaceId ?? ORG_WIDE, role_id: "" }],
+      grants: [{ scope: ORG_WIDE, role_id: "" }],
     },
   })
   const { fields, append, remove } = useFieldArray({
@@ -327,22 +315,10 @@ function InviteMemberForm({
 
 /**
  * Button that opens the invite dialog, shown only to users who may invite.
- * Reads the `inviteWorkspace` query parameter to pre-fill the first grant.
  */
-export function InviteMemberDialogButton({
-  initialWorkspaceId,
-}: {
-  initialWorkspaceId?: string | null
-}) {
+export function InviteMemberDialogButton() {
   const canInviteMembers = useScopeCheck("org:member:invite") === true
   const [open, setOpen] = useState(false)
-
-  // Open automatically when a workspace handoff supplied the parameter.
-  useEffect(() => {
-    if (initialWorkspaceId) {
-      setOpen(true)
-    }
-  }, [initialWorkspaceId])
 
   if (!canInviteMembers) {
     return null
@@ -354,11 +330,7 @@ export function InviteMemberDialogButton({
         <PlusIcon className="mr-2 size-4" />
         Invite member
       </Button>
-      <InviteMemberDialog
-        open={open}
-        onOpenChange={setOpen}
-        initialWorkspaceId={initialWorkspaceId}
-      />
+      <InviteMemberDialog open={open} onOpenChange={setOpen} />
     </>
   )
 }

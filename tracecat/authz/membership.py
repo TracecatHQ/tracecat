@@ -7,11 +7,15 @@ organization; children hang off it by composite foreign key.
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import Executable, Select, delete
+from sqlalchemy import Executable, Select, delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracecat.db.models import LegacyMembership, OrganizationMembership
+from tracecat.db.models import (
+    LegacyMembership,
+    Organization,
+    OrganizationMembership,
+)
 from tracecat.db.rls import (
     _RLS_CONTEXT_INFO_KEY,
     _apply_rls_context_async,
@@ -19,6 +23,7 @@ from tracecat.db.rls import (
     _RLSContext,
     set_rls_context,
 )
+from tracecat.identifiers import OrganizationID
 
 
 async def ensure_member(
@@ -115,3 +120,20 @@ async def _with_rls_bypass(session: AsyncSession, statement: Executable) -> None
         else:
             _cache_rls_context(session, restore_context)
         await _apply_rls_context_async(session, restore_context)
+
+
+async def lock_role_changes(
+    session: AsyncSession, organization_id: OrganizationID
+) -> None:
+    """Serialize role-path writes until their transaction commits.
+
+    Organization locking keeps group and direct changes in the same lock order.
+    These administrative writes are infrequent; authorization reads do not lock.
+    """
+    await session.execute(
+        select(Organization.id)
+        .where(Organization.id == organization_id)
+        # NO KEY UPDATE permits FK references (including audit events) while
+        # serializing these writers, avoiding lock upgrades against their inserts.
+        .with_for_update(key_share=True)
+    )

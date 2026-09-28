@@ -575,6 +575,7 @@ async def list_assignments(
     role: OrgActorRole,
     session: AsyncDBSession,
     group_id: UUID | None = Query(None, description="Filter by group ID"),
+    user_id: UUID | None = Query(None, description="Filter by group member user ID"),
     workspace_id: UUID | None = Query(None, description="Filter by workspace ID"),
 ) -> GroupRoleAssignmentList:
     """List group assignments for the organization.
@@ -584,6 +585,7 @@ async def list_assignments(
     service = RBACService(session, role=role)
     assignments = await service.list_group_role_assignments(
         group_id=group_id,
+        user_id=user_id,
         workspace_id=workspace_id,
     )
     return GroupRoleAssignmentList(

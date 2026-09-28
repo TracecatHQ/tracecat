@@ -291,3 +291,25 @@ class UserRoleAssignmentList(BaseModel):
 
     items: list[UserRoleAssignmentReadWithDetails]
     total: int
+
+
+class UserRoleAssignmentSpec(BaseModel):
+    """One desired direct assignment, with at most one role per scope."""
+
+    role_id: UUID
+    workspace_id: UUID | None = None
+
+
+class RoleAssignmentSnapshot(UserRoleAssignmentSpec):
+    """Assignment identity and value observed when editing began."""
+
+    id: UUID
+
+
+class UserRoleAssignmentsReplace(BaseModel):
+    """Replace a member's direct roles only if their access has not changed."""
+
+    user_id: UUID
+    assignments: list[UserRoleAssignmentSpec]
+    expected_assignments: list[RoleAssignmentSnapshot]
+    expected_group_assignments: list[RoleAssignmentSnapshot] | None = None

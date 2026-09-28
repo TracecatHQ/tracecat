@@ -11,6 +11,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import OwnerType
+from tracecat.authz.membership import lock_role_changes
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
@@ -245,6 +246,7 @@ class WorkspaceService(BaseOrgService):
     )
     async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
         """Delete a workspace."""
+        await lock_role_changes(self.session, self.organization_id)
         all_workspaces = await self.admin_list_workspaces()
         if len(all_workspaces) == 1:
             raise TracecatManagementError(

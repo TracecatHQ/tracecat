@@ -85,12 +85,9 @@ ADMIN_SCOPES: frozenset[str] = EDITOR_SCOPES | frozenset(
         "integration:delete",
         "workspace:update",
         "workspace:delete",
-        "workspace:member:invite",
         "workspace:member:remove",
-        "workspace:member:update",
-        # Workspace RBAC (delegated admin)
+        # Workspace RBAC visibility
         "workspace:rbac:read",
-        "workspace:rbac:manage",
         # Workspace service account management
         "workspace:service_account:read",
         "workspace:service_account:create",
@@ -151,12 +148,9 @@ ORG_OWNER_SCOPES: frozenset[str] = frozenset(
         "workspace:update",
         "workspace:delete",
         "workspace:member:read",
-        "workspace:member:invite",
         "workspace:member:remove",
-        "workspace:member:update",
-        # Workspace RBAC (delegated admin)
+        # Workspace RBAC visibility
         "workspace:rbac:read",
-        "workspace:rbac:manage",
         "workspace:service_account:read",
         "workspace:service_account:create",
         "workspace:service_account:update",
@@ -253,12 +247,9 @@ ORG_ADMIN_SCOPES: frozenset[str] = frozenset(
         "workspace:update",
         "workspace:delete",
         "workspace:member:read",
-        "workspace:member:invite",
         "workspace:member:remove",
-        "workspace:member:update",
-        # Workspace RBAC (delegated admin)
+        # Workspace RBAC visibility
         "workspace:rbac:read",
-        "workspace:rbac:manage",
         "workspace:service_account:read",
         "workspace:service_account:create",
         "workspace:service_account:update",
@@ -327,6 +318,14 @@ ORG_MEMBER_SCOPES: frozenset[str] = frozenset(
         "org:secret:read",
     }
 )
+
+# Presence alone carries these; the preset role is granted implicitly, never
+# assigned, so the floor and the role's scope set stay identical.
+ORG_MEMBER_FLOOR_SCOPES: frozenset[str] = ORG_MEMBER_SCOPES
+
+# The role row outlives its grants because legacy assignments reference it, but
+# it is never listed, assigned or shown.
+ORG_MEMBER_ROLE_SLUG = "organization-member"
 
 # =============================================================================
 # Preset Role -> Scope Set Mapping
