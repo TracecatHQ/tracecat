@@ -17,7 +17,9 @@ from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import OAuthStateDB
 from tracecat.integrations import router
+from tracecat.integrations.providers.base import AuthorizationCodeOAuthProvider
 from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
+from tracecat.integrations.providers.slack.oauth import SlackOAuthProvider
 from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 
@@ -31,21 +33,26 @@ def anyio_backend() -> str:
 class CallbackContext:
     session: AsyncMock
     service: MagicMock
-    provider: GitHubOAuthProvider
+    provider: AuthorizationCodeOAuthProvider
     role: Role
     state: OAuthStateDB
     fetch_token: AsyncMock
     logs: list[str]
 
 
-@pytest.fixture
-def callback_context(monkeypatch: pytest.MonkeyPatch) -> Iterator[CallbackContext]:
+@pytest.fixture(
+    params=[GitHubOAuthProvider, SlackOAuthProvider], ids=["github", "slack"]
+)
+def callback_context(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> Iterator[CallbackContext]:
+    provider_impl: type[AuthorizationCodeOAuthProvider] = request.param
     role = Role(type="user", user_id=uuid.uuid4(), service_id="tracecat-api")
     state = OAuthStateDB(
         state=uuid.uuid4(),
         user_id=role.user_id,
         workspace_id=uuid.uuid4(),
-        provider_id="github",
+        provider_id=provider_impl.id,
         expires_at=datetime.now(UTC) + timedelta(minutes=5),
         code_verifier="synthetic-pkce-verifier",
     )
@@ -53,20 +60,20 @@ def callback_context(monkeypatch: pytest.MonkeyPatch) -> Iterator[CallbackContex
     session.get.return_value = state
     service = MagicMock(spec=IntegrationService)
     service._is_custom_mcp_oauth_provider.return_value = False
-    service.resolve_provider_impl.return_value = GitHubOAuthProvider
-    provider = GitHubOAuthProvider(client_id="synthetic-client")
+    service.resolve_provider_impl.return_value = provider_impl
+    provider = provider_impl(client_id="synthetic-client")
     fetch_token = AsyncMock(
         return_value={
             "access_token": "synthetic-access-token",
             "refresh_token": "synthetic-refresh-token",
             "expires_in": 1800,
-            "scope": "repo",
+            "scope": " ".join(provider.requested_scopes),
         }
     )
+    if provider_impl is SlackOAuthProvider:
+        fetch_token.return_value = {"authed_user": fetch_token.return_value}
     monkeypatch.setattr(provider.client, "fetch_token", fetch_token)
-    monkeypatch.setattr(
-        GitHubOAuthProvider, "instantiate", AsyncMock(return_value=provider)
-    )
+    monkeypatch.setattr(provider_impl, "instantiate", AsyncMock(return_value=provider))
     monkeypatch.setattr(router, "IntegrationService", MagicMock(return_value=service))
     monkeypatch.setattr(config, "TRACECAT__RLS_MODE", config.RLSMode.OFF)
     monkeypatch.setattr(config, "TRACECAT__PUBLIC_APP_URL", "https://tracecat.test")
@@ -150,7 +157,7 @@ async def test_successful_callback_stores_tokens_and_redirects(
     )
 
     assert result.status == "connected"
-    assert result.provider_id == "github"
+    assert result.provider_id == context.provider.id
     assert result.redirect_url == (
         f"https://tracecat.test/workspaces/{context.state.workspace_id}/integrations"
     )
@@ -166,7 +173,7 @@ async def test_successful_callback_stores_tokens_and_redirects(
     assert stored["access_token"] == SecretStr("synthetic-access-token")
     assert stored["refresh_token"] == SecretStr("synthetic-refresh-token")
     assert stored["expires_in"] == 1800
-    assert stored["scope"] == "repo"
+    assert stored["scope"] == " ".join(context.provider.requested_scopes)
 
 
 @pytest.mark.anyio
