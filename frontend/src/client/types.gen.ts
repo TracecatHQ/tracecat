@@ -1464,7 +1464,14 @@ export type AssigneeChangedEventRead = {
 }
 
 export type AssistantMessage = {
-  content: Array<TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock>
+  content: Array<
+    | TextBlock
+    | ThinkingBlock
+    | ToolUseBlock
+    | ToolResultBlock
+    | ServerToolUseBlock
+    | ServerToolResultBlock
+  >
   model: string
   parent_tool_use_id?: string | null
   error?:
@@ -3052,6 +3059,7 @@ export type ChatMessage = {
     | ResultMessage
     | StreamEvent
     | RateLimitEvent
+    | ConversationResetMessage
     | null
   /**
    * Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)
@@ -3473,6 +3481,12 @@ export type ContinueRunRequest = {
  * Origin of the approval decision submission. Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions.
  */
 export type source = "inbox" | "slack"
+
+export type ConversationResetMessage = {
+  new_conversation_id: string
+  uuid: string
+  session_id: string
+}
 
 /**
  * Event for when a case is created.
@@ -4133,6 +4147,14 @@ export type DefaultModelSelection = {
  */
 export type DefaultModelSelectionUpdate = {
   catalog_id: string
+}
+
+export type DeferredToolUse = {
+  id: string
+  name: string
+  input: {
+    [key: string]: unknown
+  }
 }
 
 /**
@@ -6115,6 +6137,40 @@ export type MessageKind =
   | "compaction"
   | "cancelled"
 
+export type MessageOrigin = {
+  kind:
+    | "human"
+    | "channel"
+    | "peer"
+    | "task-notification"
+    | "coordinator"
+    | "unclassified"
+    | "observer"
+    | "auto-continuation"
+    | "observer-activity"
+  server?: string
+  from?: string
+  name?: string
+  fromSession?: string
+  senderTaskId?: string
+  body?: string
+  verifiedPeerPid?: number
+  subkind?: "scheduled-trigger" | "peer-send-message"
+}
+
+export type kind =
+  | "human"
+  | "channel"
+  | "peer"
+  | "task-notification"
+  | "coordinator"
+  | "unclassified"
+  | "observer"
+  | "auto-continuation"
+  | "observer-activity"
+
+export type subkind = "scheduled-trigger" | "peer-send-message"
+
 export type ModelConfig = {
   /**
    * The name of the model. This is used to identify the model in the system.
@@ -6166,6 +6222,25 @@ export type ModelCredentialUpdate = {
 export type ModelSecretConfig = {
   required?: Array<string>
   optional?: Array<string>
+}
+
+/**
+ * Per-model token usage and cost breakdown.
+ *
+ * Keys match the TypeScript SDK's ``ModelUsage`` shape (camelCase), since
+ * the value is passed through verbatim from the CLI's ``modelUsage`` field.
+ */
+export type ModelUsage = {
+  inputTokens: number
+  outputTokens: number
+  cacheReadInputTokens: number
+  cacheCreationInputTokens: number
+  webSearchRequests: number
+  costUSD: number
+  contextWindow: number
+  maxOutputTokens: number
+  canonicalModel?: string
+  provider?: string
 }
 
 export type OAuth2AuthorizeResponse = {
@@ -7292,11 +7367,15 @@ export type ResultMessage = {
   result?: string | null
   structured_output?: unknown
   model_usage?: {
-    [key: string]: unknown
+    [key: string]: ModelUsage
   } | null
   permission_denials?: Array<unknown> | null
+  deferred_tool_use?: DeferredToolUse | null
   errors?: Array<string> | null
+  api_error_status?: number | null
   uuid?: string | null
+  terminal_reason?: string | null
+  origin?: MessageOrigin | null
 }
 
 /**
@@ -7980,6 +8059,39 @@ export type Select = {
   multiple?: boolean
 }
 
+export type ServerToolResultBlock = {
+  tool_use_id: string
+  content: {
+    [key: string]: unknown
+  }
+}
+
+export type ServerToolUseBlock = {
+  id: string
+  name:
+    | "advisor"
+    | "web_search"
+    | "web_fetch"
+    | "code_execution"
+    | "bash_code_execution"
+    | "text_editor_code_execution"
+    | "tool_search_tool_regex"
+    | "tool_search_tool_bm25"
+  input: {
+    [key: string]: unknown
+  }
+}
+
+export type name =
+  | "advisor"
+  | "web_search"
+  | "web_fetch"
+  | "code_execution"
+  | "bash_code_execution"
+  | "text_editor_code_execution"
+  | "tool_search_tool_regex"
+  | "tool_search_tool_bm25"
+
 export type ServiceAccountApiKeyCounts = {
   total?: number
   active?: number
@@ -8145,7 +8257,7 @@ export type SkillDraftFileRead = {
   download_url?: string | null
 }
 
-export type kind = "inline" | "download"
+export type kind2 = "inline" | "download"
 
 /**
  * Move (rename) a draft file to a new path while preserving its blob.
@@ -9548,12 +9660,20 @@ export type UserCreate = {
 export type UserMessage = {
   content:
     | string
-    | Array<TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock>
+    | Array<
+        | TextBlock
+        | ThinkingBlock
+        | ToolUseBlock
+        | ToolResultBlock
+        | ServerToolUseBlock
+        | ServerToolResultBlock
+      >
   uuid?: string | null
   parent_tool_use_id?: string | null
   tool_use_result?: {
     [key: string]: unknown
   } | null
+  origin?: MessageOrigin | null
 }
 
 export type UserRead = {
@@ -10053,7 +10173,7 @@ export type WebhookStoredObjectDownloadResponse = {
   size_bytes: number
 }
 
-export type kind2 = "download_file" | "download_export"
+export type kind3 = "download_file" | "download_export"
 
 export type WebhookStoredObjectInlineResponse = {
   kind: "value"
