@@ -408,8 +408,8 @@ class BaseTablesService(BaseWorkspaceService):
                 elif sql_type is SqlType.BOOLEAN:
                     value = coerce_boolean_value(value)
                 elif sql_type is SqlType.JSONB:
-                    # Match SQLAlchemy's JSON serializer before reaching the DB.
-                    json.dumps(value)
+                    # PostgreSQL rejects non-finite numbers in JSONB values.
+                    json.dumps(value, allow_nan=False)
             except (ValueError, TypeError, OverflowError):
                 invalid = True
             if invalid:
