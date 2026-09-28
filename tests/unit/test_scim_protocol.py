@@ -51,6 +51,7 @@ from tracecat.db.models import (
     User,
 )
 from tracecat.exceptions import (
+    TracecatAuthorizationError,
     TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
@@ -186,6 +187,10 @@ def _install_handlers(app: FastAPI) -> None:
     )
     app.add_exception_handler(TracecatNotFoundError, _not_found)
     app.add_exception_handler(TracecatValidationError, _invalid)
+    app.add_exception_handler(
+        TracecatAuthorizationError,
+        lambda request, exc: scim_error_response(status_code=403, detail="Forbidden"),
+    )
 
 
 async def _post_user(client: httpx.AsyncClient, email: str, **kwargs: Any) -> Any:
@@ -1369,6 +1374,36 @@ async def test_user_rename_updates_the_account_email(
         )
     ).scalar_one()
     assert await _is_member(session, user_id=user.id, organization_id=org.id)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["PUT", "PATCH"])
+async def test_user_rename_rejects_superuser(
+    client: httpx.AsyncClient, session: AsyncSession, method: str
+) -> None:
+    """One org's IdP cannot move a platform superuser's email."""
+    email = f"super-{uuid.uuid4().hex}@example.com"
+    renamed = f"taken-{uuid.uuid4().hex}@tracecat.com"
+    created = await _post_user(client, email)
+    resource_id = created.json()["id"]
+    user = (
+        await session.execute(select(User).where(func.lower(User.email) == email))
+    ).scalar_one()
+    user.is_superuser = True
+    await session.commit()
+    payload = (
+        {"userName": renamed, "active": True}
+        if method == "PUT"
+        else {"Operations": [{"op": "replace", "path": "userName", "value": renamed}]}
+    )
+
+    response = await client.request(
+        method, f"/scim/v2/Users/{resource_id}", json=payload
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    await session.refresh(user)
+    assert user.email == email
 
 
 @pytest.mark.anyio

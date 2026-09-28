@@ -44,7 +44,11 @@ from tracecat.db.models import (
     ScimConnection,
     User,
 )
-from tracecat.exceptions import TracecatConflictError, TracecatValidationError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatConflictError,
+    TracecatValidationError,
+)
 from tracecat.organization.domains import normalize_domain
 from tracecat.service import BaseOrgService
 from tracecat_ee.scim.service import SCIMService
@@ -158,11 +162,15 @@ class ScimProvisioningService(BaseOrgService):
         Both addresses must be at domains this organization owns.
 
         Raises:
+            TracecatAuthorizationError: The account is a platform superuser.
             TracecatValidationError: Either address is outside the owned domains.
             TracecatConflictError: Another account already uses the new address.
         """
         normalized = _normalize_email(email)
         user = await self.session.get_one(User, user_id)
+        # A superuser's email is platform-wide; one org's IdP must not move it.
+        if user.is_superuser:
+            raise TracecatAuthorizationError("Cannot rename superuser")
         await self._require_owned_domain(user.email)
         await self._require_owned_domain(normalized)
         if await self._user_by_email(normalized) is not None:
