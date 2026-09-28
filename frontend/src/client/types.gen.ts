@@ -813,6 +813,9 @@ export type AgentPresetReadMinimal = {
 
 /**
  * Shared fields for preset skill bindings.
+ *
+ * Bindings reference a skill only; presets always run its latest published
+ * version, so there is no version to pin.
  */
 export type AgentPresetSkillBindingBase = {
   skill_id: string
