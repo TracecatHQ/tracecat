@@ -5,6 +5,7 @@ import contextlib
 import signal
 import socket
 import tempfile
+import weakref
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
@@ -401,6 +402,50 @@ async def test_sandbox_socket_bridge_preserves_request_body(
     assert response.startswith(b"HTTP/1.1 200 OK")
     assert received and received[0].endswith(b"\r\n\r\nbody")
     assert b"Content-Length: 4" in received[0]
+
+
+@pytest.mark.anyio
+async def test_bridge_stop_closes_connection_before_handler_starts(
+    short_socket_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bridge = SandboxSocketBridge(
+        socket_path=short_socket_dir / "upstream.sock",
+        max_body_size=1024,
+        on_uds_failure="error",
+        log_label="MCP bridge",
+    )
+    accepted = asyncio.Event()
+    shutdown: asyncio.Task[None] | None = None
+    accepted_writer_ref: weakref.ReferenceType[asyncio.StreamWriter] | None = None
+    accept_connection = bridge._accept_connection
+
+    def accept(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        nonlocal shutdown, accepted_writer_ref
+        accepted_writer_ref = weakref.ref(writer)
+        # Queue shutdown before the new handler gets its first event-loop turn.
+        shutdown = asyncio.create_task(bridge.stop())
+        accept_connection(reader, writer)
+        accepted.set()
+
+    monkeypatch.setattr(bridge, "_accept_connection", accept)
+    port = await bridge.start()
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        await asyncio.wait_for(accepted.wait(), 2)
+        assert shutdown is not None
+        await asyncio.wait_for(asyncio.shield(shutdown), 2)
+        assert await asyncio.wait_for(reader.read(), 2) == b""
+        assert not bridge._connections
+    finally:
+        # Release the socket even when the regression leaves shutdown blocked.
+        if accepted_writer_ref is not None:
+            if accepted_writer := accepted_writer_ref():
+                accepted_writer.close()
+        writer.close()
+        await writer.wait_closed()
+        if shutdown is not None:
+            await asyncio.wait_for(shutdown, 2)
+        await bridge.stop()
 
 
 @pytest.mark.anyio

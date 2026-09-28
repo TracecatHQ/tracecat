@@ -295,7 +295,13 @@ class SandboxSocketBridge:
     ) -> None:
         task = asyncio.create_task(self._handle_connection(reader, writer))
         self._connections.add(task)
-        task.add_done_callback(self._connections.discard)
+
+        def connection_done(task: asyncio.Task[None]) -> None:
+            self._connections.discard(task)
+            # A task canceled before its first step never reaches its finally.
+            writer.close()
+
+        task.add_done_callback(connection_done)
 
     def _on_serve_done(self, task: asyncio.Task[None]) -> None:
         """Log unexpected bridge task failures."""
