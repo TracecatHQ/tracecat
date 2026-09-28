@@ -5,8 +5,10 @@ import uuid
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from typing import Any
+from typing import cast as type_cast
 
-from sqlalchemy import and_, cast, func, select, update
+from sqlalchemy import and_, cast, delete, func, select, update
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,15 +25,21 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.controls import has_scope, require_scope
+from tracecat.authz.service import resolve_grantable_role
 from tracecat.db.models import (
     AccessToken,
+    Group,
+    GroupMember,
+    MCPPersonalAccessToken,
+    MCPRefreshToken,
+    Membership,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
     User,
     UserRoleAssignment,
+    Workspace,
 )
-from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -39,6 +47,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import OrganizationID, SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import reset_invitation_email
 from tracecat.organization.management import (
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
@@ -286,9 +295,12 @@ class OrgService(BaseOrgService):
         """
         Remove a member of the organization.
 
-        This method deletes a specified member from the organization.
-        It first checks if the member is a superuser and raises an
-        authorization error if so, as superusers cannot be deleted.
+        This method removes a specified member from the current organization
+        without deleting the global user record, so memberships in other
+        organizations are preserved. It revokes global app sessions and
+        organization-scoped MCP tokens so removed members lose stale access
+        immediately. It raises an authorization error for superusers, as
+        superusers cannot be removed.
 
         Args:
             user_id (UserID): The unique identifier of the user to be removed.
@@ -299,8 +311,62 @@ class OrgService(BaseOrgService):
         user = await self.get_member(user_id)
         if user.is_superuser:
             raise TracecatAuthorizationError("Cannot delete superuser")
-        async with self._manager() as user_manager:
-            await user_manager.delete(user)
+
+        await self.session.execute(
+            delete(AccessToken).where(type_cast(Any, AccessToken.user_id) == user.id)
+        )
+        await self.session.execute(
+            update(MCPRefreshToken)
+            .where(
+                MCPRefreshToken.user_id == user.id,
+                MCPRefreshToken.organization_id == self.organization_id,
+                MCPRefreshToken.status != "revoked",
+            )
+            .values(status="revoked")
+        )
+        await self.session.execute(
+            update(MCPPersonalAccessToken)
+            .where(
+                MCPPersonalAccessToken.user_id == user.id,
+                MCPPersonalAccessToken.organization_id == self.organization_id,
+                MCPPersonalAccessToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=datetime.now(UTC), revoked_by=self.role.user_id)
+        )
+
+        workspace_ids = select(Workspace.id).where(
+            Workspace.organization_id == self.organization_id
+        )
+        group_ids = select(Group.id).where(
+            Group.organization_id == self.organization_id
+        )
+
+        await self.session.execute(
+            delete(Membership).where(
+                Membership.user_id == user.id,
+                Membership.workspace_id.in_(workspace_ids),
+            )
+        )
+        await self.session.execute(
+            delete(UserRoleAssignment).where(
+                UserRoleAssignment.user_id == user.id,
+                UserRoleAssignment.organization_id == self.organization_id,
+            )
+        )
+        await self.session.execute(
+            delete(GroupMember).where(
+                GroupMember.user_id == user.id,
+                GroupMember.group_id.in_(group_ids),
+            )
+        )
+        await self.session.execute(
+            delete(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == self.organization_id,
+            )
+        )
+
+        await self.session.commit()
 
     @require_scope("org:member:update")
     @audit_log(resource_type="organization_member", action="update")
@@ -390,7 +456,15 @@ class OrgService(BaseOrgService):
 
     # === Manage sessions ===
     async def list_sessions(self) -> list[SessionRead]:
-        """List all sessions for users in this organization."""
+        """List all sessions for users in this organization.
+
+        Client metadata (IP address, user agent, last seen) is only returned
+        for callers who can manage sessions (``org:member:remove``); other
+        members see it for their own sessions only.
+        """
+        can_view_metadata = has_scope(
+            self.role.scopes or frozenset(), "org:member:remove"
+        )
         statement = (
             select(AccessToken)
             .join(User, cast(AccessToken.user_id, UUID) == User.id)
@@ -404,15 +478,21 @@ class OrgService(BaseOrgService):
             .options(contains_eager(AccessToken.user))
         )
         result = await self.session.execute(statement)
-        return [
-            SessionRead(
-                id=s.id,
-                created_at=s.created_at,
-                user_id=s.user.id,
-                user_email=s.user.email,
+        sessions: list[SessionRead] = []
+        for s in result.scalars().all():
+            reveal = can_view_metadata or s.user.id == self.role.user_id
+            sessions.append(
+                SessionRead(
+                    id=s.id,
+                    created_at=s.created_at,
+                    user_id=s.user.id,
+                    user_email=s.user.email,
+                    ip_address=s.ip_address if reveal else None,
+                    user_agent=s.user_agent if reveal else None,
+                    last_seen_at=s.last_seen_at if reveal else None,
+                )
             )
-            for s in result.scalars().all()
-        ]
+        return sessions
 
     @require_scope("org:member:remove")
     @audit_log(resource_type="organization_session", action="delete")
@@ -459,26 +539,14 @@ class OrgService(BaseOrgService):
                 "User must be authenticated to create invitation"
             )
 
-        # Validate role_id exists and belongs to this organization
-        role_result = await self.session.execute(
-            select(DBRole).where(
-                DBRole.id == role_id,
-                DBRole.organization_id == self.organization_id,
+        try:
+            await resolve_grantable_role(
+                self.session, self.role, self.organization_id, role_id
             )
-        )
-        role_obj = role_result.scalar_one_or_none()
-        if role_obj is None:
-            raise TracecatValidationError("Invalid role ID for this organization")
-
-        # Prevent privilege escalation: only owners (via scope) or superusers
-        # can assign the organization-owner role
-        if role_obj.slug == "organization-owner":
-            if not self.role.is_superuser and not has_scope(
-                self.role.scopes or frozenset(), "org:owner:assign"
-            ):
-                raise TracecatAuthorizationError(
-                    "Only organization owners can create owner invitations"
-                )
+        except TracecatNotFoundError as e:
+            raise TracecatValidationError(
+                "Invalid role ID for this organization"
+            ) from e
 
         # Check if user with this email is already a member (case-insensitive)
         existing_member_stmt = (
@@ -569,11 +637,15 @@ class OrgService(BaseOrgService):
         Raises:
             NoResultFound: If the invitation doesn't exist or belongs to another org.
         """
-        statement = select(OrganizationInvitation).where(
-            and_(
-                OrganizationInvitation.id == invitation_id,
-                OrganizationInvitation.organization_id == self.organization_id,
+        statement = (
+            select(OrganizationInvitation)
+            .where(
+                and_(
+                    OrganizationInvitation.id == invitation_id,
+                    OrganizationInvitation.organization_id == self.organization_id,
+                )
             )
+            .options(selectinload(OrganizationInvitation.role_obj))
         )
         result = await self.session.execute(statement)
         return result.scalar_one()
@@ -737,7 +809,11 @@ class OrgService(BaseOrgService):
         return membership
 
     @require_scope("org:member:invite")
-    @audit_log(resource_type="organization_invitation", action="revoke")
+    @audit_log(
+        resource_type="organization_invitation",
+        action="revoke",
+        resource_id_attr="invitation_id",
+    )
     async def revoke_invitation(
         self, invitation_id: uuid.UUID
     ) -> OrganizationInvitation:
@@ -763,4 +839,32 @@ class OrgService(BaseOrgService):
         invitation.status = InvitationStatus.REVOKED
         await self.session.commit()
         await self.session.refresh(invitation)
+        return invitation
+
+    @require_scope("org:member:invite")
+    @audit_log(
+        resource_type="organization_invitation",
+        action="resend",
+        resource_id_attr="invitation_id",
+    )
+    async def resend_invitation(
+        self, invitation_id: uuid.UUID
+    ) -> OrganizationInvitation:
+        """Re-enter a pending invitation into the email outbox.
+
+        Args:
+            invitation_id: The invitation UUID.
+
+        Returns:
+            OrganizationInvitation: The updated invitation record.
+
+        Raises:
+            NoResultFound: If the invitation doesn't exist or belongs to another org.
+            TracecatValidationError: If the invitation is not pending, has expired,
+                or email delivery is not configured.
+            TracecatConflictError: If the invitation was claimed within the cooldown.
+        """
+        invitation = await self.get_invitation(invitation_id)
+        await reset_invitation_email(self.session, invitation)
+        await self.session.commit()
         return invitation

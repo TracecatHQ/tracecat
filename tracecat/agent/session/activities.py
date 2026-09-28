@@ -15,6 +15,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.common.stream_types import HarnessType, UnifiedStreamEvent
+from tracecat.agent.error_policy import invalid_agent_configuration
 from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
@@ -29,6 +30,7 @@ from tracecat.chat.schemas import ChatMessage
 from tracecat.contexts import ctx_role
 from tracecat.logger import logger
 from tracecat.storage.object import StoredObject, retrieve_stored_object
+from tracecat.temporal.errors import raise_application_error_from_classification
 
 
 class CreateSessionInput(BaseModel):
@@ -47,6 +49,9 @@ class CreateSessionInput(BaseModel):
     agent_preset_id: uuid.UUID | None = None
     agent_preset_version_id: uuid.UUID | None = None
     agents_binding: ResolvedAgentsConfig | None = None
+    # Old workflow histories and queued activities retain session-wide binding
+    # validation. New turns freeze dependencies in Temporal activity results.
+    enforce_session_agents_binding: bool = True
     harness_type: HarnessType = HarnessType.CLAUDE_CODE
     # Workflow run tracking (for approval lookups)
     curr_run_id: uuid.UUID | None = None
@@ -80,6 +85,7 @@ class ReconcileToolResultsInput(BaseModel):
     workspace_id: uuid.UUID
     role: Role
     pending_results: list[PendingToolResult]
+    active_stream_id: uuid.UUID | None = None
 
 
 class ReconcileToolResultsResult(BaseModel):
@@ -104,6 +110,8 @@ class LoadSessionResult(BaseModel):
     # SDK JSONL across Temporal boundaries.
     sdk_session_data: str | None = Field(default=None, deprecated=True)
     is_fork: bool = False  # If True, runtime should use fork_session=True with SDK
+    agents_binding: ResolvedAgentsConfig | None = None
+    has_resume_state: bool = False
     error: str | None = None
 
 
@@ -139,9 +147,8 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
             if input.require_existing:
                 agent_session = await service.get_session(input.session_id)
                 if agent_session is None:
-                    raise ApplicationError(
-                        f"Session {input.session_id} does not exist",
-                        non_retryable=True,
+                    raise_application_error_from_classification(
+                        invalid_agent_configuration()
                     )
                 created = False
             else:
@@ -158,9 +165,21 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                         harness_type=input.harness_type,
                     ),
                     agents_binding=input.agents_binding,
+                    persist_agents_binding=input.enforce_session_agents_binding,
                 )
 
-            # Reconcile agents_binding for pre-existing sessions. Chat-created
+            # This activity belongs to the built-in durable workflow. Never let
+            # a caller-supplied session ID redirect a different backend's session.
+            if (agent_session.backend_id or "oss") != "oss" or (
+                agent_session.harness_type is not None
+                and agent_session.harness_type != input.harness_type
+            ):
+                raise_application_error_from_classification(
+                    invalid_agent_configuration()
+                )
+
+            # Legacy workflows reconcile bindings on pre-existing sessions.
+            # New turns bypass this session-wide contract. Chat-created
             # sessions may be inserted before the durable workflow resolves the
             # current preset's subagent bindings, so a fresh session can have a
             # NULL binding even though this run already has a concrete binding.
@@ -168,21 +187,21 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
             # row forks from a parent SDK history, the binding is part of the
             # resumable runtime topology and explicit mismatches must continue
             # to fail.
-            if not created:
-                disabled_agents_binding = ResolvedAgentsConfig()
-                requested_agents_binding = (
-                    input.agents_binding or disabled_agents_binding
-                )
+            if not created and input.enforce_session_agents_binding:
+                empty_agents_binding = ResolvedAgentsConfig()
+                requested_agents_binding = input.agents_binding or empty_agents_binding
                 if agent_session.agents_binding is None:
                     has_resume_state = (
                         agent_session.sdk_session_id is not None
                         or agent_session.parent_session_id is not None
                     )
-                    should_backfill_agents_binding = input.agents_binding is not None
+                    should_backfill_agents_binding = (
+                        input.agents_binding is not None and not has_resume_state
+                    )
                     stored_agents_binding = (
                         requested_agents_binding
-                        if should_backfill_agents_binding and not has_resume_state
-                        else disabled_agents_binding
+                        if should_backfill_agents_binding
+                        else empty_agents_binding
                     )
                 else:
                     stored_agents_binding = ResolvedAgentsConfig.model_validate(
@@ -193,9 +212,8 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 if stored_agents_binding != requested_agents_binding:
                     # Non-retryable: retrying with the same mismatched input
                     # will deterministically fail; surface to the caller.
-                    raise ApplicationError(
-                        "Agent session was created with a different agents binding",
-                        non_retryable=True,
+                    raise_application_error_from_classification(
+                        invalid_agent_configuration()
                     )
                 if should_backfill_agents_binding:
                     agent_session.agents_binding = stored_agents_binding.model_dump(
@@ -204,9 +222,12 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                     service.session.add(agent_session)
                     await service.session.commit()
 
-            # Set curr_run_id if provided (for workflow-initiated sessions)
+            # Set curr_run_id if provided (for workflow-initiated sessions) and
+            # clear any prior error. Clearing last_error here is what makes the
+            # previous run's error irrelevant once a new turn starts.
             if input.curr_run_id is not None:
                 agent_session.curr_run_id = input.curr_run_id
+                agent_session.last_error = None
                 service.session.add(agent_session)
                 await service.session.commit()
 
@@ -216,6 +237,7 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 await service.auto_title_session_on_first_prompt(
                     agent_session,
                     input.initial_user_prompt,
+                    expected_title=agent_session.title,
                 )
 
         if created:
@@ -243,7 +265,7 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 session_id=input.session_id,
                 workspace_id=input.role.workspace_id,
             )
-            await stream.reset_for_new_turn()
+            await stream.clear_buffer()
 
         return CreateSessionResult(session_id=input.session_id, success=True)
 
@@ -275,6 +297,15 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
 
             is_fork = False
             sdk_session_id = agent_session.sdk_session_id
+            agents_binding = (
+                ResolvedAgentsConfig.model_validate(agent_session.agents_binding)
+                if agent_session.agents_binding is not None
+                else None
+            )
+            has_resume_state = (
+                agent_session.sdk_session_id is not None
+                or agent_session.parent_session_id is not None
+            )
 
             # For forked sessions, only fork on the first turn (when child has
             # no sdk_session_id yet). Subsequent turns resume the child's own
@@ -292,7 +323,11 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
                         session_id=input.session_id,
                         parent_session_id=agent_session.parent_session_id,
                     )
-                    return LoadSessionResult(found=True)
+                    return LoadSessionResult(
+                        found=True,
+                        agents_binding=agents_binding,
+                        has_resume_state=has_resume_state,
+                    )
                 is_fork = True
                 sdk_session_id = parent_session.sdk_session_id
 
@@ -300,6 +335,8 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
                 found=True,
                 sdk_session_id=sdk_session_id,
                 is_fork=is_fork,
+                agents_binding=agents_binding,
+                has_resume_state=has_resume_state,
             )
 
     except Exception as e:
@@ -316,7 +353,11 @@ async def load_session_messages_activity(
 
     try:
         async with AgentSessionService.with_session(role=input.role) as service:
-            messages = await service.list_messages(input.session_id)
+            # Terminal load: this runs before finalize_turn clears curr_run_id,
+            # so include the just-completed turn's rows in message_history.
+            messages = await service.list_messages(
+                input.session_id, include_active=True
+            )
         return LoadSessionMessagesResult(messages=messages)
 
     except Exception as e:
@@ -338,6 +379,7 @@ async def reconcile_tool_results_activity(
     stream = await AgentStream.new(
         session_id=input.session_id,
         workspace_id=input.workspace_id,
+        stream_id=input.active_stream_id,
     )
 
     for pending in input.pending_results:
@@ -418,6 +460,61 @@ async def reconcile_tool_results_activity(
     return ReconcileToolResultsResult(results=results)
 
 
+class FinalizeTurnInput(BaseModel):
+    """Input for finalize_turn_activity."""
+
+    role: Role
+    session_id: uuid.UUID
+    run_id: uuid.UUID
+    # Defaults preserve old workflow inputs while workers roll. New workflows
+    # set emit_terminal_done=True and pass their captured per-turn stream ID.
+    active_stream_id: uuid.UUID | None = None
+    emit_terminal_done: bool = False
+
+
+class FinalizeTurnResult(BaseModel):
+    """Result describing whether this worker emitted the terminal stream marker."""
+
+    terminal_done_emitted: bool
+
+
+@activity.defn
+async def finalize_turn_activity(
+    input: FinalizeTurnInput,
+) -> FinalizeTurnResult | None:
+    """Finalize a turn while bridging old workflow and worker versions.
+
+    New workflows ask this activity to commit pointer cleanup and then append
+    ``END`` as one retryable operation. Old workflow inputs omit that capability,
+    so new workers retain the previous database-only behavior. The optional
+    return type lets new workflows recognize an old worker's legacy ``None``
+    result and use their temporary stream-emission fallback.
+    """
+    ctx_role.set(input.role)
+    try:
+        async with AgentSessionService.with_session(role=input.role) as service:
+            if input.emit_terminal_done:
+                await service.finalize_turn(
+                    input.session_id,
+                    input.run_id,
+                    active_stream_id=input.active_stream_id,
+                )
+            else:
+                await service.clear_turn_pointers(input.session_id, input.run_id)
+    except Exception as e:
+        logger.warning(
+            "Failed to finalize agent turn",
+            session_id=str(input.session_id),
+            run_id=str(input.run_id),
+            error=str(e),
+        )
+        raise
+    if not input.emit_terminal_done:
+        # Old workflow code expects this activity to have no result payload.
+        return None
+    return FinalizeTurnResult(terminal_done_emitted=True)
+
+
 def get_session_activities() -> list:
     """Get all session-related activities for worker registration."""
     return [
@@ -425,4 +522,5 @@ def get_session_activities() -> list:
         load_session_activity,
         load_session_messages_activity,
         reconcile_tool_results_activity,
+        finalize_turn_activity,
     ]

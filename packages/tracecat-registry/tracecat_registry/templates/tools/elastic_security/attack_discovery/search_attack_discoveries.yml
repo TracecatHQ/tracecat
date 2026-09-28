@@ -1,0 +1,133 @@
+type: action
+definition:
+  title: Search attack discoveries
+  description: Search existing Elastic Attack Discovery results using native filters and pagination.
+  display_group: Elastic Security
+  doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-attackdiscoveryfind
+  namespace: tools.elastic_security
+  name: search_attack_discoveries
+  secrets:
+    - name: elastic_security
+      keys: ["ELASTIC_API_KEY"]
+  expects:
+    alert_ids:
+      type: list[str] | None
+      description: Filter results to Attack discoveries that include any of the provided alert IDs.
+      default: null
+    connector_names:
+      type: list[str] | None
+      description: Filter results to Attack discoveries created by any of the provided human readable connector names. Note that values must match the human readable `connector_name` property of an Attack discovery, which are distinct from `connector_id` values used to generate Attack discoveries.
+      default: null
+    enable_field_rendering:
+      type: bool | None
+      description: Enables a markdown syntax used to render pivot fields. This is primarily used for Attack Discovery views within Kibana. Defaults to `false`.
+      default: null
+    end:
+      type: str | None
+      description: 'End of the time range for the search. Accepts absolute timestamps (ISO 8601) or relative date math (e.g. "now", "now-24h").'
+      default: null
+    ids:
+      type: list[str] | None
+      description: Filter results to the Attack discoveries with the specified IDs.
+      default: null
+    include_unique_alert_ids:
+      type: bool | None
+      description: If `true`, the response will include `unique_alert_ids` and `unique_alert_ids_count` aggregated across the matched Attack discoveries.
+      default: null
+    page:
+      type: int | None
+      description: Page number to return (used for pagination). Defaults to 1.
+      default: null
+    per_page:
+      type: int | None
+      description: Number of Attack discoveries to return per page (used for pagination). Defaults to 10.
+      default: null
+    search:
+      type: str | None
+      description: Free-text search query applied to relevant text fields of Attack discoveries (title, description, tags, etc.).
+      default: null
+    shared:
+      type: bool | None
+      description: Whether to filter by shared visibility. If omitted, both shared and privately visible Attack discoveries are returned. Use `true` to return only shared discoveries, `false` to return only those visible to the current user. Mutually exclusive with `include_all_authors`.
+      default: null
+    include_all_authors:
+      type: bool | None
+      description: If `true`, the response will include all attack discoveries matching other criteria regardless of who created them. Mutually exclusive with `shared`.
+      default: null
+    scheduled:
+      type: bool | None
+      description: Whether to filter by scheduled or ad-hoc attack discoveries. If omitted, both types of attack discoveries are returned. Use `true` to return only scheduled discoveries or `false` to return only ad-hoc discoveries.
+      default: null
+    sort_field:
+      type: str | None
+      description: "Field used to sort results. Possible values: @timestamp. Defaults to @timestamp."
+      default: null
+    sort_order:
+      type: str | None
+      description: "Sort order direction, `asc` for ascending or `desc` for descending. Possible values: asc, desc. Defaults to desc."
+      default: null
+    start:
+      type: str | None
+      description: 'Start of the time range for the search. Accepts absolute timestamps (ISO 8601) or relative date math (e.g. "now-7d").'
+      default: null
+    status:
+      type: list[str] | None
+      description: "Filter by alert workflow status. Provide one or more of the allowed workflow states. Possible values: acknowledged, closed, open."
+      default: null
+    with_replacements:
+      type: bool | None
+      description: When true, return the created Attack discoveries with text replacements applied to the detailsMarkdown, entitySummaryMarkdown, summaryMarkdown, and title fields. Defaults to `true`.
+      default: null
+    base_url:
+      type: str | None
+      description: Kibana base URL (e.g. https://localhost:5601).
+      default: null
+    space_id:
+      type: str | None
+      description: Optional Kibana space ID. Omit for the default space.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: build_path
+      action: core.script.run_python
+      args:
+        inputs:
+          space_id: ${{ inputs.space_id }}
+        script: |
+          from urllib.parse import quote
+
+          def main(space_id):
+              path = "/api/attack_discovery/_find"
+              if space_id:
+                  return f"/s/{quote(space_id, safe='')}{path}"
+              return path
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}${{ steps.build_path.result }}
+        method: GET
+        params:
+          alert_ids: ${{ inputs.alert_ids }}
+          connector_names: ${{ inputs.connector_names }}
+          enable_field_rendering: ${{ inputs.enable_field_rendering }}
+          end: ${{ inputs.end }}
+          ids: ${{ inputs.ids }}
+          include_unique_alert_ids: ${{ inputs.include_unique_alert_ids }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+          search: ${{ inputs.search }}
+          shared: ${{ inputs.shared }}
+          include_all_authors: ${{ inputs.include_all_authors }}
+          scheduled: ${{ inputs.scheduled }}
+          sort_field: ${{ inputs.sort_field }}
+          sort_order: ${{ inputs.sort_order }}
+          start: ${{ inputs.start }}
+          status: ${{ inputs.status }}
+          with_replacements: ${{ inputs.with_replacements }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}
+  returns: ${{ steps.request.result.data }}

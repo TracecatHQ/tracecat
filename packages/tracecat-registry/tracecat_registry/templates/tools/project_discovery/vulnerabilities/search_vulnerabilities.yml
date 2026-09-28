@@ -1,0 +1,77 @@
+type: action
+definition:
+  title: Search vulnerabilities
+  description: >-
+    Search vulnerability findings. Calls GET /v2/vulnerability/search directly.
+  display_group: ProjectDiscovery
+  doc_url: https://docs.projectdiscovery.io/api-reference/full-text-search
+  namespace: tools.project_discovery
+  name: search_vulnerabilities
+  secrets:
+    - name: project_discovery
+      keys: ["PDCP_API_KEY"]
+  expects:
+    q:
+      type: str | None
+      description: Search query.
+      default: null
+    limit:
+      type: int | None
+      description: The numbers of items to return.
+      default: null
+    offset:
+      type: int | None
+      description: The numbers of items to skip.
+      default: null
+    sort_asc:
+      type: str | None
+      description: Sort results in ascending order (CSV field names).
+      default: null
+    sort_desc:
+      type: str | None
+      description: Sort results in descending order (CSV field names).
+      default: null
+    fields:
+      type: str | None
+      description: List of fields to return (comma separated).
+      default: null
+    term_facets:
+      type: str | None
+      description: List of term facet fields (comma separated).
+      default: null
+    range_facets:
+      type: str | None
+      description: List of range facet fields (comma separated).
+      default: null
+    highlight:
+      type: bool | None
+      description: Whether to highlight the search results.
+      default: null
+    facet_size:
+      type: int | None
+      description: Number of facets to return.
+      default: null
+    base_url:
+      type: str | None
+      description: ProjectDiscovery Cloud API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.project_discovery.base_url || "https://api.projectdiscovery.io" }}/v2/vulnerability/search
+        method: GET
+        headers:
+          X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}
+        params:
+          q: ${{ inputs.q }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+          sort_asc: ${{ inputs.sort_asc }}
+          sort_desc: ${{ inputs.sort_desc }}
+          fields: ${{ inputs.fields }}
+          term_facets: ${{ inputs.term_facets }}
+          range_facets: ${{ inputs.range_facets }}
+          highlight: ${{ inputs.highlight }}
+          facet_size: ${{ inputs.facet_size }}
+  returns: ${{ steps.request.result }}

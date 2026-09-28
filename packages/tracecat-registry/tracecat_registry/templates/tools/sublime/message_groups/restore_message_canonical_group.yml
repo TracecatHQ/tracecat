@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: Restore message group
+  description: Restore a Sublime message group and disable future remediation.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/restoremessagecanonicalgroup-1
+  namespace: tools.sublime
+  name: restore_message_canonical_group
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Message group canonical ID.
+    payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields,
+      # and a literal payload map cannot omit an unset optional.
+      type: dict[str, Any]
+      description: >-
+        API-native request body. Documented fields: classification, report_label, review_comment.
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/message-groups/${{ FN.url_encode(inputs.id) }}/restore
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result.data }}

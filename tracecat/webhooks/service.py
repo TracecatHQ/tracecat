@@ -1,8 +1,42 @@
+from __future__ import annotations
+
+from typing import cast
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.audit.logger import (
+    AuditEventDetails,
+    audit_log,
+)
+from tracecat.auth.types import Role
+from tracecat.authz.controls import require_scope
 from tracecat.db.models import Webhook
+from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
 from tracecat.identifiers import WorkflowID
+from tracecat.webhooks.schemas import WebhookCreate, WebhookUpdate
+
+
+async def _webhook_update_audit_details(
+    *,
+    role: Role,
+    session: AsyncSession,
+    workflow_id: WorkflowID,
+    params: WebhookUpdate,
+) -> AuditEventDetails:
+    webhook = None
+    if role.workspace_id is not None:
+        webhook = await get_webhook(
+            session,
+            workspace_id=role.workspace_id,
+            workflow_id=workflow_id,
+        )
+    return AuditEventDetails(
+        resource_id=webhook.id if webhook is not None else None,
+        data={
+            "changed_fields": sorted(params.model_fields_set),
+        },
+    )
 
 
 async def get_webhook(
@@ -10,9 +44,76 @@ async def get_webhook(
     workspace_id,
     workflow_id: WorkflowID,
 ) -> Webhook | None:
-    statement = select(Webhook).where(
-        Webhook.workspace_id == workspace_id,
-        Webhook.workflow_id == workflow_id,
+    statement = (
+        select(Webhook)
+        .where(
+            Webhook.workspace_id == workspace_id,
+            Webhook.workflow_id == workflow_id,
+        )
+        .order_by(Webhook.id)
     )
     result = await session.execute(statement)
     return result.scalars().first()
+
+
+@require_scope("workflow:update")
+@audit_log(
+    resource_type="webhook",
+    action="create",
+    resource_id_attr="id",
+)
+async def create_webhook(
+    *,
+    role: Role,
+    session: AsyncSession,
+    workflow_id: WorkflowID,
+    params: WebhookCreate,
+) -> Webhook:
+    """Create a webhook for a workflow."""
+    if role.workspace_id is None:
+        raise TracecatAuthorizationError("Webhook creation requires a workspace")
+    webhook = Webhook(
+        workspace_id=role.workspace_id,
+        methods=cast(list[str], params.methods),
+        workflow_id=workflow_id,
+        status=params.status,
+        allowlisted_cidrs=params.allowlisted_cidrs,
+        include_headers=params.include_headers,
+    )
+    session.add(webhook)
+    await session.commit()
+    await session.refresh(webhook)
+    return webhook
+
+
+@require_scope("workflow:update")
+@audit_log(
+    resource_type="webhook",
+    action="update",
+    resource_id_attr="id",
+    attempt_metadata=_webhook_update_audit_details,
+)
+async def update_webhook(
+    *,
+    role: Role,
+    session: AsyncSession,
+    workflow_id: WorkflowID,
+    params: WebhookUpdate,
+) -> Webhook:
+    """Update webhook configuration shared by all control-plane callers."""
+    if role.workspace_id is None:
+        raise TracecatAuthorizationError("Webhook update requires a workspace")
+    webhook = await get_webhook(
+        session,
+        workspace_id=role.workspace_id,
+        workflow_id=workflow_id,
+    )
+    if webhook is None:
+        raise TracecatNotFoundError("Webhook not found")
+    for key, value in params.model_dump(exclude_unset=True).items():
+        # Safety: params have been validated by WebhookUpdate.
+        setattr(webhook, key, value)
+    session.add(webhook)
+    await session.commit()
+    await session.refresh(webhook)
+    return webhook

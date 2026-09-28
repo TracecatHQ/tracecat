@@ -1,0 +1,1 @@
+"""Platform MCP catalog support."""

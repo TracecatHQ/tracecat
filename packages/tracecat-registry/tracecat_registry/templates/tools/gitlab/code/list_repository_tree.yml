@@ -1,0 +1,72 @@
+type: action
+definition:
+  title: List repository tree
+  description: >-
+    List repository tree. Calls GET /projects/{project_id}/repository/tree directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: list_repository_tree
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    page:
+      type: int | None
+      description: "Page number (default: `1`)."
+      default: null
+    page_token:
+      type: str | None
+      description: Tree record ID at which to fetch the next page. Used only with keyset pagination.
+      default: null
+    pagination:
+      type: str | None
+      description: If `keyset`, use the keyset-based pagination method.
+      default: null
+    path:
+      type: str | None
+      description: Path inside the repository. Used to get content of subdirectories.
+      default: null
+    per_page:
+      type: int | None
+      description: Number of results to show per page. If not specified, defaults to `20`.
+      default: null
+    recursive:
+      type: bool | None
+      description: If `true`, get a recursive tree. Default is `false`.
+      default: null
+    ref:
+      type: str | None
+      description: Name of a repository branch or tag. If not specified, uses the default branch.
+      default: null
+    with_last_commit:
+      type: bool | None
+      description: If `true`, include the last commit for each tree entry. Cannot be combined with `recursive`. Default is `false`.
+      default: null
+    base_url:
+      type: str
+      description: GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
+      default: https://gitlab.com/api/v4
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/repository/tree
+        method: GET
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
+          Accept: application/json
+        params:
+          page: ${{ inputs.page }}
+          page_token: ${{ inputs.page_token }}
+          pagination: ${{ inputs.pagination }}
+          path: ${{ inputs.path }}
+          per_page: ${{ inputs.per_page }}
+          recursive: ${{ inputs.recursive }}
+          ref: ${{ inputs.ref }}
+          with_last_commit: ${{ inputs.with_last_commit }}
+  returns: ${{ steps.request.result }}

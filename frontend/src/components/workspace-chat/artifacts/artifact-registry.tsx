@@ -1,6 +1,5 @@
 "use client"
 
-import type { QueryClient } from "@tanstack/react-query"
 import {
   Bell,
   BlocksIcon,
@@ -13,7 +12,9 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 import type { ComponentType } from "react"
+import { tableSearchKey } from "@/hooks/use-table-search"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
+import type { QueryClient } from "@/lib/query"
 import type { WorkspaceChatArtifact } from "@/types/workspace-chat-artifacts"
 
 export type ArtifactIconComponent = ComponentType<{ className?: string }>
@@ -61,6 +62,12 @@ export const ARTIFACT_REGISTRY = {
     icon: WorkflowIcon,
     href: (artifact, workspaceId) =>
       `/workspaces/${workspaceId}/workflows/${artifact.id}`,
+    invalidateQueries: (queryClient, _workspaceId, artifact) => {
+      // Workflow lists carry a 5-min stale time; refresh them so a chat-created
+      // workflow shows up in dashboards and workflow/subflow pickers immediately.
+      queryClient.invalidateQueries({ queryKey: ["workflows"] })
+      queryClient.invalidateQueries({ queryKey: ["workflow", artifact.id] })
+    },
   },
   run: {
     label: "Runs",
@@ -89,6 +96,9 @@ export const ARTIFACT_REGISTRY = {
       })
       queryClient.invalidateQueries({
         queryKey: ["rows", "paginated", artifact.id, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: tableSearchKey(workspaceId, artifact.id),
       })
     },
   },

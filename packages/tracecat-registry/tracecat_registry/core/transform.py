@@ -6,11 +6,10 @@ from typing_extensions import Doc
 import hashlib
 import json
 import orjson
-from tracecat_registry import ActionIsInterfaceError, registry
+from tracecat_registry import ActionIsInterfaceError, ctx, registry
 from tracecat_registry._internal.flatten import flatten_dict as _flatten_dict
 from tracecat_registry._internal.jsonpath import eval_jsonpath
 from tracecat_registry._internal.safe_lambda import build_safe_lambda
-from tracecat_registry.context import get_context
 
 
 def _compute_digests(seen: dict[tuple[Any, ...], dict[str, Any]]) -> list[str]:
@@ -148,8 +147,7 @@ async def _deduplicate_persistent(
         Items whose digests were newly created (not previously seen).
     """
     digests = _compute_digests(seen)
-    ctx = get_context()
-    created = await ctx.deduplicate.create_digests(digests, expire_seconds)
+    created = await ctx.deduplicate.aio.create_digests(digests, expire_seconds)
     return [item for item, is_new in zip(seen.values(), created) if is_new]
 
 

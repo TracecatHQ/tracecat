@@ -26,6 +26,11 @@ WF_EXEC_SUFFIX_PATTERN = (
     rf"({EXEC_ID_SHORT_PATTERN}|{LEGACY_EXEC_ID_PATTERN}|{SCHEDULE_EXEC_ID_PATTERN})"
 )
 WF_EXEC_ID_PATTERN = rf"(?P<workflow_id>{LEGACY_WF_ID_PATTERN}|{WF_ID_SHORT_PATTERN})[:/](?P<execution_id>{WF_EXEC_SUFFIX_PATTERN})"
+# ECMA-262 (the JSON Schema regex dialect) has no `(?P<name>...)` syntax; strip
+# the group names for schema-facing constraints so emitted tool/field schemas
+# compile in strict clients that build ECMAScript RegExp validators (e.g. MCP
+# clients). Runtime parsing keeps the named pattern above for `match.group(...)`.
+WF_EXEC_ID_SCHEMA_PATTERN = re.sub(r"\?P<[^>]+>", "", WF_EXEC_ID_PATTERN)
 
 WorkflowIDShort = Annotated[str, StringConstraints(pattern=WF_ID_SHORT_PATTERN)]
 """A short base62 encoded string representation of a workflow UUID.
@@ -102,7 +107,9 @@ AnyExecutionID = ExecutionUUID | ExecutionIDShort
 AnyWorkspaceID = WorkspaceUUID | WorkspaceIDShort | UUID4
 """A workspace ID that can be either a UUID or a short string."""
 
-WorkflowExecutionID = Annotated[str, StringConstraints(pattern=WF_EXEC_ID_PATTERN)]
+WorkflowExecutionID = Annotated[
+    str, StringConstraints(pattern=WF_EXEC_ID_SCHEMA_PATTERN)
+]
 """The full unique ID for a workflow execution.
 
 Not to be confused with the run ID, which is a UUID for each run/retry of the execution.

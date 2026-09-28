@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Lookup RIOT IP
+  description: >-
+    Get Business Service Intelligence, formerly RIOT, for an IP address. Calls GET /v3/ip/{ip}
+    directly.
+  display_group: GreyNoise
+  doc_url: https://docs.greynoise.io/reference/v3ip
+  namespace: tools.greynoise
+  name: lookup_riot_ip
+  secrets:
+    - name: greynoise
+      keys: ["GREYNOISE_API_KEY"]
+  expects:
+    ip:
+      type: str
+      description: IPv4 address to lookup.
+    workspace_labels:
+      type: str | None
+      description: >-
+        Comma-separated list of dataset scopes to include in the query. When omitted, only the
+        default GreyNoise global dataset is queried. Allowed values are greynoise (GreyNoise's
+        global dataset), community (aggregated community-contributed data), and personal (the
+        authenticated caller's own workspace data).
+      default: null
+    base_url:
+      type: str | None
+      description: GreyNoise API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.greynoise.base_url || "https://api.greynoise.io" }}/v3/ip/${{ FN.url_encode(inputs.ip) }}
+        method: GET
+        headers:
+          key: ${{ SECRETS.greynoise.GREYNOISE_API_KEY }}
+          Accept: application/json
+        params:
+          workspace_labels: ${{ inputs.workspace_labels }}
+  returns: ${{ steps.request.result }}

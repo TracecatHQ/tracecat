@@ -3,8 +3,8 @@ import hashlib
 import os
 import uuid
 from collections.abc import AsyncGenerator, Iterable, Sequence
-from datetime import UTC, datetime
-from typing import Annotated
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -28,25 +28,32 @@ from fastapi_users.authentication.strategy.db import (
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.exceptions import (
     FastAPIUsersException,
+    InvalidID,
     UserAlreadyExists,
     UserNotExists,
 )
 from fastapi_users.openapi import OpenAPIResponseType
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDatabase
 from pydantic import EmailStr
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
-from tracecat.api.common import bootstrap_role
 from tracecat.audit.service import AuditService
 from tracecat.auth.enums import AuthType
+from tracecat.auth.ip_allowlist import IP_ALLOWLIST_DENIED_DETAIL
+from tracecat.auth.ip_allowlist_enforcement import (
+    current_client_ip,
+    is_ip_allowed_for_org,
+)
 from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.secrets import get_user_auth_secret
-from tracecat.auth.types import PlatformRole
-from tracecat.contexts import ctx_role
+from tracecat.auth.types import PlatformRole, Role
+from tracecat.contexts import ctx_request_audit, ctx_role
 from tracecat.db.engine import (
+    SupportsExecute,
     get_async_session,
+    get_async_session_auth_context_manager,
     get_async_session_bypass_rls_context_manager,
 )
 from tracecat.db.models import (
@@ -61,7 +68,7 @@ from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
 from tracecat.organization.domains import normalize_domain
 from tracecat.organization.management import ensure_single_tenant_user_defaults
-from tracecat.settings.service import get_setting
+from tracecat.settings.service import get_setting_from_bypass_session
 
 
 class InvalidEmailException(FastAPIUsersException):
@@ -129,9 +136,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self, email: str, *, organization_id: uuid.UUID | None = None
     ) -> None:
         # Check if this is attempting to be the first user (superadmin)
-        async with get_async_session_bypass_rls_context_manager() as session:
-            users = await list_users(session=session)
-            if len(users) == 0:  # This would be the first user
+        async with get_async_session_auth_context_manager() as session:
+            if not await users_exist(session=session):
                 # Only allow registration if this is the designated superadmin email
                 if not config.TRACECAT__AUTH_SUPERADMIN_EMAIL:
                     self.logger.error(
@@ -160,14 +166,51 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         user = await super().authenticate(credentials)
         if user is None:
             return None
-        if await self._is_local_password_login_allowed(user):
-            return user
-        self.logger.info(
-            "Blocked local email/password login by auth policy",
-            user_id=str(user.id),
-            email=user.email,
+        if not await self._is_local_password_login_allowed(user):
+            self.logger.info(
+                "Blocked local email/password login by auth policy",
+                user_id=str(user.id),
+                email=user.email,
+            )
+            return None
+        await self._enforce_login_ip_allowlist(user)
+        return user
+
+    async def _enforce_login_ip_allowlist(
+        self, user: User, *, organization_id: OrganizationID | None = None
+    ) -> None:
+        """Reject a login whose client IP no member organization admits.
+
+        With explicit org context (SAML) only that org's allowlist applies.
+        Otherwise the login succeeds if at least one of the user's organizations
+        admits the IP; requests scoped to a denying org are still rejected by
+        the per-request check. Platform superusers bypass (break-glass).
+
+        Raises:
+            HTTPException(403): If every candidate organization denies the IP.
+        """
+        if user.is_superuser:
+            return
+        org_ids = (
+            {organization_id}
+            if organization_id is not None
+            else await self._list_user_org_ids(user.id)
         )
-        return None
+        if not org_ids:
+            return
+        client_ip = current_client_ip()
+        for org_id in org_ids:
+            if await is_ip_allowed_for_org(org_id, client_ip):
+                return
+        self.logger.warning(
+            "Blocked login by organization IP allowlist",
+            user_id=str(user.id),
+            client_ip=str(client_ip) if client_ip else None,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=IP_ALLOWLIST_DENIED_DETAIL,
+        )
 
     async def _is_local_password_login_allowed(self, user: User) -> bool:
         if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
@@ -194,7 +237,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         statement = select(OrganizationMembership.organization_id).where(
             OrganizationMembership.user_id == user_id
         )
-        async with get_async_session_bypass_rls_context_manager() as session:
+        async with get_async_session_auth_context_manager() as session:
             result = await session.execute(statement)
             return set(result.scalars().all())
 
@@ -220,7 +263,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             OrganizationDomain.normalized_domain == normalized_domain,
             OrganizationDomain.is_active.is_(True),
         )
-        async with get_async_session_bypass_rls_context_manager() as session:
+        async with get_async_session_auth_context_manager() as session:
             result = await session.execute(statement)
             return result.scalar_one_or_none()
 
@@ -228,22 +271,25 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         if AuthType.SAML not in config.TRACECAT__AUTH_TYPES:
             return False
 
-        saml_enabled = bool(
-            await get_setting(
-                "saml_enabled",
-                role=bootstrap_role(org_id),
-                default=True,
+        async with get_async_session_auth_context_manager() as session:
+            saml_enabled = bool(
+                await get_setting_from_bypass_session(
+                    "saml_enabled",
+                    organization_id=org_id,
+                    session=session,
+                    default=True,
+                )
             )
-        )
-        if not saml_enabled:
-            return False
+            if not saml_enabled:
+                return False
 
-        saml_enforced = await get_setting(
-            "saml_enforced",
-            role=bootstrap_role(org_id),
-            default=False,
-        )
-        return bool(saml_enforced)
+            saml_enforced = await get_setting_from_bypass_session(
+                "saml_enforced",
+                organization_id=org_id,
+                session=session,
+                default=False,
+            )
+            return bool(saml_enforced)
 
     async def _any_org_saml_enforced(self, org_ids: set[OrganizationID]) -> bool:
         for org_id in org_ids:
@@ -301,7 +347,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="SAML authentication is enforced for this organization",
             )
-        return await super().oauth_callback(  # pyright: ignore[reportAttributeAccessIssue]
+        user = await super().oauth_callback(  # pyright: ignore[reportAttributeAccessIssue]
             oauth_name,
             access_token,
             account_id,
@@ -312,6 +358,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             associate_by_email=associate_by_email,
             is_verified_by_default=is_verified_by_default,
         )
+        await self._enforce_login_ip_allowlist(user)
+        return user
 
     async def create(
         self,
@@ -337,6 +385,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         user: User,
         request: Request | None = None,
         response: Response | None = None,
+        *,
+        organization_id: OrganizationID | None = None,
     ) -> None:
         # Update last login info
         try:
@@ -349,22 +399,22 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 user=user.email,
                 error=e,
             )
+        # Only fan out to an organization sink when the login carries explicit
+        # org context (e.g. SAML against a specific org). A context-less login
+        # (basic/OIDC) has no org scope, so it is recorded in the platform sink
+        # only and must not be attributed into org-controlled audit sinks.
+        org_ids = {organization_id} if organization_id is not None else set()
+        await self._emit_auth_success_audit(
+            user=user,
+            auth_method=self._auth_method_from_request(request),
+            org_ids=org_ids,
+        )
 
     async def on_after_register(
         self, user: User, request: Request | None = None
     ) -> None:
         self.logger.info("User registered", user_id=str(user.id), email=user.email)
-
-        # Log audit event for user registration
-        platform_role = PlatformRole(
-            type="user", user_id=user.id, service_id="tracecat-api"
-        )
-        async with AuditService.with_session(role=platform_role) as audit_svc:
-            await audit_svc.create_event(
-                resource_type="user",
-                action="create",
-                resource_id=user.id,
-            )
+        await self._emit_user_create_audit(user=user)
 
         # Promote to superuser if email matches configured superadmin email
         # No count/lock needed - email uniqueness ensures only one user can have this email
@@ -376,15 +426,18 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
         # Accept invitation atomically if token was provided during registration
         # This eliminates race conditions in the invitation flow
+        org_ids: set[OrganizationID] = set()
         if self._pending_invitation_token:
-            await self._accept_invitation_atomically(user)
+            if invitation_org_id := await self._accept_invitation_atomically(user):
+                org_ids.add(invitation_org_id)
 
-        await ensure_single_tenant_user_defaults(
+        if default_org_id := await ensure_single_tenant_user_defaults(
             user_id=user.id,
             is_superuser=user.is_superuser,
-        )
+        ):
+            org_ids.add(default_org_id)
 
-    async def _accept_invitation_atomically(self, user: User) -> None:
+    async def _accept_invitation_atomically(self, user: User) -> OrganizationID | None:
         """Accept an invitation during registration if a token was provided.
 
         Errors during invitation acceptance are logged but do NOT fail registration.
@@ -397,7 +450,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         self._pending_invitation_token = None  # Clear to prevent reuse
 
         if not token:
-            return
+            return None
 
         try:
             async with get_async_session_bypass_rls_context_manager() as session:
@@ -410,6 +463,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                     email=user.email,
                     org_id=str(membership.organization_id),
                 )
+                return membership.organization_id
         except TracecatNotFoundError:
             self.logger.warning(
                 "Invitation token not found during registration",
@@ -423,6 +477,122 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 email=user.email,
                 error=str(e),
             )
+        return None
+
+    async def _emit_user_create_audit(self, *, user: User) -> None:
+        """Emit a platform-scoped lifecycle event for self-service registration."""
+        audit_role = PlatformRole(
+            type="user",
+            user_id=user.id,
+            service_id="tracecat-api",
+        )
+        try:
+            async with AuditService.with_session(
+                role=audit_role,
+                audit_sink="platform",
+            ) as audit_svc:
+                await audit_svc.create_event(
+                    resource_type="user",
+                    action="create",
+                    resource_id=user.id,
+                )
+        except Exception as exc:
+            self.logger.warning(
+                "Failed to emit user registration audit event",
+                user_id=str(user.id),
+                action="create",
+                audit_sink="platform",
+                error=str(exc),
+            )
+
+    def _auth_method_from_request(self, request: Request | None) -> str:
+        """Return a coarse auth method label without user-provided data."""
+        if request is None:
+            return "unknown"
+        path = request.url.path
+        if path.startswith("/auth/saml"):
+            return "saml"
+        if path.startswith("/auth/oauth"):
+            return "oidc"
+        if path.startswith("/auth/register"):
+            return "basic"
+        if path.startswith("/auth/login"):
+            return "basic"
+        return "unknown"
+
+    async def _emit_auth_success_audit(
+        self,
+        *,
+        user: User,
+        auth_method: str,
+        org_ids: set[OrganizationID] | None = None,
+    ) -> None:
+        """Emit sanitized auth success events to the relevant audit sinks.
+
+        ``org_ids`` is the set of organizations the login is explicitly scoped
+        to. It is empty (or ``None``) for context-less logins (basic/OIDC),
+        which are recorded in the platform sink only. Organization-scoped sinks
+        receive a sign-in event only for orgs in ``org_ids`` -- we never fan out
+        across all of a user's memberships for a login that carried no org
+        context, since that would attribute a non-org-specific login (including
+        platform-superuser sessions) into org-controlled audit sinks.
+        """
+        if user.is_superuser:
+            audit_role = PlatformRole(
+                type="user",
+                user_id=user.id,
+                service_id="tracecat-api",
+            )
+            try:
+                async with AuditService.with_session(
+                    role=audit_role,
+                    audit_sink="platform",
+                ) as audit_svc:
+                    await audit_svc.create_event(
+                        resource_type="auth",
+                        action="sign_in",
+                        resource_id=user.id,
+                        data={"auth_method": auth_method},
+                        include_actor_label=False,
+                    )
+            except Exception as exc:
+                self.logger.warning(
+                    "Failed to emit auth audit event",
+                    user_id=str(user.id),
+                    action="sign_in",
+                    audit_sink="platform",
+                    error=str(exc),
+                )
+
+        for org_id in org_ids or set():
+            audit_role = Role(
+                type="user",
+                user_id=user.id,
+                organization_id=org_id,
+                service_id="tracecat-api",
+            )
+            for audit_sink in ("platform", "organization"):
+                try:
+                    async with AuditService.with_session(
+                        role=audit_role,
+                        audit_sink=audit_sink,
+                    ) as audit_svc:
+                        await audit_svc.create_event(
+                            resource_type="auth",
+                            action="sign_in",
+                            resource_id=user.id,
+                            data={"auth_method": auth_method},
+                            include_actor_label=False,
+                        )
+                except Exception as exc:
+                    self.logger.warning(
+                        "Failed to emit auth audit event",
+                        user_id=str(user.id),
+                        organization_id=str(org_id),
+                        action="sign_in",
+                        audit_sink=audit_sink,
+                        error=str(exc),
+                    )
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Request | None = None
@@ -482,6 +652,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             user = await self.user_db.create(user_dict)
             await self.on_after_register(user)
 
+        await self._enforce_login_ip_allowlist(user, organization_id=organization_id)
         self.logger.info(f"User {user.id} authenticated via SAML.")
         return user
 
@@ -567,14 +738,89 @@ def _get_cookie_name() -> str:
 cookie_transport = CookieTransport(
     cookie_name=_get_cookie_name(),
     cookie_max_age=config.SESSION_EXPIRE_TIME_SECONDS,
-    cookie_secure=config.TRACECAT__API_URL.startswith("https"),
+    cookie_secure=config.TRACECAT__PUBLIC_API_URL.startswith("https"),
 )
+
+
+class SessionMetadataDatabaseStrategy(DatabaseStrategy[User, uuid.UUID, AccessToken]):
+    """Database session strategy that records client metadata on the token.
+
+    Captures the client IP and User-Agent when a session is created and
+    refreshes ``last_seen_at`` on reads, throttled so an active session incurs
+    at most one write per ``SESSION_LAST_SEEN_UPDATE_INTERVAL_SECONDS``.
+    """
+
+    def _create_access_token_dict(self, user: User) -> dict[str, Any]:
+        token_dict = super()._create_access_token_dict(user)
+        now = datetime.now(UTC)
+        token_dict["last_seen_at"] = now
+        if audit := ctx_request_audit.get():
+            token_dict["ip_address"] = audit.client_ip
+            token_dict["user_agent"] = audit.raw_user_agent
+        return token_dict
+
+    async def read_token(
+        self, token: str | None, user_manager: BaseUserManager[User, uuid.UUID]
+    ) -> User | None:
+        if token is None:
+            return None
+
+        max_age = None
+        if self.lifetime_seconds:
+            max_age = datetime.now(UTC) - timedelta(seconds=self.lifetime_seconds)
+
+        access_token = await self.database.get_by_token(token, max_age)
+        if access_token is None:
+            return None
+
+        try:
+            user = await user_manager.get(user_manager.parse_id(access_token.user_id))
+        except (UserNotExists, InvalidID):
+            return None
+
+        await self._touch_last_seen(access_token)
+        return user
+
+    async def _touch_last_seen(self, access_token: AccessToken) -> None:
+        now = datetime.now(UTC)
+        stale_before = now - timedelta(
+            seconds=config.SESSION_LAST_SEEN_UPDATE_INTERVAL_SECONDS
+        )
+        if (
+            access_token.last_seen_at is not None
+            and access_token.last_seen_at > stale_before
+        ):
+            return
+        if not isinstance(self.database, SQLAlchemyAccessTokenDatabase):
+            return
+        # Conditional UPDATE so concurrent requests on the same session issue at
+        # most one write per interval and never move the timestamp backwards.
+        statement = (
+            update(AccessToken)
+            .where(
+                AccessToken.id == access_token.id,
+                or_(
+                    AccessToken.last_seen_at.is_(None),
+                    AccessToken.last_seen_at < stale_before,
+                ),
+            )
+            .values(last_seen_at=now)
+        )
+        try:
+            await self.database.session.execute(statement)
+            await self.database.session.commit()
+        except Exception as e:
+            logger.warning(
+                "Failed to update session last seen",
+                session_id=access_token.id,
+                error=e,
+            )
 
 
 def get_database_strategy(
     access_token_db: AccessTokenDatabase[AccessToken] = Depends(get_access_token_db),
 ) -> DatabaseStrategy[User, uuid.UUID, AccessToken]:
-    strategy = DatabaseStrategy(
+    strategy = SessionMetadataDatabaseStrategy(
         access_token_db,
         lifetime_seconds=config.SESSION_EXPIRE_TIME_SECONDS,
     )
@@ -654,10 +900,10 @@ async def get_or_create_user(params: UserCreate, exist_ok: bool = True) -> User:
                     return await user_manager.get_by_email(params.email)
 
 
-async def list_users(*, session: AsyncSession) -> Sequence[User]:
-    statement = select(User)
-    result = await session.execute(statement)
-    return result.scalars().all()
+async def users_exist(*, session: SupportsExecute) -> bool:
+    """Return whether at least one user exists without materializing user rows."""
+    result = await session.execute(select(select(User).exists()))
+    return bool(result.scalar_one())
 
 
 async def search_users(

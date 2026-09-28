@@ -11,12 +11,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from tracecat.runtime.errors import RuntimeErrorOwner
+
 if TYPE_CHECKING:
     import httpx
     from pydantic_core import ValidationError
 
     from tracecat.executor.schemas import ExecutorActionErrorInfo
+    from tracecat.observability.types import PlatformErrorCapture
     from tracecat.registry.actions.schemas import RegistryActionValidationErrorInfo
+    from tracecat.registry.sync.schemas import SyncErrorCode
+    from tracecat.runtime.errors import RuntimeErrorClassification
 
 
 class TracecatException(Exception):
@@ -119,6 +124,10 @@ class TracecatNotFoundError(TracecatException):
     """Raised when a resource is not found in the Tracecat database."""
 
 
+class WorkflowAliasResolutionError(TracecatNotFoundError):
+    """Raised when a configured workflow alias does not resolve."""
+
+
 class TracecatServiceError(TracecatException):
     """Tracecat generic user-facing service error"""
 
@@ -127,8 +136,46 @@ class RegistryError(TracecatException):
     """Generic exception raised when a registry error occurs."""
 
 
+class RegistryTemplateLoadError(RegistryError):
+    """Raised when a template action file cannot be loaded."""
+
+
+class RegistrySyncContentError(RegistryError):
+    """Registry sync failed on repository content; retrying cannot fix it."""
+
+    def __init__(self, *args, code: SyncErrorCode, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.code = code
+
+
 class BuiltinRegistryHasNoSelectionError(RegistryError):
     """Raised when the builtin platform registry has no selected version yet."""
+
+
+class RegistryLockInvalidDataError(RegistryError):
+    """Raised when registry lock resolution finds deterministic invalid data."""
+
+
+class RegistryLockAmbiguousActionError(RegistryLockInvalidDataError):
+    """Raised when an action name resolves to more than one registry origin.
+
+    The collision is caused by an org registry defining an action whose
+    namespace and name shadow another registry's action, so the message is
+    safe to surface and actionable for the org's registry maintainers.
+    """
+
+    def __init__(self, action_name: str, origins: list[str]):
+        message = (
+            f"Action '{action_name}' is defined in multiple registries: "
+            f"{origins}. Rename or remove the duplicate action in your custom "
+            "registry so each action name resolves to a single registry."
+        )
+        super().__init__(
+            message,
+            detail={"action_name": action_name, "origins": origins},
+        )
+        self.action_name = action_name
+        self.origins = origins
 
 
 class RegistryActionError(RegistryError):
@@ -178,8 +225,24 @@ class ExecutionError(TracecatException):
     """Exception raised when an error occurs during action execution.
     Use this to wrap errors from the executor so that we should reraise"""
 
-    def __init__(self, info: ExecutorActionErrorInfo):
+    def __init__(
+        self,
+        info: ExecutorActionErrorInfo,
+        *,
+        classification: RuntimeErrorClassification | None = None,
+        sentry_capture: PlatformErrorCapture | None = None,
+    ):
         self.info = info
+        self.sentry_capture = sentry_capture
+        # Host-derived metadata, never decoded from a backend error payload.
+        # Platform messages are neutral and policy-authored; user messages must
+        # follow the diagnostic's sanitization rather than retain old plaintext.
+        self.classification = (
+            classification.model_copy(update={"message": info.message})
+            if classification is not None
+            and classification.owner is RuntimeErrorOwner.USER
+            else classification
+        )
         # Build a user-friendly error message from the info
         message = (
             f"There was an error in the executor when calling action '{info.action_name}'."

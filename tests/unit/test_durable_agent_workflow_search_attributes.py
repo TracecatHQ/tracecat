@@ -10,29 +10,35 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from temporalio.common import TypedSearchAttributes
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError
 from tracecat_ee.agent.activities import BuildToolDefsArgs, BuildToolDefsResult
 from tracecat_ee.agent.workflows.durable import (
-    BUILD_AGENT_TOOL_DEFINITIONS_PATCH,
-    EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,
-    LOAD_TERMINAL_MESSAGE_HISTORY_PATCH,
-    UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,
     AgentWorkflowArgs,
     DurableAgentWorkflow,
+    WorkflowApprovalSubmission,
+    _agent_token_ttl_seconds,
+    _apply_configured_timeout,
+    _approved_user_mcp_tool_name,
     _build_approved_tool_run_input,
+    _start_registry_tool_call,
 )
 
+from tracecat import config
 from tracecat.agent.common.types import MCPToolDefinition
-from tracecat.agent.executor.activity import AgentExecutorResult
+from tracecat.agent.executor.activity import AgentExecutorInput, AgentExecutorResult
 from tracecat.agent.executor.schemas import ApprovedToolCall
 from tracecat.agent.preset.activities import ResolveAgentPresetConfigActivityInput
 from tracecat.agent.schemas import AgentOutput, RunAgentArgs
+from tracecat.agent.session.activities import FinalizeTurnInput, FinalizeTurnResult
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
 from tracecat.auth.types import Role
+from tracecat.dsl._converter import _serializer
+from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.temporal.patches import DurableAgentWorkflowPatch
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
     ExecutionType,
@@ -82,6 +88,105 @@ def test_agent_workflow_args_ignores_legacy_workspace_credentials() -> None:
     assert workflow_args.agent_args.session_id == payload["agent_args"]["session_id"]
     assert not hasattr(workflow_args, "use_workspace_credentials")
     assert not hasattr(workflow_args.agent_args, "use_workspace_credentials")
+
+
+def test_agent_token_ttl_includes_executor_queue_and_setup_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat_ee.agent.workflows.durable.config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT",
+        300,
+    )
+
+    assert _agent_token_ttl_seconds(65) == 365
+
+
+@pytest.mark.parametrize("configured_timeout_seconds", [None, 3600])
+def test_apply_configured_timeout_preserves_inheritance_or_pins_explicit_value(
+    configured_timeout_seconds: int | None,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-service",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    assert role.workspace_id is not None
+    executor_input = AgentExecutorInput(
+        session_id=uuid.uuid4(),
+        workspace_id=role.workspace_id,
+        user_prompt="hello",
+        config=AgentConfig(model_name="gpt-4o-mini", model_provider="openai"),
+        role=role,
+        mcp_auth_token="mcp-token",
+        llm_gateway_auth_token="llm-token",
+    )
+
+    result = _apply_configured_timeout(executor_input, configured_timeout_seconds)
+    payload = _serializer(result)
+
+    if configured_timeout_seconds is None:
+        assert "timeout_seconds" not in payload
+    else:
+        assert payload["timeout_seconds"] == configured_timeout_seconds
+
+
+def test_workflow_rotates_stream_from_new_approval_update() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    previous_stream_id = uuid.uuid4()
+    new_stream_id = uuid.uuid4()
+    workflow_instance.active_stream_id = previous_stream_id
+
+    cast(Any, workflow_instance.set_approvals)(
+        WorkflowApprovalSubmission(
+            approvals={"tool_call_123": True},
+            approved_by=role.user_id,
+            new_stream_id=new_stream_id,
+        )
+    )
+
+    assert workflow_instance.active_stream_id == new_stream_id
+    assert workflow_instance.approvals.is_ready()
+
+
+def test_approval_update_does_not_rotate_stream_when_decision_set_fails() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    previous_stream_id = uuid.uuid4()
+    workflow_instance.active_stream_id = previous_stream_id
+
+    with (
+        patch.object(
+            workflow_instance.approvals,
+            "set",
+            side_effect=RuntimeError("approval manager rejected decisions"),
+        ),
+        pytest.raises(RuntimeError, match="approval manager rejected decisions"),
+    ):
+        cast(Any, workflow_instance.set_approvals)(
+            WorkflowApprovalSubmission(
+                approvals={"tool_call_123": True},
+                approved_by=role.user_id,
+                new_stream_id=uuid.uuid4(),
+            )
+        )
+
+    assert workflow_instance.active_stream_id == previous_stream_id
 
 
 @pytest.mark.anyio
@@ -197,13 +302,236 @@ async def test_run_skips_search_attribute_upsert_without_patch_marker() -> None:
             "_run_with_agent_executor",
             AsyncMock(return_value=expected_output),
         ) as run_mock,
+        patch.object(
+            workflow_instance,
+            "_finalize_turn",
+            AsyncMock(),
+        ) as finalize_turn_mock,
+        patch.object(
+            workflow_instance,
+            "_emit_terminal_done",
+            AsyncMock(),
+        ) as emit_terminal_done_mock,
     ):
         result = await workflow_instance.run(workflow_args)
 
-    patched_mock.assert_called_once_with(UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH)
+    # Search-attribute upsert and both finalization history shapes retain their
+    # independent patch gates.
+    assert patched_mock.call_args_list == [
+        ((DurableAgentWorkflowPatch.UPSERT_TRACECAT_SEARCH_ATTRIBUTES,),),
+        ((DurableAgentWorkflowPatch.FINALIZE_TURN_WITH_END,),),
+        ((DurableAgentWorkflowPatch.FINALIZE_TURN,),),
+    ]
     upsert_mock.assert_not_called()
     run_mock.assert_awaited_once_with(workflow_args, cfg)
+    finalize_turn_mock.assert_not_awaited()
+    emit_terminal_done_mock.assert_awaited_once_with(None)
     assert result == expected_output
+
+
+@pytest.mark.anyio
+async def test_run_preserves_v1_finalize_then_done_history_shape() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    cfg = cast(Any, workflow_args.agent_args.config)
+    active_stream_id = uuid.uuid4()
+    expected_output = AgentOutput(
+        output="ok",
+        duration=0.1,
+        session_id=workflow_args.agent_args.session_id,
+    )
+    call_order: list[str] = []
+
+    async def terminal_run(*_: object) -> AgentOutput:
+        workflow_instance.active_stream_id = active_stream_id
+        return expected_output
+
+    async def finalize(*_: object, **__: object) -> None:
+        call_order.append("finalize")
+
+    async def emit_done(*_: object) -> None:
+        call_order.append("done")
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched",
+            side_effect=lambda patch_id: (
+                patch_id == DurableAgentWorkflowPatch.FINALIZE_TURN
+            ),
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
+            return_value=False,
+        ),
+        patch.object(workflow_instance, "_build_config", AsyncMock(return_value=cfg)),
+        patch.object(
+            workflow_instance,
+            "_run_with_agent_executor",
+            AsyncMock(side_effect=terminal_run),
+        ),
+        patch.object(
+            workflow_instance,
+            "_finalize_turn",
+            AsyncMock(side_effect=finalize),
+        ) as finalize_turn_mock,
+        patch.object(
+            workflow_instance,
+            "_emit_terminal_done",
+            AsyncMock(side_effect=emit_done),
+        ) as emit_terminal_done_mock,
+    ):
+        result = await workflow_instance.run(workflow_args)
+
+    assert result == expected_output
+    finalize_turn_mock.assert_awaited_once_with(None, emit_terminal_done=False)
+    emit_terminal_done_mock.assert_awaited_once_with(active_stream_id)
+    assert call_order == ["finalize", "done"]
+
+
+@pytest.mark.anyio
+async def test_run_does_not_emit_done_after_combined_finalize_failure() -> None:
+    """A failed DB/Redis finalization must not claim the stream is complete."""
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    cfg = cast(Any, workflow_args.agent_args.config)
+    rotated_stream_id = uuid.uuid4()
+    expected_output = AgentOutput(
+        output="ok",
+        duration=0.1,
+        session_id=workflow_args.agent_args.session_id,
+    )
+    finalize_error = ActivityError(
+        "finalize failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="finalize_turn_activity",
+        activity_id="activity-id",
+        retry_state=None,
+    )
+
+    async def terminal_run(*args: object) -> AgentOutput:
+        del args
+        workflow_instance.active_stream_id = rotated_stream_id
+        return expected_output
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.patched",
+            side_effect=lambda patch_id: (
+                patch_id == DurableAgentWorkflowPatch.FINALIZE_TURN_WITH_END
+            ),
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
+            return_value=False,
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.info",
+            return_value=SimpleNamespace(
+                workflow_id=f"agent/{workflow_args.agent_args.session_id}"
+            ),
+        ),
+        patch.object(workflow_instance, "_build_config", AsyncMock(return_value=cfg)),
+        patch.object(
+            workflow_instance,
+            "_run_with_agent_executor",
+            AsyncMock(side_effect=terminal_run),
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+            AsyncMock(side_effect=finalize_error),
+        ) as execute_activity_mock,
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity_method",
+            AsyncMock(),
+        ) as execute_activity_method_mock,
+    ):
+        result = await workflow_instance.run(workflow_args)
+
+    assert result == expected_output
+    execute_activity_mock.assert_awaited_once()
+    execute_activity_method_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("activity_result", "expects_fallback"),
+    [
+        pytest.param(None, True, id="legacy-worker"),
+        pytest.param(
+            FinalizeTurnResult(terminal_done_emitted=True),
+            False,
+            id="combined-worker",
+        ),
+    ],
+)
+async def test_finalize_turn_falls_back_only_for_legacy_worker_result(
+    activity_result: FinalizeTurnResult | None,
+    *,
+    expects_fallback: bool,
+) -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = _build_workflow_args(role)
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    active_stream_id = uuid.uuid4()
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.info",
+            return_value=SimpleNamespace(
+                workflow_id=f"agent/{workflow_args.agent_args.session_id}"
+            ),
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+            AsyncMock(return_value=activity_result),
+        ) as execute_activity_mock,
+        patch.object(
+            workflow_instance,
+            "_emit_terminal_done",
+            AsyncMock(),
+        ) as emit_terminal_done_mock,
+    ):
+        await workflow_instance._finalize_turn(
+            active_stream_id,
+            emit_terminal_done=True,
+        )
+
+    execute_activity_mock.assert_awaited_once()
+    activity_call = execute_activity_mock.await_args
+    assert activity_call is not None
+    finalize_input = activity_call.args[1]
+    assert isinstance(finalize_input, FinalizeTurnInput)
+    assert finalize_input.active_stream_id == active_stream_id
+    assert finalize_input.emit_terminal_done is True
+    if expects_fallback:
+        emit_terminal_done_mock.assert_awaited_once_with(active_stream_id)
+    else:
+        emit_terminal_done_mock.assert_not_awaited()
 
 
 @pytest.mark.anyio
@@ -233,7 +561,7 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
     with (
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.patched",
-            side_effect=[False, False],
+            side_effect=[False, False, False, False, False],
         ) as patched_mock,
         patch(
             "tracecat_ee.agent.workflows.durable.workflow.unsafe.is_replaying",
@@ -245,20 +573,33 @@ async def test_run_skips_activity_error_emission_without_patch_marker() -> None:
             "_run_with_agent_executor",
             AsyncMock(side_effect=activity_error),
         ),
+        # Let the real _finalize_session_error run so its patch-gated
+        # early-return is exercised; mock only the actual scheduling call.
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity_method",
+            AsyncMock(),
+        ) as execute_activity_mock,
         patch.object(
             workflow_instance,
-            "_emit_session_error",
+            "_emit_terminal_done",
             AsyncMock(),
-        ) as emit_error_mock,
+        ) as emit_terminal_done_mock,
     ):
-        with pytest.raises(ActivityError):
+        with pytest.raises(ApplicationError):
             await workflow_instance.run(workflow_args)
 
+    # Legacy replay (all patches off) on the pre-stream error path: should_stream
+    # resolves False, and _finalize_session_error early-returns before scheduling
+    # emit_session_error, preserving the legacy command shape.
     assert patched_mock.call_args_list == [
-        ((UPSERT_TRACECAT_SEARCH_ATTRIBUTES_PATCH,),),
-        ((EMIT_PRE_STREAM_SESSION_ERRORS_PATCH,),),
+        ((DurableAgentWorkflowPatch.UPSERT_TRACECAT_SEARCH_ATTRIBUTES,),),
+        ((DurableAgentWorkflowPatch.EMIT_PRE_STREAM_SESSION_ERRORS,),),
+        ((DurableAgentWorkflowPatch.PERSIST_SESSION_ERROR,),),
+        ((DurableAgentWorkflowPatch.FINALIZE_TURN_WITH_END,),),
+        ((DurableAgentWorkflowPatch.FINALIZE_TURN,),),
     ]
-    emit_error_mock.assert_not_awaited()
+    execute_activity_mock.assert_not_awaited()
+    emit_terminal_done_mock.assert_awaited_once_with(None)
 
 
 @pytest.mark.anyio
@@ -307,9 +648,12 @@ async def test_compile_agent_run_uses_legacy_activity_without_patch_marker() -> 
             cfg=cfg,
             subagents=[],
             internal_tool_context=None,
+            token_ttl_seconds=None,
         )
 
-    patched_mock.assert_called_once_with(BUILD_AGENT_TOOL_DEFINITIONS_PATCH)
+    patched_mock.assert_called_once_with(
+        DurableAgentWorkflowPatch.BUILD_AGENT_TOOL_DEFINITIONS
+    )
     execute_activity_mock.assert_awaited_once()
     assert execute_activity_mock.await_args is not None
     activity_args = execute_activity_mock.await_args.kwargs["arg"]
@@ -354,9 +698,44 @@ async def test_load_terminal_message_history_skips_activity_without_patch_marker
             AgentExecutorResult(success=True)
         )
 
-    patched_mock.assert_called_once_with(LOAD_TERMINAL_MESSAGE_HISTORY_PATCH)
+    patched_mock.assert_called_once_with(
+        DurableAgentWorkflowPatch.LOAD_TERMINAL_MESSAGE_HISTORY
+    )
     execute_activity_mock.assert_not_called()
     assert message_history is None
+
+
+@pytest.mark.anyio
+async def test_approval_pause_done_failure_does_not_abort_workflow() -> None:
+    """A Redis close failure must not strand already-persisted approvals."""
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    workflow_instance._initialize_run()
+    activity_error = ActivityError(
+        "stream close failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="emit_session_done",
+        activity_id="activity-id",
+        retry_state=None,
+    )
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity_method",
+            AsyncMock(side_effect=activity_error),
+        ),
+    ):
+        workflow_instance.active_stream_id = uuid.uuid4()
+        await workflow_instance._emit_approval_pause_done()
 
 
 @pytest.mark.anyio
@@ -418,11 +797,93 @@ async def test_build_config_prefers_pinned_preset_version_id() -> None:
     assert cfg.instructions == "base instructions\nappend this"
 
 
+def test_approved_user_mcp_tool_name_from_normalized_approval() -> None:
+    assert _approved_user_mcp_tool_name("mcp.Jira.getIssue") == ("mcp__Jira__getIssue")
+    assert (
+        _approved_user_mcp_tool_name("mcp__tracecat-registry__mcp__Jira__getIssue")
+        == "mcp__Jira__getIssue"
+    )
+    assert _approved_user_mcp_tool_name("core.http_request") is None
+
+
+@pytest.mark.anyio
+async def test_sequential_approved_remote_tools_receive_fresh_mcp_tokens() -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_instance = DurableAgentWorkflow(_build_workflow_args(role))
+    workflow_instance._initialize_run()
+    build_result = BuildToolDefsResult(
+        tool_definitions={},
+        registry_lock=RegistryLock(origins={}, actions={}),
+    )
+    approved_tools = [
+        ApprovedToolCall(
+            tool_call_id="call-1",
+            tool_name="mcp.Jira.getIssue",
+            args={"issue_key": "ISSUE-1"},
+        ),
+        ApprovedToolCall(
+            tool_call_id="call-2",
+            tool_name="mcp.Jira.getIssue",
+            args={"issue_key": "ISSUE-2"},
+        ),
+    ]
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.now",
+            return_value=datetime(2026, 7, 14, tzinfo=UTC),
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable._start_remote_mcp_tool_call"
+        ) as start_remote_mock,
+        patch.object(
+            workflow_instance,
+            "_race_tool_activity_against_cancel",
+            AsyncMock(side_effect=['{"issue": 1}', '{"issue": 2}']),
+        ),
+        patch.object(
+            workflow_instance,
+            "_mint_scope_mcp_token",
+            side_effect=["fresh-token-1", "fresh-token-2"],
+        ) as mint_token_mock,
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+            AsyncMock(return_value=SimpleNamespace(results=[])),
+        ),
+    ):
+        await workflow_instance._execute_and_reconcile_approved_tools(
+            approved_tools=approved_tools,
+            denied_tools=[],
+            registry_lock=build_result.registry_lock,
+            mcp_build_result=build_result,
+            internal_tool_context=None,
+            token_ttl_seconds=365,
+            active_stream_id=None,
+        )
+
+    assert mint_token_mock.call_count == 2
+    assert [call.kwargs["ttl_seconds"] for call in mint_token_mock.call_args_list] == [
+        365,
+        365,
+    ]
+    assert [
+        call.kwargs["mcp_auth_token"] for call in start_remote_mock.call_args_list
+    ] == ["fresh-token-1", "fresh-token-2"]
+
+
 def test_build_approved_tool_run_input_is_deterministic() -> None:
     workflow_id = uuid.UUID("00000000-0000-4000-8000-000000000123")
     run_id = uuid.UUID("00000000-0000-4000-8000-000000000456")
     execution_id = uuid.UUID("00000000-0000-4000-8000-000000000789")
     logical_time = datetime(2026, 3, 17, tzinfo=UTC)
+    agent_session_id = uuid.UUID("00000000-0000-4000-8000-000000000999")
     registry_lock = RegistryLock(
         origins={"tracecat_registry": "test-version"},
         actions={"core.http_request": "tracecat_registry"},
@@ -440,6 +901,7 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
         run_id=run_id,
         execution_id=execution_id,
         logical_time=logical_time,
+        agent_session_id=agent_session_id,
     )
 
     assert result.task.action == "core_http_request"
@@ -451,6 +913,49 @@ def test_build_approved_tool_run_input_is_deterministic() -> None:
         == f"{WorkflowUUID.from_uuid(workflow_id).short()}/{ExecutionUUID.from_uuid(execution_id).short()}"
     )
     assert result.run_context.logical_time == logical_time
+    assert result.agent_session_id == agent_session_id
+
+
+def test_approved_registry_tool_failures_are_not_retried() -> None:
+    role = Role(
+        type="user",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        service_id="tracecat-api",
+    )
+    registry_lock = RegistryLock(
+        origins={"tracecat_registry": "test-version"},
+        actions={"core.http_request": "tracecat_registry"},
+    )
+
+    with (
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.uuid4",
+            side_effect=[uuid.uuid4(), uuid.uuid4(), uuid.uuid4()],
+        ),
+        patch(
+            "tracecat_ee.agent.workflows.durable.workflow.start_activity"
+        ) as start_activity_mock,
+    ):
+        _start_registry_tool_call(
+            ApprovedToolCall(
+                tool_call_id="call_123",
+                tool_name="core__http_request",
+                args={"url": "https://example.com", "method": "GET"},
+            ),
+            registry_lock=registry_lock,
+            service_role=role,
+            logical_time=datetime(2026, 3, 18, tzinfo=UTC),
+            agent_session_id=uuid.uuid4(),
+        )
+
+    retry_policy = start_activity_mock.call_args.kwargs["retry_policy"]
+    assert retry_policy == RETRY_POLICIES["activity:fail_fast"]
+    assert retry_policy.maximum_attempts == 1
+    assert start_activity_mock.call_args.kwargs["task_queue"] == (
+        config.TRACECAT__EXECUTOR_QUEUE
+    )
 
 
 def test_build_approved_tool_run_input_strips_proxy_metadata() -> None:
@@ -458,6 +963,7 @@ def test_build_approved_tool_run_input_strips_proxy_metadata() -> None:
     run_id = uuid.UUID("00000000-0000-4000-8000-000000000456")
     execution_id = uuid.UUID("00000000-0000-4000-8000-000000000789")
     logical_time = datetime(2026, 3, 17, tzinfo=UTC)
+    agent_session_id = uuid.UUID("00000000-0000-4000-8000-000000000999")
     registry_lock = RegistryLock(
         origins={"tracecat_registry": "test-version"},
         actions={"core.cases.create_case": "tracecat_registry"},
@@ -478,7 +984,9 @@ def test_build_approved_tool_run_input_strips_proxy_metadata() -> None:
         run_id=run_id,
         execution_id=execution_id,
         logical_time=logical_time,
+        agent_session_id=agent_session_id,
     )
 
     assert result.task.action == "core.cases.create_case"
     assert result.task.args == {"summary": "hello"}
+    assert result.agent_session_id == agent_session_id

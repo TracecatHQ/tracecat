@@ -4,8 +4,6 @@ import {
 } from "@/lib/auth-return-url"
 
 type PostAuthRedirectPathParams = {
-  isSuperuser: boolean
-  eeMultiTenant: boolean
   returnUrl?: string | null
 }
 

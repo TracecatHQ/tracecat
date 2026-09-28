@@ -3,6 +3,7 @@ import type {
   AgentSessionRead,
   ApprovalRead,
   ChatReadMinimal,
+  UserSummary,
   WorkflowExecutionStatus,
 } from "@/client"
 import { undoSlugify } from "@/lib/utils"
@@ -151,11 +152,18 @@ export interface InboxSessionItem {
   created_at: string
   updated_at: string
   parent_workflow: WorkflowSummary | null
+  created_by: UserSummary | null
   derivedStatus: AgentDerivedStatus
   statusLabel: string
   statusPriority: number
   statusTone: AgentStatusTone
   pendingApprovalCount: number
+  /**
+   * Terminal error summary for the most recent run, when it failed.
+   * Surfaced because terminal errors are not persisted into the replayable
+   * message history, so the detail pane has nothing else to show on reopen.
+   */
+  lastError: string | null
 }
 
 export function enrichAgentSession(
@@ -200,6 +208,25 @@ export function getAgentStatusMetadata(
   status: AgentDerivedStatus
 ): AgentStatusMetadata {
   return STATUS_METADATA[status]
+}
+
+/**
+ * Derived statuses that represent a session still actively streaming on the
+ * server. Mirrors the backend `RUNNING_STATUSES` set (`agent_runs.py`):
+ * `CONTINUED_AS_NEW` is a live run that has rolled over to a fresh Temporal
+ * execution, not a terminal state.
+ */
+const LIVE_AGENT_STATUSES = new Set<AgentDerivedStatus>([
+  "RUNNING",
+  "CONTINUED_AS_NEW",
+])
+
+/**
+ * Whether a derived status represents a session that is still streaming and can
+ * be reconnected to its live event stream.
+ */
+export function isLiveAgentStatus(status: AgentDerivedStatus): boolean {
+  return LIVE_AGENT_STATUSES.has(status)
 }
 
 export function compareAgentStatusPriority(

@@ -3,9 +3,171 @@ from typing import Annotated, Any, Literal
 
 from typing_extensions import Doc
 
-from tracecat_registry import config, registry, types
-from tracecat_registry.context import get_context
+from tracecat_registry import config, ctx, registry, types
 from tracecat_registry.sdk.exceptions import TracecatConflictError
+
+
+# Query inputs deliberately remain plain data: action schema consumers cannot
+# resolve recursive filter models, and the registry cannot import server models.
+@registry.register(
+    default_title="Aggregate rows",
+    description=(
+        "Filter, group, and summarize table rows. Returns groups and a truncated "
+        "flag indicating whether more groups exist than the requested limit."
+    ),
+    display_group="Tables",
+    namespace="core.table",
+)
+async def aggregate_rows(
+    table: Annotated[str, Doc("The name of the workspace table to aggregate.")],
+    group_by: Annotated[
+        list[str | dict[str, Any]],
+        Doc(
+            "Choose how to split rows into groups. Use up to 3 fields, or `[]` for one "
+            "total across all matching rows.\n"
+            "\n"
+            "Supply a field name such as `source`, or an object with `field` and "
+            "optional `bucket`, `timezone`, and `alias`. For example: ['source', "
+            "{'field': 'created_at', 'bucket': 'hour'}]. An alias names the field in "
+            "the result; it defaults to the field name. All output names must be "
+            "unique and at most 63 UTF-8 bytes.\n"
+            "\n"
+            "Fields you can group by:\n"
+            "\n"
+            "- TEXT, SELECT, INTEGER, NUMERIC, and BOOLEAN columns.\n"
+            "- DATE and TIMESTAMPTZ columns, including the system fields `created_at` "
+            "and `updated_at`. These require a `bucket`: `hour`, `day`, `week`, or "
+            "`month`. Weeks start on Monday.\n"
+            "\n"
+            "JSONB, MULTI_SELECT, `id`, and internal columns are unsupported.\n"
+            "\n"
+            "Date and time settings:\n"
+            "\n"
+            "- Timestamps accept an IANA timezone name, such as `America/New_York`. "
+            "The default is `UTC`; results always contain UTC timestamps.\n"
+            "- DATE fields return `YYYY-MM-DD`. They do not accept a timezone, and "
+            "even an `hour` bucket retains only date precision.\n"
+            "\n"
+            "How group values appear in results:\n"
+            "\n"
+            "- Missing values share one `null` group.\n"
+            "- TEXT and SELECT values use only the first 256 characters. Values with "
+            "the same prefix merge into one group.\n"
+            "- NUMERIC values appear as exact decimal strings."
+        ),
+    ],
+    filters: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Choose which rows to include before grouping. Omit this input to include "
+            "all rows.\n"
+            "\n"
+            "Write one condition as {'field': 'amount', 'op': 'gte', 'value': 10}. "
+            "Combine conditions with {'and': [...]}, {'or': [...]}, or {'not': {...}}.\n"
+            "\n"
+            "Choose an operator supported by the column type:\n"
+            "\n"
+            "- TEXT: `eq`, `ne`, `in`, `not_in`, `is_null`, `contains`, and "
+            "`starts_with`. Only `contains` and `starts_with` ignore case and match "
+            "literal text; `eq`, `ne`, `in`, and `not_in` are case-sensitive.\n"
+            "- INTEGER and NUMERIC: `eq`, `ne`, `in`, `not_in`, `gt`, `gte`, `lt`, "
+            "`lte`, and `is_null`.\n"
+            "- DATE and TIMESTAMPTZ: `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, and "
+            "`is_null`.\n"
+            "- SELECT: `eq`, `ne`, `in`, `not_in`, and `is_null`.\n"
+            "- BOOLEAN: `eq`, `ne`, and `is_null`.\n"
+            "\n"
+            "Supply a list for `in` or `not_in`. Omit `value` for `is_null`. Use "
+            "strings for exact decimals and ISO-formatted dates or timestamps.\n"
+            "\n"
+            "`ne` and `not_in` exclude missing values. An empty `not_in` list matches "
+            "all rows; an empty `in` list matches none.\n"
+            "\n"
+            "Filters allow up to 4 levels of nesting, 50 conditions, and 1000 total "
+            "values. The server validates the request when the action runs."
+        ),
+    ] = None,
+    aggs: Annotated[
+        list[dict[str, Any]] | None,
+        Doc(
+            "Choose what to calculate for each group. Omit this input to count rows. "
+            "Supply up to 8 calculations; an empty list is invalid.\n"
+            "\n"
+            "Each calculation is an object with `function`, optional `field`, and "
+            "optional `alias`. For example: [{'function': 'sum', 'field': 'bytes_out', "
+            "'alias': 'total_bytes'}].\n"
+            "\n"
+            "Available calculations:\n"
+            "\n"
+            "- `count`: Count rows when you omit `field`, or count non-null values "
+            "when you supply it.\n"
+            "- `count_distinct`: Count different non-null values.\n"
+            "- `sum`, `mean`, `median`: Calculate the total, average, or middle value.\n"
+            "- `min`, `max`: Return the smallest or largest value.\n"
+            "\n"
+            "Every function except `count` requires a field. Numeric columns support "
+            "all functions. Text and date/time columns support `count`, "
+            "`count_distinct`, `min`, and `max`. BOOLEAN and SELECT columns support "
+            "only `count` and `count_distinct`.\n"
+            "\n"
+            "Naming and number formats:\n"
+            "\n"
+            "- Use `alias` to name a result, such as `total_bytes`. Otherwise the name "
+            "is `count` or `function_field`. All output names must be unique and at "
+            "most 63 UTF-8 bytes.\n"
+            "- Counts are integers. INTEGER/NUMERIC sums, all means and medians, and "
+            "NUMERIC min/max use floating-point numbers and can lose precision. "
+            "NUMERIC grouping values remain exact decimal strings."
+        ),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Doc(
+            "Set the maximum number of groups to return. Use at least 1, up to your "
+            "server's configured maximum (normally 1000). Omit this input to use the "
+            "server default (normally 100).\n"
+            "\n"
+            "If more groups exist, the result sets `truncated` to `true`. There is no "
+            "next-page cursor."
+        ),
+    ] = None,
+    min_count: Annotated[
+        int | None, Doc("Only return groups with at least this many rows (minimum 1).")
+    ] = None,
+    order_by: Annotated[
+        str | None,
+        Doc(
+            "Choose a group or calculation output name to sort by, including any alias "
+            "you set.\n"
+            "\n"
+            "If omitted, results sort by the first date/time bucket, or by the first "
+            "calculation when there is no date/time bucket."
+        ),
+    ] = None,
+    sort: Annotated[
+        Literal["asc", "desc"] | None,
+        Doc(
+            "Use `asc` for ascending order or `desc` for descending order.\n"
+            "\n"
+            "If omitted, the direction is `asc` when the action automatically sorts by "
+            "a date/time bucket. Otherwise it is `desc`, including when you set "
+            "`order_by` yourself. Missing values sort last; group values break ties."
+        ),
+    ] = None,
+) -> types.AggregateResponse:
+    # The recursive query remains plain JSON; only an omitted limit is removed
+    # so the server can apply its configured default and maximum.
+    spec: dict[str, Any] = {
+        "filters": filters,
+        "group_by": group_by,
+        "aggs": aggs,
+        "min_count": min_count,
+        "order_by": order_by,
+        "sort": sort,
+    }
+    if limit is not None:
+        spec["limit"] = limit
+    return await ctx.tables.aio.aggregate_rows(table_name=table, spec=spec)
 
 
 @registry.register(
@@ -28,7 +190,7 @@ async def lookup(
         Doc("The value to lookup."),
     ],
 ) -> dict[str, Any] | None:
-    return await get_context().tables.lookup(table=table, column=column, value=value)
+    return await ctx.tables.aio.lookup(table=table, column=column, value=value)
 
 
 @registry.register(
@@ -51,7 +213,7 @@ async def is_in(
         Doc("The value to check for."),
     ],
 ) -> bool:
-    return await get_context().tables.exists(table=table, column=column, value=value)
+    return await ctx.tables.aio.exists(table=table, column=column, value=value)
 
 
 @registry.register(
@@ -90,7 +252,7 @@ async def lookup_many(
     }
     if limit is not None:
         params["limit"] = limit
-    return await get_context().tables.lookup_many(**params)
+    return await ctx.tables.aio.lookup_many(**params)
 
 
 @registry.register(
@@ -162,7 +324,7 @@ async def search_rows(
     if cursor is not None:
         params["cursor"] = cursor
     params["reverse"] = reverse
-    response = await get_context().tables.search_rows(**params)
+    response = await ctx.tables.aio.search_rows(**params)
     if paginate:
         return response
     if isinstance(response, dict):
@@ -190,7 +352,7 @@ async def insert_row(
         Doc("If true, update the row if it already exists (based on primary key)."),
     ] = False,
 ) -> dict[str, Any]:
-    return await get_context().tables.insert_row(
+    return await ctx.tables.aio.insert_row(
         table=table,
         row_data=row_data,
         upsert=upsert,
@@ -217,7 +379,7 @@ async def insert_rows(
         Doc("If true, update the rows if they already exist (based on primary key)."),
     ] = False,
 ) -> int:
-    return await get_context().tables.insert_rows(
+    return await ctx.tables.aio.insert_rows(
         table=table,
         rows_data=rows_data,
         upsert=upsert,
@@ -244,7 +406,7 @@ async def update_row(
         Doc("The new data for the row."),
     ],
 ) -> dict[str, Any]:
-    return await get_context().tables.update_row(
+    return await ctx.tables.aio.update_row(
         table=table,
         row_id=row_id,
         row_data=row_data,
@@ -267,7 +429,7 @@ async def delete_row(
         Doc("The ID of the row to delete."),
     ],
 ) -> None:
-    await get_context().tables.delete_row(table=table, row_id=row_id)
+    await ctx.tables.aio.delete_row(table=table, row_id=row_id)
 
 
 @registry.register(
@@ -304,7 +466,7 @@ async def create_table(
     if columns is not None:
         client_params["columns"] = columns
     try:
-        return await get_context().tables.create_table(**client_params)
+        return await ctx.tables.aio.create_table(**client_params)
     except TracecatConflictError as exc:
         raise ValueError("Table already exists") from exc
 
@@ -316,7 +478,7 @@ async def create_table(
     namespace="core.table",
 )
 async def list_tables() -> list[types.Table]:
-    return await get_context().tables.list_tables()
+    return await ctx.tables.aio.list_tables()
 
 
 @registry.register(
@@ -328,7 +490,7 @@ async def list_tables() -> list[types.Table]:
 async def get_table_metadata(
     name: Annotated[str, Doc("The name of the table to get.")],
 ) -> types.TableRead:
-    return await get_context().tables.get_table_metadata(name)
+    return await ctx.tables.aio.get_table_metadata(name)
 
 
 @registry.register(
@@ -347,7 +509,7 @@ async def update_table(
         Doc("The new table name."),
     ],
 ) -> types.TableRead:
-    return await get_context().tables.update_table(name=name, new_name=new_name)
+    return await ctx.tables.aio.update_table(name=name, new_name=new_name)
 
 
 @registry.register(
@@ -372,7 +534,7 @@ async def create_column(
         ),
     ],
 ) -> types.TableRead:
-    return await get_context().tables.create_column(table=table, column=column)
+    return await ctx.tables.aio.create_column(table=table, column=column)
 
 
 @registry.register(
@@ -398,7 +560,7 @@ async def update_column(
         ),
     ],
 ) -> types.TableRead:
-    return await get_context().tables.update_column(
+    return await ctx.tables.aio.update_column(
         table=table,
         column=column,
         update=update,
@@ -421,7 +583,7 @@ async def delete_column(
         Doc("The column name to delete."),
     ],
 ) -> types.TableRead:
-    return await get_context().tables.delete_column(table=table, column=column)
+    return await ctx.tables.aio.delete_column(table=table, column=column)
 
 
 @registry.register(
@@ -450,4 +612,38 @@ async def download(
         params["format"] = format
     if limit is not None:
         params["limit"] = limit
-    return await get_context().tables.download(**params)
+    return await ctx.tables.aio.download(**params)
+
+
+@registry.register(
+    default_title="Search table by meaning",
+    description="Find distinct rows by meaning in selected TEXT columns. Returns short excerpts and similarity scores, not confidence. Requires a configured provider and a ready index by default.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def search(
+    table: Annotated[str, Doc("The workspace table name.")],
+    query: Annotated[
+        str,
+        Doc("Search text, limited to 512 tokens or the model's smaller input limit."),
+    ],
+    limit: Annotated[int, Doc("Rows per page, from 1 to 100.")] = 10,
+    cursor: Annotated[
+        str | None,
+        Doc(
+            "Next cursor from the previous page. Keep other inputs unchanged. Expires after five minutes; windows hold at most 100 rows."
+        ),
+    ] = None,
+    allow_partial: Annotated[
+        bool,
+        Doc("Allow an incomplete index; only fully indexed current rows can match."),
+    ] = False,
+) -> types.SemanticSearchPage:
+    """Search selected text without changing literal search_rows behavior."""
+    return await ctx.tables.aio.search(
+        table=table,
+        query=query,
+        limit=limit,
+        cursor=cursor,
+        allow_partial=allow_partial,
+    )

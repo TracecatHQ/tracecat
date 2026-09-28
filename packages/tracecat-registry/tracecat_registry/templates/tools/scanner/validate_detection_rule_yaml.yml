@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Validate Scanner detection YAML
+  description: Validate a Scanner detection rule YAML document.
+  display_group: Scanner
+  doc_url: https://docs.scanner.dev/scanner/using-scanner-complete-feature-reference/developer-tools/api/validating-yaml-files
+  namespace: tools.scanner
+  name: validate_detection_rule_yaml
+  secrets:
+    - name: scanner
+      keys: ["SCANNER_API_KEY"]
+  expects:
+    yaml_text:
+      type: str
+      description: Detection rule YAML content to validate.
+    base_url:
+      type: str | None
+      description: Scanner team API URL. Falls back to `VARS.scanner.base_url`.
+      default: null
+  steps:
+    - ref: validate_detection_rule_yaml
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.scanner.base_url }}/v1/detection_rule_yaml/validate
+        method: POST
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.scanner.SCANNER_API_KEY }}
+          Content-Type: application/x-yaml
+        content: ${{ inputs.yaml_text }}
+  returns: ${{ steps.validate_detection_rule_yaml.result.data }}

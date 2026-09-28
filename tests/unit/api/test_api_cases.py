@@ -19,16 +19,32 @@ from tracecat.cases.enums import (
     CasePriority,
     CaseSeverity,
     CaseStatus,
+    CaseVersionField,
 )
 from tracecat.cases.schemas import (
+    CaseBatchItemResult,
+    CaseBatchResponse,
     CaseCommentRead,
     CaseCommentThreadRead,
     CaseReadMinimal,
     CaseSearchAggregateRead,
     CaseStatusGroupCounts,
 )
+from tracecat.cases.versions import router as case_versions_router
+from tracecat.cases.versions.schemas import (
+    CaseVersionCompareRead,
+    CaseVersionContentRead,
+    CaseVersionReadMinimal,
+    CaseVersionRestoreRead,
+)
+from tracecat.contexts import ctx_role
 from tracecat.db.models import Case, CaseTag, Workspace
-from tracecat.exceptions import EntitlementRequired, TracecatValidationError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.pagination import CursorPaginatedResponse
 
 
@@ -54,6 +70,17 @@ def mock_case(test_workspace: Workspace) -> Case:
     case.assignee = None
     case.dropdown_values = []
     return case
+
+
+def _mock_case_read_services(mock_svc: AsyncMock) -> AsyncMock:
+    """Configure the mocks needed to serialize a CaseRead response."""
+    mock_svc.fields = AsyncMock()
+    mock_svc.fields.get_fields.return_value = {}
+    mock_svc.fields.list_fields.return_value = []
+    mock_svc.fields.get_field_schema.return_value = {}
+    mock_dropdown_svc = AsyncMock()
+    mock_dropdown_svc.has_entitlement.return_value = False
+    return mock_dropdown_svc
 
 
 @pytest.fixture
@@ -301,12 +328,14 @@ async def test_create_case_success(
     test_admin_role: Role,
     mock_case: Case,
 ) -> None:
-    """Test POST /cases creates a new case."""
+    """Test POST /cases creates a new case and returns it."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseDropdownValuesService") as MockDropdownService,
     ):
         mock_svc = AsyncMock()
         mock_svc.create_case.return_value = mock_case
+        MockDropdownService.return_value = _mock_case_read_services(mock_svc)
         MockService.return_value = mock_svc
 
         # Make request
@@ -325,6 +354,11 @@ async def test_create_case_success(
 
         # Assertions
         assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["id"] == str(mock_case.id)
+        assert data["short_id"] == "CASE-0001"
+        assert data["summary"] == "Test Case Summary"
+        assert data["status"] == "new"
 
         # Verify service was called
         mock_svc.create_case.assert_called_once()
@@ -367,9 +401,11 @@ async def test_create_case_with_dropdown_values(
     """Test POST /cases accepts dropdown value inputs."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseDropdownValuesService") as MockDropdownService,
     ):
         mock_svc = AsyncMock()
         mock_svc.create_case.return_value = mock_case
+        MockDropdownService.return_value = _mock_case_read_services(mock_svc)
         MockService.return_value = mock_svc
 
         response = client.post(
@@ -423,6 +459,18 @@ async def test_create_case_field_accepts_long_text_kind(
 ) -> None:
     with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
         mock_service = AsyncMock()
+        mock_service.list_fields.return_value = [
+            {
+                "name": "details",
+                "type": "TEXT",
+                "nullable": True,
+                "default": None,
+                "comment": None,
+            }
+        ]
+        mock_service.get_field_schema.return_value = {
+            "details": {"type": "TEXT", "kind": "LONG_TEXT"}
+        }
         mock_service_cls.return_value = mock_service
 
         response = client.post(
@@ -432,6 +480,9 @@ async def test_create_case_field_accepts_long_text_kind(
         )
 
     assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["id"] == "details"
+    assert data["kind"] == "LONG_TEXT"
     mock_service.create_field.assert_awaited_once()
     params = mock_service.create_field.await_args.args[0]
     assert params.type == "TEXT"
@@ -723,13 +774,16 @@ async def test_update_case_success(
     test_admin_role: Role,
     mock_case: Case,
 ) -> None:
-    """Test PATCH /cases/{id} updates case."""
+    """Test PATCH /cases/{id} updates case and returns it."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseDropdownValuesService") as MockDropdownService,
     ):
         mock_svc = AsyncMock()
         mock_svc.get_case.return_value = mock_case
-        mock_svc.update_case.return_value = None
+        mock_case.summary = "Updated Summary"
+        mock_svc.update_case.return_value = mock_case
+        MockDropdownService.return_value = _mock_case_read_services(mock_svc)
         MockService.return_value = mock_svc
 
         # Make request
@@ -744,10 +798,386 @@ async def test_update_case_success(
         )
 
         # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["id"] == str(mock_case.id)
+        assert data["summary"] == "Updated Summary"
 
         # Verify service was called
         mock_svc.update_case.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_list_case_versions_success(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """GET case versions forwards pagination and field filters."""
+    version_id = uuid.uuid4()
+    version = CaseVersionReadMinimal(
+        id=version_id,
+        field=CaseVersionField.SUMMARY,
+        version=2,
+        created_at=datetime(2024, 1, 2, tzinfo=UTC),
+        is_latest=True,
+    )
+    response_page = CursorPaginatedResponse(
+        items=[version],
+        has_more=False,
+        has_previous=False,
+    )
+    with patch.object(case_versions_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.case_exists.return_value = True
+        mock_service.versions.list_versions.return_value = response_page
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            f"/cases/{mock_case.id}/versions",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "limit": 25,
+                "field": "summary",
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["items"][0] == {
+        "id": str(version_id),
+        "field": "summary",
+        "version": 2,
+        "actor": None,
+        "created_at": "2024-01-02T00:00:00Z",
+        "is_latest": True,
+    }
+    call = mock_service.versions.list_versions.await_args
+    assert call.kwargs["case_id"] == mock_case.id
+    assert call.kwargs["field"] == CaseVersionField.SUMMARY
+    assert call.kwargs["page"].limit == 25
+    mock_service.get_case.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_list_case_versions_rejects_oversized_cursor(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Oversized cursors are rejected before reaching the service."""
+    with patch.object(case_versions_router, "CasesService") as mock_service_cls:
+        response = client.get(
+            f"/cases/{uuid.uuid4()}/versions",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "cursor": "x" * 8193,
+            },
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    mock_service_cls.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_list_case_versions_missing_case_returns_404(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Version history does not treat a missing case as empty history."""
+    case_id = uuid.uuid4()
+    with patch.object(case_versions_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.case_exists.return_value = False
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            f"/cases/{case_id}/versions",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    mock_service.get_case.assert_not_called()
+    mock_service.versions.list_versions.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_compare_case_version_success_and_mismatch_404(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Compare returns raw snapshots and hides mismatched versions."""
+    selected_id = uuid.uuid4()
+    predecessor_id = uuid.uuid4()
+    comparison = CaseVersionCompareRead(
+        selected=CaseVersionContentRead(
+            id=selected_id,
+            field=CaseVersionField.DESCRIPTION,
+            version=2,
+            content="New body",
+        ),
+        predecessor=CaseVersionContentRead(
+            id=predecessor_id,
+            field=CaseVersionField.DESCRIPTION,
+            version=1,
+            content="Old body",
+        ),
+    )
+    with patch.object(case_versions_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.versions.compare_with_predecessor.side_effect = [
+            comparison,
+            None,
+        ]
+        mock_service_cls.return_value = mock_service
+
+        success = client.get(
+            f"/cases/{mock_case.id}/versions/{selected_id}/compare",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+        missing = client.get(
+            f"/cases/{mock_case.id}/versions/{uuid.uuid4()}/compare",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert success.status_code == status.HTTP_200_OK
+    assert success.json()["predecessor"]["content"] == "Old body"
+    assert "diff" not in success.json()
+    assert missing.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_restore_case_version_success_and_mismatch_404(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Restore returns a typed confirmation and maps scoped misses to 404."""
+    version_id = uuid.uuid4()
+    restored = CaseVersionRestoreRead(
+        case_id=mock_case.id,
+        restored_from_version_id=version_id,
+        field=CaseVersionField.SUMMARY,
+    )
+    with patch.object(case_versions_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.restore_version.side_effect = [
+            restored,
+            TracecatNotFoundError("Case version not found"),
+        ]
+        mock_service_cls.return_value = mock_service
+
+        success = client.post(
+            f"/cases/{mock_case.id}/versions/{version_id}/restore",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+        missing = client.post(
+            f"/cases/{mock_case.id}/versions/{uuid.uuid4()}/restore",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert success.status_code == status.HTTP_200_OK
+    assert success.json() == {
+        "restored": True,
+        "case_id": str(mock_case.id),
+        "restored_from_version_id": str(version_id),
+        "field": "summary",
+    }
+    assert missing.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_batch_update_cases_success_and_route_non_collision(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """The literal batch route and UUID single-case route dispatch separately."""
+    second_case_id = uuid.uuid4()
+    batch_response = CaseBatchResponse(
+        results=[
+            CaseBatchItemResult(case_id=mock_case.id, success=True),
+            CaseBatchItemResult(
+                case_id=second_case_id,
+                success=False,
+                error="Case not found",
+            ),
+        ],
+        succeeded=1,
+        failed=1,
+    )
+
+    with (
+        patch.object(cases_router, "CasesService") as mock_service_cls,
+        patch.object(cases_router, "CaseDropdownValuesService") as MockDropdownService,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.batch_update_cases.return_value = batch_response
+        mock_svc.get_case.return_value = mock_case
+        mock_svc.update_case.return_value = mock_case
+        MockDropdownService.return_value = _mock_case_read_services(mock_svc)
+        mock_service_cls.return_value = mock_svc
+
+        batch_result = client.post(
+            "/cases/batch-update",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "case_ids": [str(mock_case.id), str(second_case_id)],
+                "update": {"summary": "Updated Summary"},
+            },
+        )
+        single_result = client.patch(
+            f"/cases/{mock_case.id}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"summary": "Single update"},
+        )
+
+    assert batch_result.status_code == status.HTTP_200_OK
+    assert batch_result.json() == {
+        "results": [
+            {"case_id": str(mock_case.id), "success": True, "error": None},
+            {
+                "case_id": str(second_case_id),
+                "success": False,
+                "error": "Case not found",
+            },
+        ],
+        "succeeded": 1,
+        "failed": 1,
+    }
+    assert single_result.status_code == status.HTTP_200_OK
+    assert single_result.json()["id"] == str(mock_case.id)
+    mock_svc.batch_update_cases.assert_awaited_once()
+    mock_svc.update_case.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_batch_delete_cases_success(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """POST /cases/batch-delete returns per-case results."""
+    batch_response = CaseBatchResponse(
+        results=[CaseBatchItemResult(case_id=mock_case.id, success=True)],
+        succeeded=1,
+        failed=0,
+    )
+    with patch.object(cases_router, "CasesService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        mock_svc.batch_delete_cases.return_value = batch_response
+        mock_service_cls.return_value = mock_svc
+
+        response = client.post(
+            "/cases/batch-delete",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"case_ids": [str(mock_case.id)]},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["succeeded"] == 1
+    assert response.json()["failed"] == 0
+    mock_svc.batch_delete_cases.assert_awaited_once_with([mock_case.id])
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("path", "payload", "service_method"),
+    [
+        (
+            "/cases/batch-update",
+            {"case_ids": [str(uuid.uuid4())], "update": {"summary": "x"}},
+            "batch_update_cases",
+        ),
+        (
+            "/cases/batch-delete",
+            {"case_ids": [str(uuid.uuid4())]},
+            "batch_delete_cases",
+        ),
+    ],
+)
+async def test_batch_case_lock_conflict_returns_409(
+    client: TestClient,
+    test_admin_role: Role,
+    path: str,
+    payload: dict[str, object],
+    service_method: str,
+) -> None:
+    """Batch lock timeouts map the service conflict to HTTP 409."""
+    with patch.object(cases_router, "CasesService") as mock_service_cls:
+        mock_svc = AsyncMock()
+        getattr(mock_svc, service_method).side_effect = TracecatConflictError(
+            "Timed out waiting to lock cases"
+        )
+        mock_service_cls.return_value = mock_svc
+
+        response = client.post(
+            path,
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json=payload,
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json() == {"detail": "Timed out waiting to lock cases"}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        ("/cases/batch-update", {"case_ids": [], "update": {"summary": "x"}}),
+        ("/cases/batch-delete", {"case_ids": []}),
+    ],
+)
+async def test_batch_case_routes_reject_empty_case_ids(
+    client: TestClient,
+    test_admin_role: Role,
+    path: str,
+    payload: dict[str, object],
+) -> None:
+    """Batch routes reject empty case ID lists before calling the service."""
+    with patch.object(cases_router, "CasesService") as mock_service_cls:
+        response = client.post(
+            path,
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json=payload,
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    mock_service_cls.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        (
+            "/cases/batch-update",
+            {"case_ids": [str(uuid.uuid4())], "update": {"summary": "x"}},
+        ),
+        ("/cases/batch-delete", {"case_ids": [str(uuid.uuid4())]}),
+    ],
+)
+async def test_batch_case_routes_enforce_scopes(
+    client: TestClient,
+    test_admin_role: Role,
+    path: str,
+    payload: dict[str, object],
+) -> None:
+    """Batch routes require their corresponding case mutation scope."""
+    role = test_admin_role.model_copy(update={"scopes": frozenset({"case:read"})})
+    token = ctx_role.set(role)
+    try:
+        with patch.object(cases_router, "CasesService") as mock_service_cls:
+            response = client.post(
+                path,
+                params={"workspace_id": str(test_admin_role.workspace_id)},
+                json=payload,
+            )
+    finally:
+        ctx_role.reset(token)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    mock_service_cls.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -782,10 +1212,12 @@ async def test_update_case_with_dropdown_values(
     """Test PATCH /cases/{id} accepts dropdown value inputs."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseDropdownValuesService") as MockDropdownService,
     ):
         mock_svc = AsyncMock()
         mock_svc.get_case.return_value = mock_case
         mock_svc.update_case.return_value = mock_case
+        MockDropdownService.return_value = _mock_case_read_services(mock_svc)
         MockService.return_value = mock_svc
 
         case_id = str(mock_case.id)
@@ -799,7 +1231,7 @@ async def test_update_case_with_dropdown_values(
             },
         )
 
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.status_code == status.HTTP_200_OK
         mock_svc.update_case.assert_called_once()
         params = mock_svc.update_case.call_args.args[1]
         assert params.dropdown_values is not None
@@ -1105,6 +1537,53 @@ async def test_search_cases_hydrates_requested_fields_and_durations(
             case_ids=[mock_case.id],
             field_ids=["priority_reason"],
         )
+
+
+@pytest.mark.anyio
+async def test_search_cases_forwards_include_payload(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_case: Case,
+) -> None:
+    """Test GET /cases/search forwards the include_payload flag to the service."""
+    with patch.object(cases_router, "CasesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_case_read = CaseReadMinimal(
+            id=mock_case.id,
+            created_at=mock_case.created_at,
+            updated_at=mock_case.updated_at,
+            short_id=mock_case.short_id,
+            summary=mock_case.summary,
+            status=mock_case.status,
+            priority=mock_case.priority,
+            severity=mock_case.severity,
+            assignee=None,
+            tags=[],
+            dropdown_values=[],
+            payload={"alert_id": "abc-123"},
+            num_tasks_completed=0,
+            num_tasks_total=0,
+        )
+        mock_svc.search_cases.return_value = CursorPaginatedResponse(
+            items=[mock_case_read],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            "/cases/search",
+            params=[
+                ("workspace_id", str(test_admin_role.workspace_id)),
+                ("include_payload", "true"),
+            ],
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["items"][0]["payload"] == {"alert_id": "abc-123"}
+        assert mock_svc.search_cases.call_args.kwargs["include_payload"] is True
 
 
 @pytest.mark.anyio

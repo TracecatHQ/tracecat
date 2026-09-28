@@ -2,13 +2,14 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import type React from "react"
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { WorkspaceChatSidebar } from "@/components/workspaces/workspace-chat-sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useWorkspaceChatOpen } from "@/hooks/use-workspace-chat-open"
 
 interface WorkspaceCollectionRouteLayoutProps {
   children: React.ReactNode
@@ -27,7 +28,7 @@ export function WorkspaceCollectionRouteLayout({
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const router = useRouter()
-  const [chatOpen, setChatOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useWorkspaceChatOpen()
 
   useEffect(() => {
     if (searchParams?.get("chat") !== "open") {

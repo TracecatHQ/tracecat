@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import Any
+from typing import cast as type_cast
 
 from pydantic import UUID4
 from sqlalchemy import delete, func, select
@@ -17,16 +19,22 @@ from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 from tracecat.db.models import (
+    AccessToken,
+    MCPRefreshToken,
     Membership,
     Organization,
     OrganizationMembership,
     OrganizationSecret,
+    OrganizationSecretStore,
     Ownership,
     RegistryAction,
     RegistryIndex,
     RegistryRepository,
     RegistryVersion,
     UserRoleAssignment,
+    WatchtowerAgent,
+    WatchtowerAgentSession,
+    WatchtowerAgentToolCall,
     Workspace,
 )
 from tracecat.db.models import Role as DBRole
@@ -72,16 +80,10 @@ async def ensure_organization_defaults(
     settings_service = SettingsService(session, role=org_role)
     await settings_service.init_default_settings()
 
-    # Ensure at least one workspace exists
-    workspace_count_result = await session.execute(
-        select(func.count())
-        .select_from(Workspace)
-        .where(Workspace.organization_id == org_id)
-    )
-    if workspace_count_result.scalar_one() == 0:
-        logger.info("Creating default workspace", organization_id=str(org_id))
-        workspace_service = WorkspaceService(session, role=org_role)
-        await workspace_service.create_workspace(name="Default Workspace")
+    # Serialize bootstrap with regular creation so concurrent initializers
+    # cannot create a second workspace or fail the single-workspace limit.
+    workspace_service = WorkspaceService(session, role=org_role)
+    await workspace_service.ensure_default_workspace()
 
     # Ensure system roles exist for this org (idempotent)
     await seed_system_roles_for_org(session, org_id)
@@ -188,7 +190,20 @@ async def delete_organization_with_cleanup(
 
     This handles explicit cleanup for resources guarded by RESTRICT organization FKs
     and runs workspace teardown logic that isn't represented by FK cascades.
+
+    Global user rows are intentionally preserved. Because app sessions are not
+    organization-scoped today, sessions for users linked to the deleted
+    organization are revoked before the org membership rows are removed.
     """
+    org_member_user_ids = select(OrganizationMembership.user_id).where(
+        OrganizationMembership.organization_id == organization.id
+    )
+    await session.execute(
+        delete(AccessToken).where(
+            type_cast(Any, AccessToken.user_id).in_(org_member_user_ids)
+        )
+    )
+
     result = await session.execute(
         select(Workspace).where(Workspace.organization_id == organization.id)
     )
@@ -232,6 +247,11 @@ async def delete_organization_with_cleanup(
         )
     )
     await session.execute(
+        delete(OrganizationSecretStore).where(
+            OrganizationSecretStore.organization_id == organization.id
+        )
+    )
+    await session.execute(
         delete(RegistryIndex).where(RegistryIndex.organization_id == organization.id)
     )
     await session.execute(
@@ -245,6 +265,26 @@ async def delete_organization_with_cleanup(
     await session.execute(
         delete(RegistryRepository).where(
             RegistryRepository.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(MCPRefreshToken).where(
+            MCPRefreshToken.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(WatchtowerAgentToolCall).where(
+            WatchtowerAgentToolCall.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(WatchtowerAgentSession).where(
+            WatchtowerAgentSession.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(WatchtowerAgent).where(
+            WatchtowerAgent.organization_id == organization.id
         )
     )
 
@@ -313,13 +353,18 @@ async def ensure_single_tenant_user_defaults(
     *,
     user_id: uuid.UUID,
     is_superuser: bool,
+    allow_new_members: bool = False,
 ) -> OrganizationID | None:
     """Ensure single-tenant users are real members of the default organization.
 
     In multi-tenant deployments this is a no-op. In single-tenant deployments,
-    every user receives default organization membership. Superusers receive the
-    organization-owner role; regular users receive organization-member unless
-    they already have an org-wide assignment.
+    superusers receive the organization-owner role and existing members are
+    repaired to organization-member unless they already have an org-wide
+    assignment.
+
+    Admission is opt-in: pass ``allow_new_members=True`` from provisioning
+    paths. Self-service callers keep the default, so registration leaves
+    membership to provisioning or invitation acceptance.
     """
     if config.TRACECAT__EE_MULTI_TENANT:
         return None
@@ -331,6 +376,7 @@ async def ensure_single_tenant_user_defaults(
             user_id=user_id,
             organization_id=organization_id,
             is_superuser=is_superuser,
+            allow_new_members=allow_new_members,
         )
         await session.commit()
     return result.organization_id
@@ -342,11 +388,16 @@ async def ensure_single_tenant_user_defaults_for_session(
     user_id: uuid.UUID,
     is_superuser: bool,
     organization_id: OrganizationID | None = None,
+    allow_new_members: bool = False,
 ) -> SingleTenantUserDefaultsResult:
     """Ensure single-tenant user defaults in a caller-owned session.
 
     This checks tenant mode, resolves or creates the default organization, and
     applies membership/RBAC without committing the caller's session.
+
+    Admission is opt-in: pass ``allow_new_members=True`` from provisioning
+    paths. Under the default, existing members are repaired without granting
+    new memberships.
     """
     if config.TRACECAT__EE_MULTI_TENANT:
         return SingleTenantUserDefaultsResult(organization_id=None, changed=False)
@@ -357,15 +408,18 @@ async def ensure_single_tenant_user_defaults_for_session(
         except NoResultFound:
             organization_id = await ensure_default_organization()
 
-    changed = await ensure_single_tenant_user_defaults_in_session(
+    enrolled = await ensure_single_tenant_user_defaults_in_session(
         session=session,
         user_id=user_id,
         organization_id=organization_id,
         is_superuser=is_superuser,
+        allow_new_members=allow_new_members,
     )
+    if enrolled is None:
+        return SingleTenantUserDefaultsResult(organization_id=None, changed=False)
     return SingleTenantUserDefaultsResult(
         organization_id=organization_id,
-        changed=changed,
+        changed=enrolled,
     )
 
 
@@ -375,8 +429,13 @@ async def ensure_single_tenant_user_defaults_in_session(
     user_id: uuid.UUID,
     organization_id: OrganizationID,
     is_superuser: bool,
-) -> bool:
-    """Ensure single-tenant org membership and org-wide RBAC in a session."""
+    allow_new_members: bool = False,
+) -> bool | None:
+    """Ensure single-tenant org membership and org-wide RBAC in a session.
+
+    Returns whether anything changed, or ``None`` when ``allow_new_members`` is
+    False and the user holds no membership to repair.
+    """
     # Fast path: if the user already has default-org membership and an
     # acceptable org-wide role, there is nothing to repair.
     membership_result = await session.execute(
@@ -386,6 +445,10 @@ async def ensure_single_tenant_user_defaults_in_session(
         )
     )
     membership = membership_result.scalar_one_or_none()
+
+    # Self-service paths repair existing members but never admit new ones.
+    if membership is None and not allow_new_members and not is_superuser:
+        return None
 
     assignment_result = await session.execute(
         select(UserRoleAssignment, DBRole.slug)

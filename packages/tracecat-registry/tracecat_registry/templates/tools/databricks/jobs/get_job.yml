@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Get job
+  description: Retrieve a single job by identifier.
+  display_group: Databricks
+  doc_url: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/jobs/jobs.html#databricks.sdk.service.jobs.JobsExt.get
+  namespace: tools.databricks
+  name: get_job
+  expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
+    job_id:
+      type: int
+      description: Canonical identifier of the job.
+    include_trigger_state:
+      type: bool | None
+      description: Whether to include trigger state in the response.
+      default: null
+    page_token:
+      type: str | None
+      description: Token for a subsequent page of job arrays.
+      default: null
+  steps:
+    - ref: get_job
+      action: tools.databricks_sdk.call_method
+      args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
+        service: jobs
+        method_name: get
+        params:
+          job_id: ${{ inputs.job_id }}
+          include_trigger_state: ${{ inputs.include_trigger_state }}
+          page_token: ${{ inputs.page_token }}
+  returns: ${{ steps.get_job.result }}

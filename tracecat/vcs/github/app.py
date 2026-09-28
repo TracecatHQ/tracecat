@@ -21,13 +21,15 @@ from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
 from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseOrgService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
+from tracecat.vcs.exceptions import VcsProviderError
 from tracecat.vcs.github.schemas import (
     GitHubAppConfig,
     GitHubAppCredentials,
+    GitHubAppRepository,
 )
 
 
-class GitHubAppError(TracecatException):
+class GitHubAppError(VcsProviderError):
     """GitHub App operation error."""
 
 
@@ -193,7 +195,7 @@ class GitHubAppService(BaseOrgService):
         """Classify the stored GitHub App secret without failing on corruption."""
         secrets_service = SecretsService(session=self.session, role=self.role)
         try:
-            secret = await secrets_service.get_github_app_org_secret()
+            secret = await secrets_service._get_github_app_org_secret()
         except TracecatNotFoundError:
             return GitHubAppSecretState.MISSING, None, None
 
@@ -483,7 +485,7 @@ class GitHubAppService(BaseOrgService):
         raise GitHubAppError("Failed to retrieve GitHub App credentials")
 
     @requires_entitlement(Entitlement.GIT_SYNC)
-    @require_scope("workflow:sync")
+    @require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
     async def get_github_client_for_repo(self, repo_url: GitUrl) -> Github:
         """Get authenticated PyGithub client for a specific repository.
 
@@ -553,6 +555,85 @@ class GitHubAppService(BaseOrgService):
                 repo=f"{repo_url.org}/{repo_url.repo}",
             )
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
+        finally:
+            gh_integration.close()
+
+    @requires_entitlement(Entitlement.GIT_SYNC)
+    @require_scope("workspace:update")
+    async def list_accessible_repositories(self) -> list[GitHubAppRepository]:
+        """List repositories granted to the configured GitHub App installation.
+
+        Returns:
+            Repositories accessible through the configured GitHub App credentials.
+
+        Raises:
+            GitHubAppError: If credentials are missing, corrupted, or the GitHub API fails.
+        """
+        secret_state, _secret, credentials = await self._get_github_app_secret_state()
+        match secret_state:
+            case GitHubAppSecretState.MISSING:
+                raise GitHubAppError(
+                    "Failed to retrieve GitHub App credentials: credentials not found"
+                )
+            case GitHubAppSecretState.CORRUPTED:
+                raise GitHubAppError(
+                    "Failed to retrieve GitHub App credentials: invalid credential data"
+                )
+
+        if credentials is None:
+            raise GitHubAppError("Failed to retrieve GitHub App credentials")
+
+        raw_private_key = credentials.private_key.get_secret_value()
+        normalized_private_key = self._normalize_private_key(raw_private_key)
+
+        try:
+            app_id = int(credentials.app_id)
+        except ValueError as e:
+            raise GitHubAppError(
+                "Failed to retrieve GitHub App credentials: invalid credential data"
+            ) from e
+
+        auth = Auth.AppAuth(
+            app_id=app_id,
+            private_key=normalized_private_key,
+        )
+        gh_integration = GithubIntegration(auth=auth)
+
+        def collect_repositories() -> list[GitHubAppRepository]:
+            repositories_by_id: dict[int, GitHubAppRepository] = {}
+            for installation in gh_integration.get_installations():
+                account = installation.account
+                account_login = getattr(account, "login", "unknown")
+                account_type = getattr(account, "type", None)
+
+                for repo in installation.get_repos():
+                    repositories_by_id[repo.id] = GitHubAppRepository(
+                        id=repo.id,
+                        name=repo.name,
+                        full_name=repo.full_name,
+                        private=repo.private,
+                        default_branch=repo.default_branch or "main",
+                        git_url=f"git+ssh://git@github.com/{repo.full_name}.git",
+                        html_url=repo.html_url,
+                        installation_id=installation.id,
+                        installation_account=account_login,
+                        installation_account_type=account_type,
+                    )
+
+            return sorted(
+                repositories_by_id.values(),
+                key=lambda repository: repository.full_name.lower(),
+            )
+
+        try:
+            return await asyncio.to_thread(collect_repositories)
+        except GithubException as e:
+            self.logger.error(
+                "GitHub API error listing accessible repositories",
+                status=e.status,
+                data=e.data,
+            )
+            raise GitHubAppError(f"GitHub API error: {e.status}") from e
         finally:
             gh_integration.close()
 

@@ -27,11 +27,11 @@ Run benchmarks:
     # Compare results
     pytest-benchmark compare results.json --columns=min,max,mean,stddev
 
-    # With specific backend (requires nsjail on Linux)
-    TRACECAT__EXECUTOR_BACKEND=pool \
+    # With sandboxed backend (requires nsjail on Linux)
+    TRACECAT__EXECUTOR_BACKEND=ephemeral \
         uv run pytest tests/backends/test_backend_benchmarks.py -v
 
-Note: Sandboxed backends (pool, ephemeral) require Linux with nsjail.
+Note: The sandboxed backend (ephemeral) requires Linux with nsjail.
 """
 
 from __future__ import annotations
@@ -644,10 +644,10 @@ class TestMemoryUsage:
 
 
 class TestBackendComparison:
-    """Comparative benchmarks between all four backends.
+    """Comparative benchmarks between all three backends.
 
     These tests compare performance characteristics between
-    test, direct, pool, and ephemeral backends.
+    test, direct, and ephemeral backends.
 
     Prerequisites:
     - Registry must be synced with tarballs available in MinIO
@@ -657,7 +657,6 @@ class TestBackendComparison:
     Backend configurations:
     - test: In-process execution (no sandboxing)
     - direct: Per-action subprocess execution
-    - pool: Pooled nsjail workers (full OS-level isolation)
     - ephemeral: Per-action nsjail sandbox (maximum isolation)
     """
 
@@ -667,24 +666,21 @@ class TestBackendComparison:
         require_registry_sync: None,  # noqa: ARG002
         test_backend: ExecutorBackend,
         direct_backend: ExecutorBackend,
-        pool_backend: ExecutorBackend,
         ephemeral_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
     ) -> None:
-        """Compare action execution latency across all four backends.
+        """Compare action execution latency across all three backends.
 
         Measures per-action latency for:
         - test: In-process execution
         - direct: Subprocess execution
-        - pool: Pooled nsjail workers
         - ephemeral: Per-action nsjail sandbox
         """
         backends = {
             "test": test_backend,
             "direct": direct_backend,
-            "pool": pool_backend,
             "ephemeral": ephemeral_backend,
         }
 
@@ -723,7 +719,7 @@ class TestBackendComparison:
         print("-" * 60)
 
         test_mean = results["test"]["mean_ms"]
-        for name in ["test", "direct", "pool", "ephemeral"]:
+        for name in ["test", "direct", "ephemeral"]:
             r = results[name]
             overhead = r["mean_ms"] - test_mean
             overhead_str = f"+{overhead:.1f}ms" if name != "test" else "-"
@@ -745,20 +741,18 @@ class TestBackendComparison:
         require_registry_sync: None,  # noqa: ARG002
         test_backend: ExecutorBackend,
         direct_backend: ExecutorBackend,
-        pool_backend: ExecutorBackend,
         ephemeral_backend: ExecutorBackend,
         simple_action_input_factory: Callable[..., RunActionInput],
         resolved_context_factory: Callable[..., ResolvedContext],
         benchmark_role: Role,
     ) -> None:
-        """Compare throughput across all four backends.
+        """Compare throughput across all three backends.
 
         Measures actions/second at concurrency=10.
         """
         backends = {
             "test": test_backend,
             "direct": direct_backend,
-            "pool": pool_backend,
             "ephemeral": ephemeral_backend,
         }
 
@@ -790,7 +784,7 @@ class TestBackendComparison:
         print(f"{'Backend':<20} {'Throughput':>15}")
         print("-" * 60)
 
-        for name in ["test", "direct", "pool", "ephemeral"]:
+        for name in ["test", "direct", "ephemeral"]:
             print(f"{name:<20} {results[name]:>12.1f} actions/sec")
 
         print("=" * 60)

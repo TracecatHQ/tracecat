@@ -8,10 +8,13 @@ import tempfile
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from time import perf_counter
 from typing import Any, cast
 
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from pydantic import AliasChoices, BaseModel, Field
 from temporalio import activity
 from tracecat_ee.workspace_chat.policy import (
@@ -20,12 +23,19 @@ from tracecat_ee.workspace_chat.policy import (
 
 from tracecat import config as app_config
 from tracecat.agent.artifacts.working_set import ArtifactWorkingSetInput
+from tracecat.agent.cancellation import (
+    TURN_CANCEL_POLL_INTERVAL_SECONDS,
+    read_turn_cancel_signal,
+)
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
-    TRACECAT__AGENT_SANDBOX_TIMEOUT,
     TRACECAT__DISABLE_NSJAIL,
 )
-from tracecat.agent.common.exceptions import AgentSandboxExecutionError
+from tracecat.agent.common.exceptions import (
+    AgentSandboxExecutionError,
+    AgentSandboxValidationError,
+)
+from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.common.types import (
@@ -34,6 +44,14 @@ from tracecat.agent.common.types import (
     SandboxAgentConfig,
     SandboxSubagentConfig,
     is_stdio_mcp_server,
+    requires_sandbox_internet_access,
+)
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
+from tracecat.agent.error_policy import (
+    agent_executor_protocol_failed,
+    agent_executor_timed_out,
+    agent_runtime_failure,
+    invalid_agent_configuration,
 )
 from tracecat.agent.executor.loopback import (
     LoopbackHandler,
@@ -42,8 +60,23 @@ from tracecat.agent.executor.loopback import (
 )
 from tracecat.agent.filesystem import hydrate_agent_work_dir, persist_agent_work_dir
 from tracecat.agent.llm_routing import get_litellm_route_model
+from tracecat.agent.mcp.stdio_probe import (
+    probe_stdio_mcp_tools_in_sandbox,
+)
+from tracecat.agent.mcp.stdio_probe_types import (
+    MCP_STDIO_PROBE_TIMEOUT_CAP,
+    StdioMCPProbeInput,
+    StdioMCPProbeResult,
+    sanitize_stdio_probe_error,
+)
+from tracecat.agent.otel_config import (
+    AgentOtelConfig,
+    ResolvedAgentOtelConfig,
+    resolve_agent_otel_config,
+)
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
+    ClaudeRuntimeBroker,
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
 )
@@ -51,23 +84,46 @@ from tracecat.agent.runtime.session_paths import build_agent_sandbox_path_mappin
 from tracecat.agent.runtime_services import get_claude_runtime_broker
 from tracecat.agent.sandbox.llm_proxy import (
     LLM_SOCKET_NAME,
+    LLMProxyError,
     LLMRoute,
     LLMRoutingPlan,
     LLMSocketProxy,
 )
+from tracecat.agent.sandbox.otel_relay import (
+    OTEL_SOCKET_NAME,
+    OtelRoutingPlan,
+    OtelSocketReceiver,
+    PlatformTraceParent,
+)
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.skill.builtin import (
+    PLATFORM_SKILL_PLUGIN_DIR,
+)
+from tracecat.agent.skill.builtin.staging import stage_platform_skill_plugin
 from tracecat.agent.skill.service import SkillService
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.chat.schemas import ChatMessage
 from tracecat.config import (
     TRACECAT__AGENT_SKILL_CACHE_DIR,
     TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS,
 )
+from tracecat.exceptions import TracecatException
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
+from tracecat.integrations.mcp_validation import MCPSecretResolutionError
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
+from tracecat.observability.otel import (
+    platform_otel_collector_env,
+    platform_span,
+    set_current_span_attributes,
+)
+from tracecat.observability.sentry import capture_activity_failure
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorClassification
+from tracecat.settings.service import SettingsService
 from tracecat.storage import blob
 
 from .schemas import (
@@ -77,6 +133,65 @@ from .schemas import (
 )
 
 BROKER_TASK_CANCEL_TIMEOUT_SECONDS = 5.0
+GRACEFUL_CANCEL_TIMEOUT_SECONDS = 30.0
+
+# Turns on the sandbox runtime's native trace exporter for platform tracing.
+_PLATFORM_TELEMETRY_ENV = {
+    "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+    "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
+    "OTEL_TRACES_EXPORTER": "otlp",
+    "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+}
+
+# Silences every tenant-facing signal when the tenant has no OTel config of
+# their own, so platform tracing alone never emits their prompts or tool I/O.
+_PLATFORM_ONLY_TELEMETRY_ENV = {
+    "OTEL_METRICS_EXPORTER": "none",
+    "OTEL_LOGS_EXPORTER": "none",
+    "OTEL_LOG_USER_PROMPTS": "0",
+    "OTEL_LOG_TOOL_DETAILS": "0",
+    "OTEL_LOG_TOOL_CONTENT": "0",
+}
+
+
+class AgentRuntimeOutcome(StrEnum):
+    SUCCESS = "success"
+    FAILURE = "failure"
+    APPROVAL = "approval"
+    CANCELLED = "cancelled"
+
+
+@dataclass(frozen=True, slots=True)
+class AgentOtelInputs:
+    """Org-saved Agent OTel config plus its decrypted exporter headers."""
+
+    config: AgentOtelConfig | None
+    headers: dict[str, str] | None
+
+
+async def load_org_agent_otel_inputs(*, role: Role) -> AgentOtelInputs:
+    """Load the org's saved Agent OTel config and decrypted headers.
+
+    Both fields are ``None`` when the org has no settings rows yet so the
+    resolver can fall back to its defaults.
+    """
+    async with SettingsService.with_session(role=role) as service:
+        settings = await service.list_org_settings(
+            keys={"agent_otel_config", "agent_otel_headers"}
+        )
+        values, _ = service.get_values_with_decryption_fallback(settings)
+
+    raw_config = values.get("agent_otel_config")
+    config_value: AgentOtelConfig | None = None
+    if isinstance(raw_config, dict):
+        config_value = AgentOtelConfig.model_validate(raw_config)
+
+    raw_headers = values.get("agent_otel_headers")
+    headers_value: dict[str, str] | None = None
+    if isinstance(raw_headers, dict):
+        headers_value = {str(k): str(v) for k, v in raw_headers.items()}
+
+    return AgentOtelInputs(config=config_value, headers=headers_value)
 
 
 class AgentExecutorInput(BaseModel):
@@ -90,6 +205,13 @@ class AgentExecutorInput(BaseModel):
 
     session_id: uuid.UUID
     workspace_id: uuid.UUID
+    # Per-turn stream id (Redis key suffix). Pinned at workflow start so the
+    # producer writes to the same per-turn key the reader joins. None for legacy
+    # executions that predate per-turn keys (falls back to the per-session key).
+    active_stream_id: uuid.UUID | None = None
+    # Workflow run id for this turn. Pinned so the producer tags persisted
+    # history rows, letting mid-turn loads hide the active run's partial rows.
+    curr_run_id: uuid.UUID | None = None
     user_prompt: str
     config: AgentConfig
     # Role for context
@@ -99,6 +221,10 @@ class AgentExecutorInput(BaseModel):
     llm_gateway_auth_token: str = Field(
         validation_alias=AliasChoices("llm_gateway_auth_token", "litellm_auth_token"),
     )
+    agent_otel_auth_token: str | None = None
+    # Maximum continuous execution time, clamped to the deployment ceiling
+    # at resolution; None inherits the default.
+    timeout_seconds: int | None = None
     # Resolved tool definitions
     allowed_actions: dict[str, MCPToolDefinition] | None = None
     # Fully resolved subagent definitions, each with scoped tools/tokens/routes.
@@ -119,6 +245,13 @@ class AgentExecutorResult(BaseModel):
 
     success: bool
     error: str | None = None
+    # Typed terminal attribution produced by the trusted executor boundary.
+    # None keeps activity results recorded before this field replayable.
+    classification: RuntimeErrorClassification | None = None
+    diagnostic: LLMErrorDiagnostics | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    sentry_capture: PlatformErrorCapture | None = Field(default=None, exclude=True)
     # None means a legacy activity result did not carry this field. The
     # workflow treats unknown failed results as already terminal-emitted so old
     # histories keep their original command shape.
@@ -135,6 +268,55 @@ class AgentExecutorResult(BaseModel):
     )
     result_usage: dict[str, Any] | None = None
     result_num_turns: int | None = None
+    cancelled: bool = False
+    cancelled_reason: str | None = None
+    # Tool calls the interrupt aborted mid-flight (errored after cancellation
+    # or never resolved). None on legacy results that predate this field.
+    interrupted_tool_call_ids: list[str] | None = None
+
+
+def _record_failure(
+    result: AgentExecutorResult,
+    message: str | None,
+    classification: RuntimeErrorClassification | None,
+    *,
+    diagnostic: LLMErrorDiagnostics | None = None,
+) -> None:
+    """Record one terminal attribution trio on an executor result.
+
+    Message and classification are optional so a loopback turn that succeeded
+    clears the trio through the same path a failed one sets it.
+
+    Args:
+        result: Activity result to update in place.
+        message: Durable failure text, or None when there is no failure.
+        classification: Terminal attribution, or None when there is no failure.
+        diagnostic: Safe request context for an LLM failure.
+    """
+    result.error = message
+    result.classification = classification
+    result.diagnostic = diagnostic
+
+
+def _agent_correlation_attributes(input: AgentExecutorInput) -> dict[str, str]:
+    """Build the single trusted correlation mapping for an agent turn."""
+    values: dict[str, uuid.UUID | None] = {
+        "tracecat.organization.id": input.role.organization_id,
+        "tracecat.workspace.id": input.workspace_id,
+        "tracecat.agent.session.id": input.session_id,
+        "tracecat.agent.run.id": input.curr_run_id,
+    }
+    return {key: str(value) for key, value in values.items() if value is not None}
+
+
+def _agent_runtime_outcome(result: AgentExecutorResult) -> AgentRuntimeOutcome:
+    if result.approval_requested:
+        return AgentRuntimeOutcome.APPROVAL
+    if result.cancelled:
+        return AgentRuntimeOutcome.CANCELLED
+    if result.success:
+        return AgentRuntimeOutcome.SUCCESS
+    return AgentRuntimeOutcome.FAILURE
 
 
 class ExecuteApprovedToolsInput(BaseModel):
@@ -209,14 +391,17 @@ class SandboxedAgentExecutor:
 
     input: AgentExecutorInput
     timeout_seconds: int = field(
-        default_factory=lambda: TRACECAT__AGENT_SANDBOX_TIMEOUT
+        default_factory=lambda: clamp_agent_timeout_seconds(None)
     )
     memory_mb: int = field(default_factory=lambda: TRACECAT__AGENT_SANDBOX_MEMORY_MB)
 
     # Internal state
     _job_dir: Path | None = field(default=None, init=False, repr=False)
     _llm_proxy: LLMSocketProxy | None = field(default=None, init=False, repr=False)
-    _fatal_error: str | None = field(default=None, init=False, repr=False)
+    _otel_receiver: OtelSocketReceiver | None = field(
+        default=None, init=False, repr=False
+    )
+    _fatal_error: LLMProxyError | None = field(default=None, init=False, repr=False)
     _fatal_error_event: asyncio.Event = field(
         default_factory=asyncio.Event, init=False, repr=False
     )
@@ -239,8 +424,8 @@ class SandboxedAgentExecutor:
     async def _create_llm_socket_proxy(self, socket_path: Path) -> LLMSocketProxy:
         """Create the host-side LiteLLM transport proxy for this execution."""
 
-        def on_error(error_msg: str) -> None:
-            self._fatal_error = error_msg
+        def on_error(error: LLMProxyError) -> None:
+            self._fatal_error = error
             self._fatal_error_event.set()
 
         routing_plan = self._llm_routing_plan()
@@ -260,12 +445,11 @@ class SandboxedAgentExecutor:
     def _llm_routing_plan(self) -> LLMRoutingPlan:
         """Build the socket proxy routing table from each agent's model config.
 
-        Agent config decides routing, not root/subagent position. The managed
-        route is the fallback for every request model that does not have a
-        direct passthrough entry. Direct passthrough traffic bypasses managed
-        LiteLLM, so each passthrough root/subagent needs its own exact-model
-        route to preserve its custom provider base URL, credentials, and
-        upstream model name.
+        Each agent's passthrough setting determines its transport. Managed
+        requests use the shared LiteLLM gateway, which selects the model and
+        provider from the signed token. Passthrough requests use an exact-model
+        route with their own endpoint, credentials, and upstream model name.
+        Root and subagent requests follow the same rules.
 
         Returns:
             Routing plan for the host-side LLM socket proxy.
@@ -293,9 +477,11 @@ class SandboxedAgentExecutor:
         without needing to know which agent produced the request.
 
         A single execution can include a passthrough root agent and multiple
-        passthrough subagents. Since passthrough skips the managed LiteLLM
-        fallback, the shared proxy needs one direct route per exact runtime
-        model key rather than one global passthrough destination.
+        passthrough subagents. Passthrough requests go straight to their
+        provider endpoint instead of through managed LiteLLM, so the shared
+        proxy needs one direct route per exact runtime model key rather than
+        one global passthrough destination. Agents without passthrough need no
+        entry here; their requests use the managed route.
 
         Returns:
             Direct passthrough routes keyed by request model.
@@ -340,21 +526,21 @@ class SandboxedAgentExecutor:
         """Create one direct passthrough route.
 
         Args:
-            base_url: Resolved custom provider base URL.
-            model_provider: Provider behind the custom route.
-            catalog_id: Optional custom-provider catalog row for credentials.
+            base_url: Resolved provider base URL.
+            model_provider: Provider behind the direct route.
+            catalog_id: Optional provider catalog row for credentials.
             upstream_model_name: Optional model name to send to the upstream.
 
         Returns:
             Direct route for the model config.
 
         Raises:
-            AgentSandboxExecutionError: If passthrough is enabled without a
+            AgentSandboxValidationError: If passthrough is enabled without a
                 resolved base URL.
         """
         if base_url is None:
-            raise AgentSandboxExecutionError(
-                "Custom model provider passthrough requires a resolved base_url."
+            raise AgentSandboxValidationError(
+                "Model provider passthrough requires a resolved base_url."
             )
         return LLMRoute(
             base_url=base_url,
@@ -363,12 +549,80 @@ class SandboxedAgentExecutor:
             upstream_model_name=upstream_model_name,
         )
 
+    async def _resolve_agent_otel_config(self) -> ResolvedAgentOtelConfig:
+        """Resolve org OTel inputs into a runtime config.
+
+        Header decryption happens here, inside the activity, so secrets never
+        round-trip through the workflow payload.
+        Errors are non-fatal: telemetry is best-effort and must not block agent
+        execution.
+        """
+        try:
+            org_inputs = await load_org_agent_otel_inputs(role=self.input.role)
+            return resolve_agent_otel_config(
+                org_config=org_inputs.config,
+                org_headers=org_inputs.headers,
+            )
+        except Exception as exc:
+            # No error text: a validation error echoes the input, which can
+            # include a credential-bearing collector endpoint.
+            logger.warning(
+                "Failed to resolve Agent OTel config; running without telemetry",
+                error_type=type(exc).__name__,
+            )
+            return ResolvedAgentOtelConfig(enabled=False)
+
+    def _platform_trace_parent(self) -> PlatformTraceParent | None:
+        """Capture the active host span and safe agent/workflow correlation."""
+        span_context = trace.get_current_span().get_span_context()
+        if not span_context.is_valid:
+            return None
+
+        return PlatformTraceParent(
+            trace_id=span_context.trace_id.to_bytes(16, byteorder="big"),
+            span_id=span_context.span_id.to_bytes(8, byteorder="big"),
+            trace_flags=int(span_context.trace_flags),
+            resource_attributes=_agent_correlation_attributes(self.input),
+        )
+
+    @staticmethod
+    def _build_sandbox_env(
+        resolved: ResolvedAgentOtelConfig,
+        *,
+        otel_auth_token: str,
+        platform_tracing: bool = False,
+    ) -> dict[str, str]:
+        """Build the sandbox-side OTel env.
+
+        Injects the receiver's bearer JWT as ``OTEL_EXPORTER_OTLP_HEADERS`` so
+        the Claude OTel exporter attaches it to outbound OTLP requests for the
+        host-side socket receiver to verify.
+        """
+        sandbox_env = dict(resolved.sandbox_env)
+        if platform_tracing:
+            sandbox_env.update(_PLATFORM_TELEMETRY_ENV)
+            if not resolved.enabled:
+                sandbox_env.update(_PLATFORM_ONLY_TELEMETRY_ENV)
+        sandbox_env.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+        sandbox_env["OTEL_EXPORTER_OTLP_HEADERS"] = (
+            f"Authorization=Bearer {otel_auth_token}"
+        )
+        return sandbox_env
+
     def _build_runtime_init_payload(self) -> RuntimeInitPayload:
         """Build the runtime init payload for this execution."""
+        sandbox_config = SandboxAgentConfig.from_agent_config(self.input.config)
+        if requires_sandbox_internet_access(
+            config=sandbox_config,
+            subagents=self.input.subagents,
+        ):
+            sandbox_config = sandbox_config.model_copy(
+                update={"enable_internet_access": True}
+            )
         return RuntimeInitPayload(
             session_id=self.input.session_id,
             mcp_auth_token=self.input.mcp_auth_token,
-            config=SandboxAgentConfig.from_agent_config(self.input.config),
+            config=sandbox_config,
             user_prompt=self.input.user_prompt,
             llm_gateway_auth_token=self.input.llm_gateway_auth_token,
             allowed_actions=self.input.allowed_actions,
@@ -402,10 +656,50 @@ class SandboxedAgentExecutor:
                 socket_dir=str(socket_dir),
             )
 
+            # Resolve Agent OTel config inside the activity (org settings + headers
+            # decryption stay trusted-side, never cross Temporal payload boundary).
+            otel_socket_path: Path | None = None
+            resolved_otel = await self._resolve_agent_otel_config()
+            otel_plan = OtelRoutingPlan.build(
+                collector_env=resolved_otel.collector_env,
+                headers=resolved_otel.headers,
+                platform_trace_parent=self._platform_trace_parent(),
+                platform_collector_env=platform_otel_collector_env(),
+            )
+            platform_tracing = otel_plan.platform_endpoint is not None
+            telemetry_enabled = resolved_otel.enabled or platform_tracing
+            if telemetry_enabled:
+                if self.input.agent_otel_auth_token is None:
+                    logger.warning(
+                        "Agent OTel enabled but auth token is missing; running without telemetry",
+                        session_id=self.input.session_id,
+                    )
+                elif self.input.role.organization_id is None:
+                    logger.warning(
+                        "Agent OTel enabled but organization context is missing; running without telemetry",
+                        session_id=self.input.session_id,
+                    )
+                else:
+                    init_payload.agent_otel_sandbox_env = self._build_sandbox_env(
+                        resolved_otel,
+                        otel_auth_token=self.input.agent_otel_auth_token,
+                        platform_tracing=platform_tracing,
+                    )
+                    otel_socket_path = socket_dir / OTEL_SOCKET_NAME
+                    self._otel_receiver = OtelSocketReceiver(
+                        socket_path=otel_socket_path,
+                        plan=otel_plan,
+                        expected_workspace_id=self.input.workspace_id,
+                        expected_organization_id=self.input.role.organization_id,
+                        expected_session_id=self.input.session_id,
+                    )
+
             # Create loopback handler
             loopback_input = LoopbackInput(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
+                active_stream_id=self.input.active_stream_id,
+                curr_run_id=self.input.curr_run_id,
             )
             handler = LoopbackHandler(input=loopback_input)
 
@@ -420,14 +714,28 @@ class SandboxedAgentExecutor:
                 socket_dir=socket_dir,
                 llm_socket_path=llm_socket_path,
                 artifact_working_set=artifact_working_set,
+                otel_socket_path=otel_socket_path,
             )
 
+        except AgentSandboxValidationError as e:
+            logger.error("Agent configuration is invalid", error=str(e))
+            _record_failure(result, str(e), invalid_agent_configuration(e))
         except AgentSandboxExecutionError as e:
             logger.error("Agent sandbox execution failed", error=str(e))
-            result.error = str(e)
+            failure = agent_runtime_failure(e, fallback_message=str(e))
+            _record_failure(result, failure.message, failure.classification)
+            result.sentry_capture = capture_activity_failure(
+                e, failure.classification, existing_capture=result.sentry_capture
+            )
         except Exception as e:
             logger.exception("Unexpected error in agent executor", error=str(e))
-            result.error = f"Unexpected error: {e}"
+            failure = agent_runtime_failure(
+                e, fallback_message=f"Unexpected error: {e}"
+            )
+            _record_failure(result, failure.message, failure.classification)
+            result.sentry_capture = capture_activity_failure(
+                e, failure.classification, existing_capture=result.sentry_capture
+            )
         finally:
             await self._cleanup()
 
@@ -451,7 +759,15 @@ class SandboxedAgentExecutor:
                 error=str(e),
             )
             self._agent_fs_hydration_failed = True
-            shutil.rmtree(work_dir, ignore_errors=True)
+            # Best effort: a work dir we cannot reset must not fail the turn.
+            try:
+                force_rmtree(work_dir)
+            except Exception as cleanup_error:
+                logger.warning(
+                    "Failed to reset agent work dir after hydration failure",
+                    work_dir=str(work_dir),
+                    error=str(cleanup_error),
+                )
             work_dir.mkdir(parents=True, exist_ok=True)
         self._log_benchmark_phase("agent_fs_hydrate_complete")
 
@@ -486,7 +802,8 @@ class SandboxedAgentExecutor:
     ) -> None:
         """Copy loopback result fields into the activity result."""
         result.success = loopback_result.success
-        result.error = loopback_result.error
+        _record_failure(result, loopback_result.error, loopback_result.classification)
+        result.sentry_capture = loopback_result.sentry_capture
         result.approval_requested = loopback_result.approval_requested
         result.approval_items = loopback_result.approval_items or None
         result.terminal_stream_error_emitted = (
@@ -498,6 +815,11 @@ class SandboxedAgentExecutor:
             result.output = loopback_result.output
         result.result_usage = loopback_result.result_usage
         result.result_num_turns = loopback_result.result_num_turns
+        result.cancelled = loopback_result.cancelled
+        result.cancelled_reason = loopback_result.cancelled_reason
+        result.interrupted_tool_call_ids = (
+            loopback_result.interrupted_tool_call_ids or None
+        )
 
     async def _run_with_broker(
         self,
@@ -508,6 +830,7 @@ class SandboxedAgentExecutor:
         socket_dir: Path,
         llm_socket_path: Path,
         artifact_working_set: ArtifactWorkingSetInput | None,
+        otel_socket_path: Path | None,
     ) -> None:
         """Execute the Claude turn through the worker-global warm broker."""
         if self._job_dir is None:
@@ -524,6 +847,21 @@ class SandboxedAgentExecutor:
         )
         self._log_benchmark_phase("broker_llm_proxy_ready")
 
+        if self._otel_receiver is not None:
+            try:
+                await self._otel_receiver.start()
+            except Exception as e:
+                logger.warning(
+                    "Failed to start OTel receiver; running without telemetry",
+                    error_type=type(e).__name__,
+                    error=str(e),
+                )
+                self._otel_receiver = None
+                otel_socket_path = None
+                init_payload.agent_otel_sandbox_env = None
+            else:
+                self._log_benchmark_phase("broker_otel_relay_ready")
+
         request = ClaudeTurnRequest(
             init_payload=init_payload,
             job_dir=self._job_dir,
@@ -535,14 +873,19 @@ class SandboxedAgentExecutor:
             hydrate_work_dir=self._hydrate_agent_filesystem
             if _agent_fs_persistence_enabled()
             else None,
+            otel_socket_path=otel_socket_path,
         )
 
-        async def wait_fatal_error() -> str:
+        async def wait_fatal_error() -> LLMProxyError:
             await self._fatal_error_event.wait()
-            return self._fatal_error or "Unknown LLM error"
+            return self._fatal_error or LLMProxyError(
+                message="Unknown LLM error",
+                classification=agent_executor_protocol_failed(),
+            )
 
         broker_task: asyncio.Task[None] | None = None
-        fatal_error_task: asyncio.Task[str] | None = None
+        fatal_error_task: asyncio.Task[LLMProxyError] | None = None
+        cancel_signal_task: asyncio.Task[None] | None = None
         try:
             async with broker.session_turn_lease(str(self.input.session_id)):
                 broker_task = asyncio.create_task(
@@ -550,29 +893,48 @@ class SandboxedAgentExecutor:
                 )
                 self._log_benchmark_phase("broker_turn_dispatched")
 
+                cancel_signal_task = asyncio.create_task(
+                    self._watch_cancel_signal(
+                        broker=broker,
+                        handler=handler,
+                        broker_task=broker_task,
+                    )
+                )
                 fatal_error_task = asyncio.create_task(wait_fatal_error())
-                heartbeat_interval = 30
+                heartbeat_interval = 5
                 elapsed = 0
 
                 while elapsed < self.timeout_seconds:
+                    wait_interval = min(
+                        heartbeat_interval,
+                        self.timeout_seconds - elapsed,
+                    )
                     done, _ = await asyncio.wait(
                         [broker_task, fatal_error_task],
-                        timeout=heartbeat_interval,
+                        timeout=wait_interval,
                         return_when=asyncio.FIRST_COMPLETED,
                     )
 
                     if not done:
-                        elapsed += heartbeat_interval
+                        elapsed += wait_interval
                         activity.heartbeat(
                             f"Agent running: {self.input.session_id} ({elapsed}s elapsed)"
                         )
                         continue
 
                     if fatal_error_task in done:
-                        error_msg = fatal_error_task.result()
-                        result.error = error_msg
+                        proxy_error = fatal_error_task.result()
+                        _record_failure(
+                            result,
+                            proxy_error.message,
+                            proxy_error.classification,
+                            diagnostic=proxy_error.diagnostic,
+                        )
                         result.terminal_stream_error_emitted = (
-                            await handler.emit_terminal_error(error_msg)
+                            await handler.emit_terminal_error(
+                                proxy_error.message,
+                                classification=proxy_error.classification,
+                            )
                         )
                         await broker.cancel_turn(str(self.input.session_id))
                         await _cancel_task_with_timeout(
@@ -606,11 +968,23 @@ class SandboxedAgentExecutor:
                             )
                     break
                 else:
-                    result.error = (
+                    timeout_message = (
                         f"Agent execution timed out after {self.timeout_seconds}s"
                     )
+                    timeout_classification = agent_executor_timed_out()
+                    _record_failure(result, timeout_message, timeout_classification)
+                    # Raise locally so the deadline event retains this source frame.
+                    try:
+                        raise TimeoutError(timeout_message)
+                    except TimeoutError as error:
+                        result.sentry_capture = capture_activity_failure(
+                            error, timeout_classification
+                        )
                     result.terminal_stream_error_emitted = (
-                        await handler.emit_terminal_error(result.error)
+                        await handler.emit_terminal_error(
+                            timeout_message,
+                            classification=timeout_classification,
+                        )
                     )
                     await broker.cancel_turn(str(self.input.session_id))
                     await _cancel_task_with_timeout(
@@ -619,18 +993,136 @@ class SandboxedAgentExecutor:
                     )
                     broker_task = None
         except Exception as e:
-            result.error = str(e)
+            # A jailed runtime that died from an rlimit is the caller's failure
+            # and must win over the generic executor-unavailable attribution.
+            failure = agent_runtime_failure(e, fallback_message=str(e))
+            _record_failure(result, failure.message, failure.classification)
+            result.sentry_capture = capture_activity_failure(
+                e,
+                failure.classification,
+                existing_capture=handler.build_result().sentry_capture,
+            )
             result.terminal_stream_error_emitted = await handler.emit_terminal_error(
-                result.error
+                failure.message,
+                classification=failure.classification,
             )
             if not isinstance(e, ConcurrentSessionTurnError):
                 raise
         except asyncio.CancelledError:
-            await broker.cancel_turn(str(self.input.session_id))
-            raise
+            reason = "user_cancel"
+            logger.info(
+                "Agent activity cancellation requested",
+                session_id=self.input.session_id,
+                reason=reason,
+            )
+            handler.mark_cancelled(reason)
+            try:
+                async with asyncio.timeout(GRACEFUL_CANCEL_TIMEOUT_SECONDS):
+                    # interrupt_turn no-ops while the runtime is still starting
+                    # up (work-dir hydration) - retry until it reaches a live
+                    # runtime or the turn ends on its own, mirroring the Redis
+                    # cancel-signal watcher. The runtime dedupes the interrupt
+                    # if both paths deliver it.
+                    while not await broker.interrupt_turn(
+                        str(self.input.session_id), reason
+                    ):
+                        if broker_task is None or broker_task.done():
+                            break
+                        await asyncio.sleep(TURN_CANCEL_POLL_INTERVAL_SECONDS)
+                    if broker_task is not None:
+                        await broker_task
+            except TimeoutError:
+                logger.warning(
+                    "Timed out gracefully cancelling agent activity",
+                    session_id=self.input.session_id,
+                )
+                await broker.cancel_turn(str(self.input.session_id))
+                # A missed shutdown deadline does not change the cancelled
+                # outcome into an executor failure. Preserve any runtime error
+                # already recorded by the handler below.
+            except asyncio.CancelledError:
+                await broker.cancel_turn(str(self.input.session_id))
+                raise
+
+            self._apply_loopback_result(result, handler.build_result())
+            if result.error is None:
+                result.success = True
+            result.cancelled = True
+            result.cancelled_reason = reason
         finally:
-            for task in (fatal_error_task, broker_task):
+            for task in (cancel_signal_task, fatal_error_task, broker_task):
                 await _cancel_task_with_timeout(task, task_name="agent_executor_task")
+
+    async def _watch_cancel_signal(
+        self,
+        *,
+        broker: ClaudeRuntimeBroker,
+        handler: LoopbackHandler,
+        broker_task: asyncio.Task[None],
+    ) -> None:
+        """Poll the out-of-band user-cancel signal and stop the turn on demand.
+
+        Temporal delivers activity cancellation only through throttled
+        heartbeat RPCs, so a turn can finish before the CancelledError branch
+        ever runs (see tracecat/agent/cancellation.py). This watcher reads the
+        Redis signal written by the cancel endpoint and drives the same
+        graceful interrupt directly, without depending on Temporal delivery.
+        The CancelledError branch stays as the fallback; the runtime dedupes
+        the interrupt if both fire.
+        """
+        run_id = self.input.curr_run_id
+        if run_id is None:
+            # Legacy/DSL turns have no pinned run id and no cancel endpoint.
+            return
+
+        reason: str | None = None
+        while reason is None:
+            try:
+                reason = await read_turn_cancel_signal(str(run_id))
+            except Exception as e:
+                logger.warning(
+                    "Failed to poll turn cancel signal",
+                    session_id=self.input.session_id,
+                    error=str(e),
+                )
+            if reason is None:
+                await asyncio.sleep(TURN_CANCEL_POLL_INTERVAL_SECONDS)
+
+        logger.info(
+            "Agent turn cancel signal received",
+            session_id=self.input.session_id,
+            run_id=str(run_id),
+            reason=reason,
+        )
+        handler.mark_cancelled(reason)
+        try:
+            async with asyncio.timeout(GRACEFUL_CANCEL_TIMEOUT_SECONDS):
+                # interrupt_turn no-ops while the runtime is still starting up
+                # (work-dir hydration) - retry until it reaches a live runtime
+                # or the turn ends on its own.
+                while not await broker.interrupt_turn(
+                    str(self.input.session_id), reason
+                ):
+                    if broker_task.done():
+                        return
+                    await asyncio.sleep(TURN_CANCEL_POLL_INTERVAL_SECONDS)
+                # Interrupt delivered; the runtime should now wind down and
+                # complete the broker turn. Exceptions surface to the main
+                # wait loop, not here.
+                await asyncio.wait({broker_task})
+        except TimeoutError:
+            logger.warning(
+                "Timed out gracefully stopping agent turn after cancel signal",
+                session_id=self.input.session_id,
+            )
+            await broker.cancel_turn(str(self.input.session_id))
+        except Exception as e:
+            logger.warning(
+                "Failed to gracefully stop agent turn after cancel signal",
+                session_id=self.input.session_id,
+                error=str(e),
+            )
+            await broker.cancel_turn(str(self.input.session_id))
 
     async def _create_job_directory(self) -> Path:
         """Create a temporary job directory with socket subdirectory."""
@@ -645,6 +1137,7 @@ class SandboxedAgentExecutor:
             socket_dir.mkdir(mode=0o700)
             skills_dir = job_dir / "home" / ".claude" / "skills"
             skills_dir.mkdir(parents=True, exist_ok=True)
+            await self._stage_builtin_skills(job_dir / PLATFORM_SKILL_PLUGIN_DIR)
             await self._stage_resolved_skills(skills_dir)
 
             # Note: The MCP socket directory is mounted directly into NSJail at /mcp-sockets
@@ -656,7 +1149,14 @@ class SandboxedAgentExecutor:
             )
             return job_dir
         except BaseException:
-            await asyncio.to_thread(shutil.rmtree, job_dir, True)
+            try:
+                await asyncio.to_thread(force_rmtree, job_dir)
+            except Exception as cleanup_error:
+                logger.warning(
+                    "Failed to clean up job directory after setup failure",
+                    job_dir=str(job_dir),
+                    error=str(cleanup_error),
+                )
             raise
 
     async def _load_artifact_working_set(self) -> ArtifactWorkingSetInput | None:
@@ -690,7 +1190,7 @@ class SandboxedAgentExecutor:
         return skills_dir
 
     async def _stage_resolved_skills(self, skills_dir: Path) -> None:
-        """Stage resolved published skills into the per-run home directory."""
+        """Stage workspace skills independently of the platform plugin."""
 
         config = cast(Any, self.input.config)
         resolved_skills = config.resolved_skills or []
@@ -721,6 +1221,17 @@ class SandboxedAgentExecutor:
                     skills_dir / resolved_skill.skill_name,
                     dirs_exist_ok=True,
                 )
+
+    async def _stage_builtin_skills(self, plugin_dir: Path) -> None:
+        """Stage platform guidance outside the workspace skill directory."""
+        if not self.input.config.builtin_skills:
+            return
+        await asyncio.to_thread(
+            stage_platform_skill_plugin,
+            asset_names=self.input.config.builtin_skills,
+            vendored_root=Path(app_config.TRACECAT__COPILOT_SKILLS_DIR),
+            plugin_root=plugin_dir,
+        )
 
     async def _ensure_cached_skill_dir(
         self,
@@ -790,10 +1301,18 @@ class SandboxedAgentExecutor:
                 logger.warning("Failed to stop LLM proxy", error=str(e))
             self._llm_proxy = None
 
+        # Stop Agent OTel ingress; admitted deliveries outlive this receiver.
+        if self._otel_receiver:
+            try:
+                await self._otel_receiver.stop()
+            except Exception as e:
+                logger.warning("Failed to stop OTel receiver", error=str(e))
+            self._otel_receiver = None
+
         # Clean up job directory
         if self._job_dir and self._job_dir.exists():
             try:
-                await asyncio.to_thread(shutil.rmtree, self._job_dir)
+                await asyncio.to_thread(force_rmtree, self._job_dir)
                 logger.debug("Cleaned up job directory", job_dir=str(self._job_dir))
             except Exception as e:
                 logger.warning(
@@ -821,23 +1340,120 @@ async def _hydrate_stdio_env(
     if not mcp_servers:
         return mcp_servers
 
+    for cfg in mcp_servers:
+        if is_stdio_mcp_server(cfg) and not cfg.get("id"):
+            raise AgentSandboxValidationError(
+                "Stdio MCP server configuration is missing a source integration id"
+            )
+
     result: list[MCPServerConfig] = []
     async with AgentPresetService.with_session(role=role) as svc:
         for cfg in mcp_servers:
             if not is_stdio_mcp_server(cfg):
                 result.append(cfg)
             else:
-                cfg_id = cfg.get("id")
-                if not cfg_id:
-                    raise ValueError(
-                        f"Stdio MCP server {cfg.get('name')!r} is missing a source integration id"
-                    )
+                cfg_id = cast(str, cfg.get("id"))
                 try:
                     env = await svc.resolve_mcp_integration_secrets(uuid.UUID(cfg_id))
-                except ValueError:
+                except (ValueError, MCPSecretResolutionError):
                     env = None
                 result.append({**cfg, "env": env} if env else cfg)
     return result
+
+
+async def _resolve_and_probe_stdio_config(
+    *,
+    preset_svc: AgentPresetService,
+    integrations_svc: IntegrationService,
+    command: str,
+    args: list[str] | None,
+    stdio_env: dict[str, str] | None,
+    mcp_integration_id: uuid.UUID,
+    mcp_integration_slug: str,
+) -> StdioMCPProbeResult:
+    """Resolve env templates, validate, and probe an stdio config on the sandbox.
+
+    ``stdio_env`` carries template references and workspace-owned plaintext
+    config loaded from the saved integration row; secrets are resolved here
+    inside the executor, never across the workflow boundary.
+    """
+    if stdio_env:
+        try:
+            stdio_env = await preset_svc.resolve_stdio_env(
+                stdio_env=stdio_env,
+                mcp_integration_id=mcp_integration_id,
+                mcp_integration_slug=mcp_integration_slug,
+            )
+        except (TracecatException, ValueError) as exc:
+            return StdioMCPProbeResult(
+                success=False,
+                message="MCP integration stdio environment could not be resolved",
+                error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
+            )
+
+    try:
+        integrations_svc.validate_stdio_server_config(
+            command=command,
+            args=args,
+            env=stdio_env,
+        )
+    except ValueError as exc:
+        return StdioMCPProbeResult(
+            success=False,
+            message="MCP integration stdio command is not allowed",
+            error=sanitize_stdio_probe_error(str(exc), env=stdio_env),
+        )
+
+    return await probe_stdio_mcp_tools_in_sandbox(
+        command=command,
+        args=args,
+        env=stdio_env,
+        timeout=MCP_STDIO_PROBE_TIMEOUT_CAP,
+    )
+
+
+@activity.defn(name="probe_stdio_mcp_connection_activity")
+async def probe_stdio_mcp_connection_activity(
+    input: StdioMCPProbeInput,
+) -> StdioMCPProbeResult:
+    """Probe a saved stdio MCP integration inside the executor sandbox."""
+    activity.heartbeat(f"Starting stdio MCP probe: {input.mcp_integration_id}")
+
+    async with AgentPresetService.with_session(role=input.role) as preset_svc:
+        integrations_svc = IntegrationService(preset_svc.session, role=input.role)
+        integration = await integrations_svc.get_mcp_integration(
+            mcp_integration_id=input.mcp_integration_id
+        )
+        if integration is None:
+            return StdioMCPProbeResult(
+                success=False,
+                message="MCP integration not found",
+                error="MCP integration not found",
+            )
+        if integration.server_type != "stdio":
+            return StdioMCPProbeResult(
+                success=False,
+                message="MCP integration is not a stdio server",
+                error="MCP integration is not a stdio server",
+            )
+        if not integration.stdio_command:
+            return StdioMCPProbeResult(
+                success=False,
+                message="MCP integration is missing a stdio command",
+                error="stdio_command is required for stdio-type servers",
+            )
+
+        result = await _resolve_and_probe_stdio_config(
+            preset_svc=preset_svc,
+            integrations_svc=integrations_svc,
+            command=integration.stdio_command,
+            args=integration.stdio_args,
+            stdio_env=integrations_svc.decrypt_stdio_env(integration),
+            mcp_integration_id=integration.id,
+            mcp_integration_slug=integration.slug,
+        )
+        activity.heartbeat(f"Finished stdio MCP probe: {input.mcp_integration_id}")
+        return result
 
 
 @activity.defn
@@ -862,23 +1478,62 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     Returns:
         AgentExecutorResult with execution status and terminal output.
     """
+    activity_info = activity.info()
+    set_current_span_attributes(
+        {
+            **_agent_correlation_attributes(input),
+            "temporal.activity.attempt": activity_info.attempt,
+            "temporal.task_queue": activity_info.task_queue,
+        }
+    )
+
     sandbox_mode = "direct" if TRACECAT__DISABLE_NSJAIL else "nsjail"
     activity.heartbeat(
         f"Starting agent execution ({sandbox_mode} mode): {input.session_id}"
     )
 
-    input = await _hydrate_sdk_session_history(input)
+    with platform_span("tracecat.agent.prepare"):
+        input = await _hydrate_sdk_session_history(input)
 
-    # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
-    # servers they have no per-call secret resolution hook downstream. The
-    # configs in ``input.config.mcp_servers`` arrive in refs-only shape
-    # (no ``env``) — hydrate from the DB here so the spawned process gets
-    # its credentials.
-    config = cast(Any, input.config)
-    config.mcp_servers = await _hydrate_stdio_env(config.mcp_servers, role=input.role)
+        # Stdio MCP servers are spawned directly by the runtime; unlike HTTP
+        # servers they have no per-call secret resolution hook downstream. The
+        # configs in ``input.config.mcp_servers`` and each subagent's
+        # ``config.mcp_servers`` arrive in refs-only shape (no ``env``) — hydrate
+        # from the DB here so the spawned processes get their credentials.
+        config = cast(Any, input.config)
+        try:
+            config.mcp_servers = await _hydrate_stdio_env(
+                config.mcp_servers, role=input.role
+            )
+            for subagent in input.subagents:
+                subagent.config.mcp_servers = await _hydrate_stdio_env(
+                    subagent.config.mcp_servers, role=input.role
+                )
+        except AgentSandboxValidationError as e:
+            classification = invalid_agent_configuration(e)
+            return AgentExecutorResult(
+                success=False,
+                error=classification.message,
+                classification=classification,
+                terminal_stream_error_emitted=False,
+            )
 
-    executor = SandboxedAgentExecutor(input=input)
-    result = await executor.run()
+        timeout_seconds = clamp_agent_timeout_seconds(input.timeout_seconds)
+        executor = SandboxedAgentExecutor(
+            input=input,
+            timeout_seconds=timeout_seconds,
+        )
+
+    with platform_span(
+        "tracecat.agent.runtime",
+        attributes={"tracecat.agent.harness": "claude_code"},
+    ) as runtime_span:
+        result = await executor.run()
+        outcome = _agent_runtime_outcome(result)
+        if runtime_span is not None:
+            runtime_span.set_attribute("tracecat.agent.outcome", outcome)
+            if outcome is AgentRuntimeOutcome.FAILURE:
+                runtime_span.set_status(Status(status_code=StatusCode.ERROR))
 
     if result.success:
         activity.heartbeat(f"Agent execution completed: {input.session_id}")

@@ -13,11 +13,11 @@ definition:
     organization:
       type: str
       description: The name of the Terraform Cloud organization.
-    page[size]:
+    page_size:
       type: int
       description: The number of projects to return per page.
       default: 20
-    page[number]:
+    page_number:
       type: int
       description: The page number to return.
       default: 1
@@ -31,6 +31,6 @@ definition:
           Authorization: Bearer ${{ SECRETS.terraform.TERRAFORM_API_TOKEN }}
           Content-Type: application/vnd.api+json
         params:
-          page[size]: ${{ inputs.page[size] }}
-          page[number]: ${{ inputs.page[number] }}
+          "page[size]": ${{ inputs.page_size }}
+          "page[number]": ${{ inputs.page_number }}
   returns: ${{ steps.list_projects.result.data }}

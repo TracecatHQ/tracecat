@@ -39,6 +39,7 @@ import {
 } from "@/components/dashboard/table-actions"
 import { ActiveDialog } from "@/components/dashboard/table-common"
 import { WorkflowMoveDialog } from "@/components/dashboard/workflow-move-dialog"
+import { WorkflowRenameDialog } from "@/components/dashboard/workflow-rename-dialog"
 import {
   DEFAULT_WORKFLOW_SORT,
   type WorkflowCaseTriggerFilterValue,
@@ -694,7 +695,7 @@ function FolderMetadataBadges({ item }: { item: FolderDirectoryItem }) {
 
       <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
         <WorkflowIcon className="mr-1 size-3" />
-        {item.num_items} workflows
+        {item.num_items} {item.num_items === 1 ? "item" : "items"}
       </Badge>
     </div>
   )
@@ -823,7 +824,7 @@ function WorkflowsListRow({
               onClick={() => onOpenFolder(item.path)}
               className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
             >
-              <FolderIcon className="size-4 shrink-0 text-black" />
+              <FolderIcon className="size-4 shrink-0 text-foreground" />
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <span className={ROW_NAME_COLUMN_CLASS}>{item.name}</span>
                 <FolderMetadataBadges item={item} />
@@ -1407,6 +1408,12 @@ export function WorkflowsDashboard() {
         onOpenChange={() => setActiveDialog(null)}
         selectedFolder={selectedFolder}
         setSelectedFolder={setSelectedFolder}
+      />
+      <WorkflowRenameDialog
+        open={activeDialog === ActiveDialog.WorkflowRename}
+        onOpenChange={() => setActiveDialog(null)}
+        selectedWorkflow={selectedWorkflow}
+        setSelectedWorkflow={setSelectedWorkflow}
       />
       <WorkflowMoveDialog
         open={activeDialog === ActiveDialog.WorkflowMove}

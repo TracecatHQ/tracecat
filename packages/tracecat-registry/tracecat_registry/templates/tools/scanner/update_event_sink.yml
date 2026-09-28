@@ -1,0 +1,43 @@
+type: action
+definition:
+  title: Update Scanner event sink
+  description: Update a Scanner event sink with API-native fields.
+  display_group: Scanner
+  doc_url: https://docs.scanner.dev/scanner/using-scanner-complete-feature-reference/developer-tools/api/event-sinks
+  namespace: tools.scanner
+  name: update_event_sink
+  secrets:
+    - name: scanner
+      keys: ["SCANNER_API_KEY"]
+  expects:
+    event_sink_id:
+      type: str
+      description: Unique Scanner event sink ID.
+    updates:
+      type: dict[str, Any]
+      description: Event sink fields to update. The event sink ID is added to the request body.
+    base_url:
+      type: str | None
+      description: Scanner team API URL. Falls back to `VARS.scanner.base_url`.
+      default: null
+  steps:
+    - ref: build_event_sink_update
+      action: core.script.run_python
+      args:
+        inputs:
+          event_sink_id: ${{ inputs.event_sink_id }}
+          updates: ${{ inputs.updates }}
+        script: |
+          def main(event_sink_id, updates):
+              return {**updates, "id": event_sink_id}
+    - ref: update_event_sink
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.scanner.base_url }}/v1/event_sink/${{ FN.url_encode(inputs.event_sink_id) }}
+        method: PUT
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.scanner.SCANNER_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ steps.build_event_sink_update.result }}
+  returns: ${{ steps.update_event_sink.result.data }}

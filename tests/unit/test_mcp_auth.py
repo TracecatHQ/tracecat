@@ -1145,6 +1145,8 @@ async def test_list_workspaces_for_request_filters_claimed_workspace_ids(
 ) -> None:
     workspace_id = uuid.uuid4()
     other_workspace_id = uuid.uuid4()
+    org_id = uuid.uuid4()
+    other_org_id = uuid.uuid4()
     identity = mcp_auth.MCPTokenIdentity(
         client_id="mcp_pat:pat_key_123",
         email="user@example.com",
@@ -1157,15 +1159,30 @@ async def test_list_workspaces_for_request_filters_claimed_workspace_ids(
     ) -> list[dict[str, str]]:
         assert organization_ids is None
         return [
-            {"id": str(workspace_id), "name": "Allowed"},
-            {"id": str(other_workspace_id), "name": "Other"},
+            {
+                "id": str(workspace_id),
+                "name": "Allowed",
+                "org_id": str(org_id),
+                "org_slug": "org-a",
+            },
+            {
+                "id": str(other_workspace_id),
+                "name": "Other",
+                "org_id": str(other_org_id),
+                "org_slug": "org-b",
+            },
         ]
 
     monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
     monkeypatch.setattr(mcp_auth, "list_user_workspaces", _list_user_workspaces)
 
     assert await mcp_auth.list_workspaces_for_request() == [
-        {"id": str(workspace_id), "name": "Allowed"}
+        {
+            "id": str(workspace_id),
+            "name": "Allowed",
+            "org_id": str(org_id),
+            "org_slug": "org-a",
+        }
     ]
 
 
@@ -1217,6 +1234,70 @@ async def test_resolve_role_for_request_allows_claimed_workspace(
         return expected_role
 
     monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
+    monkeypatch.setattr(mcp_auth, "resolve_role", _resolve_role)
+
+    assert await mcp_auth.resolve_role_for_request(workspace_id) == expected_role
+
+
+@pytest.mark.anyio
+async def test_resolve_role_for_request_respects_claimed_org_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    scoped_org_id = uuid.uuid4()
+    other_org_id = uuid.uuid4()
+    identity = mcp_auth.MCPTokenIdentity(
+        client_id="mcp_pat:pat_key_123",
+        email="user@example.com",
+        organization_ids=frozenset({scoped_org_id}),
+    )
+
+    async def _resolve_workspace_org(_workspace_id: uuid.UUID) -> uuid.UUID:
+        assert _workspace_id == workspace_id
+        return other_org_id
+
+    async def _resolve_role(_email: str, _workspace_id: uuid.UUID) -> Role:
+        raise AssertionError("org scope should be checked before role resolution")
+
+    monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
+    monkeypatch.setattr(mcp_auth, "resolve_workspace_org", _resolve_workspace_org)
+    monkeypatch.setattr(mcp_auth, "resolve_role", _resolve_role)
+
+    with pytest.raises(ValueError, match="not scoped to the requested organization"):
+        await mcp_auth.resolve_role_for_request(workspace_id)
+
+
+@pytest.mark.anyio
+async def test_resolve_role_for_request_allows_claimed_org_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    identity = mcp_auth.MCPTokenIdentity(
+        client_id="mcp_pat:pat_key_123",
+        email="user@example.com",
+        organization_ids=frozenset({organization_id}),
+    )
+    expected_role = Role(
+        type="user",
+        user_id=user_id,
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        service_id="tracecat-mcp",
+    )
+
+    async def _resolve_workspace_org(_workspace_id: uuid.UUID) -> uuid.UUID:
+        assert _workspace_id == workspace_id
+        return organization_id
+
+    async def _resolve_role(email: str, workspace_id_arg: uuid.UUID) -> Role:
+        assert email == "user@example.com"
+        assert workspace_id_arg == workspace_id
+        return expected_role
+
+    monkeypatch.setattr(mcp_auth, "get_token_identity", lambda: identity)
+    monkeypatch.setattr(mcp_auth, "resolve_workspace_org", _resolve_workspace_org)
     monkeypatch.setattr(mcp_auth, "resolve_role", _resolve_role)
 
     assert await mcp_auth.resolve_role_for_request(workspace_id) == expected_role
@@ -1349,6 +1430,7 @@ async def test_list_user_workspaces_includes_direct_memberships_without_org_memb
 ) -> None:
     user_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
+    org_id = uuid.uuid4()
 
     class _ScalarResult:
         def __init__(self, values: list[uuid.UUID]) -> None:
@@ -1358,10 +1440,10 @@ async def test_list_user_workspaces_includes_direct_memberships_without_org_memb
             return self._values
 
     class _TupleResult:
-        def __init__(self, values: list[tuple[uuid.UUID, str]]) -> None:
+        def __init__(self, values: list[tuple[uuid.UUID, str, uuid.UUID, str]]) -> None:
             self._values = values
 
-        def all(self) -> list[tuple[uuid.UUID, str]]:
+        def all(self) -> list[tuple[uuid.UUID, str, uuid.UUID, str]]:
             return self._values
 
     class _Result:
@@ -1369,7 +1451,7 @@ async def test_list_user_workspaces_includes_direct_memberships_without_org_memb
             self,
             *,
             scalars: list[uuid.UUID] | None = None,
-            tuples: list[tuple[uuid.UUID, str]] | None = None,
+            tuples: list[tuple[uuid.UUID, str, uuid.UUID, str]] | None = None,
         ) -> None:
             self._scalars = scalars or []
             self._tuples = tuples or []
@@ -1389,7 +1471,7 @@ async def test_list_user_workspaces_includes_direct_memberships_without_org_memb
             if self._calls == 1:
                 return _Result(scalars=[])
             if self._calls == 2:
-                return _Result(tuples=[(workspace_id, "Workspace A")])
+                return _Result(tuples=[(workspace_id, "Workspace A", org_id, "org-a")])
             raise AssertionError("unexpected extra query")
 
     class _AsyncContext:
@@ -1414,7 +1496,14 @@ async def test_list_user_workspaces_includes_direct_memberships_without_org_memb
 
     workspaces = await mcp_auth.list_user_workspaces("user@example.com")
 
-    assert workspaces == [{"id": str(workspace_id), "name": "Workspace A"}]
+    assert workspaces == [
+        {
+            "id": str(workspace_id),
+            "name": "Workspace A",
+            "org_id": str(org_id),
+            "org_slug": "org-a",
+        }
+    ]
 
 
 @pytest.mark.anyio
@@ -1423,6 +1512,7 @@ async def test_list_user_workspaces_for_superuser_uses_membership_rows(
 ) -> None:
     user_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
+    org_id = uuid.uuid4()
 
     class _ScalarResult:
         def __init__(self, values: list[uuid.UUID]) -> None:
@@ -1432,10 +1522,10 @@ async def test_list_user_workspaces_for_superuser_uses_membership_rows(
             return self._values
 
     class _TupleResult:
-        def __init__(self, values: list[tuple[uuid.UUID, str]]) -> None:
+        def __init__(self, values: list[tuple[uuid.UUID, str, uuid.UUID, str]]) -> None:
             self._values = values
 
-        def all(self) -> list[tuple[uuid.UUID, str]]:
+        def all(self) -> list[tuple[uuid.UUID, str, uuid.UUID, str]]:
             return self._values
 
     class _Result:
@@ -1443,7 +1533,7 @@ async def test_list_user_workspaces_for_superuser_uses_membership_rows(
             self,
             *,
             scalars: list[uuid.UUID] | None = None,
-            tuples: list[tuple[uuid.UUID, str]] | None = None,
+            tuples: list[tuple[uuid.UUID, str, uuid.UUID, str]] | None = None,
         ) -> None:
             self._scalars = scalars or []
             self._tuples = tuples or []
@@ -1463,7 +1553,7 @@ async def test_list_user_workspaces_for_superuser_uses_membership_rows(
             if self._calls == 1:
                 return _Result(scalars=[])
             if self._calls == 2:
-                return _Result(tuples=[(workspace_id, "Workspace A")])
+                return _Result(tuples=[(workspace_id, "Workspace A", org_id, "org-a")])
             raise AssertionError("unexpected extra query")
 
     class _AsyncContext:
@@ -1489,7 +1579,14 @@ async def test_list_user_workspaces_for_superuser_uses_membership_rows(
 
     workspaces = await mcp_auth.list_user_workspaces("admin@example.com")
 
-    assert workspaces == [{"id": str(workspace_id), "name": "Workspace A"}]
+    assert workspaces == [
+        {
+            "id": str(workspace_id),
+            "name": "Workspace A",
+            "org_id": str(org_id),
+            "org_slug": "org-a",
+        }
+    ]
 
 
 @pytest.mark.anyio
@@ -1690,8 +1787,43 @@ async def test_resolve_org_role_unscoped_token_with_multi_org_user_errors(
         membership_org_ids=[uuid.uuid4(), uuid.uuid4()],
     )
 
-    with pytest.raises(ValueError, match="single-org token"):
+    with pytest.raises(ValueError, match="org_id"):
         await mcp_auth.resolve_org_role_for_request()
+
+
+@pytest.mark.anyio
+async def test_resolve_org_role_unscoped_token_accepts_explicit_org_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unscoped token + multi-org user resolves when the tool supplies org ID."""
+    selected_org = uuid.uuid4()
+    other_org = uuid.uuid4()
+    _patch_resolve_org_role_deps(
+        monkeypatch,
+        identity_org_ids=frozenset(),
+        membership_org_ids=[selected_org, other_org],
+    )
+
+    role = await mcp_auth.resolve_org_role_for_request(organization_id=selected_org)
+
+    assert role.organization_id == selected_org
+
+
+@pytest.mark.anyio
+async def test_resolve_org_role_explicit_org_respects_token_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A token scoped to org A cannot request an org-scoped role for org B."""
+    scoped_org = uuid.uuid4()
+    other_org = uuid.uuid4()
+    _patch_resolve_org_role_deps(
+        monkeypatch,
+        identity_org_ids=frozenset({scoped_org}),
+        membership_org_ids=[scoped_org, other_org],
+    )
+
+    with pytest.raises(ValueError, match="not scoped to the requested organization"):
+        await mcp_auth.resolve_org_role_for_request(organization_id=other_org)
 
 
 @pytest.mark.anyio

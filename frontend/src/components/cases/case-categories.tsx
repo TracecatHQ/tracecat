@@ -24,7 +24,7 @@ const palette = {
   emerald: "bg-green-500/10 text-green-700",
   sky: "bg-blue-500/10 text-blue-700",
   violet: "bg-violet-500/10 text-violet-700",
-  slate: "bg-slate-500/10 text-slate-700",
+  slate: "bg-muted text-muted-foreground",
 }
 
 export const STATUSES: Record<CaseStatus, CaseBadgeProps<CaseStatus>> = {

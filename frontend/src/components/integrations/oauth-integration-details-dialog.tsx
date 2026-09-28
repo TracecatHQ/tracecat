@@ -32,10 +32,12 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   useConnectProvider,
+  useDeleteProvider,
   useDisconnectProvider,
   useTestProvider,
 } from "@/hooks/use-integration-actions"
 import { useIntegrationProvider } from "@/lib/hooks"
+import { isCustomOAuthProvider } from "@/lib/integrations"
 import { formatRelative } from "@/lib/time"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -45,6 +47,7 @@ interface OAuthIntegrationDetailsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   canUpdate?: boolean
+  canDelete?: boolean
 }
 
 function maskValue(value?: string | null) {
@@ -61,9 +64,11 @@ export function OAuthIntegrationDetailsDialog({
   open,
   onOpenChange,
   canUpdate = false,
+  canDelete = false,
 }: OAuthIntegrationDetailsDialogProps) {
   const workspaceId = useWorkspaceId()
   const [confirmDisconnectOpen, setConfirmDisconnectOpen] = useState(false)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
 
   const {
     provider,
@@ -81,15 +86,18 @@ export function OAuthIntegrationDetailsDialog({
   const reauthorizeMutation = useConnectProvider(workspaceId)
   const testMutation = useTestProvider(workspaceId)
   const disconnectMutation = useDisconnectProvider(workspaceId)
+  const deleteMutation = useDeleteProvider(workspaceId)
 
   const providerName = provider?.metadata.name || providerId
   const isConnected = integration?.status === "connected"
+  const needsReauth = integration?.status === "reauth_required"
+  const hasConnection = isConnected || needsReauth
   const isExpired = integration?.is_expired ?? false
+  const isCustomProvider = isCustomOAuthProvider(providerId)
+  const showDelete = canDelete && isCustomProvider
 
-  const serviceAccountProviders = ["google", "google_sheets", "google_docs"]
-  const isServiceAccountProvider = serviceAccountProviders.includes(
-    provider?.metadata.id ?? ""
-  )
+  const isServiceAccountProvider =
+    provider?.metadata.service_account_json ?? false
   const clientIdLabel = isServiceAccountProvider
     ? "Service account email"
     : "Client ID"
@@ -108,6 +116,13 @@ export function OAuthIntegrationDetailsDialog({
   }, [integration?.expires_at])
 
   const lastUpdatedRelative = formatRelative(integration?.updated_at)
+  let connectionStatusDescription = "Connected"
+  if (needsReauth) {
+    connectionStatusDescription =
+      "The access token expired. Reconnect to restore this integration."
+  } else if (lastUpdatedRelative) {
+    connectionStatusDescription = `Last updated ${lastUpdatedRelative}`
+  }
 
   if (!open) {
     return null
@@ -118,7 +133,8 @@ export function OAuthIntegrationDetailsDialog({
   const anyActionPending =
     reauthorizeMutation.isPending ||
     testMutation.isPending ||
-    disconnectMutation.isPending
+    disconnectMutation.isPending ||
+    deleteMutation.isPending
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -173,12 +189,12 @@ export function OAuthIntegrationDetailsDialog({
               <div className="flex flex-col">
                 <section className="space-y-3 px-6 py-5">
                   <h3 className="text-sm font-semibold">Connection</h3>
-                  {isConnected ? (
+                  {hasConnection ? (
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex min-w-0 flex-1 items-center gap-3">
                         <span
                           className={
-                            isExpired
+                            needsReauth || isExpired
                               ? "flex size-7 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700"
                               : "flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"
                           }
@@ -190,7 +206,14 @@ export function OAuthIntegrationDetailsDialog({
                             <p className="truncate text-sm font-medium text-foreground">
                               {providerName}
                             </p>
-                            {isExpired ? (
+                            {needsReauth ? (
+                              <Badge
+                                variant="outline"
+                                className="h-4 border-amber-300 bg-amber-50 px-1.5 text-[10px] uppercase text-amber-700"
+                              >
+                                Reconnect required
+                              </Badge>
+                            ) : isExpired ? (
                               <Badge
                                 variant="outline"
                                 className="h-4 border-amber-300 bg-amber-50 px-1.5 text-[10px] uppercase text-amber-700"
@@ -200,9 +223,7 @@ export function OAuthIntegrationDetailsDialog({
                             ) : null}
                           </div>
                           <p className="text-xs text-muted-foreground">
-                            {lastUpdatedRelative
-                              ? `Last updated ${lastUpdatedRelative}`
-                              : "Connected"}
+                            {connectionStatusDescription}
                           </p>
                         </div>
                       </div>
@@ -257,6 +278,18 @@ export function OAuthIntegrationDetailsDialog({
                               <Trash2 className="mr-2 size-4" />
                               Disconnect
                             </DropdownMenuItem>
+                            {showDelete ? (
+                              <DropdownMenuItem
+                                className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                                onSelect={(event) => {
+                                  event.preventDefault()
+                                  setConfirmDeleteOpen(true)
+                                }}
+                              >
+                                <Trash2 className="mr-2 size-4" />
+                                Delete provider
+                              </DropdownMenuItem>
+                            ) : null}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       ) : null}
@@ -391,6 +424,27 @@ export function OAuthIntegrationDetailsDialog({
           onConfirm={async () => {
             await disconnectMutation.mutateAsync({ providerId, grantType })
             setConfirmDisconnectOpen(false)
+            onOpenChange(false)
+          }}
+        />
+
+        <ConfirmDestructiveDialog
+          open={confirmDeleteOpen}
+          onOpenChange={setConfirmDeleteOpen}
+          confirmPhrase={providerName}
+          title="Delete custom provider"
+          description={
+            <>
+              Are you sure you want to delete{" "}
+              <span className="font-medium">{providerName}</span>? This removes
+              the provider definition and any stored credentials or connections.
+            </>
+          }
+          confirmLabel="Delete"
+          isPending={deleteMutation.isPending}
+          onConfirm={async () => {
+            await deleteMutation.mutateAsync({ providerId, grantType })
+            setConfirmDeleteOpen(false)
             onOpenChange(false)
           }}
         />

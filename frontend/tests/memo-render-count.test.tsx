@@ -4,11 +4,12 @@
  * Verifies the React.memo wrappers on MessagePart, ToolInput, and ToolOutput
  * by counting renders via a spy on the mocked CodeBlock component.
  */
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+
 import { render } from "@testing-library/react"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useUpdateChat, useVercelChat } from "@/hooks/use-chat"
-import { useBuilderRegistryActions } from "@/lib/hooks"
+import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 // Track how many times the CodeBlock mock renders
 let codeBlockRenderCount = 0
@@ -56,8 +57,13 @@ jest.mock("@/components/editor/codemirror/code-editor", () => ({
 }))
 jest.mock("@/hooks/use-chat", () => ({
   useVercelChat: jest.fn(),
+  useAdoptServerTranscript: jest.fn(),
   useGetChat: jest.fn(() => ({ chat: null })),
   useUpdateChat: jest.fn(() => ({ updateChat: jest.fn(), isUpdating: false })),
+  useCancelChatTurn: jest.fn(() => ({
+    cancelChatTurn: jest.fn(),
+    isCancellingChatTurn: false,
+  })),
   parseChatError: (error: unknown) =>
     error instanceof Error ? error.message : "Chat error",
   makeContinueMessage: jest.fn(),
@@ -67,9 +73,32 @@ jest.mock("@/lib/hooks", () => ({
     registryActions: [],
     registryActionsIsLoading: false,
   })),
+  useListMcpIntegrations: jest.fn(() => ({
+    mcpIntegrations: [],
+    mcpIntegrationsIsLoading: false,
+    mcpIntegrationsError: null,
+  })),
 }))
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",
+}))
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: jest.fn(() => true),
+}))
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: jest.fn(() => ({
+    hasEntitlement: () => false,
+    isLoading: false,
+    hasEntitlementData: true,
+  })),
+}))
+jest.mock("@/hooks/use-agent-presets", () => ({
+  useAgentPresets: jest.fn(() => ({
+    presets: [],
+    presetsIsLoading: false,
+    presetsError: null,
+    refetchPresets: jest.fn(),
+  })),
 }))
 
 import { ToolInput, ToolOutput } from "@/components/ai-elements/tool"
@@ -86,6 +115,8 @@ const mockUseBuilderRegistryActions =
   useBuilderRegistryActions as jest.MockedFunction<
     typeof useBuilderRegistryActions
   >
+const mockUseListMcpIntegrations =
+  useListMcpIntegrations as jest.MockedFunction<typeof useListMcpIntegrations>
 
 /**
  * Build a messages array that simulates a completed tool call.
@@ -125,6 +156,7 @@ const chatFixture = {
   entity_id: "case-1",
   channel_context: null,
   tools: [],
+  mcp_integrations: [],
   agent_preset_id: null,
   agent_preset_version_id: null,
   agents_binding: null,
@@ -165,6 +197,11 @@ describe("MessagePart memoization", () => {
       registryActionsError: null,
       getRegistryAction: () => undefined,
     })
+    mockUseListMcpIntegrations.mockReturnValue({
+      mcpIntegrations: [],
+      mcpIntegrationsIsLoading: false,
+      mcpIntegrationsError: null,
+    })
   })
 
   afterEach(() => {
@@ -181,6 +218,7 @@ describe("MessagePart memoization", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: messages1,
       status: "ready",
@@ -211,6 +249,7 @@ describe("MessagePart memoization", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: messages2,
       status: "ready",
@@ -257,6 +296,7 @@ describe("MessagePart memoization", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: pendingMessages,
       status: "streaming",
@@ -287,6 +327,7 @@ describe("MessagePart memoization", () => {
 
     mockUseVercelChat.mockReturnValue({
       sendMessage: jest.fn(),
+      setMessages: jest.fn(),
       regenerate: jest.fn(),
       messages: completedMessages,
       status: "streaming",

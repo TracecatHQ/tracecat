@@ -24,6 +24,8 @@ function getProviderIconId(provider?: string | null): string {
     case "gemini":
     case "vertex_ai":
       return "google"
+    case "mistral":
+      return "mistral"
     case "openai":
       return "openai"
     default:
@@ -46,6 +48,8 @@ function getProviderLabel(provider?: string | null): string {
       return "Bedrock"
     case "gemini":
       return "Gemini"
+    case "mistral":
+      return "Mistral"
     case "openai":
       return "OpenAI"
     case "vertex_ai":

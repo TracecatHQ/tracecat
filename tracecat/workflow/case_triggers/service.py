@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
-from tracecat.db.models import CaseTag, CaseTrigger, Workflow
+from tracecat.audit.logger import AuditEventDetails, audit_log
+from tracecat.db.models import CaseTag, CaseTrigger, Workflow, WorkflowDefinition
+from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID, WorkflowUUID
 from tracecat.service import BaseWorkspaceService, requires_entitlement
@@ -17,6 +20,41 @@ class CaseTriggersService(BaseWorkspaceService):
     """Manage workflow case trigger configuration."""
 
     service_name = "case_triggers"
+
+    def _case_trigger_upsert_audit_details(
+        self,
+        workflow_id: WorkflowID,
+        params: CaseTriggerConfig,
+        *,
+        create_missing_tags: bool = False,
+        commit: bool = True,
+    ) -> AuditEventDetails:
+        # commit=False suppresses emission for sync/dry-run callers.
+        if commit is False:
+            return AuditEventDetails(emit=False)
+        return AuditEventDetails(data={"changed_fields": sorted(params.model_dump())})
+
+    async def _case_trigger_update_audit_details(
+        self,
+        workflow_id: WorkflowID,
+        params: CaseTriggerUpdate,
+        *,
+        create_missing_tags: bool = False,
+        commit: bool = True,
+    ) -> AuditEventDetails:
+        if commit is False:
+            return AuditEventDetails(emit=False)
+        workflow_uuid = WorkflowUUID.new(workflow_id)
+        trigger_id = await self.session.scalar(
+            select(CaseTrigger.id).where(
+                CaseTrigger.workspace_id == self.workspace_id,
+                CaseTrigger.workflow_id == workflow_uuid,
+            )
+        )
+        return AuditEventDetails(
+            resource_id=trigger_id,
+            data={"changed_fields": sorted(params.model_fields_set)},
+        )
 
     async def _lock_workflow(self, workflow_id: WorkflowID) -> None:
         workflow_uuid = WorkflowUUID.new(workflow_id)
@@ -71,12 +109,102 @@ class CaseTriggersService(BaseWorkspaceService):
             return case_trigger
         raise TracecatValidationError("Failed to ensure case trigger")
 
+    async def _ensure_workflow_has_runnable_definition(
+        self, workflow_id: WorkflowID
+    ) -> None:
+        workflow_uuid = WorkflowUUID.new(workflow_id)
+        version_stmt = select(Workflow.version).where(
+            Workflow.workspace_id == self.workspace_id,
+            Workflow.id == workflow_uuid,
+        )
+        workflow_version = await self.session.scalar(version_stmt)
+        if workflow_version is None:
+            raise TracecatValidationError(
+                "Publish the workflow before enabling case triggers"
+            )
+
+        definition_stmt = select(WorkflowDefinition.content).where(
+            WorkflowDefinition.workspace_id == self.workspace_id,
+            WorkflowDefinition.workflow_id == workflow_uuid,
+            WorkflowDefinition.version == workflow_version,
+        )
+        content = await self.session.scalar(definition_stmt)
+        if not content:
+            raise TracecatValidationError(
+                "Publish the workflow before enabling case triggers"
+            )
+        try:
+            DSLInput.model_validate(content)
+        except ValidationError as e:
+            raise TracecatValidationError(
+                "Publish the workflow before enabling case triggers"
+            ) from e
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def validate_case_trigger_config(
+        self, workflow_id: WorkflowID, config: CaseTriggerConfig
+    ) -> None:
+        """Validate a case-trigger config without writing anything.
+
+        Runs the same online-readiness checks ``_update_case_trigger`` enforces
+        (online requires non-empty event types and a published, runnable workflow
+        definition) so a dry run reports the same outcome a real apply would,
+        instead of reporting ``valid: true`` for a config that fails on persist.
+
+        Raises:
+            TracecatValidationError: If the config is not applyable.
+        """
+        if config.status != "online":
+            return
+        if not config.event_types:
+            raise TracecatValidationError(
+                "event_types must be non-empty when status is online"
+            )
+        await self._ensure_workflow_has_runnable_definition(workflow_id)
+
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def get_case_trigger(self, workflow_id: WorkflowID) -> CaseTrigger:
         return await self._ensure_case_trigger_exists(workflow_id)
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
+    @audit_log(
+        resource_type="case_trigger",
+        action="upsert",
+        resource_id_attr="id",
+        attempt_metadata=_case_trigger_upsert_audit_details,
+    )
     async def upsert_case_trigger(
+        self,
+        workflow_id: WorkflowID,
+        params: CaseTriggerConfig,
+        *,
+        create_missing_tags: bool = False,
+        commit: bool = True,
+    ) -> CaseTrigger:
+        return await self._upsert_case_trigger(
+            workflow_id,
+            params,
+            create_missing_tags=create_missing_tags,
+            commit=commit,
+        )
+
+    async def sync_case_trigger(
+        self,
+        workflow_id: WorkflowID,
+        params: CaseTriggerConfig,
+        *,
+        create_missing_tags: bool = False,
+        commit: bool = True,
+    ) -> CaseTrigger:
+        """Apply case-trigger config from sync without checking entitlements."""
+        return await self._upsert_case_trigger(
+            workflow_id,
+            params,
+            create_missing_tags=create_missing_tags,
+            commit=commit,
+        )
+
+    async def _upsert_case_trigger(
         self,
         workflow_id: WorkflowID,
         params: CaseTriggerConfig,
@@ -89,7 +217,7 @@ class CaseTriggersService(BaseWorkspaceService):
             case_trigger = await self._ensure_case_trigger_exists(
                 workflow_id, commit=commit
             )
-            return await self.update_case_trigger(
+            return await self._update_case_trigger(
                 workflow_id,
                 CaseTriggerUpdate(
                     status=params.status,
@@ -119,7 +247,28 @@ class CaseTriggersService(BaseWorkspaceService):
             return case_trigger
 
     @requires_entitlement(Entitlement.CASE_ADDONS)
+    @audit_log(
+        resource_type="case_trigger",
+        action="update",
+        resource_id_attr="id",
+        attempt_metadata=_case_trigger_update_audit_details,
+    )
     async def update_case_trigger(
+        self,
+        workflow_id: WorkflowID,
+        params: CaseTriggerUpdate,
+        *,
+        create_missing_tags: bool = False,
+        commit: bool = True,
+    ) -> CaseTrigger:
+        return await self._update_case_trigger(
+            workflow_id,
+            params,
+            create_missing_tags=create_missing_tags,
+            commit=commit,
+        )
+
+    async def _update_case_trigger(
         self,
         workflow_id: WorkflowID,
         params: CaseTriggerUpdate,
@@ -143,6 +292,8 @@ class CaseTriggersService(BaseWorkspaceService):
             raise TracecatValidationError(
                 "event_types must be non-empty when status is online"
             )
+        if status == "online":
+            await self._ensure_workflow_has_runnable_definition(workflow_id)
 
         tag_filters = updates.get("tag_filters", case_trigger.tag_filters)
         if tag_filters is None:

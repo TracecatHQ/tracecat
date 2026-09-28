@@ -17,6 +17,7 @@ from tracecat.dsl.schemas import RunContext
 from tracecat.exceptions import TracecatCredentialsError
 from tracecat.executor.secret_preprocessors import (
     _AWS_ROLE_ARN_PATTERN,
+    AwsAssumeRoleSecretPreprocessor,
     _assume_role_via_irsa,
     project_secret_env,
 )
@@ -160,6 +161,31 @@ class TestAssumeRoleViaIrsa:
         assert result["SecretAccessKey"] == "temp_secret"
         assert result["SessionToken"] == "temp_token"
 
+    @pytest.mark.anyio
+    async def test_region_name_is_used_for_sts_session(self) -> None:
+        """Custom AWS regions should be used when assuming roles via STS."""
+        mock_sts_client = AsyncMock()
+        mock_sts_client.assume_role = AsyncMock(
+            return_value={"Credentials": _TEMP_CREDS}
+        )
+
+        with patch(
+            "tracecat.executor.secret_preprocessors.aioboto3.Session"
+        ) as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            mock_session.client.return_value.__aenter__.return_value = mock_sts_client
+
+            await _assume_role_via_irsa(
+                role_arn=_VALID_ROLE_ARN,
+                external_id=_EXTERNAL_ID,
+                workspace_id=str(_WORKSPACE_ID),
+                run_id=str(uuid.uuid4()),
+                region_name="us-gov-west-1",
+            )
+
+        mock_session_cls.assert_called_once_with(region_name="us-gov-west-1")
+        mock_session.client.assert_called_once_with("sts")
+
 
 class TestProjectSecretEnv:
     @pytest.mark.anyio
@@ -248,6 +274,7 @@ class TestProjectSecretEnv:
             workspace_id=str(_WORKSPACE_ID),
             run_id=str(run_context.wf_run_id),
             role_session_name="custom-audit-session",
+            region_name="us-east-1",
         )
 
     @pytest.mark.anyio
@@ -272,6 +299,32 @@ class TestProjectSecretEnv:
             workspace_id=str(_WORKSPACE_ID),
             run_id=str(run_context.wf_run_id),
             role_session_name="custom-audit-session",
+            region_name="us-east-1",
+        )
+
+    @pytest.mark.anyio
+    async def test_aws_region_is_forwarded_to_assume_role(
+        self, role: Role, run_context: RunContext
+    ) -> None:
+        """AWS_REGION should select the STS region during role preprocessing."""
+        secrets = _base_aws_secrets()
+        secrets["amazon_s3"]["AWS_REGION"] = " us-gov-west-1 "
+        mock_assume_role = _mock_assume_role()
+
+        with patch(_IRSA_PATCH, mock_assume_role):
+            await project_secret_env(
+                secrets=secrets,
+                role=role,
+                run_context=run_context,
+            )
+
+        mock_assume_role.assert_awaited_once_with(
+            role_arn=_VALID_ROLE_ARN,
+            external_id=_EXTERNAL_ID,
+            workspace_id=str(_WORKSPACE_ID),
+            run_id=str(run_context.wf_run_id),
+            role_session_name=None,
+            region_name="us-gov-west-1",
         )
 
     @pytest.mark.anyio
@@ -473,3 +526,58 @@ class TestProjectSecretEnv:
         )
 
         assert projection.env["API_KEY"] == "some-key"
+
+
+class TestSecretValuesNeverEchoed:
+    """Preprocessor errors name the key, never the value.
+
+    Masks are exact-substring on the raw leaf; a stripped or escaped copy of
+    the value does not match, so the only safe message is a constant one.
+    """
+
+    def test_invalid_role_arn_error_omits_the_value(self) -> None:
+        padded = "  SUPERSECRET-not-an-arn  "
+        with pytest.raises(TracecatCredentialsError) as exc_info:
+            AwsAssumeRoleSecretPreprocessor()._get_role_arn(
+                {"AWS_ROLE_ARN": padded}, "aws"
+            )
+        assert padded.strip() not in str(exc_info.value)
+        assert "AWS_ROLE_ARN" in str(exc_info.value)
+
+    @pytest.mark.anyio
+    async def test_sts_failure_error_omits_the_role_arn(self) -> None:
+        role_arn = "arn:aws:iam::123456789012:role/SUPERSECRET-role"
+        error = ClientError(
+            {
+                "Error": {
+                    "Code": "AccessDenied",
+                    "Message": f"not authorized to assume {role_arn}",
+                }
+            },
+            "AssumeRole",
+        )
+        fake_sts = AsyncMock()
+        fake_sts.assume_role = AsyncMock(side_effect=error)
+        with (
+            patch(
+                "tracecat.executor.secret_preprocessors.aioboto3.Session"
+            ) as mock_session_cls,
+            pytest.raises(TracecatCredentialsError) as exc_info,
+        ):
+            mock_session = mock_session_cls.return_value
+            mock_session.client.return_value.__aenter__.return_value = fake_sts
+            await _assume_role_via_irsa(
+                role_arn=role_arn,
+                external_id="ext",
+                workspace_id=str(uuid.uuid4()),
+                run_id=str(uuid.uuid4()),
+            )
+        assert role_arn not in str(exc_info.value)
+        assert "AccessDenied" in str(exc_info.value)
+
+    def test_collect_mask_values_covers_stripped_form(self) -> None:
+        from tracecat.executor.secret_preprocessors import collect_mask_values
+
+        masks = collect_mask_values([{"aws": {"AWS_ROLE_ARN": "  padded-value \n"}}])
+        assert "padded-value" in masks
+        assert "  padded-value \n" in masks

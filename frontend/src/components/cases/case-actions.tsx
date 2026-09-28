@@ -1,6 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import { Copy, ExternalLink, TagsIcon, Trash2 } from "lucide-react"
 import Link from "next/link"
 import type { CaseReadMinimal } from "@/client"
@@ -17,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
 import { useCaseTagCatalog } from "@/lib/hooks"
+import { useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 export function CaseActions({

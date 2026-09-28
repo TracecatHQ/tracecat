@@ -1,22 +1,25 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { type ReactNode, useEffect, useRef } from "react"
 import { useInboxChat } from "@/app/workspaces/[workspaceId]/inbox/layout"
-import type { AgentSessionEntity } from "@/client"
+import type { AgentSessionEntity, InboxGroup } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { InboxHeader } from "@/components/inbox/inbox-header"
+import { RunsTable } from "@/components/inbox/runs-table"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import {
   type DateFilterValue,
+  type InboxGroupState,
+  type InboxOrderBy,
   type UseInboxFilters,
   useDeleteApproval,
 } from "@/hooks/use-inbox"
 import type { InboxSessionItem } from "@/lib/agents"
-import { ActivityAccordion } from "./activity-accordion"
-import { InboxHeader } from "./inbox-header"
 
 interface ActivityLayoutProps {
   sessions: InboxSessionItem[]
+  groups: Record<InboxGroup, InboxGroupState>
   selectedId: string | null
   onSelect: (id: string | null) => void
   isLoading: boolean
@@ -27,10 +30,16 @@ interface ActivityLayoutProps {
   onLimitChange: (limit: number) => void
   onUpdatedAfterChange: (value: DateFilterValue) => void
   onCreatedAfterChange: (value: DateFilterValue) => void
+  caseId: string | null
+  onClearCaseFilter: () => void
+  orderBy: InboxOrderBy
+  sort: "asc" | "desc"
+  onSort: (key: InboxOrderBy) => void
 }
 
 export function ActivityLayout({
   sessions,
+  groups,
   selectedId,
   onSelect,
   isLoading,
@@ -41,6 +50,11 @@ export function ActivityLayout({
   onLimitChange,
   onUpdatedAfterChange,
   onCreatedAfterChange,
+  caseId,
+  onClearCaseFilter,
+  orderBy,
+  sort,
+  onSort,
 }: ActivityLayoutProps) {
   const { setSelectedSession, setChatOpen, registerOnClose } = useInboxChat()
   const canDeleteApproval = useScopeCheck("agent:delete")
@@ -89,49 +103,33 @@ export function ActivityLayout({
     }
   }
 
+  let content: ReactNode
   if (isLoading) {
-    return (
-      <div className="flex size-full flex-col">
-        <InboxHeader
-          searchQuery={filters.searchQuery}
-          onSearchChange={onSearchChange}
-          entityType={filters.entityType}
-          onEntityTypeChange={onEntityTypeChange}
-          limit={filters.limit}
-          onLimitChange={onLimitChange}
-          updatedAfter={filters.updatedAfter}
-          onUpdatedAfterChange={onUpdatedAfterChange}
-          createdAfter={filters.createdAfter}
-          onCreatedAfterChange={onCreatedAfterChange}
-        />
-        <div className="flex flex-1 items-center justify-center">
-          <CenteredSpinner />
-        </div>
+    content = (
+      <div className="flex size-full items-center justify-center">
+        <CenteredSpinner />
       </div>
     )
-  }
-
-  if (error) {
-    return (
-      <div className="flex size-full flex-col">
-        <InboxHeader
-          searchQuery={filters.searchQuery}
-          onSearchChange={onSearchChange}
-          entityType={filters.entityType}
-          onEntityTypeChange={onEntityTypeChange}
-          limit={filters.limit}
-          onLimitChange={onLimitChange}
-          updatedAfter={filters.updatedAfter}
-          onUpdatedAfterChange={onUpdatedAfterChange}
-          createdAfter={filters.createdAfter}
-          onCreatedAfterChange={onCreatedAfterChange}
-        />
-        <div className="flex flex-1 items-center justify-center">
-          <span className="text-sm text-red-500">
-            Failed to load activity: {error.message}
-          </span>
-        </div>
+  } else if (error) {
+    content = (
+      <div className="flex size-full items-center justify-center">
+        <span className="text-sm text-red-500">
+          Failed to load activity: {error.message}
+        </span>
       </div>
+    )
+  } else {
+    content = (
+      <RunsTable
+        groups={groups}
+        selectedId={selectedId}
+        deletingId={deletingId ?? null}
+        onSelect={handleSelectItem}
+        onDelete={canDeleteApproval ? handleDeleteItem : undefined}
+        orderBy={orderBy}
+        sort={sort}
+        onSort={onSort}
+      />
     )
   }
 
@@ -148,16 +146,10 @@ export function ActivityLayout({
         onUpdatedAfterChange={onUpdatedAfterChange}
         createdAfter={filters.createdAfter}
         onCreatedAfterChange={onCreatedAfterChange}
+        caseId={caseId}
+        onClearCaseFilter={onClearCaseFilter}
       />
-      <div className="min-h-0 flex-1">
-        <ActivityAccordion
-          sessions={sessions}
-          selectedId={selectedId}
-          deletingId={deletingId ?? null}
-          onSelect={handleSelectItem}
-          onDelete={canDeleteApproval ? handleDeleteItem : undefined}
-        />
-      </div>
+      <div className="min-h-0 flex-1">{content}</div>
     </div>
   )
 }

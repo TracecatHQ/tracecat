@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: Delete canvas access
+  description: Remove access to a Slack canvas for specified channels or users.
+  display_group: Slack
+  doc_url: https://docs.slack.dev/reference/methods/canvases.access.delete/
+  namespace: tools.slack
+  name: delete_canvas_access
+  expects:
+    canvas_id:
+      type: str
+      description: Encoded ID of the canvas to remove access from.
+    channel_ids:
+      type: list[str] | None
+      description: List of channels to remove access for.
+      default: null
+    user_ids:
+      type: list[str] | None
+      description: List of users to remove access for.
+      default: null
+  steps:
+    - ref: delete_canvas_access
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: canvases.access.delete
+        params:
+          canvas_id: ${{ inputs.canvas_id }}
+          channel_ids: ${{ inputs.channel_ids }}
+          user_ids: ${{ inputs.user_ids }}
+  returns: ${{ steps.delete_canvas_access.result }}

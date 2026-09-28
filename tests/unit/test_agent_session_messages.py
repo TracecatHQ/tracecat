@@ -7,7 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 
 import orjson
 import pytest
+from claude_agent_sdk.types import UserMessage
 
+from tracecat.agent.runtime.claude_code.session_lines import (
+    APPROVAL_CONTINUATION_PROMPT,
+    MODEL_CONTEXT_PROMPT_PREFIX,
+)
+from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.auth.types import Role
 from tracecat.chat.enums import MessageKind
@@ -65,8 +71,8 @@ async def test_list_messages_preserves_compaction_metadata() -> None:
     service.get_session = AsyncMock(return_value=agent_session)
     service.session.execute = AsyncMock(
         side_effect=[
-            _mock_scalar_result([compaction_entry]),
             _mock_scalar_result([]),
+            _mock_scalar_result([compaction_entry]),
         ]
     )
 
@@ -81,6 +87,196 @@ async def test_list_messages_preserves_compaction_metadata() -> None:
 
 
 @pytest.mark.anyio
+async def test_list_messages_maps_cancelled_marker() -> None:
+    service, agent_session = _build_service()
+    cancelled_entry = SimpleNamespace(
+        id=uuid.uuid4(),
+        kind=MessageKind.CANCELLED.value,
+        content={
+            "type": "cancelled",
+            "reason": "user_cancel",
+            "timestamp": "2026-07-02T00:00:00Z",
+        },
+    )
+
+    service.get_session = AsyncMock(return_value=agent_session)
+    service.session.execute = AsyncMock(
+        side_effect=[
+            _mock_scalar_result([]),
+            _mock_scalar_result([cancelled_entry]),
+        ]
+    )
+
+    messages = await service.list_messages(agent_session.id)
+
+    assert len(messages) == 1
+    assert messages[0].kind == MessageKind.CANCELLED
+    assert messages[0].cancelled == {"reason": "user_cancel"}
+
+
+@pytest.mark.anyio
+async def test_load_session_history_omits_cancelled_marker_rows() -> None:
+    service, _ = _build_service()
+    session_id = uuid.uuid4()
+    sdk_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        sdk_session_id="sdk-session-123",
+        curr_run_id=None,
+    )
+    entries = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.CHAT_MESSAGE.value,
+            raw_session_line=None,
+            content={
+                "type": "user",
+                "uuid": "prompt-uuid",
+                "message": {"role": "user", "content": "List cases."},
+            },
+        ),
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.CANCELLED.value,
+            raw_session_line=None,
+            content={
+                "type": "cancelled",
+                "reason": "user_cancel",
+                "timestamp": "2026-07-02T00:00:00Z",
+            },
+        ),
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.CHAT_MESSAGE.value,
+            raw_session_line=None,
+            content={
+                "type": "assistant",
+                "uuid": "answer-uuid",
+                "parentUuid": "prompt-uuid",
+                "message": {"content": [{"type": "text", "text": "Stopped early."}]},
+            },
+        ),
+    ]
+
+    service.get_session = AsyncMock(return_value=sdk_session)
+    service.session.execute = AsyncMock(return_value=_mock_scalar_result(entries))
+
+    history = await service.load_session_history(session_id)
+
+    assert history is not None
+    lines = [orjson.loads(line) for line in history.sdk_session_data.splitlines()]
+    assert [line["uuid"] for line in lines] == ["prompt-uuid", "answer-uuid"]
+    assert "cancelled" not in history.sdk_session_data
+
+
+@pytest.mark.anyio
+async def test_display_only_context_splits_ui_from_model_history() -> None:
+    """Raw source text is visible while the full prompt only reaches the model."""
+    service, sdk_session = _build_service()
+    session_id = sdk_session.id
+    sdk_session.sdk_session_id = "sdk-session-123"
+    context_prompt = f"{MODEL_CONTEXT_PROMPT_PREFIX}hidden thread instructions"
+    entries = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.CHAT_MESSAGE.value,
+            raw_session_line=None,
+            content={
+                "type": "user",
+                "uuid": "display-uuid",
+                "isDisplayOnly": True,
+                "message": {"role": "user", "content": "Raw comment content"},
+            },
+        ),
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.INTERNAL.value,
+            raw_session_line=None,
+            content={
+                "type": "user",
+                "uuid": "context-uuid",
+                "message": {"role": "user", "content": context_prompt},
+            },
+        ),
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            kind=MessageKind.CHAT_MESSAGE.value,
+            raw_session_line=None,
+            content={
+                "type": "assistant",
+                "uuid": "answer-uuid",
+                "parentUuid": "context-uuid",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "text", "text": "Agent answer"}],
+                },
+            },
+        ),
+    ]
+    service.get_session = AsyncMock(return_value=sdk_session)
+    service.session.execute = AsyncMock(
+        side_effect=[
+            _mock_scalar_result(entries),
+            _mock_scalar_result([]),
+            _mock_scalar_result(entries),
+        ]
+    )
+
+    history = await service.load_session_history(session_id)
+    assert history is not None
+    model_lines = [orjson.loads(line) for line in history.sdk_session_data.splitlines()]
+    assert [line["uuid"] for line in model_lines] == [
+        "context-uuid",
+        "answer-uuid",
+    ]
+
+    messages = await service.list_messages(session_id)
+    assert len(messages) == 2
+    assert isinstance(messages[0].message, UserMessage)
+    assert messages[0].message.content == "Raw comment content"
+    assert all(context_prompt not in str(message.message) for message in messages)
+
+
+@pytest.mark.anyio
+async def test_load_session_history_prefers_exact_raw_nul_content() -> None:
+    service, _ = _build_service()
+    session_id = uuid.uuid4()
+    sdk_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        sdk_session_id="sdk-session-123",
+        curr_run_id=None,
+    )
+    raw_line = (
+        r'{"type":"user","uuid":"raw-uuid","message":{"role":"user",'
+        r'"content":["left\u0000right","literal\\u0000text"]}}'
+    )
+    payload = prepare_session_history(
+        orjson.loads(raw_line),
+        raw_session_line=raw_line,
+    )
+    entry = SimpleNamespace(
+        id=uuid.uuid4(),
+        kind=MessageKind.CHAT_MESSAGE.value,
+        content=payload.content,
+        raw_session_line=payload.raw_session_line,
+    )
+
+    service.get_session = AsyncMock(return_value=sdk_session)
+    service.session.execute = AsyncMock(return_value=_mock_scalar_result([entry]))
+
+    history = await service.load_session_history(session_id)
+
+    assert history is not None
+    assert history.sdk_session_data == raw_line
+    [actual_nul, literal_escape] = orjson.loads(history.sdk_session_data)["message"][
+        "content"
+    ]
+    assert actual_nul == "left\x00right"
+    assert literal_escape == r"literal\u0000text"
+
+
+@pytest.mark.anyio
 async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain() -> (
     None
 ):
@@ -90,13 +286,25 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
         id=session_id,
         parent_session_id=None,
         sdk_session_id="sdk-session-123",
+        curr_run_id=None,
     )
     tool_result_uuid = "tool-result-uuid"
     thinking_uuid = "thinking-uuid"
     answer_uuid = "answer-uuid"
+    answer_raw_line = (
+        r'{"type":"assistant","uuid":"answer-uuid",'
+        r'"parentUuid":"thinking-uuid","message":{"content":['
+        r'{"type":"text","text":"There are\u0000no cases."}]}}'
+    )
+    answer_payload = prepare_session_history(
+        orjson.loads(answer_raw_line),
+        raw_session_line=answer_raw_line,
+    )
     entries = [
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
+            raw_session_line=None,
             content={
                 "type": "user",
                 "uuid": tool_result_uuid,
@@ -107,7 +315,9 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
             },
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            raw_session_line=None,
             content={
                 "type": "user",
                 "uuid": "meta-uuid",
@@ -125,7 +335,9 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
             },
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            raw_session_line=None,
             content={
                 "type": "assistant",
                 "uuid": "synthetic-uuid",
@@ -134,16 +346,23 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
             },
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            raw_session_line=None,
             content={
                 "type": "user",
                 "uuid": "prompt-uuid",
                 "parentUuid": "synthetic-uuid",
-                "message": {"role": "user", "content": "Continue."},
+                "message": {
+                    "role": "user",
+                    "content": APPROVAL_CONTINUATION_PROMPT,
+                },
             },
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.INTERNAL.value,
+            raw_session_line=None,
             content={
                 "type": "assistant",
                 "uuid": thinking_uuid,
@@ -159,15 +378,10 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
             },
         ),
         SimpleNamespace(
+            id=uuid.uuid4(),
             kind=MessageKind.CHAT_MESSAGE.value,
-            content={
-                "type": "assistant",
-                "uuid": answer_uuid,
-                "parentUuid": thinking_uuid,
-                "message": {
-                    "content": [{"type": "text", "text": "There are no cases."}]
-                },
-            },
+            content=answer_payload.content,
+            raw_session_line=answer_payload.raw_session_line,
         ),
     ]
 
@@ -181,17 +395,14 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
     lines = [orjson.loads(line) for line in history.sdk_session_data.splitlines()]
     assert [line["uuid"] for line in lines] == [tool_result_uuid, answer_uuid]
     assert lines[1]["parentUuid"] == tool_result_uuid
+    assert lines[1]["message"]["content"][0]["text"] == "There are\x00no cases."
     assert "Continue" not in history.sdk_session_data
 
 
 @pytest.mark.anyio
 async def test_list_messages_skips_misclassified_continuation_artifacts() -> None:
-    service, _ = _build_service()
-    session_id = uuid.uuid4()
-    agent_session = SimpleNamespace(
-        id=session_id,
-        parent_session_id=None,
-    )
+    service, agent_session = _build_service()
+    session_id = agent_session.id
     prompt_uuid = "prompt-uuid"
     thinking_uuid = "thinking-uuid"
     entries = [
@@ -211,7 +422,10 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
                 "type": "user",
                 "uuid": prompt_uuid,
                 "parentUuid": "synthetic-uuid",
-                "message": {"role": "user", "content": "Continue."},
+                "message": {
+                    "role": "user",
+                    "content": APPROVAL_CONTINUATION_PROMPT,
+                },
             },
         ),
         SimpleNamespace(
@@ -250,8 +464,8 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
     service.get_session = AsyncMock(return_value=agent_session)
     service.session.execute = AsyncMock(
         side_effect=[
-            _mock_scalar_result(entries),
             _mock_scalar_result([]),
+            _mock_scalar_result(entries),
         ]
     )
 

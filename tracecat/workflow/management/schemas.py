@@ -5,9 +5,10 @@ from collections.abc import Iterable
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from fastapi.responses import ORJSONResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseEventType
@@ -18,6 +19,7 @@ from tracecat.dsl.schemas import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import WorkspaceID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort, WorkflowUUID
+from tracecat.mcp.schemas import WorkflowEditDocument
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.tags.schemas import TagRead
 from tracecat.validation.schemas import ValidationResult
@@ -28,6 +30,42 @@ from tracecat.workflow.case_triggers.schemas import (
     is_case_trigger_configured,
 )
 from tracecat.workflow.schedules.schemas import ScheduleRead
+
+
+def format_registry_lock_entry(origin: str, version: str) -> str:
+    """Format a registry lock origin/version pair for API consumers."""
+    return (
+        f"{format_registry_origin(origin)}@{format_registry_version(origin, version)}"
+    )
+
+
+def format_registry_origin(origin: str) -> str:
+    """Normalize registry origins for compact display."""
+    if origin == "tracecat_registry":
+        return origin
+
+    parsed = urlparse(origin)
+    if parsed.scheme != "git+ssh":
+        return origin
+
+    path = parsed.path.lstrip("/")
+    if not path:
+        return origin
+    if path.endswith(".git"):
+        path = path[:-4]
+    parts = path.split("/")
+    if len(parts) < 2:
+        return origin
+
+    org, repo = parts[-2], parts[-1]
+    return f"{org}/{repo}"
+
+
+def format_registry_version(origin: str, version: str) -> str:
+    """Keep platform versions intact and shorten custom registry revisions."""
+    if origin == "tracecat_registry":
+        return version
+    return version[:12] if len(version) > 12 else version
 
 
 class WorkflowRead(Schema):
@@ -48,6 +86,7 @@ class WorkflowRead(Schema):
     alias: str | None = None
     git_sync_branch: str | None = None
     error_handler: str | None = None
+    folder_id: uuid.UUID | None = None
     trigger_position_x: float = 0.0
     trigger_position_y: float = 0.0
     graph_version: int = 1
@@ -59,6 +98,14 @@ class WorkflowDefinitionReadMinimal(Schema):
     created_at: datetime
 
 
+class RegistryLockEntryRead(Schema):
+    """Display metadata for one registry lock origin."""
+
+    origin: str
+    version: str
+    label: str
+
+
 class WorkflowDefinitionRead(Schema):
     """API response model for persisted workflow definitions."""
 
@@ -67,8 +114,41 @@ class WorkflowDefinitionRead(Schema):
     workspace_id: WorkspaceID
     version: int
     content: dict[str, Any] | None = None
+    registry_lock: RegistryLock | None = Field(default=None, exclude=True)
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("registry_lock", mode="before")
+    @classmethod
+    def normalize_legacy_registry_lock(cls, value: Any) -> Any:
+        """Accept flat registry locks written by the original DB migration."""
+        if value is None or isinstance(value, RegistryLock):
+            return value
+        if not isinstance(value, dict):
+            return value
+        if any(key in value for key in ("origins", "actions", "origin_fingerprints")):
+            return value
+        if not all(
+            isinstance(origin, str) and isinstance(version, str)
+            for origin, version in value.items()
+        ):
+            return value
+        return {"origins": value, "actions": {}}
+
+    @computed_field
+    @property
+    def registry_lock_entries(self) -> list[RegistryLockEntryRead]:
+        """Registry lock origins with server-normalized display labels."""
+        if self.registry_lock is None:
+            return []
+        return [
+            RegistryLockEntryRead(
+                origin=origin,
+                version=version,
+                label=format_registry_lock_entry(origin, version),
+            )
+            for origin, version in sorted(self.registry_lock.origins.items())
+        ]
 
 
 class WorkflowTriggerSummary(Schema):
@@ -400,7 +480,33 @@ class WorkflowEntrypointValidationResponse(BaseModel):
 
 
 class WorkflowMoveToFolder(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     folder_path: str | None = None
+
+
+class WorkflowDraftRead(BaseModel):
+    """Canonical editable draft document plus its content-hash revision."""
+
+    workflow_id: WorkflowIDShort
+    draft_revision: str
+    document: WorkflowEditDocument
+
+
+class WorkflowDraftUpdate(BaseModel):
+    """Wholesale replacement of a workflow draft.
+
+    ``document`` is the full desired draft state (metadata, definition, layout,
+    schedules, case trigger). ``schedules`` is optional: when omitted, the
+    workflow's existing schedules are left untouched so they can be owned by
+    the standalone ``/schedules`` resource; when present, they are replaced.
+    Other omitted sections fall back to their defaults and are treated as
+    changed. When ``base_revision`` is set, the update is rejected with 409 if
+    the current draft revision differs.
+    """
+
+    document: WorkflowEditDocument
+    base_revision: str | None = None
 
 
 # =============================================================================

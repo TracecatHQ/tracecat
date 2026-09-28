@@ -7,130 +7,22 @@ Harness-specific adapters are responsible for converting to their required forma
 
 from __future__ import annotations
 
-import asyncio
-import os
-import sys
-import tempfile
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
 
-import orjson
 from tracecat_registry import RegistrySecretType
 
 from tracecat.agent.types import Tool
 from tracecat.config import TRACECAT__AGENT_MAX_TOOLS
-from tracecat.contexts import ctx_role
+from tracecat.dsl.enums import PlatformAction
 from tracecat.logger import logger
 from tracecat.registry.actions.service import (
     IndexedActionResult,
     RegistryActionsService,
 )
 
-
-class ToolExecutionError(Exception):
-    """Raised when tool execution fails."""
-
-
-async def call_tracecat_action(
-    action_name: str,
-    args: dict[str, Any],
-) -> Any:
-    """Execute a Tracecat action in a subprocess.
-
-    This spawns a separate process to run the action, providing process isolation
-    and avoiding load on the executor service which handles workflow executions.
-
-    Uses temporary files for input/output to avoid Unix pipe buffer limits (64KB).
-
-    Args:
-        action_name: The action to execute (e.g., "core.http_request")
-        args: Arguments to pass to the action
-
-    Returns:
-        The action result
-
-    Raises:
-        ToolExecutionError: If action execution fails
-    """
-    role = ctx_role.get()
-    role_data = role.model_dump(mode="json") if role else None
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        input_path = Path(tmpdir) / "input.json"
-        output_path = Path(tmpdir) / "output.json"
-
-        payload = orjson.dumps(
-            {
-                "action_name": action_name,
-                "args": args,
-                "role": role_data,
-            }
-        )
-        input_path.write_bytes(payload)
-
-        proc = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "tracecat.agent._subprocess_runner",
-            "--input",
-            str(input_path),
-            "--output",
-            str(output_path),
-            stderr=asyncio.subprocess.PIPE,
-            env=os.environ.copy(),
-        )
-
-        try:
-            _, stderr = await proc.communicate()
-        except asyncio.CancelledError:
-            if proc.returncode is None:
-                proc.terminate()
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=2)
-                except TimeoutError:
-                    proc.kill()
-                    await proc.wait()
-            raise
-
-        if proc.returncode != 0:
-            error_msg = stderr.decode() if stderr else "Unknown subprocess error"
-            logger.error(
-                "Subprocess failed",
-                action_name=action_name,
-                returncode=proc.returncode,
-                stderr=error_msg,
-            )
-            raise ToolExecutionError(f"Action execution failed: {error_msg}")
-
-        if not output_path.exists():
-            logger.error(
-                "Subprocess did not produce output file",
-                action_name=action_name,
-            )
-            raise ToolExecutionError("Action execution failed: no output produced")
-
-        try:
-            result = orjson.loads(output_path.read_bytes())
-        except orjson.JSONDecodeError as e:
-            logger.error(
-                "Failed to parse subprocess output",
-                action_name=action_name,
-                error=str(e),
-            )
-            raise ToolExecutionError(f"Failed to parse action result: {e}") from e
-        else:
-            try:
-                output_path.unlink(missing_ok=True)
-            except OSError:
-                pass
-
-    if not result.get("success"):
-        error = result.get("error", "Unknown error")
-        logger.error("Action execution failed", action_name=action_name, error=error)
-        raise ToolExecutionError(error)
-
-    return result.get("result")
+# This controls which registry actions are exposed to agents. Execution-policy
+# enforcement is handled separately.
+EXCLUDED_AGENT_ACTIONS: frozenset[str] = frozenset({PlatformAction.RUN_PYTHON})
 
 
 async def create_tool_from_registry(
@@ -272,7 +164,8 @@ async def build_agent_tools(
 
     Args:
         namespaces: Optional list of namespace prefixes to filter by
-        actions: List of canonical action names to build tools for
+        actions: List of canonical action names to build tools for. Excluded agent
+            actions are ignored.
         tool_approvals: Tool approval requirements by tool name
         max_tools: Maximum number of tools allowed
 
@@ -282,7 +175,12 @@ async def build_agent_tools(
     Raises:
         ValueError: If actions are missing/failed or max_tools exceeded
     """
-    if not actions:
+    included_actions = [
+        action_name
+        for action_name in actions or []
+        if action_name not in EXCLUDED_AGENT_ACTIONS
+    ]
+    if not included_actions:
         return BuildToolsResult(tools=[], collected_secrets=set())
 
     tools: list[Tool] = []
@@ -290,13 +188,13 @@ async def build_agent_tools(
 
     async with RegistryActionsService.with_session() as service:
         # Use index-based lookup instead of querying action tables
-        indexed_results = await service.get_actions_from_index(actions)
+        indexed_results = await service.get_actions_from_index(included_actions)
 
         failed_actions: set[str] = set()
 
         # Check for missing actions
         found_actions = set(indexed_results.keys())
-        missing_actions = set(actions) - found_actions
+        missing_actions = set(included_actions) - found_actions
 
         for action_name, indexed_result in indexed_results.items():
             logger.debug(f"Building tool for action: {action_name}")

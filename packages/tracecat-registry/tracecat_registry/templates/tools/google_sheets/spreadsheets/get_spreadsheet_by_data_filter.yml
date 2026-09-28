@@ -1,0 +1,68 @@
+type: action
+definition:
+  title: Get spreadsheet by data filter
+  description: >-
+    Returns the spreadsheet at the given ID. Specifying one or more data filters returns the
+    portions of the spreadsheet that intersect ranges matched by any of the filters. By default,
+    data within grids is not returned.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/getByDataFilter
+  namespace: tools.google_sheets
+  name: get_spreadsheet_by_data_filter
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    spreadsheet_id:
+      type: str
+      description: The spreadsheet to request.
+    data_filters:
+      # Generic: the vendor's body is a discriminated union. Each `DataFilter` sets exactly one of
+      # `a1Range`, `gridRange` or `developerMetadataLookup`.
+      type: list[dict[str, Any]]
+      description: >-
+        The DataFilters used to select which ranges to retrieve from the spreadsheet. Each entry
+        sets exactly one of `a1Range`, `gridRange` or `developerMetadataLookup`. See
+        https://developers.google.com/workspace/sheets/api/reference/rest/v4/DataFilter
+    include_grid_data:
+      type: bool | None
+      description: >-
+        True if grid data should be returned. This parameter is ignored if a field mask was set in
+        the request.
+      default: null
+  steps:
+    - ref: build_body
+      action: core.script.run_python
+      args:
+        inputs:
+          data_filters: ${{ inputs.data_filters }}
+          include_grid_data: ${{ inputs.include_grid_data }}
+        script: |
+          def main(data_filters, include_grid_data):
+              body = {"dataFilters": data_filters}
+              if include_grid_data is not None:
+                  body["includeGridData"] = include_grid_data
+              return body
+    - ref: get_spreadsheet_by_data_filter
+      action: tools.google_api.call_api
+      args:
+        service_name: sheets
+        version: v4
+        resource: spreadsheets
+        method_name: getByDataFilter
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+        params:
+          spreadsheetId: ${{ inputs.spreadsheet_id }}
+          body: ${{ steps.build_body.result }}
+  returns: ${{ steps.get_spreadsheet_by_data_filter.result }}

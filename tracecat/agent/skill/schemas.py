@@ -15,8 +15,10 @@ from pydantic import (
     field_validator,
 )
 
+from tracecat.agent.skill.types import SkillOrigin
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkspaceID
+from tracecat.tags.schemas import TagRead
 
 
 def _validate_skill_name(value: str) -> str:
@@ -27,16 +29,20 @@ def _validate_skill_name(value: str) -> str:
     return value
 
 
+_SKILL_NAME_CONSTRAINTS = StringConstraints(
+    strip_whitespace=True,
+    min_length=1,
+    max_length=64,
+    pattern=r"^[a-z0-9-]+$",
+)
+
+# Portable skill names do not encode ownership; origin is assigned by the host.
 SkillName = Annotated[
     str,
-    StringConstraints(
-        strip_whitespace=True,
-        min_length=1,
-        max_length=64,
-        pattern=r"^[a-z0-9-]+$",
-    ),
+    _SKILL_NAME_CONSTRAINTS,
     AfterValidator(_validate_skill_name),
 ]
+
 SkillPath = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=1024),
@@ -66,13 +72,17 @@ class SkillRead(Schema):
 
     id: uuid.UUID
     workspace_id: WorkspaceID
+    origin: Literal[SkillOrigin.WORKSPACE] = Field(default=SkillOrigin.WORKSPACE)
     name: str
+    slug: str
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
+    folder_id: uuid.UUID | None = Field(default=None)
+    tags: list[TagRead] = Field(default_factory=list)
     draft_revision: int
     created_at: datetime
     updated_at: datetime
-    archived_at: datetime | None = Field(default=None)
+    deleted_at: datetime | None = Field(default=None)
     current_version: SkillVersionReadMinimal | None = Field(default=None)
     is_draft_publishable: bool
     draft_validation_errors: list[SkillValidationErrorDetail] = Field(
@@ -82,16 +92,31 @@ class SkillRead(Schema):
 
 
 class SkillReadMinimal(Schema):
-    """Minimal response model for listing workspace skills."""
+    """Minimal response model for listing workspace skills.
+
+    ``slug`` is the late-binding handle every skill API accepts; list
+    responses must expose it so callers never have to guess it from ``name``
+    (names are not unique — slugs are, per live row).
+    """
 
     id: uuid.UUID
     workspace_id: WorkspaceID
+    origin: Literal[SkillOrigin.WORKSPACE] = Field(default=SkillOrigin.WORKSPACE)
     name: str
+    slug: str
     description: str | None = Field(default=None)
     current_version_id: uuid.UUID | None = Field(default=None)
+    folder_id: uuid.UUID | None = Field(default=None)
+    tags: list[TagRead] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
-    archived_at: datetime | None = Field(default=None)
+    deleted_at: datetime | None = Field(default=None)
+
+
+class SkillMoveToFolder(Schema):
+    """Payload for moving a skill into a folder."""
+
+    folder_path: str | None = Field(default=None)
 
 
 class SkillCreate(Schema):
@@ -148,6 +173,27 @@ class SkillDraftFileRead(Schema):
     download_url: str | None = Field(default=None)
 
 
+class SkillDownloadPreparedFile(Schema):
+    """Short-lived direct-download instructions for one skill file."""
+
+    path: str
+    sha256: str
+    size_bytes: int
+    content_type: str
+    download_url: str
+    expires_at: datetime
+
+
+class SkillDownloadPreparedResponse(Schema):
+    """Prepared direct-download plan for a complete skill draft."""
+
+    workspace_id: WorkspaceID
+    skill_id: uuid.UUID
+    skill_name: str
+    draft_revision: int
+    files: list[SkillDownloadPreparedFile]
+
+
 class SkillUploadSessionCreate(Schema):
     """Request body for creating a staged draft upload."""
 
@@ -160,7 +206,7 @@ class SkillUploadSessionCreate(Schema):
             pattern=r"^[0-9a-fA-F]{64}$",
         ),
     ]
-    size_bytes: int = Field(gt=0)
+    size_bytes: int = Field(ge=0)
     content_type: str = Field(min_length=1, max_length=255)
 
     @field_validator("sha256", mode="before")
@@ -181,6 +227,15 @@ class SkillUploadSessionRead(Schema):
     expires_at: datetime
     bucket: str
     key: str
+
+
+class SkillUploadSessionBatchRead(Schema):
+    """Atomic preparation result for a complete set of staged uploads."""
+
+    skill_id: uuid.UUID
+    draft_revision: int
+    created: bool
+    uploads: list[SkillUploadSessionRead]
 
 
 class SkillDraftUpsertTextFileOp(BaseModel):

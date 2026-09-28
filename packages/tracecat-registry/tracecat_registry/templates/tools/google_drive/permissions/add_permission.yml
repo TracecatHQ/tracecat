@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: Add Drive permission
+  description: Grant access to a file or folder
+  display_group: Google Drive
+  doc_url: https://developers.google.com/workspace/drive/api/reference/rest/v3/permissions/create
+  namespace: tools.google_drive
+  name: add_permission
+  secrets:
+    - type: oauth
+      provider_id: google_drive
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_drive
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  # Legacy: ported from the tools.google_drive Python UDF. Inputs and output shape are a
+  # published contract; do not rename or reshape them. Not a pattern for new actions.
+  expects:
+    file_id:
+      type: str
+      description: The file or folder ID
+    email:
+      type: str
+      description: Email address to grant access to
+    role:
+      type: str
+      description: "Role: reader, writer, commenter, owner"
+      default: reader
+    send_notification:
+      type: bool
+      description: Send email notification
+      default: false
+    fields:
+      type: str
+      description: 'Fields to return (''*'' for all)'
+      default: "*"
+  steps:
+    - ref: create_permission
+      action: tools.google_api.call_api
+      args:
+        service_name: drive
+        version: v3
+        resource: permissions
+        method_name: create
+        access_token: ${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/drive"]
+        params:
+          fileId: ${{ inputs.file_id }}
+          sendNotificationEmail: ${{ inputs.send_notification }}
+          fields: ${{ inputs.fields }}
+          supportsAllDrives: true
+          body:
+            type: user
+            role: ${{ inputs.role }}
+            emailAddress: ${{ inputs.email }}
+  returns: ${{ steps.create_permission.result }}

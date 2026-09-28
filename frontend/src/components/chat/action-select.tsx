@@ -140,12 +140,12 @@ export function ActionSelect<T extends FieldValues>({
           <ScrollArea className="max-h-[300px]">
             <CommandList>
               <CommandEmpty>No actions found.</CommandEmpty>
-              {sortedSuggestions.map((result) => {
+              {sortedSuggestions.map((result, index) => {
                 const suggestion = result.obj
                 return (
                   <CommandItem
                     key={suggestion.value}
-                    value={suggestion.value}
+                    value={`${index}`}
                     onSelect={() => handleSelect(suggestion.value)}
                     className="cursor-pointer"
                   >

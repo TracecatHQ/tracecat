@@ -13,6 +13,7 @@ import { fontSans } from "@/lib/fonts"
 import { cn } from "@/lib/utils"
 import type { PHProviderType } from "@/providers/posthog"
 import { DefaultQueryClientProvider } from "@/providers/query"
+import { ThemeProvider } from "@/providers/theme"
 
 let PostHogPageView: React.ComponentType | undefined = undefined
 let PHProvider: PHProviderType | undefined = undefined
@@ -55,19 +56,26 @@ export default async function RootLayout({ children }: RootLayoutProps) {
             fontSans.variable
           )}
         >
-          <DefaultQueryClientProvider>
-            <SettingsModalProvider>
-              <TooltipProvider>
-                {PostHogPageView && (
-                  <Suspense fallback={null}>
-                    <PostHogPageView />
-                  </Suspense>
-                )}
-                {children}
-              </TooltipProvider>
-              <SettingsModalHost />
-            </SettingsModalProvider>
-          </DefaultQueryClientProvider>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            <DefaultQueryClientProvider>
+              <SettingsModalProvider>
+                <TooltipProvider>
+                  {PostHogPageView && (
+                    <Suspense fallback={null}>
+                      <PostHogPageView />
+                    </Suspense>
+                  )}
+                  {children}
+                </TooltipProvider>
+                <SettingsModalHost />
+              </SettingsModalProvider>
+            </DefaultQueryClientProvider>
+          </ThemeProvider>
           <Toaster />
         </body>
       </MaybeAnalytics>

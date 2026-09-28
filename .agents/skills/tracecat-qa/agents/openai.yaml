@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tracecat QA"
+  short_description: "QA Tracecat features locally."
+  default_prompt: "Use $tracecat-qa to QA the current Tracecat feature in a local cluster."

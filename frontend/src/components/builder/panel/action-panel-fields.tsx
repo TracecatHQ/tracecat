@@ -22,7 +22,7 @@ import type { ActionType, RegistryActionReadMinimal } from "@/client/types.gen"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { YamlStyledEditor } from "@/components/editor/codemirror/yaml-editor"
 import { ExpressionInput } from "@/components/editor/expression-input"
-import { getIcon, ProviderIcon } from "@/components/icons"
+import { getIcon, getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import {
   LockedFeatureChip,
   LockedFeatureModal,
@@ -64,10 +64,7 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  useAgentPresets,
-  useAgentPresetVersions,
-} from "@/hooks/use-agent-presets"
+import { useAgentPresets } from "@/hooks/use-agent-presets"
 import { isExpression } from "@/lib/expressions"
 import {
   useBuilderRegistryActions,
@@ -75,6 +72,7 @@ import {
   useWorkspaceAgentModels,
 } from "@/lib/hooks"
 import { getType } from "@/lib/jsonschema"
+import { registryActionToSuggestion } from "@/lib/registry"
 import {
   type ExpressionComponent,
   getTracecatComponents,
@@ -557,9 +555,6 @@ function ComponentContent({
         />
       )
     case "integer":
-      if (isAgentPresetVersionFieldName(field.name)) {
-        return <AgentPresetVersionField field={field} />
-      }
       return (
         <Input
           type="number"
@@ -810,11 +805,8 @@ function MultipleActionTypeField({
     return (
       registryActions
         ?.map((action) => ({
-          id: action.action,
+          ...registryActionToSuggestion(action),
           label: action.default_title || action.action,
-          value: action.action,
-          description: action.description,
-          group: action.namespace,
           icon: getIcon(action.action, {
             className: "size-6 p-[3px] border-[0.5px]",
           }),
@@ -918,7 +910,6 @@ function AgentPresetSelect({
 }: {
   field: ControllerRenderProps<FieldValues>
 }) {
-  const methods = useFormContext()
   const workspaceId = useWorkspaceId()
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
@@ -927,13 +918,6 @@ function AgentPresetSelect({
 
   const handleChange = (value: string) => {
     field.onChange(value)
-    const presetVersionFieldName = getAgentPresetVersionFieldName(field.name)
-    if (presetVersionFieldName) {
-      methods.setValue(presetVersionFieldName, undefined, {
-        shouldDirty: true,
-        shouldTouch: true,
-      })
-    }
   }
 
   const placeholder = !workspaceId
@@ -1021,6 +1005,8 @@ function getModelProviderIconId(modelProvider: string): string {
     case "gemini":
     case "vertex_ai":
       return "google"
+    case "mistral":
+      return "mistral"
     case "openai":
       return "openai"
     default:
@@ -1244,34 +1230,6 @@ function AgentModelSelect({
 }
 
 /**
- * Maps an MCP integration slug to its provider icon ID, mirroring the
- * mapping used by the agent presets builder. Falls back to "custom".
- */
-function getMcpProviderId(slug: string): string | undefined {
-  const slugMap: Record<string, string> = {
-    "github-copilot": "github_mcp",
-    github: "github_mcp",
-    sentry: "sentry_mcp",
-    notion: "notion_mcp",
-    linear: "linear_mcp",
-    jira: "jira_mcp",
-    runreveal: "runreveal_mcp",
-    "secure-annex": "secureannex_mcp",
-    secureannex: "secureannex_mcp",
-    wiz: "wiz_mcp",
-  }
-  const normalized = slug.toLowerCase()
-  if (slugMap[normalized]) {
-    return slugMap[normalized]
-  }
-  const match = normalized.match(/^([a-z0-9-]+?)[-_]?mcp$/)
-  if (match) {
-    return `${match[1].replace(/-/g, "")}_mcp`
-  }
-  return undefined
-}
-
-/**
  * Multi-select picker for saved MCP integrations. Stores selected
  * integration UUIDs on the field; integration metadata is fetched via
  * `useListMcpIntegrations`.
@@ -1298,8 +1256,8 @@ function MCPIntegrationField({
         description: integration.description || "MCP integration",
         icon: (
           <ProviderIcon
-            providerId={getMcpProviderId(integration.slug) ?? "custom"}
-            className="size-3 bg-transparent p-0 mx-1"
+            providerId={getMcpProviderIconId(integration.slug)}
+            className="size-4 bg-transparent p-0"
           />
         ),
       }))
@@ -1320,99 +1278,5 @@ function MCPIntegrationField({
           : "Select MCP integrations"
       }
     />
-  )
-}
-
-function isAgentPresetVersionFieldName(fieldName: string): boolean {
-  return fieldName === "preset_version" || fieldName.endsWith(".preset_version")
-}
-
-function getAgentPresetFieldName(fieldName: string): string | null {
-  if (fieldName === "preset_version") {
-    return "preset"
-  }
-  if (fieldName.endsWith(".preset_version")) {
-    return fieldName.replace(/\.preset_version$/, ".preset")
-  }
-  return null
-}
-
-function getAgentPresetVersionFieldName(fieldName: string): string | null {
-  if (fieldName === "preset") {
-    return "preset_version"
-  }
-  if (fieldName.endsWith(".preset")) {
-    return fieldName.replace(/\.preset$/, ".preset_version")
-  }
-  return null
-}
-
-function AgentPresetVersionField({
-  field,
-}: {
-  field: ControllerRenderProps<FieldValues>
-}) {
-  const methods = useFormContext()
-  const workspaceId = useWorkspaceId()
-  const presetFieldName = getAgentPresetFieldName(field.name)
-  const presetValue = presetFieldName
-    ? methods.watch(presetFieldName)
-    : undefined
-  const selectedPresetSlug =
-    typeof presetValue === "string" ? presetValue : null
-  const { presets } = useAgentPresets(workspaceId, {
-    enabled: Boolean(workspaceId),
-  })
-  const selectedPreset = presets?.find(
-    (preset) => preset.slug === selectedPresetSlug
-  )
-  const { versions, versionsIsLoading, versionsError } = useAgentPresetVersions(
-    workspaceId,
-    selectedPreset?.id,
-    { enabled: Boolean(workspaceId && selectedPreset?.id) }
-  )
-
-  return (
-    <Select
-      value={
-        typeof field.value === "number" ? String(field.value) : "__current__"
-      }
-      onValueChange={(value) => {
-        field.onChange(value === "__current__" ? undefined : parseInt(value))
-      }}
-      disabled={!workspaceId || !selectedPreset}
-    >
-      <SelectTrigger>
-        <SelectValue
-          placeholder={
-            selectedPreset ? "Select a version" : "Choose an agent preset first"
-          }
-        />
-      </SelectTrigger>
-      <SelectContent>
-        {versionsIsLoading ? (
-          <SelectItem value="__loading" disabled>
-            Loading versions...
-          </SelectItem>
-        ) : null}
-        {versionsError ? (
-          <SelectItem value="__error" disabled>
-            Failed to load versions
-          </SelectItem>
-        ) : null}
-        {!versionsIsLoading && !versionsError ? (
-          <SelectItem value="__current__">Current</SelectItem>
-        ) : null}
-        {versions?.map((version) => (
-          <SelectItem key={version.id} value={String(version.version)}>
-            {`v${version.version}${
-              version.id === selectedPreset?.current_version_id
-                ? " • Current"
-                : ""
-            }`}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
   )
 }

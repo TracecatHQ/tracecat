@@ -11,7 +11,9 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
 
+from tracecat.agent.skill.types import SkillOrigin
 from tracecat.agent.subagents import AgentSubagentsConfig
+from tracecat.integrations.schemas import MCPToolStatus
 
 _LEGACY_AGENT_CONFIG_KEYS = frozenset({"deps_type", "custom_tools"})
 
@@ -45,6 +47,20 @@ class MCPHttpServerConfigPayload(BaseModel):
     """UUID of the source ``mcp_integrations`` row. Lets trusted callers
     re-resolve secrets per use without carrying them through workflow
     history."""
+    tools: list[MCPServerToolSummaryPayload] | None = Field(default=None)
+    """Explicit non-secret tool subset granted by attached skills."""
+
+
+class MCPServerToolSummaryPayload(BaseModel):
+    """Workflow-safe, non-secret summary of a verified user MCP tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    description: str | None = Field(default=None)
+    enabled: bool = Field(default=True)
+    requires_approval: bool = Field(default=False)
+    status: MCPToolStatus = Field(default="available")
 
 
 class MCPStdioServerConfigPayload(BaseModel):
@@ -61,6 +77,9 @@ class MCPStdioServerConfigPayload(BaseModel):
     id: str | None = Field(default=None)
     """UUID of the source ``mcp_integrations`` row. See
     :class:`MCPHttpServerConfigPayload.id`."""
+    tools: list[MCPServerToolSummaryPayload] | None = Field(default=None)
+    """Latest verified stdio tool summaries. Non-secret and safe for workflow
+    history."""
 
 
 type MCPServerConfigPayload = Annotated[
@@ -74,6 +93,7 @@ class ResolvedSkillRefPayload(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    origin: Literal[SkillOrigin.WORKSPACE] = Field(default=SkillOrigin.WORKSPACE)
     skill_id: uuid.UUID
     skill_name: str
     skill_version_id: uuid.UUID
@@ -124,3 +144,4 @@ class AgentConfigPayload(BaseModel):
     enable_thinking: bool = Field(default=True)
     enable_internet_access: bool = Field(default=False)
     resolved_skills: list[ResolvedSkillRefPayload] | None = Field(default=None)
+    builtin_skills: list[str] | None = Field(default=None)

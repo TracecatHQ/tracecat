@@ -1,0 +1,112 @@
+type: action
+definition:
+  title: List pipelines
+  description: >-
+    List pipelines. Calls GET /projects/{project_id}/pipelines directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: list_pipelines
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    name:
+      type: str | None
+      description: Return pipelines with the specified name.
+      default: null
+    order_by:
+      type: str | None
+      description: "The field to order pipelines by: `id`, `status`, `ref`, `updated_at`, or `user_id` (default: `id`)."
+      default: null
+    ref:
+      type: str | None
+      description: Return pipelines for the specified branch or tag.
+      default: null
+    scope:
+      type: str | None
+      description: "Return pipelines in the specified scope: `running`, `pending`, `finished`, `branches`, or `tags`."
+      default: null
+    sha:
+      type: str | None
+      description: Return pipelines for the specified commit SHA.
+      default: null
+    sort:
+      type: str | None
+      description: "The sort order: `asc` or `desc` (default: `desc`)."
+      default: null
+    source:
+      type: str | None
+      description: Return pipelines with the specified source.
+      default: null
+    status:
+      type: str | None
+      description: "Return pipelines with the specified status: `created`, `waiting_for_resource`, `preparing`, `waiting_for_callback`, `pending`, `running`, `success`, `failed`, `canceling`, `canceled`, `skipped`, `manual`, or `scheduled`."
+      default: null
+    updated_after:
+      type: str | None
+      description: Return pipelines updated after the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+      default: null
+    updated_before:
+      type: str | None
+      description: Return pipelines updated before the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+      default: null
+    created_after:
+      type: str | None
+      description: Return pipelines created after the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+      default: null
+    created_before:
+      type: str | None
+      description: Return pipelines created before the specified date. Expected in ISO 8601 format (`2019-03-15T08:00:00Z`).
+      default: null
+    username:
+      type: str | None
+      description: Return pipelines triggered by the specified username.
+      default: null
+    yaml_errors:
+      type: bool | None
+      description: Return pipelines with invalid configurations.
+      default: null
+    page:
+      type: int | None
+      description: "Page number (default: `1`)."
+      default: null
+    per_page:
+      type: int | None
+      description: "Number of items to list per page (default: `20`, max: `100`)."
+      default: null
+    base_url:
+      type: str
+      description: GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
+      default: https://gitlab.com/api/v4
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/pipelines
+        method: GET
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
+          Accept: application/json
+        params:
+          name: ${{ inputs.name }}
+          order_by: ${{ inputs.order_by }}
+          ref: ${{ inputs.ref }}
+          scope: ${{ inputs.scope }}
+          sha: ${{ inputs.sha }}
+          sort: ${{ inputs.sort }}
+          source: ${{ inputs.source }}
+          status: ${{ inputs.status }}
+          updated_after: ${{ inputs.updated_after }}
+          updated_before: ${{ inputs.updated_before }}
+          created_after: ${{ inputs.created_after }}
+          created_before: ${{ inputs.created_before }}
+          username: ${{ inputs.username }}
+          yaml_errors: ${{ inputs.yaml_errors }}
+          page: ${{ inputs.page }}
+          per_page: ${{ inputs.per_page }}
+  returns: ${{ steps.request.result }}

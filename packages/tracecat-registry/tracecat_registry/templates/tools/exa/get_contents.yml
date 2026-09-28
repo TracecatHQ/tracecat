@@ -1,9 +1,9 @@
 type: action
 definition:
   title: Get contents
-  description: Get full page contents, summaries, and metadata for a list of URLs.
+  description: Get clean page contents, highlights, summaries, and metadata for URLs or Exa result IDs.
   display_group: Exa
-  doc_url: https://exa.ai/docs/reference/get-contents
+  doc_url: https://exa.ai/docs/reference/contents-api-guide-for-coding-agents
   namespace: tools.exa
   name: get_contents
   secrets:
@@ -12,7 +12,43 @@ definition:
   expects:
     urls:
       type: list[str]
-      description: The URLs to get the contents for.
+      description: URLs or Exa result IDs to extract content from.
+    text:
+      type: bool | dict[str, Any] | None
+      description: Return full page text as markdown, or Exa text options.
+      default: true
+    highlights:
+      type: bool | dict[str, Any] | None
+      description: Return extractive key excerpts, or Exa highlight options.
+      default: null
+    summary:
+      type: bool | dict[str, Any] | None
+      description: Return LLM-generated summaries, or Exa summary options.
+      default: null
+    maxAgeHours:
+      type: int | None
+      description: Maximum age of cached content in hours. Use 0 to always livecrawl or -1 for cache-only.
+      default: null
+    livecrawlTimeout:
+      type: int | None
+      description: Timeout for livecrawling in milliseconds.
+      default: null
+    subpages:
+      type: int | None
+      description: Number of subpages to crawl for each URL.
+      default: null
+    subpageTarget:
+      type: str | list[str] | None
+      description: Keywords to prioritize when selecting subpages.
+      default: null
+    extras:
+      type: dict[str, Any] | None
+      description: Optional Exa extras options, such as links or imageLinks.
+      default: null
+    compliance:
+      type: enum["hipaa"] | None
+      description: Optional Exa enterprise compliance mode.
+      default: null
   steps:
     - ref: get_contents
       action: core.http_request
@@ -20,7 +56,17 @@ definition:
         url: https://api.exa.ai/contents
         method: POST
         headers:
+          Content-Type: application/json
           x-api-key: ${{ SECRETS.exa.EXA_API_KEY }}
         payload:
           urls: ${{ inputs.urls }}
+          text: ${{ inputs.text }}
+          highlights: ${{ inputs.highlights }}
+          summary: ${{ inputs.summary }}
+          maxAgeHours: ${{ inputs.maxAgeHours }}
+          livecrawlTimeout: ${{ inputs.livecrawlTimeout }}
+          subpages: ${{ inputs.subpages }}
+          subpageTarget: ${{ inputs.subpageTarget }}
+          extras: ${{ inputs.extras }}
+          compliance: ${{ inputs.compliance }}
   returns: ${{ steps.get_contents.result.data }}

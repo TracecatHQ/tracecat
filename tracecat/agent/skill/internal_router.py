@@ -41,6 +41,7 @@ def _raise_skill_validation_error(exc: TracecatValidationError) -> Never:
         "draft_revision_conflict",
         "skill_version_conflict",
         "skill_in_use",
+        "skill_slug_conflict",
     }:
         status_code = status.HTTP_409_CONFLICT
     raise HTTPException(
@@ -145,6 +146,26 @@ async def patch_skill_draft(
     resolved_skill_id = await _resolve_skill_id(service, skill_id)
     try:
         return await service.patch_draft(skill_id=resolved_skill_id, params=params)
+    except TracecatValidationError as exc:
+        _raise_skill_validation_error(exc)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+
+
+@router.post("/{skill_id}/publish", response_model=SkillVersionRead)
+@require_scope("agent:update")
+async def publish_skill_draft(
+    *,
+    skill_id: str,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+) -> SkillVersionRead:
+    service = SkillService(session, role=role)
+    resolved_skill_id = await _resolve_skill_id(service, skill_id)
+    try:
+        return await service.publish_skill(resolved_skill_id)
     except TracecatValidationError as exc:
         _raise_skill_validation_error(exc)
     except TracecatNotFoundError as exc:
@@ -296,7 +317,10 @@ async def restore_skill_version(
 @router.delete("/{skill_id}", status_code=status.HTTP_204_NO_CONTENT)
 @require_scope("agent:delete")
 async def archive_skill(
-    *, skill_id: str, role: ExecutorWorkspaceRole, session: AsyncDBSession
+    *,
+    skill_id: str,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
 ) -> None:
     service = SkillService(session, role=role)
     resolved_skill_id = await _resolve_skill_id(service, skill_id)

@@ -8,6 +8,7 @@ from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.admin.registry.schemas import RegistryArtifactsBackfillStartRequest
@@ -309,6 +310,151 @@ async def test_promote_version_allows_backfilled_legacy_squashfs_sidecar(
         ("registry-artifacts", "platform/v1/site-packages.tar.gz"),
         ("registry-artifacts", "platform/v1/site-packages.squashfs"),
     ]
+
+
+@pytest.mark.anyio
+async def test_delete_version_removes_unused_non_current_version(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    repo = PlatformRegistryRepository(origin="tracecat_registry")
+    session.add(repo)
+    await session.flush()
+
+    unused_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest={"schema_version": "1.0", "actions": {}},
+        tarball_uri="s3://registry-artifacts/platform/v1/site-packages.tar.gz",
+    )
+    current_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="2.0.0",
+        manifest={"schema_version": "1.0", "actions": {}},
+        tarball_uri="s3://registry-artifacts/platform/v2/site-packages.tar.gz",
+    )
+    session.add_all([unused_version, current_version])
+    await session.flush()
+
+    repo.current_version_id = current_version.id
+    session.add(repo)
+    await session.commit()
+
+    service = AdminRegistryService(session, platform_role)
+    await service.delete_version(repo.id, unused_version.id)
+
+    deleted = await session.scalar(
+        select(PlatformRegistryVersion).where(
+            PlatformRegistryVersion.id == unused_version.id
+        )
+    )
+    assert deleted is None
+
+
+@pytest.mark.anyio
+async def test_delete_version_rejects_current_version(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    repo = PlatformRegistryRepository(origin="tracecat_registry")
+    session.add(repo)
+    await session.flush()
+
+    current_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest={"schema_version": "1.0", "actions": {}},
+        tarball_uri="s3://registry-artifacts/platform/v1/site-packages.tar.gz",
+    )
+    session.add(current_version)
+    await session.flush()
+
+    repo.current_version_id = current_version.id
+    session.add(repo)
+    await session.commit()
+
+    service = AdminRegistryService(session, platform_role)
+    with pytest.raises(TracecatValidationError, match="currently promoted"):
+        await service.delete_version(repo.id, current_version.id)
+
+    persisted = await session.scalar(
+        select(PlatformRegistryVersion).where(
+            PlatformRegistryVersion.id == current_version.id
+        )
+    )
+    assert persisted is not None
+
+
+@pytest.mark.anyio
+async def test_delete_version_rejects_version_used_by_any_workflow_definition(
+    session: AsyncSession,
+    svc_workspace: Workspace,
+    platform_role: PlatformRole,
+) -> None:
+    repo = PlatformRegistryRepository(origin="tracecat_registry")
+    session.add(repo)
+    await session.flush()
+
+    target_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest={"schema_version": "1.0", "actions": {}},
+        tarball_uri="s3://registry-artifacts/platform/v1/site-packages.tar.gz",
+    )
+    current_version = PlatformRegistryVersion(
+        repository_id=repo.id,
+        version="2.0.0",
+        manifest={"schema_version": "1.0", "actions": {}},
+        tarball_uri="s3://registry-artifacts/platform/v2/site-packages.tar.gz",
+    )
+    session.add_all([target_version, current_version])
+    await session.flush()
+
+    repo.current_version_id = current_version.id
+    workflow = Workflow(
+        workspace_id=svc_workspace.id,
+        title="Workflow using target registry version",
+        description="",
+    )
+    session.add(workflow)
+    await session.flush()
+
+    session.add_all(
+        [
+            WorkflowDefinition(
+                workflow_id=workflow.id,
+                workspace_id=svc_workspace.id,
+                version=1,
+                content={},
+                registry_lock={
+                    "origins": {"tracecat_registry": "1.0.0"},
+                    "actions": {},
+                },
+            ),
+            WorkflowDefinition(
+                workflow_id=workflow.id,
+                workspace_id=svc_workspace.id,
+                version=2,
+                content={},
+                registry_lock={
+                    "origins": {"tracecat_registry": "2.0.0"},
+                    "actions": {},
+                },
+            ),
+        ]
+    )
+    await session.commit()
+
+    service = AdminRegistryService(session, platform_role)
+    with pytest.raises(TracecatValidationError, match="in use"):
+        await service.delete_version(repo.id, target_version.id)
+
+    persisted = await session.scalar(
+        select(PlatformRegistryVersion).where(
+            PlatformRegistryVersion.id == target_version.id
+        )
+    )
+    assert persisted is not None
 
 
 @pytest.mark.anyio

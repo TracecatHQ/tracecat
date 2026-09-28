@@ -22,6 +22,7 @@ import {
 import { tags } from "@lezer/highlight"
 import CodeMirror from "@uiw/react-codemirror"
 import { AlertTriangle, Check } from "lucide-react"
+import { useTheme } from "next-themes"
 import React, { useCallback, useMemo, useRef, useState } from "react"
 import { type Control, type FieldValues, useController } from "react-hook-form"
 import YAML from "yaml"
@@ -72,6 +73,8 @@ export const YamlStyledEditor = React.forwardRef<
   const [validationErrors, setValidationErrors] = useState<string[]>([])
   const actions = workflow?.actions || ({} as Record<string, ActionRead>)
   const editorRef = useRef<EditorView | null>(null)
+  const { resolvedTheme } = useTheme()
+  const codeMirrorTheme = resolvedTheme === "dark" ? "dark" : "light"
 
   const textValue = React.useMemo(
     () =>
@@ -334,7 +337,7 @@ export const YamlStyledEditor = React.forwardRef<
           height="auto"
           extensions={allExtensions}
           onChange={handleChange}
-          theme="light"
+          theme={codeMirrorTheme}
           basicSetup={{
             foldGutter: true,
             dropCursor: true,
@@ -464,15 +467,26 @@ function customYamlLinter(view: EditorView): Diagnostic[] {
 }
 
 const yamlSyntaxTheme = HighlightStyle.define([
-  { tag: tags.content, color: "#586069" },
-  { tag: tags.propertyName, color: "#0077aa", fontWeight: "500" },
-  { tag: tags.string, color: "#10b981" },
-  { tag: tags.number, color: "#005cc5" },
-  { tag: tags.bool, color: "#e36209" },
-  { tag: tags.atom, color: "#e36209", fontWeight: "600" },
-  { tag: tags.keyword, color: "#e36209" },
-  { tag: tags.comment, color: "#6a737d", fontStyle: "italic" },
-  { tag: [tags.punctuation, tags.bracket, tags.brace], color: "#586069" },
+  { tag: tags.content, color: "hsl(var(--syntax-content))" },
+  {
+    tag: tags.propertyName,
+    color: "hsl(var(--syntax-property))",
+    fontWeight: "500",
+  },
+  { tag: tags.string, color: "hsl(var(--syntax-string))" },
+  { tag: tags.number, color: "hsl(var(--syntax-number))" },
+  { tag: tags.bool, color: "hsl(var(--syntax-literal))" },
+  { tag: tags.atom, color: "hsl(var(--syntax-literal))", fontWeight: "600" },
+  { tag: tags.keyword, color: "hsl(var(--syntax-literal))" },
+  {
+    tag: tags.comment,
+    color: "hsl(var(--syntax-comment))",
+    fontStyle: "italic",
+  },
+  {
+    tag: [tags.punctuation, tags.bracket, tags.brace],
+    color: "hsl(var(--syntax-content))",
+  },
 ])
 const yamlEditorTheme = EditorView.theme({
   ".cm-content": {
@@ -504,22 +518,22 @@ const yamlEditorTheme = EditorView.theme({
     position: "fixed",
   },
   ".cm-diagnostic-error": {
-    borderBottom: "2px wavy #ef4444",
+    borderBottom: "2px wavy hsl(var(--syntax-local-variable))",
   },
   ".cm-diagnostic.cm-diagnostic-error": {
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    backgroundColor: "hsl(var(--syntax-local-variable) / 0.1)",
     borderRadius: "2px",
   },
   ".cm-lint-marker-error": {
-    backgroundColor: "#ef4444",
+    backgroundColor: "hsl(var(--syntax-local-variable))",
     borderRadius: "50%",
     width: "0.8em",
     height: "0.8em",
   },
   ".cm-tooltip.cm-tooltip-lint": {
-    backgroundColor: "#1f2937",
-    color: "#f9fafb",
-    border: "1px solid #374151",
+    backgroundColor: "hsl(var(--tooltip))",
+    color: "hsl(var(--tooltip-foreground))",
+    border: "1px solid hsl(var(--border))",
     borderRadius: "6px",
     padding: "8px 12px",
     fontSize: "12px",
@@ -527,12 +541,12 @@ const yamlEditorTheme = EditorView.theme({
     boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
   },
   ".cm-tooltip-lint .cm-diagnostic-error": {
-    color: "#fca5a5",
+    color: "hsl(var(--syntax-local-variable))",
   },
   ".cm-template-expression-tooltip": {
-    backgroundColor: "#1f2937",
-    color: "#f9fafb",
-    border: "1px solid #374151",
+    backgroundColor: "hsl(var(--tooltip))",
+    color: "hsl(var(--tooltip-foreground))",
+    border: "1px solid hsl(var(--border))",
     borderRadius: "8px",
     padding: "12px",
     fontSize: "12px",
@@ -543,8 +557,8 @@ const yamlEditorTheme = EditorView.theme({
   ".cm-tooltip-header": {
     fontWeight: "600",
     marginBottom: "8px",
-    color: "#e5e7eb",
-    borderBottom: "1px solid #374151",
+    color: "hsl(var(--tooltip-foreground))",
+    borderBottom: "1px solid hsl(var(--border))",
     paddingBottom: "4px",
   },
   ".cm-tooltip-status": {
@@ -555,23 +569,23 @@ const yamlEditorTheme = EditorView.theme({
     fontWeight: "500",
   },
   ".cm-tooltip-status.valid": {
-    backgroundColor: "rgba(34, 197, 94, 0.2)",
-    color: "#86efac",
+    backgroundColor: "hsl(var(--success) / 0.2)",
+    color: "hsl(var(--syntax-string))",
   },
   ".cm-tooltip-status.invalid": {
-    backgroundColor: "rgba(239, 68, 68, 0.2)",
-    color: "#fca5a5",
+    backgroundColor: "hsl(var(--syntax-local-variable) / 0.2)",
+    color: "hsl(var(--syntax-local-variable))",
   },
   ".cm-tooltip-section-title": {
     fontWeight: "500",
     marginBottom: "4px",
-    color: "#d1d5db",
+    color: "hsl(var(--tooltip-foreground))",
   },
   ".cm-tooltip-errors": {
     marginBottom: "8px",
   },
   ".cm-tooltip-error-item": {
-    color: "#fca5a5",
+    color: "hsl(var(--syntax-local-variable))",
     fontSize: "11px",
     marginBottom: "2px",
   },
@@ -588,13 +602,13 @@ const yamlEditorTheme = EditorView.theme({
     borderRadius: "3px",
     fontSize: "10px",
     fontFamily: "monospace",
-    backgroundColor: "rgba(55, 65, 81, 0.5)",
-    border: "1px solid #4b5563",
+    backgroundColor: "hsl(var(--muted))",
+    border: "1px solid hsl(var(--border))",
   },
   ".function-completion-info": {
-    backgroundColor: "#1f2937",
-    color: "#f9fafb",
-    border: "1px solid #374151",
+    backgroundColor: "hsl(var(--popover))",
+    color: "hsl(var(--popover-foreground))",
+    border: "1px solid hsl(var(--border))",
     borderRadius: "8px",
     padding: "12px",
     fontSize: "12px",
@@ -606,30 +620,30 @@ const yamlEditorTheme = EditorView.theme({
     fontFamily: "monospace",
     fontWeight: "600",
     marginBottom: "8px",
-    color: "#e5e7eb",
-    borderBottom: "1px solid #374151",
+    color: "hsl(var(--foreground))",
+    borderBottom: "1px solid hsl(var(--border))",
     paddingBottom: "4px",
   },
   ".function-description": {
     marginBottom: "8px",
-    color: "#d1d5db",
+    color: "hsl(var(--muted-foreground))",
     fontSize: "11px",
   },
   ".function-params-title": {
     fontWeight: "500",
     marginBottom: "4px",
-    color: "#d1d5db",
+    color: "hsl(var(--foreground))",
   },
   ".function-param": {
-    color: "#d1d5db",
+    color: "hsl(var(--muted-foreground))",
     fontSize: "11px",
     marginBottom: "2px",
     paddingLeft: "8px",
   },
   ".action-completion-info": {
-    backgroundColor: "#1f2937",
-    color: "#f9fafb",
-    border: "1px solid #374151",
+    backgroundColor: "hsl(var(--popover))",
+    color: "hsl(var(--popover-foreground))",
+    border: "1px solid hsl(var(--border))",
     borderRadius: "8px",
     padding: "12px",
     fontSize: "12px",
@@ -641,22 +655,22 @@ const yamlEditorTheme = EditorView.theme({
     fontFamily: "monospace",
     fontWeight: "600",
     marginBottom: "8px",
-    color: "#e5e7eb",
-    borderBottom: "1px solid #374151",
+    color: "hsl(var(--foreground))",
+    borderBottom: "1px solid hsl(var(--border))",
     paddingBottom: "4px",
   },
   ".action-description": {
     marginBottom: "8px",
-    color: "#d1d5db",
+    color: "hsl(var(--muted-foreground))",
     fontSize: "11px",
   },
   ".action-props-title": {
     fontWeight: "500",
     marginBottom: "4px",
-    color: "#d1d5db",
+    color: "hsl(var(--foreground))",
   },
   ".action-prop": {
-    color: "#d1d5db",
+    color: "hsl(var(--muted-foreground))",
     fontSize: "11px",
     marginBottom: "2px",
     paddingLeft: "8px",
@@ -766,6 +780,8 @@ export function YamlViewOnlyEditor({
   className?: string
 }) {
   const workspaceId = useWorkspaceId()
+  const { resolvedTheme } = useTheme()
+  const codeMirrorTheme = resolvedTheme === "dark" ? "dark" : "light"
 
   const textValue = React.useMemo(() => {
     if (value == null) return ""
@@ -817,7 +833,7 @@ export function YamlViewOnlyEditor({
           value={textValue}
           height="auto"
           extensions={extensions}
-          theme="light"
+          theme={codeMirrorTheme}
           editable={false}
           basicSetup={{
             foldGutter: true,

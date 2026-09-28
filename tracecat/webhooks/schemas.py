@@ -5,10 +5,12 @@ from datetime import datetime
 from ipaddress import ip_address, ip_network
 from typing import Any, Literal, Self
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
 
 from tracecat.core.schemas import Schema
 from tracecat.identifiers import WorkflowID
+from tracecat.identifiers.workflow import WorkflowExecutionID
+from tracecat.runtime.errors import RuntimeErrorKind
 
 # API Models
 
@@ -21,6 +23,33 @@ NDJSON_CONTENT_TYPES = (
 )
 
 
+class WebhookWaitFailureDetail(BaseModel):
+    """Public metadata for a user-owned workflow failure."""
+
+    code: RuntimeErrorKind
+    wf_exec_id: WorkflowExecutionID
+    message: str = Field(
+        default="Workflow execution failed. Check the workflow run for details."
+    )
+
+
+class WebhookRequestValidationError(BaseModel):
+    """Standard FastAPI request validation fields for the shared 422 response."""
+
+    loc: list[str | int]
+    msg: str
+    type: str
+    input: Any = Field(default=None)
+    # Validator-specific context keys contain arbitrary JSON response values.
+    ctx: dict[str, JsonValue] | None = Field(default=None)
+
+
+class WebhookWaitErrorResponse(BaseModel):
+    """Invalid request parameters or a classified user workflow failure."""
+
+    detail: WebhookWaitFailureDetail | list[WebhookRequestValidationError]
+
+
 class WebhookRead(Schema):
     id: uuid.UUID
     secret: str
@@ -31,6 +60,7 @@ class WebhookRead(Schema):
     methods: list[WebhookMethod] = Field(
         default_factory=list, description="Methods to allow"
     )
+    include_headers: bool = False
     workflow_id: WorkflowID
     url: str
     api_key: WebhookApiKeyRead | None = None
@@ -51,6 +81,14 @@ class WebhookRead(Schema):
             return {}
         return v
 
+    @field_validator("include_headers", mode="before")
+    @classmethod
+    def _coerce_none_to_false(cls, v: Any) -> Any:
+        """ORM attribute may be NULL before flush; coerce to False."""
+        if v is None:
+            return False
+        return v
+
 
 class WebhookCreate(BaseModel):
     status: WebhookStatus = "offline"
@@ -59,6 +97,7 @@ class WebhookCreate(BaseModel):
     )
     entrypoint_ref: str | None = None
     allowlisted_cidrs: list[str] = Field(default_factory=list)
+    include_headers: bool = False
 
     @field_validator("allowlisted_cidrs")
     @classmethod
@@ -71,6 +110,7 @@ class WebhookUpdate(BaseModel):
     methods: list[WebhookMethod] | None = None
     entrypoint_ref: str | None = None
     allowlisted_cidrs: list[str] | None = None
+    include_headers: bool | None = None
 
     @field_validator("allowlisted_cidrs")
     @classmethod

@@ -1,0 +1,183 @@
+---
+title: Temporal retention
+description: "Increase Temporal workflow history retention for self-hosted Tracecat on Docker Compose, AWS ECS Fargate, and Kubernetes, and archive closed workflow histories to S3."
+---
+
+Temporal keeps the event history of a closed workflow execution for the retention period of its namespace, then deletes it.
+Tracecat workflow logs read from that history, so the retention period sets how far back you can inspect past runs in the UI.
+
+The bundled Temporal in Docker Compose and Fargate creates its namespace with 24 hours of retention.
+The Helm chart creates it with 720 hours (30 days).
+
+Temporal applies retention when it creates the namespace, so raising the setting only affects new deployments.
+Existing deployments need a namespace update through the Temporal CLI, shown in each section below.
+
+Retention values use Go duration strings such as `24h`, `720h`, or `2160h`, with a minimum of one day.
+Longer retention grows the Temporal PostgreSQL database in proportion to the history you keep, so size that database before you raise the setting.
+
+## Docker Compose
+
+Set the retention period in your `.env` file, then recreate the Temporal service.
+
+```bash
+TEMPORAL__DEFAULT_NAMESPACE_RETENTION=720h
+```
+
+```bash
+docker compose up -d temporal
+```
+
+For an existing deployment, update the namespace directly. Use the namespace in `TEMPORAL__CLUSTER_NAMESPACE`, which is `default` unless you changed it.
+
+```bash
+docker compose exec temporal \
+  temporal operator namespace update --namespace default --retention 720h
+```
+
+Confirm the new value:
+
+```bash
+docker compose exec temporal \
+  temporal operator namespace describe -n default | grep RetentionTtl
+```
+
+```
+Config.WorkflowExecutionRetentionTtl  720h0m0s
+```
+
+## AWS ECS Fargate
+
+Set the `temporal_default_namespace_retention` Terraform variable and apply.
+
+```bash
+export TF_VAR_temporal_default_namespace_retention=720h
+terraform apply
+```
+
+Raise `temporal_db_allocated_storage` in the same apply if the Temporal database needs more room for the longer history.
+
+For an existing deployment, run the Temporal CLI from inside the VPC, because the Temporal service is only reachable on the private subnets.
+Run a one-off ECS task with the `temporalio/admin-tools` image on the same subnets and security groups as the `temporal` service, with `TEMPORAL_ADDRESS` set to `temporal-service:7233`, then run:
+
+```bash
+temporal operator namespace update --namespace default --retention 720h
+```
+
+## Kubernetes
+
+Set the retention period on the namespace the chart creates.
+
+```yaml
+temporal:
+  server:
+    config:
+      namespaces:
+        create: true
+        namespace:
+          - name: default
+            retention: 2160h
+```
+
+The chart's `temporal-setup` post-install hook creates the namespace with this retention. It does not change retention on a namespace that already exists.
+
+For an existing deployment, update the namespace from the admin tools pod:
+
+```bash
+kubectl exec -n tracecat deploy/tracecat-temporal-admintools -- \
+  temporal operator namespace update --namespace default --retention 2160h
+```
+
+Replace `tracecat` with your release name and namespace if they differ.
+
+## S3 archival
+
+Archival copies closed workflow event histories and visibility records to S3 so they outlive the retention period.
+This keeps history available for compliance and audits while your retention period stays short enough to keep the Temporal database small.
+Archived history is available through the Temporal CLI and Temporal Web UI, not through Tracecat workflow logs.
+
+Archival is available on the Kubernetes deployment only, because [Temporal does not support archival when running through Docker](https://docs.temporal.io/self-hosted-guide/archival).
+Temporal treats archival as an experimental feature.
+
+<Steps>
+  <Step title="Create the bucket and grant access">
+    Create an S3 bucket for archival, then grant the Temporal server pods `s3:PutObject`, `s3:GetObject`, and `s3:ListBucket` on it.
+    On EKS, create a service account for Temporal and annotate it with the IAM role ARN.
+
+    ```yaml
+    temporal:
+      serviceAccount:
+        create: true
+        name: "tracecat-temporal"
+        extraAnnotations:
+          eks.amazonaws.com/role-arn: "arn:aws:iam::123456789012:role/tracecat-temporal-archival"
+    ```
+  </Step>
+
+  <Step title="Enable archival on the Temporal cluster">
+    Enable the `s3store` provider at the cluster level and set the namespace archival URIs.
+
+    ```yaml
+    temporal:
+      server:
+        archival:
+          history:
+            state: "enabled"
+            enableRead: true
+            provider:
+              s3store:
+                region: "us-west-2"
+          visibility:
+            state: "enabled"
+            enableRead: true
+            provider:
+              s3store:
+                region: "us-west-2"
+        namespaceDefaults:
+          archival:
+            history:
+              state: "enabled"
+              URI: "s3://my-tracecat-archival/temporal-history"
+            visibility:
+              state: "enabled"
+              URI: "s3://my-tracecat-archival/temporal-visibility"
+    ```
+
+    `enableRead: true` lets the Temporal CLI and Web UI read archived history.
+  </Step>
+
+  <Step title="Apply the values">
+    ```bash
+    helm upgrade tracecat oci://<ecr-registry-url>/tracecat \
+      --version <chart-version> \
+      --namespace tracecat \
+      -f values.yaml \
+      --wait --timeout 10m
+    ```
+
+    The `temporal-setup` hook enables archival on the Tracecat namespace and sets the URIs.
+    A namespace archival URI is immutable once archival is enabled, so pick the bucket and prefix before the first upgrade.
+  </Step>
+
+  <Step title="Verify archival">
+    ```bash
+    kubectl exec -n tracecat deploy/tracecat-temporal-admintools -- \
+      temporal operator namespace describe -n default
+    ```
+
+    `Config.HistoryArchivalState` and `Config.VisibilityArchivalState` report `Enabled` with the URIs you set.
+    Temporal archives a closed workflow asynchronously, up to five minutes after it closes, so run a workflow and wait before checking the bucket.
+  </Step>
+</Steps>
+
+Read an archived history by workflow and run ID:
+
+```bash
+kubectl exec -n tracecat deploy/tracecat-temporal-admintools -- \
+  temporal workflow show --workflow-id <workflow-id> --run-id <run-id> -n default
+```
+
+## Related pages
+
+- See [Docker Compose](/self-hosting/docker-compose) for the full single-host deployment, including the `.env` file this page edits.
+- See [AWS ECS Fargate](/self-hosting/aws-fargate) for the Terraform variables and apply workflow.
+- See [Kubernetes](/self-hosting/kubernetes) for the Helm values structure and upgrade commands.

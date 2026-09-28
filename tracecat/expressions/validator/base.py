@@ -5,12 +5,16 @@ from collections.abc import Awaitable, Callable, Iterable, Sequence
 from typing import Any, Literal, override
 
 import jsonpath_ng.exceptions
-import jsonpath_ng.ext
 from lark import Token, Tree, Visitor, v_args
 from lark.exceptions import VisitError
 
 from tracecat.expressions import functions
-from tracecat.expressions.common import VISITOR_NODE_TO_EXPR_TYPE, ExprContext, ExprType
+from tracecat.expressions.common import (
+    VISITOR_NODE_TO_EXPR_TYPE,
+    ExprContext,
+    ExprType,
+    parse_jsonpath,
+)
 from tracecat.logger import logger
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.validation.schemas import ValidationDetail
@@ -354,7 +358,7 @@ class BaseExprValidator[ResultT](Visitor[Token]):
             )
             return
         try:
-            jsonpath_ng.ext.parse("$" + combined_segments)
+            parse_jsonpath("$" + combined_segments)
         except jsonpath_ng.exceptions.JSONPathError as e:
             self.logger.error("Invalid jsonpath body", error=str(e))
             self.add(

@@ -28,6 +28,8 @@ Frontmatter keys are always lowercase. The `title` renders as the page's H1, so 
 
 All pages must be registered in `docs/docs.json` under `navigation.tabs`. When adding a page, add its path (without `.mdx` extension) to the appropriate group.
 
+Use icons for navigation sections, not individual pages. The only page-level icon is `lock`, and only when the entire page documents an Enterprise-only feature.
+
 ## Links
 
 Use absolute paths from the docs root without `.mdx`:
@@ -45,6 +47,9 @@ When renaming or moving a page, add a redirect in `docs/docs.json` `redirects` a
 ## Tone and style
 
 - Always use active voice.
+- Name the actor. `A Tracecat-side codec encrypts payloads` beats `Payloads are encrypted`, which hides who does the work and reads as weaker in security pages.
+- State facts positively. Avoid double negatives such as `no path can resume the tool without a recorded decision`; write `every path that resumes the tool requires a recorded decision`. Keep a single negative when it carries the meaning, such as `Tracecat never persists a credential value in workflow state`.
+- Do not lead with what the product lacks when a positive statement covers the same fact. `API tokens are hashed one-way` beats `API tokens are not encrypted, because Tracecat never needs to read one back`.
 - Always address the reader directly.
 - If a user explicitly asks for a different voice, follow that request instead of the default.
 - Clarity over cleverness and verbosity: always keep sentences concise, do not add unnecessary words.
@@ -60,8 +65,8 @@ When renaming or moving a page, add a redirect in `docs/docs.json` `redirects` a
 - If a sentence only adds precision that most readers do not need, cut it or move it to a note.
 - Prefer inline prose over callout components (`<Note>`, `<Warning>`, `<Info>`). A paragraph is almost always enough. If you must use a callout, prefer `<Info>` unless the content describes a genuinely dangerous or destructive outcome — only then use `<Warning>`.
 - Be consistent: always use terminology and spelling consistent with the codebase and the rest of the docs.
-- Be skimmable: avoid more than 2 sentences per paragraph.
-- Do not split a short thought into two paragraphs or two one-line sentences when one sentence reads more naturally.
+- Be skimmable: avoid long paragraphs
+- Do not split a short thought into two paragraphs when one paragraph would read more normally
 - Capitalize the first word of every bullet point.
 - Write in second person: referring to the reader makes it easier to follow instructions and makes the docs feel more personal.
 - Use product terms that match the app and codebase. For example, use `workflow definition`, `schema`, `subflow`, `upstream`, and `downstream`. Do not introduce alternatives such as `workflow file`, `shape`, `child workflow`, or `child action` unless the code itself uses that term in a user-facing name.
@@ -79,3 +84,5 @@ When renaming or moving a page, add a redirect in `docs/docs.json` `redirects` a
 4. **Use absolute link paths** without file extensions (e.g., `/automations/overview`).
 5. **Check for existing snippets** in `snippets/` before duplicating content.
 6. **Start body content at `##`.** The frontmatter `title` renders as H1; do not add another H1 in the body.
+7. **Show the shape of any value the reader must supply.** Naming an environment variable is not documentation. If a page tells the reader to provision a value, show its format and how to generate it.
+8. **Update every copy of a repeated claim.** The same limitation is often stated on both a `security/` page and a `self-hosting/` page. Changing one and leaving the other produces contradictory pages, which is worse than one stale page. Search for the claim before editing it.

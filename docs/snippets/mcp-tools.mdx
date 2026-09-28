@@ -3,7 +3,7 @@
 <ResponseField name="list_workspaces" type="tool">
   List all workspaces accessible to the authenticated user.
 
-  Returns a JSON array of workspace objects with id, name, and role.
+  Returns paginated workspace summaries including workspace id/name and the owning org_id/org_slug. Multi-org users may receive workspaces from more than one organization in a single response.
 </ResponseField>
 
 <ResponseField name="create_workflow" type="tool">
@@ -14,12 +14,32 @@
   Get metadata for a specific workflow.
 </ResponseField>
 
+<ResponseField name="list_workflow_actions" type="tool">
+  List the actions in a draft workflow as a compact index-and-ref table.
+
+  Use this instead of `get_workflow` when you only need to know which actions exist, their order, their `depends_on` wiring, or the current array index of a ref for `edit_workflow`. It returns one small row per action and no `args`, so it stays cheap on large workflows. Follow up with `get_workflow_action` to read one action in full, or `get_workflow` when you need the whole `draft_document`.
+</ResponseField>
+
+<ResponseField name="get_workflow_action" type="tool">
+  Get one action from a draft workflow by its `ref`.
+
+  Use this instead of `get_workflow` when you need the full definition of a single action (its `args`, `run_if`, `for_each`, retry policy, and so on) without loading the whole `draft_document`. Pair it with `list_workflow_actions` to discover refs. Edit the action afterwards with `edit_workflow` using `/definition/actions/@<ref>/...` paths.
+</ResponseField>
+
 <ResponseField name="edit_workflow" type="tool">
   Edit a draft workflow using RFC 6902 JSON Patch.
+
+  Prefer this tool over `update_workflow` for focused edits to an existing workflow. If the latest `draft_document` and `draft_revision` are already in the context window, reuse them and build the smallest patch that changes the intended fields. Call `get_workflow` only when the latest draft is missing, stale, or a revision conflict says the draft changed.
+
+  Patch paths are rooted at `draft_document`, so action edits use `/definition/actions/...`, not `/actions/...`.
+
+  Address actions by ref, not index: `/definition/actions/@<ref>` (with any suffix, e.g. `/definition/actions/@build_alert/args/url`) and `/layout/actions/@<ref>` resolve to the action's current index when each op runs, so you never need to `test` an index first or track how earlier ops shifted the array. `add` to `/definition/actions/@<ref>` appends a new action when the ref does not exist yet (the value's `ref` must match); `remove` on `/definition/actions/@<ref>` deletes that action. An unknown ref fails the whole patch and names the known refs. Numeric paths (`/definition/actions/N/...`) still work with RFC 6902 array rules (`/-` appends, indexes shift after array edits), but the server re-sorts actions by ref on save, so prefer `@<ref>`.
 </ResponseField>
 
 <ResponseField name="update_workflow" type="tool">
   Update workflow metadata and optional inline YAML.
+
+  This tool does not accept `patch_ops`. Use `edit_workflow` for RFC 6902 draft patches with a `base_revision`.
 </ResponseField>
 
 <ResponseField name="list_workflows" type="tool">
@@ -34,6 +54,18 @@
   Create a workflow folder by absolute path.
 </ResponseField>
 
+<ResponseField name="rename_workflow_folder" type="tool">
+  Rename a workflow folder by absolute path.
+</ResponseField>
+
+<ResponseField name="move_workflow_folder" type="tool">
+  Move a workflow folder under a new parent path.
+</ResponseField>
+
+<ResponseField name="delete_workflow_folder" type="tool">
+  Delete a workflow folder by absolute path.
+</ResponseField>
+
 <ResponseField name="move_workflows" type="tool">
   Move workflows into or out of a folder.
 
@@ -44,11 +76,11 @@
   Search or browse available actions and return compact context metadata.
 
   Supports three usage modes:
-  -> **Search**: provide `query` to search by name/description across all namespaces. Example: list_actions(workspace_id, query="send message")
-  -> **Browse namespace**: provide `namespace` without `query` to list all actions in a namespace. Example: list_actions(workspace_id, namespace="core")
+  -> **Search**: provide `query` to search by name/description across all `namespaces`. Example: list_actions(workspace_id, query="send message")
+  -> **Browse by `namespace`**: provide `namespace` without `query` to list all actions in a `namespace`. Example: list_actions(workspace_id, namespace="core")
   -> **Browse all**: omit both to list all available actions.
 
-  Common namespaces: `core`, `tools`, `ai`.
+  Common `namespaces`: `core`, `tools`, `ai`.
 </ResponseField>
 
 <ResponseField name="sync_custom_registry" type="tool">
@@ -63,6 +95,8 @@
   Use this after discovering an action via `list_actions` to get the complete parameter schema needed to write the `args:` block in a workflow definition.
 
   Example action names: "core.http_request", "core.script.run_python", "core.transform.reshape".
+
+  For grouped counts and metrics in workflows, use `core.cases.aggregate_cases` for cases or `core.table.aggregate_rows` for table rows. Pass either action name to this tool to get its input schema.
 </ResponseField>
 
 <ResponseField name="get_workflow_authoring_context" type="tool">
@@ -97,28 +131,30 @@
   This validates the workflow, freezes registry dependencies, and creates a new workflow definition version.
 </ResponseField>
 
-<ResponseField name="run_draft_workflow" type="tool">
-  Run a workflow from its current draft state (without publishing).
+<ResponseField name="run_workflow" type="tool">
+  Run a workflow from its draft state or a published definition.
 
-  Optionally update the workflow's title/description before running.
-</ResponseField>
-
-<ResponseField name="run_published_workflow" type="tool">
-  Run the latest published version of a workflow.
-
-  The workflow must have been published (committed) at least once.
+  By default runs the current draft (unpublished edits) so changes can be tested before publishing. Set ``use_draft=False`` to run a published version instead.
 </ResponseField>
 
 <ResponseField name="list_workflow_executions" type="tool">
   List recent executions for a workflow.
 
-  Use this to see run history, check which runs succeeded or failed, and find execution IDs for deeper inspection with get_workflow_execution.
+  Use this to see run history, check which runs succeeded or failed, and find execution IDs for deeper inspection with `get_workflow_execution`.
 </ResponseField>
 
 <ResponseField name="get_workflow_execution" type="tool">
   Get status and details of a specific workflow execution.
 
   Returns execution metadata (status, timing) and a compact event timeline showing each action's status, timing, and any errors. Use this to debug failed runs or check the progress of running workflows.
+
+  Each event's `result` is inlined only when its JSON is short; longer results appear as a cut-off `result_truncated` preview. To read one action's complete result at any size, call `get_execution_action_result`.
+</ResponseField>
+
+<ResponseField name="get_execution_action_result" type="tool">
+  Get the full stored result of one action in a workflow execution.
+
+  Use this when `get_workflow_execution` shows `result_truncated` for an action, or when the result was offloaded to blob storage, and you need the whole value (a findings list, a classification summary, an API payload). The result is returned as JSON text in byte windows: read `total_bytes`, and if `truncated` is true call again with `offset=next_offset` until `next_offset` is null. Concatenate the `result` strings in order to rebuild the JSON.
 </ResponseField>
 
 <ResponseField name="get_webhook" type="tool">
@@ -135,6 +171,10 @@
 
 <ResponseField name="update_case_trigger" type="tool">
   Update an existing case trigger for a workflow.
+
+  This tool replaces the whole trigger: every call sends `status`, `event_types` and `tag_filters`, so pass all three. Omitting `event_types` or `tag_filters` clears them, and omitting `status` fails the write outright because the column is non-null. Call `get_case_trigger` first and send its current values back, changing only what you mean to change. Patching `/case_trigger` through `edit_workflow` is partial, unlike this tool.
+
+  Valid `event_types` values: case_created, case_updated, case_closed, case_reopened, case_viewed, priority_changed, severity_changed, status_changed, fields_changed, assignee_changed, attachment_created, attachment_deleted, tag_added, tag_removed, payload_changed, task_created, task_deleted, task_status_changed, task_priority_changed, task_workflow_changed, task_assignee_changed, dropdown_value_changed, table_row_linked, table_row_unlinked, comment_created, comment_updated, comment_deleted, comment_reply_created, comment_reply_updated, comment_reply_deleted.
 </ResponseField>
 
 <ResponseField name="list_workflow_tags" type="tool">
@@ -198,7 +238,7 @@
 </ResponseField>
 
 <ResponseField name="create_case_comment" type="tool">
-  Create a new comment on a case. Provide ``parent_id`` to reply to an existing comment.
+  Create a new comment on a case. Provide `parent_id` to reply to an existing comment.
 </ResponseField>
 
 <ResponseField name="update_case_comment" type="tool">
@@ -228,7 +268,7 @@
 <ResponseField name="run_case_task" type="tool">
   Run the workflow associated with a case task.
 
-  Fetches the task's ``workflow_id`` and ``default_trigger_values``, merges them with ``case_id`` and ``task_id`` context (plus any caller-supplied overrides), then executes the latest published version of the workflow.
+  Fetches the task's `workflow_id` and `default_trigger_values`, merges them with `case_id` and `task_id` context (plus any caller-supplied overrides), then executes the latest published version of the workflow.
 </ResponseField>
 
 <ResponseField name="list_case_events" type="tool">
@@ -270,7 +310,7 @@
 <ResponseField name="list_case_fields" type="tool">
   List case field definitions in a workspace.
 
-  Returns a JSON array of field objects with `id`, `type`, `description`, `nullable`, `default`, `reserved`, `options`, and optional `kind`.
+  Returns a JSON array of field objects with `id`, `display_name`, `type`, `description`, `nullable`, `default`, `reserved`, `options`, and optional `kind`.
 </ResponseField>
 
 <ResponseField name="create_case_field" type="tool">
@@ -281,6 +321,40 @@
 
 <ResponseField name="update_case_field" type="tool">
   Update a case field definition.
+</ResponseField>
+
+<ResponseField name="list_case_dropdowns" type="tool">
+  List case dropdown definitions in a workspace. Requires the case add-ons entitlement.
+
+  Returns a paginated JSON array of dropdown objects with `id`, `name`, `ref`, `icon_name`, `is_ordered`, `required_on_closure`, `position`, and embedded `options`.
+</ResponseField>
+
+<ResponseField name="create_case_dropdown" type="tool">
+  Create a case dropdown definition with optional initial options. Requires the case add-ons entitlement.
+</ResponseField>
+
+<ResponseField name="update_case_dropdown" type="tool">
+  Update a case dropdown definition. Only provided fields are changed. Requires the case add-ons entitlement.
+</ResponseField>
+
+<ResponseField name="delete_case_dropdown" type="tool">
+  Delete a case dropdown definition along with all its options and per-case values. Requires the case add-ons entitlement.
+</ResponseField>
+
+<ResponseField name="add_case_dropdown_option" type="tool">
+  Add an option to a case dropdown definition. Requires the case add-ons entitlement.
+</ResponseField>
+
+<ResponseField name="update_case_dropdown_option" type="tool">
+  Update an option within a case dropdown definition. Only provided fields are changed. Requires the case add-ons entitlement.
+</ResponseField>
+
+<ResponseField name="delete_case_dropdown_option" type="tool">
+  Delete an option from a case dropdown definition. Requires the case add-ons entitlement.
+</ResponseField>
+
+<ResponseField name="set_case_dropdown_value" type="tool">
+  Set or clear a dropdown value on a case. Provide exactly one of `definition_id` or `definition_ref`, and at most one of `option_id` or `option_ref`; omit both option arguments to clear the value. Requires the case add-ons entitlement.
 </ResponseField>
 
 <ResponseField name="list_tables" type="tool">
@@ -299,12 +373,24 @@
   Update table metadata.
 </ResponseField>
 
+<ResponseField name="create_column" type="tool">
+  Add a column to an existing table. Migrating a table is never needed to add a field. This alters the schema every workflow and view reads, so tell the user which table and column you are about to change and get their confirmation before calling this tool.
+</ResponseField>
+
 <ResponseField name="insert_table_row" type="tool">
   Insert a table row.
 </ResponseField>
 
+<ResponseField name="insert_rows" type="tool">
+  Insert multiple table rows.
+</ResponseField>
+
 <ResponseField name="update_table_row" type="tool">
   Update a table row.
+</ResponseField>
+
+<ResponseField name="update_rows" type="tool">
+  Update multiple table rows with the same values.
 </ResponseField>
 
 <ResponseField name="search_table_rows" type="tool">
@@ -344,21 +430,115 @@
 </ResponseField>
 
 <ResponseField name="get_agent_preset_authoring_context" type="tool">
-  Get models, integrations, output_type guidance, and other preset authoring context.
+  Get models, integrations, `output_type` guidance, and other preset authoring context.
 </ResponseField>
 
 <ResponseField name="create_agent_preset" type="tool">
   Create an agent preset in the selected workspace.
+
+  Use `skills` to attach published skills. Each binding contains `skill_id`.
+
+  Attach tools via `actions`, `mcp_integration_ids`, or a skill's `metadata.tools`.
 </ResponseField>
 
 <ResponseField name="update_agent_preset" type="tool">
   Update an existing agent preset in the selected workspace.
+
+  Use `skills` to replace attached published skills. Each binding contains `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list to detach all skills.
+
+  Attach tools via `actions`, `mcp_integration_ids`, or a skill's `metadata.tools`.
+
+  Set `clear_output_type=true` to remove an existing `output_type` (agent returns plain text). Omitting `output_type` leaves it unchanged.
 </ResponseField>
 
-<ResponseField name="upload_skill" type="tool">
-  Upload a local skill directory into Tracecat as a workspace skill.
+<ResponseField name="list_agent_tree" type="tool">
+  List agent folders and presets under a path.
+</ResponseField>
 
-  Agents should read the local directory themselves, preserve relative paths, include the root ``SKILL.md`` file, and pass every file in ``files`` using ``content_base64``.
+<ResponseField name="create_agent_folder" type="tool">
+  Create an agent folder by absolute path.
+</ResponseField>
+
+<ResponseField name="rename_agent_folder" type="tool">
+  Rename an agent folder by absolute path.
+</ResponseField>
+
+<ResponseField name="move_agent_folder" type="tool">
+  Move an agent folder under a new parent path.
+</ResponseField>
+
+<ResponseField name="delete_agent_folder" type="tool">
+  Delete an agent folder by absolute path.
+</ResponseField>
+
+<ResponseField name="move_agent_presets" type="tool">
+  Move agent presets into or out of a folder by preset slug.
+</ResponseField>
+
+<ResponseField name="list_skill_tree" type="tool">
+  List skill folders and skills under a path.
+</ResponseField>
+
+<ResponseField name="create_skill_folder" type="tool">
+  Create a skill folder by absolute path.
+</ResponseField>
+
+<ResponseField name="rename_skill_folder" type="tool">
+  Rename a skill folder by absolute path.
+</ResponseField>
+
+<ResponseField name="move_skill_folder" type="tool">
+  Move a skill folder under a new parent path.
+</ResponseField>
+
+<ResponseField name="delete_skill_folder" type="tool">
+  Delete a skill folder by absolute path.
+</ResponseField>
+
+<ResponseField name="move_skills" type="tool">
+  Move skills by slug into a destination folder.
+</ResponseField>
+
+<ResponseField name="list_skills" type="tool">
+  List workspace skills with IDs, names, and current published versions.
+
+  Use this before updating, publishing, or attaching skills to agent presets.
+</ResponseField>
+
+<ResponseField name="get_skill" type="tool">
+  Get skill details and the mutable draft manifest, or read one draft file.
+
+  Without `path`, return the draft manifest: paths, SHA-256 digests, sizes, `draft_revision`, `is_publishable`, and `validation_errors`; it never returns file contents. Call this before updating an existing skill to reconcile after a `draft_revision_conflict` and to see what a complete-tree replacement would delete.
+
+  With `path`, read that one file from the draft. Small UTF-8 text files are returned inline. Other files return a short-lived download URL whose bytes must be fetched to disk with a plain HTTP GET; never inline downloaded bytes into context.
+</ResponseField>
+
+<ResponseField name="prepare_skill_download" type="tool">
+  Prepare direct HTTP downloads of the complete mutable skill draft.
+
+  Pass the response to the local helper, which streams each file's bytes to disk and verifies its SHA-256 digest. Never fetch these URLs into model context. Use `get_skill` without `path` when only file digests are needed, and use `get_skill` with `path` to read one small text file inline.
+</ResponseField>
+
+<ResponseField name="prepare_skill_upload" type="tool">
+  Prepare direct HTTP uploads for a complete local skill directory.
+
+  This is the preferred local-directory upload path. Pass file paths, SHA-256 digests, sizes, and content types only; never inline file contents or base64. Omit `skill_id` and provide `name` to create a skill, or provide `skill_id` and omit `name`/`description` to replace an existing draft.
+
+  Upload every file to its short-lived URL with the returned method and headers, then call `complete_skill_upload` with the returned `skill_id`, `base_revision`, paths, and upload IDs.
+
+  Declare the skill's tools in its SKILL.md frontmatter `metadata.tools`.
+</ResponseField>
+
+<ResponseField name="complete_skill_upload" type="tool">
+  Attach staged uploads and replace a skill draft with the local file set.
+
+  Call this only after every URL returned by `prepare_skill_upload` has received its raw file bytes. Files absent from this complete set are removed. `base_revision` prevents overwriting a concurrent draft edit. This does not publish the draft.
+</ResponseField>
+
+<ResponseField name="publish_skill" type="tool">
+  Publish a skill draft into an immutable skill version.
+
+  Only published skill versions can be attached to agent presets.
 </ResponseField>
 
 <ResponseField name="list_agent_presets" type="tool">
@@ -374,5 +554,5 @@
 <ResponseField name="run_agent_preset" type="tool">
   Run an agent preset with a prompt and return text or approval status.
 
-  Creates an ephemeral session, triggers the agent workflow, and waits for the response. The agent has access to all tools configured on the preset.
+  Creates an ephemeral session, triggers the agent workflow, and waits for the response. The agent has access to all tools configured on the preset and its skills.
 </ResponseField>

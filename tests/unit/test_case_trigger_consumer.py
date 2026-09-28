@@ -2,7 +2,7 @@ import asyncio
 import uuid
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from redis.exceptions import ResponseError
@@ -19,6 +19,7 @@ from tracecat.cases.schemas import CaseCommentWorkflowStatus, CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.cases.triggers.consumer import CaseTriggerConsumer
 from tracecat.db.models import Case, CaseComment, CaseEvent, CaseTrigger, Workflow
+from tracecat.redis.client import RedisClient
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -148,12 +149,14 @@ def _build_consumer_with_mocks(
     triggers,
     role: Role,
     dispatch: AsyncMock | None = None,
+    has_case_addons: bool = True,
 ) -> CaseTriggerConsumer:
     consumer = CaseTriggerConsumer(client=client)
     consumer._load_event = AsyncMock(return_value=event)
     consumer._load_case = AsyncMock(return_value=case)
     consumer._load_triggers = AsyncMock(return_value=triggers)
     consumer._get_service_role = AsyncMock(return_value=role)
+    consumer._has_case_addons_entitlement = AsyncMock(return_value=has_case_addons)
     if dispatch is not None:
         consumer._dispatch_workflow = dispatch
     return consumer
@@ -209,6 +212,57 @@ async def test_case_trigger_consumer_lock_prevents_ack():
 
 
 @pytest.mark.anyio
+async def test_case_trigger_consumer_skips_configured_triggers_without_case_addons():
+    event_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    workflow_id = uuid.uuid4()
+
+    event = SimpleNamespace(
+        id=event_id,
+        data={},
+        created_at=None,
+        type="case_created",
+        user_id=None,
+    )
+    case = SimpleNamespace(
+        id=case_id,
+        workspace_id=workspace_id,
+        tags=[],
+    )
+    trigger = SimpleNamespace(
+        workflow_id=workflow_id,
+        tag_filters=[],
+    )
+
+    client = AsyncMock()
+    dispatch = AsyncMock(return_value=True)
+    consumer = _build_consumer_with_mocks(
+        client,
+        event=event,
+        case=case,
+        triggers=[trigger],
+        role=_build_role(workspace_id),
+        dispatch=dispatch,
+        has_case_addons=False,
+    )
+
+    fields = {
+        "event_id": str(event_id),
+        "case_id": str(case_id),
+        "workspace_id": str(workspace_id),
+        "event_type": "case_created",
+    }
+    should_ack = await consumer._process_message(fields)
+
+    assert should_ack is True
+    cast(AsyncMock, consumer._load_triggers).assert_not_awaited()
+    dispatch.assert_not_called()
+    client.exists.assert_not_called()
+    client.set_if_not_exists.assert_not_called()
+
+
+@pytest.mark.anyio
 async def test_case_trigger_consumer_done_allows_ack():
     event_id = uuid.uuid4()
     case_id = uuid.uuid4()
@@ -258,7 +312,7 @@ async def test_case_trigger_consumer_done_allows_ack():
 
 
 @pytest.mark.anyio
-async def test_case_trigger_consumer_missing_definition_no_ack():
+async def test_case_trigger_consumer_missing_definition_allows_ack():
     event_id = uuid.uuid4()
     case_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
@@ -285,6 +339,7 @@ async def test_case_trigger_consumer_missing_definition_no_ack():
     client.exists = AsyncMock(return_value=False)
     client.set_if_not_exists = AsyncMock(return_value=True)
     client.delete = AsyncMock(return_value=1)
+    client.set = AsyncMock(return_value=True)
 
     consumer = _build_consumer_with_mocks(
         client,
@@ -293,6 +348,7 @@ async def test_case_trigger_consumer_missing_definition_no_ack():
         triggers=[trigger],
         role=_build_role(workspace_id),
     )
+    consumer._disable_invalid_case_trigger = AsyncMock()
 
     fields = {
         "event_id": str(event_id),
@@ -301,7 +357,150 @@ async def test_case_trigger_consumer_missing_definition_no_ack():
         "event_type": "case_created",
     }
     should_ack = await consumer._process_message(fields)
-    assert should_ack is False
+    assert should_ack is True
+    client.set.assert_awaited_once_with(
+        f"case-trigger:done:{event_id}:{workflow_id}",
+        value="1",
+        expire_seconds=consumer.dedup_ttl,
+    )
+    consumer._disable_invalid_case_trigger.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_disable_invalid_case_trigger_sets_trigger_offline():
+    trigger = SimpleNamespace(workflow_id=uuid.uuid4(), status="online")
+    event = SimpleNamespace(id=uuid.uuid4())
+    session = SimpleNamespace(add=MagicMock(), flush=AsyncMock())
+
+    await CaseTriggerConsumer(client=AsyncMock())._disable_invalid_case_trigger(
+        session=session,
+        trigger=cast(CaseTrigger, trigger),
+        event=cast(CaseEvent, event),
+        reason="missing workflow definition",
+    )
+
+    assert trigger.status == "offline"
+    session.add.assert_called_once_with(trigger)
+    session.flush.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_dispatch_workflow_skips_non_current_definition(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    workflow_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    consumer = CaseTriggerConsumer(client=AsyncMock())
+    consumer._disable_invalid_case_trigger = AsyncMock()
+    workflow_service_connect = AsyncMock()
+
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.WorkflowDefinitionsService.get_definition_by_workflow_id",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                workflow=SimpleNamespace(version=2),
+                version=1,
+                content={"title": "old"},
+                registry_lock=None,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.WorkflowExecutionsService.connect",
+        workflow_service_connect,
+    )
+
+    dispatched = await consumer._dispatch_workflow(
+        session=AsyncMock(),
+        role=_build_role(workspace_id),
+        trigger=cast(
+            CaseTrigger,
+            SimpleNamespace(workflow_id=workflow_id, status="online"),
+        ),
+        case=cast(
+            Case,
+            SimpleNamespace(id=uuid.uuid4(), workspace_id=workspace_id, tags=[]),
+        ),
+        event=cast(
+            CaseEvent,
+            SimpleNamespace(
+                id=uuid.uuid4(),
+                created_at=None,
+                type="case_closed",
+                user_id=None,
+            ),
+        ),
+    )
+
+    assert dispatched is True
+    consumer._disable_invalid_case_trigger.assert_awaited_once()
+    workflow_service_connect.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_dispatch_workflow_disables_structurally_invalid_definition(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    workflow_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    consumer = CaseTriggerConsumer(client=AsyncMock())
+    consumer._disable_invalid_case_trigger = AsyncMock()
+    workflow_service_connect = AsyncMock()
+
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.WorkflowDefinitionsService.get_definition_by_workflow_id",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                workflow=SimpleNamespace(version=1),
+                version=1,
+                content={
+                    "title": "invalid",
+                    "description": "",
+                    "entrypoint": {"ref": "start"},
+                    "actions": [],
+                },
+                registry_lock=None,
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.triggers.consumer.WorkflowExecutionsService.connect",
+        workflow_service_connect,
+    )
+
+    trigger = cast(
+        CaseTrigger,
+        SimpleNamespace(workflow_id=workflow_id, status="online"),
+    )
+    event = cast(
+        CaseEvent,
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            created_at=None,
+            type="case_closed",
+            user_id=None,
+        ),
+    )
+    dispatched = await consumer._dispatch_workflow(
+        session=AsyncMock(),
+        role=_build_role(workspace_id),
+        trigger=trigger,
+        case=cast(
+            Case,
+            SimpleNamespace(id=uuid.uuid4(), workspace_id=workspace_id, tags=[]),
+        ),
+        event=event,
+    )
+
+    assert dispatched is True
+    consumer._disable_invalid_case_trigger.assert_awaited_once()
+    disable_call = consumer._disable_invalid_case_trigger.await_args
+    assert disable_call is not None
+    disable_kwargs = disable_call.kwargs
+    assert disable_kwargs["trigger"] is trigger
+    assert disable_kwargs["event"] is event
+    assert disable_kwargs["reason"] == "invalid workflow definition content"
+    workflow_service_connect.assert_not_called()
 
 
 def _nogroup_retry_error() -> RetryError:
@@ -700,3 +899,120 @@ async def test_dispatch_selected_workflow_treats_already_started_as_success(
     persisted = comment
     assert persisted.workflow_status == CaseCommentWorkflowStatus.RUNNING.value
     assert cast(AuditEventStatus, audit_calls[-1]["status"]).value == "SUCCESS"
+
+
+@pytest.mark.anyio
+async def test_case_trigger_consumer_finishes_batch_on_stop_event():
+    """A SIGTERM stop signal lets the in-flight batch finish before exit.
+
+    Rolling upgrades cancel the API pod with SIGTERM; the consumer must not
+    strand the batch it is processing — it should complete handling (and ack)
+    the messages it already read, then exit its loop gracefully.
+    """
+    stop_event = asyncio.Event()
+    handled = asyncio.Event()
+    client = MagicMock()
+
+    async def fake_xreadgroup(
+        **kwargs: object,
+    ) -> list[tuple[str, list[tuple[str, dict[str, str]]]]]:
+        del kwargs
+        return [
+            (
+                "stream",
+                [
+                    (
+                        "1-1",
+                        {
+                            "event_id": "e",
+                            "case_id": "c",
+                            "workspace_id": "w",
+                            "event_type": "t",
+                        },
+                    )
+                ],
+            )
+        ]
+
+    async def fake_handle_message(message_id: str, fields: dict[str, str]) -> None:
+        # SIGTERM arrives while the batch is in flight; the stop signal
+        # arrives mid-processing but must not abort the batch.
+        stop_event.set()
+        del message_id, fields
+        handled.set()
+
+    client.xreadgroup = AsyncMock(side_effect=fake_xreadgroup)
+    consumer = CaseTriggerConsumer(cast(RedisClient, client), stop_event=stop_event)
+    consumer._ensure_group = AsyncMock()
+    consumer._handle_message = AsyncMock(side_effect=fake_handle_message)
+
+    await asyncio.wait_for(consumer.run(), timeout=5.0)
+
+    assert handled.is_set()
+    assert client.xreadgroup.await_count == 1
+
+
+@pytest.mark.anyio
+async def test_claim_idle_messages_does_not_claim_after_stop_during_pending_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stop_event = asyncio.Event()
+    pending_started = asyncio.Event()
+    finish_pending = asyncio.Event()
+    client = MagicMock()
+
+    async def pending_during_shutdown(
+        *args: object, **kwargs: object
+    ) -> list[dict[str, str]]:
+        del args, kwargs
+        pending_started.set()
+        await finish_pending.wait()
+        return [{"message_id": "1-0"}]
+
+    client.xpending_range = AsyncMock(side_effect=pending_during_shutdown)
+    client.xclaim = AsyncMock()
+    consumer = CaseTriggerConsumer(cast(RedisClient, client), stop_event=stop_event)
+    handle_message_mock = AsyncMock()
+    monkeypatch.setattr(consumer, "_handle_message", handle_message_mock)
+
+    claim_task = asyncio.create_task(consumer._claim_idle_messages())
+    await asyncio.wait_for(pending_started.wait(), timeout=5.0)
+    stop_event.set()
+    finish_pending.set()
+    await asyncio.wait_for(claim_task, timeout=5.0)
+
+    client.xclaim.assert_not_awaited()
+    handle_message_mock.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_run_does_not_claim_pending_after_stop_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A due pending-check must not fire once the stop signal is set.
+
+    The signal can arrive while the consumer is blocked in xreadgroup(); on
+    an empty read the loop body reaches the due pending-check. Starting
+    recovery there would claim fresh work the terminating pod never had in
+    flight.
+    """
+    stop_event = asyncio.Event()
+    client = MagicMock()
+
+    async def fake_xreadgroup(**kwargs: object) -> list:
+        # SIGTERM arrives during the blocked read; the read returns empty so
+        # the loop body reaches the due pending-check.
+        stop_event.set()
+        del kwargs
+        return []
+
+    client.xreadgroup = AsyncMock(side_effect=fake_xreadgroup)
+    consumer = CaseTriggerConsumer(cast(RedisClient, client), stop_event=stop_event)
+    consumer._pending_check_interval = 0.0
+    consumer._ensure_group = AsyncMock()
+    claim_mock = AsyncMock(return_value=None)
+    monkeypatch.setattr(consumer, "_claim_idle_messages", claim_mock)
+
+    await asyncio.wait_for(consumer.run(), timeout=5.0)
+
+    claim_mock.assert_not_awaited()

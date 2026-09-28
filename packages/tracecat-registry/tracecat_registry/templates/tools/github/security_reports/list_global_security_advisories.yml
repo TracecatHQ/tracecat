@@ -1,0 +1,119 @@
+type: action
+definition:
+  title: List global security advisories
+  description: 'List global security advisories. Calls GET /advisories directly. Accepted OAuth scope: repo (default).'
+  display_group: GitHub
+  doc_url: https://docs.github.com/en/rest
+  namespace: tools.github
+  name: list_global_security_advisories
+  secrets:
+  - type: oauth
+    provider_id: github
+    grant_type: authorization_code
+  expects:
+    ghsa_id:
+      type: str | None
+      description: If specified, only advisories with this GHSA (GitHub Security Advisory) identifier will be returned.
+      default: null
+    type:
+      type: str | None
+      description: "If specified, only advisories of this type will be returned. By default, a request with no other parameters defined will only return reviewed advisories that are not malware. Default: `reviewed`. Can be one of: `reviewed`, `malware`, `unreviewed`."
+      default: null
+    cve_id:
+      type: str | None
+      description: If specified, only advisories with this CVE (Common Vulnerabilities and Exposures) identifier will be returned.
+      default: null
+    ecosystem:
+      type: str | None
+      description: "If specified, only advisories for these ecosystems will be returned. Can be one of: `rubygems`, `npm`, `pip`, `maven`, `nuget`, `composer`, `go`, `rust`, `erlang`, `actions`, `pub`, `other`, `swift`."
+      default: null
+    severity:
+      type: str | None
+      description: "If specified, only advisories with these severities will be returned. Can be one of: `unknown`, `low`, `medium`, `high`, `critical`."
+      default: null
+    cwes:
+      type: str | None
+      description: "If specified, only advisories with these Common Weakness Enumerations (CWEs) will be returned. Example: `cwes=79,284,22` or `cwes[]=79&cwes[]=284&cwes[]=22`"
+      default: null
+    is_withdrawn:
+      type: bool | None
+      description: Whether to only return advisories that have been withdrawn.
+      default: null
+    affects:
+      type: str | None
+      description: "If specified, only return advisories that affect any of `package` or `package@version`. A maximum of 1000 packages can be specified. If the query parameter causes the URL to exceed the maximum URL length supported by your client, you must specify fewer packages. Example: `affects=package1,package2@1.0.0,package3@2.0.0` or `affects[]=package1&affects[]=package2@1.0.0`"
+      default: null
+    published:
+      type: str | None
+      description: If specified, only return advisories that were published on a date or date range.
+      default: null
+    updated:
+      type: str | None
+      description: If specified, only return advisories that were updated on a date or date range.
+      default: null
+    modified:
+      type: str | None
+      description: If specified, only show advisories that were updated or published on a date or date range.
+      default: null
+    epss_percentage:
+      type: str | None
+      description: If specified, only return advisories that have an EPSS percentage score that matches the provided value. The EPSS percentage represents the likelihood of a CVE being exploited.
+      default: null
+    epss_percentile:
+      type: str | None
+      description: If specified, only return advisories that have an EPSS percentile score that matches the provided value. The EPSS percentile represents the relative rank of the CVE's likelihood of being exploited compared to other CVEs.
+      default: null
+    before:
+      type: str | None
+      description: A cursor, as given in the Link header. If specified, the query only searches for results before this cursor.
+      default: null
+    after:
+      type: str | None
+      description: A cursor, as given in the Link header. If specified, the query only searches for results after this cursor.
+      default: null
+    direction:
+      type: str | None
+      description: "The direction to sort the results by. Default: `desc`. Can be one of: `asc`, `desc`."
+      default: null
+    per_page:
+      type: int | None
+      description: "The number of results per page (max 100). Default: `30`."
+      default: null
+    sort:
+      type: str | None
+      description: "The property to sort the results by. Default: `published`. Can be one of: `updated`, `published`, `epss_percentage`, `epss_percentile`."
+      default: null
+    base_url:
+      type: str
+      description: GitHub.com REST API base URL.
+      default: https://api.github.com
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url }}/advisories
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Accept: application/vnd.github+json
+        X-GitHub-Api-Version: '2022-11-28'
+      params:
+        ghsa_id: ${{ inputs.ghsa_id }}
+        type: ${{ inputs.type }}
+        cve_id: ${{ inputs.cve_id }}
+        ecosystem: ${{ inputs.ecosystem }}
+        severity: ${{ inputs.severity }}
+        cwes: ${{ inputs.cwes }}
+        is_withdrawn: ${{ inputs.is_withdrawn }}
+        affects: ${{ inputs.affects }}
+        published: ${{ inputs.published }}
+        updated: ${{ inputs.updated }}
+        modified: ${{ inputs.modified }}
+        epss_percentage: ${{ inputs.epss_percentage }}
+        epss_percentile: ${{ inputs.epss_percentile }}
+        before: ${{ inputs.before }}
+        after: ${{ inputs.after }}
+        direction: ${{ inputs.direction }}
+        per_page: ${{ inputs.per_page }}
+        sort: ${{ inputs.sort }}
+  returns: ${{ steps.request.result }}

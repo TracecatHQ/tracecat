@@ -1,15 +1,16 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useQuery } from "@tanstack/react-query"
 import {
   AlertTriangleIcon,
   ChevronDownIcon,
   CopyIcon,
   DownloadIcon,
   GitBranchIcon,
+  GitPullRequestIcon,
   LayersPlusIcon,
   MoreHorizontal,
+  PencilIcon,
   PlayIcon,
   SquarePlay,
   Trash2Icon,
@@ -21,14 +22,15 @@ import React from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type {
-  GitBranchInfo,
   ValidationDetail,
   ValidationResult,
+  VcsProvider,
   WorkflowDslPublish,
 } from "@/client"
-import { ApiError, workflowsListWorkflowBranches } from "@/client"
+import { ApiError } from "@/client"
 import { ExportMenuItem } from "@/components/export-workflow-dropdown-item"
 import { Spinner } from "@/components/loading/spinner"
+import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,13 +43,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -75,19 +70,30 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import { ValidationErrorView } from "@/components/validation-errors"
+import {
+  buildRandomSyncBranchName,
+  getWorkspaceSyncPushButtonLabel,
+  getWorkspaceSyncPushOutcome,
+  getWorkspaceSyncPushWarning,
+  type WorkspaceSyncPushMode,
+  WorkspaceSyncPushModeTabs,
+  WorkspaceSyncPushWarning,
+} from "@/components/workspace-sync/push-target-policy"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
+import { useRepositoryBranches } from "@/hooks/use-workspace-sync"
 import type { TracecatApiError } from "@/lib/errors"
 import {
   useCreateDraftWorkflowExecution,
+  useFolders,
   useOrgAppSettings,
   useWorkflowManager,
 } from "@/lib/hooks"
@@ -100,12 +106,141 @@ import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+/**
+ * Inline-editable workflow title for the builder breadcrumb.
+ *
+ * Double-click the title (or click the hover pencil) to edit. Enter or blur
+ * saves, Escape cancels. Empty, too-short (< 3 chars), or unchanged values
+ * revert without a request, matching the backend's 3–100 char title rule.
+ */
+function EditableWorkflowTitle({
+  title,
+  onRename,
+}: {
+  title: string
+  onRename: (title: string) => Promise<void>
+}) {
+  const [isEditing, setIsEditing] = React.useState(false)
+  const [value, setValue] = React.useState(title)
+  const inputRef = React.useRef<HTMLInputElement>(null)
+  // Enter commits while the input is still mounted and focused, so a click
+  // elsewhere during the request would otherwise fire a second commit on blur.
+  const isSavingRef = React.useRef(false)
+
+  // Keep local state in sync when the workflow title changes elsewhere, but
+  // never while the user is typing: a background refetch would otherwise
+  // overwrite the in-progress edit.
+  React.useEffect(() => {
+    if (!isEditing) {
+      setValue(title)
+    }
+  }, [title, isEditing])
+
+  React.useEffect(() => {
+    if (isEditing) {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    }
+  }, [isEditing])
+
+  const cancel = () => {
+    // A save already in flight cannot be recalled, so ignore the cancel rather
+    // than showing the old title and then flipping to the new one on refetch.
+    if (isSavingRef.current) return
+    setValue(title)
+    setIsEditing(false)
+  }
+
+  const commit = async () => {
+    if (isSavingRef.current) return
+    const next = value.trim()
+    if (next === title) {
+      cancel()
+      return
+    }
+    if (next.length < 3) {
+      // Reverting without explanation reads as the rename being ignored.
+      toast({
+        title: "Name too short",
+        description: "Workflow names must be at least 3 characters.",
+      })
+      cancel()
+      return
+    }
+    isSavingRef.current = true
+    try {
+      await onRename(next)
+    } catch {
+      // The provider surfaces errors via toast; revert the local edit.
+      setValue(title)
+    } finally {
+      isSavingRef.current = false
+    }
+    setIsEditing(false)
+  }
+
+  if (isEditing) {
+    return (
+      <Input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault()
+            void commit()
+          } else if (e.key === "Escape") {
+            e.preventDefault()
+            cancel()
+          }
+        }}
+        maxLength={100}
+        aria-label="Workflow name"
+        className="h-6 w-64 max-w-full px-2 py-1 text-sm"
+      />
+    )
+  }
+
+  return (
+    <span className="group/title flex min-w-0 items-center gap-1">
+      <button
+        type="button"
+        onDoubleClick={() => setIsEditing(true)}
+        onClick={(e) => {
+          // Keyboard and screen reader activation arrives as a click with no
+          // pointer detail. Real mouse clicks (detail >= 1) must not start
+          // editing, since double-click is the mouse affordance.
+          if (e.detail === 0) {
+            setIsEditing(true)
+          }
+        }}
+        title={title}
+        className="truncate bg-transparent p-0 text-left text-sm text-foreground"
+      >
+        {title}
+      </button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={() => setIsEditing(true)}
+        aria-label="Rename workflow"
+        className="size-5 shrink-0 opacity-0 transition-opacity group-hover/title:opacity-100 group-focus-within/title:opacity-100"
+      >
+        <PencilIcon className="size-3 text-muted-foreground" />
+      </Button>
+    </span>
+  )
+}
+
 export function BuilderNav() {
   const {
     workflow,
     isLoading: workflowLoading,
     commitWorkflow,
     publishWorkflow,
+    updateWorkflow,
     validationErrors,
     setValidationErrors,
   } = useWorkflow()
@@ -113,6 +248,12 @@ export function BuilderNav() {
   const workspaceId = useWorkspaceId()
   const { workspace, workspaceLoading } = useWorkspaceDetails()
   const workflowTitle = workflow?.title ?? "Untitled workflow"
+  const { folders } = useFolders(workspaceId, {
+    enabled: Boolean(workflow?.folder_id),
+  })
+  const folderPath = workflow?.folder_id
+    ? folders?.find((folder) => folder.id === workflow.folder_id)?.path
+    : null
 
   const handleCommit = async () => {
     console.log("Saving changes...")
@@ -139,35 +280,29 @@ export function BuilderNav() {
   return (
     <div className="flex w-full items-center">
       <div className="mr-4 min-w-0 flex-1">
-        <Breadcrumb>
-          <BreadcrumbList className="flex-nowrap overflow-hidden whitespace-nowrap">
-            <BreadcrumbItem>
-              <BreadcrumbLink asChild>
-                <Link href={`/workspaces/${workspaceId}/workflows`}>
-                  {workspace.name}
-                </Link>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator className="shrink-0 font-semibold">
-              {"/"}
-            </BreadcrumbSeparator>
-            <BreadcrumbItem>
-              <div className="flex min-w-0 items-center gap-2">
-                <span className="truncate text-sm text-foreground">
-                  {workflowTitle}
-                </span>
-                {workflow.alias && (
-                  <Badge
-                    variant="secondary"
-                    className="font-mono text-xs font-normal tracking-tighter text-muted-foreground hover:cursor-default"
-                  >
-                    {workflow.alias}
-                  </Badge>
-                )}
-              </div>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
+        <FolderPathBreadcrumb
+          rootLabel={workspace.name}
+          rootHref={`/workspaces/${workspaceId}/workflows`}
+          folderPath={folderPath}
+          currentPage={
+            <span className="flex min-w-0 items-center gap-2">
+              <EditableWorkflowTitle
+                title={workflowTitle}
+                onRename={async (title) => {
+                  await updateWorkflow({ title })
+                }}
+              />
+              {workflow.alias && (
+                <Badge
+                  variant="secondary"
+                  className="font-mono text-xs font-normal tracking-tighter text-muted-foreground hover:cursor-default"
+                >
+                  {workflow.alias}
+                </Badge>
+              )}
+            </span>
+          }
+        />
       </div>
 
       <div className="flex items-center justify-end space-x-6">
@@ -183,6 +318,8 @@ export function BuilderNav() {
         <WorkflowSaveActions
           workflow={workflow}
           workspaceId={workspaceId}
+          provider={workspace.settings?.git_provider ?? "github"}
+          gitRepoUrl={workspace.settings?.git_repo_url || undefined}
           validationErrors={validationErrors}
           onSave={handleCommit}
           onPublish={publishWorkflow}
@@ -350,7 +487,6 @@ function TabSwitcher({ workflowId }: { workflowId: string }) {
 const publishFormSchema = z.object({
   message: z.string().optional(),
   branch: z.string().trim().min(1, "Target branch is required"),
-  createPr: z.boolean().default(false),
 })
 type TPublishForm = z.infer<typeof publishFormSchema>
 const CREATE_NEW_BRANCH_VALUE = "__create_new_branch__"
@@ -465,12 +601,15 @@ function normalizeRunValidationErrors(
   return [toDslApiErrorResult(message)]
 }
 
-function WorkflowManualTrigger({
+export function WorkflowManualTrigger({
   disabled = true,
   workflowId,
+  onAfterTrigger,
 }: {
   disabled: boolean
   workflowId: string
+  /** Invoked after a run is successfully started (e.g. to reveal events). */
+  onAfterTrigger?: () => void
 }) {
   const { expandSidebarAndFocusEvents, setCurrentExecutionId, triggerPayload } =
     useWorkflowBuilder()
@@ -509,6 +648,7 @@ function WorkflowManualTrigger({
 
       // Expand sidebar immediately
       expandSidebarAndFocusEvents()
+      onAfterTrigger?.()
     } catch (error) {
       if (error instanceof ApiError) {
         const tracecatError = error as TracecatApiError<{
@@ -569,12 +709,16 @@ function WorkflowManualTrigger({
 function WorkflowSaveActions({
   workflow,
   workspaceId,
+  provider,
+  gitRepoUrl,
   validationErrors,
   onSave,
   onPublish,
 }: {
   workflow: { version?: number | null; git_sync_branch?: string | null }
   workspaceId: string
+  provider: VcsProvider
+  gitRepoUrl?: string
   validationErrors: ValidationResult[] | null
   onSave: () => Promise<void>
   onPublish: (params: WorkflowDslPublish) => Promise<unknown>
@@ -583,41 +727,45 @@ function WorkflowSaveActions({
   const isGitSyncEnabled = hasEntitlement("git_sync")
   const [publishOpen, setPublishOpen] = React.useState(false)
   const [isPublishing, setIsPublishing] = React.useState(false)
-  const [isCreatingBranch, setIsCreatingBranch] = React.useState(false)
-  const { data: repoBranches, isLoading: branchesLoading } = useQuery<
-    Array<GitBranchInfo>,
-    ApiError
-  >({
-    queryKey: ["workflow-sync-branches", workspaceId],
-    queryFn: async () =>
-      await workflowsListWorkflowBranches({
-        workspaceId,
-        limit: 200,
-      }),
-    enabled: isGitSyncEnabled && publishOpen,
-  })
+  const [isCreatingBranch, setIsCreatingBranch] = React.useState(true)
+  const [pushMode, setPushMode] =
+    React.useState<WorkspaceSyncPushMode>("pull-request")
+  const initialPublishBranch = React.useMemo(
+    () => buildRandomSyncBranchName("sync/workflow"),
+    []
+  )
+  const { branches: repoBranches, branchesIsLoading: branchesLoading } =
+    useRepositoryBranches(workspaceId, {
+      enabled: isGitSyncEnabled && publishOpen,
+      gitRepoUrl,
+      provider,
+      limit: 200,
+    })
   const hasBranches = (repoBranches?.length ?? 0) > 0
 
   const publishForm = useForm<TPublishForm>({
     resolver: zodResolver(publishFormSchema),
     defaultValues: {
       message: "",
-      branch: workflow.git_sync_branch ?? "",
-      createPr: false,
+      branch: initialPublishBranch,
     },
   })
+
+  const resetPublishForm = React.useCallback(() => {
+    setIsCreatingBranch(true)
+    setPushMode("pull-request")
+    publishForm.reset({
+      message: "",
+      branch: buildRandomSyncBranchName("sync/workflow"),
+    })
+  }, [publishForm])
 
   React.useEffect(() => {
     if (!publishOpen) {
       return
     }
-    setIsCreatingBranch(false)
-    publishForm.reset({
-      message: "",
-      branch: workflow.git_sync_branch ?? "",
-      createPr: false,
-    })
-  }, [publishOpen, publishForm, workflow.git_sync_branch])
+    resetPublishForm()
+  }, [publishOpen, resetPublishForm])
 
   React.useEffect(() => {
     if (
@@ -654,12 +802,27 @@ function WorkflowSaveActions({
     workflow.git_sync_branch,
   ])
 
-  const selectedBranch = publishForm.watch("branch")
-  const createPrEnabled = publishForm.watch("createPr")
-  const selectedBranchInfo = repoBranches?.find(
-    (branch) => branch.name === selectedBranch
-  )
-  const isDefaultBranchSelected = selectedBranchInfo?.is_default ?? false
+  const selectedBranch = publishForm.watch("branch").trim()
+  const defaultBranch =
+    repoBranches?.find((branch) => branch.is_default)?.name ??
+    repoBranches?.[0]?.name
+  const pushOutcome = getWorkspaceSyncPushOutcome({
+    mode: pushMode,
+    targetBranch: selectedBranch,
+    defaultBranch,
+    isCreatingBranch,
+  })
+  const pushWarning = getWorkspaceSyncPushWarning({
+    outcome: pushOutcome,
+    defaultBranch,
+    provider,
+  })
+  const publishDisabled =
+    isPublishing ||
+    branchesLoading ||
+    (!hasBranches && !isCreatingBranch) ||
+    selectedBranch === "" ||
+    pushOutcome.isPullRequestBlocked
 
   const handlePublish = async (data: TPublishForm) => {
     setIsPublishing(true)
@@ -667,17 +830,12 @@ function WorkflowSaveActions({
       await onPublish({
         message: data.message || undefined,
         branch: data.branch,
-        create_pr: data.createPr,
+        create_pr: pushOutcome.createPr,
       })
     } finally {
       setIsPublishing(false)
       setPublishOpen(false)
-      setIsCreatingBranch(false)
-      publishForm.reset({
-        message: "",
-        branch: workflow.git_sync_branch ?? "",
-        createPr: false,
-      })
+      resetPublishForm()
     }
   }
 
@@ -753,7 +911,9 @@ function WorkflowSaveActions({
                           onValueChange={(value) => {
                             if (value === CREATE_NEW_BRANCH_VALUE) {
                               setIsCreatingBranch(true)
-                              field.onChange("")
+                              field.onChange(
+                                buildRandomSyncBranchName("sync/workflow")
+                              )
                               return
                             }
                             setIsCreatingBranch(false)
@@ -846,35 +1006,22 @@ function WorkflowSaveActions({
                       </FormItem>
                     )}
                   />
-                  <FormField
-                    control={publishForm.control}
-                    name="createPr"
-                    render={({ field }) => (
-                      <FormItem className="mt-2 flex items-center justify-between rounded-md border px-3 py-2">
-                        <div className="space-y-0.5">
-                          <p className="text-xs">Create pull request</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            Reuse an open PR for this branch when available.
-                          </p>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            size="sm"
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
+                  <div className="mt-2 space-y-1.5">
+                    <p className="text-xs text-muted-foreground">Push mode</p>
+                    <WorkspaceSyncPushModeTabs
+                      value={pushMode}
+                      onValueChange={setPushMode}
+                      provider={provider}
+                    />
+                  </div>
+                  <WorkspaceSyncPushWarning
+                    warning={pushWarning}
+                    blocked={pushOutcome.isPullRequestBlocked}
+                    className="mt-2"
                   />
-                  {isDefaultBranchSelected && !createPrEnabled && (
-                    <p className="mt-2 text-[11px] text-amber-700">
-                      Pushing to the default branch will create a direct commit.
-                    </p>
-                  )}
                   <Button
                     type="submit"
-                    disabled={isPublishing || branchesLoading || !hasBranches}
+                    disabled={publishDisabled}
                     className="mt-2 flex h-7 w-full items-center justify-center gap-2 bg-primary px-3 py-0 text-xs text-white hover:bg-primary/80"
                   >
                     {isPublishing ? (
@@ -884,8 +1031,17 @@ function WorkflowSaveActions({
                       </>
                     ) : (
                       <>
-                        <GitBranchIcon className="size-3" />
-                        Push changes
+                        {pushOutcome.createPr ? (
+                          <GitPullRequestIcon className="size-3" />
+                        ) : (
+                          <GitBranchIcon className="size-3" />
+                        )}
+                        {getWorkspaceSyncPushButtonLabel({
+                          outcome: pushOutcome,
+                          isCreatingBranch,
+                          isPending: false,
+                          provider,
+                        })}
                       </>
                     )}
                   </Button>

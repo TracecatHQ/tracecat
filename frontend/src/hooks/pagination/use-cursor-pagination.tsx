@@ -1,8 +1,8 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import { useCallback, useState } from "react"
 import type { ApiError } from "@/client"
+import { type Query, useQuery } from "@/lib/query"
 
 export interface CursorPaginationResponse<T> {
   items: T[]
@@ -39,8 +39,19 @@ export interface UseCursorPaginationOptions<
   enabled?: boolean
   staleTime?: number
   refetchOnWindowFocus?: boolean
-  refetchInterval?: number | false
+  refetchInterval?:
+    | number
+    | false
+    | ((query: Query<CursorPaginationResponse<T>, ApiError>) => number | false)
   refetchIntervalInBackground?: boolean
+  retry?:
+    | boolean
+    | number
+    | ((failureCount: number, error: ApiError) => boolean)
+  placeholderData?: (
+    previousData: CursorPaginationResponse<T> | undefined,
+    previousQuery: Query<CursorPaginationResponse<T>, ApiError> | undefined
+  ) => CursorPaginationResponse<T> | undefined
 }
 
 export interface CursorPaginationState {
@@ -66,6 +77,8 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
   refetchOnWindowFocus,
   refetchInterval,
   refetchIntervalInBackground,
+  retry,
+  placeholderData,
 }: UseCursorPaginationOptions<T, P>) {
   const [paginationState, setPaginationState] = useState<CursorPaginationState>(
     DEFAULT_PAGINATION_STATE
@@ -113,6 +126,8 @@ export function useCursorPagination<T, P extends CursorPaginationParams>({
     refetchOnWindowFocus,
     refetchInterval,
     refetchIntervalInBackground,
+    retry,
+    placeholderData,
   })
 
   const goToNextPage = () => {

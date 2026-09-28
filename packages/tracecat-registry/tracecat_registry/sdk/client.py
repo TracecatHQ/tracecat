@@ -25,13 +25,13 @@ if TYPE_CHECKING:
 
 
 class TracecatClient:
-    """HTTP client for Tracecat API with JWT authentication.
+    """HTTP client for the executor-local Action Gateway.
 
     This client is used by registry actions to communicate with the
-    Tracecat API when running in a sandboxed environment.
+    executor-local Action Gateway when running in a sandboxed environment.
 
     Configuration is read from environment variables:
-    - TRACECAT__API_URL: Base URL of the Tracecat API
+    - TRACECAT__ACTION_GATEWAY_SOCKET: Local gateway Unix socket
     - TRACECAT__EXECUTOR_TOKEN: JWT token for authentication
     - TRACECAT__WORKSPACE_ID: Current workspace ID (added to requests)
     """
@@ -39,7 +39,6 @@ class TracecatClient:
     def __init__(
         self,
         *,
-        api_url: str | None = None,
         action_gateway_socket: str | None = None,
         token: str | None = None,
         workspace_id: str | None = None,
@@ -48,21 +47,19 @@ class TracecatClient:
         """Initialize the client.
 
         Args:
-            api_url: Base URL of the Tracecat API. Defaults to TRACECAT__API_URL env var.
-            action_gateway_socket: Compatibility override for the executor-local
-                gateway socket. Defaults to TRACECAT__ACTION_GATEWAY_SOCKET.
+            action_gateway_socket: Executor-local gateway socket. Defaults to
+                TRACECAT__ACTION_GATEWAY_SOCKET and is required.
             token: JWT token for authentication. Defaults to TRACECAT__EXECUTOR_TOKEN env var.
             workspace_id: Workspace ID. Defaults to TRACECAT__WORKSPACE_ID env var.
             timeout: Request timeout in seconds.
         """
-        self._api_url = self._normalize_internal_url(
-            api_url or os.environ.get("TRACECAT__API_URL", "http://api:8000")
-        )
         self._action_gateway_socket = action_gateway_socket or os.environ.get(
             "TRACECAT__ACTION_GATEWAY_SOCKET"
         )
         if not self._action_gateway_socket:
-            self._action_gateway_socket = None
+            raise RuntimeError(
+                "TRACECAT__ACTION_GATEWAY_SOCKET is required for Tracecat SDK calls"
+            )
 
         self._token = token or os.environ.get("TRACECAT__EXECUTOR_TOKEN", "")
         self._workspace_id = workspace_id or os.environ.get(
@@ -78,25 +75,11 @@ class TracecatClient:
         self._variables: VariablesClient | None = None
         self._workflows: WorkflowsClient | None = None
 
-    @staticmethod
-    def _normalize_internal_url(base_url: str) -> str:
-        """Normalize a base URL so SDK paths resolve under /internal."""
-        if base_url.endswith("/internal"):
-            return base_url
-        return base_url.rstrip("/") + "/internal"
-
-    @property
-    def api_url(self) -> str:
-        """Base URL of the Tracecat API."""
-        return self._api_url
-
     def _request_url_and_transport(
         self,
         path: str,
-    ) -> tuple[str, httpx.AsyncHTTPTransport | None]:
-        """Return the target URL and transport for an internal SDK request."""
-        if self._action_gateway_socket is None:
-            return f"{self._api_url}{path}", None
+    ) -> tuple[str, httpx.AsyncHTTPTransport]:
+        """Return the Action Gateway URL and Unix socket transport."""
         return (
             f"http://tracecat-action-gateway/internal{path}",
             httpx.AsyncHTTPTransport(uds=self._action_gateway_socket),
@@ -170,25 +153,32 @@ class TracecatClient:
             headers["Authorization"] = f"Bearer {self._token}"
         return headers
 
+    def _extract_error_detail(self, response: httpx.Response) -> Any | None:
+        try:
+            data = response.json()
+        except Exception:
+            return response.text or None
+
+        if isinstance(data, dict):
+            detail = data.get("detail")
+            if detail is not None:
+                return detail
+            if "message" in data:
+                return data["message"]
+            return None if "detail" in data else data
+        return data
+
     def _handle_error_response(self, response: httpx.Response) -> None:
         """Convert HTTP error responses to SDK exceptions."""
         status_code = response.status_code
-
-        # Try to extract detail from JSON response
-        detail: str | None = None
-        try:
-            data = response.json()
-            if isinstance(data, dict):
-                detail = data.get("detail")
-        except Exception:
-            detail = response.text or None
+        detail = self._extract_error_detail(response)
 
         if status_code == 401:
             raise TracecatAuthError(detail=detail, status_code=401)
         elif status_code == 403:
             raise TracecatAuthError(detail=detail, status_code=403)
         elif status_code == 404:
-            raise TracecatNotFoundError(resource="Resource", identifier=detail)
+            raise TracecatNotFoundError(detail=detail)
         elif status_code == 409:
             raise TracecatConflictError(detail=detail)
         elif status_code in (400, 422):
@@ -209,7 +199,7 @@ class TracecatClient:
         json: Any | None = None,
         headers: dict[str, str] | None = None,
     ) -> Any:
-        """Make an authenticated HTTP request to the API.
+        """Make an authenticated HTTP request to the Action Gateway.
 
         Args:
             method: HTTP method (GET, POST, PUT, DELETE, etc.)

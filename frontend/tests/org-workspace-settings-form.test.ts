@@ -1,4 +1,4 @@
-import { syncSettingsSchema } from "@/components/settings/workspace-sync-settings"
+import { syncSettingsSchema } from "@/components/workspace-sync/connection-form"
 
 describe("syncSettingsSchema git_repo_url validation", () => {
   it.each([

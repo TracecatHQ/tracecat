@@ -1,5 +1,4 @@
 "use client"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type ApiError,
   type WorkspaceMember,
@@ -12,6 +11,7 @@ import {
   workspacesListWorkspaceMembers,
 } from "@/client"
 import { retryHandler } from "@/lib/errors"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /* ── SELECTORS ─────────────────────────────────────────────────────────── */

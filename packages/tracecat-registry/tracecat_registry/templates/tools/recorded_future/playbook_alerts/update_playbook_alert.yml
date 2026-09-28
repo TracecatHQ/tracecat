@@ -1,0 +1,66 @@
+type: action
+definition:
+  title: Update playbook alert
+  description: Update a Playbook Alert. Generic alert properties like status, priority and assignee may be updated, or a log message may be appended. Calls PUT /playbook-alert/common/{playbook_alert_id} directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/playbook-alerts-update
+  namespace: tools.recorded_future
+  name: update_playbook_alert
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    playbook_alert_id:
+      type: str
+      description: The unique id of a specific Playbook Alert.
+    priority:
+      type: str | None
+      description: The priority of the Playbook Alert. Allowed values are High, Moderate and Informational.
+      default: null
+    status:
+      type: str | None
+      description: The status of the Playbook Alert. Allowed values are New, InProgress, Dismissed and Resolved.
+      default: null
+    assignee:
+      type: str | None
+      description: ID of the assignee.
+      default: null
+    log_entry:
+      type: str | None
+      description: Freetext log message. Maximum of 5000 characters.
+      default: null
+    reopen:
+      type: str | None
+      description: Reopen strategies can only be applied to alerts with a status of Dismissed or Resolved. Allowed combinations of status and reopen are Dismissed with Never, Resolved with Never, and Resolved with SignificantUpdates.
+      default: null
+    added_actions_taken:
+      type: list[str] | None
+      description: The ids for the types of action taken. The possible values can be found in the response from /playbook-alert/metadata/common in the actions_by_category field. Can only be set when status is set to Dismissed or Resolved.
+      default: null
+    removed_actions_taken:
+      type: list[str] | None
+      description: The ids for the types of action taken that should be removed. The possible values can be found in the response from /playbook-alert/metadata/common in the actions_by_category field.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/playbook-alert/common/${{ FN.url_encode(inputs.playbook_alert_id) }}
+        method: PUT
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+          Content-Type: application/json
+        payload:
+          priority: ${{ inputs.priority }}
+          status: ${{ inputs.status }}
+          assignee: ${{ inputs.assignee }}
+          log_entry: ${{ inputs.log_entry }}
+          reopen: ${{ inputs.reopen }}
+          added_actions_taken: ${{ inputs.added_actions_taken }}
+          removed_actions_taken: ${{ inputs.removed_actions_taken }}
+  returns: ${{ steps.request.result }}

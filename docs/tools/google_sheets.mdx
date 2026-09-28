@@ -16,7 +16,9 @@ Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4
 
 Optional secrets:
 
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
 - `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
 
@@ -86,7 +88,9 @@ Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4
 
 Optional secrets:
 
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
 - `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
 
@@ -102,6 +106,36 @@ Spreadsheet ID to clear.
 
 </ParamField>
 
+## Batch clear values by data filter
+
+Action ID: `tools.google_sheets.batch_clear_values_by_data_filter`
+
+Clears one or more ranges of values from a spreadsheet. The caller must specify the spreadsheet ID and one or more DataFilters. Ranges matching any of the specified data filters will be cleared. Only values are cleared -- all other properties of the cell (such as formatting, data validation, etc.) are kept.
+
+Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchClearByDataFilter](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchClearByDataFilter)
+
+### Secrets
+
+Optional secrets:
+
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
+
+### Input fields
+
+<ParamField path="data_filters" type="array[object]" required>
+
+The DataFilters used to determine which ranges to clear. Each entry sets exactly one of `a1Range`, `gridRange` or `developerMetadataLookup`. See https://developers.google.com/workspace/sheets/api/reference/rest/v4/DataFilter
+
+</ParamField>
+
+<ParamField path="spreadsheet_id" type="string" required>
+
+The ID of the spreadsheet to update.
+
+</ParamField>
+
 ## Batch get values
 
 Action ID: `tools.google_sheets.batch_get_values`
@@ -114,7 +148,9 @@ Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4
 
 Optional secrets:
 
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
 - `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
 
@@ -154,6 +190,114 @@ Default: `null`.
 
 </ParamField>
 
+## Batch get values by data filter
+
+Action ID: `tools.google_sheets.batch_get_values_by_data_filter`
+
+Returns one or more ranges of values that match the specified data filters. The caller must specify the spreadsheet ID and one or more DataFilters. Ranges that match any of the data filters in the request will be returned.
+
+Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchGetByDataFilter](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchGetByDataFilter)
+
+### Secrets
+
+Optional secrets:
+
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
+
+### Input fields
+
+<ParamField path="data_filters" type="array[object]" required>
+
+The data filters used to match the ranges of values to retrieve. Ranges that match any of the specified data filters are included in the response. Each entry sets exactly one of `a1Range`, `gridRange` or `developerMetadataLookup`. See https://developers.google.com/workspace/sheets/api/reference/rest/v4/DataFilter
+
+</ParamField>
+
+<ParamField path="spreadsheet_id" type="string" required>
+
+The ID of the spreadsheet to retrieve data from.
+
+</ParamField>
+
+<ParamField path="date_time_render_option" type="string | null">
+
+How dates, times, and durations should be represented in the output. One of `SERIAL_NUMBER` or `FORMATTED_STRING`. This is ignored if value_render_option is `FORMATTED_VALUE`. The default dateTime render option is `SERIAL_NUMBER`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="major_dimension" type="string | null">
+
+The major dimension that results should use. One of `ROWS` or `COLUMNS`. For example, if the spreadsheet data is `A1=1,B1=2,A2=3,B2=4`, then a request that selects that range and sets `majorDimension=ROWS` returns `[[1,2],[3,4]]`, whereas a request that sets `majorDimension=COLUMNS` returns `[[1,3],[2,4]]`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="value_render_option" type="string | null">
+
+How values should be represented in the output. One of `FORMATTED_VALUE`, `UNFORMATTED_VALUE` or `FORMULA`. The default render option is `FORMATTED_VALUE`.
+
+Default: `null`.
+
+</ParamField>
+
+## Batch update spreadsheet
+
+Action ID: `tools.google_sheets.batch_update_spreadsheet`
+
+Applies one or more updates to the spreadsheet. Each request is validated before being applied. If any request is not valid then the entire request will fail and nothing will be applied.
+
+Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/batchUpdate](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/batchUpdate)
+
+### Secrets
+
+Optional secrets:
+
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
+
+### Input fields
+
+<ParamField path="requests" type="array[object]" required>
+
+A list of updates to apply to the spreadsheet. Requests will be applied in the order they are specified. If any request is not valid, no requests will be applied. Each entry sets exactly one field of the `Request` union, for example `addSheet`, `deleteSheet`, `updateCells`, `mergeCells`, `copyPaste`, `addChart`, or `updateSpreadsheetProperties`. See https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/request
+
+</ParamField>
+
+<ParamField path="spreadsheet_id" type="string" required>
+
+The spreadsheet to apply the updates to.
+
+</ParamField>
+
+<ParamField path="include_spreadsheet_in_response" type="boolean | null">
+
+Determines if the update response should include the spreadsheet resource.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="response_include_grid_data" type="boolean | null">
+
+True if grid data should be returned. Meaningful only if include_spreadsheet_in_response is `true`. This parameter is ignored if a field mask was set in the request.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="response_ranges" type="array[string] | null">
+
+Limits the ranges included in the response spreadsheet. Meaningful only if include_spreadsheet_in_response is `true`.
+
+Default: `null`.
+
+</ParamField>
+
 ## Batch update values
 
 Action ID: `tools.google_sheets.batch_update_values`
@@ -166,7 +310,9 @@ Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4
 
 Optional secrets:
 
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
 - `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
 
@@ -216,6 +362,96 @@ Allowed values: `RAW`, `USER_ENTERED`.
 
 </ParamField>
 
+## Batch update values by data filter
+
+Action ID: `tools.google_sheets.batch_update_values_by_data_filter`
+
+Sets values in one or more ranges of a spreadsheet. The caller must specify the spreadsheet ID, a valueInputOption, and one or more DataFilterValueRanges.
+
+Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchUpdateByDataFilter](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchUpdateByDataFilter)
+
+### Secrets
+
+Optional secrets:
+
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
+
+### Input fields
+
+<ParamField path="data" type="array[object]" required>
+
+The new values to apply to the spreadsheet. If more than one range is matched by the specified DataFilter the specified values are applied to all of those ranges. Each `DataFilterValueRange` entry has `dataFilter`, `values` and an optional `majorDimension`. See https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchUpdateByDataFilter#DataFilterValueRange
+
+</ParamField>
+
+<ParamField path="spreadsheet_id" type="string" required>
+
+The ID of the spreadsheet to update.
+
+</ParamField>
+
+<ParamField path="value_input_option" type="string" required>
+
+How the input data should be interpreted. `RAW` stores the values as-is; `USER_ENTERED` parses the values as if the user typed them into the UI.
+
+</ParamField>
+
+<ParamField path="include_values_in_response" type="boolean | null">
+
+Determines if the update response should include the values of the cells that were updated. By default, responses do not include the updated values. The `updatedData` field within each of the BatchUpdateValuesResponse.responses contains the updated values.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="response_date_time_render_option" type="string | null">
+
+Determines how dates, times, and durations in the response should be rendered. One of `SERIAL_NUMBER` or `FORMATTED_STRING`. This is ignored if response_value_render_option is `FORMATTED_VALUE`. The default dateTime render option is `SERIAL_NUMBER`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="response_value_render_option" type="string | null">
+
+Determines how values in the response should be rendered. One of `FORMATTED_VALUE`, `UNFORMATTED_VALUE` or `FORMULA`. The default render option is `FORMATTED_VALUE`.
+
+Default: `null`.
+
+</ParamField>
+
+## Clear values
+
+Action ID: `tools.google_sheets.clear_values`
+
+Clears values from a spreadsheet. The caller must specify the spreadsheet ID and range. Only values are cleared -- all other properties of the cell (such as formatting, data validation, etc.) are kept.
+
+Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/clear](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/clear)
+
+### Secrets
+
+Optional secrets:
+
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
+
+### Input fields
+
+<ParamField path="range" type="string" required>
+
+The A1 notation or R1C1 notation of the values to clear.
+
+</ParamField>
+
+<ParamField path="spreadsheet_id" type="string" required>
+
+The ID of the spreadsheet to update.
+
+</ParamField>
+
 ## Copy sheet
 
 Action ID: `tools.google_sheets.copy_sheet`
@@ -228,7 +464,9 @@ Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4
 
 Optional secrets:
 
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
 - `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
 
@@ -262,7 +500,9 @@ Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4
 
 Optional secrets:
 
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
 - `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
 
@@ -280,6 +520,36 @@ Default: `null`.
 
 </ParamField>
 
+## Get developer metadata
+
+Action ID: `tools.google_sheets.get_developer_metadata`
+
+Returns the developer metadata with the specified ID. The caller must specify the spreadsheet ID and the developer metadata's unique metadataId.
+
+Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.developerMetadata/get](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.developerMetadata/get)
+
+### Secrets
+
+Optional secrets:
+
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
+
+### Input fields
+
+<ParamField path="metadata_id" type="integer" required>
+
+The ID of the developer metadata to retrieve.
+
+</ParamField>
+
+<ParamField path="spreadsheet_id" type="string" required>
+
+The ID of the spreadsheet to retrieve metadata from.
+
+</ParamField>
+
 ## Get spreadsheet
 
 Action ID: `tools.google_sheets.get_spreadsheet`
@@ -292,7 +562,9 @@ Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4
 
 Optional secrets:
 
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
 - `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
 
@@ -313,6 +585,202 @@ Default: `false`.
 <ParamField path="ranges" type="array[string] | null">
 
 Optional A1 notation ranges to include.
+
+Default: `null`.
+
+</ParamField>
+
+## Get spreadsheet by data filter
+
+Action ID: `tools.google_sheets.get_spreadsheet_by_data_filter`
+
+Returns the spreadsheet at the given ID. Specifying one or more data filters returns the portions of the spreadsheet that intersect ranges matched by any of the filters. By default, data within grids is not returned.
+
+Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/getByDataFilter](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/getByDataFilter)
+
+### Secrets
+
+Optional secrets:
+
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
+
+### Input fields
+
+<ParamField path="data_filters" type="array[object]" required>
+
+The DataFilters used to select which ranges to retrieve from the spreadsheet. Each entry sets exactly one of `a1Range`, `gridRange` or `developerMetadataLookup`. See https://developers.google.com/workspace/sheets/api/reference/rest/v4/DataFilter
+
+</ParamField>
+
+<ParamField path="spreadsheet_id" type="string" required>
+
+The spreadsheet to request.
+
+</ParamField>
+
+<ParamField path="include_grid_data" type="boolean | null">
+
+True if grid data should be returned. This parameter is ignored if a field mask was set in the request.
+
+Default: `null`.
+
+</ParamField>
+
+## Get values
+
+Action ID: `tools.google_sheets.get_values`
+
+Returns a range of values from a spreadsheet. The caller must specify the spreadsheet ID and a range.
+
+Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/get](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/get)
+
+### Secrets
+
+Optional secrets:
+
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
+
+### Input fields
+
+<ParamField path="range" type="string" required>
+
+The A1 notation or R1C1 notation of the range to retrieve values from.
+
+</ParamField>
+
+<ParamField path="spreadsheet_id" type="string" required>
+
+The ID of the spreadsheet to retrieve data from.
+
+</ParamField>
+
+<ParamField path="date_time_render_option" type="string | null">
+
+How dates, times, and durations should be represented in the output. One of `SERIAL_NUMBER` or `FORMATTED_STRING`. This is ignored if value_render_option is `FORMATTED_VALUE`. The default dateTime render option is `SERIAL_NUMBER`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="major_dimension" type="string | null">
+
+The major dimension that results should use. One of `ROWS` or `COLUMNS`. For example, if the spreadsheet data in Sheet1 is `A1=1,B1=2,A2=3,B2=4`, then requesting `range=Sheet1!A1:B2` with `majorDimension=ROWS` returns `[[1,2],[3,4]]`, whereas `majorDimension=COLUMNS` returns `[[1,3],[2,4]]`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="value_render_option" type="string | null">
+
+How values should be represented in the output. One of `FORMATTED_VALUE`, `UNFORMATTED_VALUE` or `FORMULA`. The default render option is `FORMATTED_VALUE`.
+
+Default: `null`.
+
+</ParamField>
+
+## Search developer metadata
+
+Action ID: `tools.google_sheets.search_developer_metadata`
+
+Returns all developer metadata matching the specified DataFilter. If the provided DataFilter represents a DeveloperMetadataLookup object, this will return all DeveloperMetadata entries selected by it. If the DataFilter represents a location in a spreadsheet, this will return all developer metadata associated with locations intersecting that region.
+
+Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.developerMetadata/search](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.developerMetadata/search)
+
+### Secrets
+
+Optional secrets:
+
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
+
+### Input fields
+
+<ParamField path="data_filters" type="array[object]" required>
+
+The data filters describing the criteria used to determine which DeveloperMetadata entries to return. DeveloperMetadata matching any of the specified filters are included in the response. Each entry sets exactly one of `a1Range`, `gridRange` or `developerMetadataLookup`. See https://developers.google.com/workspace/sheets/api/reference/rest/v4/DataFilter
+
+</ParamField>
+
+<ParamField path="spreadsheet_id" type="string" required>
+
+The ID of the spreadsheet to retrieve metadata from.
+
+</ParamField>
+
+## Update values
+
+Action ID: `tools.google_sheets.update_values`
+
+Sets values in a range of a spreadsheet. The caller must specify the spreadsheet ID, range, and a valueInputOption.
+
+Reference: [https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/update](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/update)
+
+### Secrets
+
+Optional secrets:
+
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_USER_TOKEN`.
+- `google_sheets_oauth`: OAuth token `GOOGLE_SHEETS_SERVICE_TOKEN`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
+
+### Input fields
+
+<ParamField path="range" type="string" required>
+
+The A1 notation of the values to update.
+
+</ParamField>
+
+<ParamField path="spreadsheet_id" type="string" required>
+
+The ID of the spreadsheet to update.
+
+</ParamField>
+
+<ParamField path="value_input_option" type="string" required>
+
+How the input data should be interpreted. `RAW` stores the values as-is; `USER_ENTERED` parses the values as if the user typed them into the UI.
+
+</ParamField>
+
+<ParamField path="values" type="array[array[string | integer | number | boolean | null]]" required>
+
+The data to be written. This is an array of arrays, the outer array representing all the data and each inner array representing a major dimension. Each item in the inner array corresponds with one cell. Supported value types are bool, string, and double. Null values will be skipped. To set a cell to an empty value, set the string value to an empty string.
+
+</ParamField>
+
+<ParamField path="include_values_in_response" type="boolean | null">
+
+Determines if the update response should include the values of the cells that were updated. By default, responses do not include the updated values. If the range to write was larger than the range actually written, the response includes all values in the requested range (excluding trailing empty rows and columns).
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="major_dimension" type="string | null">
+
+The major dimension of the values. One of `ROWS` or `COLUMNS`. With `range=A1:B2,majorDimension=ROWS` then `[[1,2],[3,4]]` will set `A1=1,B1=2,A2=3,B2=4`. With `range=A1:B2,majorDimension=COLUMNS` then `[[1,2],[3,4]]` will set `A1=1,B1=3,A2=2,B2=4`. When writing, if this field is not set, it defaults to `ROWS`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="response_date_time_render_option" type="string | null">
+
+Determines how dates, times, and durations in the response should be rendered. One of `SERIAL_NUMBER` or `FORMATTED_STRING`. This is ignored if response_value_render_option is `FORMATTED_VALUE`. The default dateTime render option is `SERIAL_NUMBER`.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="response_value_render_option" type="string | null">
+
+Determines how values in the response should be rendered. One of `FORMATTED_VALUE`, `UNFORMATTED_VALUE` or `FORMULA`. The default render option is `FORMATTED_VALUE`.
 
 Default: `null`.
 

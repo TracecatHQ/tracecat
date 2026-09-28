@@ -12,6 +12,12 @@ from tracecat.artifacts.schemas import Artifact, ArtifactAdapter, ArtifactType
 
 ArtifactsAdapter: TypeAdapter[list[Artifact]] = TypeAdapter(list[Artifact])
 
+# Maximum artifacts retained in the panel projection. Oldest entries are
+# evicted first so repeated tool calls don't accumulate unbounded tabs.
+# Must match MAX_OPEN_ARTIFACT_TABS in
+# frontend/src/hooks/use-workspace-chat-artifacts.ts.
+MAX_OPEN_ARTIFACTS = 5
+
 
 def artifact_key(artifact: Artifact) -> str:
     """Return the stable projection key for an artifact."""
@@ -45,16 +51,22 @@ def apply_artifact_side_effects(
     artifacts: Iterable[Artifact],
     effects: Iterable[ArtifactSideEffect],
 ) -> list[Artifact]:
-    """Apply artifact operations while preserving existing panel order."""
+    """Apply artifact operations, keeping at most the most recent artifacts."""
     projected = {artifact_key(artifact): artifact for artifact in artifacts}
     for effect in effects:
         key = artifact_key(effect.artifact)
         match effect.op:
             case "upsert":
+                # Pop first so re-upserting an open artifact refreshes its
+                # recency instead of keeping its original panel position.
+                projected.pop(key, None)
                 projected[key] = effect.artifact
             case "remove":
                 projected.pop(key, None)
-    return list(projected.values())
+    result = list(projected.values())
+    if len(result) > MAX_OPEN_ARTIFACTS:
+        result = result[-MAX_OPEN_ARTIFACTS:]
+    return result
 
 
 def remove_artifact(

@@ -15,9 +15,30 @@ from tracecat.workflow.management.folders.schemas import (
     WorkflowFolderRead,
     WorkflowFolderUpdate,
 )
-from tracecat.workflow.management.folders.service import WorkflowFolderService
+from tracecat.workflow.management.folders.service import (
+    WorkflowFolderErrorCode,
+    WorkflowFolderService,
+)
 
 router = APIRouter(prefix="/folders", tags=["folders"])
+
+
+def _folder_http_exception(err: TracecatValidationError) -> HTTPException:
+    detail = err.detail if isinstance(err.detail, dict) else {}
+    raw_code = detail.get("code") if isinstance(detail, dict) else None
+    try:
+        code = WorkflowFolderErrorCode(raw_code)
+    except (TypeError, ValueError):
+        code = None
+
+    if code in {
+        WorkflowFolderErrorCode.NOT_FOUND,
+        WorkflowFolderErrorCode.PARENT_NOT_FOUND,
+    }:
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(err))
+    if code == WorkflowFolderErrorCode.CONFLICT:
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(err))
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(err))
 
 
 @router.get("/directory")
@@ -74,10 +95,7 @@ async def create_folder(
         )
         return WorkflowFolderRead.model_validate(folder, from_attributes=True)
     except TracecatValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A folder with this name already exists at this location",
-        ) from e
+        raise _folder_http_exception(e) from e
 
 
 @router.get("/{folder_id}")
@@ -126,6 +144,8 @@ async def update_folder(
             status_code=status.HTTP_409_CONFLICT,
             detail="A folder with this name already exists at this location",
         ) from e
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e
 
 
 @router.delete("/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -149,9 +169,7 @@ async def delete_folder(
             status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found"
         ) from e
     except TracecatValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
-        ) from e
+        raise _folder_http_exception(e) from e
 
 
 @router.post("/{folder_id}/move")
@@ -187,3 +205,5 @@ async def move_folder(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
+    except TracecatValidationError as e:
+        raise _folder_http_exception(e) from e

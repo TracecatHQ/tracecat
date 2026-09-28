@@ -1,13 +1,12 @@
-from fastapi.routing import APIRoute
-
+from tests._route_utils import iter_effective_api_routes
 from tracecat.api.app import app
 
 
 def test_fastapi_users_routes_set_authenticated_user_context() -> None:
     routes = [
         route
-        for route in app.routes
-        if isinstance(route, APIRoute) and route.name.startswith("users:")
+        for route in iter_effective_api_routes(app)
+        if route.name.startswith("users:")
     ]
 
     route_names = {route.name for route in routes}

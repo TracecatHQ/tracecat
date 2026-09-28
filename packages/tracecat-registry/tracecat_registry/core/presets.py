@@ -6,8 +6,7 @@ from typing import Annotated, Any, Literal
 
 from typing_extensions import Doc
 
-from tracecat_registry import registry
-from tracecat_registry.context import get_context
+from tracecat_registry import ctx, registry
 
 OutputTypeLiteral = Literal[
     "bool",
@@ -26,7 +25,6 @@ OutputTypeLiteral = Literal[
     display_group="Agent Presets",
     description="Create a new reusable agent preset configuration. Agent presets define LLM model settings, system instructions, available tools (actions), and output format. Once created, presets can be referenced by slug to run agents with consistent configurations.",
     namespace="ai.agent",
-    required_entitlements=["agent_addons"],
 )
 async def create_preset(
     name: Annotated[
@@ -124,7 +122,7 @@ async def create_preset(
     ] = None,
     skills: Annotated[
         list[dict[str, Any]] | None,
-        Doc("Optional skill bindings for the preset."),
+        Doc("Optional skill bindings for the preset containing `skill_id`."),
     ] = None,
 ) -> dict[str, Any]:
     # Build kwargs, only including non-None values
@@ -166,7 +164,7 @@ async def create_preset(
     if skills is not None:
         kwargs["skills"] = skills
 
-    return await get_context().agents.create_preset(**kwargs)
+    return await ctx.agents.aio.create_preset(**kwargs)
 
 
 @registry.register(
@@ -174,7 +172,6 @@ async def create_preset(
     display_group="Agent Presets",
     description="Retrieve the full configuration details of an agent preset by its slug identifier. Returns all preset settings including model configuration, instructions, actions, and output type.",
     namespace="ai.agent",
-    required_entitlements=["agent_addons"],
 )
 async def get_preset(
     slug: Annotated[
@@ -184,7 +181,7 @@ async def get_preset(
         ),
     ],
 ) -> dict[str, Any]:
-    return await get_context().agents.get_preset(slug)
+    return await ctx.agents.aio.get_preset(slug)
 
 
 @registry.register(
@@ -192,10 +189,9 @@ async def get_preset(
     display_group="Agent Presets",
     description="List all agent presets available in the current workspace. Returns presets ordered by most recently created first.",
     namespace="ai.agent",
-    required_entitlements=["agent_addons"],
 )
 async def list_presets() -> list[dict[str, Any]]:
-    return await get_context().agents.list_presets()
+    return await ctx.agents.aio.list_presets()
 
 
 @registry.register(
@@ -203,7 +199,6 @@ async def list_presets() -> list[dict[str, Any]]:
     display_group="Agent Presets",
     description="Update one or more fields of an existing agent preset. Only provide the fields you want to change. The preset is identified by its slug.",
     namespace="ai.agent",
-    required_entitlements=["agent_addons"],
 )
 async def update_preset(
     slug: Annotated[
@@ -303,7 +298,7 @@ async def update_preset(
     ] = None,
     skills: Annotated[
         list[dict[str, Any]] | None,
-        Doc("The updated skill bindings for the preset."),
+        Doc("The updated skill bindings for the preset containing `skill_id`."),
     ] = None,
 ) -> dict[str, Any]:
     # Build kwargs, only including non-None values
@@ -347,7 +342,7 @@ async def update_preset(
     if skills is not None:
         kwargs["skills"] = skills
 
-    return await get_context().agents.update_preset(slug, **kwargs)
+    return await ctx.agents.aio.update_preset(slug, **kwargs)
 
 
 @registry.register(
@@ -355,7 +350,6 @@ async def update_preset(
     display_group="Agent Presets",
     description="Permanently delete an agent preset from the workspace. The preset is identified by its slug. This action cannot be undone.",
     namespace="ai.agent",
-    required_entitlements=["agent_addons"],
 )
 async def delete_preset(
     slug: Annotated[
@@ -363,4 +357,4 @@ async def delete_preset(
         Doc("The slug identifier of the preset to delete (e.g., 'security-analyst')."),
     ],
 ) -> None:
-    await get_context().agents.delete_preset(slug)
+    await ctx.agents.aio.delete_preset(slug)

@@ -36,7 +36,7 @@ The original filename.
 
 ### Examples
 
-**Work with attachments**
+**Upload an attachment**
 
 ```yaml
 - ref: upload_attachment
@@ -46,39 +46,6 @@ The original filename.
     file_name: note.txt
     content_base64: Zm9yZW5zaWMgbm90ZXM=
     content_type: text/plain
-- ref: upload_attachment_from_url
-  action: core.cases.upload_attachment_from_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    url: https://artifacts.example.com/evidence/${{ TRIGGER.alert_id }}
-    headers:
-      Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
-    file_name: evidence.json
-- ref: list_attachments
-  action: core.cases.list_attachments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: get_attachment
-  action: core.cases.get_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: get_download_url
-  action: core.cases.get_attachment_download_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-    expiry: 900
-- ref: download_attachment
-  action: core.cases.download_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: delete_attachment
-  action: core.cases.delete_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
 ```
 
 ## `core.cases.upload_attachment_from_url`
@@ -117,16 +84,9 @@ Default: `null`.
 
 ### Examples
 
-**Work with attachments**
+**Upload an attachment from a URL**
 
 ```yaml
-- ref: upload_attachment
-  action: core.cases.upload_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    file_name: note.txt
-    content_base64: Zm9yZW5zaWMgbm90ZXM=
-    content_type: text/plain
 - ref: upload_attachment_from_url
   action: core.cases.upload_attachment_from_url
   args:
@@ -135,31 +95,6 @@ Default: `null`.
     headers:
       Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
     file_name: evidence.json
-- ref: list_attachments
-  action: core.cases.list_attachments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: get_attachment
-  action: core.cases.get_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: get_download_url
-  action: core.cases.get_attachment_download_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-    expiry: 900
-- ref: download_attachment
-  action: core.cases.download_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: delete_attachment
-  action: core.cases.delete_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
 ```
 
 ## `core.cases.list_attachments`
@@ -176,49 +111,13 @@ The ID of the case to list attachments for.
 
 ### Examples
 
-**Work with attachments**
+**List attachments**
 
 ```yaml
-- ref: upload_attachment
-  action: core.cases.upload_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    file_name: note.txt
-    content_base64: Zm9yZW5zaWMgbm90ZXM=
-    content_type: text/plain
-- ref: upload_attachment_from_url
-  action: core.cases.upload_attachment_from_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    url: https://artifacts.example.com/evidence/${{ TRIGGER.alert_id }}
-    headers:
-      Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
-    file_name: evidence.json
 - ref: list_attachments
   action: core.cases.list_attachments
   args:
     case_id: ${{ TRIGGER.case_id }}
-- ref: get_attachment
-  action: core.cases.get_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: get_download_url
-  action: core.cases.get_attachment_download_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-    expiry: 900
-- ref: download_attachment
-  action: core.cases.download_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: delete_attachment
-  action: core.cases.delete_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
 ```
 
 ## `core.cases.get_attachment`
@@ -241,46 +140,11 @@ The ID of the case containing the attachment.
 
 ### Examples
 
-**Work with attachments**
+**Get attachment metadata**
 
 ```yaml
-- ref: upload_attachment
-  action: core.cases.upload_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    file_name: note.txt
-    content_base64: Zm9yZW5zaWMgbm90ZXM=
-    content_type: text/plain
-- ref: upload_attachment_from_url
-  action: core.cases.upload_attachment_from_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    url: https://artifacts.example.com/evidence/${{ TRIGGER.alert_id }}
-    headers:
-      Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
-    file_name: evidence.json
-- ref: list_attachments
-  action: core.cases.list_attachments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
 - ref: get_attachment
   action: core.cases.get_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: get_download_url
-  action: core.cases.get_attachment_download_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-    expiry: 900
-- ref: download_attachment
-  action: core.cases.download_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: delete_attachment
-  action: core.cases.delete_attachment
   args:
     case_id: ${{ TRIGGER.case_id }}
     attachment_id: ${{ TRIGGER.attachment_id }}
@@ -314,49 +178,15 @@ Default: `null`.
 
 ### Examples
 
-**Work with attachments**
+**Get an attachment download URL**
 
 ```yaml
-- ref: upload_attachment
-  action: core.cases.upload_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    file_name: note.txt
-    content_base64: Zm9yZW5zaWMgbm90ZXM=
-    content_type: text/plain
-- ref: upload_attachment_from_url
-  action: core.cases.upload_attachment_from_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    url: https://artifacts.example.com/evidence/${{ TRIGGER.alert_id }}
-    headers:
-      Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
-    file_name: evidence.json
-- ref: list_attachments
-  action: core.cases.list_attachments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: get_attachment
-  action: core.cases.get_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: get_download_url
+- ref: get_attachment_download_url
   action: core.cases.get_attachment_download_url
   args:
     case_id: ${{ TRIGGER.case_id }}
     attachment_id: ${{ TRIGGER.attachment_id }}
     expiry: 900
-- ref: download_attachment
-  action: core.cases.download_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: delete_attachment
-  action: core.cases.delete_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
 ```
 
 ## `core.cases.download_attachment`
@@ -379,46 +209,11 @@ The ID of the case containing the attachment.
 
 ### Examples
 
-**Work with attachments**
+**Download an attachment**
 
 ```yaml
-- ref: upload_attachment
-  action: core.cases.upload_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    file_name: note.txt
-    content_base64: Zm9yZW5zaWMgbm90ZXM=
-    content_type: text/plain
-- ref: upload_attachment_from_url
-  action: core.cases.upload_attachment_from_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    url: https://artifacts.example.com/evidence/${{ TRIGGER.alert_id }}
-    headers:
-      Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
-    file_name: evidence.json
-- ref: list_attachments
-  action: core.cases.list_attachments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: get_attachment
-  action: core.cases.get_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: get_download_url
-  action: core.cases.get_attachment_download_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-    expiry: 900
 - ref: download_attachment
   action: core.cases.download_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: delete_attachment
-  action: core.cases.delete_attachment
   args:
     case_id: ${{ TRIGGER.case_id }}
     attachment_id: ${{ TRIGGER.attachment_id }}
@@ -444,44 +239,9 @@ The ID of the case containing the attachment.
 
 ### Examples
 
-**Work with attachments**
+**Delete an attachment**
 
 ```yaml
-- ref: upload_attachment
-  action: core.cases.upload_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    file_name: note.txt
-    content_base64: Zm9yZW5zaWMgbm90ZXM=
-    content_type: text/plain
-- ref: upload_attachment_from_url
-  action: core.cases.upload_attachment_from_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    url: https://artifacts.example.com/evidence/${{ TRIGGER.alert_id }}
-    headers:
-      Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
-    file_name: evidence.json
-- ref: list_attachments
-  action: core.cases.list_attachments
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-- ref: get_attachment
-  action: core.cases.get_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-- ref: get_download_url
-  action: core.cases.get_attachment_download_url
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
-    expiry: 900
-- ref: download_attachment
-  action: core.cases.download_attachment
-  args:
-    case_id: ${{ TRIGGER.case_id }}
-    attachment_id: ${{ TRIGGER.attachment_id }}
 - ref: delete_attachment
   action: core.cases.delete_attachment
   args:

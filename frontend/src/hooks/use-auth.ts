@@ -1,6 +1,5 @@
 "use client"
 
-import { useQuery, useQueryClient } from "@tanstack/react-query"
 import Cookies from "js-cookie"
 import { useRouter } from "next/navigation"
 import { useCallback } from "react"
@@ -13,6 +12,7 @@ import {
 } from "@/client"
 import { authConfig } from "@/config/auth"
 import { getCurrentUser, User } from "@/lib/auth"
+import { useQuery, useQueryClient } from "@/lib/query"
 
 /* ── AUTH ACTIONS HOOK ─────────────────────────────────────────────────── */
 

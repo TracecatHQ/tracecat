@@ -15,9 +15,7 @@ async def test_request_uses_action_gateway_unix_socket(
 ) -> None:
     """Current SDKs route internal requests through the gateway socket from env.
 
-    This is the normal executor path for freshly loaded SDK code. The client
-    keeps `api_url` unchanged for callers, but selects a UDS transport for the
-    actual request when `TRACECAT__ACTION_GATEWAY_SOCKET` is set.
+    This is the only executor path for freshly loaded SDK code.
     """
     monkeypatch.setenv(
         "TRACECAT__ACTION_GATEWAY_SOCKET",
@@ -65,7 +63,6 @@ async def test_request_uses_action_gateway_unix_socket(
     monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
 
     client = TracecatClient(
-        api_url="http://api:8000",
         token="executor-token",
         timeout=12.0,
     )
@@ -84,77 +81,21 @@ async def test_request_uses_action_gateway_unix_socket(
 
 
 @pytest.mark.anyio
-async def test_empty_action_gateway_socket_env_uses_api_url(
+async def test_empty_action_gateway_socket_env_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An empty socket env var is treated as disabled and falls back to API URL.
-
-    This keeps local/dev environments from accidentally constructing an invalid
-    UDS transport when the socket variable is present but blank.
-    """
+    """An empty socket cannot silently route SDK traffic to the API service."""
     monkeypatch.setenv("TRACECAT__ACTION_GATEWAY_SOCKET", "")
-    captured: dict[str, Any] = {}
 
-    class FakeAsyncClient:
-        def __init__(
-            self,
-            *,
-            transport: object | None,
-            timeout: float,
-        ) -> None:
-            captured["transport"] = transport
-            captured["timeout"] = timeout
-
-        async def __aenter__(self) -> FakeAsyncClient:
-            return self
-
-        async def __aexit__(self, *args: object) -> None:
-            return None
-
-        async def request(
-            self,
-            method: str,
-            url: str,
-            *,
-            params: dict[str, Any] | None,
-            json: Any | None,
-            headers: dict[str, str],
-        ) -> httpx.Response:
-            captured["method"] = method
-            captured["url"] = url
-            captured["params"] = params
-            captured["json"] = json
-            captured["headers"] = headers
-            return httpx.Response(200, json={"ok": True})
-
-    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
-
-    client = TracecatClient(
-        api_url="http://api:8000",
-        token="executor-token",
-        timeout=12.0,
-    )
-
-    result = await client.get("/cases/case-id")
-
-    assert result == {"ok": True}
-    assert captured["transport"] is None
-    assert captured["timeout"] == 12.0
-    assert captured["method"] == "GET"
-    assert captured["url"] == "http://api:8000/internal/cases/case-id"
-    assert captured["headers"]["Authorization"] == "Bearer executor-token"
+    with pytest.raises(RuntimeError, match="ACTION_GATEWAY_SOCKET is required"):
+        TracecatClient(token="executor-token")
 
 
 @pytest.mark.anyio
-async def test_action_gateway_socket_keyword_is_supported_for_compat(
+async def test_action_gateway_socket_keyword_selects_gateway(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The rc-era explicit socket keyword remains a TracecatClient-only alias.
-
-    The keyword is kept for direct SDK callers from the rc line, but it does not
-    flow through `RegistryContext`; transport selection remains private to the
-    client/minimal-runner boundary.
-    """
+    """Direct SDK callers can provide the mandatory gateway socket explicitly."""
     monkeypatch.delenv("TRACECAT__ACTION_GATEWAY_SOCKET", raising=False)
     captured: dict[str, Any] = {}
 
@@ -198,7 +139,6 @@ async def test_action_gateway_socket_keyword_is_supported_for_compat(
     monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
 
     client = TracecatClient(
-        api_url="http://api:8000",
         action_gateway_socket="/var/run/tracecat/action-gateway.sock",
         token="executor-token",
         timeout=12.0,
@@ -215,62 +155,11 @@ async def test_action_gateway_socket_keyword_is_supported_for_compat(
 
 
 @pytest.mark.anyio
-async def test_request_uses_api_url_without_action_gateway(
+async def test_missing_action_gateway_socket_is_rejected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """SDK requests keep using TRACECAT__API_URL when no gateway socket exists.
-
-    This covers non-executor contexts and disabled gateway deployments, where
-    the SDK should behave like the pre-gateway client.
-    """
+    """Missing gateway configuration fails before any SDK request is attempted."""
     monkeypatch.delenv("TRACECAT__ACTION_GATEWAY_SOCKET", raising=False)
-    captured: dict[str, Any] = {}
 
-    class FakeAsyncClient:
-        def __init__(
-            self,
-            *,
-            transport: object | None,
-            timeout: float,
-        ) -> None:
-            captured["transport"] = transport
-            captured["timeout"] = timeout
-
-        async def __aenter__(self) -> FakeAsyncClient:
-            return self
-
-        async def __aexit__(self, *args: object) -> None:
-            return None
-
-        async def request(
-            self,
-            method: str,
-            url: str,
-            *,
-            params: dict[str, Any] | None,
-            json: Any | None,
-            headers: dict[str, str],
-        ) -> httpx.Response:
-            captured["method"] = method
-            captured["url"] = url
-            captured["params"] = params
-            captured["json"] = json
-            captured["headers"] = headers
-            return httpx.Response(200, json={"ok": True})
-
-    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
-
-    client = TracecatClient(
-        api_url="http://api:8000",
-        token="executor-token",
-        timeout=12.0,
-    )
-
-    result = await client.get("/cases/case-id")
-
-    assert result == {"ok": True}
-    assert captured["transport"] is None
-    assert captured["timeout"] == 12.0
-    assert captured["method"] == "GET"
-    assert captured["url"] == "http://api:8000/internal/cases/case-id"
-    assert captured["headers"]["Authorization"] == "Bearer executor-token"
+    with pytest.raises(RuntimeError, match="ACTION_GATEWAY_SOCKET is required"):
+        TracecatClient(token="executor-token")

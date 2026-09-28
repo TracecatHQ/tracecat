@@ -3,7 +3,20 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from tracecat.db.models import MCPIntegration, SkillVersion
+
+
+class SkillOrigin(StrEnum):
+    """Authority that owns a skill, independent of its portable name."""
+
+    PLATFORM = "platform"
+    WORKSPACE = "workspace"
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,3 +27,41 @@ class ResolvedSkillRef:
     skill_name: str
     skill_version_id: uuid.UUID
     manifest_sha256: str
+    origin: Literal[SkillOrigin.WORKSPACE] = SkillOrigin.WORKSPACE
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedSkillMcpTool:
+    """Publish-time MCP reference resolved to a non-resurrectable UUID."""
+
+    tool_id: str
+    mcp_integration_id: uuid.UUID
+    tool_name: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SkillToolProjection:
+    """Validated projection materialized for one immutable skill version."""
+
+    registry_tool_ids: tuple[str, ...] = ()
+    mcp_tools: tuple[ResolvedSkillMcpTool, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SkillMcpGrant:
+    """Effective grant for one MCP integration.
+
+    ``tool_names=None`` grants the whole integration. A non-empty frozenset is
+    an explicit tool subset.
+    """
+
+    mcp_integration_id: uuid.UUID
+    tool_names: frozenset[str] | None
+
+
+@dataclass(frozen=True, slots=True)
+class SkillToolMetadata:
+    """Loaded declarations and integrations shared within one policy evaluation."""
+
+    versions: Mapping[uuid.UUID, SkillVersion]
+    integrations: Mapping[uuid.UUID, MCPIntegration]

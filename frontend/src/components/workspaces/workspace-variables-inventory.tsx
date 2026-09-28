@@ -259,7 +259,7 @@ export function WorkspaceVariablesInventory() {
                                             <Button
                                               variant="outline"
                                               size="sm"
-                                              className="h-6 border-input bg-white px-2.5 text-[11px] text-foreground hover:bg-muted"
+                                              className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:bg-muted"
                                               onClick={(event) => {
                                                 event.stopPropagation()
                                                 setSelectedVariable(variable)
@@ -274,7 +274,7 @@ export function WorkspaceVariablesInventory() {
                                             <Button
                                               variant="outline"
                                               size="sm"
-                                              className="h-6 border-input bg-white px-2.5 text-[11px] text-foreground hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
+                                              className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
                                               onClick={(event) => {
                                                 event.stopPropagation()
                                                 setSelectedVariable(variable)

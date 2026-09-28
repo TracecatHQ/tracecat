@@ -56,6 +56,16 @@ class AgentArtifactPayload(TypedDict):
     title: str
 
 
+class WorkflowArtifactPayload(TypedDict):
+    """Raw payload used to validate a workflow artifact."""
+
+    type: Literal["workflow"]
+    id: str
+    title: str
+    color: str
+    isPublished: NotRequired[bool]
+
+
 class RunArtifactPayload(TypedDict):
     """Raw payload used to validate a workflow run artifact."""
 
@@ -120,6 +130,37 @@ class _AgentPresetToolResult(_ArtifactProjectionModel):
         default=None,
         validation_alias=AliasChoices("name", "title"),
     )
+
+
+class _WorkflowEditDocumentMetadata(_ArtifactProjectionModel):
+    title: str | None = None
+
+
+class _WorkflowEditDocument(_ArtifactProjectionModel):
+    metadata: _WorkflowEditDocumentMetadata | None = None
+
+
+class _WorkflowToolResult(_ArtifactProjectionModel):
+    id: str = Field(
+        validation_alias=AliasChoices("id", "workflow_id", "workflowId", "wf_id")
+    )
+    title: str | None = Field(
+        default=None, validation_alias=AliasChoices("title", "name")
+    )
+    is_published: bool | None = Field(
+        default=None, validation_alias=AliasChoices("is_published", "isPublished")
+    )
+    # ``get_workflow``/``edit_workflow`` carry the title nested under the
+    # editable draft document instead of at the top level.
+    draft_document: _WorkflowEditDocument | None = None
+
+    @property
+    def resolved_title(self) -> str | None:
+        if self.title:
+            return self.title
+        if self.draft_document and self.draft_document.metadata:
+            return self.draft_document.metadata.title
+        return None
 
 
 class _WorkflowRunToolResult(_ArtifactProjectionModel):
@@ -191,6 +232,12 @@ class ArtifactBinding:
     op: ArtifactOp
     build: ArtifactBuilder
     identity: ArtifactIdentityBuilder | None = None
+    max_artifacts: int | None = None
+
+
+# List-style tools (list/search) skip artifact emission past this count so a
+# broad listing answers in chat text instead of opening one tab per item.
+MAX_LIST_ARTIFACTS = 3
 
 
 def _build_case_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
@@ -249,6 +296,10 @@ def _build_workflow_run_artifact(ctx: ArtifactProjectionContext) -> Artifact | N
     return _run_artifact_from_output(ctx.tool_output, ctx.tool_input, ctx.tool_call_id)
 
 
+def _build_workflow_artifact(ctx: ArtifactProjectionContext) -> Artifact | None:
+    return _workflow_artifact_from_output(ctx.tool_output, ctx.tool_call_id)
+
+
 ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
     ArtifactBinding(
         tool_names=(
@@ -263,6 +314,7 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
         tool_names=("core.cases.list_cases", "core.cases.search_cases"),
         op="upsert",
         build=_build_case_artifacts,
+        max_artifacts=MAX_LIST_ARTIFACTS,
     ),
     ArtifactBinding(
         tool_names=("core.cases.delete_case",),
@@ -286,6 +338,7 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
         tool_names=("core.table.list_tables",),
         op="upsert",
         build=_build_table_artifacts,
+        max_artifacts=MAX_LIST_ARTIFACTS,
     ),
     ArtifactBinding(
         tool_names=(
@@ -293,6 +346,7 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
             "core.table.lookup_many",
             "core.table.is_in",
             "core.table.search_rows",
+            "core.table.aggregate_rows",
             "core.table.insert_row",
             "core.table.insert_rows",
             "core.table.update_row",
@@ -316,11 +370,21 @@ ARTIFACT_BINDINGS: tuple[ArtifactBinding, ...] = (
         tool_names=("ai.agent.list_presets",),
         op="upsert",
         build=_build_agent_artifacts,
+        max_artifacts=MAX_LIST_ARTIFACTS,
     ),
     ArtifactBinding(
         tool_names=("core.workflow.execute", "core.workflow.get_status"),
         op="upsert",
         build=_build_workflow_run_artifact,
+    ),
+    ArtifactBinding(
+        tool_names=(
+            "core.workflow.create_workflow",
+            "core.workflow.get_workflow",
+            "core.workflow.edit_workflow",
+        ),
+        op="upsert",
+        build=_build_workflow_artifact,
     ),
 )
 
@@ -387,6 +451,8 @@ def artifact_side_effects_for_tool_result(
 
     artifacts = _artifact_tuple(binding.build(ctx))
     if not artifacts:
+        return
+    if binding.max_artifacts is not None and len(artifacts) > binding.max_artifacts:
         return
 
     identity_ref = binding.identity(ctx) if binding.identity else None
@@ -628,6 +694,42 @@ def _agent_artifacts_from_output(
             yield ArtifactAdapter.validate_python(
                 _with_parent_scope(payload, tool_call_id)
             )
+
+
+# Default swatch color for workflow artifacts created via the chat copilot.
+# Workflows have no inherent color; the UI uses this for the artifact tab swatch.
+_DEFAULT_WORKFLOW_ARTIFACT_COLOR = "#6E56CF"
+
+
+def _workflow_artifact_from_output(
+    value: Any, tool_call_id: str | None
+) -> Artifact | None:
+    data = _mapping_from_tool_output(value)
+    if data is None:
+        return None
+
+    result = _WorkflowToolResult.try_validate(data)
+    if result is None:
+        return None
+
+    # ``edit_workflow`` returns no title (only message/workflow_id/draft_revision),
+    # so skip the upsert when no real title resolves. An empty side effect leaves
+    # the existing artifact untouched, preventing a title-less edit response from
+    # clobbering the title set by create_workflow/get_workflow with the workflow id.
+    title = result.resolved_title
+    if not title:
+        return None
+
+    payload: WorkflowArtifactPayload = {
+        "type": "workflow",
+        "id": result.id,
+        "title": title,
+        "color": _DEFAULT_WORKFLOW_ARTIFACT_COLOR,
+    }
+    if result.is_published is not None:
+        payload["isPublished"] = result.is_published
+
+    return ArtifactAdapter.validate_python(_with_parent_scope(payload, tool_call_id))
 
 
 def _run_artifact_from_output(

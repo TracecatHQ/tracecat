@@ -1,7 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useQuery } from "@tanstack/react-query"
+import type { Editor } from "@tiptap/react"
 import {
   AlertCircle,
   ArrowUpIcon,
@@ -17,33 +17,22 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import type React from "react"
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import type { CaseCommentRead, CaseCommentThreadRead } from "@/client"
 import {
-  type CaseCommentRead,
-  type CaseCommentThreadRead,
-  foldersListFolders,
-  type WorkflowFolderRead,
-  type WorkflowReadMinimal,
-  workflowsListWorkflows,
-} from "@/client"
-import {
-  ModelSelector,
-  ModelSelectorContent,
-  ModelSelectorEmpty,
-  ModelSelectorGroup,
-  ModelSelectorInput,
-  ModelSelectorItem,
-  ModelSelectorList,
-  ModelSelectorTrigger,
-} from "@/components/ai-elements/model-selector"
+  CaseCommentAgentAttribution,
+  CaseCommentAgentInvocationList,
+} from "@/components/cases/case-comment-agent"
+import { CaseCommentEditor } from "@/components/cases/case-comment-editor"
 import { CaseCommentViewer } from "@/components/cases/case-description-editor"
 import {
   CaseEventTimestamp,
   CaseUserAvatar,
 } from "@/components/cases/case-panel-common"
-import { TagBadge } from "@/components/tag-badge"
+import { MentionHint } from "@/components/mentions/mention-hint"
+import { MentionPopover } from "@/components/mentions/mention-popover"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -62,24 +51,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormMessage,
-} from "@/components/ui/form"
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card"
+import { Form, FormField, FormItem, FormMessage } from "@/components/ui/form"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { useAuth } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useTiptapMentions } from "@/hooks/use-tiptap-mentions"
 import { SYSTEM_USER_READ, User } from "@/lib/auth"
 import { executionId, getWorkflowExecutionUrl } from "@/lib/event-history"
 import {
@@ -90,29 +68,31 @@ import {
   useDeleteCaseComment,
   useUpdateCaseComment,
 } from "@/lib/hooks"
-import { cn } from "@/lib/utils"
+import { cn, INSET_SURFACE } from "@/lib/utils"
 
+/**
+ * Validates the display text in the composer. The length limit lives in
+ * `commentWireSchema` because it applies to the serialized value the API
+ * receives, which can be longer than the display text.
+ */
 const commentFormSchema = z.object({
-  content: z
-    .string()
-    .min(1, { message: "Comment cannot be empty" })
-    .max(25000, { message: "Comment cannot be longer than 25000 characters" }),
+  content: z.string().min(1, { message: "Comment cannot be empty" }),
+})
+
+/** Validates the wire value sent to the API after mentions are serialized. */
+const commentWireSchema = z
+  .string()
+  .max(25000, { message: "Comment cannot be longer than 25000 characters" })
+
+/** Inline edits have no mentions, so display and wire text are the same. */
+const commentEditFormSchema = z.object({
+  content: commentFormSchema.shape.content.pipe(commentWireSchema),
 })
 
 type CommentFormSchema = z.infer<typeof commentFormSchema>
 
 function getCommentUser(comment: CaseCommentRead) {
   return new User(comment.user ?? SYSTEM_USER_READ)
-}
-
-type WorkflowCommentSelectorItem = {
-  id: string
-  title: string
-  alias: string | null
-  folderName: string
-  folderPath: string | null
-  showFolderPath: boolean
-  tags: WorkflowReadMinimal["tags"]
 }
 
 type WorkflowCommentStatus = "running" | "succeeded" | "failed"
@@ -162,115 +142,6 @@ function getWorkflowStatusBadge(status: WorkflowCommentStatus) {
         </span>
       )
   }
-}
-
-function toWorkflowCommentSelectorItems(
-  workflows: WorkflowReadMinimal[],
-  folders: WorkflowFolderRead[]
-): WorkflowCommentSelectorItem[] {
-  const folderMap = new Map(folders.map((folder) => [folder.id, folder]))
-  const folderNameCounts = folders.reduce(
-    (counts, folder) =>
-      counts.set(folder.name, (counts.get(folder.name) ?? 0) + 1),
-    new Map<string, number>()
-  )
-
-  return workflows.map((workflow) => {
-    const folder = workflow.folder_id ? folderMap.get(workflow.folder_id) : null
-    const folderName = folder?.name ?? "No folder"
-    return {
-      id: workflow.id,
-      title: workflow.title,
-      alias: workflow.alias ?? null,
-      folderName,
-      folderPath: folder?.path ?? null,
-      showFolderPath: folder
-        ? (folderNameCounts.get(folder.name) ?? 0) > 1
-        : false,
-      tags: workflow.tags,
-    }
-  })
-}
-
-function useCommentWorkflowSelectorData(
-  workspaceId: string,
-  enabled: boolean
-): {
-  items: WorkflowCommentSelectorItem[]
-  isLoading: boolean
-} {
-  const { data: workflows = [], isLoading: workflowsIsLoading } = useQuery({
-    queryKey: ["comment-workflows", workspaceId],
-    queryFn: async () => {
-      const response = await workflowsListWorkflows({
-        workspaceId,
-        limit: 0,
-      })
-      return response.items
-    },
-    enabled,
-    staleTime: 5 * 60 * 1000,
-  })
-  const { data: folders = [], isLoading: foldersIsLoading } = useQuery({
-    queryKey: ["comment-workflow-folders", workspaceId],
-    queryFn: async () => await foldersListFolders({ workspaceId }),
-    enabled,
-    staleTime: 5 * 60 * 1000,
-  })
-
-  const items = useMemo(
-    () => toWorkflowCommentSelectorItems(workflows, folders),
-    [folders, workflows]
-  )
-
-  return {
-    items,
-    isLoading: workflowsIsLoading || foldersIsLoading,
-  }
-}
-
-function WorkflowSelectorTagBadges({
-  tags,
-}: {
-  tags: WorkflowReadMinimal["tags"]
-}) {
-  if (!tags?.length) {
-    return null
-  }
-
-  const [firstTag, ...remainingTags] = tags
-  if (!firstTag) {
-    return null
-  }
-
-  return (
-    <div className="ml-auto flex shrink-0 items-center gap-1">
-      <TagBadge tag={firstTag} className="h-5 shrink-0 px-1.5" />
-      {remainingTags.length ? (
-        <HoverCard openDelay={100} closeDelay={100}>
-          <HoverCardTrigger asChild>
-            <Badge
-              variant="outline"
-              className="h-5 shrink-0 rounded-full px-2 text-[11px]"
-            >
-              + {remainingTags.length}
-            </Badge>
-          </HoverCardTrigger>
-          <HoverCardContent
-            side="top"
-            align="end"
-            className="w-auto max-w-64 px-3 py-2"
-          >
-            <div className="flex flex-wrap gap-1">
-              {tags.map((tag) => (
-                <TagBadge key={tag.id} tag={tag} className="h-5 px-1.5" />
-              ))}
-            </div>
-          </HoverCardContent>
-        </HoverCard>
-      ) : null}
-    </div>
-  )
 }
 
 function getWorkflowRunPath(
@@ -353,7 +224,6 @@ export function CommentSection({
                 editingCommentId={editingCommentId}
                 onEdit={(commentId) => setEditingCommentId(commentId)}
                 onStopEditing={() => setEditingCommentId(null)}
-                workflowSelectionEnabled={repliesEnabled}
               />
             ))
           : caseComments
@@ -372,18 +242,19 @@ export function CommentSection({
                 </CommentThreadShell>
               ))}
       </div>
-      <CommentComposer
-        caseId={caseId}
-        workspaceId={workspaceId}
-        workflowSelectionEnabled={repliesEnabled}
-      />
+      <CommentComposer caseId={caseId} workspaceId={workspaceId} />
     </div>
   )
 }
 
 function CommentThreadShell({ children }: { children: React.ReactNode }) {
   return (
-    <section className="overflow-hidden rounded-lg border border-border/60 px-5 py-4">
+    <section
+      className={cn(
+        "overflow-hidden rounded-lg border border-border/60 px-5 py-4",
+        INSET_SURFACE
+      )}
+    >
       {children}
     </section>
   )
@@ -397,7 +268,6 @@ function CommentThread({
   editingCommentId,
   onEdit,
   onStopEditing,
-  workflowSelectionEnabled,
 }: {
   caseId: string
   workspaceId: string
@@ -406,7 +276,6 @@ function CommentThread({
   editingCommentId: string | null
   onEdit: (commentId: string) => void
   onStopEditing: () => void
-  workflowSelectionEnabled: boolean
 }) {
   const { comment } = thread
   const replies = thread.replies ?? []
@@ -415,7 +284,12 @@ function CommentThread({
   const hasReplies = replies.length > 0
 
   return (
-    <section className="overflow-hidden rounded-lg border border-border/60">
+    <section
+      className={cn(
+        "overflow-hidden rounded-lg border border-border/60",
+        INSET_SURFACE
+      )}
+    >
       <div className="px-5 py-4">
         <CommentRow
           caseId={caseId}
@@ -481,7 +355,6 @@ function CommentThread({
             parentId={comment.id}
             placeholder="Leave a reply..."
             mode="inline"
-            workflowSelectionEnabled={workflowSelectionEnabled}
           />
         </div>
       ) : null}
@@ -510,8 +383,13 @@ function CommentRow({
 }) {
   const user = getCommentUser(comment)
   const isWorkflowComment = !!comment.workflow
+  // A failed comment may never have started a run, so polling its execution
+  // id would only produce 404s; render the badge from the persisted status.
+  const persistedStatus = getWorkflowCommentStatus(comment)
   const { execution } = useCompactWorkflowExecution(
-    comment.workflow?.wf_exec_id ?? undefined
+    persistedStatus === "failed"
+      ? undefined
+      : (comment.workflow?.wf_exec_id ?? undefined)
   )
   const workflowStatus = execution
     ? execution.status === "COMPLETED"
@@ -519,18 +397,54 @@ function CommentRow({
       : execution.status === "RUNNING"
         ? "running"
         : "failed"
-    : getWorkflowCommentStatus(comment)
+    : persistedStatus
   const workflowRunPath = getWorkflowRunPath(
     workspaceId,
     execution?.id ?? comment.workflow?.wf_exec_id ?? null
   )
   const canManage = !comment.is_deleted && currentUserId === comment.user?.id
+  // Only a bare `/Workflow` command saves with an empty body; the workflow
+  // header stands alone in that case. The API rejects blank content otherwise.
+  const hasBody = comment.content.trim() !== ""
+
+  function renderBody() {
+    if (isEditing) {
+      return (
+        <InlineCommentEdit
+          comment={comment}
+          caseId={caseId}
+          workspaceId={workspaceId}
+          onStopEditing={onStopEditing}
+        />
+      )
+    }
+    if (comment.is_deleted) {
+      return (
+        <p className="text-sm italic text-muted-foreground">Comment deleted</p>
+      )
+    }
+    if (!hasBody) {
+      return null
+    }
+    return (
+      <ScrollArea className="w-full">
+        <div className="min-w-0 text-sm leading-6">
+          <CaseCommentViewer
+            content={comment.content}
+            workspaceId={workspaceId}
+          />
+        </div>
+      </ScrollArea>
+    )
+  }
 
   return (
     <div className="group space-y-3">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          {comment.is_deleted ? null : isWorkflowComment && comment.workflow ? (
+          {comment.is_deleted ? null : comment.agent ? (
+            <CaseCommentAgentAttribution attribution={comment.agent} />
+          ) : isWorkflowComment && comment.workflow ? (
             <div className="flex min-w-0 items-center gap-2">
               {getWorkflowStatusBadge(workflowStatus)}
               <span className="truncate text-sm font-medium text-foreground">
@@ -591,29 +505,19 @@ function CommentRow({
         </div>
       </div>
 
-      {isEditing ? (
-        <InlineCommentEdit
-          comment={comment}
-          caseId={caseId}
-          workspaceId={workspaceId}
-          onStopEditing={onStopEditing}
-        />
-      ) : comment.is_deleted ? (
-        <p className="text-sm italic text-muted-foreground">Comment deleted</p>
-      ) : (
-        <ScrollArea className="w-full">
-          <div className="min-w-0 text-sm leading-6">
-            <CaseCommentViewer content={comment.content} />
-          </div>
-        </ScrollArea>
-      )}
+      {renderBody()}
+      {!comment.is_deleted ? (
+        <CaseCommentAgentInvocationList mentions={comment.mentions} />
+      ) : null}
     </div>
   )
 }
 
 function CommentThreadSkeleton() {
   return (
-    <div className="rounded-lg border border-border/60 p-4">
+    <div
+      className={cn("rounded-lg border border-border/60 p-4", INSET_SURFACE)}
+    >
       <div className="space-y-4">
         <div className="flex gap-3">
           <Skeleton className="size-4 rounded-full" />
@@ -650,7 +554,6 @@ function CommentComposer({
   mode = "default",
   onSubmitted,
   autoFocus = false,
-  workflowSelectionEnabled = false,
 }: {
   caseId: string
   workspaceId: string
@@ -659,20 +562,15 @@ function CommentComposer({
   mode?: "default" | "inline"
   onSubmitted?: () => void
   autoFocus?: boolean
-  workflowSelectionEnabled?: boolean
 }) {
   const { createComment, createCommentIsPending } = useCreateCaseComment({
     caseId,
     workspaceId,
   })
   const isInline = mode === "inline"
-  const [selectorOpen, setSelectorOpen] = useState(false)
-  const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
-    null
-  )
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-  const { items: workflowItems, isLoading: workflowsAreLoading } =
-    useCommentWorkflowSelectorData(workspaceId, workflowSelectionEnabled)
+  const [editor, setEditor] = useState<Editor | null>(null)
+  const [isFocused, setIsFocused] = useState(false)
+  const [imageUploading, setImageUploading] = useState(false)
   const form = useForm<CommentFormSchema>({
     resolver: zodResolver(commentFormSchema),
     defaultValues: {
@@ -680,73 +578,100 @@ function CommentComposer({
     },
     mode: "onSubmit",
   })
-
-  const adjustTextareaHeight = useCallback(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-
-    textarea.style.height = "auto"
-    textarea.style.height = `${Math.max(textarea.scrollHeight, isInline ? 36 : 72)}px`
-    textarea.style.overflowY = "hidden"
-  }, [isInline])
+  const mentions = useTiptapMentions({
+    editor,
+    workspaceId,
+    // A comment may invoke several agents, but runs at most one workflow.
+    agents: { entitlements: ["agent_addons", "case_addons"] },
+    workflows: { entitlements: ["case_addons"], single: true },
+  })
 
   const content = form.watch("content")
   const trimmedContent = content.trim()
-  const selectedWorkflow = useMemo(
-    () =>
-      selectedWorkflowId
-        ? (workflowItems.find((item) => item.id === selectedWorkflowId) ?? null)
-        : null,
-    [selectedWorkflowId, workflowItems]
-  )
-  const workflowItemsByFolder = useMemo(() => {
-    const groups = new Map<string, WorkflowCommentSelectorItem[]>()
-    for (const item of workflowItems) {
-      const group = groups.get(item.folderName)
-      if (group) {
-        group.push(item)
-        continue
+  const serializeMentions = mentions.serialize
+  const resetMentions = mentions.reset
+  const handleSubmit = useCallback(
+    async (values: CommentFormSchema) => {
+      const serializedComment = serializeMentions(values.content)
+      const nextContent = serializedComment.content.trim()
+      const workflowId = serializedComment.workflowId
+      // A bare `/Workflow` command still runs and saves with an empty body.
+      if (!nextContent && !workflowId) {
+        return
       }
-      groups.set(item.folderName, [item])
-    }
-    return [...groups.entries()]
-  }, [workflowItems])
+      // Validate after removing the transient workflow marker so the limit
+      // applies to the exact Markdown sent over the wire.
+      const serialized = commentWireSchema.safeParse(nextContent)
+      if (!serialized.success) {
+        form.setError("content", {
+          message: serialized.error.issues[0]?.message,
+        })
+        return
+      }
+      try {
+        await createComment({
+          content: nextContent,
+          parent_id: parentId,
+          ...(workflowId ? { workflow_id: workflowId } : {}),
+        })
+        form.reset({ content: "" })
+        resetMentions()
+        onSubmitted?.()
+      } catch (error) {
+        console.error("Error creating comment:", error)
+      }
+    },
+    [
+      createComment,
+      form,
+      onSubmitted,
+      parentId,
+      resetMentions,
+      serializeMentions,
+    ]
+  )
 
-  useLayoutEffect(() => {
-    adjustTextareaHeight()
-  }, [adjustTextareaHeight, content])
+  const handleMentionKeyDownRef = useRef(mentions.handleKeyDown)
+  useEffect(() => {
+    handleMentionKeyDownRef.current = mentions.handleKeyDown
+  }, [mentions.handleKeyDown])
 
-  const handleSubmit = async (values: CommentFormSchema) => {
-    const nextContent = values.content.trim()
-    if (!nextContent) {
+  useEffect(() => {
+    if (!editor) {
       return
     }
-    try {
-      await createComment({
-        content: nextContent,
-        parent_id: parentId,
-        ...(selectedWorkflowId ? { workflow_id: selectedWorkflowId } : {}),
-      })
-      form.reset({ content: "" })
-      setSelectedWorkflowId(null)
-      onSubmitted?.()
-    } catch (error) {
-      console.error("Error creating comment:", error)
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (handleMentionKeyDownRef.current(event)) {
+        event.stopPropagation()
+        return
+      }
+      if (
+        event.key === "Enter" &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.isComposing
+      ) {
+        event.preventDefault()
+        event.stopPropagation()
+        if (createCommentIsPending || imageUploading) {
+          return
+        }
+        void form.handleSubmit(handleSubmit)()
+      }
     }
-  }
-
-  const handleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault()
-      form.handleSubmit(handleSubmit)()
+    const editorElement = editor.view.dom
+    editorElement.addEventListener("keydown", handleKeyDown, true)
+    return () => {
+      editorElement.removeEventListener("keydown", handleKeyDown, true)
     }
-  }
+  }, [createCommentIsPending, editor, form, handleSubmit, imageUploading])
 
   return (
     <div
-      className={
-        isInline ? "w-full" : "rounded-lg border border-border/60 px-4 py-3"
-      }
+      className={cn(
+        isInline
+          ? "w-full"
+          : ["rounded-lg border border-border/60 px-4 py-3", INSET_SURFACE]
+      )}
     >
       <Form {...form}>
         <form
@@ -758,140 +683,67 @@ function CommentComposer({
             name="content"
             render={({ field }) => (
               <FormItem>
-                <FormControl>
-                  <Textarea
-                    autoFocus={autoFocus}
-                    ref={(node) => {
-                      field.ref(node)
-                      textareaRef.current = node
-                    }}
-                    className={
-                      isInline
-                        ? "min-h-9 resize-none border-none px-0 py-1 text-sm shadow-none focus-visible:ring-0"
-                        : "min-h-[72px] resize-none border-none px-0 py-0 text-sm shadow-none focus-visible:ring-0"
-                    }
-                    name={field.name}
-                    onBlur={field.onBlur}
-                    onChange={(event) => {
-                      field.onChange(event)
-                      adjustTextareaHeight()
-                    }}
-                    onKeyDown={handleKeyDown}
-                    placeholder={placeholder}
+                <MentionPopover
+                  open={mentions.isOpen}
+                  kind={mentions.kind}
+                  caret={mentions.caret}
+                  sections={mentions.sections}
+                  itemCount={mentions.itemCount}
+                  activeIndex={mentions.activeIndex}
+                  isLoading={mentions.isLoading}
+                  locked={mentions.locked}
+                  hasError={mentions.hasError}
+                  onSelect={mentions.selectSuggestion}
+                >
+                  <CaseCommentEditor
                     value={field.value}
+                    onChange={field.onChange}
+                    caseId={caseId}
+                    workspaceId={workspaceId}
+                    placeholder={placeholder}
+                    mode={mode}
+                    autoFocus={autoFocus}
+                    onBlur={() => {
+                      field.onBlur()
+                      setIsFocused(false)
+                      mentions.dismiss()
+                    }}
+                    onFocus={() => setIsFocused(true)}
+                    onUploadingChange={setImageUploading}
+                    onEditorReady={setEditor}
                   />
-                </FormControl>
+                </MentionPopover>
                 <FormMessage />
               </FormItem>
             )}
           />
 
           <div className="flex items-end justify-between gap-2">
-            {workflowSelectionEnabled ? (
-              <ModelSelector open={selectorOpen} onOpenChange={setSelectorOpen}>
-                <ModelSelectorTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className={cn(
-                      "h-7 max-w-full justify-start gap-1.5 rounded-full border border-border/70 px-2 text-xs font-normal text-muted-foreground hover:text-foreground",
-                      isInline && "h-7"
-                    )}
-                  >
-                    <span className="truncate">
-                      {selectedWorkflow
-                        ? selectedWorkflow.title
-                        : "No workflow selected"}
-                    </span>
-                    {selectedWorkflow?.alias ? (
-                      <Badge
-                        variant="outline"
-                        className="h-5 shrink-0 rounded-full px-1.5 text-xs leading-none"
-                      >
-                        {selectedWorkflow.alias}
-                      </Badge>
-                    ) : null}
-                    <ChevronDown className="size-3.5 text-muted-foreground" />
-                  </Button>
-                </ModelSelectorTrigger>
-                <ModelSelectorContent className="max-w-2xl">
-                  <ModelSelectorInput placeholder="Search workflows, folders, or tags..." />
-                  <ModelSelectorList>
-                    <ModelSelectorEmpty>
-                      {workflowsAreLoading
-                        ? "Loading workflows..."
-                        : "No workflows found."}
-                    </ModelSelectorEmpty>
-                    <ModelSelectorGroup heading="Selection">
-                      <ModelSelectorItem
-                        value="no workflow selected"
-                        onSelect={() => {
-                          setSelectedWorkflowId(null)
-                          setSelectorOpen(false)
-                        }}
-                      >
-                        <span className="text-sm">No workflow selected</span>
-                      </ModelSelectorItem>
-                    </ModelSelectorGroup>
-                    {workflowItemsByFolder.map(([folderName, items]) => (
-                      <ModelSelectorGroup key={folderName} heading={folderName}>
-                        {items.map((item) => (
-                          <ModelSelectorItem
-                            key={item.id}
-                            value={[
-                              item.title,
-                              item.alias ?? "",
-                              item.folderName,
-                              item.folderPath ?? "",
-                              ...(item.tags?.map((tag) => tag.name) ?? []),
-                            ].join(" ")}
-                            onSelect={() => {
-                              setSelectedWorkflowId(item.id)
-                              setSelectorOpen(false)
-                            }}
-                          >
-                            <div className="min-w-0 space-y-1 py-1">
-                              <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-                                <span className="truncate text-sm font-medium">
-                                  {item.title}
-                                </span>
-                                {item.alias ? (
-                                  <Badge
-                                    variant="outline"
-                                    className="h-5 shrink-0 rounded-full px-1.5 text-xs leading-none"
-                                  >
-                                    {item.alias}
-                                  </Badge>
-                                ) : null}
-                                <WorkflowSelectorTagBadges tags={item.tags} />
-                              </div>
-                              {item.showFolderPath && item.folderPath ? (
-                                <p className="truncate text-xs text-muted-foreground">
-                                  {item.folderPath}
-                                </p>
-                              ) : null}
-                            </div>
-                          </ModelSelectorItem>
-                        ))}
-                      </ModelSelectorGroup>
-                    ))}
-                  </ModelSelectorList>
-                </ModelSelectorContent>
-              </ModelSelector>
-            ) : (
-              <div />
-            )}
-            <Button
-              type="submit"
-              variant="outline"
-              size="icon"
-              className="size-7 shrink-0 rounded-full border-border/70"
-              disabled={createCommentIsPending || !trimmedContent}
-              aria-label="Send"
-            >
-              <ArrowUpIcon className="size-3.5" />
-              <span className="sr-only">Send</span>
-            </Button>
+            <MentionHint
+              show={isFocused && !trimmedContent}
+              agents={mentions.agents}
+              workflows={mentions.workflows}
+            />
+            <div className="ml-auto flex items-center gap-2">
+              {imageUploading ? (
+                <span className="text-xs text-muted-foreground">
+                  Uploading image…
+                </span>
+              ) : null}
+              <Button
+                type="submit"
+                variant="outline"
+                size="icon"
+                className="size-7 shrink-0 rounded-full border-border/70"
+                disabled={
+                  createCommentIsPending || imageUploading || !trimmedContent
+                }
+                aria-label="Send"
+              >
+                <ArrowUpIcon className="size-3.5" />
+                <span className="sr-only">Send</span>
+              </Button>
+            </div>
           </div>
         </form>
       </Form>
@@ -915,50 +767,59 @@ function InlineCommentEdit({
     workspaceId,
     commentId: comment.id,
   })
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const [editor, setEditor] = useState<Editor | null>(null)
+  const [imageUploading, setImageUploading] = useState(false)
   const form = useForm<CommentFormSchema>({
-    resolver: zodResolver(commentFormSchema),
+    resolver: zodResolver(commentEditFormSchema),
     defaultValues: {
       content: comment.content,
     },
   })
 
-  const adjustTextareaHeight = useCallback(() => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-
-    textarea.style.height = "auto"
-    textarea.style.height = `${Math.max(textarea.scrollHeight, 72)}px`
-    textarea.style.overflowY = "hidden"
-  }, [])
-
   const content = form.watch("content")
+  const handleSubmit = useCallback(
+    async (values: CommentFormSchema) => {
+      try {
+        await updateComment({
+          content: values.content,
+        })
+        onStopEditing()
+        toast({
+          title: "Comment updated",
+          description: "Your comment has been updated successfully.",
+        })
+      } catch (error) {
+        console.error("Error updating comment:", error)
+      }
+    },
+    [onStopEditing, updateComment]
+  )
 
-  useLayoutEffect(() => {
-    adjustTextareaHeight()
-  }, [adjustTextareaHeight, content])
-
-  const handleSubmit = async (values: CommentFormSchema) => {
-    try {
-      await updateComment({
-        content: values.content,
-      })
-      onStopEditing()
-      toast({
-        title: "Comment updated",
-        description: "Your comment has been updated successfully.",
-      })
-    } catch (error) {
-      console.error("Error updating comment:", error)
+  useEffect(() => {
+    if (!editor) {
+      return
     }
-  }
-
-  const handleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.key !== "Enter" ||
+        (!event.metaKey && !event.ctrlKey) ||
+        event.isComposing
+      ) {
+        return
+      }
       event.preventDefault()
-      form.handleSubmit(handleSubmit)()
+      event.stopPropagation()
+      if (updateCommentIsPending || imageUploading) {
+        return
+      }
+      void form.handleSubmit(handleSubmit)()
     }
-  }
+    const editorElement = editor.view.dom
+    editorElement.addEventListener("keydown", handleKeyDown, true)
+    return () => {
+      editorElement.removeEventListener("keydown", handleKeyDown, true)
+    }
+  }, [editor, form, handleSubmit, imageUploading, updateCommentIsPending])
 
   return (
     <Form {...form}>
@@ -968,30 +829,28 @@ function InlineCommentEdit({
           name="content"
           render={({ field }) => (
             <FormItem>
-              <FormControl>
-                <Textarea
-                  autoFocus
-                  ref={(node) => {
-                    field.ref(node)
-                    textareaRef.current = node
-                  }}
-                  className="min-h-[72px] border-none px-0 py-0 text-sm shadow-none focus-visible:ring-0"
-                  name={field.name}
-                  onBlur={field.onBlur}
-                  onChange={(event) => {
-                    field.onChange(event)
-                    adjustTextareaHeight()
-                  }}
-                  onKeyDown={handleKeyDown}
-                  value={field.value}
-                />
-              </FormControl>
+              <CaseCommentEditor
+                value={field.value}
+                onChange={field.onChange}
+                caseId={caseId}
+                workspaceId={workspaceId}
+                placeholder="Edit comment..."
+                autoFocus
+                onBlur={field.onBlur}
+                onUploadingChange={setImageUploading}
+                onEditorReady={setEditor}
+              />
               <FormMessage />
             </FormItem>
           )}
         />
 
         <div className="flex items-center justify-end gap-2">
+          {imageUploading ? (
+            <span className="mr-auto text-xs text-muted-foreground">
+              Uploading image…
+            </span>
+          ) : null}
           <Button
             type="button"
             variant="ghost"
@@ -1005,7 +864,9 @@ function InlineCommentEdit({
             type="submit"
             size="sm"
             className="h-7 px-2 text-xs"
-            disabled={updateCommentIsPending || !content.trim()}
+            disabled={
+              updateCommentIsPending || imageUploading || !content.trim()
+            }
           >
             Save
           </Button>

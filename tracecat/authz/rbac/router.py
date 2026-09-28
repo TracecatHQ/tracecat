@@ -23,7 +23,7 @@ from tracecat_ee.rbac.schemas import (
 from tracecat_ee.rbac.service import RBACService
 
 from tracecat.auth.credentials import RoleACL
-from tracecat.auth.dependencies import OrgUserRole
+from tracecat.auth.dependencies import OrgActorRole
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -82,7 +82,7 @@ roles_router = APIRouter(prefix="/rbac/roles", tags=["rbac"])
 @roles_router.get("", response_model=RoleList)
 async def list_roles(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
 ) -> RoleList:
     """List roles for the organization.
@@ -152,7 +152,7 @@ def _assignment_to_read(
 @require_scope("org:rbac:read")
 async def list_user_assignments(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     user_id: UUID | None = Query(None, description="Filter by user ID"),
     workspace_id: UUID | None = Query(None, description="Filter by workspace ID"),
@@ -175,7 +175,7 @@ async def list_user_assignments(
 @require_scope("org:rbac:read")
 async def get_user_assignment(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     assignment_id: UUID,
 ) -> UserRoleAssignmentReadWithDetails:
@@ -196,7 +196,7 @@ async def get_user_assignment(
 @require_scope("org:rbac:create")
 async def create_user_assignment(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     params: UserRoleAssignmentCreate,
 ) -> UserRoleAssignmentReadWithDetails:
@@ -231,7 +231,7 @@ async def create_user_assignment(
 @require_scope("org:rbac:update")
 async def update_user_assignment(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     assignment_id: UUID,
     params: UserRoleAssignmentUpdate,
@@ -254,7 +254,7 @@ async def update_user_assignment(
 @require_scope("org:rbac:delete")
 async def delete_user_assignment(
     *,
-    role: OrgUserRole,
+    role: OrgActorRole,
     session: AsyncDBSession,
     assignment_id: UUID,
 ) -> None:

@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Bulk change case stage
+  description: Updates the case stage for multiple cases in bulk.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.cases/executeBulkChangeStage
+  namespace: tools.google_chronicle
+  name: bulk_change_case_stage
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The instance to execute bulk change stage on. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    casesIds:
+      type: list[int]
+      description: Cases to change stage for.
+    stage:
+      type: str
+      description: The case stage to change.
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases:executeBulkChangeStage
+        method: POST
+        payload:
+          casesIds: ${{ inputs.casesIds }}
+          stage: ${{ inputs.stage }}
+  returns: ${{ steps.call_api.result }}

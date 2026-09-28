@@ -2,7 +2,6 @@
  * @jest-environment jsdom
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type {
   CaseReadMinimal,
@@ -12,6 +11,7 @@ import type {
 } from "@/client"
 import { casesSearchCaseAggregates, casesSearchCases } from "@/client"
 import { useCases } from "@/hooks/use-cases"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-1",

@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from cryptography.fernet import Fernet
@@ -28,7 +29,7 @@ from tracecat.agent.channels.service import (
 )
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentPreset, Workspace
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -40,6 +41,7 @@ def set_db_encryption_key(monkeypatch: pytest.MonkeyPatch) -> None:
         "TRACECAT__DB_ENCRYPTION_KEY",
         Fernet.generate_key().decode(),
     )
+    monkeypatch.setattr(config, "TRACECAT__SIGNING_SECRET", "test-signing-secret")
 
 
 @pytest.fixture
@@ -175,6 +177,253 @@ async def test_update_token_rejects_null_is_active(
             token,
             AgentChannelTokenUpdate(is_active=None),
         )
+
+
+@pytest.mark.anyio
+async def test_create_token_rejects_soft_deleted_preset(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+) -> None:
+    """Channel tokens cannot be created for soft-deleted presets."""
+    agent_preset.deleted_at = datetime.now(UTC)
+    agent_channel_service.session.add(agent_preset)
+    await agent_channel_service.session.commit()
+
+    with pytest.raises(TracecatNotFoundError, match="not found in workspace"):
+        await agent_channel_service.create_token(
+            AgentChannelTokenCreate(
+                agent_preset_id=agent_preset.id,
+                channel_type=ChannelType.SLACK,
+                config=SlackChannelTokenConfig(
+                    slack_bot_token="xoxb-real-secret",
+                    slack_client_id="12345.67890",
+                    slack_client_secret="client-secret",
+                    slack_signing_secret="signing-secret",
+                ),
+                is_active=True,
+            )
+        )
+
+
+@pytest.mark.anyio
+async def test_create_active_token_locks_preset(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Creating an active token locks the preset before insertion."""
+    captured_locks: list[bool] = []
+    original_require_workspace_preset = agent_channel_service._require_workspace_preset
+
+    async def instrumented_require_workspace_preset(
+        preset_id: uuid.UUID, *, lock: bool = False
+    ) -> None:
+        captured_locks.append(lock)
+        await original_require_workspace_preset(preset_id, lock=lock)
+
+    monkeypatch.setattr(
+        agent_channel_service,
+        "_require_workspace_preset",
+        instrumented_require_workspace_preset,
+    )
+
+    await agent_channel_service.create_token(
+        AgentChannelTokenCreate(
+            agent_preset_id=agent_preset.id,
+            channel_type=ChannelType.SLACK,
+            config=SlackChannelTokenConfig(
+                slack_bot_token="xoxb-real-secret",
+                slack_client_id="12345.67890",
+                slack_client_secret="client-secret",
+                slack_signing_secret="signing-secret",
+            ),
+            is_active=True,
+        )
+    )
+
+    assert captured_locks == [True]
+
+
+@pytest.mark.anyio
+async def test_create_pending_token_locks_preset(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Creating a pending Slack token locks the preset before insertion."""
+    captured_locks: list[bool] = []
+    original_require_workspace_preset = agent_channel_service._require_workspace_preset
+
+    async def instrumented_require_workspace_preset(
+        preset_id: uuid.UUID, *, lock: bool = False
+    ) -> None:
+        captured_locks.append(lock)
+        await original_require_workspace_preset(preset_id, lock=lock)
+
+    monkeypatch.setattr(
+        agent_channel_service,
+        "_require_workspace_preset",
+        instrumented_require_workspace_preset,
+    )
+
+    await agent_channel_service.create_token(
+        AgentChannelTokenCreate(
+            agent_preset_id=agent_preset.id,
+            channel_type=ChannelType.SLACK,
+            config=SlackChannelTokenConfig(
+                slack_bot_token=PENDING_SLACK_BOT_TOKEN,
+                slack_client_id="12345.67890",
+                slack_client_secret="client-secret",
+                slack_signing_secret="signing-secret",
+            ),
+            is_active=False,
+        )
+    )
+
+    assert captured_locks == [True]
+
+
+@pytest.mark.anyio
+async def test_update_token_rejects_reactivating_soft_deleted_preset(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+) -> None:
+    """Soft-deleted presets cannot have inactive tokens reactivated."""
+    token = await agent_channel_service.create_token(
+        AgentChannelTokenCreate(
+            agent_preset_id=agent_preset.id,
+            channel_type=ChannelType.SLACK,
+            config=SlackChannelTokenConfig(
+                slack_bot_token="xoxb-real-secret",
+                slack_client_id="12345.67890",
+                slack_client_secret="client-secret",
+                slack_signing_secret="signing-secret",
+            ),
+            is_active=False,
+        )
+    )
+    agent_preset.deleted_at = datetime.now(UTC)
+    agent_channel_service.session.add(agent_preset)
+    await agent_channel_service.session.commit()
+
+    with pytest.raises(TracecatNotFoundError, match="not found in workspace"):
+        await agent_channel_service.update_token(
+            token,
+            AgentChannelTokenUpdate(is_active=True),
+        )
+
+
+@pytest.mark.anyio
+async def test_update_token_rejects_config_update_for_soft_deleted_preset(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+) -> None:
+    """Soft-deleted presets cannot receive channel config updates."""
+    token = await agent_channel_service.create_token(
+        AgentChannelTokenCreate(
+            agent_preset_id=agent_preset.id,
+            channel_type=ChannelType.SLACK,
+            config=SlackChannelTokenConfig(
+                slack_bot_token=PENDING_SLACK_BOT_TOKEN,
+                slack_client_id="12345.67890",
+                slack_client_secret="client-secret",
+                slack_signing_secret="signing-secret",
+            ),
+            is_active=False,
+        )
+    )
+    agent_preset.deleted_at = datetime.now(UTC)
+    agent_channel_service.session.add(agent_preset)
+    await agent_channel_service.session.commit()
+
+    with pytest.raises(TracecatNotFoundError, match="not found in workspace"):
+        await agent_channel_service.update_token(
+            token,
+            AgentChannelTokenUpdate(
+                config=SlackChannelTokenConfig(
+                    slack_bot_token=PENDING_SLACK_BOT_TOKEN,
+                    slack_client_id="updated-client-id",
+                    slack_client_secret="updated-client-secret",
+                    slack_signing_secret="updated-signing-secret",
+                ),
+                is_active=False,
+            ),
+        )
+
+
+@pytest.mark.anyio
+async def test_update_token_locks_preset_when_reactivating(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reactivating a token locks the preset before mutation."""
+    token = await agent_channel_service.create_token(
+        AgentChannelTokenCreate(
+            agent_preset_id=agent_preset.id,
+            channel_type=ChannelType.SLACK,
+            config=SlackChannelTokenConfig(
+                slack_bot_token="xoxb-real-secret",
+                slack_client_id="12345.67890",
+                slack_client_secret="client-secret",
+                slack_signing_secret="signing-secret",
+            ),
+            is_active=False,
+        )
+    )
+    captured_locks: list[bool] = []
+    original_require_workspace_preset = agent_channel_service._require_workspace_preset
+
+    async def instrumented_require_workspace_preset(
+        preset_id: uuid.UUID, *, lock: bool = False
+    ) -> None:
+        captured_locks.append(lock)
+        await original_require_workspace_preset(preset_id, lock=lock)
+
+    monkeypatch.setattr(
+        agent_channel_service,
+        "_require_workspace_preset",
+        instrumented_require_workspace_preset,
+    )
+
+    await agent_channel_service.update_token(
+        token,
+        AgentChannelTokenUpdate(is_active=True),
+    )
+
+    assert captured_locks == [True]
+
+
+@pytest.mark.anyio
+async def test_public_token_lookup_rejects_soft_deleted_preset(
+    agent_channel_service: AgentChannelService,
+    agent_preset: AgentPreset,
+) -> None:
+    """Public token lookup ignores tokens attached to soft-deleted presets."""
+    token = await agent_channel_service.create_token(
+        AgentChannelTokenCreate(
+            agent_preset_id=agent_preset.id,
+            channel_type=ChannelType.SLACK,
+            config=SlackChannelTokenConfig(
+                slack_bot_token="xoxb-real-secret",
+                slack_client_id="12345.67890",
+                slack_client_secret="client-secret",
+                slack_signing_secret="signing-secret",
+            ),
+            is_active=True,
+        )
+    )
+    agent_preset.deleted_at = datetime.now(UTC)
+    agent_channel_service.session.add(agent_preset)
+    await agent_channel_service.session.commit()
+
+    token_record = await AgentChannelService.get_token_for_public_request(
+        agent_channel_service.session,
+        token_id=token.id,
+        channel_type=ChannelType.SLACK,
+    )
+
+    assert token_record is None
 
 
 @pytest.mark.anyio

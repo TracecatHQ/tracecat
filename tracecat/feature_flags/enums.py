@@ -19,3 +19,5 @@ class FeatureFlag(StrEnum):
     WORKFLOW_CONCURRENCY_LIMITS = "workflow-concurrency-limits"
     AGENT_CHANNELS = "agent-channels"
     AGENT_FS_PERSISTENCE = "agent-fs-persistence"
+    # Expose backend selection for engineering validation during runtime rollout.
+    AGENT_RUNTIME = "agent-runtime"

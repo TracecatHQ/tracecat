@@ -59,6 +59,28 @@ async def _import_webhook_workflow(role: Role) -> tuple[str, str]:
 
 
 @pytest.mark.anyio
+async def test_webhook_returns_200_when_temporal_acknowledges_start(
+    svc_role: Role,
+) -> None:
+    workflow_id, secret = await _import_webhook_workflow(svc_role)
+
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
+        response = await client.post(
+            f"/webhooks/{workflow_id}/{secret}",
+            json={"text": "hello"},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    body = response.json()
+    assert body["message"] == "Workflow execution started"
+    assert body["wf_id"] == str(WorkflowUUID.new(workflow_id))
+    assert body["wf_exec_id"].startswith(f"{workflow_id}/exec_")
+
+
+@pytest.mark.anyio
 async def test_webhook_returns_500_when_temporal_start_fails(
     svc_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:

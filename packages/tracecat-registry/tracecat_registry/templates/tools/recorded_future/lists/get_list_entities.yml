@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Get list entities
+  description: Get entities on the list listId. Calls GET /list/{listId}/entities directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/lists-entities
+  namespace: tools.recorded_future
+  name: get_list_entities
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    listId:
+      type: str
+      description: Id of list or named watch list.
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/list/${{ FN.url_encode(inputs.listId) }}/entities
+        method: GET
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+  returns: ${{ steps.request.result }}

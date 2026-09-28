@@ -29,6 +29,13 @@ resource "aws_ecs_task_definition" "caddy_task_definition" {
         "-c",
         <<EOT
 cat > /etc/caddy/Caddyfile <<'CONFIG'
+{
+  servers {
+    trusted_proxies static ${join(" ", var.public_subnet_cidrs)}
+    trusted_proxies_strict
+  }
+}
+
 :80 {
   handle_path /api* {
     header {
@@ -46,10 +53,10 @@ cat > /etc/caddy/Caddyfile <<'CONFIG'
       header_down Connection "keep-alive"
       header_down Keep-Alive "timeout=300"
       header_down -Content-Length
-      header_up X-Forwarded-For {remote_host}
-      header_up X-Real-IP {remote_host}
-      header_up X-Forwarded-Proto {scheme}
+      header_up X-Forwarded-For {client_ip}
+      header_up X-Real-IP {client_ip}
       header_up X-Forwarded-Host {host}
+      header_up X-Forwarded-Proto {scheme}
     }
   }
 
@@ -75,16 +82,17 @@ ${var.enable_mcp ? <<MCP
       header_up Keep-Alive "timeout=300"
       header_down Connection "keep-alive"
       header_down Keep-Alive "timeout=300"
-      header_up X-Forwarded-For {remote_host}
-      header_up X-Real-IP {remote_host}
-      header_up X-Forwarded-Proto {scheme}
-      header_up X-Forwarded-Host {host}
+      header_up X-Forwarded-For {client_ip}
+      header_up X-Real-IP {client_ip}
     }
   }
 MCP
       : ""}
 
-  reverse_proxy http://ui-service:3000
+  reverse_proxy http://ui-service:3000 {
+    header_up X-Forwarded-For {client_ip}
+    header_up X-Real-IP {client_ip}
+  }
 }
 CONFIG
 

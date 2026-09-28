@@ -135,7 +135,7 @@ variable "tracecat_ui_image" {
 
 variable "tracecat_image_tag" {
   type    = string
-  default = "1.0.0-beta.48"
+  default = "1.0.0"
 }
 
 variable "tracecat_migrations_image" {
@@ -208,7 +208,6 @@ variable "temporal_namespace" {
   default     = "default"
 }
 
-
 ### Container Env Vars
 # NOTE: sensitive variables are stored in secrets manager
 # and specified directly in the task definition via a secret reference
@@ -219,10 +218,33 @@ variable "tracecat_app_env" {
   default     = "production"
 }
 
+variable "outbound_allowed_private_cidrs" {
+  type        = string
+  description = "Comma-separated private CIDRs permitted for outbound MCP and custom LLM requests. Empty denies private destinations. Applies to every workspace; grant only trusted endpoints."
+  default     = ""
+}
+
+variable "audit_trusted_proxy_cidrs" {
+  type        = string
+  description = "Comma-separated CIDRs the API treats as its own proxy hops when resolving audit client IPs. Empty uses the built-in private-range default."
+  default     = ""
+}
+
 variable "log_level" {
   type        = string
   description = "Log level for the application"
   default     = "INFO"
+}
+
+variable "log_format" {
+  type        = string
+  description = "Process-wide Tracecat log rendering format"
+  default     = "json"
+
+  validation {
+    condition     = contains(["console", "json"], lower(trimspace(var.log_format)))
+    error_message = "log_format must be console or json."
+  }
 }
 
 variable "temporal_log_level" {
@@ -247,6 +269,12 @@ variable "result_externalization_enabled" {
   type        = bool
   description = "Enable externalization of large workflow payloads to blob storage"
   default     = true
+}
+
+variable "unsafe_disable_secret_error_withholding" {
+  type        = bool
+  description = "UNSAFE: surface original action and expression error details even when secrets are in scope, instead of the generic 'Details withheld' message. Not recommended; may expose secret-derived values in error messages."
+  default     = false
 }
 
 variable "collection_manifests_enabled" {
@@ -291,6 +319,18 @@ variable "db_pool_recycle" {
   type        = string
   description = "The time in seconds after which pool connections are recycled"
   default     = "300"
+}
+
+variable "db_auth_max_overflow" {
+  type        = string
+  description = "The maximum number of connections to allow in the auth DB pool"
+  default     = "5"
+}
+
+variable "db_auth_pool_size" {
+  type        = string
+  description = "The size of the auth database connection pool"
+  default     = "5"
 }
 
 variable "db_max_overflow_executor" {
@@ -413,46 +453,36 @@ variable "saml_allow_unsolicited" {
   default     = false
 }
 
-variable "saml_authn_requests_signed" {
-  type        = bool
-  description = "Require signed SAML authn requests"
-  default     = false
-}
+# Email (SMTP relay)
 
-variable "saml_signed_assertions" {
-  type        = bool
-  description = "Require signed SAML assertions"
-  default     = true
-}
-
-variable "saml_signed_responses" {
-  type        = bool
-  description = "Require signed SAML responses"
-  default     = true
-}
-
-variable "saml_verify_ssl_entity" {
-  type        = bool
-  description = "Verify SSL certificates for SAML entity operations"
-  default     = true
-}
-
-variable "saml_verify_ssl_metadata" {
-  type        = bool
-  description = "Verify SSL certificates for SAML metadata operations"
-  default     = true
-}
-
-variable "saml_ca_certs_arn" {
+variable "smtp_password_arn" {
   type        = string
-  description = "The ARN of the secret containing SAML CA certs (optional)"
+  description = "The ARN of the optional secret containing the SMTP password"
   default     = null
 }
 
-variable "saml_metadata_cert_arn" {
+variable "smtp_host" {
   type        = string
-  description = "The ARN of the secret containing SAML metadata cert (optional)"
-  default     = null
+  description = "The SMTP relay host for invitation emails"
+  default     = ""
+}
+
+variable "smtp_port" {
+  type        = number
+  description = "The SMTP relay port for invitation emails"
+  default     = 587
+}
+
+variable "smtp_user" {
+  type        = string
+  description = "The SMTP username for invitation emails"
+  default     = ""
+}
+
+variable "email_from" {
+  type        = string
+  description = "The sender address for invitation emails, e.g. Tracecat <no-reply@example.com>"
+  default     = ""
 }
 
 # Temporal UI
@@ -527,6 +557,39 @@ variable "worker_desired_count" {
   default     = 2
 }
 
+variable "worker_threadpool_max_workers" {
+  type        = number
+  description = "Activity thread-pool size per DSL worker task (TEMPORAL__THREADPOOL_MAX_WORKERS). Bounds concurrent CPU-bound sync activities competing for the GIL."
+  default     = 100
+
+  validation {
+    condition     = var.worker_threadpool_max_workers > 0 && floor(var.worker_threadpool_max_workers) == var.worker_threadpool_max_workers
+    error_message = "worker_threadpool_max_workers must be a positive integer."
+  }
+}
+
+variable "worker_max_concurrent_activities" {
+  type        = number
+  description = "Max concurrent activities per DSL worker task (TEMPORAL__MAX_CONCURRENT_ACTIVITIES)."
+  default     = 100
+
+  validation {
+    condition     = var.worker_max_concurrent_activities > 0 && floor(var.worker_max_concurrent_activities) == var.worker_max_concurrent_activities
+    error_message = "worker_max_concurrent_activities must be a positive integer."
+  }
+}
+
+variable "worker_max_concurrent_workflow_tasks" {
+  type        = number
+  description = "Max concurrent workflow tasks per DSL worker task (TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS)."
+  default     = 100
+
+  validation {
+    condition     = var.worker_max_concurrent_workflow_tasks >= 2 && floor(var.worker_max_concurrent_workflow_tasks) == var.worker_max_concurrent_workflow_tasks
+    error_message = "worker_max_concurrent_workflow_tasks must be an integer greater than or equal to 2."
+  }
+}
+
 variable "agent_worker_cpu" {
   type    = string
   default = "2048"
@@ -541,6 +604,17 @@ variable "agent_worker_desired_count" {
   type        = number
   description = "Desired number of agent-worker instances to run"
   default     = 2
+}
+
+variable "agent_worker_max_concurrent_activities" {
+  type        = number
+  description = "Max concurrent activities per agent-worker task (TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES)."
+  default     = 100
+
+  validation {
+    condition     = var.agent_worker_max_concurrent_activities > 0 && floor(var.agent_worker_max_concurrent_activities) == var.agent_worker_max_concurrent_activities
+    error_message = "agent_worker_max_concurrent_activities must be a positive integer."
+  }
 }
 
 variable "agent_queue" {
@@ -570,16 +644,71 @@ variable "executor_client_timeout" {
   default = "900"
 }
 
+variable "agent_sandbox_timeout" {
+  type        = string
+  description = "Ceiling for agent execution timeouts in seconds"
+  default     = "3600"
+}
+
 variable "executor_queue" {
   type        = string
   description = "Task queue for executor workers"
   default     = "shared-action-queue"
 }
 
-variable "executor_worker_pool_size" {
-  type        = string
-  description = "Executor worker pool size (optional; auto when null)"
-  default     = null
+variable "executor_registry_cache_max_entries" {
+  type        = number
+  description = "Maximum number of entries in the executor-local registry artifact cache (TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES). Set to 0 to disable entry-count eviction."
+  default     = 64
+
+  validation {
+    condition     = var.executor_registry_cache_max_entries >= 0 && floor(var.executor_registry_cache_max_entries) == var.executor_registry_cache_max_entries
+    error_message = "executor_registry_cache_max_entries must be a non-negative integer."
+  }
+}
+
+variable "executor_registry_cache_max_bytes" {
+  type        = number
+  description = "Maximum executor-local registry artifact cache size in bytes (TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES). Set to 0 to disable size-based limits."
+  default     = 10737418240
+
+  validation {
+    condition     = var.executor_registry_cache_max_bytes >= 0 && floor(var.executor_registry_cache_max_bytes) == var.executor_registry_cache_max_bytes
+    error_message = "executor_registry_cache_max_bytes must be a non-negative integer."
+  }
+}
+
+variable "executor_max_concurrent_activities" {
+  type        = number
+  description = "Max concurrent activities per executor task (TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES)."
+  default     = 16
+
+  validation {
+    condition     = var.executor_max_concurrent_activities > 0 && floor(var.executor_max_concurrent_activities) == var.executor_max_concurrent_activities
+    error_message = "executor_max_concurrent_activities must be a positive integer."
+  }
+}
+
+variable "executor_threadpool_max_workers" {
+  type        = number
+  description = "Activity thread-pool size per executor task (TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS). Bounds concurrent CPU-bound sync activities competing for the GIL."
+  default     = 16
+
+  validation {
+    condition     = var.executor_threadpool_max_workers > 0 && floor(var.executor_threadpool_max_workers) == var.executor_threadpool_max_workers
+    error_message = "executor_threadpool_max_workers must be a positive integer."
+  }
+}
+
+variable "executor_for_each_max_concurrency" {
+  type        = number
+  description = "Max concurrent iterations within a single action's for_each loop (TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY)."
+  default     = 4
+
+  validation {
+    condition     = var.executor_for_each_max_concurrency > 0 && floor(var.executor_for_each_max_concurrency) == var.executor_for_each_max_concurrency
+    error_message = "executor_for_each_max_concurrency must be a positive integer."
+  }
 }
 
 variable "agent_executor_cpu" {
@@ -610,16 +739,10 @@ variable "agent_executor_max_concurrent_activities" {
   default     = 3
 }
 
-variable "agent_executor_worker_pool_size" {
-  type        = string
-  description = "Agent executor worker pool size (optional; auto when null)"
-  default     = null
-}
-
 variable "llm_proxy_read_timeout" {
   type        = string
-  description = "LLM proxy read timeout in seconds (default: 300)"
-  default     = "300"
+  description = "LLM proxy read timeout in seconds (default: 600)"
+  default     = "600"
 }
 
 variable "llm_gateway_credential_cache_ttl_seconds" {
@@ -708,6 +831,12 @@ variable "temporal_num_history_shards" {
   type        = string
   description = "Number of history shards for Temporal"
   default     = "512"
+}
+
+variable "temporal_default_namespace_retention" {
+  type        = string
+  description = "Workflow history retention for the Temporal namespace created by auto-setup. Applied at namespace creation only."
+  default     = "24h"
 }
 
 variable "caddy_cpu" {

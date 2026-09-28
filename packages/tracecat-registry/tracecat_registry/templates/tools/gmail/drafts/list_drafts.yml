@@ -1,0 +1,65 @@
+type: action
+definition:
+  title: List drafts
+  description: Lists the drafts in the user's mailbox.
+  display_group: Gmail
+  doc_url: https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.drafts/list
+  namespace: tools.gmail
+  name: list_drafts
+  secrets:
+    - type: oauth
+      provider_id: google_gmail
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_gmail
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    q:
+      type: str | None
+      description: >-
+        Only return draft messages matching the specified query. Supports the same query
+        format as the Gmail search box.
+      default: null
+    max_results:
+      type: int | None
+      description: >-
+        Maximum number of drafts to return. This field defaults to 100. The maximum
+        allowed value for this field is 500.
+      default: null
+    page_token:
+      type: str | None
+      description: Page token to retrieve a specific page of results in the list.
+      default: null
+    include_spam_trash:
+      type: bool | None
+      description: Include drafts from SPAM and TRASH in the results.
+      default: null
+    user_id:
+      type: str
+      description: >-
+        The user's email address. The special value `me` can be used to indicate the
+        authenticated user.
+      default: me
+  steps:
+    - ref: list_drafts
+      action: tools.google_api.call_api
+      args:
+        service_name: gmail
+        version: v1
+        resource: users.drafts
+        method_name: list
+        access_token: ${{ SECRETS.google_gmail_oauth.GOOGLE_GMAIL_USER_TOKEN || SECRETS.google_gmail_oauth.GOOGLE_GMAIL_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/gmail.compose"]
+        params:
+          userId: ${{ inputs.user_id }}
+          q: ${{ inputs.q }}
+          maxResults: ${{ inputs.max_results }}
+          pageToken: ${{ inputs.page_token }}
+          includeSpamTrash: ${{ inputs.include_spam_trash }}
+  returns: ${{ steps.list_drafts.result }}

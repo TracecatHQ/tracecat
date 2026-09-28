@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Get page
+  description: Gets the latest version of the specified page in the presentation.
+  display_group: Google Slides
+  doc_url: https://developers.google.com/workspace/slides/api/reference/rest/v1/presentations.pages/get
+  namespace: tools.google_slides
+  name: get_page
+  secrets:
+    - type: oauth
+      provider_id: google_slides
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_slides
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    presentation_id:
+      type: str
+      description: The ID of the presentation to retrieve.
+    page_object_id:
+      type: str
+      description: The object ID of the page to retrieve.
+  steps:
+    - ref: get_page
+      action: tools.google_api.call_api
+      args:
+        service_name: slides
+        version: v1
+        resource: presentations.pages
+        method_name: get
+        access_token: ${{ SECRETS.google_slides_oauth.GOOGLE_SLIDES_USER_TOKEN || SECRETS.google_slides_oauth.GOOGLE_SLIDES_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/presentations.readonly"]
+        params:
+          presentationId: ${{ inputs.presentation_id }}
+          pageObjectId: ${{ inputs.page_object_id }}
+  returns: ${{ steps.get_page.result }}

@@ -14,13 +14,45 @@ definition:
       type: str
       description: ID or key of the issue to add a comment to.
     comment:
-      type: str
-      description: Comment to add to the issue.
+      type: str | dict[str, Any]
+      description: >-
+        Comment to add to the issue. Plain strings are wrapped as ADF text
+        paragraphs. JSON object strings are deserialized. Dictionaries are sent
+        as the Jira comment `body` value.
     base_url:
       type: str | None
       description: Jira tenant URL (e.g. https://your-domain.atlassian.net).
       default: null
   steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          comment: ${{ inputs.comment }}
+        script: |
+          import json
+
+          def main(comment):
+              if isinstance(comment, dict):
+                  return {"body": comment}
+              try:
+                  parsed = json.loads(comment)
+              except (TypeError, ValueError):
+                  parsed = None
+              if isinstance(parsed, dict):
+                  return {"body": parsed}
+              return {
+                  "body": {
+                      "version": 1,
+                      "type": "doc",
+                      "content": [
+                          {
+                              "type": "paragraph",
+                              "content": [{"type": "text", "text": comment}],
+                          }
+                      ],
+                  }
+              }
     - ref: add_comment
       action: core.http_request
       args:
@@ -29,13 +61,5 @@ definition:
         auth:
           username: ${{ SECRETS.jira.JIRA_USEREMAIL }}
           password: ${{ SECRETS.jira.JIRA_API_TOKEN }}
-        payload:
-          body:
-            version: 1
-            type: doc
-            content:
-              - type: paragraph
-                content:
-                  - type: text
-                    text: ${{ inputs.comment }}
+        payload: ${{ steps.build_payload.result }}
   returns: ${{ steps.add_comment.result.data }}

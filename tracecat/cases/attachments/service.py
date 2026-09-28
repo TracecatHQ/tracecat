@@ -31,7 +31,12 @@ from tracecat.storage.exceptions import (
     MaxAttachmentsExceededError,
     StorageLimitExceededError,
 )
-from tracecat.storage.validation import FileSecurityValidator
+from tracecat.storage.validation import FileSecurityValidator, mime_equivalence_key
+
+# Image MIME types that are safe to preview inline in the browser.
+IMAGE_PREVIEW_MIME_TYPES = frozenset(
+    {"image/png", "image/jpeg", "image/gif", "image/webp"}
+)
 
 
 class CaseAttachmentService(BaseWorkspaceService):
@@ -233,6 +238,14 @@ class CaseAttachmentService(BaseWorkspaceService):
                 f"File size ({actual_size / 1024 / 1024:.1f}MB) exceeds maximum allowed size "
                 f"({config.TRACECAT__MAX_ATTACHMENT_SIZE_BYTES / 1024 / 1024}MB)"
             )
+
+        # Serialize concurrent uploads for the same case: the limit checks below
+        # read aggregate state, so without a lock two in-flight uploads can both
+        # observe pre-insert counts/storage and exceed the case limits. The lock
+        # is released when this transaction commits or rolls back.
+        await self.session.execute(
+            select(Case.id).where(Case.id == case.id).with_for_update()
+        )
 
         # Validate case-level limits (count + storage) efficiently using actual size
         await self._assert_case_limits(case, actual_size)
@@ -441,7 +454,8 @@ class CaseAttachmentService(BaseWorkspaceService):
         Args:
             case: The case the attachment belongs to
             attachment_id: The attachment ID
-            preview: If true, allows inline preview for safe image types (deprecated, kept for compatibility)
+            preview: If true, allows inline preview for safe image types (png, jpeg,
+                gif, webp). All other content types are always forced to download.
             expiry: URL expiry time in seconds (defaults to config value)
 
         Returns:
@@ -457,9 +471,18 @@ class CaseAttachmentService(BaseWorkspaceService):
         # Generate presigned URL for blob storage
         storage_key = attachment.storage_path
 
-        # Security: Always force download for attachments (no preview; param retained for compatibility)
-        force_download = True
-        override_content_type = "application/octet-stream"
+        # Security: force download as octet-stream by default. Only canonical
+        # safe image types may be served inline, and only when preview is requested.
+        if (
+            preview
+            and mime_equivalence_key(attachment.file.content_type)
+            in IMAGE_PREVIEW_MIME_TYPES
+        ):
+            force_download = False
+            override_content_type = attachment.file.content_type
+        else:
+            force_download = True
+            override_content_type = "application/octet-stream"
 
         try:
             presigned_url = await blob.generate_presigned_download_url(

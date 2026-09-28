@@ -1,9 +1,10 @@
 "use client"
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 // import { ReactQueryDevtools } from "@tanstack/react-query-devtools"
 import { type ReactNode, useState } from "react"
 import { ApiError } from "@/client"
+import { handleGlobalError, showFallbackErrorToast } from "@/lib/errors"
+import { QueryCache, QueryClient, QueryClientProvider } from "@/lib/query"
 
 export const DefaultQueryClientProvider = ({
   children,
@@ -12,6 +13,27 @@ export const DefaultQueryClientProvider = ({
 }) => {
   const [client] = useState(
     new QueryClient({
+      queryCache: new QueryCache({
+        onError: (error, query) => {
+          // A background refresh failure should not interrupt the user while
+          // previously loaded data remains available. Data-less polling
+          // queries should only notify on their first terminal failure.
+          if (
+            query.state.data !== undefined ||
+            query.state.errorUpdateCount > 1
+          ) {
+            return
+          }
+          // Queries whose callers render the failure inline opt out here.
+          if (query.meta?.suppressErrorToast === true) {
+            return
+          }
+          if (handleGlobalError(error)) {
+            return
+          }
+          showFallbackErrorToast(error, query.meta?.errorMessage)
+        },
+      }),
       defaultOptions: {
         queries: {
           // Don't retry on 4xx client errors (they won't change on retry)

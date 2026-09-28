@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Create message
+  description: Create a Sublime message data model from a raw message.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/createmessage
+  namespace: tools.sublime
+  name: create_message
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields,
+      # and a literal payload map cannot omit an unset optional.
+      type: dict[str, Any]
+      description: >-
+        API-native request body. Documented fields: raw_message (required), canonical_id, external_created_at, external_message_id, external_thread_id, folder, labels, mailbox_email_address, message_type, route_type.
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/messages/create
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result.data }}

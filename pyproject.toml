@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling >= 1.27.0"]
+requires = ["hatchling==1.27.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -23,39 +23,45 @@ classifiers = [
 dependencies = [
     "aioboto3==15.5.0",
     "aiocache==0.12.3",
-    "aiohttp==3.13.5",
+    "aiohttp==3.14.3",
+    "aiosmtplib==5.1.2",
     "alembic-postgresql-enum==1.7.0",
     "alembic==1.13.2",
     "async-lru==2.0.4",
     "asyncpg==0.29.0",
-    "authlib==1.6.11",
+    "authlib==1.6.12",
     "cachetools==7.0.6",
     "claude-agent-sdk==0.1.51",
     "cloudpickle==3.1.1",
     "cramjam==2.11.0",
     "croniter==6.0.0",
-    "cryptography==46.0.7",
+    "cryptography==50.0.0",
     "dateparser==1.2.2",
     "defusedxml==0.7.1",
     "email-validator==2.2.0",
     "fastapi-users[sqlalchemy,oauth]==15.0.2",
-    "fastapi[standard]==0.120.3",
+    "fastapi[standard]==0.137.1",
     "fastmcp==3.2.0",
     "google-auth==2.48.0",
     "greenlet==3.0.3",
     "griffe==2.0.2",
+    "httpcore==1.0.9",
     "httpx==0.28.1",
     "jsonpath_ng==1.7.0",
     "lark==1.1.9",
-    "litellm[proxy]==1.83.10",
+    "litellm[proxy]==1.89.1",
     "loguru==0.7.3",
     "minio==7.2.18",
+    "opentelemetry-api==1.43.0",
+    "opentelemetry-exporter-otlp-proto-http==1.43.0",
+    "opentelemetry-instrumentation-fastapi==0.64b0",
+    "opentelemetry-sdk==1.43.0",
     "orjson==3.11.7",
-    "paramiko==3.5.0",
+    "paramiko==5.0.0",
+    "pgvector==0.4.2",
     "polyfile==0.5.6",
     "protobuf==6.33.5",
     "psycopg[binary]==3.1.19",
-    "pydantic-ai-slim[anthropic,bedrock,google,mcp,openai]==1.62.0",
     "pydantic-extra-types==2.11.0",
     "pydantic==2.12.5",
     "pygithub==2.8.1",
@@ -64,13 +70,14 @@ dependencies = [
     "redis[hiredis]==7.1.0",
     "sentry-sdk==2.24.1",
     "sqlalchemy==2.0.45",
-    "starlette==0.49.3",
+    "starlette==1.3.1",
     "temporalio==1.20.0",
     "tenacity==8.3.0",
+    "tiktoken==0.14.0",
     "tomli==2.2.1",
     "tracecat-ee",
     "tracecat-registry",
-    "uv==0.11.6",
+    "uv==0.11.15",
     "uvicorn==0.35.0",
     "uvloop==0.21.0",
 ]
@@ -92,29 +99,29 @@ members = ["packages/*"]
 
 [tool.uv]
 # Override dependency pins to resolve conflicts between packages:
-# - chardet 7.0 removed chardet.universaldetector, breaking polyfile 0.5.6
 override-dependencies = [
-    "pyasn1==0.6.3",
+    "pyasn1==0.6.4",
     "requests==2.33.0",
-    "aiohttp==3.13.5",
+    "aiohttp==3.14.3",
     "uvicorn==0.35.0",
     "boto3==1.40.61",
-    "python-multipart==0.0.27",
+    "python-multipart==0.0.31",
     "rich==13.9.4",
     "grpcio==1.75.1",
     "grpcio-tools==1.75.1",
-    "pillow==12.2.0",
+    "pillow==12.3.0",
     "mako==1.3.12",
     "fastapi-sso==0.19.0",
-    "PyJWT==2.12.1",
-    "chardet<7",
-    "fickling==0.1.10",
+    "PyJWT==2.13.0",
+    # Chardet 7.x is incompatible with PolyFile 0.5.6 binary detection.
+    "chardet==6.0.0.post1",
+    "fickling==0.1.12",
     "anthropic==0.87.0",
     "python-dotenv==1.2.2",
     "urllib3==2.7.0",
     "orjson==3.11.7",
-    "fastapi==0.120.3",
-    "cryptography==46.0.7",
+    "fastapi==0.137.1",
+    "cryptography==50.0.0",
 ]
 
 [dependency-groups]
@@ -145,6 +152,14 @@ pattern = '^__pep440_version__ = "(?P<version>[^"]+)"'
 [tool.hatch.metadata]
 allow-direct-references = true
 
+[tool.hatch.build.targets.wheel]
+# Ship the package, including non-Python data files such as built-in skill
+# SKILL.md / reference markdown so importlib.resources can find them at runtime.
+packages = ["tracecat"]
+artifacts = [
+    "tracecat/agent/skill/builtin/**/*.md",
+]
+
 [tool.ruff]
 line-length = 88
 fix = true
@@ -173,6 +188,9 @@ ignore = [
 keep-runtime-typing = true
 
 [tool.pytest.ini_options]
+# `scripts/` is not a package; put it on the path so the commit-convention
+# tests can import scripts/commit_conventions.py and scripts/check_pr_title.py.
+pythonpath = ["scripts"]
 addopts = [
     "--strict-config",
     "--strict-markers",
@@ -206,6 +224,9 @@ venvPath = "."
 venv = ".venv"
 include = ["tracecat", "packages", "alembic", "tests"]
 exclude = ["scripts/", "**/__pycache__", "**/node_modules"]
+# `scripts/` stays out of the checked set, but tests/unit/test_commit_conventions.py
+# and tests/unit/test_check_pr_title.py import from it, so it has to resolve.
+extraPaths = ["scripts"]
 # Core type checking - keep enabled for catching real bugs
 reportMissingTypeStubs = false    # Don't require stubs for all dependencies
 reportUnusedImport = "warning"

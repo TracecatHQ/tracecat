@@ -5,7 +5,7 @@ inside an NSJail sandbox without database access. All I/O happens via Unix socke
 
 Key design principles:
 - No database imports (no SQLAlchemy, no DB services)
-- No pydantic-ai imports
+- Minimal runtime imports
 - Minimal import footprint for fast cold start
 """
 
@@ -16,7 +16,7 @@ import os
 import re
 import tempfile
 import uuid
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Iterable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +33,7 @@ from claude_agent_sdk import (
 )
 from claude_agent_sdk.types import (
     AgentDefinition,
+    AssistantMessage,
     HookContext,
     HookInput,
     McpHttpServerConfig,
@@ -44,32 +45,52 @@ from claude_agent_sdk.types import (
     SyncHookJSONOutput,
     SystemMessage,
     ToolResultBlock,
+    ToolUseBlock,
     UserMessage,
 )
 
 from tracecat.agent.common.config import (
+    AGENT_RUNTIME_PROTECTED_ENV_VARS,
     TRACECAT__AGENT_MCP_BRIDGE_PORT,
     TRACECAT__DISABLE_NSJAIL,
 )
-from tracecat.agent.common.exceptions import AgentSandboxValidationError
+from tracecat.agent.common.exceptions import (
+    AgentSandboxProcessExitError,
+    AgentSandboxValidationError,
+)
 from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
+from tracecat.agent.common.socket_io import MAX_PAYLOAD_SIZE
 from tracecat.agent.common.stream_types import (
     StreamEventType,
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.common.tool_inputs import (
+    AGENT_TOOL_NAMES,
+    sanitize_agent_tool_input,
+)
 from tracecat.agent.common.types import (
     MCPServerConfig,
+    MCPServerToolSummary,
     MCPStdioServerConfig,
     MCPToolDefinition,
+    requires_sandbox_internet_access,
 )
+from tracecat.agent.error_policy import (
+    AGENT_SANDBOX_RESOURCE_LIMIT_EXIT_CODES,
+    agent_runtime_failure,
+)
+from tracecat.agent.gateway_providers import is_gateway_provider
 from tracecat.agent.llm_routing import get_litellm_route_model
 from tracecat.agent.mcp.metadata import (
     PROXY_TOOL_CALL_ID_KEY,
     PROXY_TOOL_METADATA_KEY,
 )
 from tracecat.agent.mcp.utils import (
+    LEGACY_REGISTRY_MCP_SERVER_NAME,
+    MCP_TOOL_NAME_RE,
+    REGISTRY_MCP_SERVER_NAME,
     action_name_to_mcp_tool_name,
     normalize_mcp_tool_name,
 )
@@ -78,11 +99,24 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     APPROVAL_CONTINUATION_PROMPT,
     is_approval_continuation_prompt_line,
     is_meta_session_line,
+    is_model_context_session_line,
     is_synthetic_session_line,
 )
+from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
+from tracecat.integrations.mcp_validation import sanitize_mcp_command_args
 from tracecat.logger import logger
+from tracecat.runtime.errors import RuntimeErrorClassification
+from tracecat.sandbox.exceptions import SandboxFileSafetyError
+from tracecat.sandbox.file_io import (
+    atomic_write_file_beneath,
+    read_complete_lines_beneath,
+    regular_file_size_beneath,
+)
 
 CLAUDE_PROJECT_DIR_MAX_LENGTH = 200
+# Headroom reserved for session-envelope metadata when checking whether a
+# serialized session line still fits inside a MAX_PAYLOAD_SIZE socket frame.
+_SESSION_FRAME_MARGIN = 4096
 CLAUDE_PROJECT_DIR_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 LOG_PREVIEW_CHARS = 8000
 
@@ -135,8 +169,14 @@ class RuntimeEventWriter(Protocol):
     ) -> None:
         """Send the final Claude result."""
 
-    async def send_error(self, error: str) -> None:
-        """Send a terminal runtime error."""
+    async def send_error(
+        self,
+        error: str,
+        *,
+        classification: RuntimeErrorClassification | None = None,
+        cause: BaseException | None = None,
+    ) -> None:
+        """Send a terminal runtime error with optional trusted attribution."""
 
     async def send_done(self) -> None:
         """Signal that the runtime turn is complete."""
@@ -145,11 +185,47 @@ class RuntimeEventWriter(Protocol):
         """Send a structured runtime log event."""
 
 
+def _sandbox_process_exit_error(
+    transport: Transport | None,
+) -> AgentSandboxProcessExitError | None:
+    """Rebuild the typed process failure the SDK erased from its exception.
+
+    Only a resource-limit exit code counts. Rebuilding for any other code would
+    replace the propagating exception's type without changing its
+    classification, so a genuinely typed failure raised late in the turn --
+    ``AgentSandboxValidationError``, say -- would reach the activity as a
+    process exit and lose its own attribution.
+    """
+    if TRACECAT__DISABLE_NSJAIL:
+        # Without a jail no rlimit was installed, so the exit code carries no
+        # resource-limit meaning. A direct process that aborts or that the host
+        # OOM-kills is a platform failure, and attributing it to the caller
+        # would name a cap this deployment never enforced.
+        return None
+    if not isinstance(transport, SandboxedCLITransport):
+        return None
+    exit_code = transport.exit_code
+    if exit_code is None or exit_code not in AGENT_SANDBOX_RESOURCE_LIMIT_EXIT_CODES:
+        return None
+    return AgentSandboxProcessExitError(exit_code)
+
+
 @dataclass(frozen=True, slots=True)
 class _PreparedResumeAndMCP:
     resume_session_id: str | None
     fork_session: bool
     mcp_servers: dict[str, McpServerConfig]
+
+
+@dataclass(frozen=True, slots=True)
+class _StdioMCPServerSpec:
+    servers: dict[str, McpStdioServerConfig]
+    tools_by_server: dict[str, list[MCPServerToolSummary]]
+    # Full runtime tool names (mcp__{server}__{tool}) that still carry a
+    # requires_approval policy. Approvals are unsupported for stdio MCP tools
+    # (the subprocess is gone by approval time), so these are hard-denied at
+    # PreToolUse rather than routed into the approval request flow.
+    blocked_approval_tools: set[str]
 
 
 def _configure_claude_sdk_process_env() -> None:
@@ -190,13 +266,14 @@ DISALLOWED_TOOLS = [
     "SlashCommand",
 ]
 
-AGENT_TOOL_NAMES = frozenset({"Agent", "Task"})
 CHILD_AGENT_DISALLOWED_TOOLS = [
     "Agent",
     "Task",
     "TaskOutput",
     *CLAUDE_CODE_STATEFUL_TOOLS,
 ]
+
+TOOL_SEARCH_TOOL_NAME = "ToolSearch"
 
 # Tools that require internet access (these bypass sandbox network isolation
 # because they're executed server-side by Anthropic, not in the sandbox)
@@ -207,11 +284,14 @@ INTERNET_TOOLS = [
 
 COMMAND_LINE_TOOLS_PROMPT = (
     "<CommandLineTools>\n"
+    "- `python3`: Python 3 is installed in the runtime environment. Use it "
+    "through Bash for local scripting and data processing; no separate "
+    "Tracecat action or MCP tool is needed.\n"
     "- `duckdb`: The runtime shell includes the DuckDB CLI. Use it for local "
     "SQL and tabular data inspection over files such as CSV, JSON, Parquet, "
     "and DuckDB database files. The CLI is configured with the `json`, "
-    "`postgres`, `httpfs`, `sqlite`, and `inet` extensions for JSON, "
-    "PostgreSQL, HTTP/S3, SQLite, and IP address workflows. This is a local "
+    "`httpfs`, `inet`, and `fts` extensions for JSON, HTTP/S3, IP address, "
+    "and full-text search workflows. This is a local "
     "command-line capability, not a Tracecat action or MCP tool.\n"
     "</CommandLineTools>"
 )
@@ -219,12 +299,18 @@ COMMAND_LINE_TOOLS_PROMPT = (
 # Registry MCP server naming.
 # We canonicalize persisted session history to the hyphen form at the
 # resume boundary so runtime configuration only exposes one logical server.
-REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
+# Tool descriptions come from user-supplied MCP server binaries; cap what we
+# interpolate into the system prompt.
+STDIO_MCP_TOOL_DESCRIPTION_MAX_CHARS = 500
+
 REGISTRY_MCP_TOOL_PREFIX = f"mcp__{REGISTRY_MCP_SERVER_NAME}__"
 REGISTRY_MCP_DOT_PREFIX = f"mcp.{REGISTRY_MCP_SERVER_NAME}."
-LEGACY_REGISTRY_MCP_TOOL_PREFIX = "mcp__tracecat_registry__"
-LEGACY_REGISTRY_MCP_DOT_PREFIX = "mcp.tracecat_registry."
+LEGACY_REGISTRY_MCP_TOOL_PREFIX = f"mcp__{LEGACY_REGISTRY_MCP_SERVER_NAME}__"
+LEGACY_REGISTRY_MCP_DOT_PREFIX = f"mcp.{LEGACY_REGISTRY_MCP_SERVER_NAME}."
 SUBAGENT_REGISTRY_MCP_SERVER_PREFIX = "tracecat-registry-"
+RESERVED_MCP_SERVER_NAMES = frozenset(
+    {REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME}
+)
 TRUSTED_MCP_BRIDGE_URL = f"http://127.0.0.1:{TRACECAT__AGENT_MCP_BRIDGE_PORT}/mcp"
 
 # Increase the SDK's stdout/stderr capture buffer above its default 1 MiB so
@@ -267,13 +353,18 @@ class ClaudeAgentRuntime:
         # Public for testing - these represent runtime configuration
         self.registry_tools: dict[str, MCPToolDefinition] | None = None
         self.tool_approvals: dict[str, bool] | None = None
+        self._stdio_approval_blocked_tools: set[str] = set()
         self._runtime_internet_access_enabled: bool = False
         self._explicit_subagent_aliases: set[str] = set()
         self._registry_mcp_server_names: set[str] = {REGISTRY_MCP_SERVER_NAME}
-        self._agents_enabled: bool = False
         self._pending_approval_tool_ids: set[str] = set()
         self.client: ClaudeSDKClient | None = None
         self._was_interrupted: bool = False
+        self._interrupt_requested: str | None = None
+        self._interrupt_sent: bool = False
+        self._interrupt_lock = asyncio.Lock()
+        self._client_connected_event = asyncio.Event()
+        self._query_sent_event = asyncio.Event()
         # For incremental JSONL line tracking
         self._sdk_session_id: str | None = None
         self._last_seen_byte_offset: int = 0
@@ -325,6 +416,17 @@ class ClaudeAgentRuntime:
     def _subagent_registry_server_name(alias: str) -> str:
         return f"{SUBAGENT_REGISTRY_MCP_SERVER_PREFIX}{alias}"
 
+    @classmethod
+    def _reserved_subagent_server_names(cls, aliases: Iterable[str]) -> set[str]:
+        return {
+            name
+            for alias in aliases
+            for name in (
+                cls._subagent_registry_server_name(alias),
+                f"{LEGACY_REGISTRY_MCP_SERVER_NAME}-{alias}",
+            )
+        }
+
     @staticmethod
     def _trusted_mcp_server_config(auth_token: str) -> McpHttpServerConfig:
         return {
@@ -348,6 +450,10 @@ class ClaudeAgentRuntime:
     def _mcp_tool_wildcard_for_server(server_name: str) -> str:
         return f"mcp__{server_name}__*"
 
+    @staticmethod
+    def _mcp_tool_name_for_user_mcp_tool(server_name: str, tool_name: str) -> str:
+        return f"mcp__{server_name}__{tool_name}"
+
     @classmethod
     def _mcp_tool_names_for_actions(
         cls,
@@ -362,35 +468,108 @@ class ClaudeAgentRuntime:
         )
 
     @classmethod
+    def _mcp_tool_names_for_stdio_servers(
+        cls,
+        *,
+        stdio_server_names: list[str],
+        stdio_tools_by_server: dict[str, list[MCPServerToolSummary]],
+    ) -> list[str]:
+        tool_names: set[str] = set()
+        for server_name in stdio_server_names:
+            if server_name not in stdio_tools_by_server:
+                tool_names.add(cls._mcp_tool_wildcard_for_server(server_name))
+                continue
+
+            tool_names.update(
+                cls._mcp_tool_name_for_user_mcp_tool(server_name, tool["name"])
+                for tool in stdio_tools_by_server[server_name]
+            )
+        return sorted(tool_names)
+
+    @classmethod
     def _allowed_tools_for_mcp_scope(
         cls,
         *,
         registry_server_name: str,
         actions: dict[str, MCPToolDefinition] | None,
         stdio_server_names: list[str],
+        stdio_tools_by_server: dict[str, list[MCPServerToolSummary]] | None = None,
     ) -> list[str]:
         return sorted(
             {
                 *cls._mcp_tool_names_for_actions(registry_server_name, actions),
-                *(
-                    cls._mcp_tool_wildcard_for_server(server_name)
-                    for server_name in stdio_server_names
+                *cls._mcp_tool_names_for_stdio_servers(
+                    stdio_server_names=stdio_server_names,
+                    stdio_tools_by_server=stdio_tools_by_server or {},
                 ),
             }
         )
 
+    @staticmethod
+    def _sanitize_stdio_tool_description(description: str) -> str:
+        """Collapse whitespace and cap length before prompt interpolation.
+
+        Descriptions come from user-supplied MCP server binaries, so embedded
+        newlines could otherwise inject lines into the system prompt.
+        """
+        collapsed = " ".join(description.split())
+        if len(collapsed) > STDIO_MCP_TOOL_DESCRIPTION_MAX_CHARS:
+            collapsed = f"{collapsed[:STDIO_MCP_TOOL_DESCRIPTION_MAX_CHARS]}…"
+        return collapsed
+
     @classmethod
-    def _stdio_mcp_servers(
+    def _active_stdio_tool_summaries(
+        cls,
+        tools: list[MCPServerToolSummary] | None,
+    ) -> list[MCPServerToolSummary]:
+        if tools is None:
+            return []
+
+        active_tools: list[MCPServerToolSummary] = []
+        for tool in tools:
+            name = tool.get("name")
+            if not name:
+                continue
+            if not MCP_TOOL_NAME_RE.fullmatch(name):
+                logger.warning(
+                    "Skipping stdio MCP tool with unsupported name",
+                    tool_name=name,
+                )
+                continue
+            if tool.get("enabled", True) is False:
+                continue
+            if tool.get("status", "available") != "available":
+                continue
+            active_tool: MCPServerToolSummary = {"name": name}
+            if description := tool.get("description"):
+                active_tool["description"] = cls._sanitize_stdio_tool_description(
+                    description
+                )
+            if "requires_approval" in tool:
+                active_tool["requires_approval"] = tool["requires_approval"]
+            active_tools.append(active_tool)
+        return active_tools
+
+    @classmethod
+    def _stdio_mcp_server_spec(
         cls,
         *,
         source_configs: list[MCPServerConfig] | None,
         name_prefix: str | None = None,
         existing_names: set[str] | None = None,
-    ) -> dict[str, McpStdioServerConfig]:
+    ) -> _StdioMCPServerSpec:
         servers: dict[str, McpStdioServerConfig] = {}
-        used_names = set(existing_names or ())
+        tools_by_server: dict[str, list[MCPServerToolSummary]] = {}
+        blocked_approval_tools: set[str] = set()
+        # Keep trusted registry identities unavailable to user-supplied servers,
+        # including turns that expose no registry actions.
+        used_names = set(RESERVED_MCP_SERVER_NAMES) | set(existing_names or ())
         if not source_configs:
-            return servers
+            return _StdioMCPServerSpec(
+                servers=servers,
+                tools_by_server=tools_by_server,
+                blocked_approval_tools=blocked_approval_tools,
+            )
 
         for config in source_configs:
             if config.get("type", "http") != "stdio":
@@ -412,14 +591,53 @@ class ClaudeAgentRuntime:
                 "command": stdio_config["command"],
             }
             if args := stdio_config.get("args"):
-                server_config["args"] = args
+                sanitized_args, protected_options = sanitize_mcp_command_args(
+                    command=stdio_config["command"],
+                    args=args,
+                )
+                if protected_options:
+                    logger.warning(
+                        "Ignoring protected stdio MCP command options",
+                        server_name=server_name,
+                        command=stdio_config["command"],
+                        options=sorted(protected_options),
+                    )
+                if sanitized_args:
+                    server_config["args"] = sanitized_args
             if env := stdio_config.get("env"):
-                server_config["env"] = env
+                protected_env_keys = AGENT_RUNTIME_PROTECTED_ENV_VARS & env.keys()
+                if protected_env_keys:
+                    logger.warning(
+                        "Ignoring protected stdio MCP environment variables",
+                        server_name=server_name,
+                        env_keys=sorted(protected_env_keys),
+                    )
+                if sanitized_env := {
+                    key: value
+                    for key, value in env.items()
+                    if key not in AGENT_RUNTIME_PROTECTED_ENV_VARS
+                }:
+                    server_config["env"] = sanitized_env
             if (timeout := stdio_config.get("timeout")) is not None:
                 server_config["timeout"] = timeout
             servers[server_name] = cast(McpStdioServerConfig, server_config)
+            if "tools" in stdio_config:
+                active_tools = cls._active_stdio_tool_summaries(
+                    stdio_config.get("tools")
+                )
+                tools_by_server[server_name] = active_tools
+                for tool in active_tools:
+                    if tool.get("requires_approval") is True:
+                        full_tool_name = cls._mcp_tool_name_for_user_mcp_tool(
+                            server_name, tool["name"]
+                        )
+                        blocked_approval_tools.add(full_tool_name)
 
-        return servers
+        return _StdioMCPServerSpec(
+            servers=servers,
+            tools_by_server=tools_by_server,
+            blocked_approval_tools=blocked_approval_tools,
+        )
 
     @staticmethod
     def _is_subagent_scope(input_data: HookInput) -> bool:
@@ -447,6 +665,18 @@ class ClaudeAgentRuntime:
                 return alias
         return None
 
+    def _tool_call_requires_approval(
+        self,
+        input_data: HookInput,
+        tool_name: str,
+    ) -> bool:
+        """Whether a tool call requires manual approval."""
+        if self._explicit_subagent_alias_for_tool(input_data, tool_name) is not None:
+            return False
+        if self.tool_approvals is None:
+            return False
+        return self.tool_approvals.get(normalize_mcp_tool_name(tool_name)) is True
+
     @staticmethod
     def _agent_tool_target(tool_input: dict[str, Any]) -> str | None:
         for key in ("subagent_type", "agent_type", "type", "name"):
@@ -464,8 +694,6 @@ class ClaudeAgentRuntime:
         """Return denial reason for invalid Agent/Task tool use, else None."""
         if tool_name not in AGENT_TOOL_NAMES:
             return None
-        if not self._agents_enabled:
-            return "Subagents are disabled for this agent configuration."
         if self._is_subagent_scope(input_data):
             return "Subagents cannot invoke other subagents."
 
@@ -495,8 +723,8 @@ class ClaudeAgentRuntime:
             },
         }
 
-    def _get_session_file_path(self, sdk_session_id: str) -> Path:
-        """Derive the session file path from SDK session ID.
+    def _get_session_file_location(self, sdk_session_id: str) -> tuple[Path, Path]:
+        """Derive the session root and relative path from an SDK session ID.
 
         The Claude SDK stores sessions at:
         ~/.claude/projects/{encoded-cwd}/{session_id}.jsonl
@@ -517,8 +745,15 @@ class ClaudeAgentRuntime:
             raise RuntimeError("Runtime working directory is not configured")
         encoded_cwd = _claude_project_dir_name(self._cwd)
         claude_home_dir = self._session_home_dir or Path.home()
-        claude_dir = claude_home_dir / ".claude" / "projects" / encoded_cwd
-        return claude_dir / f"{sdk_session_id}.jsonl"
+        relative_path = (
+            Path(".claude") / "projects" / encoded_cwd / f"{sdk_session_id}.jsonl"
+        )
+        return claude_home_dir, relative_path
+
+    def _get_session_file_path(self, sdk_session_id: str) -> Path:
+        """Derive the absolute session file path from an SDK session ID."""
+        root, relative_path = self._get_session_file_location(sdk_session_id)
+        return root / relative_path
 
     async def _write_session_file(
         self,
@@ -526,14 +761,15 @@ class ClaudeAgentRuntime:
         sdk_session_data: str,
     ) -> Path:
         """Write session data to local filesystem for SDK resume."""
-        session_file_path = self._get_session_file_path(sdk_session_id)
+        session_root, relative_path = self._get_session_file_location(sdk_session_id)
+        session_file_path = session_root / relative_path
         sdk_session_data = self._session_data_for_disk(sdk_session_data)
-
-        def _write() -> None:
-            session_file_path.parent.mkdir(parents=True, exist_ok=True)
-            session_file_path.write_text(sdk_session_data, encoding="utf-8")
-
-        await asyncio.to_thread(_write)
+        await asyncio.to_thread(
+            atomic_write_file_beneath,
+            session_root,
+            relative_path,
+            sdk_session_data.encode("utf-8"),
+        )
         logger.debug("Wrote session file", path=str(session_file_path))
         return session_file_path
 
@@ -643,7 +879,11 @@ class ClaudeAgentRuntime:
         # SDK compaction artifacts marked with structural flags
         # isCompactSummary messages are persisted as kind='compaction' for badge rendering
         # isMeta messages (like caveats) are internal
-        if is_meta_session_line(line_data) or line_data.get("isCompactSummary"):
+        if (
+            is_meta_session_line(line_data)
+            or is_model_context_session_line(line_data)
+            or line_data.get("isCompactSummary")
+        ):
             return True
 
         msg_type = line_data.get("type", "")
@@ -732,13 +972,16 @@ class ClaudeAgentRuntime:
         self._sdk_session_id = sdk_session_id
 
         if previous is None and resume_session_id and fork_session:
-            session_file = self._get_session_file_path(sdk_session_id)
-            try:
-                stat = session_file.stat()
-            except FileNotFoundError:
-                pass
-            else:
-                self._last_seen_byte_offset = stat.st_size
+            session_root, relative_path = self._get_session_file_location(
+                sdk_session_id
+            )
+            size = await asyncio.to_thread(
+                regular_file_size_beneath,
+                session_root,
+                relative_path,
+            )
+            if size is not None:
+                self._last_seen_byte_offset = size
 
         logger.debug(
             "Captured SDK session ID",
@@ -789,58 +1032,71 @@ class ClaudeAgentRuntime:
                 return
 
             sdk_session_id = self._sdk_session_id
-            session_file = self._get_session_file_path(sdk_session_id)
-            start_offset = self._last_seen_byte_offset
+            session_root, relative_path = self._get_session_file_location(
+                sdk_session_id
+            )
+            while True:
+                start_offset = self._last_seen_byte_offset
+                chunk = await asyncio.to_thread(
+                    read_complete_lines_beneath,
+                    session_root,
+                    relative_path,
+                    max_bytes=MAX_PAYLOAD_SIZE,
+                    offset=start_offset,
+                )
+                if chunk is None:
+                    return
 
-            def _read_tail() -> bytes | None:
-                try:
-                    with session_file.open("rb") as file:
-                        file.seek(start_offset)
-                        return file.read()
-                except FileNotFoundError:
-                    return None
+                tail, _ = chunk
+                if not tail:
+                    return
 
-            tail = await asyncio.to_thread(_read_tail)
-            if not tail:
-                return
+                line_offset = start_offset
+                for raw_line in tail.splitlines(keepends=True):
+                    next_offset = line_offset + len(raw_line)
+                    line_bytes = raw_line.rstrip(b"\r\n")
+                    if not line_bytes.strip():
+                        self._last_seen_byte_offset = next_offset
+                        line_offset = next_offset
+                        continue
 
-            line_offset = start_offset
-            for raw_line in tail.splitlines(keepends=True):
-                if not raw_line.endswith(b"\n"):
-                    break
+                    # Parse to determine visibility, but send raw line for SDK resume
+                    try:
+                        line = line_bytes.decode("utf-8")
+                        line_data = orjson.loads(line)
+                    except (UnicodeDecodeError, orjson.JSONDecodeError):
+                        logger.debug(
+                            "Stopping at incomplete session line, will retry",
+                            byte_offset=line_offset,
+                        )
+                        return
 
-                next_offset = line_offset + len(raw_line)
-                line_bytes = raw_line.rstrip(b"\r\n")
-                if not line_bytes.strip():
+                    # The line parsed as JSON, so re-escaping it into the session
+                    # envelope grows it at most ~2x. Reject a line whose
+                    # serialized form cannot fit the socket frame instead of
+                    # failing the same doomed send on every flush.
+                    if (
+                        2 * len(line_bytes) + _SESSION_FRAME_MARGIN > MAX_PAYLOAD_SIZE
+                        and len(orjson.dumps(line)) + _SESSION_FRAME_MARGIN
+                        > MAX_PAYLOAD_SIZE
+                    ):
+                        raise SandboxFileSafetyError(
+                            "Session line exceeds the socket frame limit"
+                        )
+
+                    internal = self._is_internal_session_line(line_data) or (
+                        is_approval_continuation
+                        and is_approval_continuation_prompt_line(line_data)
+                    )
+
+                    await self._event_writer.send_session_line(
+                        sdk_session_id, line, internal=internal
+                    )
+
+                    # Only advance the offset after successfully sending the line,
+                    # so a failed send never causes duplicate re-sends on retry.
                     self._last_seen_byte_offset = next_offset
                     line_offset = next_offset
-                    continue
-
-                # Parse to determine visibility, but send raw line for SDK resume
-                try:
-                    line = line_bytes.decode("utf-8")
-                    line_data = orjson.loads(line)
-                except (UnicodeDecodeError, orjson.JSONDecodeError):
-                    # Stop at the first decode failure - this line may be incomplete
-                    # because the SDK is still writing it. We'll retry on the next pass.
-                    logger.debug(
-                        "Stopping at incomplete session line, will retry",
-                        byte_offset=line_offset,
-                    )
-                    break
-
-                internal = self._is_internal_session_line(line_data) or (
-                    is_approval_continuation
-                    and is_approval_continuation_prompt_line(line_data)
-                )
-
-                await self._event_writer.send_session_line(
-                    sdk_session_id, line, internal=internal
-                )
-
-                # Only advance the offset after successfully processing the line.
-                self._last_seen_byte_offset = next_offset
-                line_offset = next_offset
 
     async def _handle_approval_request(
         self,
@@ -852,7 +1108,27 @@ class ClaudeAgentRuntime:
 
         Streams APPROVAL_REQUEST event via socket and interrupts the client.
         The orchestrator handles persistence and coordination.
+
+        Root-level tool calls are normally registered ahead of time from the
+        assistant message stream (``_register_assistant_tool_approvals``), in
+        which case this only needs to interrupt. Unregistered calls (e.g.
+        subagent-originated ones) still get their event emitted here.
         """
+        await self._emit_approval_request(tool_name, tool_input, tool_use_id)
+
+        logger.info("Approval request streamed, interrupting", tool_name=tool_name)
+
+        await self._interrupt_once()
+
+    async def _emit_approval_request(
+        self,
+        tool_name: str,
+        tool_input: dict[str, Any],
+        tool_use_id: str,
+    ) -> None:
+        """Stream an APPROVAL_REQUEST event for a tool call, at most once."""
+        if tool_use_id in self._pending_approval_tool_ids:
+            return
         self._pending_approval_tool_ids.add(tool_use_id)
 
         approval_event = UnifiedStreamEvent.approval_request_event(
@@ -866,10 +1142,92 @@ class ClaudeAgentRuntime:
         )
         await self._event_writer.send_stream_event(approval_event)
 
-        logger.info("Approval request streamed, interrupting", tool_name=tool_name)
+    async def _interrupt_once(self) -> None:
+        """Abort the current turn, at most once per run.
 
-        if self.client is not None:
+        ``interrupt()`` is turn-global: the first call aborts the whole turn,
+        so repeat calls are pointless and may race CLI teardown.
+        """
+        if self.client is None or self._was_interrupted:
+            return
+        self._was_interrupted = True
+        await self.client.interrupt()
+
+    async def _register_assistant_tool_approvals(
+        self, message: AssistantMessage
+    ) -> None:
+        """Emit approval requests for gated tool calls in an assistant message.
+
+        Parallel tool calls arrive as N single-block assistant messages
+        (sharing one API message id), all of which stream past *before* the CLI
+        executes anything. The PreToolUse hook cannot capture the siblings: the
+        CLI serializes tool execution, so the interrupt triggered by the first
+        gated hook aborts the turn and the remaining hooks never fire —
+        dropping their approval requests entirely. Emitting each gated call
+        here, at message-stream time, guarantees every parallel approval is
+        streamed before the interrupt lands. The hook then only denies
+        execution and interrupts.
+        """
+        if message.parent_tool_use_id is not None:
+            # Subagent tool calls are handled by the hook fallback.
+            return
+
+        for block in message.content:
+            if not isinstance(block, ToolUseBlock):
+                continue
+            if not self._tool_call_requires_approval(
+                cast(
+                    HookInput,
+                    {
+                        "tool_name": block.name,
+                        "tool_input": block.input or {},
+                    },
+                ),
+                block.name,
+            ):
+                continue
+            await self._emit_approval_request(
+                normalize_mcp_tool_name(block.name),
+                block.input,
+                block.id,
+            )
+            logger.info(
+                "Registered approval request from assistant message",
+                tool_name=block.name,
+                tool_use_id=block.id,
+            )
+
+    async def interrupt(self, *, reason: str) -> None:
+        """Gracefully stop the in-flight turn via the Claude SDK client.
+
+        Safe to call before the client has connected or before the query has
+        been sent - the request is recorded and applied once both have
+        happened, so a cancel requested early in a turn's lifecycle still
+        takes effect instead of racing the SDK client's own setup.
+
+        May never return: if the turn dies before the client connects (e.g.
+        transport spawn or resume preparation fails in ``run()``), the
+        connected event is never set and this waits forever. Callers must
+        bound this with a timeout and fall back to hard-cancelling the turn
+        task, as ``run_agent_activity`` does with GRACEFUL_CANCEL_TIMEOUT.
+        """
+        self._interrupt_requested = reason
+        await self._client_connected_event.wait()
+        await self._query_sent_event.wait()
+        await self._send_pending_interrupt()
+
+    async def _send_pending_interrupt(self) -> None:
+        async with self._interrupt_lock:
+            reason = self._interrupt_requested
+            if reason is None or self._interrupt_sent or self.client is None:
+                return
+            logger.info(
+                "Interrupting Claude runtime",
+                session_id=str(self._session_id),
+                reason=reason,
+            )
             self._was_interrupted = True
+            self._interrupt_sent = True
             await self.client.interrupt()
 
     async def _pre_tool_use_hook(
@@ -917,13 +1275,28 @@ class ClaudeAgentRuntime:
                 }
             }
 
+        # Approvals are not supported for stdio (local) MCP tools: the stdio
+        # subprocess lives inside the per-turn sandbox and is gone by the time
+        # the approval continuation runs, so an approved call could never be
+        # executed. Hard-deny these instead of routing them into the approval
+        # request flow (which would strand the call and, worse, fall through to
+        # the registry-action leg on the normalized name).
+        if tool_name in self._stdio_approval_blocked_tools:
+            return {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": (
+                        f"Tool '{tool_name}' requires approval, but approvals are "
+                        "not supported for local (stdio) MCP tools. Disable the "
+                        "approval requirement for this tool to use it."
+                    ),
+                }
+            }
+
         # Preset-backed subagents cannot require manual approvals in v1.
         # Dynamic/general-purpose subagents still inherit root approvals.
-        requires_approval = (
-            self._explicit_subagent_alias_for_tool(input_data, tool_name) is None
-            and self.tool_approvals is not None
-            and self.tool_approvals.get(action_name) is True
-        )
+        requires_approval = self._tool_call_requires_approval(input_data, tool_name)
 
         if requires_approval:
             # Requires approval - stream request and interrupt
@@ -947,7 +1320,11 @@ class ClaudeAgentRuntime:
             "hookEventName": "PreToolUse",
             "permissionDecision": "allow",
         }
-        if self._should_inject_tool_metadata(tool_name, action_name):
+        if tool_name in AGENT_TOOL_NAMES:
+            sanitized_input = sanitize_agent_tool_input(tool_name, tool_input)
+            if sanitized_input != tool_input:
+                hook_output["updatedInput"] = sanitized_input
+        elif self._should_inject_tool_metadata(tool_name, action_name):
             if tool_use_id:
                 hook_output["updatedInput"] = self._with_tool_call_metadata(
                     tool_input,
@@ -1021,16 +1398,27 @@ class ClaudeAgentRuntime:
         if instructions:
             prompt_parts.append(instructions)
         prompt_parts.extend(self._system_prompt_fragments)
+        prompt_parts.append(
+            "Prefer the most specific attached alias; use `general-purpose` only "
+            "when none matches."
+        )
         return "\n\n".join(prompt_parts)
 
     def _build_agent_definitions(
         self,
         *,
         payload: RuntimeInitPayload,
+        existing_mcp_names: set[str] | None = None,
     ) -> dict[str, AgentDefinition] | None:
         if not payload.subagents:
             return None
 
+        used_mcp_names = set(existing_mcp_names or ())
+        used_mcp_names.update(
+            self._reserved_subagent_server_names(
+                child.alias for child in payload.subagents
+            )
+        )
         definitions: dict[str, AgentDefinition] = {}
         for subagent in payload.subagents:
             registry_server_name = self._subagent_registry_server_name(subagent.alias)
@@ -1043,28 +1431,40 @@ class ClaudeAgentRuntime:
                         )
                     }
                 )
-            stdio_mcp_servers = self._stdio_mcp_servers(
+            stdio_mcp_spec = self._stdio_mcp_server_spec(
                 source_configs=subagent.config.mcp_servers,
                 name_prefix=f"subagent-{subagent.alias}",
-                existing_names={registry_server_name},
+                existing_names=used_mcp_names,
+            )
+            used_mcp_names.update(stdio_mcp_spec.servers)
+            self._stdio_approval_blocked_tools.update(
+                stdio_mcp_spec.blocked_approval_tools
             )
             mcp_server_configs.extend(
                 {server_name: server_config}
-                for server_name, server_config in stdio_mcp_servers.items()
+                for server_name, server_config in stdio_mcp_spec.servers.items()
             )
 
             disallowed_tools = list(CHILD_AGENT_DISALLOWED_TOOLS)
-            if not payload.config.enable_internet_access:
+            if subagent.config.model_provider == "bedrock":
+                disallowed_tools.append(TOOL_SEARCH_TOOL_NAME)
+            if not self._runtime_internet_access_enabled:
                 disallowed_tools.extend(INTERNET_TOOLS)
 
             allowed_tools = self._allowed_tools_for_mcp_scope(
                 registry_server_name=registry_server_name,
                 actions=subagent.allowed_actions,
-                stdio_server_names=list(stdio_mcp_servers),
+                stdio_server_names=list(stdio_mcp_spec.servers),
+                stdio_tools_by_server=stdio_mcp_spec.tools_by_server,
             )
+            subagent_prompt = subagent.prompt
+            if stdio_tools_prompt := self._stdio_tools_system_prompt(
+                stdio_mcp_spec.tools_by_server
+            ):
+                subagent_prompt = f"{subagent_prompt}\n\n{stdio_tools_prompt}"
             definitions[subagent.alias] = AgentDefinition(
                 description=subagent.description,
-                prompt=subagent.prompt,
+                prompt=subagent_prompt,
                 model=(
                     subagent.model_route
                     or get_litellm_route_model(
@@ -1087,9 +1487,13 @@ class ClaudeAgentRuntime:
         self._sdk_session_id = None
         self._last_seen_byte_offset = 0
         self._session_flush_event.clear()
+        self._interrupt_requested = None
+        self._interrupt_sent = False
+        self._client_connected_event = asyncio.Event()
+        self._query_sent_event = asyncio.Event()
         self.registry_tools = payload.allowed_actions
         self.tool_approvals = payload.config.tool_approvals
-        self._agents_enabled = payload.config.agents.enabled
+        self._stdio_approval_blocked_tools = set()
         self._explicit_subagent_aliases = {
             subagent.alias for subagent in payload.subagents
         }
@@ -1101,7 +1505,10 @@ class ClaudeAgentRuntime:
                 if subagent.allowed_actions
             ),
         }
-        self._runtime_internet_access_enabled = payload.config.enable_internet_access
+        self._runtime_internet_access_enabled = requires_sandbox_internet_access(
+            config=payload.config,
+            subagents=payload.subagents,
+        )
 
     def _ensure_working_directory(self, session_id: uuid.UUID) -> None:
         """Create the stable Claude cwd used for session resume."""
@@ -1114,9 +1521,7 @@ class ClaudeAgentRuntime:
     def _root_disallowed_tools(self) -> list[str]:
         """Return root Claude tools blocked for this turn."""
         disallowed_tools = [
-            tool
-            for tool in DISALLOWED_TOOLS
-            if not (self._agents_enabled and tool in AGENT_TOOL_NAMES)
+            tool for tool in DISALLOWED_TOOLS if tool not in AGENT_TOOL_NAMES
         ]
         # Internet access is a runtime-wide sandbox/network capability for the
         # turn, so the root setting also governs explicit subagents.
@@ -1129,16 +1534,46 @@ class ClaudeAgentRuntime:
         *,
         actions: dict[str, MCPToolDefinition] | None,
         stdio_server_names: list[str],
+        stdio_tools_by_server: dict[str, list[MCPServerToolSummary]],
     ) -> list[str]:
         """Return root Claude tools explicitly allowed for this turn."""
         allowed_tools = self._allowed_tools_for_mcp_scope(
             registry_server_name=REGISTRY_MCP_SERVER_NAME,
             actions=actions,
             stdio_server_names=stdio_server_names,
+            stdio_tools_by_server=stdio_tools_by_server,
         )
-        if self._agents_enabled:
-            allowed_tools.extend(sorted(AGENT_TOOL_NAMES))
+        allowed_tools.extend(sorted(AGENT_TOOL_NAMES))
         return allowed_tools
+
+    @staticmethod
+    def _stdio_tools_system_prompt(
+        tools_by_server: dict[str, list[MCPServerToolSummary]],
+    ) -> str | None:
+        """Describe verified stdio MCP tools without depending on live startup."""
+        lines: list[str] = []
+        for server_name, tools in sorted(tools_by_server.items()):
+            if not tools:
+                continue
+            lines.append(f"- {server_name}:")
+            for tool in sorted(tools, key=lambda item: item["name"]):
+                description = tool.get("description")
+                tool_line = f"  - {tool['name']}"
+                if description:
+                    tool_line = f"{tool_line}: {description}"
+                lines.append(tool_line)
+
+        if not lines:
+            return None
+
+        tool_lines = "\n".join(lines)
+        return (
+            "Verified stdio MCP tools configured for this agent:\n"
+            f"{tool_lines}\n\n"
+            "If one of these tools fails at call time, explain the runtime or "
+            "credential problem, but still treat the verified list as the "
+            "configured tool inventory when asked what tools are available."
+        )
 
     @staticmethod
     def _sandbox_settings() -> SandboxSettings:
@@ -1153,14 +1588,23 @@ class ClaudeAgentRuntime:
     def _sdk_env(payload: RuntimeInitPayload) -> dict[str, str]:
         """Return child-process environment overrides for the Claude SDK."""
         env = {"ANTHROPIC_AUTH_TOKEN": payload.llm_gateway_auth_token}
-        if payload.config.model_provider == "custom-model-provider":
+        # Gateway providers serve models the CLI cannot size, so pin a
+        # conservative auto-compact window instead of the Claude default.
+        if is_gateway_provider(payload.config.model_provider):
             env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = (
                 CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW
             )
-        if payload.config.passthrough or any(
-            subagent.config.passthrough for subagent in payload.subagents
-        ):
-            env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] = "1"
+        # Bedrock does not consistently support tool search across APIs, models,
+        # and opaque inference profiles. Explicitly disable it for Bedrock roots
+        # so the CLI sends full tool definitions without tool_reference blocks.
+        # Bedrock subagents are handled through their per-agent disallowed tools.
+        env["ENABLE_TOOL_SEARCH"] = (
+            "false" if payload.config.model_provider == "bedrock" else "true"
+        )
+        # Sandbox-safe Claude OTel env (no headers, no tenant endpoint — the
+        # shim points the SDK at its OtelBridge).
+        if payload.agent_otel_sandbox_env:
+            env.update(payload.agent_otel_sandbox_env)
         return env
 
     def _build_options(
@@ -1171,6 +1615,7 @@ class ClaudeAgentRuntime:
         fork_session: bool,
         mcp_servers: dict[str, McpServerConfig],
         stdio_mcp_servers: dict[str, McpStdioServerConfig],
+        stdio_tools_by_server: dict[str, list[MCPServerToolSummary]],
         agent_definitions: dict[str, AgentDefinition] | None,
         stderr: Callable[[str], None],
     ) -> ClaudeAgentOptions:
@@ -1179,6 +1624,8 @@ class ClaudeAgentRuntime:
             payload.config.instructions,
             payload.config.output_type,
         )
+        if stdio_tools_prompt := self._stdio_tools_system_prompt(stdio_tools_by_server):
+            system_prompt = f"{system_prompt}\n\n{stdio_tools_prompt}"
         logger.info(
             "Claude runtime system prompt prepared",
             session_id=str(payload.session_id),
@@ -1206,6 +1653,7 @@ class ClaudeAgentRuntime:
             allowed_tools=self._root_allowed_tools(
                 actions=payload.allowed_actions,
                 stdio_server_names=list(stdio_mcp_servers),
+                stdio_tools_by_server=stdio_tools_by_server,
             ),
             disallowed_tools=self._root_disallowed_tools(),
             agents=agent_definitions,
@@ -1305,6 +1753,7 @@ class ClaudeAgentRuntime:
         )
 
         session_flush_task: asyncio.Task[None] | None = None
+        transport: Transport | None = None
 
         # Stable per-session working directory for the Claude Code CLI.
         # IMPORTANT: Must be deterministic per session_id. The CLI indexes
@@ -1329,12 +1778,19 @@ class ClaudeAgentRuntime:
             )
 
             stderr_queue: asyncio.Queue[str] = asyncio.Queue()
-            stdio_mcp_servers = self._stdio_mcp_servers(
-                source_configs=payload.config.mcp_servers,
-                existing_names=set(mcp_servers),
+            reserved_subagent_server_names = self._reserved_subagent_server_names(
+                subagent.alias for subagent in payload.subagents
             )
+            stdio_mcp_spec = self._stdio_mcp_server_spec(
+                source_configs=payload.config.mcp_servers,
+                existing_names=set(mcp_servers) | reserved_subagent_server_names,
+            )
+            self._stdio_approval_blocked_tools = stdio_mcp_spec.blocked_approval_tools
+            stdio_mcp_servers = stdio_mcp_spec.servers
             mcp_servers.update(stdio_mcp_servers)
-            agent_definitions = self._build_agent_definitions(payload=payload)
+            agent_definitions = self._build_agent_definitions(
+                payload=payload, existing_mcp_names=set(mcp_servers)
+            )
 
             def handle_claude_stderr(line: str) -> None:
                 """Forward Claude CLI stderr to loopback via queue."""
@@ -1355,6 +1811,7 @@ class ClaudeAgentRuntime:
                 fork_session=fork_session,
                 mcp_servers=mcp_servers,
                 stdio_mcp_servers=stdio_mcp_servers,
+                stdio_tools_by_server=stdio_mcp_spec.tools_by_server,
                 agent_definitions=agent_definitions,
                 stderr=handle_claude_stderr,
             )
@@ -1400,6 +1857,7 @@ class ClaudeAgentRuntime:
             logger.debug("Client created, entering context")
             async with client:
                 self.client = client
+                self._client_connected_event.set()
                 log_benchmark_phase("runtime_client_connected")
                 stderr_task = asyncio.create_task(drain_stderr())
                 session_flush_task = asyncio.create_task(
@@ -1422,6 +1880,8 @@ class ClaudeAgentRuntime:
                         )
                     await client.query(query_input)
                     log_benchmark_phase("runtime_query_sent")
+                    self._query_sent_event.set()
+                    await self._send_pending_interrupt()
 
                     await self._event_writer.send_log(
                         "debug", "Query sent, receiving response"
@@ -1485,7 +1945,9 @@ class ClaudeAgentRuntime:
                             # AssistantMessage, UserMessage, etc.
                             await self._emit_new_session_lines()
 
-                            if isinstance(message, UserMessage):
+                            if isinstance(message, AssistantMessage):
+                                await self._register_assistant_tool_approvals(message)
+                            elif isinstance(message, UserMessage):
                                 await self._emit_user_tool_results(message)
                 finally:
                     stderr_task.cancel()
@@ -1501,14 +1963,30 @@ class ClaudeAgentRuntime:
             log_benchmark_phase("runtime_complete")
 
         except Exception as e:
-            await self._event_writer.send_log(
-                "error",
-                "Runtime error",
-                error_type=type(e).__name__,
-                error_message=str(e),
+            # The SDK reports a dead sandbox process as a plain Exception, so
+            # recover the exit code the transport recorded before attributing.
+            error: Exception = _sandbox_process_exit_error(transport) or e
+            failure = agent_runtime_failure(error, fallback_message=str(e))
+            # Log the attributed error's own type and message together, so the
+            # two never describe different exceptions. When attribution
+            # replaced the SDK's exception, its text is kept alongside as the
+            # cause rather than being passed off as the attributed error's.
+            log_fields: dict[str, object] = {
+                "error_type": type(error).__name__,
+                "error_message": str(error),
+            }
+            if error is not e:
+                log_fields["cause_type"] = type(e).__name__
+                log_fields["cause_message"] = str(e)
+            await self._event_writer.send_log("error", "Runtime error", **log_fields)
+            await self._event_writer.send_error(
+                failure.message,
+                classification=failure.classification,
+                cause=error,
             )
-            await self._event_writer.send_error(str(e))
-            raise
+            if error is e:
+                raise
+            raise error from e
         finally:
             if session_flush_task is not None:
                 session_flush_task.cancel()

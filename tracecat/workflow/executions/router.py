@@ -2,11 +2,9 @@ import base64
 from datetime import datetime
 from typing import Any, Literal
 
-import temporalio.service
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
 from sqlalchemy import or_, select
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowExecution
 
@@ -21,7 +19,7 @@ from tracecat.auth.dependencies import (
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import Workflow, WorkflowDefinition
+from tracecat.db.models import Workflow
 from tracecat.dsl.common import (
     DSLInput,
     get_execution_type_from_search_attr,
@@ -41,6 +39,10 @@ from tracecat.identifiers.workflow import (
     exec_id_to_parts,
 )
 from tracecat.logger import logger
+from tracecat.observability.otel import (
+    current_trace_id,
+    set_current_span_attributes,
+)
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.settings.service import get_setting
@@ -93,6 +95,7 @@ from tracecat.workflow.executions.service import (
     WorkflowExecutionResultNotFoundError,
     WorkflowExecutionsService,
 )
+from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
 router = APIRouter(prefix="/workflow-executions", tags=["workflow-executions"])
@@ -993,6 +996,24 @@ async def get_workflow_execution_collection_page(
     )
 
 
+def _annotate_execution_trace(
+    role: Role, response: WorkflowExecutionCreateResponse
+) -> None:
+    """Correlate the request span with the execution it started and hand the
+    caller a reference for opening that trace."""
+    set_current_span_attributes(
+        {
+            "tracecat.organization.id": role.organization_id,
+            "tracecat.workspace.id": role.workspace_id,
+            "tracecat.workflow.id": response["wf_id"],
+            "tracecat.workflow.execution.id": response["wf_exec_id"],
+            "tracecat.trigger.type": TriggerType.MANUAL,
+        }
+    )
+    if trace_id := current_trace_id():
+        response["trace_id"] = trace_id
+
+
 @router.post("")
 @require_scope("workflow:execute")
 async def create_workflow_execution(
@@ -1001,26 +1022,22 @@ async def create_workflow_execution(
     session: AsyncDBSession,
 ) -> WorkflowExecutionCreateResponse:
     """Create and schedule a workflow execution."""
-    service = await WorkflowExecutionsService.connect(role=role)
-    # Get the dslinput from the workflow definition
+    # Get the dslinput from the workflow definition scoped to the caller's
+    # workspace. The request body workflow_id is user-controlled, so a raw lookup
+    # by workflow_id would allow one workspace to execute another's workflow.
     wf_id = WorkflowUUID.new(params.workflow_id)
-    try:
-        result = await session.execute(
-            select(WorkflowDefinition)
-            .where(WorkflowDefinition.workflow_id == wf_id)
-            .order_by(WorkflowDefinition.version.desc())
-        )
-        defn = result.scalars().first()
-        if not defn:
-            raise NoResultFound("No workflow definition found for workflow ID")
-    except NoResultFound as e:
-        # No workflow associated with the webhook
-        logger.opt(exception=e).error("Invalid workflow ID", error=e)
+    defn_service = WorkflowDefinitionsService(session, role=role)
+    defn = await defn_service.get_definition_by_workflow_id(
+        wf_id, load_relationships=False
+    )
+    if not defn:
+        logger.error("Invalid workflow ID", workflow_id=wf_id)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Invalid workflow ID"
-        ) from e
+        )
     dsl_input = DSLInput(**defn.content)
     try:
+        service = await WorkflowExecutionsService.connect(role=role)
         response = service.create_workflow_execution_nowait(
             dsl=dsl_input,
             wf_id=wf_id,
@@ -1033,6 +1050,7 @@ async def create_workflow_execution(
                 else None
             ),
         )
+        _annotate_execution_trace(role, response)
         return response
     except TracecatValidationError as e:
         raise HTTPException(
@@ -1108,6 +1126,7 @@ async def create_draft_workflow_execution(
             time_anchor=params.time_anchor,
             # For draft workflow executions, pass None to dynamically resolve the registry lock
         )
+        _annotate_execution_trace(role, response)
         return response
     except TracecatValidationError as e:
         raise HTTPException(
@@ -1138,14 +1157,6 @@ async def cancel_workflow_execution(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    except temporalio.service.RPCError as e:
-        if "workflow execution already completed" in e.message:
-            logger.info(
-                "Workflow execution already completed, ignoring cancellation request",
-            )
-        else:
-            logger.error(e.message, error=e, execution_id=execution_id)
-            raise e
 
 
 @router.post(
@@ -1167,11 +1178,3 @@ async def terminate_workflow_execution(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
         ) from e
-    except temporalio.service.RPCError as e:
-        if "workflow execution already completed" in e.message:
-            logger.info(
-                "Workflow execution already completed, ignoring termination request",
-            )
-        else:
-            logger.error(e.message, error=e, execution_id=execution_id)
-            raise e

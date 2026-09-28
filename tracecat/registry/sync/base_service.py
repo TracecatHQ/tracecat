@@ -14,7 +14,6 @@ import aiofiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Mapped
 from temporalio.client import WorkflowFailureError
-from temporalio.exceptions import ApplicationError
 
 from tracecat import config
 from tracecat.auth.types import PlatformRole, Role
@@ -45,9 +44,11 @@ from tracecat.registry.versions.schemas import (
     RegistryVersionCreate,
     RegistryVersionManifest,
 )
+from tracecat.runtime.errors import RuntimeErrorKind
 from tracecat.secrets.service import SecretsService
 from tracecat.service import BaseService
 from tracecat.storage import blob
+from tracecat.temporal.errors import extract_error_classifications
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -175,6 +176,16 @@ class BaseRegistrySyncService[
     def _storage_namespace(cls) -> str | None:
         return None
 
+    async def _reject_shadowed_platform_actions(
+        self, *, origin: str, manifest: RegistryVersionManifest
+    ) -> None:
+        """Reject manifests whose action names collide with platform registries.
+
+        The base implementation accepts every manifest; org-scoped services
+        override this so a custom registry cannot shadow a builtin action.
+        """
+        return None
+
     async def _resolve_sync_version(
         self,
         *,
@@ -236,10 +247,12 @@ class BaseRegistrySyncService[
         return version, None
 
     def _generate_collision_version(self, base_version: str) -> str:
-        """Generate a unique dev version for same-version manifest changes."""
+        """Append a unique local collision label without changing the release."""
         suffix = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
         tiebreaker = cast(int, uuid.uuid4().int) % 1_000_000
-        return f"{base_version}.dev{suffix}{tiebreaker:06d}"
+        collision_label = f"collision.{suffix}.{tiebreaker:06d}"
+        separator = "." if "+" in base_version else "+"
+        return f"{base_version}{separator}{collision_label}"
 
     def _build_validation_failure_message(
         self,
@@ -295,8 +308,8 @@ class BaseRegistrySyncService[
             git_repo_package_name: Optional package name override for git repos.
             commit: Whether to commit the transaction.
             bypass_temporal: If True, always use subprocess sync instead of Temporal
-                workflow, even when sandbox mode is enabled. Use this for platform
-                registry startup sync where Temporal may not be available yet.
+                workflow, even when executor-hosted sync is enabled. Use this for
+                platform registry startup sync where Temporal may not be available yet.
             defer_artifact_build: If True, create the registry version using the
                 deterministic artifact URI without building the artifact inline.
                 This is only safe for builtin startup sync because the current
@@ -406,6 +419,8 @@ class BaseRegistrySyncService[
 
         if not actions:
             raise self._sync_error_cls()(f"No actions found in repository {origin}")
+
+        await self._reject_shadowed_platform_actions(origin=origin, manifest=manifest)
 
         if target_version is None:
             target_version = self._generate_version_string(
@@ -619,6 +634,11 @@ class BaseRegistrySyncService[
         if origin == DEFAULT_REGISTRY_ORIGIN:
             return "builtin"
         if origin == DEFAULT_LOCAL_REGISTRY_ORIGIN:
+            if not config.TRACECAT__LOCAL_REPOSITORY_ENABLED:
+                raise self._sync_error_cls()(
+                    "Local repository is not enabled on this instance. "
+                    "Please set TRACECAT__LOCAL_REPOSITORY_ENABLED=true."
+                )
             return "local"
         if origin.startswith("git+ssh://"):
             return "git"
@@ -717,18 +737,20 @@ class BaseRegistrySyncService[
                 ),
             )
         except WorkflowFailureError as exc:
-            failure = exc.cause
-            while isinstance(failure, BaseException):
-                if isinstance(failure, ApplicationError) and (
-                    failure.type == "RegistrySyncValidationError"
-                ):
-                    raise self._sync_error_cls()(str(failure)) from exc
-                if not (
-                    (nested := getattr(failure, "cause", None))
-                    and isinstance(nested, BaseException)
-                ):
-                    break
-                failure = nested
+            validation_failure = next(
+                (
+                    classification
+                    for classification in extract_error_classifications(
+                        exc,
+                        include_implicit_context=False,
+                    )
+                    if classification.kind
+                    is RuntimeErrorKind.REGISTRY_SYNC_VALIDATION_FAILED
+                ),
+                None,
+            )
+            if validation_failure is not None:
+                raise self._sync_error_cls()(validation_failure.message) from exc
 
             self.logger.error(
                 "Registry sync workflow failed",
@@ -764,6 +786,7 @@ class BaseRegistrySyncService[
         )
 
         manifest = RegistryVersionManifest.from_actions(actions)
+        await self._reject_shadowed_platform_actions(origin=origin, manifest=manifest)
 
         if target_version is None:
             target_version = workflow_target_version or self._generate_version_string(

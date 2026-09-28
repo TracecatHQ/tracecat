@@ -860,6 +860,14 @@ function TimeFilterButton({ label, value, onChange }: TimeFilterButtonProps) {
   )
 }
 
+/**
+ * Renders a filter *threshold*, not an elapsed duration.
+ *
+ * Deliberately not `formatDurationCompact` from `@/lib/time`: this caps at hours
+ * on purpose, because a threshold reads better as ">= 48h" than ">= 2d". The two
+ * agree below 24h, so consolidating them looks safe and silently rewrites every
+ * label above it.
+ */
 function formatDurationValue(seconds: number): string {
   if (seconds < 60) {
     return `${seconds}s`

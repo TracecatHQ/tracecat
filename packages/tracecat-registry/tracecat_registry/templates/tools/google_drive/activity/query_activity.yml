@@ -1,0 +1,105 @@
+type: action
+definition:
+  title: Query Drive activity
+  description: Query past activity in Google Drive.
+  display_group: Google Drive
+  doc_url: https://developers.google.com/workspace/drive/activity/v2/reference/rest/v2/activity/query
+  namespace: tools.google_drive
+  name: query_activity
+  secrets:
+    - type: oauth
+      provider_id: google_drive
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_drive
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    item_name:
+      type: str | None
+      description: Return activities for this Drive item. The format is `items/ITEM_ID`.
+      default: null
+    ancestor_name:
+      type: str | None
+      description: Return activities for this Drive folder, plus all children and descendants. The format is `items/ITEM_ID`.
+      default: null
+    filter:
+      type: str | None
+      description: >-
+        The filtering for items returned from this query request. The format of the
+        filter string is a sequence of expressions, joined by an optional `AND`, where
+        each expression is of the form `field operator value`. Supported fields are
+        `time` and `detail.action_detail_case`.
+      default: null
+    page_size:
+      type: int | None
+      description: >-
+        The minimum number of activities desired in the response; the server attempts to
+        return at least this quantity. The server may also return fewer activities if it
+        has a partial response ready before the request times out. If not set, a default
+        value is used.
+      default: null
+    page_token:
+      type: str | None
+      description: >-
+        The token identifies which page of results to return. Set this to the
+        `nextPageToken` value returned from a previous query to obtain the following page
+        of results. If not set, the first page of results is returned.
+      default: null
+    consolidation_strategy:
+      # Generic: the vendor documents this as a `ConsolidationStrategy` object whose
+      # union fields (`none`, `legacy`) each take their own empty object.
+      type: dict[str, Any] | None
+      description: >-
+        Details on how to consolidate related actions that make up the activity. If not
+        set, then related actions aren't consolidated. Union field `strategy`, one of:
+        `none` (the individual activities are not consolidated), `legacy` (the individual
+        activities are consolidated using the legacy strategy). See
+        https://developers.google.com/workspace/drive/activity/v2/reference/rest/v2/activity/query#ConsolidationStrategy
+      default: null
+  steps:
+    - ref: build_body
+      action: core.script.run_python
+      args:
+        inputs:
+          item_name: ${{ inputs.item_name }}
+          ancestor_name: ${{ inputs.ancestor_name }}
+          filter_: ${{ inputs.filter }}
+          page_size: ${{ inputs.page_size }}
+          page_token: ${{ inputs.page_token }}
+          consolidation_strategy: ${{ inputs.consolidation_strategy }}
+        script: |
+          def main(
+              item_name,
+              ancestor_name,
+              filter_,
+              page_size,
+              page_token,
+              consolidation_strategy,
+          ):
+              body = {
+                  "itemName": item_name,
+                  "ancestorName": ancestor_name,
+                  "filter": filter_,
+                  "pageSize": page_size,
+                  "pageToken": page_token,
+                  "consolidationStrategy": consolidation_strategy,
+              }
+              return {k: v for k, v in body.items() if v is not None}
+    - ref: query
+      action: tools.google_api.call_api
+      args:
+        service_name: driveactivity
+        version: v2
+        resource: activity
+        method_name: query
+        access_token: ${{ SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN || SECRETS.google_drive_oauth.GOOGLE_DRIVE_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/drive.activity.readonly"]
+        params:
+          body: ${{ steps.build_body.result }}
+  returns: ${{ steps.query.result }}

@@ -10,10 +10,14 @@ from pydantic import BaseModel
 from temporalio import activity, workflow
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
+from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
+from tracecat_ee.agent.workflows.registry_tool import ExecuteRegistryToolWorkflow
 
 from tracecat.agent.worker import new_sandbox_runner as new_agent_sandbox_runner
+from tracecat.agent.workflows.mcp_probe import StdioMCPProbeWorkflow
 from tracecat.dsl._converter import get_data_converter
 from tracecat.dsl.worker import new_sandbox_runner as new_dsl_sandbox_runner
+from tracecat.dsl.workflow import DSLWorkflow
 
 with workflow.unsafe.imports_passed_through():
     from tracecat.agent.common.types import (
@@ -123,6 +127,31 @@ def _expected_round_trip(variant: str) -> AgentConfigRoundTripResult:
         server_names=[server["name"] for server in servers],
         server_types=[server.get("type", "http") for server in servers],
     )
+
+
+@pytest.mark.anyio
+async def test_registered_workflows_initialize_without_temporal_plugins(
+    env: WorkflowEnvironment,
+) -> None:
+    dsl_worker = Worker(
+        env.client,
+        task_queue="dsl-worker-without-plugins",
+        workflows=[DSLWorkflow],
+        workflow_runner=new_dsl_sandbox_runner(),
+    )
+    agent_worker = Worker(
+        env.client,
+        task_queue="agent-worker-without-plugins",
+        workflows=[
+            DurableAgentWorkflow,
+            ExecuteRegistryToolWorkflow,
+            StdioMCPProbeWorkflow,
+        ],
+        workflow_runner=new_agent_sandbox_runner(),
+    )
+
+    async with dsl_worker, agent_worker:
+        pass
 
 
 @pytest.mark.anyio

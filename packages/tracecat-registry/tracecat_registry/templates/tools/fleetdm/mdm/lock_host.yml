@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Lock host
+  description: Lock a host via MDM so it cannot be used until unlocked.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#lock-host
+  namespace: tools.fleetdm
+  name: lock_host
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    host_id:
+      type: int
+      description: Numeric Fleet host ID.
+    view_pin:
+      type: bool | None
+      description: For macOS, return the six-digit unlock PIN in the response.
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            view_pin: ${{ inputs.view_pin }}
+        script: |
+          def main(params):
+              return {k: v for k, v in params.items() if v is not None}
+    - ref: lock_host
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/hosts/${{ inputs.host_id }}/lock
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.lock_host.result.data }}

@@ -1,0 +1,402 @@
+"""Redis-backed queue helpers for async case duration materialization."""
+
+from __future__ import annotations
+
+import asyncio
+import uuid
+from collections.abc import Awaitable, Callable, Sequence
+from datetime import UTC, datetime
+from typing import Final, Literal
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from tracecat import config
+from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.models import Case, CaseDurationDefinition, Workspace
+from tracecat.db.session_events import AfterCommitQueue
+from tracecat.logger import logger
+from tracecat.redis.client import get_redis_client
+
+CaseDurationSyncReason = Literal[
+    "case_event",
+    "duration_definition_created",
+    "duration_definition_updated",
+    "duration_definition_backfill",
+]
+type InlineDurationSyncFallback = Callable[[], Awaitable[bool | None]]
+
+# Delay before each inline fallback attempt when the case's sync advisory lock
+# is held by another transaction. Bounded so a degraded (Redis-down) deployment
+# never accumulates long-lived waiters; a sync that stays locked out past the
+# last attempt heals on the next case event or definition backfill.
+INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS: tuple[float, ...] = (0.0, 0.5, 2.0, 5.0)
+
+
+async def publish_case_duration_sync(
+    *,
+    workspace_id: uuid.UUID,
+    reason: CaseDurationSyncReason,
+    case_id: uuid.UUID | None = None,
+    event_type: str | None = None,
+    cursor: int | None = None,
+) -> str:
+    """Publish a case duration sync job to Redis."""
+    fields = {
+        "workspace_id": str(workspace_id),
+        "reason": reason,
+    }
+    if case_id is not None:
+        fields["case_id"] = str(case_id)
+    if event_type is not None:
+        fields["event_type"] = event_type
+    if cursor is not None:
+        fields["cursor"] = str(cursor)
+
+    client = await get_redis_client()
+    # Ack + XDEL cleanup bounds the stream; a hard cap would silently drop
+    # unconsumed jobs during consumer outages.
+    message_id = await client.xadd(
+        stream_key=config.TRACECAT__CASE_DURATION_SYNC_STREAM_KEY,
+        fields=fields,
+        expire_seconds=None,
+    )
+    logger.debug(
+        "Queued case duration sync",
+        message_id=message_id,
+        workspace_id=str(workspace_id),
+        case_id=str(case_id) if case_id is not None else None,
+        reason=reason,
+    )
+    return message_id
+
+
+ROLLOUT_BACKFILL_MARKER_KEY: Final = "case-duration-sync:rollout-backfill:v1"
+ROLLOUT_BACKFILL_PENDING_SENTINEL: Final = "pending"
+# Lease TTL covering one enqueue pass. A boot that dies mid-pass (crash or a
+# cancelled lifespan task) simply lets the lease lapse, so a later boot
+# retries instead of permanently skipping the rollout.
+ROLLOUT_BACKFILL_LEASE_SECONDS: Final = 600
+
+
+async def enqueue_case_duration_backfill_for_orgs(
+    organization_ids: Sequence[uuid.UUID],
+) -> None:
+    """Queue workspace backfills for org workspaces with duration definitions."""
+    if not organization_ids:
+        return
+
+    unique_organization_ids = list(dict.fromkeys(organization_ids))
+    async with get_async_session_bypass_rls_context_manager() as session:
+        result = await session.execute(
+            select(
+                Workspace.organization_id,
+                CaseDurationDefinition.workspace_id,
+            )
+            .join(
+                Workspace,
+                Workspace.id == CaseDurationDefinition.workspace_id,
+            )
+            .where(Workspace.organization_id.in_(unique_organization_ids))
+            .distinct()
+        )
+        organization_workspaces = list(result.tuples().all())
+
+    for organization_id, workspace_id in organization_workspaces:
+        try:
+            await publish_case_duration_sync(
+                workspace_id=workspace_id,
+                reason="duration_definition_updated",
+            )
+            continue
+        except Exception as e:
+            logger.warning(
+                "Failed to publish organization duration backfill; falling back inline",
+                organization_id=str(organization_id),
+                workspace_id=str(workspace_id),
+                error=str(e),
+            )
+
+        try:
+            # Local import: materialization imports this module at import time.
+            from tracecat.cases.durations.materialization import sync_case_duration
+
+            async with get_async_session_bypass_rls_context_manager() as session:
+                stmt = (
+                    select(Case.id)
+                    .where(Case.workspace_id == workspace_id)
+                    .order_by(Case.surrogate_id.asc())
+                )
+                case_ids = list((await session.execute(stmt)).scalars().all())
+
+            pending_case_ids: list[uuid.UUID] = []
+            for case_id in case_ids:
+                try:
+                    synced = await sync_case_duration(
+                        workspace_id,
+                        case_id,
+                        event_types=None,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Inline organization duration backfill case sync failed",
+                        organization_id=str(organization_id),
+                        workspace_id=str(workspace_id),
+                        case_id=str(case_id),
+                        error=str(e),
+                    )
+                    pending_case_ids.append(case_id)
+                else:
+                    if synced is False:
+                        pending_case_ids.append(case_id)
+                await asyncio.sleep(0)
+
+            for delay_seconds in INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS[1:]:
+                if not pending_case_ids:
+                    break
+                await asyncio.sleep(delay_seconds)
+                retry_case_ids: list[uuid.UUID] = []
+                for case_id in pending_case_ids:
+                    try:
+                        synced = await sync_case_duration(
+                            workspace_id,
+                            case_id,
+                            event_types=None,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Inline organization duration backfill case sync failed",
+                            organization_id=str(organization_id),
+                            workspace_id=str(workspace_id),
+                            case_id=str(case_id),
+                            error=str(e),
+                        )
+                        retry_case_ids.append(case_id)
+                    else:
+                        if synced is False:
+                            retry_case_ids.append(case_id)
+                    await asyncio.sleep(0)
+                pending_case_ids = retry_case_ids
+
+            if pending_case_ids:
+                logger.warning(
+                    "Inline organization duration backfill skipped cases; lock busy or sync failed",
+                    organization_id=str(organization_id),
+                    workspace_id=str(workspace_id),
+                    remaining_case_count=len(pending_case_ids),
+                    attempts=len(INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS),
+                )
+        except Exception:
+            logger.exception(
+                "Inline organization duration backfill failed",
+                organization_id=str(organization_id),
+                workspace_id=str(workspace_id),
+            )
+
+    logger.info(
+        "Queued organization duration backfill",
+        organization_count=len(unique_organization_ids),
+        workspace_count=len(organization_workspaces),
+    )
+
+
+async def enqueue_case_duration_backfill_for_org(
+    organization_id: uuid.UUID,
+) -> None:
+    """Queue workspace backfills for an org's workspaces with duration definitions."""
+    await enqueue_case_duration_backfill_for_orgs([organization_id])
+
+
+async def sync_workspace_case_durations_inline(*, workspace_id: uuid.UUID) -> bool:
+    """Materialize every case in a workspace through the locked sync path.
+
+    Returns false when any case was skipped because another transaction held its
+    advisory lock, allowing the after-commit caller to retry the whole backfill.
+    """
+    # Local import: materialization imports this module at import time.
+    from tracecat.cases.durations.materialization import sync_case_duration
+
+    async with get_async_session_bypass_rls_context_manager() as session:
+        stmt = (
+            select(Case.id)
+            .where(Case.workspace_id == workspace_id)
+            .order_by(Case.surrogate_id.asc())
+        )
+        case_ids = list((await session.execute(stmt)).scalars().all())
+
+    all_synced = True
+    for case_id in case_ids:
+        synced = await sync_case_duration(
+            workspace_id,
+            case_id,
+            event_types=None,
+        )
+        if synced is False:
+            all_synced = False
+        await asyncio.sleep(0)
+    return all_synced
+
+
+async def enqueue_rollout_backfill_once() -> bool:
+    """Queue a one-time backfill for workspaces with existing definitions.
+
+    Deployments that predate async duration sync materialized duration rows
+    on read; that read-time sync is gone, so cases without a subsequent event
+    would otherwise stay unmaterialized forever. A short-lived Redis lease
+    (``SET NX EX``) elects one replica; the marker is made permanent only
+    after every workspace job is queued. Returns ``True`` when the rollout is
+    complete, either by this call or a prior replica, and ``False`` while
+    another replica's lease is pending or has just lapsed. Losing replicas
+    retry on later consumer iterations, so one can acquire an expired lease
+    after the elected replica crashes. Re-runs are idempotent.
+    """
+    client = await get_redis_client()
+    acquired = await client.set_if_not_exists(
+        ROLLOUT_BACKFILL_MARKER_KEY,
+        ROLLOUT_BACKFILL_PENDING_SENTINEL,
+        expire_seconds=ROLLOUT_BACKFILL_LEASE_SECONDS,
+    )
+    if not acquired:
+        marker = await client.get(ROLLOUT_BACKFILL_MARKER_KEY)
+        return marker is not None and marker != ROLLOUT_BACKFILL_PENDING_SENTINEL
+
+    try:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            result = await session.execute(
+                select(CaseDurationDefinition.workspace_id).distinct()
+            )
+            workspace_ids = list(result.scalars().all())
+        for workspace_id in workspace_ids:
+            await publish_case_duration_sync(
+                workspace_id=workspace_id,
+                reason="duration_definition_updated",
+            )
+    except Exception:
+        # Release the lease so the consumer loop can retry with backoff rather
+        # than waiting out the TTL. CancelledError deliberately bypasses this;
+        # the lease then lapses so the next boot can recover a crashed process.
+        try:
+            await client.delete(ROLLOUT_BACKFILL_MARKER_KEY)
+        except Exception:
+            logger.warning(
+                "Failed to release rollout duration backfill lease",
+                key=ROLLOUT_BACKFILL_MARKER_KEY,
+            )
+        raise
+
+    # All jobs are queued; overwrite the lease with a permanent marker (SET
+    # without an expiry clears the TTL).
+    await client.set(
+        ROLLOUT_BACKFILL_MARKER_KEY,
+        datetime.now(UTC).isoformat(),
+        expire_seconds=None,
+    )
+    logger.info(
+        "Queued rollout duration backfill",
+        workspace_count=len(workspace_ids),
+    )
+    return True
+
+
+def enqueue_case_duration_sync_after_commit(
+    session: AsyncSession,
+    *,
+    workspace_id: uuid.UUID,
+    reason: CaseDurationSyncReason,
+    case_id: uuid.UUID | None = None,
+    event_type: str | None = None,
+    cursor: int | None = None,
+    inline_fallback: InlineDurationSyncFallback,
+) -> None:
+    """Register a duration sync publish after the current transaction commits."""
+
+    async def _publish() -> None:
+        try:
+            await publish_case_duration_sync(
+                workspace_id=workspace_id,
+                case_id=case_id,
+                event_type=event_type,
+                reason=reason,
+                cursor=cursor,
+            )
+            return
+        except Exception as e:
+            logger.warning(
+                "Failed to publish case duration sync; falling back inline",
+                workspace_id=str(workspace_id),
+                case_id=str(case_id) if case_id is not None else None,
+                reason=reason,
+                error=str(e),
+            )
+
+        # Preserve duration materialization durability when Redis is unavailable.
+        # Retry briefly when another transaction holds the case's sync lock: the
+        # lock holder may have computed before this commit became visible, and
+        # with Redis down there is no queued job to redo the work.
+        attempts = len(INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS)
+        for attempt, delay_seconds in enumerate(
+            INLINE_FALLBACK_ATTEMPT_DELAYS_SECONDS, start=1
+        ):
+            if delay_seconds:
+                await asyncio.sleep(delay_seconds)
+            try:
+                synced = await inline_fallback()
+            except Exception:
+                # Transient failures (e.g. a pool timeout) get the same
+                # bounded retries as lock contention: with Redis down there
+                # is no queued job left to redo this work.
+                if attempt == attempts:
+                    logger.exception(
+                        "Inline case duration sync fallback failed; giving up",
+                        workspace_id=str(workspace_id),
+                        case_id=str(case_id) if case_id is not None else None,
+                        reason=reason,
+                        attempts=attempts,
+                    )
+                    return
+                logger.warning(
+                    "Inline case duration sync fallback errored; retrying",
+                    workspace_id=str(workspace_id),
+                    case_id=str(case_id) if case_id is not None else None,
+                    reason=reason,
+                    attempt=attempt,
+                )
+                continue
+            if synced is not False:
+                return
+            logger.debug(
+                "Inline case duration sync fallback lock busy; retrying",
+                workspace_id=str(workspace_id),
+                case_id=str(case_id) if case_id is not None else None,
+                reason=reason,
+                attempt=attempt,
+            )
+
+        logger.warning(
+            "Inline case duration sync fallback skipped; sync lock stayed busy",
+            workspace_id=str(workspace_id),
+            case_id=str(case_id) if case_id is not None else None,
+            reason=reason,
+            attempts=attempts,
+        )
+
+    AfterCommitQueue.of(session).add(_publish)
+
+
+def enqueue_workspace_case_duration_backfill_after_commit(
+    session: AsyncSession,
+    *,
+    workspace_id: uuid.UUID,
+    reason: CaseDurationSyncReason,
+) -> None:
+    """Register a workspace-wide duration backfill after the transaction commits."""
+
+    async def _sync_inline() -> bool:
+        return await sync_workspace_case_durations_inline(workspace_id=workspace_id)
+
+    enqueue_case_duration_sync_after_commit(
+        session,
+        workspace_id=workspace_id,
+        reason=reason,
+        inline_fallback=_sync_inline,
+    )

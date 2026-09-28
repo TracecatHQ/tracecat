@@ -2,8 +2,8 @@ type: action
 definition:
   name: score_eml
   namespace: tools.sublime
-  title: Attack score for EML
-  description: Evaluate attack score of an EML message using the Sublime API.
+  title: Attack score for raw message
+  description: Evaluate the Sublime attack score for a base64-encoded raw EML message.
   display_group: Sublime
   doc_url: https://docs.sublime.security/reference/attackscoreforrawmessage
   secrets:
@@ -18,12 +18,11 @@ definition:
       type: str | None
       description: Base URL of the Sublime API.
       default: null
-      default: https://platform.sublime.security
   steps:
     - ref: score_eml
       action: core.http_request
       args:
-        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/messages/attack_score
+        url: ${{ inputs.base_url || VARS.sublime.base_url || "https://platform.sublime.security" }}/v0/messages/attack_score
         method: POST
         headers:
           Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}

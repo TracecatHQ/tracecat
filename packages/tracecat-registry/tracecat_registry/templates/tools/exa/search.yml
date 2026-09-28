@@ -1,9 +1,9 @@
 type: action
 definition:
   title: Search the web
-  description: Search the web with Exa.
+  description: Search the web with Exa, with optional advanced filters and content extraction.
   display_group: Exa
-  doc_url: https://exa.ai/docs/reference/search
+  doc_url: https://exa.ai/docs/reference/search-api-guide-for-coding-agents
   namespace: tools.exa
   name: search
   secrets:
@@ -12,7 +12,63 @@ definition:
   expects:
     query:
       type: str
-      description: The query to search for.
+      description: Natural language search query. Supports long, semantically rich descriptions.
+    type:
+      type: enum["instant", "fast", "auto", "deep-lite", "deep", "deep-reasoning"] | None
+      description: Search method. Exa supports auto, instant, fast, deep-lite, deep, and deep-reasoning.
+      default: auto
+    numResults:
+      type: int | None
+      description: Number of results to return. Exa supports 1 to 100.
+      default: null
+    category:
+      type: str | None
+      description: Optional content category. Known categories include company, people, research paper, news, personal site, and financial report; Exa also accepts other category hints.
+      default: null
+    includeDomains:
+      type: list[str] | None
+      description: Only return results from these domains. Exa supports domain path filters and subdomain wildcards.
+      default: null
+    excludeDomains:
+      type: list[str] | None
+      description: Exclude results from these domains. Not supported for company or people category searches.
+      default: null
+    startPublishedDate:
+      type: str | None
+      description: ISO 8601 lower bound for published date. Not supported for company or people category searches.
+      default: null
+    endPublishedDate:
+      type: str | None
+      description: ISO 8601 upper bound for published date. Not supported for company or people category searches.
+      default: null
+    moderation:
+      type: bool | None
+      description: Filter unsafe content from search results.
+      default: null
+    contents:
+      type: dict[str, Any] | None
+      description: Optional Exa contents options nested under the search request contents field, such as highlights, text, summary, maxAgeHours, subpages, or extras.
+      default: null
+    additionalQueries:
+      type: list[str] | None
+      description: Additional query variations for deep-search variants.
+      default: null
+    systemPrompt:
+      type: str | None
+      description: Additional instructions that guide synthesized output or deep-search planning.
+      default: null
+    outputSchema:
+      type: dict[str, Any] | None
+      description: JSON schema for synthesized output. Supported root types are text and object.
+      default: null
+    userLocation:
+      type: str | None
+      description: Two-letter ISO country code used to bias search results.
+      default: null
+    compliance:
+      type: enum["hipaa"] | None
+      description: Optional Exa enterprise compliance mode.
+      default: null
   steps:
     - ref: search
       action: core.http_request
@@ -20,7 +76,22 @@ definition:
         url: https://api.exa.ai/search
         method: POST
         headers:
+          Content-Type: application/json
           x-api-key: ${{ SECRETS.exa.EXA_API_KEY }}
         payload:
           query: ${{ inputs.query }}
+          type: ${{ inputs.type }}
+          numResults: ${{ inputs.numResults }}
+          category: ${{ inputs.category }}
+          includeDomains: ${{ inputs.includeDomains }}
+          excludeDomains: ${{ inputs.excludeDomains }}
+          startPublishedDate: ${{ inputs.startPublishedDate }}
+          endPublishedDate: ${{ inputs.endPublishedDate }}
+          moderation: ${{ inputs.moderation }}
+          contents: ${{ inputs.contents }}
+          additionalQueries: ${{ inputs.additionalQueries }}
+          systemPrompt: ${{ inputs.systemPrompt }}
+          outputSchema: ${{ inputs.outputSchema }}
+          userLocation: ${{ inputs.userLocation }}
+          compliance: ${{ inputs.compliance }}
   returns: ${{ steps.search.result.data }}

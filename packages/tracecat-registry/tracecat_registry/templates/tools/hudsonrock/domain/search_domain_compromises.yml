@@ -1,0 +1,93 @@
+type: action
+definition:
+  title: Search domain compromises
+  description: >-
+    Search domain compromises. Calls POST /json/v3/search-by-domain directly.
+  display_group: HudsonRock
+  doc_url: https://docs.hudsonrock.com/reference/search-by-domains
+  namespace: tools.hudsonrock
+  name: search_domain_compromises
+  secrets:
+    - name: hudsonrock
+      keys: ["HUDSONROCK_API_KEY"]
+  expects:
+    domains:
+      type: list[str]
+      description: List of domains to filter results by. Accepts root domains (example.com) and will match all subdomains. Maximum 50 domains per request.
+    subdomains:
+      type: list[str] | None
+      description: Subdomain filters to match against subdomains in the URL field. Maximum 5 items allowed. Cannot be used together with 'keywords' or 'keywords_match' parameters.
+      default: null
+    external_domains:
+      type: list[str] | None
+      description: List of third-party domains associated with your organization to search for. Ideal for SaaS platforms (company.salesforce.com), cloud services, or other external services your organization uses. Limited to 50 domains per request.
+      default: null
+    sort_by:
+      type: str | None
+      description: Field to sort results by. 'date_compromised' sorts by when the infection occurred, while 'date_uploaded' sorts by when the data was integrated into our platform.
+      default: null
+    sort_direction:
+      type: str | None
+      description: Direction to sort results. 'desc' returns newest records first (recommended for monitoring), while 'asc' returns oldest records first.
+      default: null
+    types:
+      type: list[str] | None
+      description: Filter results by credential type. 'employees' returns corporate email credentials, 'users' returns consumer credentials, and 'third_parties' returns credentials from related domains.
+      default: null
+    keywords:
+      type: list[str] | None
+      description: Filter results to URLs containing specified keywords. Useful for finding credentials for specific services. Case-insensitive matching. Maximum 10 keywords per request.
+      default: null
+    keywords_match:
+      type: str | None
+      description: "'any' returns results matching at least one keyword (broader results), while 'all' requires all keywords to match."
+      default: null
+    filter_credentials:
+      type: bool | None
+      description: When true, returns only credentials matching the search criteria. When false, returns all credentials from matching stealers.
+      default: null
+    cursor:
+      type: str | None
+      description: Base64 encoded pagination cursor for retrieving the next set of results. Obtained from the 'nextCursor' field in the previous response.
+      default: null
+    start_date:
+      type: str | None
+      description: Filter results from this date/time onward. Applies to the field specified in 'sort_by'.
+      default: null
+    end_date:
+      type: str | None
+      description: Filter results up to this date/time. Applies to the field specified in 'sort_by'.
+      default: null
+    additional_fields:
+      type: list[str] | None
+      description: "Optional additional data to include in results: 'search_data', 'installed_software', 'employee_session_cookies', 'password_strength', 'sensitive_applications', 'dir_tree'."
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the HudsonRock API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.hudsonrock.base_url || "https://api.hudsonrock.com" }}/json/v3/search-by-domain
+        method: POST
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+          api-key: ${{ SECRETS.hudsonrock.HUDSONROCK_API_KEY }}
+        payload:
+          domains: ${{ inputs.domains }}
+          subdomains: ${{ inputs.subdomains }}
+          external_domains: ${{ inputs.external_domains }}
+          sort_by: ${{ inputs.sort_by }}
+          sort_direction: ${{ inputs.sort_direction }}
+          types: ${{ inputs.types }}
+          keywords: ${{ inputs.keywords }}
+          keywords_match: ${{ inputs.keywords_match }}
+          filter_credentials: ${{ inputs.filter_credentials }}
+          cursor: ${{ inputs.cursor }}
+          start_date: ${{ inputs.start_date }}
+          end_date: ${{ inputs.end_date }}
+          additional_fields: ${{ inputs.additional_fields }}
+  returns: ${{ steps.request.result }}

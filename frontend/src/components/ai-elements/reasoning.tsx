@@ -17,6 +17,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
+import { useSmoothText } from "@/hooks/use-smooth-text"
 import { cn } from "@/lib/utils"
 import { Response } from "./response"
 
@@ -180,6 +181,9 @@ export type ReasoningContentProps = ComponentProps<
 export const ReasoningContent = memo(
   ({ className, children, ...props }: ReasoningContentProps) => {
     const { isStreaming } = useReasoning()
+    // Reveal reasoning deltas at a steady frame-aligned rate so they don't
+    // appear in uneven network-sized bursts while thinking streams in.
+    const shownText = useSmoothText(children, isStreaming)
     const scrollRef = useRef<HTMLDivElement>(null)
     // Stay pinned to the latest reasoning unless the user scrolls away.
     const pinnedToBottomRef = useRef(true)
@@ -204,7 +208,7 @@ export const ReasoningContent = memo(
       if (el) {
         el.scrollTop = el.scrollHeight
       }
-    }, [children, isStreaming])
+    }, [children, shownText, isStreaming])
 
     return (
       <CollapsibleContent
@@ -221,7 +225,7 @@ export const ReasoningContent = memo(
           data-slot="reasoning-content"
           className="max-h-60 overflow-y-auto overscroll-contain pr-1"
         >
-          <Response className="grid gap-2">{children}</Response>
+          <Response className="grid gap-2">{shownText}</Response>
         </div>
       </CollapsibleContent>
     )

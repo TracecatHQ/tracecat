@@ -2,7 +2,6 @@
  * @jest-environment jsdom
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type {
@@ -12,6 +11,7 @@ import type {
 } from "@/client"
 import { adminListOrganizationInvitations } from "@/client"
 import { useAdminOrgInvitations } from "@/hooks/use-admin"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => ({
   adminCreateOrganizationInvitation: jest.fn(),

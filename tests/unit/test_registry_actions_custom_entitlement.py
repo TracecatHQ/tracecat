@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import uuid
+from collections.abc import Sequence
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import NullPool
 
+from tests.database import TEST_DB_CONFIG
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     PlatformRegistryIndex,
@@ -15,8 +23,12 @@ from tracecat.db.models import (
     RegistryRepository,
     RegistryVersion,
 )
-from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.actions.service import (
+    RegistryActionsService,
+    _ActionMetadataRow,
+)
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
+from tracecat.registry.versions.schemas import RegistryVersionManifest
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -232,6 +244,146 @@ async def test_get_actions_from_index_filters_custom_and_keeps_platform_fallback
 
     assert set(results.keys()) == {shared_action}
     assert results[shared_action].origin == DEFAULT_REGISTRY_ORIGIN
+
+
+@pytest.mark.anyio
+async def test_get_actions_from_index_reuses_manifest_for_same_version(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    action_names = ["acme.batch.first", "acme.batch.second"]
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-shared-manifest",
+        action_names=action_names,
+    )
+
+    service = RegistryActionsService(session, role=svc_role)
+    results = await service.get_actions_from_index(action_names)
+
+    assert set(results) == set(action_names)
+    assert results[action_names[0]].manifest is results[action_names[1]].manifest
+
+
+@pytest.mark.anyio
+async def test_get_actions_from_index_retries_version_replaced_between_queries(
+    svc_role: Role,
+) -> None:
+    action_name = "acme.batch.replaced"
+    origin = f"git+ssh://git@github.com/acme/registry-{uuid.uuid4()}.git"
+    engine = create_async_engine(
+        TEST_DB_CONFIG.test_url,
+        isolation_level="READ COMMITTED",
+        poolclass=NullPool,
+    )
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    repository_id: uuid.UUID | None = None
+
+    try:
+        async with session_factory() as seed_session:
+            repository = await _seed_org_registry(
+                seed_session,
+                role=svc_role,
+                origin=origin,
+                version="before-replacement",
+                action_names=[action_name],
+            )
+            repository_id = repository.id
+            old_version_id = repository.current_version_id
+            assert old_version_id is not None
+
+        async with session_factory() as read_session:
+            service = RegistryActionsService(read_session, role=svc_role)
+            original_load = service._load_action_manifests
+            load_calls = 0
+
+            async def replace_version_before_manifest_load(
+                rows: Sequence[_ActionMetadataRow],
+            ) -> dict[tuple[str, uuid.UUID], RegistryVersionManifest]:
+                nonlocal load_calls
+                load_calls += 1
+                if load_calls == 1:
+                    async with session_factory() as write_session:
+                        repository = await write_session.scalar(
+                            select(RegistryRepository).where(
+                                RegistryRepository.id == repository_id
+                            )
+                        )
+                        assert repository is not None
+                        repository.current_version_id = None
+                        await write_session.flush()
+                        await write_session.execute(
+                            delete(RegistryVersion).where(
+                                RegistryVersion.id == old_version_id
+                            )
+                        )
+
+                        replacement_manifest = _make_manifest(
+                            [action_name], origin=origin
+                        )
+                        replacement_manifest["actions"][action_name]["description"] = (
+                            "Replacement action"
+                        )
+                        replacement = RegistryVersion(
+                            organization_id=svc_role.organization_id,
+                            repository_id=repository.id,
+                            version="after-replacement",
+                            manifest=replacement_manifest,
+                            tarball_uri="s3://org/after-replacement.tar.gz",
+                        )
+                        write_session.add(replacement)
+                        await write_session.flush()
+                        repository.current_version_id = replacement.id
+                        write_session.add(
+                            RegistryIndex(
+                                organization_id=svc_role.organization_id,
+                                registry_version_id=replacement.id,
+                                namespace="acme.batch",
+                                name="replaced",
+                                action_type="udf",
+                                description="Replacement action",
+                                options={"include_in_schema": True},
+                            )
+                        )
+                        await write_session.commit()
+
+                return await original_load(rows)
+
+            with (
+                patch.object(
+                    service,
+                    "has_entitlement",
+                    new=AsyncMock(return_value=True),
+                ),
+                patch.object(
+                    service,
+                    "_load_action_manifests",
+                    new=replace_version_before_manifest_load,
+                ),
+            ):
+                results = await service.get_actions_from_index([action_name])
+
+        assert load_calls == 2
+        assert results[action_name].index_entry.description == "Replacement action"
+        assert (
+            results[action_name].manifest.actions[action_name].description
+            == "Replacement action"
+        )
+    finally:
+        if repository_id is not None:
+            async with session_factory() as cleanup_session:
+                repository = await cleanup_session.scalar(
+                    select(RegistryRepository).where(
+                        RegistryRepository.id == repository_id
+                    )
+                )
+                if repository is not None:
+                    repository.current_version_id = None
+                    await cleanup_session.flush()
+                    await cleanup_session.delete(repository)
+                    await cleanup_session.commit()
+        await engine.dispose()
 
 
 @pytest.mark.anyio

@@ -3,23 +3,57 @@ from __future__ import annotations
 import abc
 import re
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from lark import Token, Tree, Visitor
 
+from tracecat.contexts import ctx_secret_masks
 from tracecat.exceptions import TracecatExpressionError
 from tracecat.expressions import patterns
 from tracecat.expressions.common import ExprContext, ExprOperand, ExprType
+from tracecat.expressions.jsonpath import find_with_secret_masks
 from tracecat.expressions.parser.core import parser
 from tracecat.expressions.parser.evaluator import ExprEvaluator
 from tracecat.expressions.validator.validator import BaseExprValidator
 from tracecat.logger import logger
 from tracecat.parse import traverse_expressions
+from tracecat.secrets.masking import SecretMaskCollector
+
+if TYPE_CHECKING:
+    from tracecat.expressions.policy import ProvenanceMap
 
 ExtractorResult = TypeVar("ExtractorResult", covariant=True)
 ValidatorResult = TypeVar("ValidatorResult")
+
+
+class ExprResolutionPolicy(Protocol):
+    """Lifecycle policy for a parsed template expression."""
+
+    def resolve(
+        self,
+        source: str,
+        tree: Tree[Token],
+        default: Callable[[], Any],
+        *,
+        standalone: bool,
+    ) -> Any:
+        """Run after parsing and immediately before ordinary evaluation.
+
+        The policy may return its own value or call ``default`` exactly where
+        normal expression evaluation should occur.
+
+        Args:
+            source: Exact authored template occurrence, including ``${{ }}``.
+            tree: Parsed expression AST.
+            default: Performs ordinary expression evaluation when called.
+            standalone: Whether the entire traversed string is exactly this one
+                template expression. Inline occurrences are ``False``. Policies
+                use this to materialize a field-level carrier without evaluating
+                expressions nested inside otherwise preserved source.
+        """
+        ...
 
 
 class Expression:
@@ -31,11 +65,19 @@ class Expression:
         *,
         operand: ExprOperand[str] | None = None,
         visitor: Visitor[Token] | None = None,
+        policy: ExprResolutionPolicy | None = None,
+        source: str | None = None,
+        standalone: bool = True,
+        provenance: ProvenanceMap | None = None,
     ) -> None:
         self._expr = expression
         self._operand = operand
         self._parser = parser
         self._visitor = visitor
+        self._policy = policy
+        self._source = source
+        self._standalone = standalone
+        self._provenance = provenance
 
     def __str__(self) -> str:
         return self.__repr__()
@@ -71,16 +113,43 @@ class Expression:
                 detail=str(e),
             ) from e
 
+        # policy imports this module through eval; defer this dependency until
+        # evaluation, as with the existing provenance policy hook.
+        from tracecat.expressions.policy import SecretValueObserver
+
+        masks = ctx_secret_masks.get() or SecretMaskCollector()
+        masks.observe((self._operand or {}).get(ExprContext.SECRETS, {}))
+        observer = SecretValueObserver(masks, self._provenance)
         try:
-            visitor = ExprEvaluator(operand=self._operand)
+            visitor = ExprEvaluator(
+                operand=self._operand,
+                observe=observer.observe,
+                format_error=observer.format_error,
+                find_jsonpath=lambda path, data: find_with_secret_masks(
+                    path, data, masks
+                ),
+            )
             if parse_tree is None:
                 raise ValueError(f"Parser returned None for expression `{self._expr}`")
-            return visitor.evaluate(parse_tree)
+
+            def default() -> Any:
+                return visitor.evaluate(parse_tree)
+
+            if self._policy is not None:
+                return self._policy.resolve(
+                    self._source or self._expr,
+                    parse_tree,
+                    default,
+                    standalone=self._standalone,
+                )
+            return default()
         except TracecatExpressionError as e:
-            raise TracecatExpressionError(
-                f"Error evaluating expression `{self._expr}`\n\n{e}",
-                detail=str(e),
-            ) from e
+            error = TracecatExpressionError(
+                masks.redact(f"Error evaluating expression `{self._expr}`\n\n{e}"),
+                detail=masks.redact(e.detail if e.detail is not None else str(e)),
+            )
+        # Raise outside the handler so no unmasked exception remains reachable.
+        raise error
 
     def validate(
         self,
@@ -142,6 +211,9 @@ class TemplateExpression:
         template: str,
         operand: ExprOperand[str] | None = None,
         pattern: re.Pattern[str] = patterns.TEMPLATE_STRING,
+        policy: ExprResolutionPolicy | None = None,
+        standalone: bool = True,
+        provenance: ProvenanceMap | None = None,
         **kwargs: Any,
     ) -> None:
         match = pattern.match(template)
@@ -154,7 +226,14 @@ class TemplateExpression:
             raise TracecatExpressionError(
                 f"Template expression {template!r} matched pattern but contained no expression. "
             )
-        self.expr = Expression(expr, operand=operand)
+        self.expr = Expression(
+            expr,
+            operand=operand,
+            policy=policy,
+            source=match.group("template"),
+            standalone=standalone,
+            provenance=provenance,
+        )
 
     def __str__(self) -> str:
         return self.__repr__()

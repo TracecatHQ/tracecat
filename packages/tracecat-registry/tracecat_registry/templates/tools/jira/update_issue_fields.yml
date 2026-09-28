@@ -16,13 +16,13 @@ definition:
     fields:
       type: list[dict[str, Any]]
       description: >-
-        List of fields to update in the issue.
+        List of fields to update in the issue. ADF values can be passed as objects.
 
         For example usage:
         ```
         [
           {"customfield_10000": "New value"},
-          {"customfield_10001": ["Another value"]}
+          {"customfield_10001": {"version": 1, "type": "doc", "content": []}}
         ]
         ```
     base_url:

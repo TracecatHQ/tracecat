@@ -18,6 +18,10 @@ definition:
       type: str | None
       description: Unix timestamp of the oldest message to return.
       default: null
+    inclusive:
+      type: bool
+      description: Include messages with `latest` or `oldest` timestamps in results. Ignored unless either timestamp is specified.
+      default: false
     limit:
       type: int
       description: Maximum number of messages to return.
@@ -31,6 +35,7 @@ definition:
           channel: ${{ inputs.channel }}
           latest: ${{ inputs.latest }}
           oldest: ${{ inputs.oldest }}
+          inclusive: ${{ inputs.inclusive }}
         key: messages
         limit: ${{ inputs.limit }}
   returns: ${{ steps.list_messages.result }}

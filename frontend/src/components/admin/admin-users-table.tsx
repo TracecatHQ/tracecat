@@ -51,6 +51,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { toast } from "@/components/ui/use-toast"
 import { useAdminUsers } from "@/hooks/use-admin"
 import { useAuth } from "@/hooks/use-auth"
@@ -69,9 +70,10 @@ type CreateUserFormValues = z.infer<typeof createUserFormSchema>
 export function AdminUsersTable() {
   const [selectedUser, setSelectedUser] = useState<AdminUserRead | null>(null)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const [actionType, setActionType] = useState<"promote" | "demote" | null>(
-    null
-  )
+  const [actionType, setActionType] = useState<
+    "promote" | "demote" | "delete" | null
+  >(null)
+  const [deleteConfirmationEmail, setDeleteConfirmationEmail] = useState("")
   const { user: currentUser } = useAuth()
   const {
     users,
@@ -81,6 +83,8 @@ export function AdminUsersTable() {
     promotePending,
     demoteFromSuperuser,
     demotePending,
+    deleteUser,
+    deletePending,
   } = useAdminUsers()
   const createUserForm = useForm<CreateUserFormValues>({
     resolver: zodResolver(createUserFormSchema),
@@ -94,6 +98,11 @@ export function AdminUsersTable() {
   })
 
   const superuserCount = users?.filter((u) => u.is_superuser).length ?? 0
+  const canConfirmAction =
+    actionType !== "delete" ||
+    (selectedUser?.email
+      ? deleteConfirmationEmail === selectedUser.email
+      : false)
 
   const handleCreateUser = async (values: CreateUserFormValues) => {
     try {
@@ -129,6 +138,12 @@ export function AdminUsersTable() {
 
   const handleConfirmAction = async () => {
     if (!selectedUser || !actionType) return
+    if (
+      actionType === "delete" &&
+      deleteConfirmationEmail !== selectedUser.email
+    ) {
+      return
+    }
 
     try {
       if (actionType === "promote") {
@@ -137,23 +152,37 @@ export function AdminUsersTable() {
           title: "User promoted",
           description: `${selectedUser.email} is now a superuser.`,
         })
-      } else {
+      } else if (actionType === "demote") {
         await demoteFromSuperuser(selectedUser.id)
         toast({
           title: "User demoted",
           description: `${selectedUser.email} is no longer a superuser.`,
         })
+      } else {
+        await deleteUser(selectedUser.id)
+        toast({
+          title: "User deleted",
+          description: `${selectedUser.email} was deleted and sessions were revoked.`,
+        })
       }
     } catch (error) {
+      let description = `Failed to ${actionType} user. Please try again.`
+      if (error instanceof ApiError) {
+        const body = error.body as { detail?: unknown }
+        if (typeof body.detail === "string") {
+          description = body.detail
+        }
+      }
       console.error(`Failed to ${actionType} user`, error)
       toast({
         title: "Action failed",
-        description: `Failed to ${actionType} user. Please try again.`,
+        description,
         variant: "destructive",
       })
     } finally {
       setSelectedUser(null)
       setActionType(null)
+      setDeleteConfirmationEmail("")
     }
   }
 
@@ -295,6 +324,7 @@ export function AdminUsersTable() {
           if (!isOpen) {
             setSelectedUser(null)
             setActionType(null)
+            setDeleteConfirmationEmail("")
           }
         }}
       >
@@ -491,6 +521,23 @@ export function AdminUsersTable() {
                           </DropdownMenuItem>
                         </AlertDialogTrigger>
                       )}
+                      <AlertDialogTrigger asChild>
+                        <DropdownMenuItem
+                          className="text-rose-500 focus:text-rose-600"
+                          disabled={isSelf || isLastSuperuser}
+                          onSelect={() => {
+                            setSelectedUser(rowUser)
+                            setActionType("delete")
+                            setDeleteConfirmationEmail("")
+                          }}
+                        >
+                          {isLastSuperuser
+                            ? "Cannot delete last superuser"
+                            : isSelf
+                              ? "Cannot delete yourself"
+                              : "Delete user"}
+                        </DropdownMenuItem>
+                      </AlertDialogTrigger>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 )
@@ -504,7 +551,9 @@ export function AdminUsersTable() {
             <AlertDialogTitle>
               {actionType === "promote"
                 ? "Promote to superuser"
-                : "Demote from superuser"}
+                : actionType === "demote"
+                  ? "Demote from superuser"
+                  : "Delete user"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {actionType === "promote" ? (
@@ -512,22 +561,56 @@ export function AdminUsersTable() {
                   Are you sure you want to promote {selectedUser?.email} to
                   superuser? They will have full access to all admin functions.
                 </>
-              ) : (
+              ) : actionType === "demote" ? (
                 <>
                   Are you sure you want to demote {selectedUser?.email} from
                   superuser? They will lose access to admin functions.
                 </>
+              ) : (
+                <>
+                  Are you sure you want to permanently delete{" "}
+                  {selectedUser?.email}? This removes the global user account
+                  and revokes all sessions.
+                </>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {actionType === "delete" && selectedUser && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="delete-user-confirmation">
+                Type the user email to confirm
+              </Label>
+              <Input
+                id="delete-user-confirmation"
+                value={deleteConfirmationEmail}
+                onChange={(event) =>
+                  setDeleteConfirmationEmail(event.target.value)
+                }
+                placeholder={selectedUser.email}
+                disabled={deletePending}
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+              />
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              variant={actionType === "demote" ? "destructive" : "default"}
-              disabled={promotePending || demotePending}
+              variant={actionType === "promote" ? "default" : "destructive"}
+              disabled={
+                promotePending ||
+                demotePending ||
+                deletePending ||
+                !canConfirmAction
+              }
               onClick={handleConfirmAction}
             >
-              {actionType === "promote" ? "Promote" : "Demote"}
+              {actionType === "promote"
+                ? "Promote"
+                : actionType === "demote"
+                  ? "Demote"
+                  : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

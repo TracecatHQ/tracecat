@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import select
 
 from tracecat.auth.types import Role
+from tracecat.cases.enums import CaseEventType
 from tracecat.db.models import CaseTag, CaseTrigger, WorkflowDefinition
 from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowUUID
@@ -125,6 +126,41 @@ async def test_workflow_import_case_trigger_creates_tags(test_role: Role):
         )
         tag_result = await service.session.execute(tag_stmt)
         assert tag_result.scalar_one().ref == "phishing"
+
+
+@pytest.mark.anyio
+async def test_workflow_import_online_case_trigger_returns_loaded_updated_at(
+    test_role: Role,
+) -> None:
+    external = ExternalWorkflowDefinition(
+        definition=DSLInput(
+            **{
+                "title": "online_case_trigger_import",
+                "description": "Workflow import with an online case trigger",
+                "entrypoint": {"expects": {}, "ref": None},
+                "actions": [
+                    {
+                        "ref": "entrypoint_1",
+                        "action": "core.transform.reshape",
+                        "args": {"value": "ENTRYPOINT_1"},
+                    }
+                ],
+                "returns": "${{ ACTIONS.entrypoint_1.result }}",
+            }
+        ),
+        case_trigger=CaseTriggerConfig(
+            status="online",
+            event_types=[CaseEventType.CASE_CREATED],
+        ),
+    )
+
+    async with WorkflowsManagementService.with_session(test_role) as service:
+        workflow = await service.create_workflow_from_external_definition(
+            external.model_dump(mode="json")
+        )
+
+        assert workflow.version == 1
+        assert workflow.updated_at is not None
 
 
 def test_external_workflow_definition_omits_empty_case_trigger():

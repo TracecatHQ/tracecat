@@ -2,42 +2,40 @@
 title: "Getting started"
 ---
 
+import FirstSuperadmin from "/snippets/first-superadmin.mdx";
 import McpInstallation from "/snippets/mcp-installation.mdx";
-import McpInstallationSelfHosted from "/snippets/mcp-installation-self-hosted.mdx";
 
-Self-host your own instance or join Tracecat Community Cloud.
-The easiest way to get started is to connect your agent harness (Claude Code, Cursor, OpenAI Codex) to Tracecat.
-
-## Self-host
-
-Docker Compose is the easiest way to self-host.
-Check out the full guide [here](/self-hosting/docker-compose) or follow the quickstart below.
-
-```bash
-# Setup environment variables and secrets
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.48/env.sh
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.48/.env.example
-chmod +x env.sh && ./env.sh
-
-# Download Caddyfile
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.48/Caddyfile
-
-# Download Docker Compose file
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0-beta.48/docker-compose.yml
-
-# Start Tracecat
-docker compose up -d
-```
+The recommended way to get started is to connect your coding agent — Claude Code, OpenAI Codex, GitHub Copilot, or Cursor — to the Tracecat MCP server.
+This works with Tracecat Cloud or your own self-hosted instance.
 
 ## Connect MCP
-
-<McpInstallationSelfHosted />
-
-## Cloud
-
-<Badge icon="credit-card" color="blue" size="lg" shape="pill">Subscription required</Badge>
 
 Connecting your agent to Tracecat Cloud automatically creates an account for you.
 You can also sign up manually via [https://platform.tracecat.com](https://platform.tracecat.com).
 
 <McpInstallation />
+
+## Self-host
+
+Docker Compose is the fastest way to self-host.
+Follow the full [Docker Compose guide](/self-hosting/docker-compose) or the quickstart below.
+
+```bash
+# Setup environment variables and secrets
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.1/env.sh
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.1/.env.example
+chmod +x env.sh && ./env.sh
+
+# Download Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.1/Caddyfile
+
+# Download Docker Compose file
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.1/docker-compose.yml
+
+# Start Tracecat
+docker compose up -d
+```
+
+### First login
+
+<FirstSuperadmin />

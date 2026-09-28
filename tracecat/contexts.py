@@ -3,7 +3,9 @@ from __future__ import annotations
 import uuid
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import loguru
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +14,16 @@ from tracecat.auth.types import Role
 from tracecat.dsl.schemas import ROOT_STREAM, RunContext, StreamID
 from tracecat.interactions.schemas import InteractionContext
 
+if TYPE_CHECKING:
+    from tracecat.secrets.masking import SecretMaskCollector
+
+
+ctx_secret_masks: ContextVar[SecretMaskCollector | None] = ContextVar(
+    "secret-masks", default=None
+)
+"""Observed secret-derived values, isolated to one executor invocation."""
+
+
 __all__ = [
     "ctx_run",
     "ctx_role",
@@ -19,10 +31,24 @@ __all__ = [
     "ctx_interaction",
     "ctx_stream_id",
     "ctx_session",
-    "ctx_client_ip",
+    "ctx_request_audit",
+    "ctx_agent_session_id",
     "ctx_logical_time",
     "get_env",
+    "RequestAuditContext",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class RequestAuditContext:
+    """Client attribution captured by request middleware for audit events."""
+
+    client_ip: str | None
+    user_agent: str | None
+    """Normalized client family/version, safe to forward to audit sinks."""
+    raw_user_agent: str | None = None
+    """Verbatim User-Agent header, bounded in length."""
+
 
 ctx_run: ContextVar[RunContext | None] = ContextVar("run", default=None)
 ctx_role: ContextVar[Role | None] = ContextVar("role", default=None)
@@ -30,12 +56,19 @@ ctx_logger: ContextVar[loguru.Logger | None] = ContextVar("logger", default=None
 ctx_interaction: ContextVar[InteractionContext | None] = ContextVar(
     "interaction", default=None
 )
-ctx_client_ip: ContextVar[str | None] = ContextVar("client-ip", default=None)
+ctx_request_audit: ContextVar[RequestAuditContext | None] = ContextVar(
+    "request-audit", default=None
+)
 ctx_stream_id: ContextVar[StreamID] = ContextVar("stream-id", default=ROOT_STREAM)
 ctx_env: ContextVar[dict[str, str] | None] = ContextVar("env", default=None)
 ctx_session: ContextVar[AsyncSession | None] = ContextVar("session", default=None)
 ctx_session_id: ContextVar[uuid.UUID | None] = ContextVar("session-id", default=None)
 """ID for a streamable session, if any."""
+
+ctx_agent_session_id: ContextVar[uuid.UUID | None] = ContextVar(
+    "agent-session-id", default=None
+)
+"""Verified agent session associated with the current request, if any."""
 
 ctx_logical_time: ContextVar[datetime | None] = ContextVar("logical-time", default=None)
 """Current logical time = time_anchor + elapsed workflow time. Used by FN.now()."""

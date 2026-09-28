@@ -1,14 +1,18 @@
 from collections.abc import AsyncGenerator
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
-from tracecat.db.models import Workflow, Workspace
+from tracecat.db.models import Workflow, WorkflowFolder, Workspace
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import WorkflowID
 from tracecat.workflow.management.folders.schemas import WorkflowFolderCreate
-from tracecat.workflow.management.folders.service import WorkflowFolderService
+from tracecat.workflow.management.folders.service import (
+    WorkflowFolderErrorCode,
+    WorkflowFolderService,
+)
 
 pytestmark = pytest.mark.usefixtures("db")
 
@@ -118,6 +122,20 @@ class TestWorkflowFolderService:
         assert parent.path == "/parent/"
         assert child.path == "/parent/child/"
 
+    async def test_create_folder_trims_name_and_rejects_blank(
+        self, folder_service: WorkflowFolderService
+    ) -> None:
+        """Test folder names are normalized before persistence."""
+        folder = await folder_service.create_folder(name="  trimmed  ", parent_path="/")
+
+        assert folder.name == "trimmed"
+        assert folder.path == "/trimmed/"
+
+        with pytest.raises(
+            TracecatValidationError, match="Folder name cannot be empty"
+        ):
+            await folder_service.create_folder(name="   ", parent_path="/")
+
     async def test_list_folders(self, folder_service: WorkflowFolderService) -> None:
         """Test listing folders in a hierarchy."""
         # Create multiple folders
@@ -176,6 +194,21 @@ class TestWorkflowFolderService:
         updated_child = await folder_service.get_folder(child.id)
         assert updated_child is not None
         assert updated_child.path == "/new-name/child/"
+
+    async def test_rename_folder_conflict_fails(
+        self, folder_service: WorkflowFolderService
+    ) -> None:
+        """Test renaming onto an existing sibling path fails."""
+        folder = await folder_service.create_folder(name="old-name", parent_path="/")
+        await folder_service.create_folder(name="existing", parent_path="/")
+
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await folder_service.rename_folder(folder.id, "existing")
+
+        assert exc_info.value.detail == {"code": WorkflowFolderErrorCode.CONFLICT.value}
+        unchanged = await folder_service.get_folder(folder.id)
+        assert unchanged is not None
+        assert unchanged.path == "/old-name/"
 
     async def test_move_folder(self, folder_service: WorkflowFolderService) -> None:
         """Test moving a folder to a new parent."""
@@ -278,6 +311,29 @@ class TestWorkflowFolderService:
         assert await folder_service.get_folder(child_id) is None
         assert await folder_service.get_folder(grandchild_id) is None
 
+    async def test_delete_folder_recursive_clears_workflows(
+        self,
+        folder_service: WorkflowFolderService,
+        workflow_id: WorkflowID,
+        session: AsyncSession,
+    ) -> None:
+        """Test recursive folder delete moves contained workflows to root."""
+        parent = await folder_service.create_folder(name="parent", parent_path="/")
+        child = await folder_service.create_folder(name="child", parent_path="/parent/")
+        workflow = await folder_service.move_workflow(workflow_id, child)
+        assert workflow.folder_id == child.id
+
+        await folder_service.delete_folder(parent.id, recursive=True)
+
+        workflow_folder_id = await session.scalar(
+            select(Workflow.folder_id).where(Workflow.id == workflow_id)
+        )
+        remaining_child = await session.scalar(
+            select(WorkflowFolder.id).where(WorkflowFolder.id == child.id)
+        )
+        assert workflow_folder_id is None
+        assert remaining_child is None
+
     async def test_workflows_in_folder(
         self,
         folder_service: WorkflowFolderService,
@@ -320,3 +376,56 @@ class TestWorkflowFolderService:
         workflows_in_folder2 = await folder_service.get_workflows_in_folder(folder2.id)
         assert len(workflows_in_folder2) == 1
         assert workflows_in_folder2[0].id == workflow_id
+
+    async def test_get_directory_items_returns_real_direct_item_counts(
+        self,
+        folder_service: WorkflowFolderService,
+        session: AsyncSession,
+        svc_workspace: Workspace,
+    ) -> None:
+        """Folder rows should report direct child counts, not boolean presence."""
+        parent = await folder_service.create_folder(name="parent", parent_path="/")
+        child_a = await folder_service.create_folder(
+            name="child-a", parent_path="/parent/"
+        )
+        await folder_service.create_folder(name="child-b", parent_path="/parent/")
+        await folder_service.create_folder(
+            name="grandchild", parent_path="/parent/child-a/"
+        )
+
+        session.add_all(
+            [
+                Workflow(
+                    title=f"workflow-{i}",
+                    workspace_id=svc_workspace.id,
+                    description="",
+                    status="active",
+                    folder_id=parent.id,
+                )
+                for i in range(3)
+            ]
+        )
+        session.add(
+            Workflow(
+                title="nested-workflow",
+                workspace_id=svc_workspace.id,
+                description="",
+                status="active",
+                folder_id=child_a.id,
+            )
+        )
+        await session.commit()
+
+        directory_items = await folder_service.get_directory_items("/")
+        parent_item = next(
+            item
+            for item in directory_items
+            if item.type == "folder" and item.id == parent.id
+        )
+        assert parent_item.num_items == 5
+
+        child_items = await folder_service.get_directory_items("/parent/")
+        counts = {
+            item.name: item.num_items for item in child_items if item.type == "folder"
+        }
+        assert counts == {"child-a": 2, "child-b": 0}

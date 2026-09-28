@@ -15,12 +15,29 @@ from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import EDITOR_SCOPES, VIEWER_SCOPES
 from tracecat.db.models import Table, TableColumn, Workspace
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
-from tracecat.tables.common import handle_default_value, parse_postgres_default
+from tracecat.query.aggregations import (
+    AggFunction,
+    AggSpec,
+    GroupBySpec,
+    TimeBucket,
+)
+from tracecat.query.errors import TracecatQueryTimeoutError
+from tracecat.query.filters import Condition, FilterOp, FilterValue
+from tracecat.tables.common import (
+    ColumnHasDuplicateValuesError,
+    handle_default_value,
+    parse_postgres_default,
+)
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
+    TableAggregateRequest,
     TableColumnCreate,
     TableColumnUpdate,
     TableCreate,
@@ -1033,6 +1050,33 @@ class TestTableColumns:
         error_msg = str(exc_info.value)
         assert "unique" in error_msg.lower() or "duplicate" in error_msg.lower()
 
+    async def test_create_column_with_is_index_creates_unique_index(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        await tables_service.create_column(
+            table,
+            TableColumnCreate(name="email", type=SqlType.TEXT, is_index=True),
+        )
+
+        refreshed = await tables_service.get_table(table.id)
+        assert await tables_service.get_index(refreshed) == ["email"]
+
+    async def test_create_table_with_is_index_column(
+        self, tables_service: TablesService
+    ) -> None:
+        created = await tables_service.create_table(
+            TableCreate(
+                name="indexed_on_create",
+                columns=[
+                    TableColumnCreate(name="key", type=SqlType.TEXT, is_index=True),
+                    TableColumnCreate(name="value", type=SqlType.TEXT),
+                ],
+            )
+        )
+
+        refreshed = await tables_service.get_table(created.id)
+        assert await tables_service.get_index(refreshed) == ["key"]
+
     async def test_update_column_can_create_unique_index(
         self, tables_service: TablesService, table: Table, session: AsyncSession
     ) -> None:
@@ -1063,13 +1107,12 @@ class TestTableColumns:
             table, TableRowInsert(data={"name": "DuplicateUser", "age": 30})
         )
 
-        # Attempt to create a unique index on 'name' should fail
-        with pytest.raises(DBAPIError) as exc_info:
+        # Attempt to create a unique index on 'name' should fail up front with a
+        # typed error (surfaced as a 409) rather than a raw database error (500).
+        with pytest.raises(ColumnHasDuplicateValuesError) as exc_info:
             await tables_service.create_unique_index(table, "name")
 
-        # Verify the error indicates a duplicate key value issue
-        error_msg = str(exc_info.value)
-        assert "duplicate" in error_msg.lower() or "already exists" in error_msg.lower()
+        assert "duplicate values" in str(exc_info.value).lower()
 
     async def test_create_multiple_unique_index_fails(
         self, tables_service: TablesService, table: Table
@@ -1260,6 +1303,51 @@ class TestTableRows:
         assert "updated_at" in updated
         assert isinstance(updated["updated_at"], datetime)
 
+    async def test_insert_row_preserves_null_for_text_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Inserting None into a TEXT column should store SQL NULL, not "None"."""
+        inserted = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": None, "age": 30})
+        )
+        assert inserted["name"] is None
+
+        retrieved = await tables_service.get_row(table, inserted["id"])
+        assert retrieved["name"] is None
+
+    async def test_update_row_preserves_null_for_text_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """Updating a TEXT column to None should store SQL NULL, not "None"."""
+        inserted = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Alice", "age": 25})
+        )
+        row_id: UUID = inserted["id"]
+
+        updated = await tables_service.update_row(table, row_id, {"name": None})
+        assert updated["name"] is None
+
+        retrieved = await tables_service.get_row(table, row_id)
+        assert retrieved["name"] is None
+
+    async def test_insert_row_and_batch_insert_rows_agree_on_null_text(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """insert_row and batch_insert_rows must store the same value for a
+        None TEXT column. Before the fix, insert_row stored the string "None"
+        while batch_insert_rows stored real SQL NULL for the same input.
+        """
+        single = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": None, "age": 30})
+        )
+        await tables_service.batch_insert_rows(table, [{"name": None, "age": 31}])
+
+        rows = await _list_rows(tables_service, table)
+        batch_row = next(r for r in rows if r["id"] != single["id"])
+
+        assert single["name"] is None
+        assert batch_row["name"] is None
+
     async def test_delete_row(
         self, tables_service: TablesService, table: Table
     ) -> None:
@@ -1348,6 +1436,50 @@ class TestTableRows:
 
         assert exists is True
 
+    async def test_lookup_row_by_id_string(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """JSON callers pass ids as strings; they must bind as uuid, not varchar."""
+        inserted = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 40})
+        )
+
+        results = await tables_service.lookup_rows(
+            table_name=table.name,
+            columns=["id"],
+            values=[str(inserted["id"])],
+        )
+        assert len(results) == 1
+        assert results[0]["id"] == inserted["id"]
+
+        exists = await tables_service.exists_rows(
+            table_name=table.name,
+            columns=["id"],
+            values=[str(inserted["id"])],
+        )
+        assert exists is True
+
+    async def test_lookup_row_by_id_rejects_non_uuid(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        with pytest.raises(ValueError, match="expects a UUID"):
+            await tables_service.lookup_rows(
+                table_name=table.name, columns=["id"], values=["not-a-uuid"]
+            )
+
+    async def test_lookup_row_coerces_string_to_integer_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 40})
+        )
+
+        results = await tables_service.lookup_rows(
+            table_name=table.name, columns=["age"], values=["40"]
+        )
+        assert len(results) == 1
+        assert results[0]["age"] == 40
+
     async def test_list_rows(self, tables_service: TablesService, table: Table) -> None:
         """Test listing rows with cursor-based pagination."""
         # Insert multiple test rows
@@ -1403,6 +1535,53 @@ class TestTableRows:
         assert final_page.has_more is False
         assert final_page.next_cursor is None
 
+    async def test_search_rows_multi_select_cursor_round_trip(
+        self,
+        tables_service: TablesService,
+    ) -> None:
+        table = await tables_service.create_table(
+            TableCreate(
+                name="multi_select_cursor_table",
+                columns=[
+                    TableColumnCreate(
+                        name="tags",
+                        type=SqlType.MULTI_SELECT,
+                        options=["alpha", "beta", "gamma"],
+                    )
+                ],
+            )
+        )
+        for tags in (["gamma"], ["alpha"], ["beta"]):
+            await tables_service.insert_row(
+                table,
+                TableRowInsert(data={"tags": tags}),
+            )
+
+        all_rows = await tables_service.search_rows(
+            table,
+            limit=3,
+            order_by="tags",
+            sort="asc",
+        )
+        first = await tables_service.search_rows(
+            table,
+            limit=1,
+            order_by="tags",
+            sort="asc",
+        )
+        assert first.next_cursor is not None
+        second = await tables_service.search_rows(
+            table,
+            limit=1,
+            cursor=first.next_cursor,
+            order_by="tags",
+            sort="asc",
+        )
+
+        assert [row["id"] for row in first.items + second.items] == [
+            row["id"] for row in all_rows.items[:2]
+        ]
+
     async def test_list_rows_reverse_pagination_flags(
         self, tables_service: TablesService, table: Table
     ) -> None:
@@ -1415,24 +1594,92 @@ class TestTableRows:
 
         all_rows = await _list_rows(tables_service, table)
         first_page = await _list_rows_page(tables_service, table, limit=2)
-
-        # Navigate backward from the first forward page cursor.
-        reverse_page = await _list_rows_page(
+        second_page = await _list_rows_page(
             tables_service,
             table,
             limit=2,
             cursor=first_page.next_cursor,
+        )
+        assert second_page.prev_cursor is not None
+
+        # Direction is encoded in the previous-page cursor. ``reverse`` remains
+        # accepted by the service for API compatibility.
+        reverse_page = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=second_page.prev_cursor,
             reverse=True,
         )
 
-        # The reverse page should contain only rows before the cursor.
-        assert [row["id"] for row in reverse_page.items] == [all_rows[0]["id"]]
+        assert [row["id"] for row in reverse_page.items] == [
+            row["id"] for row in all_rows[:2]
+        ]
 
         # In response direction:
         # - has_more: there is a forward page available (cursor origin and newer items)
         # - has_previous: there are no older rows before this reverse page
         assert reverse_page.has_more is True
         assert reverse_page.has_previous is False
+
+    async def test_list_rows_reverse_pagination_returns_adjacent_page(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """A previous cursor returns the adjacent page, not the first page."""
+        for i in range(7):
+            await tables_service.insert_row(
+                table,
+                TableRowInsert(data={"name": f"User{i}", "age": i}),
+            )
+
+        all_rows = await _list_rows(tables_service, table)
+        expected_ids = [row["id"] for row in all_rows]
+
+        page1 = await _list_rows_page(tables_service, table, limit=2)
+        page2 = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=page1.next_cursor,
+        )
+        page3 = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=page2.next_cursor,
+        )
+        assert [row["id"] for row in page3.items] == expected_ids[4:6]
+        assert page3.prev_cursor is not None
+
+        back = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=page3.prev_cursor,
+            reverse=True,
+        )
+        assert [row["id"] for row in back.items] == expected_ids[2:4]
+        assert back.next_cursor is not None
+        assert back.prev_cursor is not None
+
+        forward_again = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=back.next_cursor,
+        )
+        assert [row["id"] for row in forward_again.items] == expected_ids[4:6]
+
+        back_to_first = await _list_rows_page(
+            tables_service,
+            table,
+            limit=2,
+            cursor=back.prev_cursor,
+            reverse=True,
+        )
+        assert [row["id"] for row in back_to_first.items] == expected_ids[:2]
+        assert back_to_first.next_cursor is not None
+        assert back_to_first.prev_cursor is None
 
     async def test_table_editor_list_rows_reverse_pagination_flags(
         self, tables_service: TablesService, table: Table
@@ -2145,3 +2392,476 @@ class TestTableDataTypes:
         assert retrieved_timestamptz.astimezone(UTC).replace(
             tzinfo=None
         ) == expected_timestamptz.astimezone(UTC).replace(tzinfo=None)
+
+
+@pytest.fixture
+async def aggregate_table(tables_service: TablesService) -> Table:
+    """Create a typed table with representative rows for aggregation tests."""
+    table = await tables_service.create_table(
+        TableCreate(
+            name="aggregate_table",
+            columns=[
+                TableColumnCreate(name="text_value", type=SqlType.TEXT),
+                TableColumnCreate(
+                    name="select_value",
+                    type=SqlType.SELECT,
+                    options=["red", "blue"],
+                ),
+                TableColumnCreate(name="integer_value", type=SqlType.INTEGER),
+                TableColumnCreate(name="numeric_value", type=SqlType.NUMERIC),
+                TableColumnCreate(name="boolean_value", type=SqlType.BOOLEAN),
+                TableColumnCreate(name="event_date", type=SqlType.DATE),
+                TableColumnCreate(name="event_at", type=SqlType.TIMESTAMPTZ),
+                TableColumnCreate(name="payload", type=SqlType.JSONB),
+                TableColumnCreate(
+                    name="tags",
+                    type=SqlType.MULTI_SELECT,
+                    options=["one", "two"],
+                ),
+            ],
+        )
+    )
+    await tables_service.batch_insert_rows(
+        table,
+        [
+            {
+                "text_value": "alpha",
+                "select_value": "red",
+                "integer_value": 1,
+                "numeric_value": Decimal("1.5"),
+                "boolean_value": True,
+                "event_date": date(2026, 3, 8),
+                "event_at": datetime(2026, 3, 8, 6, 30, tzinfo=UTC),
+                "payload": {"kind": "first"},
+                "tags": ["one"],
+            },
+            {
+                "text_value": "alpha",
+                "select_value": "red",
+                "integer_value": 3,
+                "numeric_value": Decimal("2.5"),
+                "boolean_value": True,
+                "event_date": date(2026, 3, 8),
+                "event_at": datetime(2026, 3, 8, 7, 30, tzinfo=UTC),
+                "payload": {"kind": "second"},
+                "tags": ["two"],
+            },
+            {
+                "text_value": "beta",
+                "select_value": "blue",
+                "integer_value": 5,
+                "numeric_value": None,
+                "boolean_value": False,
+                "event_date": date(2026, 3, 9),
+                "event_at": datetime(2026, 3, 9, 4, 30, tzinfo=UTC),
+                "payload": {"kind": "third"},
+                "tags": [],
+            },
+        ],
+    )
+    return table
+
+
+@pytest.mark.anyio
+class TestTableAggregations:
+    @pytest.mark.parametrize(
+        ("field", "expected"),
+        [
+            pytest.param(
+                "integer_value",
+                {
+                    "count_value": 3,
+                    "distinct_value": 3,
+                    "sum_value": 9.0,
+                    "mean_value": 3.0,
+                    "median_value": 3.0,
+                    "min_value": 1,
+                    "max_value": 5,
+                },
+                id="integer",
+            ),
+            pytest.param(
+                "numeric_value",
+                {
+                    "count_value": 2,
+                    "distinct_value": 2,
+                    "sum_value": 4.0,
+                    "mean_value": 2.0,
+                    "median_value": 2.0,
+                    "min_value": 1.5,
+                    "max_value": 2.5,
+                },
+                id="numeric",
+            ),
+        ],
+    )
+    async def test_all_aggregate_functions_on_numeric_types(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+        field: str,
+        expected: dict[str, int | float],
+    ) -> None:
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                group_by=[],
+                aggs=[
+                    AggSpec(
+                        function=AggFunction.COUNT, field=field, alias="count_value"
+                    ),
+                    AggSpec(
+                        function=AggFunction.COUNT_DISTINCT,
+                        field=field,
+                        alias="distinct_value",
+                    ),
+                    AggSpec(function=AggFunction.SUM, field=field, alias="sum_value"),
+                    AggSpec(function=AggFunction.MEAN, field=field, alias="mean_value"),
+                    AggSpec(
+                        function=AggFunction.MEDIAN,
+                        field=field,
+                        alias="median_value",
+                    ),
+                    AggSpec(function=AggFunction.MIN, field=field, alias="min_value"),
+                    AggSpec(function=AggFunction.MAX, field=field, alias="max_value"),
+                ],
+            ),
+        )
+
+        assert response.groups == [expected]
+        assert response.truncated is False
+
+    async def test_groups_text_select_and_boolean_columns(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+    ) -> None:
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                group_by=[
+                    GroupBySpec(field="text_value"),
+                    GroupBySpec(field="select_value"),
+                    GroupBySpec(field="boolean_value"),
+                ]
+            ),
+        )
+
+        assert response.groups == [
+            {
+                "text_value": "alpha",
+                "select_value": "red",
+                "boolean_value": True,
+                "count": 2,
+            },
+            {
+                "text_value": "beta",
+                "select_value": "blue",
+                "boolean_value": False,
+                "count": 1,
+            },
+        ]
+
+    async def test_numeric_group_keys_preserve_decimal_precision(
+        self,
+        tables_service: TablesService,
+    ) -> None:
+        table = await tables_service.create_table(
+            TableCreate(
+                name="precise_numeric_groups",
+                columns=[TableColumnCreate(name="value", type=SqlType.NUMERIC)],
+            )
+        )
+        first = Decimal("9007199254740992.1")
+        second = Decimal("9007199254740992.2")
+        await tables_service.batch_insert_rows(
+            table,
+            [{"value": first}, {"value": second}],
+        )
+
+        response = await tables_service.aggregate_rows(
+            table.name,
+            TableAggregateRequest(group_by=[GroupBySpec(field="value")]),
+        )
+
+        assert len(response.groups) == 2
+        assert {group["value"] for group in response.groups} == {first, second}
+        assert all(group["count"] == 1 for group in response.groups)
+
+    async def test_text_groups_collapse_at_256_character_prefix(
+        self,
+        tables_service: TablesService,
+    ) -> None:
+        table = await tables_service.create_table(
+            TableCreate(
+                name="long_text_aggregate",
+                columns=[TableColumnCreate(name="message", type=SqlType.TEXT)],
+            )
+        )
+        prefix = "x" * 256
+        await tables_service.batch_insert_rows(
+            table,
+            [{"message": f"{prefix}a"}, {"message": f"{prefix}b"}],
+        )
+
+        response = await tables_service.aggregate_rows(
+            table.name,
+            TableAggregateRequest(group_by=[GroupBySpec(field="message")]),
+        )
+
+        assert response.groups == [{"message": prefix, "count": 2}]
+
+    @pytest.mark.parametrize(
+        ("bucket", "expected_group_count"),
+        [
+            pytest.param("hour", 3, id="hour"),
+            pytest.param("day", 2, id="day"),
+            pytest.param("week", 2, id="week"),
+            pytest.param("month", 1, id="month"),
+        ],
+    )
+    async def test_timestamptz_buckets_across_dst_boundary(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+        bucket: TimeBucket,
+        expected_group_count: int,
+    ) -> None:
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                group_by=[
+                    GroupBySpec(
+                        field="event_at",
+                        bucket=bucket,
+                        timezone="America/New_York",
+                    )
+                ]
+            ),
+        )
+
+        assert len(response.groups) == expected_group_count
+        total = 0
+        for group in response.groups:
+            count = group["count"]
+            assert isinstance(count, int)
+            total += count
+        assert total == 3
+        assert all(
+            isinstance(group["event_at"], datetime)
+            and group["event_at"].tzinfo is not None
+            for group in response.groups
+        )
+        if bucket == "day":
+            assert [group["event_at"] for group in response.groups] == [
+                datetime(2026, 3, 8, 5, tzinfo=UTC),
+                datetime(2026, 3, 9, 4, tzinfo=UTC),
+            ]
+
+    async def test_date_bucket_is_stable_under_non_utc_session_timezone(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+    ) -> None:
+        await tables_service.session.execute(
+            sa.text("SET LOCAL TIME ZONE 'Pacific/Auckland'")
+        )
+
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                group_by=[GroupBySpec(field="event_date", bucket="day")]
+            ),
+        )
+
+        assert response.groups == [
+            {"event_date": date(2026, 3, 8), "count": 2},
+            {"event_date": date(2026, 3, 9), "count": 1},
+        ]
+
+    async def test_system_timestamp_column_is_bucketable(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+    ) -> None:
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                group_by=[GroupBySpec(field="created_at", bucket="day")]
+            ),
+        )
+
+        assert len(response.groups) == 1
+        assert isinstance(response.groups[0]["created_at"], datetime)
+        assert response.groups[0]["count"] == 3
+
+    @pytest.mark.parametrize(
+        ("field", "op", "value", "expected_count"),
+        [
+            pytest.param("text_value", FilterOp.CONTAINS, "lph", 2, id="text"),
+            pytest.param("select_value", FilterOp.EQ, "red", 2, id="select"),
+            pytest.param("integer_value", FilterOp.GTE, 3, 2, id="integer"),
+            pytest.param("numeric_value", FilterOp.LT, "2", 1, id="numeric"),
+            pytest.param("boolean_value", FilterOp.EQ, True, 2, id="boolean"),
+            pytest.param("event_date", FilterOp.EQ, "2026-03-08", 2, id="date"),
+            pytest.param(
+                "event_at",
+                FilterOp.LT,
+                "2026-03-09T00:00:00Z",
+                2,
+                id="timestamptz",
+            ),
+        ],
+    )
+    async def test_filters_every_supported_type(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+        field: str,
+        op: FilterOp,
+        value: FilterValue,
+        expected_count: int,
+    ) -> None:
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                filters=Condition(field=field, op=op, value=value),
+                group_by=[],
+            ),
+        )
+
+        assert response.groups == [{"count": expected_count}]
+
+    async def test_empty_in_list_matches_no_rows(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+    ) -> None:
+        response = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                filters=Condition(
+                    field="text_value",
+                    op=FilterOp.IN,
+                    value=[],
+                ),
+                group_by=[],
+            ),
+        )
+
+        assert response.groups == [{"count": 0}]
+
+    async def test_limit_truncation_min_count_and_grand_total(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+    ) -> None:
+        truncated = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                group_by=[GroupBySpec(field="text_value")],
+                limit=1,
+            ),
+        )
+        assert truncated.groups == [{"text_value": "alpha", "count": 2}]
+        assert truncated.truncated is True
+
+        minimum = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(
+                group_by=[GroupBySpec(field="text_value")],
+                min_count=2,
+            ),
+        )
+        assert minimum.groups == [{"text_value": "alpha", "count": 2}]
+        assert minimum.truncated is False
+
+        total = await tables_service.aggregate_rows(
+            aggregate_table.name,
+            TableAggregateRequest(group_by=[]),
+        )
+        assert total.groups == [{"count": 3}]
+
+    @pytest.mark.parametrize("field", ["payload", "tags"])
+    async def test_jsonb_and_multi_select_are_rejected(
+        self,
+        tables_service: TablesService,
+        aggregate_table: Table,
+        field: str,
+    ) -> None:
+        with pytest.raises(TracecatValidationError, match=field):
+            await tables_service.aggregate_rows(
+                aggregate_table.name,
+                TableAggregateRequest(group_by=[GroupBySpec(field=field)]),
+            )
+
+        with pytest.raises(TracecatValidationError, match=field):
+            await tables_service.aggregate_rows(
+                aggregate_table.name,
+                TableAggregateRequest(
+                    filters=Condition(field=field, op=FilterOp.IS_NULL),
+                    group_by=[],
+                ),
+            )
+
+    async def test_same_table_name_is_isolated_between_workspaces(
+        self,
+        tables_service: TablesService,
+        other_tables_service: TablesService,
+    ) -> None:
+        definition = TableCreate(
+            name="shared_aggregate_name",
+            columns=[TableColumnCreate(name="category", type=SqlType.TEXT)],
+        )
+        table_a = await tables_service.create_table(definition)
+        table_b = await other_tables_service.create_table(definition)
+        await tables_service.batch_insert_rows(table_a, [{"category": "a"}])
+        await other_tables_service.batch_insert_rows(
+            table_b,
+            [{"category": "b"}, {"category": "b"}],
+        )
+
+        response_a = await tables_service.aggregate_rows(
+            table_a.name,
+            TableAggregateRequest(group_by=[GroupBySpec(field="category")]),
+        )
+        response_b = await other_tables_service.aggregate_rows(
+            table_b.name,
+            TableAggregateRequest(group_by=[GroupBySpec(field="category")]),
+        )
+
+        assert response_a.groups == [{"category": "a", "count": 1}]
+        assert response_b.groups == [{"category": "b", "count": 2}]
+
+    async def test_forced_statement_timeout_maps_to_shared_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tables_service: TablesService,
+    ) -> None:
+        table = await tables_service.create_table(
+            TableCreate(
+                name="slow_aggregate",
+                columns=[TableColumnCreate(name="value", type=SqlType.INTEGER)],
+            )
+        )
+        physical_table = sa.table(
+            table.name,
+            sa.column("value", sa.BigInteger()),
+            schema=tables_service._get_schema_name(),
+        )
+        await tables_service.session.execute(
+            sa.insert(physical_table).from_select(
+                ["value"],
+                sa.select(sa.func.generate_series(1, 200_000)),
+            )
+        )
+        monkeypatch.setattr(config, "TRACECAT__AGG_STATEMENT_TIMEOUT_MS", 1)
+
+        with pytest.raises(TracecatQueryTimeoutError):
+            await tables_service.aggregate_rows(
+                table.name,
+                TableAggregateRequest(
+                    group_by=[],
+                    aggs=[AggSpec(function=AggFunction.MEDIAN, field="value")],
+                ),
+            )

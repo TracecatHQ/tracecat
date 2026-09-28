@@ -1,0 +1,27 @@
+type: action
+definition:
+  title: Refetch host
+  description: Flag a host to refresh its details and policy results on next check-in.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#refetch-host
+  namespace: tools.fleetdm
+  name: refetch_host
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    host_id:
+      type: int
+      description: Numeric Fleet host ID.
+  steps:
+    - ref: refetch_host
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/hosts/${{ inputs.host_id }}/refetch
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+  returns: ${{ steps.refetch_host.result.data }}

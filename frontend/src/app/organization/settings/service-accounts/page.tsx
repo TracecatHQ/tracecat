@@ -31,7 +31,7 @@ export default function OrganizationServiceAccountsPage() {
               <Button
                 variant="outline"
                 size="sm"
-                className="h-7 bg-white"
+                className="h-7 bg-background"
                 onClick={() => {
                   const params = new URLSearchParams(searchParams?.toString())
                   params.set(

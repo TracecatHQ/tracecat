@@ -9,7 +9,7 @@ import { NoMessages } from "@/components/chat/messages"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import { useGetChatVercel } from "@/hooks/use-chat"
-import type { InboxSessionItem } from "@/lib/agents"
+import { type InboxSessionItem, isLiveAgentStatus } from "@/lib/agents"
 import { useChatReadiness } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -57,6 +57,7 @@ export function InboxDetail({
   // User must make an approval decision before they can send messages
   const hasPendingApprovals = session.pendingApprovalCount > 0
   const inputDisabled = !isForkedSession && hasPendingApprovals
+  const resume = isLiveAgentStatus(session.derivedStatus)
 
   /**
    * Fork the session and notify parent with the message to send.
@@ -140,6 +141,8 @@ export function InboxDetail({
     )
   }
 
+  // The persisted last_error banner is rendered by ChatSessionPane itself (from
+  // the session's last_error), so the inbox detail doesn't duplicate it here.
   return (
     <ChatSessionPane
       chat={chat}
@@ -170,6 +173,9 @@ export function InboxDetail({
       onPendingMessageSent={onPendingMessageSent}
       inputDisabled={inputDisabled}
       inputDisabledPlaceholder="Make an approval decision to continue..."
+      // Re-arm the SDK reconnect when an externally resolved approval moves
+      // the session from PENDING_APPROVAL to RUNNING.
+      resume={resume}
     />
   )
 }

@@ -1,7 +1,11 @@
 ---
 title: "Workflows"
-description: "Build, run, and manage Tracecat workflows: connect triggers and actions, version definitions, and orchestrate automations across cases and agents."
+description: "Learn how Tracecat workflows work and how to manage them: run them manually, draft and publish definitions, tag and rename, and configure workflow settings."
 ---
+
+import CoreActionsPointer from "/snippets/core-actions-pointer.mdx";
+
+<CoreActionsPointer />
 
 ## Creating workflows
 
@@ -61,6 +65,18 @@ There are three views for workflow runs:
 Right click on a workflow in the workflows table then hover over the "Tags" menu item.
 
 ![Tag workflow](/img/automations/workflows/tag-workflow.png)
+
+## Rename workflow
+
+Right click on a workflow in the workflows table then select the "Rename workflow" menu item.
+
+![Rename workflow](/img/automations/workflows/rename-workflow.png)
+
+You can also rename a workflow from the builder. Double click the workflow name in the breadcrumb, or click the pencil icon beside it. Press `Enter` or click away to save, or press `Escape` to cancel.
+
+![Rename workflow in the builder](/img/automations/workflows/rename-workflow-builder.png)
+
+Names must be between 3 and 100 characters.
 
 ## Draft workflows
 
@@ -148,7 +164,7 @@ Actions without an environment override will use the default environment to pull
 
 ## Export / import workflows
 
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge> users should use Tracecat's Git sync feature to push and pull their workflow definitions directly from a remote Git repository.
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge> users should use Tracecat's [Git sync](/manage-platform/git-sync) feature to push and pull their workflow definitions directly from a remote Git repository.
 
 <Badge icon="github" color="gray" size="lg" shape="pill">Open Source</Badge> users can export and import workflows directly from the Tracecat UI.
 Exported workflows are called workflow definitions and are saved as YAML files.

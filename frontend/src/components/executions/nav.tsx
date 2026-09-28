@@ -32,12 +32,12 @@ import { cn, undoSlugify } from "@/lib/utils"
 import "react18-json-view/src/style.css"
 
 import { TriangleRightIcon } from "@radix-ui/react-icons"
-import { useQueryClient } from "@tanstack/react-query"
 import Link from "next/link"
 import { useParams, usePathname } from "next/navigation"
 import { Spinner } from "@/components/loading/spinner"
 import { toast } from "@/components/ui/use-toast"
 import { parseExecutionId } from "@/lib/event-history"
+import { useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /**
@@ -102,7 +102,7 @@ export function WorkflowExecutionNav({
                 href={`${baseUrl}/executions/${executionId}`}
                 className={cn(
                   buttonVariants({ variant: "default", size: "sm" }),
-                  "h-11 justify-start rounded-none bg-background px-3 text-muted-foreground shadow-none hover:cursor-default hover:bg-muted/50",
+                  "h-11 justify-start rounded-none bg-background px-3 text-muted-foreground shadow-none hover:cursor-pointer hover:bg-muted/50",
                   executionId === currExecutionIdDecoded &&
                     "bg-muted-foreground/10"
                 )}

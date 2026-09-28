@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Search Security Analytics rules
+  description: Search pre-packaged or custom OpenSearch Security Analytics rules for alert context.
+  display_group: OpenSearch
+  doc_url: https://docs.opensearch.org/latest/security-analytics/api-tools/rule-api/
+  namespace: tools.opensearch
+  name: search_detection_rules
+  secrets:
+    - name: opensearch
+      keys: ["OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD"]
+  expects:
+    payload:
+      type: dict[str, Any]
+      description: API-native rule search request body.
+    pre_packaged:
+      type: bool
+      description: Whether to search pre-packaged rules instead of custom rules.
+      default: true
+    base_url:
+      type: str | None
+      description: OpenSearch base URL (e.g. https://localhost:9200).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.opensearch.base_url }}/_plugins/_security_analytics/rules/_search
+        method: POST
+        params:
+          pre_packaged: ${{ inputs.pre_packaged }}
+        payload: ${{ inputs.payload }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.opensearch.OPENSEARCH_USERNAME + ":" + SECRETS.opensearch.OPENSEARCH_PASSWORD) }}
+          Content-Type: application/json
+  returns: ${{ steps.request.result.data }}

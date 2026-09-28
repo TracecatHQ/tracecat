@@ -1,4 +1,4 @@
-"""Default tier configuration for self-hosted deployments - unlimited everything."""
+"""Default limits and entitlements for OSS/self-hosted deployments."""
 
 from __future__ import annotations
 
@@ -42,9 +42,16 @@ def resolve_oss_default_entitlements(
 ) -> EffectiveEntitlements:
     """Resolve OSS default entitlements from legacy feature flags.
 
-    Fresh OSS installs should start with only custom registry enabled.
+    Fresh OSS installs start with custom registry and workspace chat enabled.
     Existing OSS deployments can preserve prior behavior by mapping enabled
     feature flags to their corresponding entitlement groups.
+
+    Agent presets, skills, and MCP catalog connectors are open source;
+    ``agent_addons`` only gates tool approvals, the agent inbox, and case agent
+    runs.
+
+    Multi-workspace is disabled on both paths. Existing workspaces remain
+    accessible; the entitlement only gates creation beyond the first workspace.
     """
     # Fresh install path.
     if not feature_flags_env:
@@ -55,8 +62,10 @@ def resolve_oss_default_entitlements(
             case_addons=False,
             rbac_addons=False,
             service_accounts=False,
-            workspace_chat=False,
+            workspace_chat=True,
+            multi_workspace=False,
             watchtower=False,
+            external_secret_stores=False,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -88,8 +97,10 @@ def resolve_oss_default_entitlements(
         case_addons=case_addons_enabled,
         rbac_addons=rbac_enabled,
         service_accounts=False,
-        workspace_chat=agent_addons_enabled,
+        workspace_chat=True,
+        multi_workspace=False,
         watchtower=False,
+        external_secret_stores=False,
     )
 
 

@@ -58,6 +58,26 @@ module.exports = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        diff: {
+          added: {
+            DEFAULT: "hsl(var(--diff-added))",
+            emphasis: "hsl(var(--diff-added-emphasis))",
+            foreground: "hsl(var(--diff-added-foreground))",
+          },
+          removed: {
+            DEFAULT: "hsl(var(--diff-removed))",
+            emphasis: "hsl(var(--diff-removed-emphasis))",
+            foreground: "hsl(var(--diff-removed-foreground))",
+          },
+          marker: {
+            added: "hsl(var(--diff-marker-added))",
+            removed: "hsl(var(--diff-marker-removed))",
+          },
+          gutter: {
+            DEFAULT: "hsl(var(--diff-gutter))",
+            foreground: "hsl(var(--diff-gutter-foreground))",
+          },
+        },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",

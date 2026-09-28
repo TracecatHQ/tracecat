@@ -1,0 +1,29 @@
+type: action
+definition:
+  title: Delete Scanner event sink
+  description: Delete a Scanner event sink by ID.
+  display_group: Scanner
+  doc_url: https://docs.scanner.dev/scanner/using-scanner-complete-feature-reference/developer-tools/api/event-sinks
+  namespace: tools.scanner
+  name: delete_event_sink
+  secrets:
+    - name: scanner
+      keys: ["SCANNER_API_KEY"]
+  expects:
+    event_sink_id:
+      type: str
+      description: Unique Scanner event sink ID.
+    base_url:
+      type: str | None
+      description: Scanner team API URL. Falls back to `VARS.scanner.base_url`.
+      default: null
+  steps:
+    - ref: delete_event_sink
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.scanner.base_url }}/v1/event_sink/${{ FN.url_encode(inputs.event_sink_id) }}
+        method: DELETE
+        headers:
+          Accept: application/json
+          Authorization: Bearer ${{ SECRETS.scanner.SCANNER_API_KEY }}
+  returns: ${{ steps.delete_event_sink.result.data }}

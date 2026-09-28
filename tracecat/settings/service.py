@@ -1,5 +1,5 @@
 import os
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from typing import Any
 
 import orjson
@@ -8,33 +8,60 @@ from cryptography.fernet import InvalidToken
 from pydantic import BaseModel, SecretStr
 from pydantic_core import to_jsonable_python
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import get_default_organization_id
 from tracecat.audit.logger import audit_log
+from tracecat.audit.service import clear_audit_setting_cache
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
 from tracecat.common import UNSET
 from tracecat.contexts import ctx_role, ctx_session
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import (
+    SupportsExecute,
+    get_async_session_bypass_rls_context_manager,
+)
 from tracecat.db.models import OrganizationSetting
 from tracecat.db.rls import set_rls_context_from_role
-from tracecat.identifiers import OrganizationID
+from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
+from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
 from tracecat.service import BaseOrgService
 from tracecat.settings.constants import SENSITIVE_SETTINGS_KEYS
 from tracecat.settings.schemas import (
+    AgentOtelSettingsUpdate,
     AgentSettingsUpdate,
     AppSettingsUpdate,
     AuditSettingsUpdate,
     BaseSettingsGroup,
     GitSettingsUpdate,
     SAMLSettingsUpdate,
+    SecuritySettingsUpdate,
     SettingCreate,
     SettingUpdate,
 )
+
+AUDIT_SETTINGS_KEYS = frozenset(AuditSettingsUpdate.keys())
+
+
+class AgentOtelEndpointNotAllowedError(Exception):
+    """Raised when the OTel collector endpoint resolves to a non-public address."""
+
+
+def _deserialize_setting_value(
+    setting: OrganizationSetting, *, encryption_key: SecretStr | None = None
+) -> Any:
+    value_bytes = setting.value
+    if setting.is_encrypted:
+        encryption_key = encryption_key or SecretStr(get_db_encryption_key())
+        value_bytes = decrypt_value(
+            value_bytes,
+            key=encryption_key.get_secret_value(),
+        )
+    return orjson.loads(value_bytes)
 
 
 class SettingsService(BaseOrgService):
@@ -46,10 +73,12 @@ class SettingsService(BaseOrgService):
     service_name = "settings"
     groups: list[type[BaseSettingsGroup]] = [
         AgentSettingsUpdate,
+        AgentOtelSettingsUpdate,
         GitSettingsUpdate,
         SAMLSettingsUpdate,
         AppSettingsUpdate,
         AuditSettingsUpdate,
+        SecuritySettingsUpdate,
     ]
     """The set of settings groups that are managed by the service."""
 
@@ -61,9 +90,6 @@ class SettingsService(BaseOrgService):
         return orjson.dumps(
             value, default=to_jsonable_python, option=orjson.OPT_SORT_KEYS
         )
-
-    def _deserialize_value_bytes(self, value: bytes) -> Any:
-        return orjson.loads(value)
 
     def _system_keys(self) -> set[str]:
         """The set of keys that are reserved for system settings."""
@@ -86,12 +112,10 @@ class SettingsService(BaseOrgService):
         await self.session.commit()
 
     def get_value(self, setting: OrganizationSetting) -> Any:
-        value_bytes = setting.value
-        if setting.is_encrypted:
-            value_bytes = decrypt_value(
-                value_bytes, key=self._encryption_key.get_secret_value()
-            )
-        return self._deserialize_value_bytes(value_bytes)
+        return _deserialize_setting_value(
+            setting,
+            encryption_key=self._encryption_key,
+        )
 
     def get_values_with_decryption_fallback(
         self,
@@ -123,7 +147,7 @@ class SettingsService(BaseOrgService):
     async def list_org_settings(
         self,
         *,
-        keys: set[str] | None = None,
+        keys: Collection[str] | None = None,
         value_type: str | None = None,
         is_encrypted: bool | None = None,
         limit: int | None = None,
@@ -199,6 +223,8 @@ class SettingsService(BaseOrgService):
         """Create a new organization setting."""
         setting = await self._create_org_setting(params)
         await self.session.commit()
+        if params.key in AUDIT_SETTINGS_KEYS:
+            clear_audit_setting_cache()
         return setting
 
     async def _update_setting(
@@ -243,6 +269,8 @@ class SettingsService(BaseOrgService):
         updated_setting = await self._update_setting(setting, params)
         self.session.add(updated_setting)
         await self.session.commit()
+        if setting.key in AUDIT_SETTINGS_KEYS:
+            clear_audit_setting_cache()
         await self.session.refresh(updated_setting)
         return updated_setting
 
@@ -257,6 +285,8 @@ class SettingsService(BaseOrgService):
             return
         await self.session.delete(setting)
         await self.session.commit()
+        if setting.key in AUDIT_SETTINGS_KEYS:
+            clear_audit_setting_cache()
 
     # Grouped settings
 
@@ -298,8 +328,22 @@ class SettingsService(BaseOrgService):
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
     async def update_audit_settings(self, params: AuditSettingsUpdate) -> None:
-        audit_settings = await self.list_org_settings(keys=AuditSettingsUpdate.keys())
+        audit_settings = await self.list_org_settings(keys=AUDIT_SETTINGS_KEYS)
         await self._update_grouped_settings(audit_settings, params)
+        clear_audit_setting_cache()
+
+    @require_scope("org:settings:update")
+    @audit_log(resource_type="organization_setting", action="update")
+    async def update_security_settings(self, params: SecuritySettingsUpdate) -> None:
+        """Persist the organization IP allowlist.
+
+        Callers must clear the allowlist cache after this commits; the service
+        cannot import the enforcement module without creating an import cycle.
+        """
+        security_settings = await self.list_org_settings(
+            keys=SecuritySettingsUpdate.keys()
+        )
+        await self._update_grouped_settings(security_settings, params)
 
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
@@ -312,6 +356,103 @@ class SettingsService(BaseOrgService):
     async def update_agent_settings(self, params: AgentSettingsUpdate) -> None:
         agent_settings = await self.list_org_settings(keys=AgentSettingsUpdate.keys())
         await self._update_grouped_settings(agent_settings, params)
+
+    @require_scope("org:settings:update")
+    @audit_log(resource_type="organization_setting", action="update")
+    async def update_agent_otel_settings(self, params: AgentOtelSettingsUpdate) -> None:
+        otel_config = params.agent_otel_config
+        if otel_config.enabled and otel_config.endpoint is not None:
+            # The host posts tenant telemetry to this endpoint, so a private
+            # address would make it an internal-network oracle. Reject before
+            # persisting; the error carries no address.
+            try:
+                await validate_url_resolves_public_async(str(otel_config.endpoint))
+            except DisallowedUrlError as exc:
+                raise AgentOtelEndpointNotAllowedError from exc
+
+        otel_settings = await self.list_org_settings(
+            keys=AgentOtelSettingsUpdate.keys()
+        )
+        await self._update_grouped_settings(otel_settings, params)
+
+
+def _resolve_setting_override(key: str) -> Any:
+    if override_val := get_setting_override(key):
+        logger.warning(
+            "Using environment override for setting. "
+            "This is not recommended for production environments.",
+            key=key,
+            override=override_val,
+        )
+        match override_val.lower():
+            case "true" | "1":
+                return True
+            case "false" | "0":
+                return False
+            case _:
+                return override_val
+    return UNSET
+
+
+async def get_setting_from_bypass_session(
+    key: str,
+    *,
+    organization_id: OrganizationID,
+    session: SupportsExecute,
+    default: Any = UNSET,
+) -> Any | None:
+    """Read an org setting through a caller-owned RLS-bypass session.
+
+    This helper neither changes RLS context nor acquires a database connection.
+    Callers must supply an already-authorized bypass session and an explicit
+    organization ID.
+    """
+    override = _resolve_setting_override(key)
+    if override is not UNSET:
+        return override
+
+    statement = select(OrganizationSetting).where(
+        OrganizationSetting.organization_id == organization_id,
+        OrganizationSetting.key == key,
+    )
+    result = await session.execute(statement)
+    setting = result.scalar_one_or_none()
+    no_default_val = _deserialize_setting_value(setting) if setting else None
+
+    if no_default_val is None and default is not UNSET:
+        logger.debug("Setting not found, using default value", key=key)
+        return default
+    return no_default_val
+
+
+async def workspace_allows_error_details(
+    *,
+    organization_id: OrganizationID,
+    workspace_id: WorkspaceID,
+    session: SupportsExecute,
+) -> bool:
+    """Whether the org lets this workspace's actions opt out of secret error withholding.
+
+    Fails closed: any lookup failure or malformed value denies the workspace.
+    """
+    try:
+        value = await get_setting_from_bypass_session(
+            "app_unsafe_disable_secret_error_withholding_workspace_ids",
+            organization_id=organization_id,
+            session=session,
+            default=[],
+        )
+    except SQLAlchemyError as e:
+        logger.warning(
+            "Failed to read error-details workspace allow-list; denying",
+            organization_id=organization_id,
+            workspace_id=workspace_id,
+            error=str(e),
+        )
+        return False
+    if not isinstance(value, list):
+        return False
+    return str(workspace_id) in {str(item) for item in value}
 
 
 async def get_setting(
@@ -328,21 +469,9 @@ async def get_setting(
     if role is None:
         return default if default is not UNSET else None
 
-    # If we have an environment override, use it
-    if override_val := get_setting_override(key):
-        logger.warning(
-            "Using environment override for setting. "
-            "This is not recommended for production environments.",
-            key=key,
-            override=override_val,
-        )
-        match override_val.lower():
-            case "true" | "1":
-                return True
-            case "false" | "0":
-                return False
-            case _:
-                return override_val
+    override = _resolve_setting_override(key)
+    if override is not UNSET:
+        return override
 
     # If role has no organization_id, fetch the default org
     if role is not None and role.organization_id is None:

@@ -1,16 +1,22 @@
+import re
 import uuid
 from typing import Self
 from uuid import UUID
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 
 from tracecat.identifiers.common import (
     TracecatUUID,
     id_from_short,
     id_to_short,
 )
-from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.identifiers.workflow import (
+    WF_EXEC_ID_PATTERN,
+    WF_EXEC_ID_SCHEMA_PATTERN,
+    WorkflowExecutionID,
+    WorkflowUUID,
+)
 
 
 def test_id_to_short() -> None:
@@ -260,3 +266,30 @@ def test_tracecat_uuid_construction(test_uuid_str):
 
     assert MockUUID.from_legacy(f"test-legacy-{test_uuid.hex}") == test_uuid
     assert MockUUID.new(f"test-legacy-{test_uuid.hex}") == test_uuid
+
+
+def test_workflow_execution_id_schema_pattern_has_no_python_named_groups() -> None:
+    """The emitted JSON Schema pattern must be ECMA-262 safe.
+
+    JSON Schema uses the ECMAScript regex dialect, which has no `(?P<name>...)`
+    named-group syntax. A pattern containing it fails clients that compile
+    schema `pattern`s as ECMAScript RegExp (e.g. MCP clients), so the
+    schema-facing pattern must not contain it.
+    """
+    pattern = TypeAdapter(WorkflowExecutionID).json_schema()["pattern"]
+    assert "(?P<" not in pattern
+
+
+def test_workflow_execution_id_schema_pattern_matches_same_ids() -> None:
+    """The schema pattern must accept/reject exactly the same IDs as the named
+    parsing pattern used at runtime."""
+    samples = [
+        "wf-0123456789abcdef0123456789abcdef:exec_AbC123",
+        "wf_4itKqkgCZrLhgYiq5L211X/exec-legacy-123",
+        "wf-0123456789abcdef0123456789abcdef:sch-0123456789abcdef0123456789abcdef-2024",
+        "not-a-wf-id:whatever",
+    ]
+    for sample in samples:
+        assert (re.fullmatch(WF_EXEC_ID_PATTERN, sample) is not None) == (
+            re.fullmatch(WF_EXEC_ID_SCHEMA_PATTERN, sample) is not None
+        )

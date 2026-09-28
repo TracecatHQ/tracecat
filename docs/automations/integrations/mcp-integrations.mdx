@@ -1,22 +1,33 @@
 ---
 title: "MCP servers"
-description: "Connect remote and stdio MCP servers to Tracecat agents: register tools, scope authentication, and call third-party MCP tools from agent runs."
+description: "Connect MCP servers from the Tracecat catalog, or bring your own remote and stdio servers, and attach them to agents and presets."
 ---
 
 ## Overview
 
-Tracecat supports two MCP integration types:
+Tracecat supports three ways to connect an MCP server:
 
+- Catalog of 50+ preconfigured servers with guided connection setup, including Splunk, SentinelOne Purple AI, CrowdStrike Falcon, Microsoft Sentinel, Elastic, Wiz, GreyNoise, and PagerDuty
 - Remote MCP over URL (`HTTP` or `SSE`)
 - Local MCP over `stdio`
 
-Agents attach MCP integrations from the preset builder.
+## Availability
+
+<Badge icon="github" color="gray" size="lg" shape="pill">Open source</Badge>
+
+All three connection types are open source. Select the saved integration in the `mcp_integrations` input on `ai.agent`, or attach it to a reusable agent preset.
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+Enterprise adds per-tool approvals on MCP integrations and the agent inbox to review them.
 
 ![MCP options](/img/integrations/mcp-options.png)
 
 ## Remote MCP
 
 Use remote MCP when the server is exposed over a URL.
+
+Tracecat rejects server URLs that resolve to private, loopback, or link-local addresses with `Host is not allowed`. For a self-hosted MCP server on your network, add its IP or CIDR to `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS`; see [Private endpoints](/agents/llm-providers#private-endpoints).
 
 Authentication modes:
 
@@ -72,6 +83,7 @@ Expression support differs by MCP integration type:
 
 ## Related pages
 
+- See [AI agent](/agents/ai-agent) for `ai.agent` and `ai.preset_agent` inputs and examples.
 - See [OAuth](/automations/integrations/oauth-integrations) for custom OAuth providers and OAuth token expressions.
 - See [Secrets](/automations/core-concepts/secrets) for environment-scoped secret resolution.
 - See [Variables](/automations/core-concepts/variables) for non-secret values used in `stdio` environment variables.

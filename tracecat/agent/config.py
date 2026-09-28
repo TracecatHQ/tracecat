@@ -1,12 +1,15 @@
+from tracecat.agent.gateway_providers import (
+    OLLAMA_DEFAULT_BASE_URL,
+    OPENROUTER_DEFAULT_BASE_URL,
+)
 from tracecat.agent.schemas import (
     ModelConfig,
     ProviderCredentialConfig,
     ProviderCredentialField,
 )
 
-# https://ai.pydantic.dev/api/models/base/
 MODEL_CONFIGS = {
-    # Maps the pydantic-ai model name to the Tracecat model config
+    # Maps the provider model name to the Tracecat model config.
     "gpt-4o-mini": ModelConfig(
         name="gpt-4o-mini",
         provider="openai",
@@ -155,7 +158,14 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 label="API Key",
                 type="password",
                 description="Your OpenAI API key from the provider's dashboard.",
-            )
+            ),
+            ProviderCredentialField(
+                key="OPENAI_BASE_URL",
+                label="Base URL",
+                type="text",
+                description="Optional custom base URL for OpenAI-compatible endpoints.",
+                required=False,
+            ),
         ],
     ),
     "anthropic": ProviderCredentialConfig(
@@ -167,7 +177,14 @@ PROVIDER_CREDENTIAL_CONFIGS = {
                 label="API Key",
                 type="password",
                 description="Your Anthropic API key from the provider's dashboard.",
-            )
+            ),
+            ProviderCredentialField(
+                key="ANTHROPIC_BASE_URL",
+                label="Base URL",
+                type="text",
+                description="Optional custom base URL for Anthropic-compatible endpoints.",
+                required=False,
+            ),
         ],
     ),
     "bedrock": ProviderCredentialConfig(
@@ -229,6 +246,25 @@ PROVIDER_CREDENTIAL_CONFIGS = {
             )
         ],
     ),
+    "mistral": ProviderCredentialConfig(
+        provider="mistral",
+        label="Mistral AI",
+        fields=[
+            ProviderCredentialField(
+                key="MISTRAL_API_KEY",
+                label="API Key",
+                type="password",
+                description="Your Mistral API key from the La Plateforme console.",
+            ),
+            ProviderCredentialField(
+                key="MISTRAL_BASE_URL",
+                label="Base URL",
+                type="text",
+                description="Optional custom base URL for Mistral-compatible endpoints.",
+                required=False,
+            ),
+        ],
+    ),
     "vertex_ai": ProviderCredentialConfig(
         provider="vertex_ai",
         label="Google Vertex AI",
@@ -280,9 +316,120 @@ PROVIDER_CREDENTIAL_CONFIGS = {
             ProviderCredentialField(
                 key="CUSTOM_MODEL_PROVIDER_PASSTHROUGH",
                 label="Passthrough",
-                type="text",
-                description="Optional boolean flag. When true, Tracecat bypasses the managed LLM gateway and forwards requests directly to the custom provider base URL.",
+                type="boolean",
+                description="When enabled, Tracecat bypasses the managed LLM gateway and forwards requests directly to the custom provider base URL.",
                 required=False,
+                default="false",
+            ),
+        ],
+    ),
+    "ollama": ProviderCredentialConfig(
+        provider="ollama",
+        label="Ollama",
+        fields=[
+            ProviderCredentialField(
+                key="OLLAMA_BASE_URL",
+                label="Base URL",
+                type="text",
+                description="OpenAI-compatible base URL of your Ollama server, including /v1. Use a host reachable from the Tracecat services rather than localhost when running in containers.",
+                default=OLLAMA_DEFAULT_BASE_URL,
+            ),
+            ProviderCredentialField(
+                key="OLLAMA_API_KEY",
+                label="API Key",
+                type="password",
+                description="Optional bearer token when Ollama sits behind an authenticating proxy or Ollama Cloud.",
+                required=False,
+            ),
+            ProviderCredentialField(
+                key="OLLAMA_PASSTHROUGH",
+                label="Passthrough",
+                type="boolean",
+                description="Forward requests directly to Ollama instead of the managed LLM gateway. Requires an Ollama version that serves the Anthropic Messages API.",
+                required=False,
+                default="false",
+            ),
+        ],
+    ),
+    "vllm": ProviderCredentialConfig(
+        provider="vllm",
+        label="vLLM",
+        fields=[
+            ProviderCredentialField(
+                key="VLLM_BASE_URL",
+                label="Base URL",
+                type="text",
+                description="OpenAI-compatible base URL of your vLLM server, including /v1 (e.g. http://vllm:8000/v1).",
+            ),
+            ProviderCredentialField(
+                key="VLLM_API_KEY",
+                label="API Key",
+                type="password",
+                description="Optional API key when vLLM is started with --api-key.",
+                required=False,
+            ),
+            ProviderCredentialField(
+                key="VLLM_PASSTHROUGH",
+                label="Passthrough",
+                type="boolean",
+                description="Forward requests directly to vLLM instead of the managed LLM gateway. Requires a vLLM build that serves the Anthropic Messages API.",
+                required=False,
+                default="false",
+            ),
+        ],
+    ),
+    "litellm": ProviderCredentialConfig(
+        provider="litellm",
+        label="LiteLLM",
+        fields=[
+            ProviderCredentialField(
+                key="LITELLM_BASE_URL",
+                label="Base URL",
+                type="text",
+                description="Base URL of your LiteLLM proxy, including /v1 (e.g. http://litellm:4000/v1).",
+            ),
+            ProviderCredentialField(
+                key="LITELLM_API_KEY",
+                label="API Key",
+                type="password",
+                description="LiteLLM virtual key or master key. Optional if the proxy does not enforce authentication.",
+                required=False,
+            ),
+            ProviderCredentialField(
+                key="LITELLM_PASSTHROUGH",
+                label="Passthrough",
+                type="boolean",
+                description="Forward requests directly to your LiteLLM proxy. Enabled by default because LiteLLM already serves the Anthropic Messages API.",
+                required=False,
+                default="true",
+            ),
+        ],
+    ),
+    "openrouter": ProviderCredentialConfig(
+        provider="openrouter",
+        label="OpenRouter",
+        fields=[
+            ProviderCredentialField(
+                key="OPENROUTER_API_KEY",
+                label="API Key",
+                type="password",
+                description="Your OpenRouter API key from openrouter.ai/keys.",
+            ),
+            ProviderCredentialField(
+                key="OPENROUTER_BASE_URL",
+                label="Base URL",
+                type="text",
+                description="OpenRouter API base URL. Override only if you route through a proxy or OpenRouter-compatible gateway.",
+                required=False,
+                default=OPENROUTER_DEFAULT_BASE_URL,
+            ),
+            ProviderCredentialField(
+                key="OPENROUTER_PASSTHROUGH",
+                label="Passthrough",
+                type="boolean",
+                description="Forward requests directly to OpenRouter's Anthropic-compatible endpoint instead of the managed LLM gateway.",
+                required=False,
+                default="false",
             ),
         ],
     ),
@@ -394,3 +541,29 @@ PROVIDER_CREDENTIAL_CONFIGS = {
         ],
     ),
 }
+
+# Display order for built-in providers in settings UIs and provider listings.
+# Providers missing from this tuple sort after it in registration order.
+PROVIDER_DISPLAY_ORDER: tuple[str, ...] = (
+    "openai",
+    "anthropic",
+    "bedrock",
+    "azure_openai",
+    "azure_ai",
+    "gemini",
+    "vertex_ai",
+    "mistral",
+    "ollama",
+    "vllm",
+    "litellm",
+    "openrouter",
+    "custom-model-provider",
+)
+
+
+def provider_display_rank(provider: str) -> tuple[int, int]:
+    """Return a sort key that follows ``PROVIDER_DISPLAY_ORDER``."""
+    if provider in PROVIDER_DISPLAY_ORDER:
+        return (0, PROVIDER_DISPLAY_ORDER.index(provider))
+    registration_index = list(PROVIDER_CREDENTIAL_CONFIGS).index(provider)
+    return (1, registration_index)

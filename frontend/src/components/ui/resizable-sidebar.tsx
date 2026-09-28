@@ -54,7 +54,7 @@ export function ResizableSidebar({
 
   const divider = (
     <DragDivider
-      className={cn("w-1.5 shrink-0", dividerClassName)}
+      className={dividerClassName}
       value={width}
       onChange={setWidth}
       min={min}

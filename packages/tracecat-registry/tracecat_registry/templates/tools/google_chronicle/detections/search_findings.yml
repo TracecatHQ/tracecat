@@ -1,0 +1,75 @@
+type: action
+definition:
+  title: Search findings
+  description: Legacy endpoint for listing Findings.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1alpha/projects.locations.instances.legacy/legacySearchFindings
+  namespace: tools.google_chronicle
+  name: search_findings
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The name of the parent resource, which is the SecOps instance this request is
+        sent to. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    findingType:
+      type: list[str]
+      description: "Finding type: Uppercase, DSML, etc."
+    startTime:
+      type: str
+      description: >-
+        Inclusive start of the times range to get the findings from, in RFC 3339 format,
+        e.g. "2014-10-02T15:01:23Z".
+    endTime:
+      type: str
+      description: >-
+        Exclusive end of the times range to get the findings from, in RFC 3339 format.
+    pageSize:
+      type: int | None
+      description: >-
+        Number of findings to return per page. Default value is 1000 if the pageSize is
+        not set in the request.
+      default: null
+    next_page_token_last_row_time:
+      type: str | None
+      description: Last row timestamp from the previous response page token.
+      default: null
+    next_page_token_offset:
+      type: int | None
+      description: Offset from the previous response page token.
+      default: null
+    next_page_token_last_row_id:
+      type: str | None
+      description: Last row ID from the previous response page token.
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1alpha/${{ inputs.instance }}/legacy:legacySearchFindings
+        method: GET
+        params:
+          findingType: ${{ inputs.findingType }}
+          timestampRange.startTime: ${{ inputs.startTime }}
+          timestampRange.endTime: ${{ inputs.endTime }}
+          pageSize: ${{ inputs.pageSize }}
+          nextPageToken.lastRowTime: ${{ inputs.next_page_token_last_row_time }}
+          nextPageToken.offset: ${{ inputs.next_page_token_offset }}
+          nextPageToken.lastRowId: ${{ inputs.next_page_token_last_row_id }}
+  returns: ${{ steps.call_api.result }}

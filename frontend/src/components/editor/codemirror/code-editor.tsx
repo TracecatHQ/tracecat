@@ -6,6 +6,7 @@ import { yaml } from "@codemirror/lang-yaml"
 import type { Extension } from "@codemirror/state"
 import { EditorView } from "@codemirror/view"
 import ReactCodeMirror from "@uiw/react-codemirror"
+import { useTheme } from "next-themes"
 
 import { cn } from "@/lib/utils"
 
@@ -15,6 +16,8 @@ interface CodeEditorProps {
   language?: string
   readOnly?: boolean
   wrapLongLines?: boolean
+  placeholder?: string
+  extensions?: Extension[]
   className?: string
 }
 
@@ -38,12 +41,17 @@ export function CodeEditor({
   language = "python",
   readOnly = false,
   wrapLongLines = false,
+  placeholder,
+  extensions: customExtensions = [],
   className,
 }: CodeEditorProps) {
+  const { resolvedTheme } = useTheme()
+  const codeMirrorTheme = resolvedTheme === "dark" ? "dark" : "light"
   const languageExtension = getLanguageExtension(language)
   const extensions = [
     ...(languageExtension ? [languageExtension] : []),
     ...(wrapLongLines ? [EditorView.lineWrapping] : []),
+    ...customExtensions,
   ]
 
   return (
@@ -51,7 +59,9 @@ export function CodeEditor({
       value={value}
       onChange={onChange}
       extensions={extensions}
+      theme={codeMirrorTheme}
       readOnly={readOnly}
+      placeholder={placeholder}
       className={cn(
         // Ensure the editor and all its tooltips/autocomplete popups are fully rounded and do not stick out
         "max-w-full min-w-0 rounded-md text-xs focus-visible:outline-none",

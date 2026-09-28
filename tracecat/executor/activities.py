@@ -11,7 +11,7 @@ from collections.abc import Callable
 from typing import Any
 
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, is_cancelled_exception
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
@@ -26,17 +26,31 @@ from tracecat.contexts import ctx_logger, ctx_role, ctx_run
 from tracecat.dsl.action import materialize_context
 from tracecat.dsl.schemas import RunActionInput
 from tracecat.dsl.types import ActionErrorInfo
-from tracecat.exceptions import (
-    EntitlementRequired,
-    ExecutionError,
-    LoopExecutionError,
-    RateLimitExceeded,
-    ScopeDeniedError,
-)
+from tracecat.exceptions import ExecutionError, LoopExecutionError, RateLimitExceeded
 from tracecat.executor.backends import get_executor_backend
+from tracecat.executor.error_policy import (
+    classify_execute_action_error,
+    executor_backend_initialization_error_classification,
+    result_persistence_error_classification,
+)
 from tracecat.executor.service import dispatch_action
 from tracecat.logger import logger
+from tracecat.observability.otel import platform_span, set_current_span_attributes
+from tracecat.observability.sentry import capture_activity_failure
+from tracecat.observability.types import PlatformErrorCapture
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorOwner,
+)
 from tracecat.storage.object import StoredObject, action_key, get_object_storage
+from tracecat.temporal.errors import (
+    activity_error_boundary,
+    build_error_transport_detail,
+    extract_error_capture,
+    extract_error_classification,
+    raise_application_error_from_classification,
+)
 
 
 async def _heartbeat_loop(interval: int, task_ref: str, action_name: str) -> None:
@@ -53,6 +67,31 @@ async def _heartbeat_loop(interval: int, task_ref: str, action_name: str) -> Non
             activity.heartbeat(f"{action_name} ({task_ref}): {elapsed}s elapsed")
     except asyncio.CancelledError:
         pass
+
+
+def _source_capture(
+    error: Exception, classification: RuntimeErrorClassification, *, action_name: str
+) -> PlatformErrorCapture | None:
+    """Retain captures made before executor diagnostics severed raw causes."""
+    if isinstance(error, ExecutionError):
+        capture = error.sentry_capture
+        if capture is not None and capture.classification == classification:
+            return capture
+        return None
+    if isinstance(error, LoopExecutionError):
+        failures: list[
+            tuple[RuntimeErrorClassification, PlatformErrorCapture | None]
+        ] = []
+        for child in error.loop_errors:
+            child_classification = classify_execute_action_error(
+                child, action_name=action_name
+            )
+            capture = _source_capture(
+                child, child_classification, action_name=action_name
+            )
+            failures.append((child_classification, capture))
+        return PlatformErrorCapture.for_aggregate(classification, failures)
+    return extract_error_capture(error, classification)
 
 
 class ExecutorActivities:
@@ -83,7 +122,7 @@ class ExecutorActivities:
         This activity runs on 'shared-action-queue' and handles:
         - Rate limit retries (tenacity)
         - for_each loop execution (via dispatch_action)
-        - Sandboxed pool execution
+        - Sandboxed action execution
 
         This replaces the HTTP-based run_action_activity from dsl/action.py.
         Secrets/variables are still handled inside the sandbox (Phase 2 will move them here).
@@ -109,6 +148,18 @@ class ExecutorActivities:
 
         act_info = activity.info()
         act_attempt = act_info.attempt
+        set_current_span_attributes(
+            {
+                "tracecat.organization.id": role.organization_id,
+                "tracecat.workspace.id": role.workspace_id,
+                "tracecat.workflow.id": input.run_context.wf_id,
+                "tracecat.workflow.execution.id": input.run_context.wf_exec_id,
+                "tracecat.action.ref": task.ref,
+                "tracecat.action.name": action_name,
+                "temporal.activity.attempt": act_attempt,
+                "temporal.task_queue": act_info.task_queue,
+            }
+        )
         log.debug(
             "Execute action activity details",
             task=task,
@@ -116,9 +167,10 @@ class ExecutorActivities:
             retry_policy=task.retry_policy,
             input=input,
         )
-        materialized_input = input.model_copy(
-            update={"exec_context": await materialize_context(input.exec_context)}
-        )
+        with platform_span("tracecat.action.materialize_inputs"):
+            materialized_input = input.model_copy(
+                update={"exec_context": await materialize_context(input.exec_context)}
+            )
 
         heartbeat_interval = config.TRACECAT__ACTIVITY_HEARTBEAT_INTERVAL
 
@@ -133,7 +185,10 @@ class ExecutorActivities:
             )
 
         try:
-            backend = get_executor_backend()
+            with activity_error_boundary(
+                executor_backend_initialization_error_classification
+            ):
+                backend = get_executor_backend()
 
             async for attempt_manager in AsyncRetrying(
                 retry=retry_if_exception_type(RateLimitExceeded),
@@ -145,9 +200,19 @@ class ExecutorActivities:
                         "Begin action attempt",
                         attempt_number=attempt_manager.retry_state.attempt_number,
                     )
-                    result = await dispatch_action(
-                        backend=backend, input=materialized_input
-                    )
+                    with platform_span(
+                        "tracecat.action.execute",
+                        attributes={
+                            "tracecat.action.ref": task.ref,
+                            "tracecat.action.name": action_name,
+                            "tracecat.retry.attempt": (
+                                attempt_manager.retry_state.attempt_number
+                            ),
+                        },
+                    ):
+                        result = await dispatch_action(
+                            backend=backend, input=materialized_input
+                        )
 
                     if heartbeat_interval > 0:
                         activity.heartbeat(
@@ -163,108 +228,58 @@ class ExecutorActivities:
                         stream_id=input.stream_id,
                         ref=task.ref,
                     )
-                    stored = await get_object_storage().store(key, result)
+                    with platform_span("tracecat.action.store_result"):
+                        with activity_error_boundary(
+                            result_persistence_error_classification
+                        ):
+                            stored = await get_object_storage().store(key, result)
                     return stored
-        except ScopeDeniedError as e:
-            # ScopeDeniedError from dispatch_action (user lacks action permission)
-            kind = e.__class__.__name__
-            msg = f"Permission denied: missing scope(s) {e.missing_scopes} to execute action '{action_name}'"
-            log.warning(
-                "Action scope denied",
-                action=action_name,
-                required_scopes=e.required_scopes,
-                missing_scopes=e.missing_scopes,
-            )
-            err_info = ActionErrorInfo(
-                ref=task.ref,
-                message=msg,
-                type=kind,
-                attempt=act_attempt,
-                stream_id=input.stream_id,
-            )
-            err_msg = err_info.format("execute_action")
-            # Non-retryable: retrying won't help if user lacks permission
-            raise ApplicationError(
-                err_msg, err_info, type=kind, non_retryable=True
-            ) from e
-        except EntitlementRequired as e:
-            # Entitlement errors are user-facing and non-retryable
-            kind = e.__class__.__name__
-            msg = str(e)
-            log.warning("Action entitlement denied", action=action_name, error=msg)
-            err_info = ActionErrorInfo(
-                ref=task.ref,
-                message=msg,
-                type=kind,
-                attempt=act_attempt,
-                stream_id=input.stream_id,
-            )
-            err_msg = err_info.format("execute_action")
-            raise ApplicationError(
-                err_msg,
-                err_info,
-                type=kind,
-                non_retryable=True,
-            ) from e
-        except ExecutionError as e:
-            # ExecutionError from dispatch_action (single action failure)
-            kind = e.__class__.__name__
-            msg = str(e)
-            log.info("Execution error", error=msg, info=e.info)
-            err_info = ActionErrorInfo(
-                ref=task.ref,
-                message=msg,
-                type=kind,
-                attempt=act_attempt,
-                stream_id=input.stream_id,
-            )
-            err_msg = err_info.format("execute_action")
-            raise ApplicationError(err_msg, err_info, type=kind) from e
-        except LoopExecutionError as e:
-            # LoopExecutionError from dispatch_action (for_each loop failure)
-            kind = e.__class__.__name__
-            msg = str(e)
-            log.info("Loop execution error", error=msg, loop_errors=e.loop_errors)
-            err_info = ActionErrorInfo(
-                ref=task.ref,
-                message=msg,
-                type=kind,
-                attempt=act_attempt,
-                stream_id=input.stream_id,
-            )
-            err_msg = err_info.format("execute_action")
-            raise ApplicationError(err_msg, err_info, type=kind) from e
-        except ApplicationError as e:
-            # Pass through ApplicationError
-            log.error("ApplicationError occurred", error=e)
-            err_info = ActionErrorInfo(
-                ref=task.ref,
-                message=str(e),
-                type=e.type or e.__class__.__name__,
-                attempt=act_attempt,
-                stream_id=input.stream_id,
-            )
-            err_msg = err_info.format("execute_action")
-            raise ApplicationError(
-                err_msg, err_info, non_retryable=e.non_retryable, type=e.type
-            ) from e
         except Exception as e:
-            # Unexpected errors - non-retryable
-            kind = e.__class__.__name__
-            raw_msg = f"Unexpected {kind} occurred:\n{e}"
-            log.error(raw_msg)
-
+            if is_cancelled_exception(e):
+                raise
+            classification = classify_execute_action_error(e, action_name=action_name)
+            log.bind(
+                error_owner=classification.owner,
+                error_kind=classification.kind,
+                cause_type=classification.cause_type,
+            ).log(
+                "ERROR"
+                if classification.owner is RuntimeErrorOwner.PLATFORM
+                else "INFO",
+                "Action execution failed",
+            )
+            # Preserve the Temporal metadata an already-classified failure carried:
+            # its own details survive only when it was explicitly classified, and a
+            # requested retry delay applies only to a retryable disposition.
+            if isinstance(e, ApplicationError):
+                detail_type = e.type or e.__class__.__name__
+                details = tuple(e.details) if extract_error_classification(e) else ()
+                next_retry_delay = e.next_retry_delay
+            else:
+                detail_type = e.__class__.__name__
+                details = ()
+                next_retry_delay = None
             err_info = ActionErrorInfo(
                 ref=task.ref,
-                message=raw_msg,
-                type=kind,
+                message=classification.message,
+                type=detail_type,
                 attempt=act_attempt,
                 stream_id=input.stream_id,
             )
-            err_msg = err_info.format("execute_action")
-            raise ApplicationError(
-                err_msg, err_info, type=kind, non_retryable=True
-            ) from e
+            raise_application_error_from_classification(
+                classification,
+                build_error_transport_detail(classification, err_info),
+                *details,
+                capture=(
+                    _source_capture(e, classification, action_name=action_name)
+                    or capture_activity_failure(e, classification)
+                ),
+                next_retry_delay=(
+                    next_retry_delay
+                    if classification.retry_disposition is RetryDisposition.RETRYABLE
+                    else None
+                ),
+            )
         finally:
             if heartbeat_task is not None:
                 heartbeat_task.cancel()

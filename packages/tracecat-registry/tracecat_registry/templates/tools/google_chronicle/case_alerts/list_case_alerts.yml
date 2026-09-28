@@ -1,0 +1,88 @@
+type: action
+definition:
+  title: List case alerts
+  description: >-
+    Lists CaseAlerts within a specific Case. Supports filtering by status, priority, and
+    other alert attributes.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.cases.caseAlerts/list
+  namespace: tools.google_chronicle
+  name: list_case_alerts
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        Chronicle instance this request is sent to. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    case:
+      type: str
+      description: The ID of the Case to list CaseAlerts for.
+    pageSize:
+      type: int | None
+      description: >-
+        The maximum number of CaseAlerts to return. The service may return fewer than
+        this value. If unspecified, at most 50 CaseAlerts will be returned. The maximum
+        value is 1000; values above 1000 will be coerced to 1000.
+      default: null
+    pageToken:
+      type: str | None
+      description: >-
+        A page token, received from a previous caseAlerts.list call. Provide this to
+        retrieve the subsequent page. When paginating, all other parameters provided to
+        caseAlerts.list must match the call that provided the page token.
+      default: null
+    filter:
+      type: str | None
+      description: >-
+        A filter to apply to the list of CaseAlerts. Supported filter fields:
+        displayName, caseId, identifier, sourceGroupingIdentifier, product, vendor,
+        environment, ticketId, sourceSystemName, creation_method, priority, status,
+        startTime, endTime, additionalProperties, involvedRelations. Example:
+        filter="displayName='some_name'"
+      default: null
+    orderBy:
+      type: str | None
+      description: >-
+        Configures ordering of CaseAlerts in the response. If not specified, CaseAlerts
+        are returned in descending order of their create time. The orderBy string is a
+        comma separated list of fields. Example: "displayName desc, default"
+      default: null
+    expand:
+      type: str | None
+      description: >-
+        Expand the response to include the full alert object. Supported values: sla,
+        involvedRelations. Example: "sla, involvedRelations"
+      default: null
+    distinctBy:
+      type: str | None
+      description: 'Fields to distinct results. Example: caseId'
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ FN.url_encode(inputs.case) }}/caseAlerts
+        method: GET
+        params:
+          pageSize: ${{ inputs.pageSize }}
+          pageToken: ${{ inputs.pageToken }}
+          filter: ${{ inputs.filter }}
+          orderBy: ${{ inputs.orderBy }}
+          expand: ${{ inputs.expand }}
+          distinctBy: ${{ inputs.distinctBy }}
+  returns: ${{ steps.call_api.result }}

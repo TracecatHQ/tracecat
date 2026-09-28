@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
 import {
   type AdminCreateOrganizationDomainResponse,
@@ -16,10 +15,13 @@ import {
   type AdminOrgInvitationCreate,
   type AdminRegistryGetRegistryStatusResponse,
   type AdminRegistryListRegistryVersionsResponse,
+  type AdminResendOrganizationInvitationResponse,
+  type AdminTestAuditWebhookData,
   type AdminUserCreate,
   type AdminUserRead,
   type AgentCatalogListResponse,
   type AgentCatalogRead,
+  type AuditWebhookTestResult,
   adminCreateOrganization,
   adminCreateOrganizationDomain,
   adminCreateOrganizationInvitation,
@@ -28,7 +30,9 @@ import {
   adminDeleteOrganization,
   adminDeleteOrganizationDomain,
   adminDeleteTier,
+  adminDeleteUser,
   adminDemoteFromSuperuser,
+  adminGetAuditSettings,
   adminGetOrganization,
   adminGetOrganizationInvitationToken,
   adminGetOrgTier,
@@ -44,14 +48,18 @@ import {
   adminListUsers,
   adminPromoteOrgRepositoryVersion,
   adminPromoteToSuperuser,
+  adminRegistryDeleteRegistryVersion,
   adminRegistryGetRegistryStatus,
   adminRegistryListRegistryVersions,
   adminRegistryPromoteRegistryVersion,
   adminRegistryStartRegistryArtifactsBackfill,
   adminRegistrySyncAllRepositories,
   adminRegistrySyncRepository,
+  adminResendOrganizationInvitation,
   adminRevokeOrganizationInvitation,
   adminSyncOrgRepository,
+  adminTestAuditWebhook,
+  adminUpdateAuditSettings,
   adminUpdateOrganization,
   adminUpdateOrganizationDomain,
   adminUpdateOrgTier,
@@ -66,6 +74,8 @@ import {
   type OrgDomainUpdate,
   type tracecat_ee__admin__organizations__schemas__OrgRead as OrgRead,
   type OrgUpdate,
+  type PlatformAuditSettingsRead,
+  type PlatformAuditSettingsUpdate,
   type PlatformRegistrySettingsUpdate,
   type RegistryArtifactsBackfillStartRequest,
   type RegistryArtifactsBackfillStartResponse,
@@ -74,7 +84,17 @@ import {
   type TierUpdate,
 } from "@/client"
 import { request as apiRequest } from "@/client/core/request"
-import { retryHandler, type TracecatApiError } from "@/lib/errors"
+import { toast } from "@/components/ui/use-toast"
+import {
+  getAuditWebhookTestDescription,
+  getAuditWebhookTestTitle,
+} from "@/lib/audit-webhook-test"
+import {
+  getApiErrorDetail,
+  retryHandler,
+  type TracecatApiError,
+} from "@/lib/errors"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 export interface AdminPlatformCatalogEntry {
   id: string
@@ -285,7 +305,8 @@ export function useAdminOrgDomains(orgId: string) {
 }
 
 /** Fetch and mutate platform-created organization invitations. */
-export function useAdminOrgInvitations(orgId: string) {
+export function useAdminOrgInvitations(orgId: string, enabled = true) {
+  const [pollUntil, setPollUntil] = useState(0)
   const queryClient = useQueryClient()
   const [pagination, setPagination] =
     useState<AdminOrgInvitationsPaginationState>(
@@ -295,6 +316,7 @@ export function useAdminOrgInvitations(orgId: string) {
 
   useEffect(() => {
     setPagination(DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION)
+    setPollUntil(0)
   }, [orgId])
 
   const {
@@ -310,7 +332,9 @@ export function useAdminOrgInvitations(orgId: string) {
         cursor: pagination.cursor,
         reverse: pagination.reverse,
       }),
-    enabled: !!orgId,
+    enabled: enabled && !!orgId,
+    // Delivery is asynchronous; stop after 60 seconds, the resend cooldown, even if SMTP never succeeds.
+    refetchInterval: () => (enabled && Date.now() < pollUntil ? 2_000 : false),
   })
 
   const { mutateAsync: createInvitation, isPending: createPending } =
@@ -323,6 +347,7 @@ export function useAdminOrgInvitations(orgId: string) {
         adminCreateOrganizationInvitation({ orgId, requestBody: data }),
       onSuccess: () => {
         setPagination(DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION)
+        setPollUntil(Date.now() + 60_000)
         queryClient.invalidateQueries({ queryKey })
       },
     })
@@ -343,6 +368,18 @@ export function useAdminOrgInvitations(orgId: string) {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey })
       },
+    })
+
+  const { mutateAsync: resendInvitation, isPending: resendPending } =
+    useMutation<AdminResendOrganizationInvitationResponse, Error, string>({
+      mutationFn: (invitationId) =>
+        adminResendOrganizationInvitation({ orgId, invitationId }),
+      onSuccess: () => {
+        setPollUntil(Date.now() + 60_000)
+        queryClient.invalidateQueries({ queryKey })
+      },
+      // Callers toast on the awaited result, including the 409 cooldown.
+      meta: { suppressErrorToast: true },
     })
 
   function goToNextPage() {
@@ -372,6 +409,8 @@ export function useAdminOrgInvitations(orgId: string) {
     getInvitationToken,
     revokeInvitation,
     revokePending,
+    resendInvitation,
+    resendPending,
     goToNextPage,
     goToPreviousPage,
     hasNextPage: invitationsPage?.has_more ?? false,
@@ -418,6 +457,20 @@ export function useAdminUsers() {
         queryClient.invalidateQueries({ queryKey: ["admin", "users"] }),
     })
 
+  const { mutateAsync: deleteUser, isPending: deletePending } = useMutation<
+    void,
+    Error,
+    string
+  >({
+    mutationFn: async (userId) => {
+      await adminDeleteUser({ userId })
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "users"] })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+
   return {
     users,
     isLoading,
@@ -428,6 +481,8 @@ export function useAdminUsers() {
     promotePending,
     demoteFromSuperuser,
     demotePending,
+    deleteUser,
+    deletePending,
   }
 }
 
@@ -735,6 +790,19 @@ export function useAdminRegistrySync() {
       },
     })
 
+  const { mutateAsync: deleteVersion, isPending: deletePending } = useMutation({
+    mutationFn: ({
+      repositoryId,
+      versionId,
+    }: {
+      repositoryId: string
+      versionId: string
+    }) => adminRegistryDeleteRegistryVersion({ repositoryId, versionId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin", "registry"] })
+    },
+  })
+
   const { mutateAsync: syncRepository, isPending: syncPending } = useMutation({
     mutationFn: ({
       repositoryId,
@@ -784,6 +852,8 @@ export function useAdminRegistrySync() {
     syncPending,
     promoteVersion,
     promotePending,
+    deleteVersion,
+    deletePending,
     backfillArtifacts,
     backfillArtifactsPending,
   }
@@ -819,6 +889,70 @@ export function useAdminRegistrySettings() {
     error,
     updateSettings,
     updatePending,
+  }
+}
+
+export function useAdminAuditSettings() {
+  const queryClient = useQueryClient()
+
+  const {
+    data: auditSettings,
+    isLoading: auditSettingsIsLoading,
+    error: auditSettingsError,
+  } = useQuery<PlatformAuditSettingsRead, Error>({
+    queryKey: ["admin", "audit", "settings"],
+    queryFn: adminGetAuditSettings,
+  })
+
+  const {
+    mutateAsync: updateAuditSettings,
+    isPending: updateAuditSettingsIsPending,
+    error: updateAuditSettingsError,
+  } = useMutation<
+    PlatformAuditSettingsRead,
+    Error,
+    { requestBody: PlatformAuditSettingsUpdate }
+  >({
+    mutationFn: ({ requestBody }) => adminUpdateAuditSettings({ requestBody }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["admin", "audit", "settings"],
+      })
+    },
+  })
+
+  const { mutate: testAuditWebhook, isPending: testAuditWebhookIsPending } =
+    useMutation<
+      AuditWebhookTestResult,
+      TracecatApiError,
+      AdminTestAuditWebhookData
+    >({
+      mutationFn: adminTestAuditWebhook,
+      onSuccess: (result) => {
+        toast({
+          title: getAuditWebhookTestTitle(result),
+          description: getAuditWebhookTestDescription(result),
+          variant: result.ok ? "default" : "destructive",
+        })
+      },
+      onError: (error) => {
+        console.error("Failed to test platform audit webhook", error)
+        toast({
+          title: "Failed to test audit webhook",
+          description: getApiErrorDetail(error) ?? "Unknown error",
+        })
+      },
+    })
+
+  return {
+    auditSettings,
+    auditSettingsIsLoading,
+    auditSettingsError,
+    updateAuditSettings,
+    updateAuditSettingsIsPending,
+    updateAuditSettingsError,
+    testAuditWebhook,
+    testAuditWebhookIsPending,
   }
 }
 

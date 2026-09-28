@@ -1,7 +1,7 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import { organizationListOrganizationDomains } from "@/client"
+import { useQuery } from "@/lib/query"
 
 export function useOrgDomains() {
   const {

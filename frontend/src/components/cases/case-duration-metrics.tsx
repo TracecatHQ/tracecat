@@ -1,6 +1,6 @@
 "use client"
 
-import { format, intervalToDuration, isValid as isValidDate } from "date-fns"
+import { format, isValid as isValidDate } from "date-fns"
 import { FlagTriangleRight, Hourglass } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import type { CaseDurationDefinitionRead, CaseDurationRead } from "@/client"
@@ -12,12 +12,24 @@ import {
 } from "@/components/ui/hover-card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import { parseISODuration } from "@/lib/time"
+  durationBetween,
+  formatDurationCompact,
+  formatDurationLong,
+  parseISODurationSafe,
+} from "@/lib/time"
+import { cn, INSET_SURFACE } from "@/lib/utils"
+
+/**
+ * Age past which a pill stops rendering seconds.
+ *
+ * Tied to `formatDurationCompact`'s two-unit window: at an hour the window is
+ * "Xh Ym", so the seconds field leaves the screen and a per-second tick stops
+ * changing anything. Pinned by a test in `tests/time.test.ts`.
+ */
+const SLOW_TICK_THRESHOLD_MS = 60 * 60 * 1000
+
+const FAST_TICK_MS = 1000
+const SLOW_TICK_MS = 30_000
 
 function parseCaseTimestamp(value?: string | null): Date | null {
   if (!value) return null
@@ -25,90 +37,44 @@ function parseCaseTimestamp(value?: string | null): Date | null {
   return isValidDate(date) ? date : null
 }
 
-type DurationComponents = {
-  years?: number
-  months?: number
-  weeks?: number
-  days?: number
-  hours?: number
-  minutes?: number
-  seconds?: number
-}
-
-const DURATION_COMPONENT_ORDER: Array<keyof DurationComponents> = [
-  "years",
-  "months",
-  "weeks",
-  "days",
-  "hours",
-  "minutes",
-  "seconds",
-]
-
-const DURATION_SUFFIXES: Record<keyof DurationComponents, string> = {
-  years: "y",
-  months: "mo",
-  weeks: "w",
-  days: "d",
-  hours: "h",
-  minutes: "m",
-  seconds: "s",
-}
-
-function formatDurationComponents(
-  components: Partial<DurationComponents>
-): string {
-  const normalized: Required<DurationComponents> = {
-    years: components.years ?? 0,
-    months: components.months ?? 0,
-    weeks: components.weeks ?? 0,
-    days: components.days ?? 0,
-    hours: components.hours ?? 0,
-    minutes: components.minutes ?? 0,
-    seconds: components.seconds ?? 0,
-  }
-
-  if (normalized.weeks) {
-    normalized.days += normalized.weeks * 7
-    normalized.weeks = 0
-  }
-
-  const parts: string[] = []
-  for (const key of DURATION_COMPONENT_ORDER) {
-    const value = normalized[key]
-    if (!value) continue
-    parts.push(`${value}${DURATION_SUFFIXES[key]}`)
-  }
-  return parts.length > 0 ? parts.join(" ") : "0s"
-}
-
-function formatIsoDurationCompact(duration?: string | null): string | null {
-  if (!duration) return null
-  try {
-    const parsed = parseISODuration(duration)
-    return formatDurationComponents(parsed)
-  } catch (error) {
-    console.error("Failed to parse ISO duration", error)
-    return null
-  }
-}
-
-function formatElapsedDuration(start: Date, end: Date): string {
-  if (start >= end) return "0s"
-  const elapsed = intervalToDuration({ start, end })
-  return formatDurationComponents(elapsed)
-}
+/** Shared so the local and UTC timestamps always read the same shape. */
+const DATE_TIME_PATTERN = "MMM d yyyy '·' p"
 
 function formatLocalDateTime(date: Date): string {
-  return format(date, "MMM d yyyy '·' p")
+  return format(date, DATE_TIME_PATTERN)
 }
 
+const UTC_DATE_TIME_PARTS = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+})
+
+/**
+ * Same shape as {@link formatLocalDateTime}, rendered in UTC.
+ *
+ * Assembled from `formatToParts` rather than shifting the instant by the local
+ * UTC offset, because that shift lands on the wrong side of a DST transition
+ * and silently reports the hour before or after the real one.
+ */
 function formatUtcDateTime(date: Date): string {
-  return `${date.toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC",
-  })} UTC`
+  const parts = new Map(
+    UTC_DATE_TIME_PARTS.formatToParts(date).map((part) => [
+      part.type,
+      part.value,
+    ])
+  )
+  const month = parts.get("month") ?? ""
+  const day = parts.get("day") ?? ""
+  const year = parts.get("year") ?? ""
+  const hour = parts.get("hour") ?? ""
+  const minute = parts.get("minute") ?? ""
+  const dayPeriod = parts.get("dayPeriod") ?? ""
+  return `${month} ${day} ${year} · ${hour}:${minute} ${dayPeriod} UTC`
 }
 
 interface CaseDurationMetric {
@@ -117,7 +83,10 @@ interface CaseDurationMetric {
   description?: string | null
   startedAt: Date
   endedAt: Date | null
+  /** Truncated pill value, e.g. "1d 5h". */
   displayValue: string
+  /** Unabbreviated hover-card value, e.g. "1 day, 5 hours, 15 minutes". */
+  preciseValue: string
   state: "ongoing" | "done"
 }
 
@@ -136,24 +105,6 @@ export function CaseDurationMetrics({
 }: CaseDurationMetricsProps) {
   const [now, setNow] = useState(() => new Date())
   const isInline = variant === "inline"
-
-  const hasOngoingDuration = useMemo(
-    () =>
-      Boolean(
-        durations?.some((duration) => duration.started_at && !duration.ended_at)
-      ),
-    [durations]
-  )
-
-  useEffect(() => {
-    if (!hasOngoingDuration) {
-      return
-    }
-    const interval = window.setInterval(() => {
-      setNow(new Date())
-    }, 1000)
-    return () => window.clearInterval(interval)
-  }, [hasOngoingDuration])
 
   const definitionById = useMemo(() => {
     if (!definitions || !definitions.length)
@@ -175,13 +126,14 @@ export function CaseDurationMetrics({
           definition?.name ??
           `Duration ${duration.definition_id.slice(0, 8).toUpperCase()}`
         const description = definition?.description
-        const state: CaseDurationMetric["state"] = endedAt ? "done" : "ongoing"
 
-        const resolvedDuration =
-          state === "done"
-            ? (formatIsoDurationCompact(duration.duration) ??
-              (endedAt ? formatElapsedDuration(startedAt, endedAt) : "—"))
-            : formatElapsedDuration(startedAt, now)
+        // Parse once, render twice: the pill gets the truncated form and the
+        // hover card the full one. A completed duration prefers the value the
+        // backend computed, falling back to the interval it spans.
+        const parts = endedAt
+          ? (parseISODurationSafe(duration.duration) ??
+            durationBetween(startedAt, endedAt))
+          : durationBetween(startedAt, now)
 
         return {
           id: duration.id,
@@ -189,12 +141,32 @@ export function CaseDurationMetrics({
           description,
           startedAt,
           endedAt,
-          displayValue: resolvedDuration,
-          state,
+          displayValue: formatDurationCompact(parts),
+          preciseValue: formatDurationLong(parts),
+          state: endedAt ? "done" : "ongoing",
         }
       })
       .filter((item): item is CaseDurationMetric => item !== null)
   }, [definitionById, durations, now])
+
+  const hasOngoing = metrics.some((metric) => metric.state === "ongoing")
+  // Only tick every second while some pill is actually showing seconds.
+  const showsSeconds = metrics.some(
+    (metric) =>
+      metric.state === "ongoing" &&
+      now.getTime() - metric.startedAt.getTime() < SLOW_TICK_THRESHOLD_MS
+  )
+
+  useEffect(() => {
+    if (!hasOngoing) {
+      return
+    }
+    const interval = window.setInterval(
+      () => setNow(new Date()),
+      showsSeconds ? FAST_TICK_MS : SLOW_TICK_MS
+    )
+    return () => window.clearInterval(interval)
+  }, [hasOngoing, showsSeconds])
 
   if (isLoading && (!durations || durations.length === 0)) {
     if (isInline) {
@@ -212,77 +184,88 @@ export function CaseDurationMetrics({
 
   const metricsList = (
     <div
-      className={`flex items-center gap-2 ${
-        isInline ? "flex-nowrap shrink-0" : "flex-wrap"
-      }`}
+      className={cn(
+        "flex items-center gap-2",
+        isInline ? "flex-nowrap" : "flex-wrap"
+      )}
     >
       {metrics.map((metric) => {
         const IconComponent =
           metric.state === "ongoing" ? Hourglass : FlagTriangleRight
-        const tooltipLabel =
-          metric.state === "ongoing" ? "Ongoing" : "Completed"
 
         return (
           <HoverCard key={metric.id} openDelay={100} closeDelay={100}>
             <HoverCardTrigger asChild>
               <Badge
                 variant="outline"
-                className="min-w-0 gap-2 px-2 py-1 text-xs font-medium bg-background text-foreground"
+                className={cn(
+                  "gap-1.5 whitespace-nowrap px-2 py-1 text-xs font-medium text-foreground",
+                  // The comment and task boxes' surface exactly: same
+                  // `bg-muted/20` fill and the same `border-border/60` edge.
+                  // The fill alone was not enough — `Badge`'s full-opacity
+                  // border read as a harder, darker chip next to them.
+                  INSET_SURFACE,
+                  "border-border/60",
+                  // Inline pills size to their content and never compress, so a
+                  // short name like "TTR" takes only the width it needs. Once
+                  // the row outgrows its slot it scrolls, rather than squeezing
+                  // every pill until the values are clipped out of view.
+                  isInline && "shrink-0"
+                )}
               >
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex text-muted-foreground">
-                      <IconComponent
-                        aria-hidden="true"
-                        className="h-3.5 w-3.5"
-                      />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="top" className="text-xs">
-                    {tooltipLabel}
-                  </TooltipContent>
-                </Tooltip>
-                <span className="max-w-[9rem] truncate">{metric.name}</span>
-                <span className="font-mono text-muted-foreground">
+                <span className="inline-flex text-muted-foreground">
+                  <IconComponent aria-hidden="true" className="h-3.5 w-3.5" />
+                </span>
+                {/* Long names cut off at 9rem with an ellipsis. */}
+                <span className="min-w-0 max-w-[9rem] truncate">
+                  {metric.name}
+                </span>
+                <span className="shrink-0 whitespace-nowrap font-mono tabular-nums text-muted-foreground">
                   {metric.displayValue}
                 </span>
               </Badge>
             </HoverCardTrigger>
             <HoverCardContent className="w-80">
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 text-xs">
                 <div>
                   <p className="text-sm font-semibold text-foreground">
                     {metric.name}
                   </p>
                   {metric.description ? (
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="mt-1 text-muted-foreground">
                       {metric.description}
                     </p>
                   ) : null}
                 </div>
-                <div className="space-y-3 text-xs">
+                <div className="space-y-3">
                   <div>
-                    <p className="font-medium uppercase tracking-wide text-muted-foreground">
-                      Start Event
+                    <p className="font-medium text-muted-foreground">
+                      {metric.state === "ongoing" ? "Elapsed" : "Duration"}
+                    </p>
+                    <p className="mt-1">{metric.preciseValue}</p>
+                  </div>
+                  <div>
+                    <p className="font-medium text-muted-foreground">
+                      Started at
                     </p>
                     <p className="mt-1">
-                      Local: {formatLocalDateTime(metric.startedAt)}
+                      {formatLocalDateTime(metric.startedAt)}
                     </p>
                     <p className="text-muted-foreground">
-                      UTC: {formatUtcDateTime(metric.startedAt)}
+                      {formatUtcDateTime(metric.startedAt)}
                     </p>
                   </div>
                   <div>
-                    <p className="font-medium uppercase tracking-wide text-muted-foreground">
-                      End Event
+                    <p className="font-medium text-muted-foreground">
+                      Ended at
                     </p>
                     {metric.endedAt ? (
                       <>
                         <p className="mt-1">
-                          Local: {formatLocalDateTime(metric.endedAt)}
+                          {formatLocalDateTime(metric.endedAt)}
                         </p>
                         <p className="text-muted-foreground">
-                          UTC: {formatUtcDateTime(metric.endedAt)}
+                          {formatUtcDateTime(metric.endedAt)}
                         </p>
                       </>
                     ) : (
@@ -300,13 +283,9 @@ export function CaseDurationMetrics({
     </div>
   )
 
-  const content = (
-    <TooltipProvider delayDuration={150}>{metricsList}</TooltipProvider>
-  )
-
   if (isInline) {
-    return content
+    return metricsList
   }
 
-  return <div className="py-1.5 first:pt-0 last:pb-0">{content}</div>
+  return <div className="py-1.5 first:pt-0 last:pb-0">{metricsList}</div>
 }

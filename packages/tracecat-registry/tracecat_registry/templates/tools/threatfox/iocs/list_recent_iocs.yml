@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: List recent IOCs
+  description: >-
+    List recent ThreatFox indicators. Calls POST /api/v1/ directly with query get_iocs.
+  display_group: ThreatFox
+  doc_url: https://threatfox.abuse.ch/api/#recent-iocs
+  namespace: tools.threatfox
+  name: list_recent_iocs
+  secrets:
+    - name: abusech
+      keys: ["ABUSECH_API_KEY"]
+  expects:
+    days:
+      type: int | None
+      description: Number of days to filter IOCs by first_seen. ThreatFox allows 1 through 7 and defaults to 3.
+      default: 3
+    base_url:
+      type: str | None
+      description: Base URL of the ThreatFox API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.threatfox.base_url || "https://threatfox-api.abuse.ch" }}/api/v1/
+        method: POST
+        headers:
+          Auth-Key: ${{ SECRETS.abusech.ABUSECH_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          query: get_iocs
+          days: ${{ inputs.days }}
+  returns: ${{ steps.request.result }}

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from cryptography import x509
@@ -15,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
 from tracecat.exceptions import (
+    ScopeDeniedError,
     TracecatCredentialsNotFoundError,
     TracecatNotFoundError,
 )
@@ -253,6 +255,30 @@ class TestSecretsService:
         assert len(decrypted_keys) == 1
         assert decrypted_keys[0].key == secret_create_params.keys[0].key
         assert decrypted_keys[0].value == secret_create_params.keys[0].value
+
+    async def test_get_github_app_org_secret_accepts_legacy_or_workspace_sync_scope(
+        self,
+        session: AsyncSession,
+        svc_admin_role: Role,
+    ) -> None:
+        for scope in ("workflow:sync", "workspace_sync:sync"):
+            service = SecretsService(
+                session=session,
+                role=svc_admin_role.model_copy(update={"scopes": frozenset({scope})}),
+            )
+            with patch.object(
+                service,
+                "_get_github_app_org_secret",
+                new=AsyncMock(return_value=Mock()),
+            ):
+                await service.get_github_app_org_secret()
+
+        service = SecretsService(
+            session=session,
+            role=svc_admin_role.model_copy(update={"scopes": frozenset()}),
+        )
+        with pytest.raises(ScopeDeniedError):
+            await service.get_github_app_org_secret()
 
     async def test_update_secret_preserves_empty_values(
         self, service: SecretsService, secret_create_params: SecretCreate

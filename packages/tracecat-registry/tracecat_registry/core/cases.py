@@ -8,8 +8,7 @@ from uuid import UUID
 import httpx
 from typing_extensions import Doc
 
-from tracecat_registry import config, registry, types
-from tracecat_registry.context import get_context
+from tracecat_registry import config, ctx, registry, types
 from tracecat_registry.sdk.exceptions import (
     TracecatValidationError,
 )
@@ -48,6 +47,196 @@ StatusType = Literal[
 
 def _as_list_filter[T](value: T | list[T]) -> list[T]:
     return value if isinstance(value, list) else [value]
+
+
+@registry.register(
+    default_title="Aggregate cases",
+    display_group="Cases",
+    description=(
+        "Filter, group, and summarize workspace cases. Returns groups and a "
+        "truncated flag indicating whether more groups exist than the requested limit."
+    ),
+    namespace="core.cases",
+)
+async def aggregate_cases(
+    group_by: Annotated[
+        list[str | dict[str, Any]],
+        Doc(
+            "Choose how to split cases into groups. Use up to 3 fields, or `[]` for one "
+            "total across all matching cases.\n"
+            "\n"
+            "Supply a field name such as `priority`, or an object with `field` and "
+            "optional `bucket`, `timezone`, and `alias`. For example: ['priority', "
+            "{'field': 'created_at', 'bucket': 'day'}]. An alias names the field in the "
+            "result; it defaults to the field name. Output names must be unique and at "
+            "most 63 UTF-8 bytes.\n"
+            "\n"
+            "Fields you can group by:\n"
+            "\n"
+            "- Built-in fields: `status`, `priority`, `severity`, and `assignee_id` (a "
+            "user UUID).\n"
+            "- Custom fields: `fields.region`, replacing `region` with a defined field name. URL "
+            "fields use the URL, not the display label. LONG_TEXT fields work as text. "
+            "Other JSONB fields and MULTI_SELECT fields are unsupported.\n"
+            "- Dates and times: `created_at`, `updated_at`, and custom date/time fields. "
+            "These require a `bucket`: `hour`, `day`, `week`, or `month`. Weeks start on "
+            "Monday.\n"
+            "\n"
+            "Date and time settings:\n"
+            "\n"
+            "- Timestamps accept an IANA timezone name, such as `America/New_York`. The "
+            "default is `UTC`; results always contain UTC timestamps.\n"
+            "- DATE fields return `YYYY-MM-DD`. They do not accept a timezone, and even "
+            "an `hour` bucket retains only date precision.\n"
+            "\n"
+            "How group values appear in results:\n"
+            "\n"
+            "- Missing values share one `null` group, including cases with no saved "
+            "custom fields.\n"
+            "- TEXT and SELECT values use only the first 256 characters. Values with the "
+            "same prefix merge into one group.\n"
+            "- NUMERIC values appear as exact decimal strings.\n"
+            "\n"
+            "If your server supports tag and dropdown aggregation:\n"
+            "\n"
+            "- Use `dropdowns.category` to group by option reference; replace `category` with your dropdown reference. This requires case "
+            "add-ons. Missing or deleted options share the `null` group.\n"
+            "- Use `tags` to group by tag reference. A case belongs to every tag group "
+            "that applies to it; untagged cases share the `null` group. Adding the group "
+            "counts can therefore count a case more than once."
+        ),
+    ],
+    filters: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Choose which cases to include before grouping. Omit this input to include "
+            "all cases.\n"
+            "\n"
+            "Write one condition as {field, op, value}. For example: {'field': 'status', "
+            "'op': 'in', 'value': ['new', 'in_progress']}. Combine conditions with "
+            "{'and': [...]}, {'or': [...]}, or {'not': {...}}.\n"
+            "\n"
+            "Choose an operator supported by the field type:\n"
+            "\n"
+            "- Equality: `eq` (equals), `ne` (does not equal).\n"
+            "- Lists: `in` (matches any listed value), `not_in` (matches none). Supply a "
+            "list as `value`.\n"
+            "- Ranges: `gt`, `gte`, `lt`, `lte` (greater than, at least, less than, at "
+            "most).\n"
+            "- Text: `contains`, `starts_with`. Both ignore case and match literal text.\n"
+            "- Missing values: `is_null`. Omit `value`; custom fields also match cases "
+            "with no saved field row.\n"
+            "\n"
+            "You can filter on grouping fields, plus `summary`, `description`, and "
+            "`case_number`. You cannot filter on `short_id` or `payload`. Use strings for "
+            "exact decimals and ISO-formatted dates or timestamps.\n"
+            "\n"
+            "Built-in values must be lowercase:\n"
+            "\n"
+            "- Status: `unknown`, `new`, `in_progress`, `on_hold`, `resolved`, `closed`, "
+            "`other`. Status does not support range comparisons.\n"
+            "- Priority, from lowest to highest: `low`, `medium`, `high`, `critical`.\n"
+            "- Severity, from lowest to highest: `informational`, `low`, `medium`, "
+            "`high`, `critical`, `fatal`.\n"
+            "- Priority and severity also accept `unknown` and `other` for equality or "
+            "list matching. These values never match a range and cannot be range "
+            "boundaries.\n"
+            "\n"
+            "Special cases and limits:\n"
+            "\n"
+            "- `ne` and `not_in` exclude missing values. An empty `not_in` list matches "
+            "all cases; an empty `in` list matches none.\n"
+            "- Where tag aggregation is supported, `tags` accepts `contains` (one tag "
+            "reference), `in` (any listed reference), or `is_null` (untagged).\n"
+            "- Filters allow up to 4 levels of nesting, 50 conditions, and 1000 total "
+            "values. The server validates the request when the action runs."
+        ),
+    ] = None,
+    aggs: Annotated[
+        list[dict[str, Any]] | None,
+        Doc(
+            "Choose what to calculate for each group. Omit this input to count cases. "
+            "Supply up to 8 calculations; an empty list is invalid.\n"
+            "\n"
+            "Each calculation is an object with `function`, optional `field`, and "
+            "optional `alias`. For example: [{'function': 'sum', 'field': "
+            "'fields.amount', 'alias': 'total'}].\n"
+            "\n"
+            "Available calculations:\n"
+            "\n"
+            "- `count`: Count cases when you omit `field`, or count non-null values when "
+            "you supply it.\n"
+            "- `count_distinct`: Count different non-null values.\n"
+            "- `sum`, `mean`, `median`: Calculate the total, average, or middle value.\n"
+            "- `min`, `max`: Return the smallest or largest value.\n"
+            "\n"
+            "Every function except `count` requires a field. Numeric custom fields "
+            "support all functions. Text and date/time fields support `count`, "
+            "`count_distinct`, `min`, and `max`. BOOLEAN and SELECT fields support only "
+            "`count` and `count_distinct`.\n"
+            "\n"
+            "Naming and number formats:\n"
+            "\n"
+            "- Use `alias` to name a result, such as `total`. Otherwise the name is "
+            "`count` or `function_field`, using the final part of the field name. All "
+            "output names must be unique and at most 63 UTF-8 bytes.\n"
+            "- Counts are integers. INTEGER/NUMERIC sums, all means and medians, and "
+            "NUMERIC min/max use floating-point numbers and can lose precision. NUMERIC "
+            "grouping values remain exact decimal strings.\n"
+            "\n"
+            "When grouping by tags, counts and `min_count` count each case once within "
+            "each group. You cannot use `sum`, `mean`, or `median` with tag grouping."
+        ),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Doc(
+            "Set the maximum number of groups to return. Use at least 1, up to your "
+            "server's configured maximum (normally 1000). Omit this input to use the "
+            "server default (normally 100).\n"
+            "\n"
+            "If more groups exist, the result sets `truncated` to `true`. There is no "
+            "next-page cursor."
+        ),
+    ] = None,
+    min_count: Annotated[
+        int | None, Doc("Only return groups with at least this many cases (minimum 1).")
+    ] = None,
+    order_by: Annotated[
+        str | None,
+        Doc(
+            "Choose a group or calculation output name to sort by, including any alias "
+            "you set.\n"
+            "\n"
+            "If omitted, results sort by the first date/time bucket, or by the first "
+            "calculation when there is no date/time bucket."
+        ),
+    ] = None,
+    sort: Annotated[
+        Literal["asc", "desc"] | None,
+        Doc(
+            "Use `asc` for ascending order or `desc` for descending order.\n"
+            "\n"
+            "If omitted, the direction is `asc` when the action automatically sorts by a "
+            "date/time bucket. Otherwise it is `desc`, including when you set `order_by` "
+            "yourself. Missing values sort last; group values break ties."
+        ),
+    ] = None,
+) -> types.AggregateResponse:
+    # Recursive query models cannot be mirrored by action schemas. Keep the
+    # specification as plain JSON and let the server validate it. Omitting limit
+    # lets the server apply its configured default and maximum.
+    spec: dict[str, Any] = {
+        "group_by": group_by,
+        "filters": filters,
+        "aggs": aggs,
+        "min_count": min_count,
+        "order_by": order_by,
+        "sort": sort,
+    }
+    if limit is not None:
+        spec["limit"] = limit
+    return await ctx.cases.aio.aggregate_cases(spec=spec)
 
 
 @registry.register(
@@ -122,7 +311,7 @@ async def create_case(
         params["tags"] = tags
     if create_missing_tags:
         params["create_missing_tags"] = create_missing_tags
-    return await get_context().cases.create_case_simple(**params)
+    return await ctx.cases.aio.create_case_simple(**params)
 
 
 @registry.register(
@@ -214,7 +403,7 @@ async def update_case(
         client_params["create_missing_tags"] = create_missing_tags
     if append and description is not None:
         client_params["append_description"] = True
-    return await get_context().cases.update_case_simple(case_id, **client_params)
+    return await ctx.cases.aio.update_case_simple(case_id, **client_params)
 
 
 @registry.register(
@@ -246,7 +435,7 @@ async def create_comment(
         params["parent_id"] = parent_id
     if workflow_id is not None:
         params["workflow_id"] = workflow_id
-    return await get_context().cases.create_comment_simple(case_id, **params)
+    return await ctx.cases.aio.create_comment_simple(case_id, **params)
 
 
 @registry.register(
@@ -269,7 +458,7 @@ async def reply_to_comment(
         Doc("The reply content."),
     ],
 ) -> types.CaseComment:
-    return await get_context().cases.reply_to_comment(
+    return await ctx.cases.aio.reply_to_comment(
         case_id,
         parent_comment_id=parent_comment_id,
         content=content,
@@ -292,7 +481,7 @@ async def update_comment(
         Doc("The updated comment content."),
     ],
 ) -> types.CaseComment:
-    return await get_context().cases.update_comment_simple(
+    return await ctx.cases.aio.update_comment_simple(
         comment_id,
         content=content,
     )
@@ -310,7 +499,23 @@ async def get_case(
         Doc("The ID of the case to retrieve."),
     ],
 ) -> types.CaseRead:
-    return await get_context().cases.get_case(case_id)
+    return await ctx.cases.aio.get_case(case_id)
+
+
+@registry.register(
+    default_title="Get linked case rows",
+    display_group="Cases",
+    description="Get linked rows for a specific case by ID.",
+    namespace="core.cases",
+)
+async def get_linked_case_rows(
+    case_id: Annotated[
+        str,
+        Doc("The ID of the case to retrieve."),
+    ],
+) -> list[types.CaseTableRowRead]:
+    case = await ctx.cases.aio.get_case(case_id, include_rows=True)
+    return case["rows"]
 
 
 @registry.register(
@@ -360,7 +565,7 @@ async def list_cases(
         params["order_by"] = order_by
     if sort is not None:
         params["sort"] = sort
-    response = await get_context().cases.list_cases(**params)
+    response = await ctx.cases.aio.list_cases(**params)
     if paginate:
         return response
     return response["items"]
@@ -376,6 +581,10 @@ async def search_cases(
     search_term: Annotated[
         str | None,
         Doc("Text to search for in case summary and description."),
+    ] = None,
+    short_id: Annotated[
+        str | None,
+        Doc("Filter by case short_id."),
     ] = None,
     status: Annotated[
         StatusType | list[StatusType] | None,
@@ -456,6 +665,8 @@ async def search_cases(
         params["reverse"] = reverse
     if search_term is not None:
         params["search_term"] = search_term
+    if short_id is not None:
+        params["short_id"] = short_id
     if status is not None:
         params["status"] = _as_list_filter(status)
     if priority is not None:
@@ -480,7 +691,7 @@ async def search_cases(
         params["order_by"] = order_by
     if sort is not None:
         params["sort"] = sort
-    response = await get_context().cases.search_cases(**params)
+    response = await ctx.cases.aio.search_cases(**params)
     if paginate:
         return response
     return response["items"]
@@ -498,7 +709,7 @@ async def delete_case(
         Doc("The ID of the case to delete."),
     ],
 ) -> None:
-    await get_context().cases.delete_case(case_id)
+    await ctx.cases.aio.delete_case(case_id)
 
 
 @registry.register(
@@ -513,7 +724,7 @@ async def list_case_events(
         Doc("The ID of the case to get events for."),
     ],
 ) -> types.CaseEventsWithUsers:
-    return await get_context().cases.list_events(case_id)
+    return await ctx.cases.aio.list_events(case_id)
 
 
 @registry.register(
@@ -528,7 +739,7 @@ async def list_comments(
         Doc("The ID of the case to get comments for."),
     ],
 ) -> list[types.CaseCommentRead]:
-    return await get_context().cases.list_comments(case_id)
+    return await ctx.cases.aio.list_comments(case_id)
 
 
 @registry.register(
@@ -543,7 +754,7 @@ async def list_comment_threads(
         Doc("The ID of the case to get comment threads for."),
     ],
 ) -> list[types.CaseCommentThreadRead]:
-    return await get_context().cases.list_comment_threads(case_id)
+    return await ctx.cases.aio.list_comment_threads(case_id)
 
 
 @registry.register(
@@ -558,7 +769,7 @@ async def get_comment_thread(
         Doc("The ID of a comment within the thread."),
     ],
 ) -> types.CaseCommentThreadRead:
-    return await get_context().cases.get_comment_thread(comment_id)
+    return await ctx.cases.aio.get_comment_thread(comment_id)
 
 
 @registry.register(
@@ -577,7 +788,7 @@ async def assign_user(
         Doc("The ID of the user to assign to the case."),
     ],
 ) -> types.Case:
-    return await get_context().cases.assign_user_simple(
+    return await ctx.cases.aio.assign_user_simple(
         case_id,
         assignee_id=assignee_id,
     )
@@ -599,7 +810,7 @@ async def assign_user_by_email(
         Doc("The email of the user to assign to the case."),
     ],
 ) -> types.Case:
-    return await get_context().cases.assign_user_by_email(
+    return await ctx.cases.aio.assign_user_by_email(
         case_id,
         email=assignee_email,
     )
@@ -625,7 +836,7 @@ async def add_case_tag(
         Doc("If true, create the tag if it does not exist."),
     ] = False,
 ) -> types.TagRead:
-    return await get_context().cases.add_tag(
+    return await ctx.cases.aio.add_tag(
         case_id,
         tag_id=tag,
         create_if_missing=create_if_missing,
@@ -648,7 +859,7 @@ async def remove_case_tag(
         Doc("The tag identifier (ID or ref) to remove from the case."),
     ],
 ) -> None:
-    await get_context().cases.remove_tag(case_id, tag_id=tag)
+    await ctx.cases.aio.remove_tag(case_id, tag_id=tag)
 
 
 async def _upload_attachment(
@@ -666,7 +877,7 @@ async def _upload_attachment(
         ) from e
 
     content_base64 = base64.b64encode(content).decode("utf-8")
-    return await get_context().cases.create_attachment(
+    return await ctx.cases.aio.create_attachment(
         str(case_uuid),
         filename=file_name,
         content_base64=content_base64,
@@ -792,7 +1003,7 @@ async def list_attachments(
             detail=f"Invalid case ID format: {case_id}"
         ) from e
 
-    return await get_context().cases.list_attachments(str(case_uuid))
+    return await ctx.cases.aio.list_attachments(str(case_uuid))
 
 
 @registry.register(
@@ -823,7 +1034,7 @@ async def download_attachment(
     except ValueError as e:
         raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
 
-    return await get_context().cases.download_attachment(
+    return await ctx.cases.aio.download_attachment(
         case_uuid,
         attachment_uuid,
     )
@@ -853,7 +1064,7 @@ async def get_attachment(
     except ValueError as e:
         raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
 
-    return await get_context().cases.get_attachment_metadata(
+    return await ctx.cases.aio.get_attachment_metadata(
         case_uuid,
         attachment_uuid,
     )
@@ -886,7 +1097,7 @@ async def delete_attachment(
     except ValueError as e:
         raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
 
-    await get_context().cases.delete_attachment(
+    await ctx.cases.aio.delete_attachment(
         case_uuid,
         attachment_uuid,
     )
@@ -933,7 +1144,7 @@ async def get_attachment_download_url(
                 detail="Expiry cannot exceed 24 hours (86400 seconds)"
             )
 
-    return await get_context().cases.get_attachment_presigned_url(
+    return await ctx.cases.aio.get_attachment_presigned_url(
         case_uuid,
         attachment_uuid,
         expiry=expiry,
@@ -951,7 +1162,7 @@ async def link_row(
     table_id: Annotated[str, Doc("Table ID")],
     row_id: Annotated[str, Doc("Row ID")],
 ) -> types.CaseTableRowRead:
-    return await get_context().cases.link_case_row(
+    return await ctx.cases.aio.link_case_row(
         case_id,
         table_id=table_id,
         row_id=row_id,
@@ -969,7 +1180,7 @@ async def unlink_row(
     table_id: Annotated[str, Doc("Table ID")],
     row_id: Annotated[str, Doc("Row ID")],
 ) -> None:
-    await get_context().cases.unlink_case_row(
+    await ctx.cases.aio.unlink_case_row(
         case_id,
         table_id=table_id,
         row_id=row_id,
@@ -987,7 +1198,7 @@ async def insert_row(
     table_id: Annotated[str, Doc("Table ID")],
     row: Annotated[dict[str, Any], Doc("Row values")],
 ) -> types.CaseTableRowRead:
-    return await get_context().cases.insert_case_row(
+    return await ctx.cases.aio.insert_case_row(
         case_id,
         table_id=table_id,
         row=row,

@@ -110,7 +110,15 @@ Get the status of a workflow execution.
 
 <ParamField path="wf_exec_id" type="string" required>
 
-The workflow execution ID to check.
+The workflow execution ID to check (`wf_.../exec_...`), as returned by `run` or `list_executions`.
+
+</ParamField>
+
+<ParamField path="include_events" type="boolean">
+
+When true, also return the per-action event timeline.
+
+Default: `false`.
 
 </ParamField>
 

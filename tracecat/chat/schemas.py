@@ -6,15 +6,16 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from pydantic import UUID4, BaseModel, Discriminator, Field
-from pydantic_ai.tools import ToolApproved, ToolDenied
+from claude_agent_sdk.types import Message as ClaudeSDKMessage
+from pydantic import UUID4, BaseModel, Discriminator, Field, ValidationError
 
 from tracecat.agent.adapter import vercel
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.types import ClaudeSDKMessageTA, ModelMessageTA, UnifiedMessage
+from tracecat.agent.types import ClaudeSDKMessageTA, ToolApproved, ToolDenied
 from tracecat.chat.enums import MessageKind
 
 if TYPE_CHECKING:
@@ -76,6 +77,27 @@ class ChatResponse(BaseModel):
 
     stream_url: str = Field(..., description="URL to connect for SSE streaming")
     chat_id: uuid.UUID = Field(..., description="Unique chat identifier")
+    active_stream_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Per-turn Redis stream ID the caller should attach to. For approval "
+            "continuations, this is a newly rotated stream containing only events "
+            "emitted after approval resumes. Callers must attach to this stream "
+            "instead of the stream that ended at the approval pause, which may "
+            "already have expired."
+        ),
+    )
+    curr_run_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Id of the turn just spawned, used as the Temporal workflow id (not "
+            "Temporal's own run_id). This bare UUID is wrapped as "
+            "'agent/<curr_run_id>' when passed to Temporal as the workflow id. "
+            "Returned so callers can build the stable bubble id without "
+            "re-reading the session row, which terminal cleanup (finalize_turn) "
+            "may have already cleared on a fast turn."
+        ),
+    )
 
 
 class ChatCreate(BaseModel):
@@ -120,6 +142,10 @@ class ChatReadMinimal(BaseModel):
     )
     entity_id: UUID4 = Field(..., description="ID of the associated entity")
     tools: list[str] = Field(..., description="Tools available to the agent")
+    mcp_integrations: list[str] = Field(
+        default_factory=list,
+        description="MCP integration IDs attached to this chat",
+    )
     agent_preset_id: uuid.UUID | None = Field(
         default=None,
         description="Agent preset used for this chat, if any",
@@ -184,7 +210,7 @@ class ApprovalRead(BaseModel):
     tool_call_args: dict[str, Any] | None = None
     status: ApprovalStatus
     reason: str | None = None
-    decision: bool | dict[str, Any] | None = None
+    decision: PersistedApprovalDecision | None = None
     approved_by: uuid.UUID | None = None
     approved_at: datetime | None = None
     created_at: datetime
@@ -199,6 +225,7 @@ class ChatMessage(BaseModel):
     - kind=CHAT_MESSAGE: Contains message field with user/assistant content
     - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
     - kind=COMPACTION: Contains compaction field with compaction status data
+    - kind=CANCELLED: Contains cancelled field with turn-cancelled marker data
     """
 
     id: str = Field(..., description="Unique message identifier")
@@ -206,7 +233,7 @@ class ChatMessage(BaseModel):
         default=MessageKind.CHAT_MESSAGE,
         description="Message kind for rendering",
     )
-    message: UnifiedMessage | None = Field(
+    message: ClaudeSDKMessage | None = Field(
         default=None,
         description="The deserialized message (for kind=CHAT_MESSAGE)",
     )
@@ -218,15 +245,22 @@ class ChatMessage(BaseModel):
         default=None,
         description="Compaction status data for badge rendering (for kind=COMPACTION)",
     )
+    cancelled: dict[str, Any] | None = Field(
+        default=None,
+        description="Turn-cancelled marker data (for kind=CANCELLED)",
+    )
 
     @classmethod
-    def from_db(cls, db_msg: models.ChatMessage) -> ChatMessage:
-        """Deserialize a database message into a typed ChatMessage."""
+    def from_db(cls, db_msg: models.ChatMessage) -> ChatMessage | None:
+        """Deserialize a supported database message."""
         sanitized_data = sanitize_message_tool_inputs(db_msg.data)
-        if db_msg.harness == HarnessType.CLAUDE_CODE.value:
+        try:
             message = ClaudeSDKMessageTA.validate_python(sanitized_data)
-        else:
-            message = ModelMessageTA.validate_python(sanitized_data)
+        except ValidationError:
+            # Legacy harness rows are unsupported; a bad Claude row is corruption.
+            if db_msg.harness == HarnessType.CLAUDE_CODE.value:
+                raise
+            return None
         return cls(id=str(db_msg.id), message=message)
 
 

@@ -44,6 +44,7 @@ from tracecat.mcp.oidc.schemas import (
     ResumeTransaction,
 )
 from tracecat.mcp.oidc.session import (
+    OrgResolutionError,
     SessionNeedsAction,
     SessionResult,
     resolve_authorize_session,
@@ -311,17 +312,23 @@ async def _handle_authorize(
     # --- Session resolution ---
     try:
         session_result = await resolve_authorize_session(user)
-    except ValueError as exc:
+    except OrgResolutionError as exc:
         # The OAuth client callback has already been validated at this point.
         logger.warning(
             "MCP OIDC: session resolution failed",
             error=str(exc),
             client_ip=_get_client_ip(request),
         )
+        if exc.membership_count == 0:
+            description = "User has no organization membership"
+        else:
+            description = (
+                "User belongs to multiple organizations; MCP requires exactly one"
+            )
         return _oauth_error_redirect_response(
             redirect_uri,
             "access_denied",
-            "User cannot be resolved to a single organization",
+            description,
             state=state,
         )
 

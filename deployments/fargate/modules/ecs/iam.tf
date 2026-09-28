@@ -146,8 +146,6 @@ resource "aws_iam_policy" "secrets_access" {
           var.oidc_client_id_arn,
           var.oidc_client_secret_arn,
           var.saml_idp_metadata_url_arn,
-          var.saml_ca_certs_arn,
-          var.saml_metadata_cert_arn,
           var.temporal_api_key_arn,
           aws_secretsmanager_secret.redis_url.arn,
         ])
@@ -173,6 +171,23 @@ resource "aws_iam_policy" "api_only_secrets_access" {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = [var.user_auth_secret_arn]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_policy" "smtp_password_access" {
+  count       = var.smtp_password_arn != null ? 1 : 0
+  name        = "${var.iam_name_prefix}SmtpPasswordAccessPolicy"
+  description = "Policy for accessing the SMTP password (API service only)"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.smtp_password_arn]
       }
     ]
   })
@@ -252,6 +267,12 @@ resource "aws_iam_role_policy_attachment" "api_execution_secrets" {
 
 resource "aws_iam_role_policy_attachment" "api_execution_api_only_secrets" {
   policy_arn = aws_iam_policy.api_only_secrets_access.arn
+  role       = aws_iam_role.api_execution.name
+}
+
+resource "aws_iam_role_policy_attachment" "api_execution_smtp_password" {
+  count      = var.smtp_password_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.smtp_password_access[0].arn
   role       = aws_iam_role.api_execution.name
 }
 
@@ -501,6 +522,43 @@ resource "aws_iam_role_policy" "mcp_task_db_access" {
           aws_db_instance.core_database.master_user_secret[0].secret_arn,
         ]
       }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "mcp_task_blob_access" {
+  count = var.enable_mcp ? 1 : 0
+  name  = "${var.iam_name_prefix}MCPBlobAccessPolicy"
+  role  = aws_iam_role.mcp_task[0].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowMCPBlobObjectOperations"
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:DeleteObject",
+        ]
+        Resource = [
+          "${aws_s3_bucket.skills.arn}/*",
+          "${aws_s3_bucket.workflow.arn}/*",
+        ]
+      },
+      {
+        Sid    = "AllowMCPBlobBucketOperations"
+        Effect = "Allow"
+        Action = [
+          "s3:ListBucket",
+          "s3:GetBucketLocation",
+        ]
+        Resource = [
+          aws_s3_bucket.skills.arn,
+          aws_s3_bucket.workflow.arn,
+        ]
+      },
     ]
   })
 }

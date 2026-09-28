@@ -1,0 +1,27 @@
+type: action
+definition:
+  title: Get report
+  description: Get a single saved report (saved query) by its ID.
+  display_group: Fleet
+  doc_url: https://fleetdm.com/docs/rest-api/rest-api#get-report
+  namespace: tools.fleetdm
+  name: get_report
+  secrets:
+    - name: fleetdm
+      keys: ["FLEETDM_API_TOKEN"]
+  expects:
+    base_url:
+      type: str
+      description: Fleet server base URL (e.g. https://fleet.example.com).
+    report_id:
+      type: int
+      description: Numeric Fleet report ID.
+  steps:
+    - ref: get_report
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/api/v1/fleet/reports/${{ inputs.report_id }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.fleetdm.FLEETDM_API_TOKEN }}
+  returns: ${{ steps.get_report.result.data }}

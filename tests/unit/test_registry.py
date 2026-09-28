@@ -80,11 +80,11 @@ async def test_registry_actions_include_locked_marks_missing_entitlements(
 
 @pytest.mark.anyio
 @pytest.mark.usefixtures("registry_version_with_manifest")
-async def test_registry_actions_include_locked_shows_agent_preset_crud(
+async def test_registry_actions_agent_preset_crud_unlocked_without_agent_addons(
     test_role,
     monkeypatch,
 ) -> None:
-    """Ensure agent preset CRUD actions show as locked when agent add-ons are disabled."""
+    """Agent preset CRUD actions are open source and never locked by agent add-ons."""
     from tracecat.tiers import defaults as tier_defaults
 
     monkeypatch.setattr(
@@ -99,11 +99,14 @@ async def test_registry_actions_include_locked_shows_agent_preset_crud(
         )
 
     actions = {f"{entry.namespace}.{entry.name}": entry for entry, _ in entries}
-    assert actions["ai.agent.create_preset"].missing_entitlements == ("agent_addons",)
-    assert actions["ai.agent.get_preset"].missing_entitlements == ("agent_addons",)
-    assert actions["ai.agent.list_presets"].missing_entitlements == ("agent_addons",)
-    assert actions["ai.agent.update_preset"].missing_entitlements == ("agent_addons",)
-    assert actions["ai.agent.delete_preset"].missing_entitlements == ("agent_addons",)
+    for name in (
+        "ai.agent.create_preset",
+        "ai.agent.get_preset",
+        "ai.agent.list_presets",
+        "ai.agent.update_preset",
+        "ai.agent.delete_preset",
+    ):
+        assert actions[name].missing_entitlements == ()
 
 
 def test_ai_agent_registry_schema_hides_unsupported_agents_config() -> None:

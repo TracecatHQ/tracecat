@@ -8,16 +8,89 @@ The tool definition fetchers require DB access and use lazy imports.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
+
+from mcp.types import (
+    AudioContent,
+    BlobResourceContents,
+    ContentBlock,
+    EmbeddedResource,
+    ImageContent,
+    ResourceLink,
+    TextContent,
+    TextResourceContents,
+)
 
 from tracecat.agent.common.types import MCPToolDefinition
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from tracecat.identifiers import OrganizationID
     from tracecat.registry.lock.types import RegistryLock
 
 REGISTRY_MCP_SERVER_NAME = "tracecat-registry"
 LEGACY_REGISTRY_MCP_SERVER_NAME = "tracecat_registry"
+
+
+def is_tracecat_registry_server_name(server_name: str) -> bool:
+    """Return whether a server name routes to the built-in registry."""
+    return (
+        server_name in {REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME}
+        or server_name.startswith(f"{REGISTRY_MCP_SERVER_NAME}-")
+        or server_name.startswith(f"{LEGACY_REGISTRY_MCP_SERVER_NAME}_")
+    )
+
+
+# Lone surrogates cannot cross JSON serialization.
+_SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
+
+
+def _render_content_block(block: ContentBlock) -> str:
+    """Render a single MCP content block as text.
+
+    EmbeddedResource has no `.text`; the payload is nested on `.resource`.
+    """
+    if isinstance(block, TextContent):
+        return block.text
+    if isinstance(block, EmbeddedResource):
+        resource = block.resource
+        if isinstance(resource, TextResourceContents):
+            return resource.text
+        if isinstance(resource, BlobResourceContents):
+            return (
+                f"[binary resource: {resource.uri} ({resource.mimeType or 'unknown'})]"
+            )
+        return f"[resource: {resource.uri}]"
+    if isinstance(block, ImageContent):
+        return f"[image: {block.mimeType}]"
+    if isinstance(block, AudioContent):
+        return f"[audio: {block.mimeType}]"
+    if isinstance(block, ResourceLink):
+        return f"[resource link: {block.uri} ({block.mimeType or 'unknown'})]"
+    return f"[unsupported content block: {type(block).__name__}]"
+
+
+def flatten_mcp_content_blocks(
+    content: Sequence[ContentBlock] | None,
+) -> str:
+    """Flatten an MCP CallToolResult into one string.
+
+    Size is bounded upstream by the HTTP byte cap in ``http_limits`` and
+    downstream by the CLI's MAX_MCP_OUTPUT_TOKENS spill-to-file limit.
+    """
+    if not content:
+        return ""
+    text = "\n\n".join(_render_content_block(block) for block in content)
+    if _SURROGATE_RE.search(text):
+        text = text.encode("utf-8", errors="replace").decode("utf-8")
+    return text
+
+
+# Anthropic tool names must match this pattern; MCP servers can report
+# names (e.g. "issue.get") that would put invalid entries in allowed_tools.
+MCP_TOOL_NAME_RE = re.compile(r"\A[a-zA-Z0-9_-]{1,64}\Z")
 
 
 def action_name_to_mcp_tool_name(action_name: str) -> str:

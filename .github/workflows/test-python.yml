@@ -11,7 +11,12 @@ on:
       - packages/tracecat-registry/**
       - pyproject.toml
       - uv.lock
+      - docker-compose.yml
+      - docker-compose.local.yml
       - docker-compose.dev.yml
+      - deployments/postgres/**
+      - scripts/postgres/**
+      - scripts/tests/test_pgvector*.sh
       - .env.example
       - env.sh
       - .github/workflows/test-python.yml
@@ -25,7 +30,12 @@ on:
       - packages/tracecat-registry/**
       - pyproject.toml
       - uv.lock
+      - docker-compose.yml
+      - docker-compose.local.yml
       - docker-compose.dev.yml
+      - deployments/postgres/**
+      - scripts/postgres/**
+      - scripts/tests/test_pgvector*.sh
       - .env.example
       - env.sh
       - .github/workflows/test-python.yml
@@ -106,6 +116,13 @@ jobs:
           n
           test@tracecat.com" | bash env.sh
 
+      - name: Check automatic Compose pgvector wiring
+        run: bash scripts/tests/test_pgvector_compose.sh
+
+      # PRs test their own candidate, before its GHCR tag is published.
+      - name: Build PostgreSQL candidate image
+        run: bash scripts/postgres/build-image.sh
+
       - name: Start core Docker services and install dependencies
         run: |
           set -euo pipefail
@@ -165,10 +182,28 @@ jobs:
           wait "$uv_sync_pid"
           trap - EXIT
 
+      - name: Verify automatic vector provisioning completed
+        run: |
+          docker compose -f docker-compose.dev.yml exec -T postgres_db \
+            psql -X -U postgres -d postgres -f /usr/local/share/tracecat/pgvector.sql
+
       - name: Register Temporal search attributes
         if: matrix.test_group == 'temporal'
         run: |
           set -euo pipefail
+
+          # Container health can pass before the default namespace is available.
+          deadline=$((SECONDS + 60))
+          until docker compose -f docker-compose.dev.yml exec -T temporal \
+            tctl --address temporal:7233 --namespace default \
+            admin cluster get-search-attributes --print_json true > /dev/null; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "Timed out waiting for the default Temporal namespace"
+              exit 124
+            fi
+            echo "Waiting for the default Temporal namespace..."
+            sleep 2
+          done
 
           attrs=(
             TracecatTriggerType
@@ -177,6 +212,7 @@ jobs:
             TracecatAlias
             TracecatCorrelationId
             TracecatExecutionType
+            TracecatErrorOwner
           )
 
           add_args=()
@@ -231,10 +267,12 @@ jobs:
             uv run pytest tests/temporal -m "not live_secret and not requires_api" -n auto -ra -o faulthandler_timeout=300
 
             # API-backed temporal tests start a local API process against the
-            # test DB. Run them serially to avoid startup races under xdist.
+            # test DB. Run them serially to avoid startup races under xdist,
+            # with enough pool headroom for concurrent gateway-backed actions.
             TRACECAT_TEST_API_MODE=inprocess \
             TRACECAT__CONTEXT_COMPRESSION_ENABLED=true \
             TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB=0 \
+            TRACECAT__DB_MAX_OVERFLOW=9 \
             uv run pytest tests/temporal -m "requires_api and not live_secret" -ra -o faulthandler_timeout=300
           else
             uv run pytest tests/${{ matrix.test_group }} -m "not live_secret" -n auto -ra -o faulthandler_timeout=300

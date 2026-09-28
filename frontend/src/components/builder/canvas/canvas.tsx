@@ -20,6 +20,7 @@ import {
   type Viewport,
   type XYPosition,
 } from "@xyflow/react"
+import { useTheme } from "next-themes"
 import React, {
   type SetStateAction,
   useCallback,
@@ -73,6 +74,13 @@ const defaultNodeHeight = 36
 const fitViewOptions: FitViewOptions = {
   minZoom: 0.75,
   maxZoom: 1,
+}
+
+// Embedded surfaces (e.g. the workflow artifact panel) start further out so a
+// small graph (or a lone trigger) doesn't fill the panel.
+const embeddedFitViewOptions: FitViewOptions = {
+  minZoom: 0.25,
+  maxZoom: 0.6,
 }
 
 const getId = () => uuid4()
@@ -145,8 +153,11 @@ export interface WorkflowCanvasRef {
 
 export const WorkflowCanvas = React.forwardRef<
   WorkflowCanvasRef,
-  React.ComponentPropsWithoutRef<typeof ReactFlow>
->((props, ref) => {
+  React.ComponentPropsWithoutRef<typeof ReactFlow> & { embedded?: boolean }
+>(({ embedded = false }, ref) => {
+  const activeFitViewOptions = embedded
+    ? embeddedFitViewOptions
+    : fitViewOptions
   const containerRef = useRef<HTMLDivElement>(null)
   const connectingNodeId = useRef<string | null>(null)
   const connectingHandleId = useRef<string | null>(null)
@@ -160,6 +171,9 @@ export const WorkflowCanvas = React.forwardRef<
   const { toast } = useToast()
   const { workspaceId, workflowId } = useWorkflow()
   const { selectedNodeId, setSelectedNodeId } = useWorkflowBuilder()
+  const { resolvedTheme } = useTheme()
+  const backgroundPatternColor =
+    resolvedTheme === "dark" ? "#3f3f46" : "#91919a"
   const { data: graphData } = useGraph(workspaceId, workflowId ?? "")
   const { applyGraphOperations, refetchGraph } = useGraphOperations(
     workspaceId,
@@ -1016,7 +1030,7 @@ export const WorkflowCanvas = React.forwardRef<
         proOptions={{ hideAttribution: true }}
         deleteKeyCode={["Backspace", "Delete"]}
         fitView
-        fitViewOptions={fitViewOptions}
+        fitViewOptions={activeFitViewOptions}
         nodeDragThreshold={4}
         maxZoom={1}
         minZoom={0.25}
@@ -1024,8 +1038,14 @@ export const WorkflowCanvas = React.forwardRef<
         connectionLineType={ConnectionLineType.SmoothStep}
         onPaneContextMenu={onPaneContextMenu}
       >
-        <Background bgColor="#fcfcfc" />
-        <Controls className="rounded-sm" fitViewOptions={fitViewOptions} />
+        <Background
+          bgColor="hsl(var(--background))"
+          color={backgroundPatternColor}
+        />
+        <Controls
+          className="rounded-sm"
+          fitViewOptions={activeFitViewOptions}
+        />
         <Panel position="bottom-right" className="flex items-center gap-1">
           <Badge
             variant="outline"
@@ -1050,7 +1070,10 @@ export const WorkflowCanvas = React.forwardRef<
           </Button>
         </Panel>
         <Panel position="bottom-center" className="mb-4">
-          <CanvasToolbar onAddAction={handleToolbarAddAction} />
+          <CanvasToolbar
+            onAddAction={handleToolbarAddAction}
+            embedded={embedded}
+          />
         </Panel>
         <NodeSilhouette
           position={silhouettePosition}

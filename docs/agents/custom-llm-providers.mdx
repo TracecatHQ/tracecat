@@ -1,7 +1,6 @@
 ---
 title: "Custom LLM providers"
 description: "Configure custom OpenAI-compatible model providers for Tracecat agents: add a custom source, discover models, and enable them for presets and defaults."
-icon: "route"
 ---
 
 Use a custom LLM provider when an agent should call your own OpenAI-compatible gateway instead of Tracecat's managed LiteLLM gateway.
@@ -84,6 +83,8 @@ Click Test connection to verify the source before saving it, then click Add sour
 After you save the source, click Refresh.
 Tracecat calls the source's `/models` endpoint and adds the returned models to the organization catalog.
 
+Discovery confirms that the gateway exposes a model ID. It does not confirm that the gateway has local weights or can serve the model without internet access. For an air-gapped deployment, stage every model artifact and send a representative inference request after you remove egress. Ollama models tagged `:cloud` require the Ollama cloud service and cannot run air-gapped.
+
 <Frame>
   ![Custom source model list](/img/agents/custom-source-models.png)
 </Frame>
@@ -98,9 +99,19 @@ Choose the enabled custom source model anywhere Tracecat lets you select an agen
 Refresh the source again after you add or remove models from the upstream gateway.
 Edit the source when you rotate credentials, change the base URL, or update static headers.
 
+## Troubleshooting
+
+Test connection or Refresh that fails with `Host is not allowed` means the base URL resolves to a private, loopback, or link-local address. Tracecat blocks these by default. Add the gateway's IP or CIDR to `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS` on the Tracecat services and restart them. See [Private endpoints](/agents/llm-providers#private-endpoints) for the Docker Compose, Kubernetes, and Fargate settings.
+
+A run that fails with `Model response timed out after <duration> without receiving data` (or `Gateway timeout` on a non-streaming request) hit `TRACECAT__LLM_PROXY_READ_TIMEOUT`, the read timeout between the sandbox LLM proxy and the gateway. The variable takes seconds, defaults to `600`, and applies to both passthrough and managed routes.
+
+A run that fails with `Agent execution timed out after 1800s` hit the action's `timeout`, which caps active runtime at 1800 seconds when unset. Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT` (default `3600`), and a ceiling below 1800 seconds lowers both the default and the floor to the ceiling. See [Actions](/automations/actions#timeout).
+
 ## Related pages
 
 - See [AI agent](/agents/ai-agent) for the `ai.agent` and `ai.preset_agent` action reference.
 - See [AI action](/agents/ai-action) for single-call LLM workflow actions.
 - See [Secrets and variables](/agents/secrets-variables) for agent secret handling.
 - See [MCP servers](/automations/integrations/mcp-integrations) for connecting MCP tools to agents.
+- See [Environment variables](/self-hosting/environment-variables) for the agent and proxy timeout settings and the private endpoint allowlist.
+- See [Air-gapped deployment](/self-hosting/air-gapped) for disconnected Kubernetes and self-hosted inference architecture.

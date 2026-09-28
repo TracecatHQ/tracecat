@@ -6,7 +6,6 @@ import {
   ArrowUpIcon,
   CalendarClockIcon,
   CalendarIcon,
-  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -26,6 +25,7 @@ import {
   CASE_EVENT_SUGGESTIONS,
   getCaseEventLabel,
 } from "@/components/builder/panel/case-event-suggestions"
+import { CheckIndicator } from "@/components/ui/check-indicator"
 import {
   Command,
   CommandEmpty,
@@ -280,18 +280,9 @@ function TagFilterSelect({
                       onChange(nextValue)
                       setOpen(true)
                     }}
-                    className="flex items-center gap-2 text-xs"
+                    className="group flex items-center gap-2 text-xs"
                   >
-                    <div
-                      className={cn(
-                        "flex size-4 shrink-0 items-center justify-center rounded-sm border",
-                        isSelected
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-muted-foreground/40"
-                      )}
-                    >
-                      {isSelected && <Check className="size-3" aria-hidden />}
-                    </div>
+                    <CheckIndicator checked={isSelected} />
                     <div
                       className={cn(
                         "size-2 shrink-0 rounded-full",
@@ -381,18 +372,9 @@ function CaseTriggerFilterSelect({
                       onChange(nextValue)
                       setOpen(true)
                     }}
-                    className="flex items-center gap-2 text-xs"
+                    className="group flex items-center gap-2 text-xs"
                   >
-                    <div
-                      className={cn(
-                        "flex size-4 shrink-0 items-center justify-center rounded-sm border",
-                        isSelected
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-muted-foreground/40"
-                      )}
-                    >
-                      {isSelected && <Check className="size-3" aria-hidden />}
-                    </div>
+                    <CheckIndicator checked={isSelected} />
                     <span className="truncate">{option.label}</span>
                   </CommandItem>
                 )

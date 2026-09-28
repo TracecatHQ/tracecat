@@ -1,0 +1,69 @@
+type: action
+definition:
+  title: Search scores
+  description: >-
+    Search EPSS scores. Calls GET /data/v1/epss directly with FIRST API-native filters.
+  display_group: FIRST EPSS
+  doc_url: https://api.first.org/epss/
+  namespace: tools.first_epss
+  name: search_scores
+  expects:
+    epss_gt:
+      type: float | None
+      description: Only display CVEs with EPSS score greater or equal than the parameter.
+      default: null
+    epss_lt:
+      type: float | None
+      description: Only display CVEs with EPSS score lower or equal than the parameter.
+      default: null
+    percentile_gt:
+      type: float | None
+      description: Only display CVEs with percentile greater or equal than the parameter.
+      default: null
+    percentile_lt:
+      type: float | None
+      description: Only display CVEs with percentile lower or equal than the parameter.
+      default: null
+    days:
+      type: int | None
+      description: Number of days since the EPSS score was added to the database (starting at 1, not affected by the date parameter).
+      default: null
+    q:
+      type: str | None
+      description: Free text search at the CVE ID (allows partial matches).
+      default: null
+    date:
+      type: str | None
+      description: Date in the format YYYY-MM-DD (since April 14, 2021), shows the historic values for epss and percentile attributes.
+      default: null
+    offset:
+      type: int | None
+      description: Offsets the list of records by this number. The first item is 0.
+      default: null
+    limit:
+      type: int | None
+      description: Limits the maximun number of records to be shown. Should be an integer number between 0 and 10,000.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the FIRST API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.first_epss.base_url || "https://api.first.org" }}/data/v1/epss
+        method: GET
+        headers:
+          Accept: application/json
+        params:
+          epss-gt: ${{ inputs.epss_gt }}
+          epss-lt: ${{ inputs.epss_lt }}
+          percentile-gt: ${{ inputs.percentile_gt }}
+          percentile-lt: ${{ inputs.percentile_lt }}
+          days: ${{ inputs.days }}
+          q: ${{ inputs.q }}
+          date: ${{ inputs.date }}
+          offset: ${{ inputs.offset }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.request.result }}

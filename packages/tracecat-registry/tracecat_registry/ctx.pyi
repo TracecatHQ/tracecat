@@ -1,63 +1,21 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any, Literal, TypeVar
 from uuid import UUID
 
 from tracecat_registry import types
-from tracecat_registry import types as registry_types
-from tracecat_registry.sdk.agents import AgentConfig, RankableItem
+from tracecat_registry._internal.models import WorkflowExecutionID
+from tracecat_registry.sdk.agents import CursorPage
 from tracecat_registry.sdk.client import TracecatClient
 from tracecat_registry.sdk.types import CasePriority, CaseSeverity, CaseStatus, Unset
+from tracecat_registry.sdk.workflows import JsonPatchOperation
 
 T = TypeVar("T")
 
 class _AgentsAsync:
-    async def run(
-        self,
-        *,
-        user_prompt: str,
-        config: AgentConfig | None = ...,
-        preset_slug: str | None = ...,
-        preset_version: int | None = ...,
-        max_requests: int = ...,
-        max_tool_calls: int | None = ...,
-    ) -> registry_types.AgentOutputRead: ...
-    async def rank_items(
-        self,
-        *,
-        items: list[RankableItem],
-        criteria_prompt: str,
-        model_name: str,
-        model_provider: str,
-        catalog_id: uuid.UUID | None = ...,
-        model_settings: dict[str, object] | None = ...,
-        max_requests: int = ...,
-        retries: int = ...,
-        base_url: str | None = ...,
-        min_items: int | None = ...,
-        max_items: int | None = ...,
-    ) -> list[str | int]: ...
-    async def rank_items_pairwise(
-        self,
-        *,
-        items: list[RankableItem],
-        criteria_prompt: str,
-        model_name: str,
-        model_provider: str,
-        catalog_id: uuid.UUID | None = ...,
-        id_field: str = ...,
-        batch_size: int = ...,
-        num_passes: int = ...,
-        refinement_ratio: float = ...,
-        model_settings: dict[str, object] | None = ...,
-        max_requests: int = ...,
-        retries: int = ...,
-        base_url: str | None = ...,
-        min_items: int | None = ...,
-        max_items: int | None = ...,
-    ) -> list[str | int]: ...
     async def list_presets(self) -> list[dict[str, Any]]: ...
     async def create_preset(
         self,
@@ -94,54 +52,93 @@ class _AgentsAsync:
         self,
         slug: str,
     ) -> None: ...
+    async def list_skills(
+        self,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        reverse: bool = ...,
+    ) -> CursorPage: ...
+    async def create_skill(
+        self,
+        *,
+        name: str,
+        description: str | None = ...,
+    ) -> dict[str, Any]: ...
+    async def get_skill(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def list_skill_versions(
+        self,
+        *,
+        skill_id: str,
+        skill_uuid: str | uuid.UUID | None = ...,
+        limit: int = ...,
+        cursor: str | None = ...,
+        reverse: bool = ...,
+    ) -> CursorPage: ...
+    async def get_skill_version(
+        self,
+        *,
+        skill_id: str,
+        version_id: str | uuid.UUID,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def publish_skill_version(
+        self,
+        *,
+        skill_id: str,
+        files: list[dict[str, Any]],
+        skill_uuid: str | uuid.UUID | None = ...,
+        base_version_id: str | None = ...,
+    ) -> dict[str, Any]: ...
+    async def restore_skill_version(
+        self,
+        *,
+        skill_id: str,
+        version_id: str | uuid.UUID,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def archive_skill(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> None: ...
+    async def get_skill_draft(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def get_skill_draft_file(
+        self,
+        *,
+        skill_id: str,
+        path: str,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def patch_skill_draft(
+        self,
+        *,
+        skill_id: str,
+        base_revision: int,
+        operations: list[dict[str, Any]],
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    async def publish_skill_draft(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
 
 class _Agents:
     @property
     def aio(self) -> _AgentsAsync: ...
-    def run(
-        self,
-        *,
-        user_prompt: str,
-        config: AgentConfig | None = ...,
-        preset_slug: str | None = ...,
-        preset_version: int | None = ...,
-        max_requests: int = ...,
-        max_tool_calls: int | None = ...,
-    ) -> registry_types.AgentOutputRead: ...
-    def rank_items(
-        self,
-        *,
-        items: list[RankableItem],
-        criteria_prompt: str,
-        model_name: str,
-        model_provider: str,
-        catalog_id: uuid.UUID | None = ...,
-        model_settings: dict[str, object] | None = ...,
-        max_requests: int = ...,
-        retries: int = ...,
-        base_url: str | None = ...,
-        min_items: int | None = ...,
-        max_items: int | None = ...,
-    ) -> list[str | int]: ...
-    def rank_items_pairwise(
-        self,
-        *,
-        items: list[RankableItem],
-        criteria_prompt: str,
-        model_name: str,
-        model_provider: str,
-        catalog_id: uuid.UUID | None = ...,
-        id_field: str = ...,
-        batch_size: int = ...,
-        num_passes: int = ...,
-        refinement_ratio: float = ...,
-        model_settings: dict[str, object] | None = ...,
-        max_requests: int = ...,
-        retries: int = ...,
-        base_url: str | None = ...,
-        min_items: int | None = ...,
-        max_items: int | None = ...,
-    ) -> list[str | int]: ...
     def list_presets(self) -> list[dict[str, Any]]: ...
     def create_preset(
         self,
@@ -178,8 +175,94 @@ class _Agents:
         self,
         slug: str,
     ) -> None: ...
+    def list_skills(
+        self,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        reverse: bool = ...,
+    ) -> CursorPage: ...
+    def create_skill(
+        self,
+        *,
+        name: str,
+        description: str | None = ...,
+    ) -> dict[str, Any]: ...
+    def get_skill(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def list_skill_versions(
+        self,
+        *,
+        skill_id: str,
+        skill_uuid: str | uuid.UUID | None = ...,
+        limit: int = ...,
+        cursor: str | None = ...,
+        reverse: bool = ...,
+    ) -> CursorPage: ...
+    def get_skill_version(
+        self,
+        *,
+        skill_id: str,
+        version_id: str | uuid.UUID,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def publish_skill_version(
+        self,
+        *,
+        skill_id: str,
+        files: list[dict[str, Any]],
+        skill_uuid: str | uuid.UUID | None = ...,
+        base_version_id: str | None = ...,
+    ) -> dict[str, Any]: ...
+    def restore_skill_version(
+        self,
+        *,
+        skill_id: str,
+        version_id: str | uuid.UUID,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def archive_skill(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> None: ...
+    def get_skill_draft(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def get_skill_draft_file(
+        self,
+        *,
+        skill_id: str,
+        path: str,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def patch_skill_draft(
+        self,
+        *,
+        skill_id: str,
+        base_revision: int,
+        operations: list[dict[str, Any]],
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
+    def publish_skill_draft(
+        self,
+        skill_id: str,
+        *,
+        skill_uuid: str | uuid.UUID | None = ...,
+    ) -> dict[str, Any]: ...
 
 class _CasesAsync:
+    async def aggregate_cases(
+        self, spec: dict[str, Any]
+    ) -> types.AggregateResponse: ...
     async def create_case(
         self,
         *,
@@ -500,6 +583,7 @@ class _CasesAsync:
 class _Cases:
     @property
     def aio(self) -> _CasesAsync: ...
+    def aggregate_cases(self, spec: dict[str, Any]) -> types.AggregateResponse: ...
     def create_case(
         self,
         *,
@@ -834,6 +918,18 @@ class _Deduplicate:
     ) -> list[bool]: ...
 
 class _TablesAsync:
+    async def search(
+        self,
+        table: str,
+        query: str,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        allow_partial: bool = ...,
+    ) -> types.SemanticSearchPage: ...
+    async def aggregate_rows(
+        self, table_name: str, spec: dict[str, Any]
+    ) -> types.AggregateResponse: ...
     async def list_tables(self) -> list[types.Table]: ...
     async def create_table(
         self,
@@ -845,6 +941,31 @@ class _TablesAsync:
     async def get_table_metadata(
         self,
         name: str,
+    ) -> types.TableRead: ...
+    async def update_table(
+        self,
+        *,
+        name: str,
+        new_name: str,
+    ) -> types.TableRead: ...
+    async def create_column(
+        self,
+        *,
+        table: str,
+        column: dict[str, Any],
+    ) -> types.TableRead: ...
+    async def update_column(
+        self,
+        *,
+        table: str,
+        column: str,
+        update: dict[str, Any],
+    ) -> types.TableRead: ...
+    async def delete_column(
+        self,
+        *,
+        table: str,
+        column: str,
     ) -> types.TableRead: ...
     async def lookup(
         self,
@@ -917,6 +1038,18 @@ class _TablesAsync:
     ) -> list[dict[str, Any]] | str: ...
 
 class _Tables:
+    def search(
+        self,
+        table: str,
+        query: str,
+        *,
+        limit: int = ...,
+        cursor: str | None = ...,
+        allow_partial: bool = ...,
+    ) -> types.SemanticSearchPage: ...
+    def aggregate_rows(
+        self, table_name: str, spec: dict[str, Any]
+    ) -> types.AggregateResponse: ...
     @property
     def aio(self) -> _TablesAsync: ...
     def list_tables(self) -> list[types.Table]: ...
@@ -930,6 +1063,31 @@ class _Tables:
     def get_table_metadata(
         self,
         name: str,
+    ) -> types.TableRead: ...
+    def update_table(
+        self,
+        *,
+        name: str,
+        new_name: str,
+    ) -> types.TableRead: ...
+    def create_column(
+        self,
+        *,
+        table: str,
+        column: dict[str, Any],
+    ) -> types.TableRead: ...
+    def update_column(
+        self,
+        *,
+        table: str,
+        column: str,
+        update: dict[str, Any],
+    ) -> types.TableRead: ...
+    def delete_column(
+        self,
+        *,
+        table: str,
+        column: str,
     ) -> types.TableRead: ...
     def lookup(
         self,
@@ -1064,8 +1222,80 @@ class _WorkflowsAsync:
     ) -> dict[str, Any]: ...
     async def get_status(
         self,
-        workflow_execution_id: str,
+        workflow_execution_id: WorkflowExecutionID,
+        *,
+        include_events: bool = ...,
+    ) -> types.WorkflowExecutionStatusRead: ...
+    async def create_workflow(
+        self,
+        *,
+        title: str | None = ...,
+        description: str | None = ...,
+        definition_yaml: str | None = ...,
     ) -> dict[str, Any]: ...
+    async def get_workflow(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    async def edit_workflow(
+        self,
+        *,
+        workflow_id: str,
+        base_revision: str,
+        patch_ops: Sequence[JsonPatchOperation | dict[str, Any]],
+        validate_only: bool = ...,
+    ) -> dict[str, Any]: ...
+    async def get_authoring_context(
+        self,
+        *,
+        action_names: list[str] | None = ...,
+        query: str | None = ...,
+    ) -> dict[str, Any]: ...
+    async def get_webhook(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    async def update_webhook(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"],
+    ) -> dict[str, Any]: ...
+    async def get_case_trigger(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    async def update_case_trigger(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"] | None = ...,
+        event_types: list[str] | None = ...,
+        tag_filters: list[str] | None = ...,
+    ) -> dict[str, Any]: ...
+    async def publish(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    async def run(
+        self,
+        *,
+        workflow_id: str,
+        inputs: Any | None = ...,
+        use_draft: bool = ...,
+        version: int | None = ...,
+    ) -> dict[str, Any]: ...
+    async def list_executions(
+        self,
+        *,
+        workflow_id: str,
+        limit: int = ...,
+        cursor: str | None = ...,
+    ) -> types.WorkflowExecutionPageRead: ...
 
 class _Workflows:
     @property
@@ -1084,8 +1314,80 @@ class _Workflows:
     ) -> dict[str, Any]: ...
     def get_status(
         self,
-        workflow_execution_id: str,
+        workflow_execution_id: WorkflowExecutionID,
+        *,
+        include_events: bool = ...,
+    ) -> types.WorkflowExecutionStatusRead: ...
+    def create_workflow(
+        self,
+        *,
+        title: str | None = ...,
+        description: str | None = ...,
+        definition_yaml: str | None = ...,
     ) -> dict[str, Any]: ...
+    def get_workflow(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    def edit_workflow(
+        self,
+        *,
+        workflow_id: str,
+        base_revision: str,
+        patch_ops: Sequence[JsonPatchOperation | dict[str, Any]],
+        validate_only: bool = ...,
+    ) -> dict[str, Any]: ...
+    def get_authoring_context(
+        self,
+        *,
+        action_names: list[str] | None = ...,
+        query: str | None = ...,
+    ) -> dict[str, Any]: ...
+    def get_webhook(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    def update_webhook(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"],
+    ) -> dict[str, Any]: ...
+    def get_case_trigger(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    def update_case_trigger(
+        self,
+        *,
+        workflow_id: str,
+        status: Literal["online", "offline"] | None = ...,
+        event_types: list[str] | None = ...,
+        tag_filters: list[str] | None = ...,
+    ) -> dict[str, Any]: ...
+    def publish(
+        self,
+        *,
+        workflow_id: str,
+    ) -> dict[str, Any]: ...
+    def run(
+        self,
+        *,
+        workflow_id: str,
+        inputs: Any | None = ...,
+        use_draft: bool = ...,
+        version: int | None = ...,
+    ) -> dict[str, Any]: ...
+    def list_executions(
+        self,
+        *,
+        workflow_id: str,
+        limit: int = ...,
+        cursor: str | None = ...,
+    ) -> types.WorkflowExecutionPageRead: ...
 
 agents: _Agents
 cases: _Cases

@@ -6,11 +6,13 @@ import {
   GitBranchIcon,
   LockIcon,
   LogOut,
+  Palette,
   Settings2,
   UserIcon,
   WorkflowIcon,
 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
+import { AppearanceSettings } from "@/components/settings/appearance-settings"
 import { ProfileSettings } from "@/components/settings/profile-settings"
 import {
   type SettingsSection,
@@ -168,20 +170,45 @@ function SettingsModalContent() {
   ])
 
   const showWorkspaceNav = !!workspaceId && canAdministerWorkspace
-  const canDisplaySection =
-    activeSection === "profile" || canAdministerWorkspace
+  const isAccountSection =
+    activeSection === "profile" || activeSection === "appearance"
+  const canDisplaySection = isAccountSection || canAdministerWorkspace
   const displayedSection =
-    showWorkspaceNav && canDisplaySection ? activeSection : "profile"
+    isAccountSection || (showWorkspaceNav && canDisplaySection)
+      ? activeSection
+      : "profile"
   const showSyncNav = hasEntitlement("git_sync")
 
+  function renderSection() {
+    if (displayedSection === "profile") {
+      return <ProfileSettings />
+    }
+    if (displayedSection === "appearance") {
+      return <AppearanceSettings />
+    }
+    if (workspaceId) {
+      return (
+        <WorkspaceSettingsContainer
+          workspaceId={workspaceId}
+          activeSection={displayedSection}
+        />
+      )
+    }
+    return null
+  }
+
   return (
-    <DialogContent className="h-[600px] max-w-[900px] gap-0 overflow-hidden p-0">
+    <DialogContent className="h-[720px] max-w-[1080px] grid-rows-[100%] gap-0 overflow-hidden p-0">
       <TooltipProvider>
         <DialogTitle className="sr-only">Settings</DialogTitle>
         <DialogDescription className="sr-only">
           Manage your account and workspace settings
         </DialogDescription>
-        <div className="flex h-full">
+        {/* `min-w-0` keeps this grid item from flooring the dialog's implicit
+            grid track at its own min-content width. Without it, unbreakable
+            tokens in the git-sync diff preview widen the track past the
+            dialog's max-width and get clipped by `overflow-hidden`. */}
+        <div className="flex h-full min-w-0">
           {/* Left nav panel */}
           <div className="flex w-[200px] shrink-0 flex-col border-r">
             <div className="flex flex-col gap-1 p-3">
@@ -192,6 +219,13 @@ function SettingsModalContent() {
                 icon={UserIcon}
                 label="Profile"
                 section="profile"
+                activeSection={displayedSection}
+                onSelect={setActiveSection}
+              />
+              <NavItem
+                icon={Palette}
+                label="Appearance"
+                section="appearance"
                 activeSection={displayedSection}
                 onSelect={setActiveSection}
               />
@@ -262,14 +296,7 @@ function SettingsModalContent() {
 
           {/* Right content panel */}
           <div className="flex min-w-0 flex-1 flex-col gap-6 overflow-x-hidden overflow-y-auto p-8">
-            {displayedSection === "profile" ? (
-              <ProfileSettings />
-            ) : workspaceId ? (
-              <WorkspaceSettingsContainer
-                workspaceId={workspaceId}
-                activeSection={displayedSection}
-              />
-            ) : null}
+            {renderSection()}
           </div>
         </div>
       </TooltipProvider>

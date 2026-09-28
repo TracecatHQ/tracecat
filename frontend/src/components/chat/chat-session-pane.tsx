@@ -1,6 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import {
   type ChatOnDataCallback,
   type ChatStatus,
@@ -14,7 +13,6 @@ import {
 import {
   CheckIcon,
   Loader2,
-  MousePointer2OffIcon,
   MousePointerClickIcon,
   PencilIcon,
   RefreshCcwIcon,
@@ -24,8 +22,8 @@ import { motion } from "motion/react"
 import {
   type ChangeEvent,
   type FocusEvent,
-  type KeyboardEvent,
   memo,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
@@ -33,7 +31,6 @@ import {
   useState,
 } from "react"
 import type {
-  AgentPresetReadMinimal,
   AgentSessionEntity,
   AgentSessionReadVercel,
   ApprovalDecision,
@@ -47,19 +44,8 @@ import {
 } from "@/components/ai-elements/conversation"
 import { Message, MessageContent } from "@/components/ai-elements/message"
 import {
-  ModelSelector,
-  ModelSelectorContent,
-  ModelSelectorEmpty,
-  ModelSelectorGroup,
-  ModelSelectorInput,
-  ModelSelectorItem,
-  ModelSelectorList,
-  ModelSelectorTrigger,
-} from "@/components/ai-elements/model-selector"
-import {
   PromptInput,
   PromptInputBody,
-  PromptInputButton,
   PromptInputFooter,
   PromptInputHeader,
   type PromptInputMessage,
@@ -84,63 +70,98 @@ import {
   Tool,
   ToolContent,
   ToolHeader,
+  type ToolHeaderProps,
   ToolInput,
   ToolOutput,
 } from "@/components/ai-elements/tool"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
+import { ChatToolsPicker } from "@/components/chat/chat-tools-picker"
+import { SmoothResponse } from "@/components/chat/smooth-response"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getIcon, ProviderIcon } from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { Dots } from "@/components/loading/dots"
+import { MentionHint } from "@/components/mentions/mention-hint"
+import { MentionPopover } from "@/components/mentions/mention-popover"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import {
-  type ApprovalCard,
   makeContinueMessage,
   parseChatError,
+  useAdoptServerTranscript,
+  useCancelChatTurn,
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
-import type { ModelInfo } from "@/lib/chat"
+import { useMentions } from "@/hooks/use-mentions"
+import { useOverflowBadges } from "@/hooks/use-overflow-badges"
+import { isAgentToolSelectable } from "@/lib/agent-tools"
 import {
+  type ApprovalCard,
+  CANCELLED_DATA_PART_TYPE,
   ENTITY_TO_INVALIDATION,
+  getCancelledPartToolCallIds,
+  getSessionLastError,
+  isApprovalCardArray,
+  isInterruptArtifactError,
+  isToolApprovedDecision,
+  isToolDeniedDecision,
+  type ModelInfo,
   toUIMessage,
   transformMessages,
 } from "@/lib/chat"
-import { useBuilderRegistryActions } from "@/lib/hooks"
+import { useBuilderRegistryActions, useListMcpIntegrations } from "@/lib/hooks"
+import { findAgentMention, type MentionRange } from "@/lib/mentions"
+import { useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
 import type { ChatSurface } from "@/types/chat-surface"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
 
-const MAX_TOOL_MENTION_RESULTS = 40
 const AGENT_TOOL_NAMES = new Set(["Agent", "Task"])
 const AGENT_TOOL_TARGET_KEYS = ["subagent_type", "agent_type", "type", "name"]
 const AGENT_TOOL_NESTED_INPUT_KEYS = ["args", "input", "tool_input"]
 
-type ToolMentionToken = {
-  start: number
-  end: number
-  query: string
-}
-
-type ToolMentionState = ToolMentionToken & {
-  activeIndex: number
-}
-
 const TOOL_ICON_PROPS = { className: "size-5 p-[3px]" } as const
-
-type ToolSuggestion = {
-  value: string
-  label: string
-  description?: string
-  group?: string
-}
 
 function messageHasVisibleParts(message: UIMessage): boolean {
   return message.parts.some((part) => part.type !== ARTIFACT_DATA_PART_TYPE)
+}
+
+/**
+ * Raised to abandon a submit that sent no message.
+ *
+ * `submitPrompt` runs its cleanup after any submit that resolves, clearing
+ * attachments and blanking the textarea, so a turn that produced nothing has to
+ * reject to leave the composer alone. It swallows the rejection. Anything worth
+ * telling the user is reported before this is thrown.
+ */
+class SubmitAbandonedError extends Error {
+  constructor(reason: string) {
+    super(reason)
+    this.name = "SubmitAbandonedError"
+  }
+}
+
+/**
+ * Whether a part counts as assistant content when attributing a cancelled
+ * marker to the message the user stopped. Structural parts (step-start) and
+ * data-* markers can share a message with the live-streamed cancelled marker,
+ * and must not stop the marker from tagging the preceding content message
+ * that holds the interrupted tool calls.
+ */
+function isCancelAttributionContentPart(
+  part: UIMessage["parts"][number]
+): boolean {
+  if (part.type === "step-start" || part.type.startsWith("data-")) {
+    return false
+  }
+  if (part.type === "text" || part.type === "reasoning") {
+    return typeof part.text === "string" && part.text.trim().length > 0
+  }
+  return true
 }
 
 function matchingUserTextPartKeys(
@@ -181,43 +202,20 @@ function areToolListsEqual(left: string[], right: string[]): boolean {
   )
 }
 
-function getToolMentionToken(
-  text: string,
-  caret: number
-): ToolMentionToken | undefined {
-  const beforeCaret = text.slice(0, caret)
-  const atIndex = beforeCaret.lastIndexOf("@")
-  if (atIndex < 0) {
-    return undefined
-  }
-
-  const priorChar = atIndex === 0 ? " " : beforeCaret[atIndex - 1]
-  if (priorChar.trim() !== "") {
-    return undefined
-  }
-
-  const query = beforeCaret.slice(atIndex + 1)
-  if (/\s/.test(query)) {
-    return undefined
-  }
-
-  return {
-    start: atIndex,
-    end: caret,
-    query,
-  }
-}
-
+/**
+ * Session preset wiring for the composer. The list itself comes from the
+ * mention popover, so this only carries the active selection and the write.
+ */
 type ChatPresetSelector = {
   label: string
-  presets?: AgentPresetReadMinimal[]
-  presetsIsLoading: boolean
-  presetsError: unknown
   selectedPresetId: string | null
-  onSelect: (presetId: string | null) => void | Promise<void>
+  /**
+   * Awaited before a message is sent so the preset lands on the same turn.
+   * Resolves false when the write failed, which aborts the send.
+   */
+  onSelect: (presetId: string | null) => Promise<boolean>
   disabled?: boolean
   showSpinner?: boolean
-  noPresetDescription?: string
 }
 
 export interface ChatSessionPaneProps {
@@ -229,8 +227,13 @@ export interface ChatSessionPaneProps {
   placeholder?: string
   onMessagesChange?: (messages: UIMessage[]) => void
   onData?: ChatOnDataCallback<UIMessage>
-  modelInfo: ModelInfo
+  /** Called whenever the underlying chat transport status changes. */
+  onStatusChange?: (status: ChatStatus) => void
+  modelInfo?: ModelInfo
   toolsEnabled?: boolean
+  /** Whether `@` offers agent presets on this surface. */
+  agentMentionsSupported?: boolean
+  mcpEnabled?: boolean
   /** Autofocus the prompt input when the pane mounts. */
   autoFocusInput?: boolean
   /**
@@ -241,7 +244,8 @@ export interface ChatSessionPaneProps {
    */
   onBeforeSend?: (
     messageText: string,
-    selectedTools?: string[]
+    selectedTools?: string[],
+    selectedMcpIntegrations?: string[]
   ) => Promise<string | null>
   /**
    * Render a temporary user message and assistant loading dots while
@@ -273,6 +277,12 @@ export interface ChatSessionPaneProps {
   presetSelector?: ChatPresetSelector
   /** Selects the chat stream projection and surrounding UI surface. */
   surface?: ChatSurface
+  /**
+   * Reconnect to the live event stream on mount. Defaults to true. Set to
+   * false for terminal sessions whose history is already loaded, to avoid
+   * replaying the last turn on top of the seeded messages.
+   */
+  resume?: boolean
 }
 
 export function ChatSessionPane({
@@ -284,8 +294,11 @@ export function ChatSessionPane({
   placeholder = "Ask your question...",
   onMessagesChange,
   onData,
+  onStatusChange,
   modelInfo,
   toolsEnabled = true,
+  agentMentionsSupported = false,
+  mcpEnabled = false,
   autoFocusInput = false,
   onBeforeSend,
   optimisticBeforeSend = false,
@@ -295,6 +308,7 @@ export function ChatSessionPane({
   inputDisabledPlaceholder,
   presetSelector,
   surface = "regular",
+  resume = true,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
   const promptInputContainerRef = useRef<HTMLDivElement>(null)
@@ -311,18 +325,48 @@ export function ChatSessionPane({
   >(undefined)
 
   const [input, setInput] = useState<string>("")
-  const [toolMention, setToolMention] = useState<ToolMentionState>()
+  const [isInputFocused, setIsInputFocused] = useState(false)
+  const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const getInputText = useCallback(() => input, [input])
+  const mentions = useMentions({
+    workspaceId,
+    textareaRef: promptTextareaRef,
+    getText: getInputText,
+    setText: setInput,
+    // Chat offers no `/` workflow commands.
+    agents: agentMentionsSupported
+      ? { entitlements: [], single: true }
+      : undefined,
+  })
+  const {
+    handleTextChange: handleMentionTextChange,
+    handleKeyDown: handleMentionKeyDown,
+    dismiss: dismissMentions,
+    dropPrefix: dropMentionPrefix,
+  } = mentions
   const [selectedTools, setSelectedTools] = useState<string[]>([])
+  const [selectedMcpIntegrations, setSelectedMcpIntegrations] = useState<
+    string[]
+  >([])
   const [optimisticMessageText, setOptimisticMessageText] = useState<
     string | null
   >(null)
   const optimisticMessageKnownTextPartKeysRef = useRef<Set<string>>(new Set())
   const { updateChat, isUpdating: isUpdatingTools } = useUpdateChat(workspaceId)
-  const { registryActions, registryActionsIsLoading } =
-    useBuilderRegistryActions()
+  const { cancelChatTurn, isCancellingChatTurn } =
+    useCancelChatTurn(workspaceId)
+  const { registryActions } = useBuilderRegistryActions()
+  const sessionMcpEnabled = mcpEnabled && entityType === "copilot"
+  const { mcpIntegrations } = useListMcpIntegrations(workspaceId, undefined, {
+    enabled: toolsEnabled && sessionMcpEnabled,
+  })
 
   // Check if this is a legacy read-only session
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
+  const readonlyDescription =
+    chat && "user_id" in chat
+      ? "This legacy conversation is read-only."
+      : "This conversation belongs to a teammate."
 
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
@@ -338,14 +382,49 @@ export function ChatSessionPane({
   const promptInputClassName = isWorkspaceChat
     ? "[&_[data-slot=input-group]]:rounded-2xl [&_[data-slot=input-group]]:border-muted-foreground/25 [&_[data-slot=input-group]]:shadow-none"
     : undefined
-  const { sendMessage, messages, status, regenerate, lastError, clearError } =
-    useVercelChat({
-      chatId: chat?.id,
-      workspaceId,
-      messages: uiMessages,
-      modelInfo,
-      onData,
-    })
+  const {
+    sendMessage,
+    messages,
+    setMessages,
+    status,
+    regenerate,
+    lastError,
+    clearError,
+  } = useVercelChat({
+    chatId: chat?.id,
+    workspaceId,
+    messages: uiMessages,
+    modelInfo,
+    onData,
+    resume,
+  })
+
+  // Prefer the live streaming error; fall back to the persisted last_error so a
+  // reopened session whose last run failed still surfaces why (the live error
+  // only exists during/right after the failing run).
+  //
+  // Suppress the persisted error the moment a new turn starts — optimistically
+  // on submit, before the backend clears last_error — because the new run will
+  // produce its own outcome (a fresh error or a reply) that supersedes it.
+  // The live error is always the current run's, so it is never suppressed.
+  const hasNewTurnStarted =
+    optimisticMessageText !== null ||
+    status === "submitted" ||
+    status === "streaming"
+  const persistedError =
+    hasNewTurnStarted || !chat ? null : getSessionLastError(chat)
+  const displayedError = lastError ?? persistedError
+
+  useAdoptServerTranscript({
+    status,
+    serverMessages: uiMessages,
+    liveMessages: messages,
+    setMessages,
+  })
+
+  useEffect(() => {
+    onStatusChange?.(status)
+  }, [status, onStatusChange])
 
   const hasOptimisticMessageInStream = useMemo(
     () =>
@@ -371,7 +450,7 @@ export function ChatSessionPane({
 
   // Send pending message on mount (used after forking)
   useEffect(() => {
-    if (!pendingMessage || isReadonly || !chat) return
+    if (!pendingMessage || isReadonly || !chat || !modelInfo) return
 
     const messageKey = `${chat.id}:${pendingMessage}`
     if (pendingMessageSentRef.current === messageKey) return
@@ -384,6 +463,7 @@ export function ChatSessionPane({
     pendingMessage,
     isReadonly,
     chat,
+    modelInfo,
     clearError,
     sendMessage,
     onPendingMessageSent,
@@ -416,8 +496,31 @@ export function ChatSessionPane({
   const isOptimisticBeforeSendPending = optimisticMessageText !== null
   const isInputDisabled =
     isReadonly || inputDisabled || isOptimisticBeforeSendPending || !canSubmit
+
+  const isGeneratingTurn = status === "submitted" || status === "streaming"
+  const [cancelRequested, setCancelRequested] = useState(false)
+
+  useEffect(() => {
+    if (!isGeneratingTurn) setCancelRequested(false)
+  }, [isGeneratingTurn])
+
+  const handleStop = useCallback(async () => {
+    if (!chat?.id || cancelRequested || isReadonly) return
+    setCancelRequested(true)
+    try {
+      await cancelChatTurn({ chatId: chat.id })
+    } catch (error) {
+      setCancelRequested(false)
+      toast({
+        title: "Failed to stop run",
+        description: parseChatError(error),
+      })
+    }
+  }, [cancelChatTurn, cancelRequested, chat?.id, isReadonly])
   const isInputDisabledRef = useRef(isInputDisabled)
   isInputDisabledRef.current = isInputDisabled
+  /** Guards `handleSubmit` against re-entry while it awaits a preset write. */
+  const submitInFlightRef = useRef(false)
   const wasInputDisabledRef = useRef(isInputDisabled)
 
   useEffect(() => {
@@ -477,7 +580,7 @@ export function ChatSessionPane({
 
   const handleSubmitApprovals = useCallback(
     async (decisionPayload: ApprovalDecision[]) => {
-      if (!decisionPayload.length) return
+      if (isReadonly || !decisionPayload.length) return
       try {
         clearError()
         await sendMessage(makeContinueMessage(decisionPayload))
@@ -492,28 +595,26 @@ export function ChatSessionPane({
         throw error
       }
     },
-    [clearError, sendMessage]
+    [clearError, isReadonly, sendMessage]
   )
 
   useEffect(() => {
     onMessagesChange?.(messages)
   }, [messages, onMessagesChange])
 
-  const toolSuggestions = useMemo<ToolSuggestion[]>(() => {
-    const actions = registryActions ?? []
-    return actions
-      .map((action) => ({
-        value: action.action,
-        label: action.default_title || action.action,
-        description: action.description ?? undefined,
-        group: action.namespace,
-      }))
-      .sort((left, right) => left.value.localeCompare(right.value))
-  }, [registryActions])
-
-  const toolSuggestionMap = useMemo(
-    () => new Map(toolSuggestions.map((tool) => [tool.value, tool])),
-    [toolSuggestions]
+  // Display labels for the selected-tool chips. Tools are picked in the Tools
+  // popover, which builds its own list, so nothing here needs ordering.
+  const toolLabels = useMemo(
+    () =>
+      new Map<string, string>(
+        (registryActions ?? [])
+          .filter((action) => isAgentToolSelectable(action.action))
+          .map((action) => [
+            action.action,
+            action.default_title || action.action,
+          ])
+      ),
+    [registryActions]
   )
 
   const persistToolsChainRef = useRef<Promise<void>>(Promise.resolve())
@@ -607,15 +708,90 @@ export function ChatSessionPane({
     [chat, isReadonly, queuePersistTools]
   )
 
-  const addSelectedTool = useCallback(
-    (toolName: string) => {
-      if (selectedToolsRef.current.includes(toolName)) {
+  const persistMcpChainRef = useRef<Promise<void>>(Promise.resolve())
+  const selectedMcpIntegrationsRef = useRef<string[]>([])
+  const pendingPersistedMcpIntegrationsRef = useRef<string[] | null>(null)
+  const syncedMcpChatIdRef = useRef<string | undefined>(undefined)
+
+  useEffect(() => {
+    selectedMcpIntegrationsRef.current = selectedMcpIntegrations
+  }, [selectedMcpIntegrations])
+
+  useEffect(() => {
+    const nextChatId = chat?.id
+    const nextMcpIntegrations = chat?.mcp_integrations ?? []
+
+    if (syncedMcpChatIdRef.current !== nextChatId) {
+      syncedMcpChatIdRef.current = nextChatId
+      pendingPersistedMcpIntegrationsRef.current = null
+      selectedMcpIntegrationsRef.current = nextMcpIntegrations
+      setSelectedMcpIntegrations(nextMcpIntegrations)
+      return
+    }
+
+    const pendingMcpIntegrations = pendingPersistedMcpIntegrationsRef.current
+    if (pendingMcpIntegrations) {
+      if (areToolListsEqual(nextMcpIntegrations, pendingMcpIntegrations)) {
+        pendingPersistedMcpIntegrationsRef.current = null
+      } else {
+        // Keep the optimistic MCP selection visible until the invalidated chat
+        // query catches up, matching the selected tools behavior above.
+        return
+      }
+    }
+
+    if (
+      !areToolListsEqual(
+        selectedMcpIntegrationsRef.current,
+        nextMcpIntegrations
+      )
+    ) {
+      selectedMcpIntegrationsRef.current = nextMcpIntegrations
+      setSelectedMcpIntegrations(nextMcpIntegrations)
+    }
+  }, [chat?.id, chat?.mcp_integrations])
+
+  const commitSelectedMcpIntegrations = useCallback(
+    (next: string[]) => {
+      if (areToolListsEqual(selectedMcpIntegrationsRef.current, next)) {
         return
       }
 
-      commitSelectedTools([...selectedToolsRef.current, toolName])
+      selectedMcpIntegrationsRef.current = next
+      setSelectedMcpIntegrations(next)
+      if (!chat || isReadonly) {
+        pendingPersistedMcpIntegrationsRef.current = null
+        return
+      }
+      const chatId = chat.id
+      pendingPersistedMcpIntegrationsRef.current = next
+      persistMcpChainRef.current = persistMcpChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            await updateChat({
+              chatId,
+              update: { mcp_integrations: next },
+            })
+          } catch (error) {
+            if (
+              pendingPersistedMcpIntegrationsRef.current &&
+              areToolListsEqual(
+                pendingPersistedMcpIntegrationsRef.current,
+                next
+              )
+            ) {
+              pendingPersistedMcpIntegrationsRef.current = null
+            }
+            toast({
+              title: "Failed to update MCP integrations",
+              description: parseChatError(error),
+              variant: "destructive",
+            })
+          }
+        })
     },
-    [commitSelectedTools]
+    [chat, isReadonly, updateChat]
   )
 
   const removeSelectedTool = useCallback(
@@ -627,180 +803,23 @@ export function ChatSessionPane({
     [commitSelectedTools]
   )
 
-  const mentionEnabled =
-    toolsEnabled && !isReadonly && !inputDisabled && canSubmit
-
-  useEffect(() => {
-    if (!mentionEnabled) {
-      setToolMention(undefined)
-    }
-  }, [mentionEnabled])
-
-  const filteredToolSuggestions = useMemo(() => {
-    if (!toolMention) {
-      return []
-    }
-
-    const needle = toolMention.query.trim().toLowerCase()
-    const matches = toolSuggestions.filter((tool) => {
-      if (!needle) {
-        return true
-      }
-      return [tool.value, tool.label, tool.description ?? "", tool.group ?? ""]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle)
-    })
-    return matches.slice(0, MAX_TOOL_MENTION_RESULTS)
-  }, [toolMention, toolSuggestions])
-
-  useEffect(() => {
-    if (!toolMention) {
-      return
-    }
-    if (filteredToolSuggestions.length === 0) {
-      setToolMention((current) => {
-        if (!current || current.activeIndex === 0) {
-          return current
-        }
-        return { ...current, activeIndex: 0 }
-      })
-      return
-    }
-
-    setToolMention((current) => {
-      if (!current) {
-        return current
-      }
-      const clampedIndex = Math.min(
-        current.activeIndex,
-        filteredToolSuggestions.length - 1
-      )
-      if (clampedIndex === current.activeIndex) {
-        return current
-      }
-      return { ...current, activeIndex: clampedIndex }
-    })
-  }, [filteredToolSuggestions.length, toolMention])
-
-  const handleSelectMentionTool = useCallback(
-    (toolName: string, textarea?: HTMLTextAreaElement) => {
-      const mention = toolMention
-      if (!mention) {
-        return
-      }
-
-      addSelectedTool(toolName)
-      setInput((current) => {
-        const before = current.slice(0, mention.start)
-        const after = current.slice(mention.end)
-        return `${before}${after}`
-      })
-      setToolMention(undefined)
-
-      if (!textarea) {
-        return
-      }
-
-      const caretPosition = mention.start
-      requestAnimationFrame(() => {
-        textarea.focus()
-        textarea.setSelectionRange(caretPosition, caretPosition)
-      })
-    },
-    [addSelectedTool, toolMention]
-  )
-
   const handleInputChange = useCallback(
     (event: ChangeEvent<HTMLTextAreaElement>) => {
       const nextText = event.target.value
+      // The mention layer diffs against the previous value, so it has to run
+      // before the new text lands in state.
+      handleMentionTextChange(
+        nextText,
+        event.target.selectionStart ?? nextText.length
+      )
       setInput(nextText)
-
-      if (!mentionEnabled) {
-        setToolMention(undefined)
-        return
-      }
-
-      const caret = event.target.selectionStart ?? nextText.length
-      const nextMention = getToolMentionToken(nextText, caret)
-      if (!nextMention) {
-        setToolMention(undefined)
-        return
-      }
-
-      setToolMention((current) => ({
-        ...nextMention,
-        activeIndex: current?.activeIndex ?? 0,
-      }))
     },
-    [mentionEnabled]
-  )
-
-  const handleInputKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (!toolMention) {
-        return
-      }
-
-      if (event.key === "Escape") {
-        event.preventDefault()
-        setToolMention(undefined)
-        return
-      }
-
-      if (event.key === "ArrowDown") {
-        event.preventDefault()
-        if (filteredToolSuggestions.length === 0) {
-          return
-        }
-        setToolMention((current) => {
-          if (!current) {
-            return current
-          }
-          return {
-            ...current,
-            activeIndex:
-              (current.activeIndex + 1) % filteredToolSuggestions.length,
-          }
-        })
-        return
-      }
-
-      if (event.key === "ArrowUp") {
-        event.preventDefault()
-        if (filteredToolSuggestions.length === 0) {
-          return
-        }
-        setToolMention((current) => {
-          if (!current) {
-            return current
-          }
-          const nextIndex =
-            (current.activeIndex - 1 + filteredToolSuggestions.length) %
-            filteredToolSuggestions.length
-          return { ...current, activeIndex: nextIndex }
-        })
-        return
-      }
-
-      if (
-        (event.key === "Enter" || event.key === "Tab") &&
-        filteredToolSuggestions.length > 0
-      ) {
-        event.preventDefault()
-        const selected =
-          filteredToolSuggestions[toolMention.activeIndex] ??
-          filteredToolSuggestions[0]
-        if (selected) {
-          handleSelectMentionTool(selected.value, event.currentTarget)
-        }
-      }
-    },
-    [filteredToolSuggestions, handleSelectMentionTool, toolMention]
+    [handleMentionTextChange]
   )
 
   const handleInputFocus = useCallback(() => {
     promptTextareaFocusedRef.current = true
+    setIsInputFocused(true)
   }, [])
 
   const handlePromptPointerDownCapture = useCallback(() => {
@@ -816,7 +835,8 @@ export function ChatSessionPane({
 
   const handleInputBlur = useCallback(
     (event: FocusEvent<HTMLTextAreaElement>) => {
-      setToolMention(undefined)
+      setIsInputFocused(false)
+      dismissMentions()
 
       const nextFocusedElement = event.relatedTarget
       if (
@@ -835,7 +855,7 @@ export function ChatSessionPane({
         shouldRestoreInputFocusRef.current = false
       }
     },
-    []
+    [dismissMentions]
   )
 
   useEffect(() => {
@@ -848,23 +868,61 @@ export function ChatSessionPane({
 
   const selectedToolBadges = useMemo(
     () =>
-      selectedTools.map((toolName) => {
-        const suggestion = toolSuggestionMap.get(toolName)
-        return {
-          value: toolName,
-          label: suggestion?.label ?? toolName,
-          icon: getIcon(toolName, {
-            className: "size-5 shrink-0",
-          }),
-        }
-      }),
-    [selectedTools, toolSuggestionMap]
+      selectedTools.map((toolName) => ({
+        value: toolName,
+        label: toolLabels.get(toolName) ?? toolName,
+        icon: getIcon(toolName, {
+          className: "size-5 shrink-0",
+        }),
+      })),
+    [selectedTools, toolLabels]
   )
 
   const transformedMessages = useMemo(
     () => transformMessages(messages),
     [messages]
   )
+
+  // Messages whose turn the user stopped, plus the tool calls those
+  // interrupts aborted. The live stream appends the data-cancelled part to
+  // the assistant message itself, while reloaded history renders the
+  // persisted marker as a standalone system message that follows the
+  // assistant content — cover both so interrupted tool calls in the
+  // preceding message render accurately. The marker's `tool_call_ids`
+  // payload is the structured signal recorded by the backend at interrupt
+  // time; tool call IDs are globally unique, so one session-wide set works.
+  const { cancelledTurnMessageIds, interruptedToolCallIds } = useMemo(() => {
+    const ids = new Set<string>()
+    const toolCallIds = new Set<string>()
+    let lastContentMessageId: string | null = null
+    for (const message of transformedMessages) {
+      const parts = message.parts ?? []
+      let hasCancelledPart = false
+      let hasContentParts = false
+      for (const part of parts) {
+        if (part.type === CANCELLED_DATA_PART_TYPE) {
+          hasCancelledPart = true
+          for (const toolCallId of getCancelledPartToolCallIds(
+            (part as { data?: unknown }).data
+          )) {
+            toolCallIds.add(toolCallId)
+          }
+        } else if (isCancelAttributionContentPart(part)) {
+          hasContentParts = true
+        }
+      }
+      if (hasCancelledPart) {
+        ids.add(message.id)
+        if (!hasContentParts && lastContentMessageId) {
+          ids.add(lastContentMessageId)
+        }
+      }
+      if (hasContentParts) {
+        lastContentMessageId = message.id
+      }
+    }
+    return { cancelledTurnMessageIds: ids, interruptedToolCallIds: toolCallIds }
+  }, [transformedMessages])
 
   const invalidateEntityQueries = useCallback(
     (toolNames: string[]) => {
@@ -916,29 +974,135 @@ export function ChatSessionPane({
   const handleSubmit = async (message: PromptInputMessage) => {
     const hasText = Boolean(message.text?.trim())
 
-    if (!hasText) {
+    if (!hasText || isReadonly || !modelInfo) {
       return
     }
 
+    // A submit awaits the preset write before it sends, and the composer stays
+    // enabled meanwhile. Without this a second Enter would see the optimistic
+    // `selectedPresetId`, skip the write it is still waiting on, and send under
+    // the preset the server has -- then the first submit would resume and send
+    // again. A ref rather than state because two keystrokes in the same tick
+    // would both read a stale `false`.
+    if (submitInFlightRef.current) {
+      // Reject rather than return: a resolved duplicate makes `submitPrompt`
+      // clear attachments and blank the textarea, and the submit still running
+      // reads that live value to tell the sent message from a newer draft.
+      throw new SubmitAbandonedError("A submit is already in flight")
+    }
+    submitInFlightRef.current = true
+    try {
+      await submitMessage(message)
+    } finally {
+      submitInFlightRef.current = false
+    }
+  }
+
+  const submitMessage = async (message: PromptInputMessage) => {
     const messageText = message.text || ""
+
+    // An `@Agent` mention sets the session preset for the whole conversation.
+    // Awaited first so the write lands before the turn is sent, and before the
+    // tool and MCP persistence chains below.
+    const agentMention = findAgentMention(mentions.ranges)
+    if (agentMention) {
+      // The mention names the agent that should answer, so nothing below may
+      // fall through and run the turn under the previous one.
+      if (!presetSelector) {
+        // `ChatInterface` drops the selector as soon as agent add-ons stop
+        // resolving -- revoked, or a refetch that failed -- while the bound
+        // range survives in the composer. Nothing here can apply the mention,
+        // and nothing else would tell the user, so say so before abandoning.
+        toast({
+          title: "Could not route to the mentioned agent",
+          description:
+            "Agent presets are unavailable right now. Reload and try again.",
+        })
+        throw new SubmitAbandonedError("Preset selector is unavailable")
+      }
+      if (agentMention.targetId !== presetSelector.selectedPresetId) {
+        // The draft is left intact -- `handlePresetChange` has already toasted
+        // the error -- so the user can retry.
+        const applied = await presetSelector.onSelect(agentMention.targetId)
+        if (!applied) {
+          // Reject rather than return: `submitPrompt` treats a resolved submit
+          // as sent and runs its cleanup, which drops any attached files even
+          // though nothing left the composer. It swallows a rejection instead.
+          throw new SubmitAbandonedError(
+            "Failed to persist the mentioned agent preset"
+          )
+        }
+      }
+    }
+
+    // Enter does not empty the box until the awaits here resolve, so the user
+    // carries on typing onto the end of the message being sent. Only what
+    // follows it is a new draft: keeping the whole value would strand the sent
+    // text in the composer for the next submit to send again. `input` is this
+    // closure's snapshot, so only the ref knows the live value.
+    const remainingDraft = () => {
+      const live = promptTextareaRef.current?.value ?? ""
+      return live.startsWith(messageText)
+        ? live.slice(messageText.length)
+        : live
+    }
+    // Ranges follow the text they describe: the ones inside the prefix go with
+    // it, the rest keep their bindings at their new offsets. Clearing them all
+    // would unbind a mention picked while this submit was in flight, leaving
+    // the surviving draft naming an agent that its own submit would not route
+    // to. `dropPrefix` re-reads the ranges, since this closure's copy predates
+    // any such pick.
+    const clearSubmittedDraft = () => {
+      const live = promptTextareaRef.current?.value ?? ""
+      const remaining = remainingDraft()
+      setInput(remaining)
+      dropMentionPrefix(live.length - remaining.length)
+    }
+
+    // The optimistic branch blanks the composer before `onBeforeSend` resolves,
+    // so the submitted text's bindings have to come off at the same moment.
+    // Held here so a cancelled submit can put them back with the text.
+    let submittedMentions: MentionRange[] = []
 
     if (onBeforeSend) {
       if (optimisticBeforeSend) {
         optimisticMessageKnownTextPartKeysRef.current =
           matchingUserTextPartKeys(messages, messageText)
         setOptimisticMessageText(messageText)
-        setInput("")
+        // Cut the prefix now, while the live value still carries it. Leaving it
+        // to the `clearSubmittedDraft` below would measure a zero cut against a
+        // composer this branch has already blanked, and the submitted mention
+        // would outlive its text as a range nothing renders -- which the next
+        // send reads back, re-applying a preset the user has since cleared.
+        // Cutting here rather than after the await is also what keeps a mention
+        // picked while the await runs: its offsets are already relative to the
+        // blanked composer, so a deferred cut would filter it out instead.
+        submittedMentions = mentions.ranges
+        clearSubmittedDraft()
       }
 
-      const result = await onBeforeSend(messageText, selectedTools)
+      const result = await onBeforeSend(
+        messageText,
+        selectedTools,
+        selectedMcpIntegrations
+      )
       // Only clear input if onBeforeSend succeeded (non-null)
       // If null, the action was cancelled and user keeps their draft
       if (result !== null) {
-        setInput("")
+        clearSubmittedDraft()
       } else if (optimisticBeforeSend) {
         optimisticMessageKnownTextPartKeysRef.current = new Set()
         setOptimisticMessageText(null)
-        setInput(messageText)
+        // Restoring the cancelled message would clobber a newer draft.
+        if (!remainingDraft()) {
+          // The bindings go back with the text: a restored draft that still
+          // reads `@Agent` has to route there when the user retries it.
+          mentions.commitEdit({
+            text: messageText,
+            mentions: submittedMentions,
+            caret: messageText.length,
+          })
+        }
       }
       // Parent will handle switching sessions and sending via pendingMessage
       return
@@ -949,10 +1113,11 @@ export function ChatSessionPane({
     }
 
     // Clear input for normal message sending
-    setInput("")
+    clearSubmittedDraft()
 
     try {
       await persistToolsChainRef.current.catch(() => undefined)
+      await persistMcpChainRef.current.catch(() => undefined)
       clearError()
       sendMessage({
         text: messageText,
@@ -963,142 +1128,137 @@ export function ChatSessionPane({
     }
   }
 
+  // The badge stands in for the hint once a preset owns the session. Unlike the
+  // hint it is state rather than a discoverability cue, so focus does not gate
+  // it.
+  const activePresetLabel =
+    presetSelector && !isReadonly && presetSelector.selectedPresetId
+      ? presetSelector.label
+      : null
+
   const promptComposer = (
     <div ref={promptInputContainerRef} className={promptCenterClass}>
-      {mentionEnabled && toolMention && (
-        <div className="absolute inset-x-0 bottom-full z-30 mb-2">
-          <div className="overflow-hidden rounded-md border bg-popover shadow-md">
-            {registryActionsIsLoading ? (
-              <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-                <Loader2 className="size-3 animate-spin" />
-                Loading tools...
-              </div>
-            ) : null}
-            {!registryActionsIsLoading &&
-              filteredToolSuggestions.length === 0 && (
-                <div className="px-3 py-2 text-xs text-muted-foreground">
-                  No tools found for
-                  {` "${toolMention.query}"`}.
-                </div>
-              )}
-            {!registryActionsIsLoading &&
-              filteredToolSuggestions.length > 0 && (
-                <div className="max-h-64 overflow-y-auto p-1">
-                  {filteredToolSuggestions.map((tool, index) => {
-                    const isActive = toolMention.activeIndex === index
-                    const isSelected = selectedTools.includes(tool.value)
-
-                    return (
-                      <button
-                        key={tool.value}
-                        type="button"
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => handleSelectMentionTool(tool.value)}
-                        className={cn(
-                          "flex w-full items-start justify-between gap-2 rounded-sm px-2 py-2 text-left",
-                          isActive && "bg-accent"
-                        )}
-                      >
-                        <div className="flex min-w-0 items-start gap-2">
-                          {getIcon(tool.value, {
-                            className: "mt-0.5 size-6 shrink-0",
-                          })}
-                          <div className="min-w-0">
-                            <p className="truncate text-xs font-medium text-foreground">
-                              {tool.label}
-                            </p>
-                            <p className="truncate text-[11px] text-muted-foreground">
-                              {tool.value}
-                            </p>
-                          </div>
-                        </div>
-                        {isSelected ? (
-                          <CheckIcon className="mt-0.5 size-3.5 text-muted-foreground" />
-                        ) : null}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-          </div>
+      {isReadonly ? (
+        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <Badge variant="outline" className="px-1.5 py-0 font-normal">
+            Read only
+          </Badge>
+          {readonlyDescription}
         </div>
-      )}
-      <PromptInput onSubmit={handleSubmit} className={promptInputClassName}>
-        {toolsEnabled && selectedToolBadges.length > 0 && (
-          <PromptInputHeader className="gap-1.5 px-3 pt-3">
-            {selectedToolBadges.map((tool) => (
-              <Badge
-                key={tool.value}
-                variant="secondary"
-                className="h-7 gap-1.5 px-2.5 text-xs"
-              >
-                <span className="inline-flex items-center justify-center text-foreground">
-                  {tool.icon}
-                </span>
-                <span className="truncate">{tool.label}</span>
-                <button
-                  type="button"
-                  className="inline-flex items-center text-muted-foreground hover:text-foreground"
-                  aria-label={`Remove ${tool.label}`}
-                  onClick={() => removeSelectedTool(tool.value)}
-                  disabled={
-                    isUpdatingTools ||
-                    isReadonly ||
-                    inputDisabled ||
-                    !toolsEnabled
-                  }
-                >
-                  <XIcon className="size-3.5" />
-                </button>
-              </Badge>
-            ))}
-          </PromptInputHeader>
-        )}
-        <PromptInputBody>
-          <PromptInputTextarea
-            onChange={handleInputChange}
-            onKeyDown={handleInputKeyDown}
-            onFocus={handleInputFocus}
-            onBlur={handleInputBlur}
-            placeholder={
-              isReadonly
-                ? "This is a legacy session (read-only)"
-                : (inputDisabled || isOptimisticBeforeSendPending) &&
-                    inputDisabledPlaceholder
-                  ? inputDisabledPlaceholder
-                  : placeholder
-            }
-            value={input}
-            autoFocus={autoFocusInput && !isReadonly && !inputDisabled}
-            disabled={isInputDisabled}
-          />
-        </PromptInputBody>
-        <PromptInputFooter>
-          <PromptInputTools>
-            {presetSelector && !isReadonly && (
-              <PromptPresetSelector
-                selector={presetSelector}
-                disabled={inputDisabled || !canSubmit}
+      ) : null}
+      <MentionPopover
+        open={mentions.isOpen}
+        kind={mentions.kind}
+        caret={mentions.caret}
+        sections={mentions.sections}
+        itemCount={mentions.itemCount}
+        activeIndex={mentions.activeIndex}
+        isLoading={mentions.isLoading}
+        locked={mentions.locked}
+        hasError={mentions.hasError}
+        onSelect={mentions.selectSuggestion}
+      >
+        <PromptInput onSubmit={handleSubmit} className={promptInputClassName}>
+          {/* Workspace chat surfaces attached tools via the Tools popover, so
+              the header chip row is reserved for the other chat surfaces. */}
+          {toolsEnabled &&
+            !isWorkspaceChat &&
+            selectedToolBadges.length > 0 && (
+              <SelectedToolsHeader
+                badges={selectedToolBadges}
+                onRemove={removeSelectedTool}
+                removeDisabled={
+                  isUpdatingTools ||
+                  isReadonly ||
+                  inputDisabled ||
+                  !toolsEnabled
+                }
               />
             )}
-            {!isReadonly ? (
-              <PromptModelIndicator modelInfo={modelInfo} />
-            ) : null}
-          </PromptInputTools>
-          <PromptInputSubmit
-            disabled={isInputDisabled || !input.trim()}
-            status={status}
-            className="text-muted-foreground/80"
-          />
-        </PromptInputFooter>
-      </PromptInput>
+          <PromptInputBody>
+            <PromptInputTextarea
+              ref={promptTextareaRef}
+              onChange={handleInputChange}
+              // The mention layer owns popover keys and atomic mention
+              // backspace. It calls preventDefault when it consumes a key,
+              // which is what stops the prompt input from submitting on Enter
+              // while the popover is open.
+              onKeyDown={handleMentionKeyDown}
+              onFocus={handleInputFocus}
+              onBlur={handleInputBlur}
+              onSelect={mentions.handleSelectionChange}
+              placeholder={
+                isReadonly
+                  ? readonlyDescription
+                  : (inputDisabled || isOptimisticBeforeSendPending) &&
+                      inputDisabledPlaceholder
+                    ? inputDisabledPlaceholder
+                    : placeholder
+              }
+              value={input}
+              autoFocus={autoFocusInput && !isReadonly && !inputDisabled}
+              disabled={isInputDisabled}
+            />
+          </PromptInputBody>
+          <PromptInputFooter>
+            <PromptInputTools>
+              {toolsEnabled && !isReadonly && (
+                <ChatToolsPicker
+                  registryActions={registryActions ?? []}
+                  selectedTools={selectedTools}
+                  onToolsChange={commitSelectedTools}
+                  mcpIntegrations={mcpIntegrations ?? []}
+                  selectedMcpIntegrations={selectedMcpIntegrations}
+                  onMcpChange={commitSelectedMcpIntegrations}
+                  mcpEnabled={sessionMcpEnabled}
+                  disabled={inputDisabled || isUpdatingTools}
+                  surface={surface}
+                  mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
+                />
+              )}
+              {!isReadonly && modelInfo ? (
+                <PromptModelIndicator modelInfo={modelInfo} />
+              ) : null}
+            </PromptInputTools>
+            <div className="flex items-center gap-2">
+              {activePresetLabel ? (
+                <ActivePresetBadge
+                  label={activePresetLabel}
+                  showSpinner={presetSelector?.showSpinner}
+                  disabled={
+                    presetSelector?.disabled || inputDisabled || !canSubmit
+                  }
+                  onClear={() => void presetSelector?.onSelect(null)}
+                />
+              ) : (
+                <MentionHint
+                  show={isInputFocused && !input.trim()}
+                  agents={mentions.agents}
+                  workflows={mentions.workflows}
+                />
+              )}
+              <PromptInputSubmit
+                disabled={
+                  isReadonly ||
+                  (isGeneratingTurn
+                    ? isCancellingChatTurn || cancelRequested
+                    : isInputDisabled || !input.trim())
+                }
+                onStop={() => void handleStop()}
+                status={status}
+                className="size-7 text-muted-foreground/80"
+              />
+            </div>
+          </PromptInputFooter>
+        </PromptInput>
+      </MentionPopover>
     </div>
   )
 
   const showEmptyHero =
     isWorkspaceChat &&
     !isReadonly &&
-    !lastError &&
+    !displayedError &&
     !optimisticMessageText &&
     !isWaitingForResponse &&
     !transformedMessages.some(messageHasVisibleParts)
@@ -1120,12 +1280,19 @@ export function ChatSessionPane({
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col">
-          <Conversation className="flex-1">
+          <Conversation
+            className="flex-1"
+            resize={status === "streaming" ? "instant" : "smooth"}
+          >
             <ConversationContent className={chatContentCenterClass}>
-              {lastError && (
+              {displayedError && (
                 <Alert variant="destructive" className="mb-4">
-                  <AlertTitle>Unable to continue with this model</AlertTitle>
-                  <AlertDescription>{lastError}</AlertDescription>
+                  <AlertTitle>
+                    {lastError
+                      ? "Unable to continue with this model"
+                      : "Last run failed"}
+                  </AlertTitle>
+                  <AlertDescription>{displayedError}</AlertDescription>
                 </Alert>
               )}
               {optimisticMessageText ? (
@@ -1169,33 +1336,39 @@ export function ChatSessionPane({
                         role={role}
                         status={status}
                         isLastMessage={isLastMessage}
-                        onSubmitApprovals={handleSubmitApprovals}
+                        turnCancelled={cancelledTurnMessageIds.has(id)}
+                        interruptedToolCallIds={interruptedToolCallIds}
+                        onSubmitApprovals={
+                          isReadonly ? undefined : handleSubmitApprovals
+                        }
                       />
                     ))}
-                    {role === "assistant" && !isWaitingForResponse && (
-                      // Render response actions for assistant messages and reveal them on hover for older messages.
-                      <Actions
-                        className={cn(
-                          "mt-4",
-                          // Apply a smooth transition so the actions fade in and out gracefully.
-                          "transition-opacity duration-200 ease-out",
-                          // Hide actions by default for non-last messages and reveal them when the message group is hovered.
-                          !isLastMessage &&
-                            "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
-                        )}
-                      >
-                        {isLastMessage && (
-                          <Action
-                            size="sm"
-                            onClick={() => regenerate()}
-                            label="Retry"
-                            tooltip="Retry"
-                          >
-                            <RefreshCcwIcon className="size-3" />
-                          </Action>
-                        )}
-                      </Actions>
-                    )}
+                    {role === "assistant" &&
+                      !isWaitingForResponse &&
+                      !isReadonly && (
+                        // Render response actions for assistant messages and reveal them on hover for older messages.
+                        <Actions
+                          className={cn(
+                            "mt-4",
+                            // Apply a smooth transition so the actions fade in and out gracefully.
+                            "transition-opacity duration-200 ease-out",
+                            // Hide actions by default for non-last messages and reveal them when the message group is hovered.
+                            !isLastMessage &&
+                              "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                          )}
+                        >
+                          {isLastMessage && (
+                            <Action
+                              size="sm"
+                              onClick={() => regenerate()}
+                              label="Retry"
+                              tooltip="Retry"
+                            >
+                              <RefreshCcwIcon className="size-3" />
+                            </Action>
+                          )}
+                        </Actions>
+                      )}
                   </div>
                 )
               })}
@@ -1225,6 +1398,121 @@ export function ChatSessionPane({
   )
 }
 
+type SelectedToolBadge = {
+  value: string
+  label: string
+  icon: ReactNode
+}
+
+/** Single selected-tool chip. Renders the remove button only when interactive
+ * so the hidden measurement layer stays out of the tab order. */
+function SelectedToolChip({
+  tool,
+  onRemove,
+  removeDisabled,
+  interactive,
+}: {
+  tool: SelectedToolBadge
+  onRemove?: (value: string) => void
+  removeDisabled?: boolean
+  interactive: boolean
+}) {
+  return (
+    <Badge variant="secondary" className="h-7 shrink-0 gap-1.5 px-2.5 text-xs">
+      <span className="inline-flex items-center justify-center text-foreground">
+        {tool.icon}
+      </span>
+      <span className="truncate">{tool.label}</span>
+      {interactive ? (
+        <button
+          type="button"
+          className="inline-flex items-center text-muted-foreground hover:text-foreground"
+          aria-label={`Remove ${tool.label}`}
+          onClick={() => onRemove?.(tool.value)}
+          disabled={removeDisabled}
+        >
+          <XIcon className="size-3.5" />
+        </button>
+      ) : (
+        <span className="inline-flex items-center text-muted-foreground">
+          <XIcon className="size-3.5" />
+        </span>
+      )}
+    </Badge>
+  )
+}
+
+/**
+ * Chip strip of tools attached to the chat session, rendered above the
+ * composer textarea. Keeps the chips on a single line, showing only those that
+ * fit plus a "+N" indicator for the rest, so a large tool set never grows the
+ * composer past one row.
+ *
+ * Overflow measurement is shared with MultiSelectBadges (case custom fields)
+ * via the useOverflowBadges hook: a hidden measurement layer renders every chip
+ * so the visible set can be recomputed when the panel resizes.
+ */
+function SelectedToolsHeader({
+  badges,
+  onRemove,
+  removeDisabled,
+}: {
+  badges: SelectedToolBadge[]
+  onRemove: (value: string) => void
+  removeDisabled: boolean
+}) {
+  // gap-1.5 = 0.375rem = 6px between chips.
+  const { measureRef, visibleCount } = useOverflowBadges(badges, { gap: 6 })
+
+  const hiddenTools = badges.slice(visibleCount)
+  const hiddenCount = hiddenTools.length
+
+  return (
+    <PromptInputHeader className="gap-1.5 px-3 pt-3">
+      <div className="relative w-full min-w-0 overflow-hidden">
+        {/* Hidden measurement layer — every chip plus a +N placeholder so the
+            ResizeObserver can recompute the visible set as the panel resizes. */}
+        <div
+          ref={measureRef}
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 flex items-center gap-1.5"
+          style={{ visibility: "hidden" }}
+        >
+          {badges.map((tool) => (
+            <SelectedToolChip
+              key={tool.value}
+              tool={tool}
+              interactive={false}
+            />
+          ))}
+          <span className="shrink-0 text-xs">+{badges.length}</span>
+        </div>
+        {/* Visible layer — only the chips that fit plus a +N indicator. */}
+        <div className="flex items-center gap-1.5">
+          {badges.slice(0, visibleCount).map((tool) => (
+            <SelectedToolChip
+              key={tool.value}
+              tool={tool}
+              onRemove={onRemove}
+              removeDisabled={removeDisabled}
+              interactive
+            />
+          ))}
+          {hiddenCount > 0 && (
+            <Badge
+              variant="secondary"
+              className="h-7 shrink-0 px-2.5 text-xs text-muted-foreground"
+              title={hiddenTools.map((tool) => tool.label).join(", ")}
+            >
+              +{hiddenCount}
+            </Badge>
+          )}
+        </div>
+      </div>
+    </PromptInputHeader>
+  )
+}
+
 function OptimisticPendingMessage({ text }: { text: string }) {
   return (
     <>
@@ -1246,154 +1534,41 @@ function OptimisticPendingMessage({ text }: { text: string }) {
   )
 }
 
-function PromptPresetSelector({
-  selector,
+/**
+ * The session's active agent preset, shown where the mention hint otherwise
+ * sits. Clearing it is the only way back to a tools-only session.
+ */
+function ActivePresetBadge({
+  label,
   disabled = false,
+  showSpinner = false,
+  onClear,
 }: {
-  selector: ChatPresetSelector
+  label: string
   disabled?: boolean
+  showSpinner?: boolean
+  onClear: () => void
 }) {
-  const [open, setOpen] = useState(false)
-
-  const effectiveDisabled = Boolean(disabled || selector.disabled)
-
-  useEffect(() => {
-    if (effectiveDisabled) {
-      setOpen(false)
-    }
-  }, [effectiveDisabled])
-
-  const errorMessage = useMemo(() => {
-    if (typeof selector.presetsError === "string") {
-      return selector.presetsError
-    }
-    if (
-      selector.presetsError &&
-      typeof selector.presetsError === "object" &&
-      "body" in selector.presetsError &&
-      typeof (selector.presetsError as { body?: { detail?: unknown } }).body
-        ?.detail === "string"
-    ) {
-      return (selector.presetsError as { body?: { detail?: string } }).body
-        ?.detail
-    }
-    if (
-      selector.presetsError &&
-      typeof selector.presetsError === "object" &&
-      "message" in selector.presetsError &&
-      typeof (selector.presetsError as { message?: unknown }).message ===
-        "string"
-    ) {
-      return (selector.presetsError as { message: string }).message
-    }
-    return "Failed to load presets"
-  }, [selector.presetsError])
-
-  const noPresetValue = "__workspace_default_preset__"
-
-  const handleSelect = (value: string) => {
-    setOpen(false)
-    void selector.onSelect(value === noPresetValue ? null : value)
-  }
-  const PresetIcon =
-    selector.selectedPresetId === null
-      ? MousePointer2OffIcon
-      : MousePointerClickIcon
-
   return (
-    <ModelSelector
-      open={open}
-      onOpenChange={(nextOpen) => {
-        if (effectiveDisabled) {
-          return
-        }
-        setOpen(nextOpen)
-      }}
-    >
-      <ModelSelectorTrigger asChild>
-        <PromptInputButton
-          size="sm"
-          variant="ghost"
-          disabled={effectiveDisabled}
-          className="h-7 max-w-[16rem] justify-start gap-1.5 px-2 text-xs"
-          aria-label="Select preset agent"
+    <span className="flex h-7 min-w-0 max-w-[14rem] items-center gap-1.5 rounded-md border border-border/70 px-2 text-xs text-muted-foreground">
+      <MousePointerClickIcon className="size-3 shrink-0" />
+      <span className="truncate" title={label}>
+        {label}
+      </span>
+      {showSpinner ? (
+        <Loader2 className="size-3 shrink-0 animate-spin" />
+      ) : (
+        <button
+          type="button"
+          onClick={onClear}
+          disabled={disabled}
+          aria-label="Clear agent"
+          className="shrink-0 text-muted-foreground/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
         >
-          <span className="flex min-w-0 items-center gap-1.5">
-            <PresetIcon className="size-3 text-muted-foreground" />
-            <span className="truncate" title={selector.label}>
-              {selector.label}
-            </span>
-          </span>
-          {selector.showSpinner ? (
-            <span className="ml-auto inline-flex items-center">
-              <Loader2 className="size-3 animate-spin text-muted-foreground" />
-            </span>
-          ) : null}
-        </PromptInputButton>
-      </ModelSelectorTrigger>
-      <ModelSelectorContent title="Select preset agent" className="sm:max-w-lg">
-        {selector.presetsIsLoading ? (
-          <div className="flex items-center gap-2 p-3 text-xs text-muted-foreground">
-            <Loader2 className="size-3 animate-spin" />
-            Loading presets...
-          </div>
-        ) : selector.presetsError ? (
-          <div className="p-3 text-xs text-red-600">{errorMessage}</div>
-        ) : (
-          <>
-            <ModelSelectorInput
-              placeholder="Search presets..."
-              className="text-xs"
-            />
-            <ModelSelectorList className="max-h-64 overflow-y-auto">
-              <ModelSelectorEmpty className="py-4 text-xs text-muted-foreground">
-                No presets found.
-              </ModelSelectorEmpty>
-              <ModelSelectorGroup>
-                <ModelSelectorItem
-                  value="no preset"
-                  onSelect={() => handleSelect(noPresetValue)}
-                  className="flex items-start justify-between gap-2 py-2 text-xs"
-                >
-                  <div className="flex flex-col">
-                    <span className="font-medium">No preset</span>
-                    <span className="text-muted-foreground">
-                      {selector.noPresetDescription ??
-                        "Use workspace default agent instructions."}
-                    </span>
-                  </div>
-                  {selector.selectedPresetId === null ? (
-                    <CheckIcon className="mt-0.5 size-3.5" />
-                  ) : null}
-                </ModelSelectorItem>
-                {(selector.presets ?? []).map((preset) => (
-                  <ModelSelectorItem
-                    key={preset.id}
-                    value={`${preset.name} ${preset.description ?? ""}`}
-                    onSelect={() => handleSelect(preset.id)}
-                    className="flex items-start justify-between gap-2 py-2 text-xs"
-                  >
-                    <div className="flex min-w-0 flex-col">
-                      <span className="truncate font-medium">
-                        {preset.name}
-                      </span>
-                      {preset.description ? (
-                        <span className="text-muted-foreground">
-                          {preset.description}
-                        </span>
-                      ) : null}
-                    </div>
-                    {selector.selectedPresetId === preset.id ? (
-                      <CheckIcon className="mt-0.5 size-3.5" />
-                    ) : null}
-                  </ModelSelectorItem>
-                ))}
-              </ModelSelectorGroup>
-            </ModelSelectorList>
-          </>
-        )}
-      </ModelSelectorContent>
-    </ModelSelector>
+          <XIcon className="size-3" />
+        </button>
+      )}
+    </span>
   )
 }
 
@@ -1413,6 +1588,8 @@ function getProviderIconId(provider: string): string {
     case "gemini":
     case "vertex_ai":
       return "google"
+    case "mistral":
+      return "mistral"
     case "openai":
       return "openai"
     default:
@@ -1424,7 +1601,7 @@ function PromptModelIndicator({ modelInfo }: { modelInfo: ModelInfo }) {
   return (
     <Badge
       variant="outline"
-      className="h-7 max-w-[18rem] gap-1.5 px-2.5 text-xs font-normal"
+      className="h-7 min-w-0 max-w-[18rem] gap-1.5 px-2.5 text-xs font-normal"
     >
       <ProviderIcon
         className="size-4 rounded-none bg-transparent p-0"
@@ -1443,6 +1620,8 @@ function PromptModelIndicator({ modelInfo }: { modelInfo: ModelInfo }) {
   )
 }
 
+const EMPTY_INTERRUPTED_TOOL_CALL_IDS: ReadonlySet<string> = new Set()
+
 export function MessagePart({
   part,
   partIdx,
@@ -1450,6 +1629,8 @@ export function MessagePart({
   role,
   status,
   isLastMessage,
+  turnCancelled = false,
+  interruptedToolCallIds = EMPTY_INTERRUPTED_TOOL_CALL_IDS,
   onSubmitApprovals,
 }: {
   part: UIMessagePart<UIDataTypes, UITools>
@@ -1458,13 +1639,26 @@ export function MessagePart({
   role: UIMessage["role"]
   status?: ChatStatus
   isLastMessage: boolean
+  turnCancelled?: boolean
+  /**
+   * Tool call IDs the backend marked as aborted by a user interrupt
+   * (structured metadata from the data-cancelled part).
+   */
+  interruptedToolCallIds?: ReadonlySet<string>
   onSubmitApprovals?: (decisions: ApprovalDecision[]) => Promise<void>
 }) {
+  if (part.type === CANCELLED_DATA_PART_TYPE) {
+    return (
+      <div key={`${id}-${partIdx}`} className="w-full py-2">
+        <span className="text-xs text-muted-foreground">Interrupted</span>
+        <div className="mt-2 border-t" />
+      </div>
+    )
+  }
+
   if (part.type === "data-approval-request") {
     const payload = (part as { data?: unknown }).data
-    const approvals: ApprovalCard[] = Array.isArray(payload)
-      ? (payload.filter(Boolean) as ApprovalCard[])
-      : []
+    const approvals = isApprovalCardArray(payload) ? payload : []
     return (
       <ApprovalRequestPart
         key={`${id}-${partIdx}`}
@@ -1478,7 +1672,10 @@ export function MessagePart({
     return (
       <Message key={`${id}-${partIdx}`} from={role}>
         <MessageContent variant="flat">
-          <Response>{part.text}</Response>
+          <SmoothResponse
+            text={part.text}
+            animate={status === "streaming" && isLastMessage}
+          />
         </MessageContent>
       </Message>
     )
@@ -1516,9 +1713,33 @@ export function MessagePart({
         ? (outputAsAny as { errorText?: string }).errorText
         : undefined
     const derivedErrorText = partErrorText ?? outputErrorText
-    const derivedState = derivedErrorText
-      ? ("output-error" as const)
-      : part.state
+    // In a turn the user stopped, tool calls that never completed (still
+    // pending) or that only "failed" because the SDK aborted them are
+    // interruptions, not tool errors — don't show a stale spinner or leak
+    // internal abort messages. The backend reports aborted calls as
+    // structured metadata (interruptedToolCallIds); the error-text substring
+    // check is a legacy fallback for histories persisted before that
+    // metadata existed.
+    const isPendingState =
+      part.state === "input-streaming" || part.state === "input-available"
+    // The structured ids are authoritative on their own: the backend records
+    // them at interrupt time, so they apply even when the cancelled marker
+    // landed in a different message than the tool calls it aborted. The
+    // state/error-text heuristics still require the turn-level flag.
+    const isInterrupted =
+      interruptedToolCallIds.has(part.toolCallId) ||
+      (turnCancelled &&
+        (isPendingState ||
+          (typeof derivedErrorText === "string" &&
+            isInterruptArtifactError(derivedErrorText))))
+    let derivedState: ToolHeaderProps["state"]
+    if (isInterrupted) {
+      derivedState = "output-interrupted"
+    } else if (derivedErrorText) {
+      derivedState = "output-error"
+    } else {
+      derivedState = part.state
+    }
     return (
       <Tool key={`${id}-${partIdx}`}>
         <ToolHeader
@@ -1529,7 +1750,13 @@ export function MessagePart({
         />
         <ToolContent>
           <ToolInput input={part.input} />
-          <ToolOutput output={part.output} errorText={derivedErrorText} />
+          {isInterrupted ? (
+            <div className="text-[11px] text-muted-foreground">
+              Stopped before completion
+            </div>
+          ) : (
+            <ToolOutput output={part.output} errorText={derivedErrorText} />
+          )}
         </ToolContent>
       </Tool>
     )
@@ -1602,6 +1829,8 @@ const MemoizedMessagePart = memo(MessagePart, (prev, next) => {
     prev.role !== next.role ||
     prev.status !== next.status ||
     prev.isLastMessage !== next.isLastMessage ||
+    prev.turnCancelled !== next.turnCancelled ||
+    prev.interruptedToolCallIds !== next.interruptedToolCallIds ||
     prev.onSubmitApprovals !== next.onSubmitApprovals
   ) {
     return false
@@ -1643,6 +1872,44 @@ type DecisionState = {
   overrideArgs?: string
 }
 
+function submittedDecisionFromApproval(
+  approval: ApprovalCard
+): DecisionState | undefined {
+  if (approval.status === "approved") {
+    if (
+      isToolApprovedDecision(approval.decision) &&
+      approval.decision.override_args !== undefined
+    ) {
+      return {
+        action: "override",
+        overrideArgs: formatArgs(approval.decision.override_args),
+      }
+    }
+    return { action: "approve" }
+  }
+
+  if (approval.status === "rejected") {
+    const reason =
+      approval.reason ??
+      (isToolDeniedDecision(approval.decision) &&
+      typeof approval.decision.message === "string"
+        ? approval.decision.message
+        : undefined)
+    return { action: "deny", reason }
+  }
+
+  return undefined
+}
+
+function approvalStateKey(approval: ApprovalCard): string {
+  return JSON.stringify({
+    id: approval.tool_call_id,
+    status: approval.status ?? "pending",
+    decision: approval.decision ?? null,
+    reason: approval.reason ?? null,
+  })
+}
+
 function ApprovalRequestPart({
   approvals,
   onSubmit,
@@ -1651,20 +1918,42 @@ function ApprovalRequestPart({
   onSubmit?: (decisions: ApprovalDecision[]) => Promise<void>
 }) {
   const [decisions, setDecisions] = useState<Record<string, DecisionState>>({})
+  const [submittedDecisions, setSubmittedDecisions] = useState<
+    Record<string, DecisionState>
+  >({})
   const [submitting, setSubmitting] = useState(false)
 
   const approvalsKey = useMemo(
-    () => approvals.map((a) => a.tool_call_id).join(":"),
+    () => approvals.map(approvalStateKey).join(":"),
     [approvals]
   )
 
   useEffect(() => {
+    const nextSubmittedDecisions: Record<string, DecisionState> = {}
+    for (const approval of approvals) {
+      const submittedDecision = submittedDecisionFromApproval(approval)
+      if (submittedDecision) {
+        nextSubmittedDecisions[approval.tool_call_id] = submittedDecision
+      }
+    }
     setDecisions({})
+    setSubmittedDecisions(nextSubmittedDecisions)
   }, [approvalsKey])
 
-  const readyToSubmit =
+  const hasSelectedPendingDecision =
     approvals.length > 0 &&
-    approvals.every((approval) => decisions[approval.tool_call_id]?.action)
+    approvals.some((approval) => {
+      if (submittedDecisions[approval.tool_call_id]) {
+        return false
+      }
+      return Boolean(decisions[approval.tool_call_id]?.action)
+    })
+
+  const allApprovalsSubmitted =
+    approvals.length > 0 &&
+    approvals.every((approval) =>
+      Boolean(submittedDecisions[approval.tool_call_id])
+    )
 
   const setDecision = useCallback(
     (toolCallId: string, update: Partial<DecisionState>) => {
@@ -1680,26 +1969,28 @@ function ApprovalRequestPart({
   )
 
   const handleSubmit = useCallback(async () => {
-    if (!onSubmit || !readyToSubmit) {
+    if (!onSubmit || !hasSelectedPendingDecision) {
       toast({
         title: "Pending decisions",
-        description: "Choose an action for each tool before continuing.",
+        description:
+          "Choose an action for at least one tool before continuing.",
       })
       return
     }
 
     const payload: ApprovalDecision[] = []
+    const acceptedDecisions: Record<string, DecisionState> = {}
     for (const approval of approvals) {
+      if (submittedDecisions[approval.tool_call_id]) {
+        continue
+      }
       const decision = decisions[approval.tool_call_id]
       if (!decision?.action) {
-        toast({
-          title: "Missing decision",
-          description: `Select an action for ${approval.tool_name}.`,
-        })
-        return
+        continue
       }
       if (decision.action === "approve") {
         payload.push({ tool_call_id: approval.tool_call_id, action: "approve" })
+        acceptedDecisions[approval.tool_call_id] = decision
       } else if (decision.action === "override") {
         try {
           const parsed = decision.overrideArgs
@@ -1710,6 +2001,7 @@ function ApprovalRequestPart({
             action: "override",
             override_args: parsed,
           })
+          acceptedDecisions[approval.tool_call_id] = decision
         } catch {
           toast({
             variant: "destructive",
@@ -1724,19 +2016,36 @@ function ApprovalRequestPart({
           action: "deny",
           reason: decision.reason ?? "",
         })
+        acceptedDecisions[approval.tool_call_id] = decision
       }
     }
 
     try {
       setSubmitting(true)
       await onSubmit(payload)
-      setDecisions({})
+      setSubmittedDecisions((prev) => ({
+        ...prev,
+        ...acceptedDecisions,
+      }))
+      setDecisions((prev) => {
+        const next = { ...prev }
+        for (const toolCallId of Object.keys(acceptedDecisions)) {
+          delete next[toolCallId]
+        }
+        return next
+      })
     } catch (error) {
       console.error(error)
     } finally {
       setSubmitting(false)
     }
-  }, [approvals, decisions, onSubmit, readyToSubmit])
+  }, [
+    approvals,
+    decisions,
+    hasSelectedPendingDecision,
+    onSubmit,
+    submittedDecisions,
+  ])
 
   const disabled = !onSubmit
 
@@ -1750,19 +2059,31 @@ function ApprovalRequestPart({
         {approvals.map((approval, index) => {
           const actionId = approval.tool_name.replaceAll("__", ".")
           const decision = decisions[approval.tool_call_id]
+          const submittedDecision = submittedDecisions[approval.tool_call_id]
+          const visibleDecision = submittedDecision ?? decision
+          const isSubmitted = Boolean(submittedDecision)
           const initialOverrideArgs = formatArgs(approval.args)
           const isLastApproval = index === approvals.length - 1
           return (
             <div
               key={approval.tool_call_id}
-              className="space-y-3 rounded-md border border-border/60 bg-background p-3"
+              data-testid={`approval-card-${approval.tool_call_id}`}
+              className={cn(
+                "space-y-3 rounded-md border border-border/60 bg-background p-3 transition-colors",
+                isSubmitted && "bg-muted/10",
+                !isSubmitted &&
+                  visibleDecision?.action !== undefined &&
+                  "border-foreground/20"
+              )}
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2.5">
                     {getIcon(actionId, TOOL_ICON_PROPS)}
-                    <p className="font-medium text-sm">{actionId}</p>
-                    {getStatusBadge("approval-requested")}
+                    <p className="min-w-0 truncate font-medium text-sm">
+                      {actionId}
+                    </p>
+                    {isSubmitted ? null : getStatusBadge("approval-requested")}
                   </div>
                 </div>
                 <JsonViewWithControls
@@ -1776,7 +2097,7 @@ function ApprovalRequestPart({
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={disabled || submitting}
+                    disabled={disabled || submitting || isSubmitted}
                     onClick={() =>
                       setDecision(approval.tool_call_id, {
                         action: "approve",
@@ -1785,8 +2106,8 @@ function ApprovalRequestPart({
                       })
                     }
                     className={cn(
-                      decision?.action === "approve" &&
-                        "border-success bg-background text-success hover:bg-success/10 hover:text-success"
+                      visibleDecision?.action === "approve" &&
+                        "border-success/55 text-success hover:border-success/65 hover:bg-background hover:text-success disabled:opacity-100"
                     )}
                   >
                     <CheckIcon className="mr-1 size-3" />
@@ -1796,7 +2117,7 @@ function ApprovalRequestPart({
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={disabled || submitting}
+                    disabled={disabled || submitting || isSubmitted}
                     onClick={() =>
                       setDecision(approval.tool_call_id, {
                         action: "override",
@@ -1806,8 +2127,8 @@ function ApprovalRequestPart({
                       })
                     }
                     className={cn(
-                      decision?.action === "override" &&
-                        "border-success bg-background text-success hover:bg-success/10 hover:text-success"
+                      visibleDecision?.action === "override" &&
+                        "border-success/55 text-success hover:border-success/65 hover:bg-background hover:text-success disabled:opacity-100"
                     )}
                   >
                     <PencilIcon className="mr-1 size-3" />
@@ -1817,7 +2138,7 @@ function ApprovalRequestPart({
                     type="button"
                     size="sm"
                     variant="outline"
-                    disabled={disabled || submitting}
+                    disabled={disabled || submitting || isSubmitted}
                     onClick={() =>
                       setDecision(approval.tool_call_id, {
                         action: "deny",
@@ -1825,8 +2146,8 @@ function ApprovalRequestPart({
                       })
                     }
                     className={cn(
-                      decision?.action === "deny" &&
-                        "border-destructive bg-background text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      visibleDecision?.action === "deny" &&
+                        "border-destructive/55 text-destructive hover:border-destructive/65 hover:bg-background hover:text-destructive disabled:opacity-100"
                     )}
                   >
                     <XIcon className="mr-1 size-3" />
@@ -1834,19 +2155,24 @@ function ApprovalRequestPart({
                   </Button>
                 </div>
               </div>
-              {decision?.action === "override" && (
+              {visibleDecision?.action === "override" && (
                 <div
                   data-testid={`approval-override-editor-${approval.tool_call_id}`}
                 >
                   <CodeEditor
-                    value={decision.overrideArgs ?? initialOverrideArgs}
+                    value={visibleDecision.overrideArgs ?? initialOverrideArgs}
                     language="json"
-                    onChange={(value) =>
+                    readOnly={disabled || submitting || isSubmitted}
+                    onChange={(value) => {
+                      if (isSubmitted) {
+                        return
+                      }
                       setDecision(approval.tool_call_id, {
-                        ...decision,
+                        ...(decision ?? {}),
+                        action: "override",
                         overrideArgs: value,
                       })
-                    }
+                    }}
                     className={cn(
                       "text-xs",
                       "[&_.cm-editor]:!border [&_.cm-editor]:!border-input [&_.cm-editor]:!bg-background [&_.cm-editor]:rounded-md",
@@ -1855,35 +2181,48 @@ function ApprovalRequestPart({
                   />
                 </div>
               )}
-              {decision?.action === "deny" && (
+              {visibleDecision?.action === "deny" && (
                 <Textarea
                   className="text-xs"
                   rows={3}
-                  value={decision.reason ?? ""}
+                  value={visibleDecision.reason ?? ""}
                   onChange={(event) =>
                     setDecision(approval.tool_call_id, {
-                      ...decision,
+                      ...(decision ?? {}),
+                      action: "deny",
                       reason: event.target.value,
                     })
                   }
                   placeholder="Share a short reason"
-                  disabled={disabled || submitting}
+                  disabled={disabled || submitting || isSubmitted}
                 />
               )}
               {isLastApproval && (
                 <div className="flex flex-wrap justify-end gap-2 pt-1">
                   <Button
                     type="button"
+                    variant={allApprovalsSubmitted ? "outline" : "default"}
                     onClick={handleSubmit}
-                    disabled={disabled || submitting || !readyToSubmit}
-                    className="h-6 gap-1 px-2 text-xs"
+                    disabled={
+                      disabled ||
+                      submitting ||
+                      allApprovalsSubmitted ||
+                      !hasSelectedPendingDecision
+                    }
+                    className={cn(
+                      "h-6 gap-1 px-2 text-xs",
+                      allApprovalsSubmitted &&
+                        "border-border bg-muted text-muted-foreground disabled:opacity-100"
+                    )}
                   >
                     {submitting ? (
                       <Loader2 className="size-3 animate-spin" />
                     ) : (
                       <CheckIcon className="size-3" />
                     )}
-                    {submitting ? "Submitting..." : "Submit"}
+                    {submitting && "Submitting..."}
+                    {!submitting && allApprovalsSubmitted && "Submitted"}
+                    {!submitting && !allApprovalsSubmitted && "Submit"}
                   </Button>
                 </div>
               )}

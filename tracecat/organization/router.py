@@ -25,6 +25,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -94,6 +95,36 @@ async def get_organization(
         )
 
     return OrgRead(id=org.id, name=org.name)
+
+
+@router.get("/memberships", response_model=list[OrgRead])
+async def list_current_user_organization_memberships(
+    *,
+    role: AuthenticatedUserOnly,
+    session: AsyncDBSessionBypass,
+) -> list[OrgRead]:
+    """List active organizations the current user belongs to."""
+    # No org context exists yet when switching orgs, so this uses the
+    # RLS-bypass session like the invitation endpoints below. The user_id
+    # filter is the tenant-isolation control — keep it in any refactor.
+    # user_id is guaranteed to be set by AuthenticatedUserOnly
+    assert role.user_id is not None
+
+    stmt = (
+        select(Organization.id, Organization.name)
+        .join(
+            OrganizationMembership,
+            OrganizationMembership.organization_id == Organization.id,
+        )
+        .where(
+            OrganizationMembership.user_id == role.user_id,
+            Organization.is_active.is_(True),
+        )
+        .order_by(Organization.name.asc(), Organization.id.asc())
+    )
+    result = await session.execute(stmt)
+
+    return [OrgRead(id=org_id, name=name) for org_id, name in result.all()]
 
 
 @router.get("/domains", response_model=list[OrgDomainRead])
@@ -364,7 +395,7 @@ async def delete_org_member(
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Action cannot be performed. Check if user is a superuser or has active sessions.",
+            detail="Action cannot be performed because related records still reference this member.",
         ) from e
     except TracecatAuthorizationError as e:
         raise HTTPException(
@@ -491,6 +522,7 @@ async def create_invitation(
         expires_at=invitation.expires_at,
         created_at=invitation.created_at,
         accepted_at=invitation.accepted_at,
+        last_emailed_at=invitation.email_sent_at,
     )
 
 
@@ -518,6 +550,7 @@ async def list_invitations(
             expires_at=inv.expires_at,
             created_at=inv.created_at,
             accepted_at=inv.accepted_at,
+            last_emailed_at=inv.email_sent_at,
         )
         for inv in invitations
     ]
@@ -541,6 +574,48 @@ async def revoke_invitation(
         ) from e
     except TracecatAuthorizationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+
+
+@router.post("/invitations/{invitation_id}/resend", response_model=OrgInvitationRead)
+@require_scope("org:member:invite")
+async def resend_invitation(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    invitation_id: UUID,
+) -> OrgInvitationRead:
+    """Queue another delivery of a pending invitation email."""
+    service = OrgService(session, role=role)
+    try:
+        invitation = await service.resend_invitation(invitation_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Invitation not found"
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Invitation email was sent less than a minute ago",
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+
+    return OrgInvitationRead(
+        id=invitation.id,
+        organization_id=invitation.organization_id,
+        email=invitation.email,
+        role_id=invitation.role_id,
+        role_name=invitation.role_obj.name,
+        role_slug=invitation.role_obj.slug,
+        status=invitation.status,
+        invited_by=invitation.invited_by,
+        expires_at=invitation.expires_at,
+        created_at=invitation.created_at,
+        accepted_at=invitation.accepted_at,
+        last_emailed_at=invitation.email_sent_at,
+    )
 
 
 @router.get("/invitations/{invitation_id}/token")
@@ -657,9 +732,9 @@ async def list_my_pending_invitations(
 @router.get("/invitations/token/{token}", response_model=OrgInvitationReadMinimal)
 async def get_invitation_by_token(
     *,
+    user: OptionalUserDep = None,
     session: AsyncDBSessionBypass,
     token: str,
-    user: OptionalUserDep = None,
 ) -> OrgInvitationReadMinimal:
     """Get minimal invitation details by token (public endpoint for UI).
 

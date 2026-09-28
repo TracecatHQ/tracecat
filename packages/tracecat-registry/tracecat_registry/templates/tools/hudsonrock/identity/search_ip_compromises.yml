@@ -1,0 +1,69 @@
+type: action
+definition:
+  title: Search IP compromises
+  description: >-
+    Search IP compromises. Calls POST /json/v3/search-by-ip directly.
+  display_group: HudsonRock
+  doc_url: https://docs.hudsonrock.com/docs/ipcidr-search
+  namespace: tools.hudsonrock
+  name: search_ip_compromises
+  secrets:
+    - name: hudsonrock
+      keys: ["HUDSONROCK_API_KEY"]
+  expects:
+    ips:
+      type: list[str] | None
+      description: List of IP addresses. 1-50 IPs, IPv4/IPv6 format. One of ips or cidr is required.
+      default: null
+    cidr:
+      type: str | None
+      description: CIDR range. Valid CIDR 21-32. One of ips or cidr is required.
+      default: null
+    sort_by:
+      type: str | None
+      description: Sort results by 'date_compromised' or 'date_uploaded'.
+      default: null
+    sort_direction:
+      type: str | None
+      description: "Sort direction: 'asc' or 'desc'."
+      default: null
+    filter_credentials:
+      type: bool | None
+      description: Return only matched credentials.
+      default: null
+    start_date:
+      type: str | None
+      description: Filter results after this date.
+      default: null
+    end_date:
+      type: str | None
+      description: Filter results before this date.
+      default: null
+    cursor:
+      type: str | None
+      description: Base64 encoded pagination cursor for retrieving the next set of results. Obtained from the 'nextCursor' field in the previous response.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the HudsonRock API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.hudsonrock.base_url || "https://api.hudsonrock.com" }}/json/v3/search-by-ip
+        method: POST
+        headers:
+          Accept: application/json
+          Content-Type: application/json
+          api-key: ${{ SECRETS.hudsonrock.HUDSONROCK_API_KEY }}
+        payload:
+          ips: ${{ inputs.ips }}
+          cidr: ${{ inputs.cidr }}
+          sort_by: ${{ inputs.sort_by }}
+          sort_direction: ${{ inputs.sort_direction }}
+          filter_credentials: ${{ inputs.filter_credentials }}
+          start_date: ${{ inputs.start_date }}
+          end_date: ${{ inputs.end_date }}
+          cursor: ${{ inputs.cursor }}
+  returns: ${{ steps.request.result }}

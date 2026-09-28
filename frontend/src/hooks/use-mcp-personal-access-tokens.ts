@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type MCPPersonalAccessTokenCreate,
   type MCPPersonalAccessTokenIssueResponse,
@@ -8,6 +7,7 @@ import {
   mcpPersonalAccessTokensListMcpPersonalAccessTokens,
   mcpPersonalAccessTokensRevokeMcpPersonalAccessToken,
 } from "@/client"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 function workspaceMcpTokensQueryKey(workspaceId: string) {
   return ["workspace-mcp-personal-access-tokens", workspaceId] as const

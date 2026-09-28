@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Get mobile device detail
+  description: Get detailed inventory for a Jamf Pro mobile device.
+  display_group: Jamf Pro
+  doc_url: https://developer.jamf.com/jamf-pro/reference/get_v2-mobile-devices-id-detail
+  namespace: tools.jamf
+  name: get_mobile_device_detail
+  secrets:
+    - type: oauth
+      provider_id: jamf
+      grant_type: client_credentials
+      optional: true
+    - name: jamf
+      keys: ["JAMF_API_TOKEN"]
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: Jamf Pro base URL (e.g. https://acme.jamfcloud.com).
+      default: null
+    mobile_device_id:
+      type: str
+      description: Mobile device ID.
+  steps:
+    - ref: get_mobile_device_detail
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.jamf.base_url }}/api/v2/mobile-devices/${{ FN.url_encode(inputs.mobile_device_id) }}/detail
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.jamf_oauth.JAMF_SERVICE_TOKEN || SECRETS.jamf.JAMF_API_TOKEN }}
+  returns: ${{ steps.get_mobile_device_detail.result }}

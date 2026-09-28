@@ -15,6 +15,7 @@ The loopback is used by the agent executor activity which handles:
 from __future__ import annotations
 
 import asyncio
+import copy
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -36,6 +37,11 @@ from tracecat.agent.common.stream_types import (
     ToolCallContent,
     UnifiedStreamEvent,
 )
+from tracecat.agent.error_policy import (
+    agent_executor_protocol_failed,
+    agent_executor_unavailable,
+)
+from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.stream.artifacts import artifact_stream_event
@@ -58,6 +64,9 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import TracecatValidationError
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_activity_failure
+from tracecat.observability.types import PlatformErrorCapture
+from tracecat.runtime.errors import RuntimeErrorClassification
 
 type JsonScalar = str | int | float | bool | None
 type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
@@ -66,6 +75,10 @@ type ResultUsage = dict[str, JsonValue]
 type RuntimeOutput = JsonValue
 type SessionLineKind = Literal["chat-message", "internal", "compaction"]
 type CompactionPhase = Literal["started", "completed", "failed"]
+
+
+class RuntimeEnvelopeProtocolError(ValueError):
+    """The sandbox runtime sent an event that violates the socket protocol."""
 
 
 class ClaudeSessionMessage(TypedDict):
@@ -88,6 +101,8 @@ class ClaudeSessionLine(TypedDict):
 
 type SinkOperation = Callable[[LoopbackEventSink], Awaitable[None]]
 
+TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS = 5.0
+
 
 @dataclass(kw_only=True, slots=True)
 class LoopbackInput:
@@ -95,6 +110,8 @@ class LoopbackInput:
 
     session_id: uuid.UUID
     workspace_id: uuid.UUID
+    active_stream_id: uuid.UUID | None = None
+    curr_run_id: uuid.UUID | None = None
 
 
 @dataclass(kw_only=True, slots=True)
@@ -103,12 +120,20 @@ class LoopbackResult:
 
     success: bool
     error: str | None = None
+    classification: RuntimeErrorClassification | None = None
+    sentry_capture: PlatformErrorCapture | None = None
     terminal_stream_error_emitted: bool = False
     approval_requested: bool = False
     approval_items: list[ToolCallContent] = field(default_factory=list)
     output: RuntimeOutput | None = None
     result_usage: ResultUsage | None = None
     result_num_turns: int | None = None
+    cancelled: bool = False
+    cancelled_reason: str | None = None
+    # Tool calls the interrupt aborted mid-flight: calls that either errored
+    # after cancellation was requested or never produced a result. Empty for
+    # non-cancelled turns.
+    interrupted_tool_call_ids: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -194,9 +219,11 @@ class FanoutStreamSink:
         self,
         operation_name: str,
         operation: SinkOperation,
+        sinks: tuple[LoopbackEventSink, ...] | None = None,
     ) -> None:
+        targets = self.sinks if sinks is None else sinks
         failures = 0
-        for sink in self.sinks:
+        for sink in targets:
             try:
                 await operation(sink)
             except Exception as exc:
@@ -207,7 +234,7 @@ class FanoutStreamSink:
                     sink_type=type(sink).__name__,
                     error=str(exc),
                 )
-        if failures == len(self.sinks):
+        if targets and failures == len(targets):
             raise RuntimeError(f"All fanout sinks failed for method '{operation_name}'")
 
     async def append(self, event: UnifiedStreamEvent) -> None:
@@ -219,26 +246,38 @@ class FanoutStreamSink:
     async def done(self) -> None:
         await self._broadcast("done", lambda sink: sink.done())
 
+    async def done_external(self) -> None:
+        """Complete external-channel sinks while leaving Redis open."""
+        external_sinks = tuple(
+            sink for sink in self.sinks if not isinstance(sink, AgentStreamSink)
+        )
+        await self._broadcast(
+            "done_external",
+            lambda sink: sink.done(),
+            external_sinks,
+        )
+
 
 def _runtime_envelope_from_json(payload: bytes) -> RuntimeEventEnvelope:
     """Decode a socket payload into a typed runtime event envelope."""
-    decoded = orjson.loads(payload)
-    if not isinstance(decoded, dict):
-        raise ValueError("Runtime event payload must be a JSON object")
-    return RuntimeEventEnvelope.from_dict(cast(dict[str, Any], decoded))
+    try:
+        decoded = orjson.loads(payload)
+        if not isinstance(decoded, dict):
+            raise ValueError("Runtime event payload must be a JSON object")
+        return RuntimeEventEnvelope.from_dict(cast(dict[str, Any], decoded))
+    except (orjson.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        raise RuntimeEnvelopeProtocolError from exc
 
 
 def _session_line_from_json(session_line: str) -> ClaudeSessionLine:
     """Decode and validate the outer shape of a Claude Code JSONL line."""
-    decoded = orjson.loads(session_line)
-    if not isinstance(decoded, dict):
-        raise ValueError("Claude session line must be a JSON object")
-    return cast(ClaudeSessionLine, decoded)
-
-
-def _session_line_db_content(line: ClaudeSessionLine) -> dict[str, Any]:
-    """Return a SQLAlchemy JSONB payload for an already validated session line."""
-    return cast(dict[str, Any], line)
+    try:
+        decoded = orjson.loads(session_line)
+        if not isinstance(decoded, dict):
+            raise ValueError("Claude session line must be a JSON object")
+        return cast(ClaudeSessionLine, decoded)
+    except (orjson.JSONDecodeError, ValueError) as exc:
+        raise RuntimeEnvelopeProtocolError from exc
 
 
 class LoopbackHandler:
@@ -258,12 +297,23 @@ class LoopbackHandler:
         self.input = input
         self._stream_sink: LoopbackEventSink | None = None
         self._result = LoopbackResult(success=False)
+        self._executor_error_recorded = False
+        # Serializes terminal error handling between executor crash/timeout
+        # paths and runtime cleanup callbacks so the recorded state and the
+        # single terminal stream error stay consistent.
+        self._terminal_error_lock = asyncio.Lock()
         self._sdk_session_id: str | None = None  # Track SDK session ID for this run
-        self._stream_done_emitted: bool = False  # Dedupe flag for stream.done()
+        self._external_stream_done_emitted: bool = False
+        self._interrupt_notice_emitted: bool = False  # Dedupe for cancelled event
         # Track which session lines have been persisted to avoid duplicates
         self._persisted_line_uuids: set[str] = set()
         # Track pending approval tool IDs to suppress synthetic interruption results.
         self._pending_approval_tool_call_ids: set[str] = set()
+        # Tool calls that errored after cancellation was requested. Together
+        # with calls that never resolved, these are the interrupt casualties
+        # reported on the cancelled event/result (structured signal - no
+        # error-message inspection involved).
+        self._errored_after_cancel_tool_call_ids: set[str] = set()
         self._tool_names_by_call_id: dict[str, str] = {}
         self._tool_inputs_by_call_id: dict[str, dict[str, Any]] = {}
         self._received_result: bool = False
@@ -338,18 +388,21 @@ class LoopbackHandler:
             self._stream_sink = await self._initialize_stream_sink()
         return self._stream_sink
 
-    async def _emit_stream_done(self) -> None:
-        """Emit stream.done() exactly once.
-
-        This helper ensures the stream end marker is emitted exactly once,
-        even if multiple code paths could trigger it (e.g., error + finally).
-        """
-        if self._stream_sink and not self._stream_done_emitted:
-            self._stream_done_emitted = True
-            try:
-                await self._stream_sink.done()
-            except Exception as e:
-                logger.warning("Failed to emit stream done", error=str(e))
+    async def _close_external_stream(self) -> None:
+        """Close external sinks exactly once while leaving Redis to the workflow."""
+        if (
+            not isinstance(self._stream_sink, FanoutStreamSink)
+            or self._external_stream_done_emitted
+        ):
+            return
+        self._external_stream_done_emitted = True
+        try:
+            await self._stream_sink.done_external()
+        except Exception as e:
+            logger.warning(
+                "Failed to emit external stream done",
+                error=str(e),
+            )
 
     async def _emit_terminal_stream_error(
         self,
@@ -358,23 +411,120 @@ class LoopbackHandler:
     ) -> None:
         await self._emit_failed_compaction_if_pending()
         await stream_sink.error(error)
-        await self._emit_stream_done()
+        await self._close_external_stream()
         self._result.terminal_stream_error_emitted = True
 
-    async def emit_terminal_error(self, error: str) -> bool:
+    async def _emit_terminal_stream_error_best_effort(
+        self,
+        stream_sink: LoopbackEventSink,
+        error: str,
+    ) -> None:
+        """Bound terminal stream delivery on failure paths."""
+        try:
+            await asyncio.wait_for(
+                self._emit_terminal_stream_error(stream_sink, error),
+                timeout=TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            logger.warning(
+                "Timeout emitting stream error",
+                session_id=self.input.session_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to emit stream error",
+                error_type=type(e).__name__,
+                session_id=self.input.session_id,
+            )
+
+    def mark_cancelled(self, reason: str) -> None:
+        """Record that the active runtime turn is expected to stop early.
+
+        Advisory only - the terminal "cancelled" notice is emitted from the
+        normal `_handle_done` path once the runtime actually finishes, so it
+        composes with `send_done()`'s existing dedup guard instead of racing
+        an immediate emit against runtime cleanup.
+        """
+        self._result.cancelled = True
+        self._result.cancelled_reason = reason
+
+    def _collect_interrupted_tool_call_ids(self) -> list[str]:
+        """Resolve which tool calls the interrupt aborted, from tracked state.
+
+        Interrupt casualties are tool calls that errored after cancellation was
+        requested plus calls that never produced a result (still tracked in
+        ``_tool_names_by_call_id``, which pops entries on TOOL_RESULT). Also
+        records the outcome on the loopback result so the activity/workflow can
+        persist it with the cancelled marker.
+        """
+        if not self._result.cancelled:
+            return []
+        interrupted = self._errored_after_cancel_tool_call_ids | set(
+            self._tool_names_by_call_id
+        )
+        self._result.interrupted_tool_call_ids = sorted(interrupted)
+        return self._result.interrupted_tool_call_ids
+
+    async def _emit_interrupt_notice_if_cancelled(
+        self, stream_sink: LoopbackEventSink
+    ) -> None:
+        if not self._result.cancelled or self._interrupt_notice_emitted:
+            return
+        self._interrupt_notice_emitted = True
+        try:
+            await stream_sink.append(
+                UnifiedStreamEvent.cancelled_event(
+                    reason=self._result.cancelled_reason,
+                    tool_call_ids=self._collect_interrupted_tool_call_ids(),
+                )
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to emit cancellation advisory event",
+                session_id=self.input.session_id,
+                error=str(e),
+            )
+
+    async def emit_terminal_error(
+        self,
+        error: str,
+        *,
+        classification: RuntimeErrorClassification,
+    ) -> bool:
         """Emit a terminal error through the resolved stream sink.
 
         This is used by executor-level crash/timeout paths that happen outside
-        normal loopback event processing.
+        normal loopback event processing. Bound the entire best-effort operation,
+        including sink initialization, so a stalled stream cannot replace the
+        executor's authoritative failure with an activity timeout.
         """
+        # Record authoritative state before any await so it survives even when
+        # lock acquisition or stream delivery below times out.
+        self._executor_error_recorded = True
+        self._result.success = False
+        self._result.error = error
+        self._result.classification = classification
         try:
-            if self._stream_sink is None:
-                self._stream_sink = await self._initialize_stream_sink()
-            await self._emit_terminal_stream_error(self._stream_sink, error)
-            return self._result.terminal_stream_error_emitted
-        except Exception:
+            async with asyncio.timeout(TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS):
+                async with self._terminal_error_lock:
+                    if self._result.terminal_stream_error_emitted:
+                        # A runtime callback already delivered a terminal
+                        # stream error while we waited; don't emit a second.
+                        return True
+                    if self._stream_sink is None:
+                        self._stream_sink = await self._initialize_stream_sink()
+                    await self._emit_terminal_stream_error(self._stream_sink, error)
+                    return self._result.terminal_stream_error_emitted
+        except TimeoutError:
+            logger.warning(
+                "Timeout emitting terminal stream error",
+                session_id=self.input.session_id,
+            )
+            return False
+        except Exception as e:
             logger.warning(
                 "Failed to emit terminal stream error",
+                error_type=type(e).__name__,
                 session_id=self.input.session_id,
             )
             return False
@@ -440,24 +590,46 @@ class LoopbackHandler:
             if self._result.error is None:
                 self._result.success = True
 
-        except asyncio.IncompleteReadError:
+        except asyncio.IncompleteReadError as error:
             logger.warning("Runtime disconnected unexpectedly during execution")
             self._result.error = "Runtime disconnected unexpectedly"
+            self._result.classification = agent_executor_unavailable()
+            self._result.sentry_capture = capture_activity_failure(
+                error, self._result.classification
+            )
             if self._stream_sink:
-                await self._emit_failed_compaction_if_pending()
-                await self._stream_sink.error(self._result.error)
+                await self._emit_terminal_stream_error(
+                    self._stream_sink,
+                    self._result.error,
+                )
+        except RuntimeEnvelopeProtocolError as e:
+            logger.warning("Runtime sent an invalid event envelope")
+            self._result.error = "Runtime sent an invalid event envelope"
+            self._result.classification = agent_executor_protocol_failed(e)
+            self._result.sentry_capture = capture_activity_failure(
+                e, self._result.classification
+            )
+            if self._stream_sink:
+                await self._emit_terminal_stream_error_best_effort(
+                    self._stream_sink,
+                    self._result.error,
+                )
         except Exception as e:
             logger.exception("Error handling runtime connection", error=str(e))
             self._result.error = f"Connection error: {e}"
+            self._result.classification = agent_executor_unavailable(e)
+            self._result.sentry_capture = capture_activity_failure(
+                e, self._result.classification
+            )
             if self._stream_sink:
-                try:
-                    await self._emit_failed_compaction_if_pending()
-                    await asyncio.wait_for(self._stream_sink.error(str(e)), timeout=5.0)
-                except TimeoutError:
-                    logger.warning("Timeout emitting stream error")
+                await self._emit_terminal_stream_error_best_effort(
+                    self._stream_sink,
+                    self._result.error,
+                )
         finally:
-            # ALWAYS emit done on any exit path to prevent SSE consumers from hanging
-            await self._emit_stream_done()
+            # External channels finish with the runtime. The durable workflow
+            # owns Redis completion after approval persistence or finalization.
+            await self._close_external_stream()
             writer.close()
             await writer.wait_closed()
 
@@ -470,15 +642,23 @@ class LoopbackHandler:
                 _msg_type, payload_bytes = await read_message(
                     reader, expected_type=MessageType.EVENT
                 )
-            except asyncio.IncompleteReadError:
+            except asyncio.IncompleteReadError as error:
                 logger.warning(
                     "Runtime connection closed unexpectedly during execution"
                 )
                 self._result.error = "Runtime disconnected during execution"
+                self._result.classification = agent_executor_unavailable()
+                self._result.sentry_capture = capture_activity_failure(
+                    error, self._result.classification
+                )
                 if self._stream_sink is not None:
-                    await self._emit_failed_compaction_if_pending()
-                    await self._stream_sink.error(self._result.error)
+                    await self._emit_terminal_stream_error(
+                        self._stream_sink,
+                        self._result.error,
+                    )
                 break
+            except (RuntimeError, ValueError) as e:
+                raise RuntimeEnvelopeProtocolError from e
 
             envelope = _runtime_envelope_from_json(payload_bytes)
             if await self.process_envelope(envelope):
@@ -500,7 +680,10 @@ class LoopbackHandler:
                 pass
 
             case "session_line":
-                if envelope.session_line and envelope.sdk_session_id:
+                if (
+                    envelope.session_line is not None
+                    and envelope.sdk_session_id is not None
+                ):
                     await self.send_session_line(
                         envelope.sdk_session_id,
                         envelope.session_line,
@@ -534,12 +717,28 @@ class LoopbackHandler:
 
     def build_result(self) -> LoopbackResult:
         """Return the accumulated result state."""
+        # Idempotent refresh: hard-cancel/error exits can reach here without
+        # passing through the interrupt-notice emit path.
+        self._collect_interrupted_tool_call_ids()
         return self._result
 
     async def _handle_stream_event(self, event: UnifiedStreamEvent) -> bool:
         """Handle a stream event emitted by the runtime."""
         stream_sink = await self.prepare()
         self._track_tool_event(event)
+
+        # After an interrupt is requested, error results are abort artifacts
+        # from the SDK winding down in-flight tools, not genuine failures.
+        # Record them by state (cancel-then-error ordering), never by
+        # inspecting error text. Recorded before suppression so approval-flow
+        # synthetic results are covered too.
+        if (
+            self._result.cancelled
+            and event.type is StreamEventType.TOOL_RESULT
+            and event.is_error
+            and event.tool_call_id is not None
+        ):
+            self._errored_after_cancel_tool_call_ids.add(event.tool_call_id)
 
         if event.type == StreamEventType.APPROVAL_REQUEST:
             logger.info(
@@ -548,10 +747,22 @@ class LoopbackHandler:
                 items=event.approval_items,
             )
             self._result.approval_requested = True
-            self._result.approval_items = [
-                ToolCallContent(id=item.id, name=item.name, input=item.input)
-                for item in (event.approval_items or [])
-            ]
+            # The runtime emits one APPROVAL_REQUEST event per gated tool call,
+            # so parallel tool calls arrive as N separate events. Accumulate
+            # across events (dedup by tool call ID) rather than overwriting,
+            # which kept only the last event's items.
+            existing_ids = {item.id for item in self._result.approval_items}
+            for item in event.approval_items or []:
+                if item.id in existing_ids:
+                    continue
+                existing_ids.add(item.id)
+                self._result.approval_items.append(
+                    ToolCallContent(
+                        id=item.id,
+                        name=item.name,
+                        input=copy.deepcopy(item.input),
+                    )
+                )
             self._pending_approval_tool_call_ids.update(
                 item.id for item in (event.approval_items or [])
             )
@@ -599,6 +810,11 @@ class LoopbackHandler:
         )
         await self._emit_terminal_stream_error(stream_sink, error_msg)
         self._result.error = error_msg
+        # The runtime error event carries no trusted ownership metadata. Known
+        # route/status failures are classified by the host-side LLM proxy before
+        # they reach this fallback, so do not blame the caller for an untyped
+        # runtime or provider failure.
+        self._result.classification = agent_executor_unavailable()
         return True
 
     def _track_tool_event(self, event: UnifiedStreamEvent) -> None:
@@ -731,17 +947,52 @@ class LoopbackHandler:
         self._result.result_usage = usage
         self._result.result_num_turns = num_turns
 
-    async def _handle_error(self, error: str) -> bool:
+    async def _handle_error(
+        self,
+        error: str,
+        *,
+        classification: RuntimeErrorClassification | None = None,
+        cause: BaseException | None = None,
+    ) -> bool:
         """Handle a terminal runtime error."""
+        if self._executor_error_recorded:
+            return True
         stream_sink = await self.prepare()
-        logger.error("Runtime error", error=error)
-        await self._emit_terminal_stream_error(stream_sink, error)
-        self._result.error = error
+        async with self._terminal_error_lock:
+            # Executor failure can arrive while stream initialization or lock
+            # acquisition is suspended. Its state and stream delivery take
+            # precedence over SDK cleanup errors.
+            if self._executor_error_recorded:
+                return True
+            logger.error("Runtime error", error=error)
+            self._result.error = error
+            # A classification is trusted only when the host-side runtime hands
+            # it over in-process. Error envelopes arriving over the sandbox
+            # socket carry no ownership metadata by design, so those stay
+            # platform-owned.
+            self._result.classification = classification or agent_executor_unavailable()
+            try:
+                await self._emit_terminal_stream_error(stream_sink, error)
+            finally:
+                # Capture after delivery so an executor failure that overtook
+                # this callback mid-flight suppresses the secondary capture.
+                if cause is not None and not self._executor_error_recorded:
+                    self._result.sentry_capture = capture_activity_failure(
+                        cause,
+                        self._result.classification,
+                        existing_capture=self._result.sentry_capture,
+                    )
         return True
 
-    async def send_error(self, error: str) -> None:
+    async def send_error(
+        self,
+        error: str,
+        *,
+        classification: RuntimeErrorClassification | None = None,
+        cause: BaseException | None = None,
+    ) -> None:
         """Handle a terminal runtime error."""
-        await self._handle_error(error)
+        await self._handle_error(error, classification=classification, cause=cause)
 
     async def _handle_done(self) -> bool:
         """Handle runtime completion."""
@@ -752,15 +1003,29 @@ class LoopbackHandler:
             success=self._result.error is None,
         )
         await self._emit_failed_compaction_if_pending()
-        if self._result.error is not None:
-            await self._emit_stream_done()
+        if self._executor_error_recorded:
+            # Executor error delivery owns external stream closure. Cleanup can
+            # arrive while its Redis write is pending, before Slack sees the
+            # error; closing here would mark the turn successful and drop it.
+            # Leave closure to that path even if its bounded delivery fails.
             return True
-        if validation_error := self._validate_runtime_completion():
+        if self._result.error is not None:
+            await self._close_external_stream()
+            return True
+        try:
+            self._validate_runtime_completion()
+        except RuntimeEnvelopeProtocolError as error:
+            validation_error = str(error)
+            self._result.classification = agent_executor_protocol_failed(error)
+            self._result.sentry_capture = capture_activity_failure(
+                error, self._result.classification
+            )
             await self._emit_terminal_stream_error(stream_sink, validation_error)
             self._result.error = validation_error
             return True
         self._result.success = True
-        await self._emit_stream_done()
+        await self._emit_interrupt_notice_if_cancelled(stream_sink)
+        await self._close_external_stream()
         return True
 
     async def send_done(self) -> None:
@@ -803,6 +1068,7 @@ class LoopbackHandler:
         redis_stream = await AgentStream.new(
             session_id=self.input.session_id,
             workspace_id=self.input.workspace_id,
+            stream_id=self.input.active_stream_id,
         )
         return AgentStreamSink(stream=redis_stream)
 
@@ -924,7 +1190,7 @@ class LoopbackHandler:
     async def _persist_session_line(
         self, sdk_session_id: str, session_line: str, *, internal: bool = False
     ) -> None:
-        """Persist sanitized JSONL line from SDK session file.
+        """Persist an SDK JSONL line with a JSONB-safe projection.
 
         Writes to AgentSessionHistory only. The session_id in self.input
         is the AgentSession.id for new chats, so all writes go to the
@@ -939,8 +1205,12 @@ class LoopbackHandler:
             session_line: Raw JSONL line from the SDK session file.
             internal: If True, this is internal state not shown in UI timeline.
         """
-        # Parse and sanitize to prevent XSS from untrusted content (e.g., tool results)
+        # Parse once, preserving exact resume bytes if JSONB needs a safe projection.
         line_data = _session_line_from_json(session_line)
+        history_payload = prepare_session_history(
+            cast(dict[str, Any], line_data),
+            raw_session_line=session_line,
+        )
         if not internal and line_data.get("type") == "assistant":
             self._received_assistant_content = True
 
@@ -994,8 +1264,10 @@ class LoopbackHandler:
             history_entry = AgentSessionHistory(
                 session_id=self.input.session_id,
                 workspace_id=self.input.workspace_id,
-                content=_session_line_db_content(line_data),
+                content=history_payload.content,
+                raw_session_line=history_payload.raw_session_line,
                 kind=kind,
+                curr_run_id=self.input.curr_run_id,
             )
             session.add(history_entry)
             await session.commit()
@@ -1004,21 +1276,26 @@ class LoopbackHandler:
         if isinstance(line_uuid, str):
             self._persisted_line_uuids.add(line_uuid)
 
-    def _validate_runtime_completion(self) -> str | None:
-        """Return a terminal error when runtime completion is missing a usable result."""
-        if self._result.approval_requested or self._result.error is not None:
-            return None
+    def _validate_runtime_completion(self) -> None:
+        """Reject runtime completion without a usable result."""
+        if (
+            self._result.approval_requested
+            or self._result.error is not None
+            or self._result.cancelled
+        ):
+            return
         if not self._received_result:
-            return "Runtime completed without final result"
+            raise RuntimeEnvelopeProtocolError("Runtime completed without final result")
         if (
             self._is_effectively_empty_output(self._result.output)
             and self._is_zero_usage(self._result.result_usage)
             and not self._received_assistant_content
         ):
             if self._received_compaction_event:
-                return None
-            return "Runtime completed without assistant output or model usage"
-        return None
+                return
+            raise RuntimeEnvelopeProtocolError(
+                "Runtime completed without assistant output or model usage"
+            )
 
     @staticmethod
     def _is_effectively_empty_output(value: object | None) -> bool:

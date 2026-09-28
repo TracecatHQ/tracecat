@@ -1,0 +1,69 @@
+type: action
+definition:
+  title: Query GNQL
+  description: >-
+    Query GNQL. Calls GET /v3/gnql directly.
+  display_group: GreyNoise
+  doc_url: https://docs.greynoise.io/reference/gnqlv3query
+  namespace: tools.greynoise
+  name: query_gnql
+  secrets:
+    - name: greynoise
+      keys: ["GREYNOISE_API_KEY"]
+  expects:
+    query:
+      type: str
+      description: GNQL query string.
+    size:
+      type: int | None
+      description: >-
+        The number of results provided per page for paginating through all results of a query.
+        Minimum 1, maximum 10000. GreyNoise defaults to 10000.
+      default: null
+    scroll:
+      type: str | None
+      description: Scroll token to paginate through results. Incompatible with format=csv.
+      default: null
+    quick:
+      type: bool | None
+      description: >-
+        If true, the response will only include the IP address and the classification or trust
+        level.
+      default: null
+    format:
+      type: str | None
+      description: >-
+        Specifies the desired format of the results. Must be either csv or json. GreyNoise
+        defaults to json.
+      default: null
+    exclude:
+      type: str | None
+      description: >-
+        Comma-separated list of fields to exclude from the response. Recognized top-level
+        response fields (e.g. tags, cves, vpn, tor, raw_data, metadata), metadata.<subfield>
+        paths (e.g. metadata.organization, metadata.source_country,
+        metadata.destination_countries), and raw_data.<subfield> paths (e.g. raw_data.ja3,
+        raw_data.http.useragent) are accepted. The special value tags.details preserves tag
+        identity (id, slug) and strips only the enriched details. Unknown field names return 400.
+      default: null
+    base_url:
+      type: str | None
+      description: GreyNoise API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.greynoise.base_url || "https://api.greynoise.io" }}/v3/gnql
+        method: GET
+        headers:
+          key: ${{ SECRETS.greynoise.GREYNOISE_API_KEY }}
+          Accept: application/json
+        params:
+          query: ${{ inputs.query }}
+          size: ${{ inputs.size }}
+          scroll: ${{ inputs.scroll }}
+          quick: ${{ inputs.quick }}
+          format: ${{ inputs.format }}
+          exclude: ${{ inputs.exclude }}
+  returns: ${{ steps.request.result }}

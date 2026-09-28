@@ -58,7 +58,7 @@ resource "aws_ecs_task_definition" "api_task_definition" {
       environment = local.api_env
       secrets     = local.tracecat_api_secrets
       healthCheck = {
-        command     = ["CMD", "curl", "-f", "http://localhost:8000/ready"]
+        command     = ["CMD", "curl", "-f", "http://localhost:8000/health"]
         interval    = 30
         timeout     = 5
         retries     = 3

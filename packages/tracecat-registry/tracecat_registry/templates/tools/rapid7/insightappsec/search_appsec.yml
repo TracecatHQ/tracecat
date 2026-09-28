@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: Search InsightAppSec
+  description: "Search. Calls POST /ias/v1/search directly."
+  display_group: Rapid7
+  doc_url: https://help.rapid7.com/insightappsec/en-us/api/v1/docs.html#operation/perform-search
+  namespace: tools.rapid7
+  name: search_appsec
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    limitData:
+      type: bool | None
+      description: "Whether to limit data."
+      default: null
+    index:
+      type: int | None
+      description: "The page index."
+      default: null
+    size:
+      type: int | None
+      description: "The page size."
+      default: null
+    sort:
+      type: str | None
+      description: "The sort criteria."
+      default: null
+    page_token:
+      type: str | None
+      description: "The token to retrieve the next page."
+      default: null
+    type:
+      type: str
+      description: "Resource type: APP, SCAN, SCAN_CONFIG, VULNERABILITY, VULNERABILITY_DISCOVERY, ATTACK_TEMPLATE, TARGET, ENGINE, ENGINE_GROUP, SCHEDULE, BLACKOUT, FILE, TAG, or REPORT."
+    query:
+      type: str
+      description: "The query for the Search."
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/ias/v1/search
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        params:
+          limitData: ${{ inputs.limitData }}
+          index: ${{ inputs.index }}
+          size: ${{ inputs.size }}
+          sort: ${{ inputs.sort }}
+          "page-token": ${{ inputs.page_token }}
+        payload:
+          type: ${{ inputs.type }}
+          query: ${{ inputs.query }}
+  returns: ${{ steps.request.result }}

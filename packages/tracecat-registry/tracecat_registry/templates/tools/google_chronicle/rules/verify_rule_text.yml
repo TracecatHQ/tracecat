@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Verify rule text
+  description: Verifies a rule text without creating a rule.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances/verifyRuleText
+  namespace: tools.google_chronicle
+  name: verify_rule_text
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The name of the parent resource, which is the SecOps instance associated with
+        the request. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    ruleText:
+      type: str
+      description: The rule text to verify as a UTF-8 string.
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}:verifyRuleText
+        method: POST
+        payload:
+          ruleText: ${{ inputs.ruleText }}
+  returns: ${{ steps.call_api.result }}

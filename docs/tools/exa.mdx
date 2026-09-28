@@ -8,7 +8,7 @@ description: "Reference for the Tracecat Exa integration: registered actions, re
 
 Action ID: `tools.exa.answer`
 
-Answer a question with Exa.
+Answer a question with Exa search-grounded citations.
 
 Reference: [https://exa.ai/docs/reference/answer](https://exa.ai/docs/reference/answer)
 
@@ -22,123 +22,33 @@ Required secrets:
 
 <ParamField path="query" type="string" required>
 
-The question to answer.
+Natural-language question or instructions for the request.
 
 </ParamField>
 
-## Create research task
+<ParamField path="outputSchema" type="object | null">
 
-Action ID: `tools.exa.research`
+JSON Schema Draft 7 object for structured answer output.
 
-Start a research task that explores the web, gathers sources, and synthesizes findings. Returns immediately with a researchId for polling.
-
-Reference: [https://exa.ai/docs/reference/research/create-a-task](https://exa.ai/docs/reference/research/create-a-task)
-
-### Secrets
-
-Required secrets:
-
-- `exa`: required values `EXA_API_KEY`.
-
-### Input fields
-
-<ParamField path="instructions" type="string" required>
-
-Instructions for what you would like research on.
+Default: `null`.
 
 </ParamField>
 
-<ParamField path="model" type="string">
+<ParamField path="text" type="boolean | null">
 
-The model to use for research.
+Return full page text in citations when true.
 
-Default: `"exa-research-fast"`.
-
-Allowed values: `exa-research-fast`, `exa-research`, `exa-research-pro`.
+Default: `null`.
 
 </ParamField>
 
-## Get contents
+## Deep research
 
-Action ID: `tools.exa.get_contents`
+Action ID: `tools.exa.deep_research`
 
-Get full page contents, summaries, and metadata for a list of URLs.
+Run Exa deep-reasoning search for research-style discovery and synthesis.
 
-Reference: [https://exa.ai/docs/reference/get-contents](https://exa.ai/docs/reference/get-contents)
-
-### Secrets
-
-Required secrets:
-
-- `exa`: required values `EXA_API_KEY`.
-
-### Input fields
-
-<ParamField path="urls" type="array[string]" required>
-
-The URLs to get the contents for.
-
-</ParamField>
-
-## Get research task
-
-Action ID: `tools.exa.get_research`
-
-Retrieve the current status and results of a research task by its research_id.
-
-Reference: [https://exa.ai/docs/reference/research/get-a-task](https://exa.ai/docs/reference/research/get-a-task)
-
-### Secrets
-
-Required secrets:
-
-- `exa`: required values `EXA_API_KEY`.
-
-### Input fields
-
-<ParamField path="research_id" type="string" required>
-
-Unique identifier for the research task to retrieve.
-
-</ParamField>
-
-## List research tasks
-
-Action ID: `tools.exa.list_research`
-
-Get a paginated list of research tasks. Use cursor for pagination and limit to control page size.
-
-Reference: [https://exa.ai/docs/reference/research/list-tasks](https://exa.ai/docs/reference/research/list-tasks)
-
-### Secrets
-
-Required secrets:
-
-- `exa`: required values `EXA_API_KEY`.
-
-### Input fields
-
-<ParamField path="cursor" type="string" required>
-
-Cursor token from previous response for pagination.
-
-</ParamField>
-
-<ParamField path="limit" type="integer">
-
-Maximum number of results per page (maximum 50).
-
-Default: `10`.
-
-</ParamField>
-
-## Search the web
-
-Action ID: `tools.exa.search`
-
-Search the web with Exa.
-
-Reference: [https://exa.ai/docs/reference/search](https://exa.ai/docs/reference/search)
+Reference: [https://exa.ai/docs/changelog/may-2026-api-deprecations](https://exa.ai/docs/changelog/may-2026-api-deprecations)
 
 ### Secrets
 
@@ -150,6 +60,484 @@ Required secrets:
 
 <ParamField path="query" type="string" required>
 
-The query to search for.
+Natural language research query or instructions.
+
+</ParamField>
+
+<ParamField path="additionalQueries" type="array[string] | null">
+
+Additional query variations used alongside the main query.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="compliance" type="string | null">
+
+Optional Exa enterprise compliance mode.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="contents" type="object | null">
+
+Optional Exa contents options nested under the search request contents field.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="numResults" type="integer | null">
+
+Number of results to return. Exa supports 1 to 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="outputSchema" type="object | null">
+
+JSON schema for synthesized output. Supported root types are text and object.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="systemPrompt" type="string | null">
+
+Additional instructions that guide synthesized output or search planning.
+
+Default: `null`.
+
+</ParamField>
+
+## Get contents
+
+Action ID: `tools.exa.get_contents`
+
+Get clean page contents, highlights, summaries, and metadata for URLs or Exa result IDs.
+
+Reference: [https://exa.ai/docs/reference/contents-api-guide-for-coding-agents](https://exa.ai/docs/reference/contents-api-guide-for-coding-agents)
+
+### Secrets
+
+Required secrets:
+
+- `exa`: required values `EXA_API_KEY`.
+
+### Input fields
+
+<ParamField path="urls" type="array[string]" required>
+
+URLs or Exa result IDs to extract content from.
+
+</ParamField>
+
+<ParamField path="compliance" type="string | null">
+
+Optional Exa enterprise compliance mode.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="extras" type="object | null">
+
+Optional Exa extras options, such as links or imageLinks.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="highlights" type="boolean | object | null">
+
+Return extractive key excerpts, or Exa highlight options.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="livecrawlTimeout" type="integer | null">
+
+Timeout for livecrawling in milliseconds.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="maxAgeHours" type="integer | null">
+
+Maximum age of cached content in hours. Use 0 to always livecrawl or -1 for cache-only.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="subpageTarget" type="string | array[string] | null">
+
+Keywords to prioritize when selecting subpages.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="subpages" type="integer | null">
+
+Number of subpages to crawl for each URL.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="summary" type="boolean | object | null">
+
+Return LLM-generated summaries, or Exa summary options.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="text" type="boolean | object | null">
+
+Return full page text as markdown, or Exa text options.
+
+Default: `true`.
+
+</ParamField>
+
+## Search companies
+
+Action ID: `tools.exa.search_companies`
+
+Search Exa's company index for company profiles and typed company metadata as a second opinion for company-enrichment workflows.
+
+Reference: [https://exa.ai/docs/reference/verticals/company-for-coding-agents](https://exa.ai/docs/reference/verticals/company-for-coding-agents)
+
+### Secrets
+
+Required secrets:
+
+- `exa`: required values `EXA_API_KEY`.
+
+### Input fields
+
+<ParamField path="query" type="string" required>
+
+Natural language company search query. Encode industry, funding stage, headcount, geography, technology, similarity, and timing constraints in the query string.
+
+</ParamField>
+
+<ParamField path="contents" type="object | null">
+
+Optional Exa contents options nested under the search request contents field, such as highlights, text, or summary.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="numResults" type="integer | null">
+
+Number of company results to return. Exa supports 1 to 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="outputSchema" type="object | null">
+
+Optional JSON schema for structured output when using deep search modes.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="string | null">
+
+Search method. Exa recommends auto; deep and deep-reasoning also work.
+
+Default: `"auto"`.
+
+</ParamField>
+
+## Search news
+
+Action ID: `tools.exa.search_news`
+
+Search Exa's news index for current events, journalism, campaign chatter, and executive-protection monitoring.
+
+Reference: [https://exa.ai/docs/reference/verticals/news-for-coding-agents](https://exa.ai/docs/reference/verticals/news-for-coding-agents)
+
+### Secrets
+
+Required secrets:
+
+- `exa`: required values `EXA_API_KEY`.
+
+### Input fields
+
+<ParamField path="query" type="string" required>
+
+Natural language news query for a topic, company, person, event, domain, product, vulnerability, or campaign artifact.
+
+</ParamField>
+
+<ParamField path="compliance" type="string | null">
+
+Optional Exa enterprise compliance mode.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="contents" type="object | null">
+
+Optional Exa contents options nested under the search request contents field, such as highlights, text, summary, maxAgeHours, subpages, or extras.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="endPublishedDate" type="string | null">
+
+ISO 8601 upper bound for published date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="excludeDomains" type="array[string] | null">
+
+Exclude news results from these domains.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="includeDomains" type="array[string] | null">
+
+Only return news results from these domains.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="numResults" type="integer | null">
+
+Number of news results to return. Exa supports 1 to 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="outputSchema" type="object | null">
+
+Optional JSON schema for structured output when using Exa synthesis.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="startPublishedDate" type="string | null">
+
+ISO 8601 lower bound for published date.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="string | null">
+
+Search method. Exa recommends auto for news; use fast or instant when latency matters.
+
+Default: `"auto"`.
+
+</ParamField>
+
+## Search people
+
+Action ID: `tools.exa.search_people`
+
+Search Exa's people index for professional profiles as a second opinion for people-enrichment workflows.
+
+Reference: [https://exa.ai/docs/reference/verticals/people-for-coding-agents](https://exa.ai/docs/reference/verticals/people-for-coding-agents)
+
+### Secrets
+
+Required secrets:
+
+- `exa`: required values `EXA_API_KEY`.
+
+### Input fields
+
+<ParamField path="query" type="string" required>
+
+Natural language people search query. Encode role, skill, company, location, seniority, and other constraints in the query string.
+
+</ParamField>
+
+<ParamField path="contents" type="object | null">
+
+Optional Exa contents options nested under the search request contents field, such as highlights, text, or summary.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="numResults" type="integer | null">
+
+Number of people results to return. Exa supports 1 to 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="outputSchema" type="object | null">
+
+Optional JSON schema for structured output when using deep search modes.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="string | null">
+
+Search method. Exa recommends auto; deep and deep-reasoning also work.
+
+Default: `"auto"`.
+
+</ParamField>
+
+## Search the web
+
+Action ID: `tools.exa.search`
+
+Search the web with Exa, with optional advanced filters and content extraction.
+
+Reference: [https://exa.ai/docs/reference/search-api-guide-for-coding-agents](https://exa.ai/docs/reference/search-api-guide-for-coding-agents)
+
+### Secrets
+
+Required secrets:
+
+- `exa`: required values `EXA_API_KEY`.
+
+### Input fields
+
+<ParamField path="query" type="string" required>
+
+Natural language search query. Supports long, semantically rich descriptions.
+
+</ParamField>
+
+<ParamField path="additionalQueries" type="array[string] | null">
+
+Additional query variations for deep-search variants.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="category" type="string | null">
+
+Optional content category. Known categories include company, people, research paper, news, personal site, and financial report; Exa also accepts other category hints.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="compliance" type="string | null">
+
+Optional Exa enterprise compliance mode.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="contents" type="object | null">
+
+Optional Exa contents options nested under the search request contents field, such as highlights, text, summary, maxAgeHours, subpages, or extras.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="endPublishedDate" type="string | null">
+
+ISO 8601 upper bound for published date. Not supported for company or people category searches.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="excludeDomains" type="array[string] | null">
+
+Exclude results from these domains. Not supported for company or people category searches.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="includeDomains" type="array[string] | null">
+
+Only return results from these domains. Exa supports domain path filters and subdomain wildcards.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="moderation" type="boolean | null">
+
+Filter unsafe content from search results.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="numResults" type="integer | null">
+
+Number of results to return. Exa supports 1 to 100.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="outputSchema" type="object | null">
+
+JSON schema for synthesized output. Supported root types are text and object.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="startPublishedDate" type="string | null">
+
+ISO 8601 lower bound for published date. Not supported for company or people category searches.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="systemPrompt" type="string | null">
+
+Additional instructions that guide synthesized output or deep-search planning.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="type" type="string | null">
+
+Search method. Exa supports auto, instant, fast, deep-lite, deep, and deep-reasoning.
+
+Default: `"auto"`.
+
+</ParamField>
+
+<ParamField path="userLocation" type="string | null">
+
+Two-letter ISO country code used to bias search results.
+
+Default: `null`.
 
 </ParamField>

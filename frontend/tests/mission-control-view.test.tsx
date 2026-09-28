@@ -2,9 +2,9 @@
  * @jest-environment jsdom
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
 import { WorkspaceChatView } from "@/components/workspace-chat/workspace-chat-view"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 const mockRouterReplace = jest.fn()
 const mockUseScopeCheck = jest.fn<

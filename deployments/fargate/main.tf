@@ -39,6 +39,7 @@ module "ecs" {
   # Network configuration from network module
   vpc_id                  = module.network.vpc_id
   public_subnet_ids       = module.network.public_subnet_ids
+  public_subnet_cidrs     = var.public_subnet_cidrs
   private_subnet_ids      = module.network.private_subnet_ids
   private_route_table_ids = module.network.private_route_table_ids
 
@@ -70,7 +71,10 @@ module "ecs" {
 
   # Container environment variables
   tracecat_app_env                              = var.tracecat_app_env
+  outbound_allowed_private_cidrs                = var.outbound_allowed_private_cidrs
+  audit_trusted_proxy_cidrs                     = var.audit_trusted_proxy_cidrs
   log_level                                     = var.log_level
+  log_format                                    = var.log_format
   temporal_log_level                            = var.temporal_log_level
   feature_flags                                 = var.feature_flags
   ee_multi_tenant                               = var.ee_multi_tenant
@@ -82,6 +86,7 @@ module "ecs" {
   result_externalization_enabled                = var.result_externalization_enabled
   collection_manifests_enabled                  = var.collection_manifests_enabled
   result_externalization_threshold_bytes        = var.result_externalization_threshold_bytes
+  unsafe_disable_secret_error_withholding       = var.unsafe_disable_secret_error_withholding
   workflow_artifact_retention_days              = var.workflow_artifact_retention_days
 
   # Database connection pool
@@ -89,6 +94,8 @@ module "ecs" {
   db_pool_size             = var.db_pool_size
   db_pool_timeout          = var.db_pool_timeout
   db_pool_recycle          = var.db_pool_recycle
+  db_auth_max_overflow     = var.db_auth_max_overflow
+  db_auth_pool_size        = var.db_auth_pool_size
   db_max_overflow_executor = var.db_max_overflow_executor
   db_pool_size_executor    = var.db_pool_size_executor
 
@@ -122,15 +129,15 @@ module "ecs" {
   user_auth_secret_arn    = var.user_auth_secret_arn
 
   # SAML SSO
-  saml_idp_metadata_url_arn  = var.saml_idp_metadata_url_arn
-  saml_allow_unsolicited     = var.saml_allow_unsolicited
-  saml_authn_requests_signed = var.saml_authn_requests_signed
-  saml_signed_assertions     = var.saml_signed_assertions
-  saml_signed_responses      = var.saml_signed_responses
-  saml_verify_ssl_entity     = var.saml_verify_ssl_entity
-  saml_verify_ssl_metadata   = var.saml_verify_ssl_metadata
-  saml_ca_certs_arn          = var.saml_ca_certs_arn
-  saml_metadata_cert_arn     = var.saml_metadata_cert_arn
+  saml_idp_metadata_url_arn = var.saml_idp_metadata_url_arn
+  saml_allow_unsolicited    = var.saml_allow_unsolicited
+
+  # Email (SMTP relay)
+  smtp_password_arn = var.smtp_password_arn
+  smtp_host         = var.smtp_host
+  smtp_port         = var.smtp_port
+  smtp_user         = var.smtp_user
+  email_from        = var.email_from
 
   # Temporal UI authentication
   temporal_auth_provider_url      = var.temporal_auth_provider_url
@@ -147,22 +154,30 @@ module "ecs" {
   worker_cpu                               = var.worker_cpu
   worker_memory                            = var.worker_memory
   worker_desired_count                     = var.worker_desired_count
+  worker_threadpool_max_workers            = var.worker_threadpool_max_workers
+  worker_max_concurrent_activities         = var.worker_max_concurrent_activities
+  worker_max_concurrent_workflow_tasks     = var.worker_max_concurrent_workflow_tasks
   agent_worker_cpu                         = var.agent_worker_cpu
   agent_worker_memory                      = var.agent_worker_memory
   agent_worker_desired_count               = var.agent_worker_desired_count
+  agent_worker_max_concurrent_activities   = var.agent_worker_max_concurrent_activities
   agent_queue                              = var.agent_queue
   executor_cpu                             = var.executor_cpu
   executor_memory                          = var.executor_memory
   executor_desired_count                   = var.executor_desired_count
   executor_client_timeout                  = var.executor_client_timeout
+  agent_sandbox_timeout                    = var.agent_sandbox_timeout
   executor_queue                           = var.executor_queue
-  executor_worker_pool_size                = var.executor_worker_pool_size
+  executor_registry_cache_max_entries      = var.executor_registry_cache_max_entries
+  executor_registry_cache_max_bytes        = var.executor_registry_cache_max_bytes
+  executor_max_concurrent_activities       = var.executor_max_concurrent_activities
+  executor_threadpool_max_workers          = var.executor_threadpool_max_workers
+  executor_for_each_max_concurrency        = var.executor_for_each_max_concurrency
   agent_executor_cpu                       = var.agent_executor_cpu
   agent_executor_memory                    = var.agent_executor_memory
   agent_executor_desired_count             = var.agent_executor_desired_count
   agent_executor_queue                     = var.agent_executor_queue
   agent_executor_max_concurrent_activities = var.agent_executor_max_concurrent_activities
-  agent_executor_worker_pool_size          = var.agent_executor_worker_pool_size
   llm_proxy_read_timeout                   = var.llm_proxy_read_timeout
 
   llm_gateway_credential_cache_ttl_seconds        = var.llm_gateway_credential_cache_ttl_seconds
@@ -180,6 +195,7 @@ module "ecs" {
   temporal_cpu                             = var.temporal_cpu
   temporal_memory                          = var.temporal_memory
   temporal_num_history_shards              = var.temporal_num_history_shards
+  temporal_default_namespace_retention     = var.temporal_default_namespace_retention
   temporal_db_tls_enabled                  = var.temporal_db_tls_enabled
   temporal_db_tls_enable_host_verification = var.temporal_db_tls_enable_host_verification
   temporal_db_force_ssl                    = var.temporal_db_force_ssl

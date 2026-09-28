@@ -73,8 +73,6 @@ from tracecat.config import (
     SAML_CA_CERTS,
     SAML_IDP_METADATA_URL,
     SAML_PUBLIC_ACS_URL,
-    SAML_SIGNED_ASSERTIONS,
-    SAML_SIGNED_RESPONSES,
     SAML_VERIFY_SSL_ENTITY,
     SAML_VERIFY_SSL_METADATA,
     TRACECAT__AUTH_ALLOWED_DOMAINS,
@@ -549,8 +547,8 @@ async def create_saml_client(
                 },
                 "allow_unsolicited": SAML_ALLOW_UNSOLICITED,
                 "authn_requests_signed": SAML_AUTHN_REQUESTS_SIGNED,
-                "want_assertions_signed": SAML_SIGNED_ASSERTIONS,
-                "want_response_signed": SAML_SIGNED_RESPONSES,
+                "want_assertions_signed": True,
+                "want_response_signed": True,
                 "only_use_keys_in_metadata": True,
                 "validate_certificate": True,
             },
@@ -990,5 +988,7 @@ async def sso_acs(
         )
 
     response = await auth_backend.login(strategy, user)
-    await user_manager.on_after_login(user, request, response)
+    await user_manager.on_after_login(
+        user, request, response, organization_id=organization_id
+    )
     return response

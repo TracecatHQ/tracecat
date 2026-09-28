@@ -86,6 +86,7 @@ async def test_single_tenant_defaults_noop_in_multi_tenant(
     organization_id = await ensure_single_tenant_user_defaults(
         user_id=uuid.uuid4(),
         is_superuser=False,
+        allow_new_members=True,
     )
 
     assert organization_id is None
@@ -102,6 +103,7 @@ async def test_single_tenant_defaults_for_session_noop_in_multi_tenant(
         session=session,
         user_id=uuid.uuid4(),
         is_superuser=False,
+        allow_new_members=True,
     )
 
     assert result.organization_id is None
@@ -120,6 +122,7 @@ async def test_single_tenant_defaults_for_session_resolves_default_org(
         session=session,
         user_id=user.id,
         is_superuser=False,
+        allow_new_members=True,
     )
     await session.flush()
 
@@ -144,6 +147,7 @@ async def test_single_tenant_defaults_assign_member_role(
         user_id=user.id,
         organization_id=org.id,
         is_superuser=False,
+        allow_new_members=True,
     )
     await session.flush()
 
@@ -172,6 +176,7 @@ async def test_single_tenant_defaults_assign_owner_for_superuser(
         user_id=user.id,
         organization_id=org.id,
         is_superuser=True,
+        allow_new_members=True,
     )
     await session.flush()
 
@@ -196,6 +201,7 @@ async def test_single_tenant_defaults_are_idempotent(
             user_id=user.id,
             organization_id=org.id,
             is_superuser=False,
+            allow_new_members=True,
         )
     await session.flush()
 
@@ -253,6 +259,7 @@ async def test_single_tenant_defaults_handle_concurrent_repairs() -> None:
                 user_id=user_id,
                 organization_id=org_id,
                 is_superuser=False,
+                allow_new_members=True,
             )
             await repair_session.commit()
 
@@ -331,6 +338,7 @@ async def test_single_tenant_defaults_keep_existing_role_after_repair(
         user_id=user.id,
         organization_id=org.id,
         is_superuser=False,
+        allow_new_members=True,
     )
     await session.flush()
 
@@ -372,6 +380,7 @@ async def test_single_tenant_defaults_normalize_existing_role_during_repair(
         user_id=user.id,
         organization_id=org.id,
         is_superuser=False,
+        allow_new_members=True,
     )
     await session.flush()
 
@@ -418,6 +427,7 @@ async def test_single_tenant_defaults_upgrade_superuser_to_owner(
         user_id=user.id,
         organization_id=org.id,
         is_superuser=True,
+        allow_new_members=True,
     )
     await session.flush()
 

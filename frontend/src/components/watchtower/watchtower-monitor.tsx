@@ -112,9 +112,9 @@ const AGENT_TYPE_GROUPS: Record<string, AgentTypeGroupConfig> = {
   },
   opencode: {
     label: "OpenCode",
-    iconColor: "text-slate-600",
+    iconColor: "text-muted-foreground",
     triggerClassName:
-      "data-[state=open]:border-l-slate-600 data-[state=open]:bg-slate-600/[0.03] dark:data-[state=open]:bg-slate-600/[0.08]",
+      "data-[state=open]:border-l-muted-foreground data-[state=open]:bg-muted/50",
   },
   openclaw: {
     label: "OpenClaw",
@@ -1122,7 +1122,6 @@ function ToolCallRow({ toolCall }: { toolCall: WatchtowerAgentToolCallRead }) {
           <JsonViewWithControls
             src={toolCall.args_redacted}
             defaultExpanded
-            defaultTab="nested"
             className="max-h-[60vh] overflow-auto"
           />
         </DialogContent>

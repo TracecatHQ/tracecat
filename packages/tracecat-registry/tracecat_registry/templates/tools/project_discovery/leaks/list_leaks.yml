@@ -1,0 +1,117 @@
+type: action
+definition:
+  title: List leaks
+  description: >-
+    List leaks. Calls GET /v1/leaks directly.
+  display_group: ProjectDiscovery
+  doc_url: https://docs.projectdiscovery.io/api-reference/leaks
+  namespace: tools.project_discovery
+  name: list_leaks
+  secrets:
+    - name: project_discovery
+      keys: ["PDCP_API_KEY"]
+  expects:
+    type:
+      type: str | None
+      description: Filter by specific leak type (single value only). Supported values are all, personal, employee, customer, external_vendor_leaks, organization_leaks.
+      default: null
+    domain:
+      type: str | None
+      description: Filter leaks by specific domain (applies to employee/customer leaks).
+      default: null
+    email:
+      type: str | None
+      description: Filter leaks by specific email (can be personal, employee, or customer email from user's authorized results).
+      default: null
+    search:
+      type: str | None
+      description: Search query to filter results across all fields.
+      default: null
+    limit:
+      type: int | None
+      description: Number of results per page for pagination.
+      default: null
+    page_number:
+      type: int | None
+      description: Page number for pagination (starts from 1).
+      default: null
+    start_date:
+      type: str | None
+      description: time filter start date (YYYY-MM-DD).
+      default: null
+    time_range:
+      type: str | None
+      description: Time range (all_time, current_month, last_month, last_3_months, last_6_months, last_12_months). Defaults to all_time.
+      default: null
+    end_date:
+      type: str | None
+      description: time filter end date (YYYY-MM-DD).
+      default: null
+    sort_by:
+      type: str | None
+      description: supported sort fields (url, username, log_date, country, device_ip, host_username, hostname, os, hardware_id, malware_path)
+      default: null
+    sort_order:
+      type: str | None
+      description: supported sort order (asc or desc)
+      default: null
+    status:
+      type: str | None
+      description: supported status (fixed or open)
+      default: null
+    group_by:
+      type: str | None
+      description: Group results by field - returns group summaries when used without field-specific filtering. Supported fields are url, country, device_ip, hostname, email, hardware_id.
+      default: null
+    url:
+      type: str | None
+      description: Filter by specific URL (used with group_by for drill-down).
+      default: null
+    country:
+      type: str | None
+      description: Filter by specific country (used with group_by for drill-down).
+      default: null
+    device_ip:
+      type: str | None
+      description: Filter by specific device IP (used with group_by for drill-down).
+      default: null
+    hostname:
+      type: str | None
+      description: Filter by specific hostname (used with group_by for drill-down).
+      default: null
+    hardware_id:
+      type: str | None
+      description: Filter by specific hardware ID (used with group_by for drill-down).
+      default: null
+    base_url:
+      type: str | None
+      description: ProjectDiscovery Cloud API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.project_discovery.base_url || "https://api.projectdiscovery.io" }}/v1/leaks
+        method: GET
+        headers:
+          X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}
+        params:
+          type: ${{ inputs.type }}
+          domain: ${{ inputs.domain }}
+          email: ${{ inputs.email }}
+          search: ${{ inputs.search }}
+          limit: ${{ inputs.limit }}
+          page_number: ${{ inputs.page_number }}
+          start_date: ${{ inputs.start_date }}
+          time_range: ${{ inputs.time_range }}
+          end_date: ${{ inputs.end_date }}
+          sort_by: ${{ inputs.sort_by }}
+          sort_order: ${{ inputs.sort_order }}
+          status: ${{ inputs.status }}
+          group_by: ${{ inputs.group_by }}
+          url: ${{ inputs.url }}
+          country: ${{ inputs.country }}
+          device_ip: ${{ inputs.device_ip }}
+          hostname: ${{ inputs.hostname }}
+          hardware_id: ${{ inputs.hardware_id }}
+  returns: ${{ steps.request.result }}

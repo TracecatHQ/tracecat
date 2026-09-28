@@ -1,14 +1,24 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, date, datetime
+from decimal import Decimal
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 import sqlalchemy as sa
-from pydantic import ConfigDict, Field, RootModel, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    ConfigDict,
+    Field,
+    RootModel,
+    field_validator,
+    model_validator,
+)
 
+from tracecat import config
 from tracecat.auth.schemas import UserRead
+from tracecat.cases.agent_invocations.types import CaseCommentAgentInvocationError
 from tracecat.cases.constants import RESERVED_CASE_FIELDS
 from tracecat.cases.dropdowns.schemas import (
     CaseDropdownValueInput,
@@ -16,6 +26,7 @@ from tracecat.cases.dropdowns.schemas import (
 )
 from tracecat.cases.durations.schemas import CaseDurationRead
 from tracecat.cases.enums import (
+    CaseCommentAgentInvocationStatus,
     CaseEventType,
     CaseFieldKind,
     CaseFieldReadType,
@@ -23,6 +34,7 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
     CaseTaskStatus,
+    MentionTargetType,
 )
 from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.tags.schemas import CaseTagRead
@@ -36,8 +48,64 @@ from tracecat.identifiers.workflow import (
     WorkflowIDShort,
     WorkflowUUID,
 )
+from tracecat.query.aggregations import AggregationSpec
+from tracecat.query.filters import Filter
 from tracecat.tables.common import parse_postgres_default
 from tracecat.tables.enums import SqlType
+
+
+def _aggregate_datetime_utc(value: datetime) -> datetime:
+    """Keep timestamp outputs as UTC instants, independent of the session zone."""
+    if value.tzinfo is None:
+        raise ValueError("Aggregation timestamps must be timezone-aware")
+    return value.astimezone(UTC)
+
+
+type CaseAggregateValue = (
+    str
+    | bool
+    | int
+    | float
+    | Decimal
+    | uuid.UUID
+    | Annotated[datetime, AfterValidator(_aggregate_datetime_utc)]
+    | date
+    | None
+)
+
+
+class CaseAggregateRequest(AggregationSpec):
+    """Filter and aggregate cases in one workspace.
+
+    BIGINT/NUMERIC sums, means, medians, and NUMERIC min/max are widened to
+    float8 JSON numbers. NUMERIC group keys remain exact decimal strings.
+    TEXT/SELECT group keys use their first 256 characters, so values sharing
+    that prefix collapse into one group. Missing values form a null group.
+
+    When grouping by tags, each case appears once in each of its tag groups.
+    A case with multiple tags contributes to multiple groups, so adding the
+    group counts can exceed the number of matching cases. Untagged cases form
+    the null group. Counts, counts of populated fields, and minimum group sizes
+    always count each case once per group. Sum, mean, and median are unavailable
+    when grouping by tags. Tag filters select cases before grouping; all tags
+    on the matching cases remain available as groups.
+    """
+
+    filters: Filter | None = Field(default=None)
+    limit: int = Field(
+        default=config.TRACECAT__LIMIT_AGG_GROUPS_DEFAULT,
+        ge=1,
+        le=config.TRACECAT__LIMIT_AGG_GROUPS_MAX,
+    )
+
+
+class CaseAggregateResponse(Schema):
+    """Flat case aggregation groups and whether more groups exist."""
+
+    # Callers choose output aliases, so fixed field names cannot model a group.
+    # Values are restricted to the supported SQL scalar types.
+    groups: list[dict[str, CaseAggregateValue]]
+    truncated: bool
 
 
 class CaseReadMinimal(Schema):
@@ -55,6 +123,7 @@ class CaseReadMinimal(Schema):
     rows: list[CaseTableRowRead] = Field(default_factory=list)
     durations: list[CaseDurationRead] | None = None
     field_values: dict[str, Any] | None = None
+    payload: dict[str, Any] | None = None
     num_tasks_completed: int = Field(default=0)
     num_tasks_total: int = Field(default=0)
 
@@ -120,6 +189,35 @@ class CaseUpdate(Schema):
     payload: dict[str, Any] | None = None
 
 
+class CaseBatchUpdate(Schema):
+    """Request body for updating multiple cases."""
+
+    case_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=1000)
+    update: CaseUpdate
+
+
+class CaseBatchDelete(Schema):
+    """Request body for deleting multiple cases."""
+
+    case_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=1000)
+
+
+class CaseBatchItemResult(Schema):
+    """Result of a batch operation for one case."""
+
+    case_id: uuid.UUID
+    success: bool
+    error: str | None = None
+
+
+class CaseBatchResponse(Schema):
+    """Per-case results and aggregate counts for a batch operation."""
+
+    results: list[CaseBatchItemResult]
+    succeeded: int
+    failed: int
+
+
 # Case Fields
 
 
@@ -152,6 +250,7 @@ class CaseFieldReadMinimal(Schema):
     """Minimal read model for a case field."""
 
     id: str
+    display_name: str
     type: CaseFieldReadType
     description: str
     nullable: bool
@@ -180,8 +279,10 @@ class CaseFieldReadMinimal(Schema):
         kind: CaseFieldKind | None = None
         required_on_closure = False
         options: list[str] | None = None
+        display_name = column["name"]
         if field_schema and (meta := field_schema.get(column["name"])):
             read_type = CaseFieldReadType(meta["type"])
+            display_name = meta.get("display_name") or column["name"]
             options = meta.get("options")
             if kind_str := meta.get("kind"):
                 kind = CaseFieldKind(kind_str)
@@ -192,6 +293,7 @@ class CaseFieldReadMinimal(Schema):
         return cls.model_validate(
             {
                 "id": column["name"],
+                "display_name": display_name,
                 "type": read_type,
                 "description": column.get("comment") or "",
                 "nullable": column["nullable"],
@@ -207,6 +309,7 @@ class CaseFieldReadMinimal(Schema):
 class CaseFieldCreate(CustomFieldCreate):
     """Create a new case field."""
 
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
     kind: CaseFieldKind | None = Field(default=None)
     required_on_closure: bool = Field(default=False)
 
@@ -226,6 +329,7 @@ class CaseFieldCreate(CustomFieldCreate):
 class CaseFieldUpdate(CustomFieldUpdate):
     """Update a case field."""
 
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
     required_on_closure: bool | None = Field(default=None)
 
     @model_validator(mode="before")
@@ -260,6 +364,35 @@ class CaseCommentWorkflowRead(Schema):
     status: CaseCommentWorkflowStatus
 
 
+class CaseCommentAgentInvocationRead(Schema):
+    """Read model for an agent invocation triggered by a comment mention."""
+
+    id: uuid.UUID
+    preset_name: str
+    preset_slug: str
+    status: CaseCommentAgentInvocationStatus
+    session_id: uuid.UUID | None = None
+    error: CaseCommentAgentInvocationError | None = None
+
+
+class CaseCommentAgentAttributionRead(Schema):
+    """Read model for agent attribution on a generated comment reply."""
+
+    invocation_id: uuid.UUID
+    preset_name: str
+    preset_slug: str
+    session_id: uuid.UUID | None = None
+
+
+class CaseCommentMentionRead(Schema):
+    id: uuid.UUID
+    target_type: MentionTargetType
+    target_id: uuid.UUID
+    label: str
+    created_at: datetime
+    invocation: CaseCommentAgentInvocationRead | None = None
+
+
 class CaseCommentRead(Schema):
     id: uuid.UUID
     created_at: datetime
@@ -267,10 +400,12 @@ class CaseCommentRead(Schema):
     content: str
     parent_id: uuid.UUID | None = None
     workflow: CaseCommentWorkflowRead | None = None
+    agent: CaseCommentAgentAttributionRead | None = None
     user: UserRead | None = None
     last_edited_at: datetime | None = None
     deleted_at: datetime | None = None
     is_deleted: bool = Field(default=False)
+    mentions: list[CaseCommentMentionRead] = Field(default_factory=list)
 
 
 class CaseCommentThreadRead(Schema):
@@ -280,30 +415,40 @@ class CaseCommentThreadRead(Schema):
     last_activity_at: datetime
 
 
+CASE_COMMENT_MAX_LENGTH = 25_000
+
+
 class CaseCommentCreate(Schema):
-    content: str = Field(default=..., min_length=1, max_length=25_000)
+    content: str = Field(default=..., max_length=CASE_COMMENT_MAX_LENGTH)
     parent_id: uuid.UUID | None = Field(default=None)
     workflow_id: AnyWorkflowID | None = Field(default=None)
 
     @field_validator("content")
     @classmethod
-    def validate_content(cls, value: str) -> str:
-        stripped = value.strip()
-        if not stripped:
+    def strip_content(cls, value: str) -> str:
+        return value.replace("\x00", "").strip()
+
+    @model_validator(mode="after")
+    def validate_content(self) -> CaseCommentCreate:
+        """Allow an empty body only when the comment runs a workflow."""
+        if not self.content and self.workflow_id is None:
             raise ValueError("Comment content cannot be blank")
-        return stripped
+        return self
 
 
 class CaseCommentUpdate(Schema):
-    content: str | None = Field(default=None, min_length=1, max_length=25_000)
+    content: str | None = Field(
+        default=None, min_length=1, max_length=CASE_COMMENT_MAX_LENGTH
+    )
     parent_id: uuid.UUID | None = Field(default=None)
 
     @field_validator("content")
     @classmethod
     def validate_content(cls, value: str | None) -> str | None:
+        """Reject blank edits; only creation with a workflow may leave a comment empty."""
         if value is None:
             return None
-        stripped = value.strip()
+        stripped = value.replace("\x00", "").strip()
         if not stripped:
             raise ValueError("Comment content cannot be blank")
         return stripped

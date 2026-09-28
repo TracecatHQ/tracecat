@@ -1,6 +1,5 @@
 "use client"
 
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { DateRange } from "react-day-picker"
 import {
@@ -24,6 +23,7 @@ import type {
   SortDirection,
 } from "@/components/filters/filter-multi-select"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
+import { useInfiniteQuery, useQuery } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const CASES_PAGE_SIZE = 100

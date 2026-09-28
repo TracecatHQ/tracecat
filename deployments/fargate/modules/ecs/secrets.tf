@@ -60,14 +60,9 @@ data "aws_secretsmanager_secret" "saml_idp_metadata_url" {
   arn   = var.saml_idp_metadata_url_arn
 }
 
-data "aws_secretsmanager_secret" "saml_ca_certs" {
-  count = var.saml_ca_certs_arn != null ? 1 : 0
-  arn   = var.saml_ca_certs_arn
-}
-
-data "aws_secretsmanager_secret" "saml_metadata_cert" {
-  count = var.saml_metadata_cert_arn != null ? 1 : 0
-  arn   = var.saml_metadata_cert_arn
+data "aws_secretsmanager_secret" "smtp_password" {
+  count = var.smtp_password_arn != null ? 1 : 0
+  arn   = var.smtp_password_arn
 }
 
 # Temporal UI authentication
@@ -132,15 +127,6 @@ data "aws_secretsmanager_secret_version" "saml_idp_metadata_url" {
   secret_id = data.aws_secretsmanager_secret.saml_idp_metadata_url[0].id
 }
 
-data "aws_secretsmanager_secret_version" "saml_ca_certs" {
-  count     = var.saml_ca_certs_arn != null ? 1 : 0
-  secret_id = data.aws_secretsmanager_secret.saml_ca_certs[0].id
-}
-
-data "aws_secretsmanager_secret_version" "saml_metadata_cert" {
-  count     = var.saml_metadata_cert_arn != null ? 1 : 0
-  secret_id = data.aws_secretsmanager_secret.saml_metadata_cert[0].id
-}
 
 # Temporal UI secrets
 
@@ -262,17 +248,11 @@ locals {
     }
   ] : []
 
-  saml_ca_certs_secret = var.saml_ca_certs_arn != null ? [
+  # Secret ARN only; reading the version would copy the password into state.
+  smtp_password_secret = var.smtp_password_arn != null ? [
     {
-      name      = "SAML_CA_CERTS"
-      valueFrom = data.aws_secretsmanager_secret_version.saml_ca_certs[0].arn
-    }
-  ] : []
-
-  saml_metadata_cert_secret = var.saml_metadata_cert_arn != null ? [
-    {
-      name      = "SAML_METADATA_CERT"
-      valueFrom = data.aws_secretsmanager_secret_version.saml_metadata_cert[0].arn
+      name      = "TRACECAT__SMTP_PASSWORD"
+      valueFrom = data.aws_secretsmanager_secret.smtp_password[0].arn
     }
   ] : []
 
@@ -298,8 +278,7 @@ locals {
     local.oidc_client_secret_secret,
     local.user_auth_secret_secret,
     local.saml_idp_metadata_url_secret,
-    local.saml_ca_certs_secret,
-    local.saml_metadata_cert_secret
+    local.smtp_password_secret
   )
 
   tracecat_ui_secrets = [
@@ -321,7 +300,9 @@ locals {
     local.temporal_auth_client_secret_secret,
   )
 
-  executor_secrets = local.tracecat_temporal_secrets
+  worker_secrets       = local.tracecat_temporal_secrets
+  agent_worker_secrets = local.tracecat_temporal_secrets
+  executor_secrets     = local.tracecat_temporal_secrets
 
   litellm_secrets = local.tracecat_base_secrets
 

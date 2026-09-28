@@ -6,16 +6,20 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { copyToClipboard } from "@/lib/utils"
+import { cn, copyToClipboard } from "@/lib/utils"
 
 export function CopyButton({
   value,
   toastMessage,
   tooltipMessage,
+  className,
+  iconClassName,
 }: {
   value: string
   toastMessage: string
   tooltipMessage?: string
+  className?: string
+  iconClassName?: string
 }) {
   const [copied, setCopied] = React.useState(false)
   return (
@@ -23,8 +27,9 @@ export function CopyButton({
       <TooltipTrigger asChild>
         <Button
           type="button"
+          aria-label={tooltipMessage || "Copy"}
           variant="ghost"
-          className="group m-0 size-4 p-0"
+          className={cn("group m-0 size-4 p-0", className)}
           onClick={(e) => {
             e.stopPropagation()
             copyToClipboard({
@@ -36,9 +41,13 @@ export function CopyButton({
           }}
         >
           {copied ? (
-            <CheckCheckIcon className="size-3 text-muted-foreground" />
+            <CheckCheckIcon
+              className={cn("size-3 text-muted-foreground", iconClassName)}
+            />
           ) : (
-            <CopyIcon className="size-3 text-muted-foreground" />
+            <CopyIcon
+              className={cn("size-3 text-muted-foreground", iconClassName)}
+            />
           )}
         </Button>
       </TooltipTrigger>

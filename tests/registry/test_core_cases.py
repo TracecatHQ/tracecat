@@ -8,13 +8,14 @@ import base64
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import tracecat_registry.core.cases as cases_core
 import tracecat_registry.types as registry_types
 from tracecat_registry.core.cases import (
     add_case_tag,
+    aggregate_cases,
     assign_user,
     create_case,
     create_comment,
@@ -51,8 +52,69 @@ def mock_cases_client():
 def mock_get_context(mock_cases_client: AsyncMock):
     """Mock get_context to return a fake context with mock cases client."""
     fake_ctx = SimpleNamespace(cases=mock_cases_client)
-    with patch.object(cases_core, "get_context", return_value=fake_ctx):
+    with patch("tracecat_registry.ctx.get_context", return_value=fake_ctx):
         yield
+
+
+@pytest.mark.anyio
+async def test_aggregate_cases_defaults(mock_cases_client: AsyncMock) -> None:
+    response = {"groups": [{"count": 0}], "truncated": False}
+    mock_cases_client.aggregate_cases.return_value = response
+
+    assert await aggregate_cases(group_by=[]) is response
+    mock_cases_client.aggregate_cases.assert_awaited_once_with(
+        spec={
+            "group_by": [],
+            "filters": None,
+            "aggs": None,
+            "min_count": None,
+            "order_by": None,
+            "sort": None,
+        }
+    )
+
+
+@pytest.mark.anyio
+async def test_aggregate_cases_forwards_options(mock_cases_client: AsyncMock) -> None:
+    filters = {"not": {"field": "fields.region", "op": "is_null"}}
+    group_by: list[str | dict[str, Any]] = [
+        {"field": "created_at", "bucket": "day", "timezone": "UTC"}
+    ]
+    aggs = [{"function": "count", "alias": "cases"}]
+    await aggregate_cases(
+        group_by=group_by,
+        filters=filters,
+        aggs=aggs,
+        limit=1500,
+        min_count=2,
+        order_by="cases",
+        sort="asc",
+    )
+    mock_cases_client.aggregate_cases.assert_awaited_once_with(
+        spec={
+            "group_by": group_by,
+            "filters": filters,
+            "aggs": aggs,
+            "limit": 1500,
+            "min_count": 2,
+            "order_by": "cases",
+            "sort": "asc",
+        }
+    )
+
+
+@pytest.mark.anyio
+async def test_aggregate_cases_preserves_validation_error(
+    mock_cases_client: AsyncMock,
+) -> None:
+    error = TracecatValidationError(
+        detail={"code": "query_timeout", "message": "Narrow the filters"},
+        status_code=422,
+    )
+    mock_cases_client.aggregate_cases.side_effect = error
+    with pytest.raises(TracecatValidationError) as exc:
+        await aggregate_cases(group_by=[])
+    assert exc.value is error
 
 
 @pytest.fixture

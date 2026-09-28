@@ -8,7 +8,9 @@ from sqlalchemy.exc import IntegrityError
 from tracecat.auth.dependencies import OrgActorRole, WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatNotFoundError,
+)
 from tracecat.identifiers import SecretID
 from tracecat.integrations.aws_assume_role import (
     build_workspace_external_id,
@@ -18,7 +20,7 @@ from tracecat.integrations.aws_assume_role import (
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.dependencies import AnySecretIDPath
-from tracecat.secrets.enums import SecretType
+from tracecat.secrets.enums import SecretSource, SecretType
 from tracecat.secrets.schemas import (
     AwsAssumeRoleAccessRead,
     OrganizationSecretRead,
@@ -29,7 +31,11 @@ from tracecat.secrets.schemas import (
     SecretSearch,
     SecretUpdate,
 )
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.service import (
+    SecretsService,
+    is_external_reference,
+    secret_key_names,
+)
 
 router = APIRouter(prefix="/secrets", tags=["secrets"])
 org_router = APIRouter(prefix="/organization/secrets", tags=["organization-secrets"])
@@ -40,8 +46,17 @@ def _serialize_secret_read_minimal(
     service: SecretsService,
     secret: Any,
 ) -> SecretReadMinimal:
+    source = SecretSource.LOCAL
+    store_id = None
+    store_name = None
+    remote_reference = None
+    if is_external_reference(secret):
+        source = SecretSource.AWS_SECRETS_MANAGER
+        store_id = secret.store_id
+        store_name = secret.store.name if secret.store is not None else None
+        remote_reference = secret.remote_reference
     try:
-        keys = [kv.key for kv in service.decrypt_keys(secret.encrypted_keys)]
+        keys = secret_key_names(service, secret)
         is_corrupted = False
     except (InvalidToken, ValidationError, ValueError) as e:
         keys = []
@@ -62,6 +77,10 @@ def _serialize_secret_read_minimal(
         keys=keys,
         environment=secret.environment,
         is_corrupted=is_corrupted,
+        source=source,
+        store_id=store_id,
+        store_name=store_name,
+        remote_reference=remote_reference,
     )
 
 
@@ -92,9 +111,6 @@ async def search_secrets(
     if types:
         params["types"] = types
     secrets = await service.search_secrets(SecretSearch(**params))
-    decrypted = []
-    for secret in secrets:
-        decrypted.extend(service.decrypt_keys(secret.encrypted_keys))
     return [SecretRead.from_database(secret) for secret in secrets]
 
 
@@ -187,11 +203,11 @@ async def create_secret(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     params: SecretCreate,
-) -> None:
+) -> SecretReadMinimal:
     """Create a secret."""
     service = SecretsService(session, role=role)
     try:
-        await service.create_secret(params)
+        secret = await service.create_secret(params)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
@@ -202,9 +218,10 @@ async def create_secret(
             status_code=status.HTTP_409_CONFLICT,
             detail="Secret creation integrity error: {e!r}",
         ) from e
+    return _serialize_secret_read_minimal(service=service, secret=secret)
 
 
-@router.post("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/{secret_id}", status_code=status.HTTP_200_OK)
 @require_scope("secret:update")
 async def update_secret_by_id(
     *,
@@ -212,12 +229,12 @@ async def update_secret_by_id(
     session: AsyncDBSession,
     secret_id: AnySecretIDPath,
     params: SecretUpdate,
-) -> None:
+) -> SecretReadMinimal:
     """Update a secret by ID."""
     service = SecretsService(session, role)
     try:
         secret = await service.get_secret(secret_id)
-        await service.update_secret(secret, params)
+        updated_secret = await service.update_secret(secret, params)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
@@ -232,6 +249,7 @@ async def update_secret_by_id(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Secret already exists"
         ) from e
+    return _serialize_secret_read_minimal(service=service, secret=updated_secret)
 
 
 @router.delete("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -301,11 +319,11 @@ async def create_org_secret(
     role: OrgActorRole,
     session: AsyncDBSession,
     params: SecretCreate,
-) -> None:
+) -> SecretReadMinimal:
     """Create an organization secret."""
     service = SecretsService(session, role=role)
     try:
-        await service.create_org_secret(params)
+        secret = await service.create_org_secret(params)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
@@ -316,11 +334,12 @@ async def create_org_secret(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Organization secret creation integrity error: {e!r}",
         ) from e
+    return _serialize_secret_read_minimal(service=service, secret=secret)
 
 
 @org_router.post(
     "/{secret_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=status.HTTP_200_OK,
 )
 @require_scope("org:secret:update")
 async def update_org_secret_by_id(
@@ -329,12 +348,12 @@ async def update_org_secret_by_id(
     session: AsyncDBSession,
     secret_id: AnySecretIDPath,
     params: SecretUpdate,
-) -> None:
+) -> SecretReadMinimal:
     """Update an organization secret by ID."""
     service = SecretsService(session, role)
     try:
         secret = await service.get_org_secret(secret_id)
-        await service.update_org_secret(secret, params)
+        updated_secret = await service.update_org_secret(secret, params)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
@@ -351,6 +370,7 @@ async def update_org_secret_by_id(
             status_code=status.HTTP_409_CONFLICT,
             detail="Organization secret already exists",
         ) from e
+    return _serialize_secret_read_minimal(service=service, secret=updated_secret)
 
 
 @org_router.delete(

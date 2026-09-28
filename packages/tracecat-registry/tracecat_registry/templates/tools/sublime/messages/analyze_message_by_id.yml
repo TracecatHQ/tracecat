@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: Analyze message by ID
+  description: Analyze an existing Sublime message with API-native rules or queries.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/analyzemessagebyid
+  namespace: tools.sublime
+  name: analyze_message_by_id
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Sublime message ID.
+    payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields,
+      # and a literal payload map cannot omit an unset optional.
+      type: dict[str, Any]
+      description: >-
+        API-native request body. Documented fields: queries, rules, run_active_detection_rules, run_all_detection_rules, run_all_insights.
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/messages/${{ FN.url_encode(inputs.id) }}/analyze
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result.data }}

@@ -1,0 +1,86 @@
+type: action
+definition:
+  title: Search detection rules
+  description: Search for detection rules based on the provided filter. Calls POST /detection-rule/search directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/detection-rules-search
+  namespace: tools.recorded_future
+  name: search_detection_rules
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    types:
+      type: list[str] | None
+      description: The types of detection rule to return. Allowed values are sigma, yara, snort, nuclei and suricata. Sent as filter.types.
+      default: null
+    entities:
+      type: list[str] | None
+      description: Entity ids the detection rules are associated with. Sent as filter.entities.
+      default: null
+    created_after:
+      type: datetime | None
+      description: Only return rules created after this point in time. Sent as filter.created.after.
+      default: null
+    created_before:
+      type: datetime | None
+      description: Only return rules created before this point in time. Sent as filter.created.before.
+      default: null
+    updated_after:
+      type: datetime | None
+      description: Only return rules updated after this point in time. Sent as filter.updated.after.
+      default: null
+    updated_before:
+      type: datetime | None
+      description: Only return rules updated before this point in time. Sent as filter.updated.before.
+      default: null
+    doc_id:
+      type: str | None
+      description: Document Identity. Sent as filter.doc_id.
+      default: null
+    title:
+      type: str | None
+      description: Free text search on the Insikt Note title published with the detection rule. Sent as filter.title.
+      default: null
+    tagged_entities:
+      type: bool | None
+      description: Set this to true to get tagged entities in the text. Recorded Future defaults to false.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of detection rules to return. Recorded Future defaults to 10.
+      default: null
+    offset:
+      type: str | None
+      description: An opaque string that was received as the next_offset in the previous call when paging. It identifies the next page with additional results that did not fit within the limit.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/detection-rule/search
+        method: POST
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+          Content-Type: application/json
+        payload:
+          filter:
+            types: ${{ inputs.types }}
+            entities: ${{ inputs.entities }}
+            created:
+              after: ${{ inputs.created_after }}
+              before: ${{ inputs.created_before }}
+            updated:
+              after: ${{ inputs.updated_after }}
+              before: ${{ inputs.updated_before }}
+            doc_id: ${{ inputs.doc_id }}
+            title: ${{ inputs.title }}
+          tagged_entities: ${{ inputs.tagged_entities }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+  returns: ${{ steps.request.result }}

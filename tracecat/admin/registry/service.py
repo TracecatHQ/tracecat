@@ -10,10 +10,12 @@ from typing import TYPE_CHECKING, ClassVar
 
 from sqlalchemy import (
     and_,
+    exists,
     func,
     select,
 )
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.sql.selectable import Subquery
 
 from tracecat import config
 from tracecat.admin.registry.schemas import (
@@ -26,6 +28,7 @@ from tracecat.admin.registry.schemas import (
     RepositoryStatus,
     RepositorySyncResult,
 )
+from tracecat.audit.logger import audit_log
 from tracecat.db.models import (
     PlatformRegistryIndex,
     PlatformRegistryRepository,
@@ -176,6 +179,7 @@ class AdminRegistryService(BasePlatformService):
                 )
         return actions
 
+    @audit_log(resource_type="platform_registry", action="sync")
     async def sync_all_repositories(self, force: bool = False) -> RegistrySyncResponse:
         """Sync all platform registry repositories."""
         repos = await self._ensure_platform_repositories()
@@ -191,6 +195,11 @@ class AdminRegistryService(BasePlatformService):
             repositories=results,
         )
 
+    @audit_log(
+        resource_type="platform_registry_repository",
+        action="sync",
+        resource_id_attr="repository_id",
+    )
     async def sync_repository(
         self, repository_id: uuid.UUID, force: bool = False
     ) -> RegistrySyncResponse:
@@ -382,31 +391,7 @@ class AdminRegistryService(BasePlatformService):
         limit: int = 50,
     ) -> Sequence[RegistryVersionRead]:
         """List registry versions."""
-        latest_definition_version = (
-            select(
-                WorkflowDefinition.workflow_id,
-                func.max(WorkflowDefinition.version).label("latest_version"),
-            )
-            .where(WorkflowDefinition.workflow_id.is_not(None))
-            .group_by(WorkflowDefinition.workflow_id)
-            .subquery()
-        )
-        latest_definition = (
-            select(
-                WorkflowDefinition.id.label("definition_id"),
-                WorkflowDefinition.registry_lock.label("registry_lock"),
-            )
-            .join(
-                latest_definition_version,
-                and_(
-                    WorkflowDefinition.workflow_id
-                    == latest_definition_version.c.workflow_id,
-                    WorkflowDefinition.version
-                    == latest_definition_version.c.latest_version,
-                ),
-            )
-            .subquery()
-        )
+        latest_definition = self._latest_workflow_definition_subquery()
         workflow_definition_count = func.count(latest_definition.c.definition_id).label(
             "workflow_definition_count"
         )
@@ -495,6 +480,53 @@ class AdminRegistryService(BasePlatformService):
                 )
             )
         return versions
+
+    def _latest_workflow_definition_subquery(self) -> Subquery:
+        latest_definition_version = (
+            select(
+                WorkflowDefinition.workflow_id,
+                func.max(WorkflowDefinition.version).label("latest_version"),
+            )
+            .where(WorkflowDefinition.workflow_id.is_not(None))
+            .group_by(WorkflowDefinition.workflow_id)
+            .subquery()
+        )
+        return (
+            select(
+                WorkflowDefinition.id.label("definition_id"),
+                WorkflowDefinition.registry_lock.label("registry_lock"),
+            )
+            .join(
+                latest_definition_version,
+                and_(
+                    WorkflowDefinition.workflow_id
+                    == latest_definition_version.c.workflow_id,
+                    WorkflowDefinition.version
+                    == latest_definition_version.c.latest_version,
+                ),
+            )
+            .subquery()
+        )
+
+    async def _workflow_definition_uses_version(
+        self,
+        *,
+        origin: str,
+        version: str,
+    ) -> bool:
+        """Return whether any workflow definition is pinned to a platform version."""
+        stmt = select(
+            exists().where(
+                WorkflowDefinition.registry_lock.is_not(None),
+                func.jsonb_extract_path_text(
+                    WorkflowDefinition.registry_lock,
+                    "origins",
+                    origin,
+                )
+                == version,
+            )
+        )
+        return bool(await self.session.scalar(stmt))
 
     async def _artifacts_ready(
         self,
@@ -614,6 +646,71 @@ class AdminRegistryService(BasePlatformService):
             requested_count=len(request.items),
         )
 
+    @audit_log(
+        resource_type="platform_registry_version",
+        action="delete",
+        resource_id_attr="version_id",
+    )
+    async def delete_version(
+        self,
+        repository_id: uuid.UUID,
+        version_id: uuid.UUID,
+    ) -> None:
+        """Delete a non-current platform registry version if no workflows use it."""
+        repo_stmt = select(PlatformRegistryRepository).where(
+            PlatformRegistryRepository.id == repository_id
+        )
+        repo_result = await self.session.execute(repo_stmt)
+        repo = repo_result.scalar_one_or_none()
+
+        if not repo:
+            raise ValueError(f"Repository {repository_id} not found")
+
+        version_stmt = select(PlatformRegistryVersion).where(
+            PlatformRegistryVersion.id == version_id
+        )
+        version_result = await self.session.execute(version_stmt)
+        version = version_result.scalar_one_or_none()
+
+        if not version:
+            raise ValueError(f"Version {version_id} not found")
+
+        if version.repository_id != repository_id:
+            raise ValueError(
+                f"Version {version_id} does not belong to repository {repository_id}"
+            )
+
+        if repo.current_version_id == version.id:
+            raise TracecatValidationError(
+                "Cannot delete the currently promoted platform registry version. "
+                "Promote another version first."
+            )
+
+        in_use = await self._workflow_definition_uses_version(
+            origin=repo.origin,
+            version=version.version,
+        )
+        if in_use:
+            raise TracecatValidationError(
+                "Cannot delete platform registry version in use by workflow "
+                "definitions."
+            )
+
+        versions_service = PlatformRegistryVersionsService(self.session, self.role)
+        await versions_service.delete_version(version)
+
+        self.logger.info(
+            "Deleted platform registry version",
+            repository_id=str(repository_id),
+            version_id=str(version_id),
+            version=version.version,
+        )
+
+    @audit_log(
+        resource_type="platform_registry_version",
+        action="promote",
+        resource_id_attr="version_id",
+    )
     async def promote_version(
         self,
         repository_id: uuid.UUID,

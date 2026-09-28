@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import signal
 import socket
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
 
@@ -9,18 +12,22 @@ import orjson
 import pytest
 
 from tracecat.agent.sandbox.shim_entrypoint import (
+    BRIDGE_HOST,
     DEFAULT_LLM_SOCKET_PATH,
     DEFAULT_MCP_SOCKET_PATH,
     INIT_PAYLOAD_ENV_VAR,
+    LLM_MAX_BODY_SIZE,
+    LLM_SOCKET_ENV_VAR,
     MCP_SOCKET_ENV_VAR,
-    LLMBridge,
+    SandboxSocketBridge,
+    _forward_exit_code,
     _pump_stdin_to_process,
     _read_stdin_chunk,
     _resolve_init_payload_path,
-    _resolve_llm_socket_path,
     _resolve_mcp_socket_path,
     _rewrite_mcp_bridge_command_port,
     _wait_for_process_with_stdin,
+    run_sandboxed_claude_shim,
 )
 from tracecat.agent.sandbox.shim_entrypoint import (
     _read_init_payload as _read_shim_init_payload,
@@ -65,12 +72,16 @@ def test_read_stdin_chunk_uses_os_read(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured == {"fd": 42, "chunk_size": 65536}
 
 
-def test_resolve_llm_socket_path_falls_back_on_empty_env(
+def test_llm_socket_path_falls_back_on_empty_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("TRACECAT__AGENT_LLM_SOCKET_PATH", "")
+    """The shim resolves the LLM socket path with an env-var-then-default lookup."""
+    import os
 
-    assert _resolve_llm_socket_path() == Path(DEFAULT_LLM_SOCKET_PATH)
+    monkeypatch.setenv(LLM_SOCKET_ENV_VAR, "")
+
+    resolved = Path(os.environ.get(LLM_SOCKET_ENV_VAR) or DEFAULT_LLM_SOCKET_PATH)
+    assert resolved == Path(DEFAULT_LLM_SOCKET_PATH)
 
 
 def test_resolve_mcp_socket_path_falls_back_on_empty_env(
@@ -82,11 +93,16 @@ def test_resolve_mcp_socket_path_falls_back_on_empty_env(
 
 
 @pytest.mark.anyio
-async def test_llm_bridge_ignores_expected_server_closed_error(
+async def test_sandbox_socket_bridge_ignores_expected_server_closed_error(
     caplog: pytest.LogCaptureFixture,
     tmp_path: Path,
 ) -> None:
-    bridge = LLMBridge(socket_path=tmp_path / "llm.sock")
+    bridge = SandboxSocketBridge(
+        socket_path=tmp_path / "llm.sock",
+        max_body_size=LLM_MAX_BODY_SIZE,
+        on_uds_failure="error",
+        log_label="LLM bridge",
+    )
 
     async def raise_server_closed() -> None:
         raise RuntimeError("server is closed")
@@ -173,7 +189,13 @@ async def test_llm_bridge_adopts_inherited_listener_fd(tmp_path: Path) -> None:
     listener.listen()
     expected_port = int(listener.getsockname()[1])
     listener_fd = listener.detach()
-    bridge = LLMBridge(socket_path=tmp_path / "mcp.sock", listener_fd=listener_fd)
+    bridge = SandboxSocketBridge(
+        socket_path=tmp_path / "mcp.sock",
+        max_body_size=LLM_MAX_BODY_SIZE,
+        on_uds_failure="error",
+        log_label="MCP bridge",
+        listener_fd=listener_fd,
+    )
 
     actual_port = await bridge.start()
     try:
@@ -310,3 +332,255 @@ async def test_wait_for_process_with_stdin_does_not_wait_for_stdin_eof(
     assert return_code == 7
     assert stdin_started.is_set()
     assert stdin_cancelled.is_set()
+
+
+@pytest.fixture
+def short_socket_dir() -> Iterator[Path]:
+    """Provide a short directory (under /tmp) for Unix socket binding.
+
+    macOS limits AF_UNIX paths to ~104 chars; pytest's tmp_path is too deep.
+    """
+    with tempfile.TemporaryDirectory(prefix="tc-bridge-", dir="/tmp") as path:
+        yield Path(path)
+
+
+@pytest.mark.anyio
+async def test_sandbox_socket_bridge_forwards_unchanged_without_hook(
+    short_socket_dir: Path,
+) -> None:
+    """No before_forward hook means request bytes pass through unchanged."""
+    socket_path = short_socket_dir / "upstream.sock"
+    received: list[bytes] = []
+
+    async def handle_uds(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        data = await reader.read(4096)
+        received.append(data)
+        writer.write(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+        )
+        await writer.drain()
+        writer.close()
+
+    uds_server = await asyncio.start_unix_server(handle_uds, path=str(socket_path))
+    try:
+        bridge = SandboxSocketBridge(
+            socket_path=socket_path,
+            port=0,
+            max_body_size=LLM_MAX_BODY_SIZE,
+            on_uds_failure="error",
+            log_label="LLM bridge",
+        )
+        port = await bridge.start()
+        try:
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.write(
+                b"POST /v1/messages HTTP/1.1\r\n"
+                b"Host: bridge\r\n"
+                b"Content-Length: 4\r\n"
+                b"\r\n"
+                b"body"
+            )
+            await writer.drain()
+            response = await reader.read(4096)
+            writer.close()
+            await writer.wait_closed()
+        finally:
+            await bridge.stop()
+    finally:
+        uds_server.close()
+        await uds_server.wait_closed()
+
+    assert response.startswith(b"HTTP/1.1 200 OK")
+    assert received and received[0].endswith(b"\r\n\r\nbody")
+    assert b"Content-Length: 4" in received[0]
+
+
+@pytest.mark.anyio
+async def test_sandbox_socket_bridge_returns_502_on_uds_failure_in_error_mode(
+    short_socket_dir: Path,
+) -> None:
+    """on_uds_failure='error' surfaces 502 to the client when the UDS is missing."""
+    bridge = SandboxSocketBridge(
+        socket_path=short_socket_dir / "missing.sock",
+        port=0,
+        max_body_size=LLM_MAX_BODY_SIZE,
+        on_uds_failure="error",
+        log_label="LLM bridge",
+    )
+    port = await bridge.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        writer.write(
+            b"POST /v1/messages HTTP/1.1\r\nHost: bridge\r\nContent-Length: 0\r\n\r\n"
+        )
+        await writer.drain()
+        response = await reader.read(4096)
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await bridge.stop()
+
+    assert response.startswith(b"HTTP/1.1 502")
+
+
+@pytest.mark.anyio
+async def test_sandbox_socket_bridge_drops_silently_on_uds_failure_in_drop_mode(
+    short_socket_dir: Path,
+) -> None:
+    """on_uds_failure='drop' closes the connection without an error response."""
+    bridge = SandboxSocketBridge(
+        socket_path=short_socket_dir / "missing.sock",
+        port=0,
+        max_body_size=LLM_MAX_BODY_SIZE,
+        on_uds_failure="drop",
+        log_label="OTel bridge",
+    )
+    port = await bridge.start()
+    try:
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        writer.write(
+            b"POST /v1/traces HTTP/1.1\r\nHost: bridge\r\nContent-Length: 0\r\n\r\n"
+        )
+        await writer.drain()
+        response = await reader.read(4096)
+        writer.close()
+        await writer.wait_closed()
+    finally:
+        await bridge.stop()
+
+    # drop mode: no HTTP response written, connection just closes.
+    assert response == b""
+
+
+@pytest.mark.parametrize(
+    "otel_port",
+    [
+        pytest.param(None, id="start-failure"),
+        pytest.param(4318, id="start-success"),
+    ],
+)
+@pytest.mark.anyio
+async def test_shim_sets_otel_env_only_after_drop_mode_bridge_starts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    otel_port: int | None,
+) -> None:
+    """The child gets local OTel routing only after the drop-mode bridge starts."""
+    init_path = tmp_path / "shim-init.json"
+    init_path.write_bytes(
+        orjson.dumps(
+            {
+                "command": ["claude", "--print"],
+                "env": {"CLAUDE_CODE_ENABLE_TELEMETRY": "1"},
+                "cwd": str(tmp_path),
+                "mcp_bridge_port": 4101,
+            }
+        )
+    )
+    monkeypatch.setenv(INIT_PAYLOAD_ENV_VAR, str(init_path))
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    captured_env: dict[str, str] = {}
+    bridges: list[SandboxSocketBridge] = []
+
+    class FakeProcess:
+        def __init__(self) -> None:
+            self.stdin = cast(asyncio.StreamWriter, object())
+            self.stdout = cast(asyncio.StreamReader, object())
+            self.stderr = cast(asyncio.StreamReader, object())
+            self.returncode: int | None = 0
+
+        def terminate(self) -> None:
+            raise AssertionError("completed process should not be terminated")
+
+        async def wait(self) -> int:
+            return 0
+
+    async def fake_bridge_start(bridge: SandboxSocketBridge) -> int:
+        bridges.append(bridge)
+        if bridge._log_label == "LLM bridge":
+            return 4100
+        if bridge._log_label == "MCP bridge":
+            return 4101
+        assert bridge._log_label == "OTel bridge"
+        if otel_port is None:
+            raise OSError("synthetic bind failure")
+        return otel_port
+
+    async def fake_bridge_stop(_bridge: SandboxSocketBridge) -> None:
+        return None
+
+    async def fake_create_subprocess_exec(
+        *_command: str,
+        stdin: int | None = None,
+        stdout: int | None = None,
+        stderr: int | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+    ) -> asyncio.subprocess.Process:
+        del stdin, stdout, stderr, cwd
+        assert env is not None
+        captured_env.update(env)
+        return cast(asyncio.subprocess.Process, FakeProcess())
+
+    async def fake_pump_stream(
+        _reader: asyncio.StreamReader,
+        _dst: Any,
+    ) -> None:
+        return None
+
+    async def fake_wait_for_process_with_stdin(
+        _process: asyncio.subprocess.Process,
+        _process_stdin: asyncio.StreamWriter,
+    ) -> int:
+        return 0
+
+    monkeypatch.setattr(SandboxSocketBridge, "start", fake_bridge_start)
+    monkeypatch.setattr(SandboxSocketBridge, "stop", fake_bridge_stop)
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.shim_entrypoint.asyncio.create_subprocess_exec",
+        fake_create_subprocess_exec,
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.shim_entrypoint._pump_stream",
+        fake_pump_stream,
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.sandbox.shim_entrypoint._wait_for_process_with_stdin",
+        fake_wait_for_process_with_stdin,
+    )
+
+    await run_sandboxed_claude_shim()
+
+    otel_bridges = [bridge for bridge in bridges if bridge._log_label == "OTel bridge"]
+    assert len(otel_bridges) == 1
+    assert otel_bridges[0]._on_uds_failure == "drop"
+    if otel_port is None:
+        assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in captured_env
+        assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in captured_env
+    else:
+        assert captured_env["OTEL_EXPORTER_OTLP_ENDPOINT"] == (
+            f"http://{BRIDGE_HOST}:{otel_port}"
+        )
+
+
+@pytest.mark.parametrize(
+    ("return_code", "expected"),
+    [
+        pytest.param(0, 0, id="clean-exit"),
+        pytest.param(1, 1, id="nonzero-exit-passes-through"),
+        pytest.param(-signal.SIGABRT, 134, id="sigabrt-forwards-as-134"),
+        pytest.param(-signal.SIGKILL, 137, id="sigkill-forwards-as-137"),
+    ],
+)
+def test_forward_exit_code_maps_signal_death_to_nsjail_contract(
+    return_code: int,
+    expected: int,
+) -> None:
+    """Invariant: the shim forwards the Claude child's death as ``128 + signal``.
+
+    Without this the shim exits 1 for every failure and the host can never
+    observe which signal killed the jailed runtime.
+    """
+    assert _forward_exit_code(return_code) == expected

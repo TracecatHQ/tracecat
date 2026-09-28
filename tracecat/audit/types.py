@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -8,13 +10,52 @@ from pydantic import BaseModel, Field
 
 from tracecat.audit.enums import AuditEventActor, AuditEventStatus
 
-AuditAction = Literal["create", "update", "delete", "accept", "revoke"]
+AuditSink = Literal["organization", "platform"]
+type AuditMetadataValue = str | bool | int | None | list[str]
+type AuditMetadata = Mapping[str, AuditMetadataValue]
+
+
+@dataclass(frozen=True, slots=True)
+class AuditWebhookConfig:
+    """Validated settings used to assemble an audit webhook delivery."""
+
+    webhook_url: str
+    custom_headers: dict[str, str] | None = None
+    custom_payload: dict[str, Any] | None = None
+    verify_ssl: bool = True
+    payload_attribute: str | None = None
+
+
+AuditAction = Literal[
+    "create",
+    "update",
+    "upsert",
+    "delete",
+    "publish",
+    "cancel",
+    "terminate",
+    "reset",
+    "rotate",
+    "accept",
+    "revoke",
+    "resend",
+    "sign_in",
+    "connect",
+    "sync",
+    "promote",
+    "demote",
+]
 AuditResourceType = Literal[
     "user",
     "organization",
+    "auth",
     "workspace",
     "workflow",
     "workflow_execution",
+    "schedule",
+    "case_trigger",
+    "webhook",
+    "webhook_api_key",
     "workspace_variable",
     "tag",
     "table",
@@ -22,6 +63,7 @@ AuditResourceType = Literal[
     "organization_setting",
     "secret",
     "organization_secret",
+    "organization_secret_store",
     "case",
     "case_comment",
     "agent_catalog",
@@ -33,6 +75,7 @@ AuditResourceType = Literal[
     "organization_member",
     "organization_session",
     "organization_invitation",
+    "organization_tier",
     "workspace_invitation",
     "service_account",
     "service_account_api_key",
@@ -44,21 +87,34 @@ AuditResourceType = Literal[
     "rbac_group_member",
     "rbac_assignment",
     "rbac_user_assignment",
+    # Platform resources
+    "platform_setting",
+    "platform_registry",
+    "platform_registry_repository",
+    "platform_registry_version",
+    "tier",
 ]
 
 
 class AuditEvent(BaseModel):
+    """A privacy-bounded record of an actor acting on a resource.
+
+    ``actor_label``, ``ip_address``, and ``user_agent`` are intentionally
+    modeled separately from generic metadata because they contain PII or
+    sensitive security context. Stable actor and resource IDs are the primary
+    attribution fields.
+    """
+
     organization_id: uuid.UUID | None = None
-    """Organization ID. None for platform-level operations (superuser without org context)."""
     workspace_id: uuid.UUID | None = None
-    """Workspace ID. None for platform/org-level operations."""
     actor_type: AuditEventActor
     actor_id: uuid.UUID
     actor_label: str | None = None
     ip_address: str | None = None
+    user_agent: str | None = None
     resource_type: AuditResourceType
     resource_id: uuid.UUID | None = None
     action: AuditAction
     status: AuditEventStatus
-    data: dict[str, Any] | None = None
+    data: dict[str, AuditMetadataValue] | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

@@ -107,7 +107,6 @@ export default function CasesPage() {
     isLoading,
     error,
     filters,
-    refetch,
     setSearchQuery,
     setSortBy,
     setStatusFilter,
@@ -190,7 +189,6 @@ export default function CasesPage() {
         hasNextPage={hasNextPage}
         isFetchingNextPage={isFetchingNextPage}
         onLoadMore={fetchNextPage}
-        refetch={refetch}
       />
     </div>
   )

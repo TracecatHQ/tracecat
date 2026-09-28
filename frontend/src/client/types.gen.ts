@@ -33,6 +33,10 @@ export type ActionControlFlow = {
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
   mask_output?: boolean
+  /**
+   * Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.
+   */
+  unsafe_disable_secret_error_withholding?: boolean
 }
 
 export type ActionCreate = {
@@ -120,7 +124,7 @@ export type ActionRetryPolicy = {
    */
   max_attempts?: number
   /**
-   * Timeout for the action in seconds.
+   * Timeout for the action in seconds. Agent-backed AI actions clamp to the deployment's agent timeout bounds (see ActionStatement).
    */
   timeout?: number
   /**
@@ -129,7 +133,11 @@ export type ActionRetryPolicy = {
   retry_until?: string | null
 }
 
-export type ActionStatement = {
+export type ActionStatement_Input = {
+  /**
+   * The action ID. If this is populated means there is a corresponding actionin the database `Action` table.
+   */
+  id?: string | null
   /**
    * Unique reference for the task
    */
@@ -185,6 +193,72 @@ export type ActionStatement = {
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
   mask_output?: boolean
+  /**
+   * Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.
+   */
+  unsafe_disable_secret_error_withholding?: boolean
+}
+
+export type ActionStatement_Output = {
+  /**
+   * Unique reference for the task
+   */
+  ref: string
+  description?: string
+  /**
+   * Action type. Equivalent to the UDF key.
+   */
+  action: string
+  /**
+   * Arguments for the action
+   */
+  args?: {
+    [key: string]: unknown
+  }
+  /**
+   * Task dependencies
+   */
+  depends_on?: Array<string>
+  /**
+   * Whether the action is interactive.
+   */
+  interaction?: ResponseInteraction | ApprovalInteraction | null
+  /**
+   * Condition to run the task
+   */
+  run_if?: string | null
+  /**
+   * Iterate over a list of items and run the task for each item.
+   */
+  for_each?: string | Array<string> | null
+  /**
+   * Retry policy for the action.
+   */
+  retry_policy?: ActionRetryPolicy
+  /**
+   * Delay before starting the action in seconds. If `wait_until` is also provided, the `wait_until` timer will take precedence.
+   */
+  start_delay?: number
+  /**
+   * Wait until a specific date and time before starting. Overrides `start_delay` if both are provided.
+   */
+  wait_until?: string | null
+  /**
+   * The strategy to use when joining on this task. By default, all branches must complete successfully before the join task can complete.
+   */
+  join_strategy?: JoinStrategy
+  /**
+   * Override environment for this action's execution. Can be a template expression.
+   */
+  environment?: string | null
+  /**
+   * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
+   */
+  mask_output?: boolean
+  /**
+   * Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.
+   */
+  unsafe_disable_secret_error_withholding?: boolean
 }
 
 export type ActionStep = {
@@ -265,6 +339,7 @@ export type AdminOrgInvitationCreateResponse = {
   created_at: string
   accepted_at: string | null
   created_by_platform_admin: boolean
+  last_emailed_at?: string | null
   token: string
 }
 
@@ -284,6 +359,7 @@ export type AdminOrgInvitationRead = {
   created_at: string
   accepted_at: string | null
   created_by_platform_admin: boolean
+  last_emailed_at?: string | null
 }
 
 /**
@@ -327,6 +403,14 @@ export type AgentArtifact = {
   title: string
   scope?: ArtifactScope | null
   type?: "agent"
+}
+
+/**
+ * An enabled installed backend available for session creation.
+ */
+export type AgentBackendRead = {
+  id: string
+  name: string
 }
 
 /**
@@ -519,6 +603,94 @@ export type AgentModelAccessRead = {
   catalog_id: string
 }
 
+/**
+ * Organization-scoped Claude Code OTel configuration.
+ *
+ * See https://code.claude.com/docs/en/monitoring-usage for the env vars
+ * these fields map onto.
+ */
+export type AgentOtelConfig = {
+  /**
+   * Whether Claude Code telemetry is enabled for agent runs.
+   */
+  enabled?: boolean
+  /**
+   * OTLP collector endpoint for all signals.
+   */
+  endpoint?: string | null
+  /**
+   * Whether metrics are exported.
+   */
+  metrics_enabled?: boolean
+  /**
+   * Whether logs and events are exported.
+   */
+  logs_enabled?: boolean
+  /**
+   * Whether traces are exported. Enables Claude Code beta tracing.
+   */
+  traces_enabled?: boolean
+  /**
+   * Metrics aggregation temporality.
+   */
+  metrics_temporality?: "delta" | "cumulative" | null
+  /**
+   * Metrics export interval in milliseconds.
+   */
+  metric_export_interval_ms?: number | null
+  /**
+   * Logs export interval in milliseconds.
+   */
+  logs_export_interval_ms?: number | null
+  /**
+   * Whether metrics include the Claude Code session identifier.
+   */
+  metrics_include_session_id?: boolean | null
+  /**
+   * Whether metrics include the Claude Code version.
+   */
+  metrics_include_version?: boolean | null
+  /**
+   * Whether metrics include the authenticated account identifier.
+   */
+  metrics_include_account_uuid?: boolean | null
+  /**
+   * Whether telemetry includes user prompt content.
+   */
+  log_user_prompts?: boolean | null
+  /**
+   * Whether telemetry includes tool parameters and input arguments.
+   */
+  log_tool_details?: boolean | null
+  /**
+   * Whether telemetry includes tool input and output content.
+   */
+  log_tool_content?: boolean | null
+  /**
+   * Resource attributes attached to exported telemetry.
+   */
+  resource_attributes?: {
+    [key: string]: string
+  }
+}
+
+export type AgentOtelSettingsRead = {
+  agent_otel_config?: AgentOtelConfig
+}
+
+export type AgentOtelSettingsUpdate = {
+  /**
+   * Claude Code OTel telemetry configuration for agent runs.
+   */
+  agent_otel_config?: AgentOtelConfig
+  /**
+   * Encrypted headers for the Claude Code OTLP exporter. Omitted values leave existing headers unchanged.
+   */
+  agent_otel_headers?: {
+    [key: string]: string
+  } | null
+}
+
 export type AgentOutput = {
   output: unknown
   message_history?: Array<ChatMessage> | null
@@ -606,12 +778,14 @@ export type AgentPresetRead = {
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
+  tool_policy?: AgentPresetToolPolicyRead
   id: string
   workspace_id: string
   name: string
   slug: string
   description?: string | null
   current_version_id?: string | null
+  folder_id?: string | null
   skills?: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
@@ -642,7 +816,6 @@ export type AgentPresetReadMinimal = {
  */
 export type AgentPresetSkillBindingBase = {
   skill_id: string
-  skill_version_id: string
 }
 
 /**
@@ -677,7 +850,7 @@ export type AgentPresetSubagentEligibility = {
 }
 
 export type AgentPresetSubagentEligibilityReason =
-  | "agents_enabled"
+  | "subagents_attached"
   | "tool_approvals"
 
 /**
@@ -685,6 +858,30 @@ export type AgentPresetSubagentEligibilityReason =
  */
 export type AgentPresetTagCreate = {
   tag_id: string
+}
+
+/**
+ * Unsaved tool selections to evaluate using the runtime policy pipeline.
+ */
+export type AgentPresetToolPolicyPreview = {
+  actions?: Array<string>
+  namespaces?: Array<string>
+  mcp_integrations?: Array<string>
+  skill_ids?: Array<string>
+  tool_approvals?: {
+    [key: string]: boolean
+  }
+}
+
+/**
+ * Non-secret effective policy for rendering preset configuration.
+ */
+export type AgentPresetToolPolicyRead = {
+  actions?: Array<string>
+  requires_internet_access?: boolean
+  has_approvals?: boolean
+  blocked_tools?: Array<PresetToolSourceRead>
+  internet_sources?: Array<PresetToolSourceRead>
 }
 
 /**
@@ -751,6 +948,7 @@ export type AgentPresetVersionRead = {
   retries?: number
   enable_thinking?: boolean
   enable_internet_access?: boolean
+  tool_policy?: AgentPresetToolPolicyRead
   id: string
   preset_id: string
   workspace_id: string
@@ -758,6 +956,7 @@ export type AgentPresetVersionRead = {
   capabilities?: Array<AgentPresetCapability>
   subagent_eligibility?: AgentPresetSubagentEligibility
   skills?: Array<AgentPresetSkillBindingRead>
+  restore_skills: Array<AgentPresetSkillBindingRead>
   created_at: string
   updated_at: string
 }
@@ -781,6 +980,22 @@ export type AgentPresetVersionReadMinimal = {
  */
 export type AgentSessionArtifactsRead = {
   artifacts?: Array<Artifact>
+}
+
+/**
+ * Request schema for cancelling the active agent session turn.
+ */
+export type AgentSessionCancelRequest = {
+  reason?: "user_cancel"
+}
+
+/**
+ * Response schema for an accepted agent session cancellation request.
+ */
+export type AgentSessionCancelResponse = {
+  session_id: string
+  run_id: string
+  reason: string
 }
 
 /**
@@ -808,9 +1023,13 @@ export type AgentSessionCreate = {
    */
   entity_id: string
   /**
-   * Tools available to the agent for this session
+   * Extra tools added to this session alongside entity defaults
    */
   tools?: Array<string> | null
+  /**
+   * MCP integration IDs attached to this session
+   */
+  mcp_integrations?: Array<string> | null
   /**
    * Agent preset used for this session (if any)
    */
@@ -820,9 +1039,13 @@ export type AgentSessionCreate = {
    */
   agent_preset_version_id?: string | null
   /**
-   * Agent harness type
+   * Opaque agent backend identifier
    */
-  harness_type?: HarnessType
+  backend_id?: string
+  /**
+   * Execution harness; defaults to the selected backend's harness
+   */
+  harness_type?: string | null
 }
 
 /**
@@ -864,16 +1087,23 @@ export type AgentSessionRead = {
   workspace_id: string
   title: string
   created_by: string | null
+  /**
+   * Whether the requesting actor can modify this session
+   */
+  is_readonly?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
     [key: string]: unknown
   } | null
   tools: Array<string> | null
+  mcp_integrations: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
   harness_type: string | null
+  last_error?: string | null
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null
@@ -889,16 +1119,23 @@ export type AgentSessionReadVercel = {
   workspace_id: string
   title: string
   created_by: string | null
+  /**
+   * Whether the requesting actor can modify this session
+   */
+  is_readonly?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
     [key: string]: unknown
   } | null
   tools: Array<string> | null
+  mcp_integrations: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
   harness_type: string | null
+  last_error?: string | null
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null
@@ -918,16 +1155,23 @@ export type AgentSessionReadWithMessages = {
   workspace_id: string
   title: string
   created_by: string | null
+  /**
+   * Whether the requesting actor can modify this session
+   */
+  is_readonly?: boolean
   entity_type: AgentSessionEntity
   entity_id: string
   channel_context: {
     [key: string]: unknown
   } | null
   tools: Array<string> | null
+  mcp_integrations: Array<string> | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
+  backend_id?: string
   harness_type: string | null
+  last_error?: string | null
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null
@@ -948,9 +1192,13 @@ export type AgentSessionUpdate = {
    */
   title?: string | null
   /**
-   * Tools available to the agent
+   * Extra tools added to this session alongside entity defaults
    */
   tools?: Array<string> | null
+  /**
+   * MCP integration IDs attached to this session
+   */
+  mcp_integrations?: Array<string> | null
   /**
    * Agent preset to use for this session
    */
@@ -960,9 +1208,13 @@ export type AgentSessionUpdate = {
    */
   agent_preset_version_id?: string | null
   /**
-   * Agent harness type
+   * Immutable agent backend identifier
    */
-  harness_type?: HarnessType | null
+  backend_id?: string | null
+  /**
+   * Immutable execution harness
+   */
+  harness_type?: string | null
 }
 
 export type AgentSettingsRead = {
@@ -992,17 +1244,23 @@ export type AgentSettingsUpdate = {
 }
 
 /**
- * User-facing agents toggle and optional preset-backed subagents.
+ * User-facing preset-backed subagents.
  */
 export type AgentSubagentsConfig_Input = {
+  /**
+   * @deprecated
+   */
   enabled?: boolean
   subagents?: Array<AnyAttachedSubagentRef>
 }
 
 /**
- * User-facing agents toggle and optional preset-backed subagents.
+ * User-facing preset-backed subagents.
  */
 export type AgentSubagentsConfig_Output = {
+  /**
+   * @deprecated
+   */
   enabled?: boolean
   subagents?: Array<AnyAttachedSubagentRef>
 }
@@ -1041,6 +1299,7 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
+  app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
 }
 
 /**
@@ -1071,6 +1330,10 @@ export type AppSettingsUpdate = {
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
   app_action_form_mode_enabled?: boolean
+  /**
+   * Legacy allow-list, ignored by action execution. Error diagnostics always mask known secrets and observed secret-derived values.
+   */
+  app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
 }
 
 /**
@@ -1121,7 +1384,7 @@ export type ApprovalInteraction = {
 }
 
 export type ApprovalMap = {
-  [key: string]: boolean | ToolApproved | ToolDenied
+  [key: string]: ApprovalResult
 }
 
 /**
@@ -1136,16 +1399,13 @@ export type ApprovalRead = {
   } | null
   status: ApprovalStatus
   reason?: string | null
-  decision?:
-    | boolean
-    | {
-        [key: string]: unknown
-      }
-    | null
+  decision?: PersistedApprovalDecision | null
   approved_by?: string | null
   approved_at?: string | null
   created_at: string
 }
+
+export type ApprovalResult = boolean | ToolApproved | ToolDenied
 
 /**
  * Possible states for a deferred tool approval.
@@ -1178,17 +1438,6 @@ export type ArtifactScope = {
   agentType?: string | null
   parentToolCallId?: string | null
 }
-
-export type ArtifactType =
-  | "case"
-  | "workflow"
-  | "run"
-  | "table"
-  | "agent"
-  | "alert"
-  | "integration"
-  | "secret"
-  | "generic"
 
 /**
  * Event for when a case assignee is changed.
@@ -1288,36 +1537,6 @@ export type AttachmentDeletedEventRead = {
 }
 
 /**
- * A URL to an audio file.
- */
-export type AudioUrl = {
-  url: string
-  force_download?: boolean | "allow-local"
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "audio-url"
-  /**
-   * Return the media type of the file, based on the URL or the provided `media_type`.
-   */
-  readonly media_type: string
-  /**
-   * The identifier of the file, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
-   *
-   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
-   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
-   */
-  readonly identifier: string
-}
-
-/**
  * Settings for audit logging.
  */
 export type AuditSettingsRead = {
@@ -1351,7 +1570,7 @@ export type AuditSettingsUpdate = {
     [key: string]: string
   } | null
   /**
-   * Custom JSON payload merged into streamed audit event payloads. Custom keys override default audit event keys.
+   * Custom JSON fields merged into streamed audit event payloads. Canonical audit event fields take precedence; conflicting custom keys are ignored.
    */
   audit_webhook_custom_payload?: {
     [key: string]: unknown
@@ -1364,6 +1583,15 @@ export type AuditSettingsUpdate = {
    * Whether TLS certificates are verified for webhook requests. Disable only for trusted on-prem/self-signed endpoints.
    */
   audit_webhook_verify_ssl?: boolean
+}
+
+/**
+ * Result of a synchronous audit webhook test-fire request.
+ */
+export type AuditWebhookTestResult = {
+  ok: boolean
+  receiver_status_code?: number | null
+  error_category?: "receiver_error" | "timeout" | "request_error" | null
 }
 
 /**
@@ -1395,6 +1623,108 @@ export type AwsAssumeRoleAccessRead = {
   tracecat_aws_account_id: string
   tracecat_aws_principal_arn: string
   external_id: string
+}
+
+/**
+ * One declared output key sourced from a top-level JSON field.
+ */
+export type AwsSecretJsonField = {
+  key: string
+  field: string
+}
+
+/**
+ * Declares how a remote AWS secret value maps onto output keys.
+ *
+ * ``whole_string`` maps the entire ``SecretString`` onto exactly one key.
+ * ``json`` maps selected top-level string fields onto declared keys.
+ */
+export type AwsSecretKeyMapping = {
+  mode: AwsSecretMappingMode
+  keys?: Array<string>
+  fields?: Array<AwsSecretJsonField>
+}
+
+/**
+ * How an AWS Secrets Manager value maps onto declared secret keys.
+ */
+export type AwsSecretMappingMode = "whole_string" | "json"
+
+/**
+ * Create a workspace custom secret backed by AWS Secrets Manager.
+ */
+export type AwsSecretReferenceCreate = {
+  name: string
+  description?: string | null
+  environment?: string
+  tags?: {
+    [key: string]: string
+  } | null
+  store_id: string
+  remote_reference: string
+  key_mapping: AwsSecretKeyMapping
+}
+
+/**
+ * Update an AWS-backed workspace secret. Values are never accepted.
+ */
+export type AwsSecretReferenceUpdate = {
+  name?: string | null
+  description?: string | null
+  environment?: string | null
+  tags?: {
+    [key: string]: string
+  } | null
+  store_id?: string | null
+  remote_reference?: string | null
+  key_mapping?: AwsSecretKeyMapping | null
+}
+
+/**
+ * Sanitized failure classes for AWS Secrets Manager resolution.
+ */
+export type AwsSecretResolutionErrorCode =
+  | "store_disabled"
+  | "store_not_authorized"
+  | "assume_role_failed"
+  | "access_denied"
+  | "not_found"
+  | "decryption_failed"
+  | "throttled"
+  | "timeout"
+  | "binary_value"
+  | "malformed_json"
+  | "missing_field"
+  | "non_string_field"
+  | "invalid_mapping"
+  | "region_mismatch"
+  | "unknown"
+
+/**
+ * Persisted provider configuration for an AWS Secrets Manager store.
+ */
+export type AwsSecretsManagerStoreConfig = {
+  provider?: "aws_secrets_manager"
+  role_arn: string
+  region: string
+  external_id: string
+}
+
+/**
+ * Client-supplied fields when creating an AWS Secrets Manager store.
+ */
+export type AwsSecretsManagerStoreCreate = {
+  provider?: "aws_secrets_manager"
+  role_arn: string
+  region: string
+}
+
+/**
+ * Client-supplied fields when updating an AWS Secrets Manager store.
+ */
+export type AwsSecretsManagerStoreUpdate = {
+  role_arn?: string | null
+  region?: string | null
 }
 
 /**
@@ -1458,58 +1788,47 @@ export type BedrockCatalogUpdate = {
 }
 
 /**
- * Binary content, e.g. an audio or image file.
+ * Register or rotate the organization Bitbucket Data Center API token.
  */
-export type BinaryContent = {
-  data: string
-  media_type:
-    | "audio/wav"
-    | "audio/mpeg"
-    | "audio/ogg"
-    | "audio/flac"
-    | "audio/aiff"
-    | "audio/aac"
-    | "image/jpeg"
-    | "image/png"
-    | "image/gif"
-    | "image/webp"
-    | "application/pdf"
-    | "text/plain"
-    | "text/csv"
-    | "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    | "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    | "text/html"
-    | "text/markdown"
-    | "application/msword"
-    | "application/vnd.ms-excel"
-    | string
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "binary"
-  /**
-   * Identifier for the binary content, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `BinaryContent`.
-   *
-   * This identifier is only automatically passed to the model when the `BinaryContent` is returned by a tool.
-   * If you're passing the `BinaryContent` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `BinaryContent`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
-   */
-  readonly identifier: string
+export type BitbucketDataCenterTokenCredentialsRequest = {
+  base_url: string
+  token: string
 }
 
-export type Body_auth_auth_database_login = {
-  grant_type?: string | null
-  username: string
-  password: string
-  scope?: string
-  client_id?: string | null
-  client_secret?: string | null
+export type BitbucketDataCenterTokenCredentialsSaveResponse = {
+  message: string
+  action: "created" | "updated"
+  base_url: string
+}
+
+export type action2 = "created" | "updated"
+
+export type BitbucketDataCenterTokenCredentialsStatus = {
+  exists: boolean
+  is_corrupted?: boolean
+  base_url?: string | null
+  created_at?: string | null
+}
+
+/**
+ * Register or rotate the organization Bitbucket Cloud API token.
+ */
+export type BitbucketTokenCredentialsRequest = {
+  email: string
+  token: string
+}
+
+export type BitbucketTokenCredentialsSaveResponse = {
+  message: string
+  action: "created" | "updated"
+  email: string
+}
+
+export type BitbucketTokenCredentialsStatus = {
+  exists: boolean
+  is_corrupted?: boolean
+  email?: string | null
+  created_at?: string | null
 }
 
 export type Body_auth_reset_forgot_password = {
@@ -1522,8 +1841,8 @@ export type Body_auth_reset_reset_password = {
 }
 
 export type Body_auth_sso_acs = {
-  saml_response: string
-  relay_state: string
+  SAMLResponse: string
+  RelayState: string
 }
 
 export type Body_auth_verify_request_token = {
@@ -1558,12 +1877,51 @@ export type Body_workflows_create_workflow = {
   file?: (Blob | File) | null
 }
 
-export type CachePoint = {
-  kind?: "cache-point"
-  ttl?: "5m" | "1h"
+/**
+ * Persisted boolean decision enriched with submission metadata.
+ */
+export type BooleanApprovalDecision = {
+  value: boolean
+  metadata: {
+    [key: string]: unknown
+  }
 }
 
-export type ttl = "5m" | "1h"
+/**
+ * Lifecycle state for the durable backfill operation.
+ */
+export type CaseAgentSessionBackfillStatus = "running" | "completed" | "failed"
+
+/**
+ * Aggregate result of the historical interaction backfill.
+ */
+export type CaseAgentSessionInteractionBackfillResponse = {
+  batches_processed: number
+  sessions_scanned: number
+  history_rows_scanned: number
+  mutation_candidates: number
+  inserted: number
+  existing: number
+  skipped: {
+    [key: string]: number
+  }
+}
+
+/**
+ * Response after starting or joining the durable backfill.
+ */
+export type CaseAgentSessionInteractionBackfillStartResponse = {
+  operation_id: string
+}
+
+/**
+ * Current state and optional result of the durable backfill.
+ */
+export type CaseAgentSessionInteractionBackfillStatusResponse = {
+  operation_id: string
+  status: CaseAgentSessionBackfillStatus
+  report?: CaseAgentSessionInteractionBackfillResponse | null
+}
 
 /**
  * Case artifact shown in artifact-capable chat surfaces.
@@ -1612,6 +1970,85 @@ export type CaseAttachmentRead = {
   is_deleted?: boolean
 }
 
+/**
+ * Request body for deleting multiple cases.
+ */
+export type CaseBatchDelete = {
+  case_ids: Array<string>
+}
+
+/**
+ * Result of a batch operation for one case.
+ */
+export type CaseBatchItemResult = {
+  case_id: string
+  success: boolean
+  error?: string | null
+}
+
+/**
+ * Per-case results and aggregate counts for a batch operation.
+ */
+export type CaseBatchResponse = {
+  results: Array<CaseBatchItemResult>
+  succeeded: number
+  failed: number
+}
+
+/**
+ * Request body for updating multiple cases.
+ */
+export type CaseBatchUpdate = {
+  case_ids: Array<string>
+  update: CaseUpdate
+}
+
+/**
+ * Read model for agent attribution on a generated comment reply.
+ */
+export type CaseCommentAgentAttributionRead = {
+  invocation_id: string
+  preset_name: string
+  preset_slug: string
+  session_id?: string | null
+}
+
+/**
+ * Structured terminal failure persisted for a comment agent invocation.
+ */
+export type CaseCommentAgentInvocationError = {
+  kind: CaseCommentAgentInvocationErrorKind
+  message: string
+}
+
+export type CaseCommentAgentInvocationErrorKind =
+  | "startup"
+  | "preparation"
+  | "agent_turn"
+  | "completion"
+  | "cancelled"
+
+/**
+ * Read model for an agent invocation triggered by a comment mention.
+ */
+export type CaseCommentAgentInvocationRead = {
+  id: string
+  preset_name: string
+  preset_slug: string
+  status: CaseCommentAgentInvocationStatus
+  session_id?: string | null
+  error?: CaseCommentAgentInvocationError | null
+}
+
+/**
+ * Lifecycle state for an agent invoked from a case-comment mention.
+ */
+export type CaseCommentAgentInvocationStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+
 export type CaseCommentCreate = {
   content: string
   parent_id?: string | null
@@ -1620,6 +2057,15 @@ export type CaseCommentCreate = {
 
 export type CaseCommentDeleteMode = "soft" | "hard"
 
+export type CaseCommentMentionRead = {
+  id: string
+  target_type: MentionTargetType
+  target_id: string
+  label: string
+  created_at: string
+  invocation?: CaseCommentAgentInvocationRead | null
+}
+
 export type CaseCommentRead = {
   id: string
   created_at: string
@@ -1627,10 +2073,12 @@ export type CaseCommentRead = {
   content: string
   parent_id?: string | null
   workflow?: CaseCommentWorkflowRead | null
+  agent?: CaseCommentAgentAttributionRead | null
   user?: UserRead | null
   last_edited_at?: string | null
   deleted_at?: string | null
   is_deleted?: boolean
+  mentions?: Array<CaseCommentMentionRead>
 }
 
 export type CaseCommentThreadRead = {
@@ -2064,7 +2512,12 @@ export type CaseFieldCreate = {
   type: SqlType
   nullable?: boolean
   default?: unknown | null
+  /**
+   * Whether to create a unique index on the column
+   */
+  is_index?: boolean
   options?: Array<string> | null
+  display_name?: string | null
   kind?: CaseFieldKind | null
   required_on_closure?: boolean
 }
@@ -2082,6 +2535,7 @@ export type CaseFieldKind = "LONG_TEXT" | "URL"
  */
 export type CaseFieldRead = {
   id: string
+  display_name: string
   type: CaseFieldReadType
   description: string
   nullable: boolean
@@ -2098,6 +2552,7 @@ export type CaseFieldRead = {
  */
 export type CaseFieldReadMinimal = {
   id: string
+  display_name: string
   type: CaseFieldReadType
   description: string
   nullable: boolean
@@ -2148,7 +2603,25 @@ export type CaseFieldUpdate = {
    */
   is_index?: boolean | null
   options?: Array<string> | null
+  display_name?: string | null
   required_on_closure?: boolean | null
+}
+
+/**
+ * One table with at least one row linked to a case.
+ *
+ * ``row_count`` counts links, including links whose source row was deleted.
+ *
+ * ``columns`` carries the table's column definitions so a caller can render
+ * the linked rows without a separate table read. It is empty when the table
+ * itself is gone. ``is_index`` is not populated here; read the table directly
+ * when unique-index state matters.
+ */
+export type CaseLinkedTableRead = {
+  table_id: string
+  table_name?: string | null
+  row_count: number
+  columns: Array<TableColumnRead>
 }
 
 /**
@@ -2207,6 +2680,9 @@ export type CaseReadMinimal = {
   field_values?: {
     [key: string]: unknown
   } | null
+  payload?: {
+    [key: string]: unknown
+  } | null
   num_tasks_completed?: number
   num_tasks_total?: number
 }
@@ -2259,6 +2735,31 @@ export type CaseStatusGroupCounts = {
   closed?: number
   unknown?: number
   other?: number
+}
+
+export type CaseTableRowBatchLink = {
+  table_id: string
+  row_ids: Array<string>
+}
+
+/**
+ * linked_count + already_linked_count == number of distinct row IDs requested.
+ */
+export type CaseTableRowBatchLinkResponse = {
+  linked_count: number
+  already_linked_count: number
+}
+
+export type CaseTableRowBatchUnlink = {
+  table_id: string
+  row_ids: Array<string>
+}
+
+/**
+ * Row IDs with no link are silently skipped.
+ */
+export type CaseTableRowBatchUnlinkResponse = {
+  unlinked_count: number
 }
 
 export type CaseTableRowInsertCreate = {
@@ -2347,13 +2848,19 @@ export type CaseTaskUpdate = {
   } | null
 }
 
-export type CaseTriggerCreate = {
+export type CaseTriggerConfig = {
   status?: "online" | "offline"
   event_types?: Array<CaseEventType>
   tag_filters?: Array<string>
 }
 
 export type status2 = "online" | "offline"
+
+export type CaseTriggerCreate = {
+  status?: "online" | "offline"
+  event_types?: Array<CaseEventType>
+  tag_filters?: Array<string>
+}
 
 export type CaseTriggerRead = {
   id: string
@@ -2386,6 +2893,64 @@ export type CaseUpdate = {
 }
 
 /**
+ * Minimal user metadata for a case-version author.
+ */
+export type CaseVersionActorRead = {
+  id: string
+  email: string
+  first_name?: string | null
+  last_name?: string | null
+}
+
+/**
+ * Raw snapshots for client-side comparison of a selected case version.
+ */
+export type CaseVersionCompareRead = {
+  selected: CaseVersionContentRead
+  predecessor?: CaseVersionContentRead | null
+}
+
+/**
+ * Content for one immutable case field version.
+ */
+export type CaseVersionContentRead = {
+  id: string
+  field: CaseVersionField
+  version: number
+  content: string
+}
+
+/**
+ * Case text fields that have immutable version history.
+ */
+export type CaseVersionField = "summary" | "description"
+
+/**
+ * Version metadata returned by the case history endpoint.
+ */
+export type CaseVersionReadMinimal = {
+  id: string
+  field: CaseVersionField
+  version: number
+  actor?: CaseVersionActorRead | null
+  created_at: string
+  /**
+   * Whether this is the latest immutable version for its field
+   */
+  is_latest: boolean
+}
+
+/**
+ * Confirmation that a historical case field version was restored.
+ */
+export type CaseVersionRestoreRead = {
+  restored?: boolean
+  case_id: string
+  restored_from_version_id: string
+  field: CaseVersionField
+}
+
+/**
  * Event for when a case is viewed.
  */
 export type CaseViewedEventRead = {
@@ -2404,6 +2969,53 @@ export type CaseViewedEventRead = {
   created_at: string
 }
 
+export type CatalogMappingAffectedPreset = {
+  preset_slug: string
+  preset_name: string
+  version: number | null
+  path: string
+}
+
+export type CatalogMappingAffectedWorkflow = {
+  workflow_source_id: string
+  workflow_path: string
+  workflow_title: string
+  action_ref: string
+}
+
+export type CatalogMappingCandidate = {
+  catalog_id: string
+  model_provider: string
+  model_name: string
+  provider_name: string
+  model_display_name: string | null
+  endpoint_hostname: string | null
+  origin: "platform" | "organization" | "custom_provider"
+}
+
+export type origin = "platform" | "organization" | "custom_provider"
+
+export type CatalogMappingRequirement = {
+  source_catalog_id: string
+  model_provider: string
+  model_name: string
+  reason: CatalogMappingRequirementReason
+  message: string
+  candidates: Array<CatalogMappingCandidate>
+  affected_presets: Array<CatalogMappingAffectedPreset>
+  affected_workflows: Array<CatalogMappingAffectedWorkflow>
+}
+
+export type CatalogMappingRequirementReason = "ambiguous" | "invalid_selection"
+
+/**
+ * User-selected target catalog row for one source catalog reference.
+ */
+export type CatalogMappingSelection = {
+  source_catalog_id: string
+  target_catalog_id: string
+}
+
 /**
  * Supported external channel types.
  */
@@ -2416,6 +3028,7 @@ export type ChannelType = "slack"
  * - kind=CHAT_MESSAGE: Contains message field with user/assistant content
  * - kind=APPROVAL_REQUEST/APPROVAL_DECISION: Contains approval field with approval data
  * - kind=COMPACTION: Contains compaction field with compaction status data
+ * - kind=CANCELLED: Contains cancelled field with turn-cancelled marker data
  */
 export type ChatMessage = {
   /**
@@ -2430,7 +3043,6 @@ export type ChatMessage = {
    * The deserialized message (for kind=CHAT_MESSAGE)
    */
   message?:
-    | unknown
     | UserMessage
     | AssistantMessage
     | SystemMessage
@@ -2446,6 +3058,12 @@ export type ChatMessage = {
    * Compaction status data for badge rendering (for kind=COMPACTION)
    */
   compaction?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Turn-cancelled marker data (for kind=CANCELLED)
+   */
+  cancelled?: {
     [key: string]: unknown
   } | null
 }
@@ -2478,6 +3096,10 @@ export type ChatRead = {
    * Tools available to the agent
    */
   tools: Array<string>
+  /**
+   * MCP integration IDs attached to this chat
+   */
+  mcp_integrations?: Array<string>
   /**
    * Agent preset used for this chat, if any
    */
@@ -2539,6 +3161,10 @@ export type ChatReadMinimal = {
    */
   tools: Array<string>
   /**
+   * MCP integration IDs attached to this chat
+   */
+  mcp_integrations?: Array<string>
+  /**
    * Agent preset used for this chat, if any
    */
   agent_preset_id?: string | null
@@ -2592,6 +3218,10 @@ export type ChatReadVercel = {
    * Tools available to the agent
    */
   tools: Array<string>
+  /**
+   * MCP integration IDs attached to this chat
+   */
+  mcp_integrations?: Array<string>
   /**
    * Agent preset used for this chat, if any
    */
@@ -2813,6 +3443,17 @@ export type CommentUpdatedEventRead = {
   created_at: string
 }
 
+export type CommitInfo = {
+  status: PushStatus
+  sha: string | null
+  ref: string
+  base_ref: string
+  pr_url?: string | null
+  pr_number?: number | null
+  pr_reused?: boolean
+  message?: string
+}
+
 /**
  * Payload to continue a CE run after collecting approvals.
  */
@@ -2993,6 +3634,30 @@ export type CursorPaginatedResponse_CaseTableRowRead_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_CaseVersionReadMinimal_ = {
+  items: Array<CaseVersionReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_InboxItemRead_ = {
   items: Array<InboxItemRead>
   /**
@@ -3089,8 +3754,56 @@ export type CursorPaginatedResponse_ServiceAccountRead_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_SkillFolderRead_ = {
+  items: Array<SkillFolderRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_SkillReadMinimal_ = {
   items: Array<SkillReadMinimal>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
+export type CursorPaginatedResponse_SkillTagRead_ = {
+  items: Array<SkillTagRead>
   /**
    * Cursor for next page
    */
@@ -3283,7 +3996,20 @@ export type DSLConfig_Output = {
   timeout?: number
 }
 
-export type DSLEntrypoint = {
+export type DSLEntrypoint_Input = {
+  /**
+   * The entrypoint action ref
+   */
+  ref?: string | null
+  /**
+   * Expected trigger input schema. Use this to specify the expected shape of the trigger input.
+   */
+  expects?: {
+    [key: string]: ExpectedField_Input
+  } | null
+}
+
+export type DSLEntrypoint_Output = {
   /**
    * The entrypoint action ref
    */
@@ -3323,8 +4049,8 @@ export type DSLEnvironment = {
 export type DSLInput = {
   title: string
   description: string
-  entrypoint: DSLEntrypoint
-  actions: Array<ActionStatement>
+  entrypoint: DSLEntrypoint_Output
+  actions: Array<ActionStatement_Output>
   config?: DSLConfig_Output
   triggers?: Array<Trigger>
   /**
@@ -3407,34 +4133,15 @@ export type DefaultModelSelectionUpdate = {
 }
 
 /**
- * The URL of the document.
+ * Lifecycle states of a row document within an index generation.
  */
-export type DocumentUrl = {
-  url: string
-  force_download?: boolean | "allow-local"
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "document-url"
-  /**
-   * Return the media type of the file, based on the URL or the provided `media_type`.
-   */
-  readonly media_type: string
-  /**
-   * The identifier of the file, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
-   *
-   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
-   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
-   */
-  readonly identifier: string
-}
+export type DocumentState =
+  | "pending"
+  | "building"
+  | "ready"
+  | "empty"
+  | "failed"
+  | "deleted"
 
 /**
  * Event for when a case dropdown value is changed.
@@ -3588,10 +4295,87 @@ export type EffectiveEntitlements = {
    */
   workspace_chat?: boolean
   /**
+   * Whether multiple workspaces per organization are enabled
+   */
+  multi_workspace?: boolean
+  /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
+  /**
+   * Whether workspace secrets may reference external secret stores such as AWS Secrets Manager
+   */
+  external_secret_stores?: boolean
 }
+
+/**
+ * Availability from existing provider settings and current indexing state.
+ */
+export type EmbeddingConfigurationRead = {
+  available: boolean
+  version: number
+  state: SearchState
+  configuration?: EmbeddingModelRead | null
+  reindex_required?: boolean
+}
+
+/**
+ * Stable public failures; provider messages must never cross this boundary.
+ */
+export type EmbeddingErrorCode =
+  | "CREDENTIAL_INVALID"
+  | "CONFIGURATION_INVALID"
+  | "CONFIGURATION_CHANGED"
+  | "INPUT_INVALID"
+  | "RATE_LIMITED"
+  | "TIMEOUT"
+  | "UNAVAILABLE"
+  | "RESPONSE_INVALID"
+  | "NOT_CONFIGURED"
+
+export type EmbeddingErrorRead = {
+  code: EmbeddingErrorCode
+  retryable: boolean
+  retry_after?: number | null
+}
+
+export type EmbeddingErrorResponse = {
+  detail: EmbeddingErrorRead
+}
+
+/**
+ * Public metadata needed for status and bounded chunk preparation.
+ */
+export type EmbeddingModelRead = {
+  provider: "openai" | "gemini" | "bedrock" | "ollama" | "vllm"
+  model:
+    | "text-embedding-3-small"
+    | "text-embedding-3-large"
+    | "gemini-embedding-001"
+    | "amazon.titan-embed-text-v2:0"
+    | "all-minilm"
+    | "all-minilm:latest"
+    | "all-minilm:22m"
+    | "sentence-transformers/all-MiniLM-L6-v2"
+  dimensions: number
+  tokenizer: string
+  input_token_limit: number
+  input_character_limit: number
+  batch_size_limit: number
+  batch_token_limit: number
+}
+
+export type provider = "openai" | "gemini" | "bedrock" | "ollama" | "vllm"
+
+export type model =
+  | "text-embedding-3-small"
+  | "text-embedding-3-large"
+  | "gemini-embedding-001"
+  | "amazon.titan-embed-text-v2:0"
+  | "all-minilm"
+  | "all-minilm:latest"
+  | "all-minilm:22m"
+  | "sentence-transformers/all-MiniLM-L6-v2"
 
 /**
  * TypedDict for tier entitlements stored in JSONB.
@@ -3628,20 +4412,17 @@ export type EntitlementsDict = {
    */
   workspace_chat?: boolean
   /**
+   * Whether multiple workspaces per organization are enabled
+   */
+  multi_workspace?: boolean
+  /**
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
-}
-
-export type ErrorDetails = {
-  type: string
-  loc: Array<number | string>
-  msg: string
-  input: unknown
-  ctx?: {
-    [key: string]: unknown
-  }
-  url?: string
+  /**
+   * Whether workspace secrets may reference external secret stores such as AWS Secrets Manager
+   */
+  external_secret_stores?: boolean
 }
 
 export type ErrorModel = {
@@ -3790,6 +4571,7 @@ export type FeatureFlag =
   | "workflow-concurrency-limits"
   | "agent-channels"
   | "agent-fs-persistence"
+  | "agent-runtime"
 
 /**
  * Response model for feature flags.
@@ -3874,7 +4656,7 @@ export type GetWorkflowDefinitionActivityInputs = {
   role: Role
   workflow_id: string
   version?: number | null
-  task?: ActionStatement | null
+  task?: ActionStatement_Output | null
 }
 
 /**
@@ -3944,6 +4726,15 @@ export type GitHubAppCredentialsRequest = {
 }
 
 /**
+ * Response after creating or updating GitHub App credentials.
+ */
+export type GitHubAppCredentialsSaveResponse = {
+  message: string
+  action: "created" | "updated"
+  app_id: string
+}
+
+/**
  * Status of GitHub App credentials.
  */
 export type GitHubAppCredentialsStatus = {
@@ -3990,11 +4781,60 @@ export type GitHubAppPermissions = {
 }
 
 /**
+ * Repository granted to the configured GitHub App installation.
+ */
+export type GitHubAppRepository = {
+  id: number
+  name: string
+  full_name: string
+  private: boolean
+  default_branch: string
+  git_url: string
+  html_url?: string | null
+  installation_id: number
+  installation_account: string
+  installation_account_type?: string | null
+}
+
+/**
  * Type definition for GitHub webhook attributes.
  */
 export type GitHubWebhookAttributes = {
   url: string
   active: boolean
+}
+
+/**
+ * Request to register or update GitLab token credentials.
+ */
+export type GitLabTokenCredentialsRequest = {
+  /**
+   * Base URL for GitLab.com or a self-managed GitLab instance.
+   */
+  base_url?: string
+  /**
+   * GitLab personal/project/group access token with api scope.
+   */
+  token: string
+}
+
+/**
+ * Response after creating or updating GitLab token credentials.
+ */
+export type GitLabTokenCredentialsSaveResponse = {
+  message: string
+  action: "created" | "updated"
+  base_url: string
+}
+
+/**
+ * Status of GitLab token credentials.
+ */
+export type GitLabTokenCredentialsStatus = {
+  exists: boolean
+  is_corrupted?: boolean
+  base_url?: string | null
+  created_at?: string | null
 }
 
 export type GitSettingsRead = {
@@ -4209,44 +5049,49 @@ export type HTTPValidationError = {
   detail?: Array<ValidationError>
 }
 
-/**
- * Supported agent harnesses.
- */
-export type HarnessType = "pydantic-ai" | "claude_code"
-
 export type HealthResponse = {
   status: string
 }
 
 /**
- * A URL to an image.
+ * A named group of allowed IP addresses or CIDR ranges.
  */
-export type ImageUrl = {
-  url: string
-  force_download?: boolean | "allow-local"
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "image-url"
+export type IPAllowlist = {
   /**
-   * Return the media type of the file, based on the URL or the provided `media_type`.
+   * Human-readable name, e.g. 'Corporate VPN'.
    */
-  readonly media_type: string
+  name: string
   /**
-   * The identifier of the file, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
-   *
-   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
-   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
+   * Optional note on what this allowlist covers and who owns it.
    */
-  readonly identifier: string
+  description?: string | null
+  /**
+   * IPv4 or IPv6 addresses or CIDR ranges.
+   */
+  cidrs: Array<string>
 }
+
+/**
+ * Check whether an IP address would be admitted by the saved allowlist.
+ */
+export type IPAllowlistCheckRequest = {
+  ip_address: string
+}
+
+export type IPAllowlistCheckResult = {
+  allowed: boolean
+  matched_cidr?: string | null
+  matched_allowlist?: string | null
+  enforced: boolean
+}
+
+/**
+ * Display groups for inbox items.
+ *
+ * Groups are derived from approval state and live workflow execution status,
+ * so membership cannot be expressed as a pure SQL filter.
+ */
+export type InboxGroup = "review_required" | "running" | "error" | "completed"
 
 /**
  * Read model for inbox items.
@@ -4289,6 +5134,10 @@ export type InboxItemRead = {
    */
   workflow?: WorkflowSummary | null
   /**
+   * User who created the source entity (None for automation-initiated items)
+   */
+  created_by?: UserSummary | null
+  /**
    * ID of the source entity
    */
   source_id: string
@@ -4312,7 +5161,7 @@ export type InboxItemStatus = "pending" | "completed" | "failed"
 /**
  * Types of inbox items.
  */
-export type InboxItemType = "approval"
+export type InboxItemType = "approval" | "agent_run"
 
 /**
  * Count of pending inbox items that require attention.
@@ -4441,6 +5290,7 @@ export type IntegrationRead = {
 export type IntegrationReadMinimal = {
   id: string
   provider_id: string
+  grant_type: OAuthGrantType
   status: IntegrationStatus
   is_expired: boolean
 }
@@ -4448,7 +5298,11 @@ export type IntegrationReadMinimal = {
 /**
  * Status of an integration.
  */
-export type IntegrationStatus = "not_configured" | "configured" | "connected"
+export type IntegrationStatus =
+  | "not_configured"
+  | "configured"
+  | "connected"
+  | "reauth_required"
 
 /**
  * Response for testing integration connection.
@@ -4581,10 +5435,172 @@ export type IssuedServiceAccountApiKey = {
 
 export type JoinStrategy = "any" | "all"
 
+export type JsonValue = unknown
+
+export type LayoutActionPosition = {
+  ref: string
+  x?: number | null
+  y?: number | null
+  position?: {
+    [key: string]: number
+  } | null
+}
+
+export type LayoutPosition = {
+  x?: number | null
+  y?: number | null
+  position?: {
+    [key: string]: number
+  } | null
+}
+
+export type LayoutViewport = {
+  x?: number | null
+  y?: number | null
+  zoom?: number | null
+}
+
 /**
  * Authentication type for MCP integrations.
  */
 export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
+
+/**
+ * Request for one-click connecting a platform MCP catalog entry.
+ *
+ * Carries no connection fields, so the recipe cannot be inferred from the
+ * payload; the caller names the connection option it offered.
+ */
+export type MCPCatalogConnectRequest = {
+  /**
+   * Platform MCP catalog connection option to connect
+   */
+  connection_option_id?: string | null
+}
+
+/**
+ * Response for connecting a platform MCP catalog entry.
+ */
+export type MCPCatalogConnectResponse = {
+  status: "configured" | "connected" | "oauth_redirect"
+  mcp_integration?: MCPIntegrationRead | null
+  auth_url?: string | null
+  provider_id?: string | null
+}
+
+export type status3 = "configured" | "connected" | "oauth_redirect"
+
+/**
+ * Typed configure-dialog field declared by a catalog spec.
+ */
+export type MCPConfigField = {
+  key: string
+  label: string
+  description: string
+  target: "server_uri" | "oauth_client" | "http_header" | "stdio_env"
+  required?: boolean
+  secret?: boolean
+  placeholder?: string | null
+  type?: "string" | "url"
+}
+
+export type target = "server_uri" | "oauth_client" | "http_header" | "stdio_env"
+
+export type type = "string" | "url"
+
+/**
+ * User-supplied value needed to materialize a catalog connection.
+ */
+export type MCPConnectionCredential = {
+  key: string
+  label: string
+  description: string
+  required?: boolean
+  secret?: boolean
+  default_value?: string | null
+  /**
+   * Optional placeholder shown in the configure dialog to hint the expected value format (e.g. 'https://your-console.example.net').
+   */
+  placeholder?: string | null
+  /**
+   * Value type used for light client/server validation. 'url' requires an http(s):// scheme.
+   */
+  type?: "string" | "url"
+  target: "server_uri" | "oauth_client" | "http_header" | "stdio_env"
+}
+
+/**
+ * A connectable transport/auth option for one catalog provider.
+ */
+export type MCPConnectionOption = {
+  id: string
+  label: string
+  description?: string | null
+  docs_url?: string | null
+  connection_spec: MCPConnectionSpec
+}
+
+export type MCPConnectionSpec =
+  | MCPHTTPOAuth2ConnectionSpec
+  | MCPHTTPCustomConnectionSpec
+  | MCPHTTPNoneConnectionSpec
+  | MCPStdioCustomConnectionSpec
+  | MCPStdioNoneConnectionSpec
+
+/**
+ * HTTP MCP server using user-provided headers or API keys.
+ */
+export type MCPHTTPCustomConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "http_custom"
+  server_type?: "http"
+  auth_type?: "CUSTOM"
+  server_uri: string
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
+}
+
+/**
+ * HTTP MCP server with no authentication.
+ */
+export type MCPHTTPNoneConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "http_none"
+  server_type?: "http"
+  auth_type?: "NONE"
+  server_uri: string
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
+}
+
+/**
+ * HTTP MCP server using MCP OAuth.
+ */
+export type MCPHTTPOAuth2ConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "http_oauth2"
+  server_type?: "http"
+  auth_type?: "OAUTH2"
+  server_uri: string
+  scopes?: Array<string>
+  oauth_resource?: string | null
+  oauth_authorization_endpoint?: string | null
+  oauth_token_endpoint?: string | null
+  oauth_authorize_params?: {
+    [key: string]: string
+  }
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
+}
 
 /**
  * Request model for creating an HTTP MCP integration.
@@ -4602,6 +5618,10 @@ export type MCPHttpIntegrationCreate = {
    * Timeout in seconds
    */
   timeout?: number | null
+  /**
+   * Platform MCP catalog slug this workspace config is created from
+   */
+  catalog_slug?: string | null
   server_type?: "http"
   /**
    * MCP server endpoint URL (required for http type)
@@ -4616,7 +5636,27 @@ export type MCPHttpIntegrationCreate = {
    */
   oauth_integration_id?: string | null
   /**
-   * Custom credentials as JSON headers. Required for custom auth type; optional additional headers for OAuth2 auth type.
+   * HTTP headers as a JSON object. Required for custom auth type; optional additional headers for OAuth2 auth type.
+   */
+  custom_credentials?: string | null
+  /**
+   * OAuth client credentials as a JSON object (client_id / client_secret) for catalog OAuth2 rows that declare an 'oauth_client' credential. Kept separate from custom_credentials so one connect can carry both a user-created OAuth client and extra HTTP headers.
+   */
+  oauth_client_credentials?: string | null
+}
+
+/**
+ * Request to test connectivity against an unsaved HTTP MCP configuration.
+ */
+export type MCPHttpIntegrationTestConnectionRequest = {
+  mcp_integration_id?: string | null
+  timeout?: number | null
+  server_type?: "http"
+  server_uri: string
+  auth_type?: MCPAuthType
+  oauth_integration_id?: string | null
+  /**
+   * JSON object of custom headers; falls back to stored headers when omitted
    */
   custom_credentials?: string | null
 }
@@ -4646,6 +5686,7 @@ export type MCPHttpServerConfig = {
   transport?: "http" | "sse"
   timeout?: number
   id?: string
+  tools?: Array<MCPServerToolSummary>
 }
 
 export type transport = "http" | "sse"
@@ -4672,12 +5713,41 @@ export type MCPIntegrationRead = {
   server_uri: string | null
   auth_type: MCPAuthType
   oauth_integration_id: string | null
+  state:
+    | "not_configured"
+    | "configured"
+    | "connected"
+    | "reauth_required"
+    | "error"
   stdio_command: string | null
   stdio_args: Array<string> | null
   has_stdio_env?: boolean
   timeout: number | null
+  tools?: Array<MCPToolSummary> | null
   created_at: string
   updated_at: string
+}
+
+export type state =
+  | "not_configured"
+  | "configured"
+  | "connected"
+  | "reauth_required"
+  | "error"
+
+export type MCPIntegrationTestConnectionRequest =
+  | MCPHttpIntegrationTestConnectionRequest
+  | MCPStdioIntegrationTestConnectionRequest
+
+/**
+ * Response for testing connectivity to an MCP server.
+ */
+export type MCPIntegrationTestConnectionResponse = {
+  success: boolean
+  mcp_integration_id?: string | null
+  tools?: Array<MCPToolSummary> | null
+  message: string
+  error?: string | null
 }
 
 /**
@@ -4686,6 +5756,10 @@ export type MCPIntegrationRead = {
 export type MCPIntegrationUpdate = {
   name?: string | null
   description?: string | null
+  /**
+   * MCP server type. Changing this clears fields from the previous type.
+   */
+  server_type?: MCPServerType | null
   server_uri?: string | null
   auth_type?: MCPAuthType | null
   oauth_integration_id?: string | null
@@ -4711,6 +5785,16 @@ export type MCPIntegrationUpdate = {
    * Timeout in seconds
    */
   timeout?: number | null
+}
+
+/**
+ * Supported stdio package launch option.
+ */
+export type MCPPackageOption = {
+  manager: string
+  command: string
+  args?: Array<string>
+  package?: string | null
 }
 
 export type MCPPersonalAccessTokenCreate = {
@@ -4739,7 +5823,39 @@ export type MCPPersonalAccessTokenRead = {
   updated_at: string
 }
 
+/**
+ * Non-secret summary of a verified user MCP tool.
+ */
+export type MCPServerToolSummary = {
+  name: string
+  description?: string | null
+  enabled?: boolean
+  requires_approval?: boolean
+  status?: "available" | "missing"
+}
+
+export type status4 = "available" | "missing"
+
 export type MCPServerType = "http" | "stdio"
+
+/**
+ * Stdio MCP server using user-provided env vars.
+ */
+export type MCPStdioCustomConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "stdio_custom"
+  server_type?: "stdio"
+  auth_type?: "CUSTOM"
+  stdio_command?: string | null
+  stdio_args?: Array<string>
+  stdio_env?: Array<string>
+  packages?: Array<MCPPackageOption>
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
+}
 
 /**
  * Request model for creating a stdio MCP integration.
@@ -4757,6 +5873,10 @@ export type MCPStdioIntegrationCreate = {
    * Timeout in seconds
    */
   timeout?: number | null
+  /**
+   * Platform MCP catalog slug this workspace config is created from
+   */
+  catalog_slug?: string | null
   server_type?: "stdio"
   /**
    * Stdio command to run for stdio-type servers (e.g., 'npx')
@@ -4775,6 +5895,33 @@ export type MCPStdioIntegrationCreate = {
 }
 
 /**
+ * Request to test connectivity against a saved stdio MCP integration.
+ */
+export type MCPStdioIntegrationTestConnectionRequest = {
+  mcp_integration_id: string
+  server_type?: "stdio"
+}
+
+/**
+ * Stdio MCP server with no authentication.
+ */
+export type MCPStdioNoneConnectionSpec = {
+  requires_config?: boolean
+  credentials?: Array<MCPConnectionCredential>
+  kind?: "stdio_none"
+  server_type?: "stdio"
+  auth_type?: "NONE"
+  stdio_command?: string | null
+  stdio_args?: Array<string>
+  stdio_env?: Array<string>
+  packages?: Array<MCPPackageOption>
+  /**
+   * Configure-dialog view of ``credentials``; same data, UI field shape.
+   */
+  readonly config_fields: Array<MCPConfigField>
+}
+
+/**
  * Configuration for a stdio MCP server.
  */
 export type MCPStdioServerConfig = {
@@ -4787,7 +5934,108 @@ export type MCPStdioServerConfig = {
   }
   timeout?: number
   id?: string
+  tools?: Array<MCPServerToolSummary>
 }
+
+/**
+ * Per-tool policy update for a stored MCP integration tool.
+ */
+export type MCPToolPolicyUpdate = {
+  name: string
+  enabled?: boolean | null
+  requires_approval?: boolean | null
+}
+
+/**
+ * Request to update per-tool MCP integration policy.
+ */
+export type MCPToolPolicyUpdateRequest = {
+  tools: Array<MCPToolPolicyUpdate>
+}
+
+/**
+ * Summary of a tool discovered on a remote MCP server.
+ */
+export type MCPToolSummary = {
+  name: string
+  description?: string | null
+  enabled?: boolean
+  requires_approval?: boolean
+  status?: "available" | "missing"
+}
+
+/**
+ * Response model for saved MCP verification status.
+ */
+export type MCPVerificationStatusRead = {
+  status: "idle" | "verifying" | "succeeded" | "failed" | "superseded"
+  error?: string | null
+}
+
+export type status5 =
+  | "idle"
+  | "verifying"
+  | "succeeded"
+  | "failed"
+  | "superseded"
+
+export type McpIntegrationMappingAffectedPreset = {
+  preset_slug: string
+  preset_name: string
+  version: number | null
+  path: string
+}
+
+export type McpIntegrationMappingAffectedWorkflow = {
+  workflow_source_id: string
+  workflow_path: string
+  workflow_title: string
+  action_ref: string
+}
+
+export type McpIntegrationMappingCandidate = {
+  mcp_integration_id: string
+  slug: string
+  name: string
+  server_type: string
+  auth_type: string
+}
+
+export type McpIntegrationMappingRequirement = {
+  source_mcp_integration_id: string
+  slug: string | null
+  name: string | null
+  server_type: string | null
+  auth_type: string | null
+  reason: McpIntegrationMappingRequirementReason
+  message: string
+  candidates: Array<McpIntegrationMappingCandidate>
+  affected_presets: Array<McpIntegrationMappingAffectedPreset>
+  affected_workflows: Array<McpIntegrationMappingAffectedWorkflow>
+}
+
+export type McpIntegrationMappingRequirementReason =
+  | "unresolved"
+  | "invalid_selection"
+  | "conflicting_metadata"
+
+/**
+ * User-selected local MCP integration for one source integration reference.
+ */
+export type McpIntegrationMappingSelection = {
+  source_mcp_integration_id: string
+  target_mcp_integration_id: string
+}
+
+/**
+ * Polymorphic target kind for a parsed case-comment mention.
+ *
+ * Only ``AGENT`` is supported today. The finite set lives here (rather than
+ * as a bare ``str`` checked at runtime) so every mention-aware call site —
+ * the parser, persistence, and API read schema — shares one exhaustive,
+ * type-checked domain of valid target kinds.
+ */
+export type MentionTargetType = "agent"
 
 /**
  * The type/kind of message stored in the chat.
@@ -4798,6 +6046,7 @@ export type MessageKind =
   | "approval-decision"
   | "internal"
   | "compaction"
+  | "cancelled"
 
 export type ModelConfig = {
   /**
@@ -4934,6 +6183,7 @@ export type OrgInvitationRead = {
   expires_at: string
   created_at: string
   accepted_at: string | null
+  last_emailed_at?: string | null
 }
 
 /**
@@ -5079,7 +6329,7 @@ export type OrganizationSecretRead = {
   type: SecretType
   name: string
   description?: string | null
-  encrypted_keys: Blob | File
+  encrypted_keys: string
   environment: string
   tags?: {
     [key: string]: string
@@ -5139,6 +6389,30 @@ export type OutputType =
       [key: string]: unknown
     }
 
+export type Page_SecretStoreRead_ = {
+  items: Array<SecretStoreRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_WorkspaceSecretStoreRead_ = {
+  items: Array<WorkspaceSecretStoreRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
 /**
  * Event for when a case payload is changed.
  */
@@ -5157,6 +6431,101 @@ export type PayloadChangedEventRead = {
    */
   created_at: string
 }
+
+export type PersistedApprovalDecision =
+  | boolean
+  | ToolApprovedDecision
+  | ToolDeniedDecision
+  | BooleanApprovalDecision
+
+/**
+ * Platform audit settings response.
+ */
+export type PlatformAuditSettingsRead = {
+  audit_webhook_url: string | null
+  audit_webhook_custom_headers?: {
+    [key: string]: string
+  } | null
+  audit_webhook_custom_payload?: {
+    [key: string]: unknown
+  } | null
+  audit_webhook_payload_attribute?: string | null
+  audit_webhook_verify_ssl?: boolean
+  /**
+   * Encrypted setting keys that could not be decrypted with the current encryption key and must be reconfigured.
+   */
+  decryption_failed_keys?: Array<string>
+}
+
+/**
+ * Update platform audit settings.
+ */
+export type PlatformAuditSettingsUpdate = {
+  /**
+   * Webhook URL that receives streamed audit events. When unset, audit events are skipped.
+   */
+  audit_webhook_url?: string | null
+  /**
+   * Custom headers to include in audit webhook requests. Header names are case-insensitive.
+   */
+  audit_webhook_custom_headers?: {
+    [key: string]: string
+  } | null
+  /**
+   * Custom JSON fields merged into streamed audit event payloads. Canonical audit event fields take precedence; conflicting custom keys are ignored.
+   */
+  audit_webhook_custom_payload?: {
+    [key: string]: unknown
+  } | null
+  /**
+   * Optional wrapper key for audit payloads. When set to a value like 'event', payload is sent as {'event': <audit_payload>}.
+   */
+  audit_webhook_payload_attribute?: string | null
+  /**
+   * Whether TLS certificates are verified for webhook requests. Disable only for trusted on-prem/self-signed endpoints.
+   */
+  audit_webhook_verify_ssl?: boolean
+}
+
+/**
+ * Cursor-paginated platform MCP catalog response.
+ */
+export type PlatformMCPCatalogListResponse = {
+  items: Array<PlatformMCPCatalogRead>
+  next_cursor?: string | null
+}
+
+/**
+ * Catalog row joined with workspace-specific MCP state.
+ */
+export type PlatformMCPCatalogRead = {
+  id: string
+  slug: string
+  name: string
+  description: string
+  category: string
+  status: "available" | "coming_soon" | "deprecated" | "hidden"
+  icon_url: string | null
+  docs_url: string | null
+  provider_id: string | null
+  connection_spec: MCPConnectionSpec | null
+  connection_options?: Array<MCPConnectionOption>
+  state:
+    | "not_configured"
+    | "configured"
+    | "connected"
+    | "reauth_required"
+    | "error"
+  mcp_integration_id: string | null
+  mcp_server_type?: MCPServerType | null
+  mcp_auth_type?: MCPAuthType | null
+  tools?: Array<MCPToolSummary> | null
+  created_at: string
+  updated_at: string
+  last_refreshed_at: string | null
+}
+
+export type status6 = "available" | "coming_soon" | "deprecated" | "hidden"
 
 /**
  * Platform registry settings response.
@@ -5179,6 +6548,15 @@ export type PlatformRegistrySettingsUpdate = {
 export type Position = {
   x?: number
   y?: number
+}
+
+/**
+ * The authored or skill origin of a policy-affected tool.
+ */
+export type PresetToolSourceRead = {
+  tool_id: string
+  skill_id?: string | null
+  skill_name?: string | null
 }
 
 /**
@@ -5233,9 +6611,9 @@ export type ProviderCredentialField = {
    */
   label: string
   /**
-   * Input type: 'text' or 'password'
+   * Input type: 'text', 'password', or 'boolean'
    */
-  type: "text" | "password"
+  type: "text" | "password" | "boolean"
   /**
    * Help text describing this credential
    */
@@ -5244,12 +6622,16 @@ export type ProviderCredentialField = {
    * Whether this field is required
    */
   required?: boolean
+  /**
+   * Default value pre-filled when no credential is stored yet
+   */
+  default?: string | null
 }
 
 /**
- * Input type: 'text' or 'password'
+ * Input type: 'text', 'password', or 'boolean'
  */
-export type type = "text" | "password"
+export type type2 = "text" | "password" | "boolean"
 
 /**
  * Metadata for a provider.
@@ -5283,6 +6665,10 @@ export type ProviderMetadata = {
    * Whether this provider is available for use
    */
   enabled?: boolean
+  /**
+   * Whether the client secret is a service account JSON key instead of an OAuth client secret
+   */
+  service_account_json?: boolean
   /**
    * URL to API documentation
    */
@@ -5365,6 +6751,18 @@ export type error_type =
   | "system"
   | "transaction"
 
+export type PullResourceDiff = {
+  resource_type: string
+  source_id: string
+  source_path: string
+  change_type: "added" | "modified" | "deleted"
+  title: string | null
+  diff: string
+  truncated?: boolean
+}
+
+export type change_type2 = "added" | "modified" | "deleted"
+
 export type PullResult = {
   success: boolean
   commit_sha: string
@@ -5372,7 +6770,20 @@ export type PullResult = {
   workflows_imported: number
   diagnostics: Array<PullDiagnostic>
   message: string
+  resource_counts?: {
+    [key: string]: ResourcePullCount
+  } | null
+  resource_diffs?: Array<PullResourceDiff> | null
+  files?: Array<string> | null
+  resources?: Array<SyncPreviewResource> | null
+  catalog_mapping_requirements?: Array<CatalogMappingRequirement> | null
+  mcp_integration_mapping_requirements?: Array<McpIntegrationMappingRequirement> | null
 }
+
+/**
+ * Status of a push/commit operation.
+ */
+export type PushStatus = "committed" | "no_op"
 
 export type RateLimitEvent = {
   rate_limit_info: RateLimitInfo
@@ -5399,12 +6810,7 @@ export type RateLimitInfo = {
   }
 }
 
-export type status3 = "allowed" | "allowed_warning" | "rejected"
-
-export type ReadinessResponse = {
-  status: string
-  registry: RegistryStatus
-}
+export type status7 = "allowed" | "allowed_warning" | "rejected"
 
 /**
  * A reasoning part of a message.
@@ -5420,7 +6826,7 @@ export type ReasoningUIPart = {
   }
 }
 
-export type state = "streaming" | "done"
+export type state2 = "streaming" | "done"
 
 export type ReceiveInteractionResponse = {
   message: string
@@ -5528,7 +6934,7 @@ export type RegistryActionRead = {
 /**
  * The type of the action
  */
-export type type2 = "udf" | "template"
+export type type3 = "udf" | "template"
 
 /**
  * API minimal read model for a registered action.
@@ -5648,6 +7054,15 @@ export type RegistryLock = {
 }
 
 /**
+ * Display metadata for one registry lock origin.
+ */
+export type RegistryLockEntryRead = {
+  origin: string
+  version: string
+  label: string
+}
+
+/**
  * OAuth secret for a provider.
  */
 export type RegistryOAuthSecret = {
@@ -5735,12 +7150,6 @@ export type secret_type = "custom" | "ssh_key" | "mtls" | "ca_cert"
 
 export type RegistrySecretType = RegistrySecret | RegistryOAuthSecret
 
-export type RegistryStatus = {
-  synced: boolean
-  expected_version: string
-  current_version: string | null
-}
-
 /**
  * Registry health status.
  */
@@ -5796,9 +7205,12 @@ export type RepositorySyncResult = {
 }
 
 /**
- * Persisted agents toggle with immutable resolved child refs.
+ * Persisted immutable resolved child refs.
  */
 export type ResolvedAgentsConfig = {
+  /**
+   * @deprecated
+   */
   enabled?: boolean
   subagents?: Array<ResolvedAttachedSubagentRef>
 }
@@ -5814,6 +7226,29 @@ export type ResolvedAttachedSubagentRef = {
   max_turns?: number | null
   preset_id: string
   preset_version_id: string
+}
+
+export type ResourcePullCount = {
+  found: number
+  imported: number
+}
+
+/**
+ * Reference to a single resource by type and either source or local id.
+ */
+export type ResourceRef = {
+  /**
+   * Type of the referenced resource.
+   */
+  resource_type: SyncResourceType
+  /**
+   * Git source id of the resource, if referenced by source id.
+   */
+  source_id?: string | null
+  /**
+   * Local database id of the resource, if referenced by local id.
+   */
+  local_id?: string | null
 }
 
 /**
@@ -5849,14 +7284,6 @@ export type ResultMessage = {
   uuid?: string | null
 }
 
-export type RetryPromptPart = {
-  content: Array<ErrorDetails> | string
-  tool_name?: string | null
-  tool_call_id?: string
-  timestamp?: string
-  part_kind?: "retry-prompt"
-}
-
 /**
  * The identity, intrinsic bindings, and resolved authorization context.
  *
@@ -5885,6 +7312,7 @@ export type Role = {
     | "tracecat-cli"
     | "tracecat-executor"
     | "tracecat-agent-executor"
+    | "tracecat-case-duration-sync"
     | "tracecat-case-triggers"
     | "tracecat-llm-gateway"
     | "tracecat-mcp"
@@ -5897,7 +7325,7 @@ export type Role = {
   [key: string]: unknown | string | boolean
 }
 
-export type type3 = "user" | "service" | "service_account"
+export type type4 = "user" | "service" | "service_account"
 
 export type service_id =
   | "tracecat-api"
@@ -5905,6 +7333,7 @@ export type service_id =
   | "tracecat-cli"
   | "tracecat-executor"
   | "tracecat-agent-executor"
+  | "tracecat-case-duration-sync"
   | "tracecat-case-triggers"
   | "tracecat-llm-gateway"
   | "tracecat-mcp"
@@ -5980,12 +7409,13 @@ export type RoleUpdate = {
  * This object contains all the information needed to execute an action.
  */
 export type RunActionInput = {
-  task: ActionStatement
+  task: ActionStatement_Output
   exec_context: ExecutionContext
   run_context: RunContext
   interaction_context?: InteractionContext | null
   stream_id?: string
   session_id?: string | null
+  agent_session_id?: string | null
   registry_lock: RegistryLock
 }
 
@@ -6002,7 +7432,7 @@ export type RunArtifact = {
   startedAt: string
 }
 
-export type status4 = "running" | "success" | "failed" | "cancelled"
+export type status8 = "running" | "success" | "failed" | "cancelled"
 
 /**
  * This is the runtime context model for a workflow run. Passed into activities.
@@ -6024,6 +7454,55 @@ export type RunUsage = {
   input_tokens?: number
   output_tokens?: number
 }
+
+/**
+ * Stable machine-readable product failure identities.
+ */
+export type RuntimeErrorKind =
+  | "action.execution.failed"
+  | "tenant.quota.exhausted"
+  | "tenant.entitlement.denied"
+  | "integration.rate_limited"
+  | "registry.sync.validation_failed"
+  | "registry.lock.invalid_data"
+  | "registry.lock.action_ambiguous"
+  | "runtime.unclassified"
+  | "storage.materialization.transport_unavailable"
+  | "storage.materialization.invalid_data"
+  | "storage.persistence.transport_unavailable"
+  | "executor.activity.timed_out"
+  | "executor.backend.initialization_failed"
+  | "executor.registry.lease_contention"
+  | "executor.registry.capacity_exhausted"
+  | "executor.registry.extraction_failed"
+  | "executor.sandbox.infrastructure_failed"
+  | "sandbox.resource_limit_exceeded"
+  | "workflow.definition.not_found"
+  | "workflow.definition.lookup_unavailable"
+  | "workflow.definition.invalid_data"
+  | "workflow.trigger.input_invalid"
+  | "workflow.subflow.input_invalid"
+  | "workflow.subflow.preparation_failed"
+  | "workflow.bootstrap.invalid_data"
+  | "workflow.bootstrap.unavailable"
+  | "workflow.expression.invalid"
+  | "workflow.loop.limit_exceeded"
+  | "workflow.runtime.invariant_violation"
+  | "workflow.agent.input_invalid"
+  | "workflow.agent.preparation_failed"
+  | "agent.configuration.invalid"
+  | "agent.preparation.failed"
+  | "agent.session.initialization_failed"
+  | "agent.llm.gateway_auth_failed"
+  | "agent.llm.provider_auth_failed"
+  | "agent.llm.budget_exceeded"
+  | "agent.llm.rate_limited"
+  | "agent.llm.read_timeout"
+  | "agent.execution.failed"
+  | "agent.executor.unavailable"
+  | "agent.executor.timed_out"
+  | "agent.executor.protocol_failed"
+  | "agent.workflow.internal_error"
 
 export type SAMLDatabaseLoginResponse = {
   redirect_url: string
@@ -6139,6 +7618,10 @@ export type ScheduleUpdate = {
    */
   end_at?: string | null
   status?: "online" | "offline" | null
+  /**
+   * The maximum number of seconds to wait for the workflow to complete
+   */
+  timeout?: number | null
 }
 
 /**
@@ -6183,6 +7666,47 @@ export type ScopeRead = {
  * Source/ownership of a scope definition.
  */
 export type ScopeSource = "platform" | "custom"
+
+/**
+ * Stable error codes safe to expose without source text or credentials.
+ */
+export type SearchErrorCode =
+  | "NOT_FOUND"
+  | "INDEX_NOT_READY"
+  | "STALE_CLAIM"
+  | "MANIFEST_CONFLICT"
+  | "INVALID_VECTOR"
+  | "CONFIGURATION_CHANGED"
+  | "PROVIDER_UNAVAILABLE"
+  | "INVALID_CURSOR"
+  | "INVALID_TABLE_NAME"
+
+/**
+ * Index availability and document counts for a collection.
+ *
+ * Attributes:
+ * state: Effective workspace or collection search state.
+ * pending: Documents awaiting work for the current index configuration.
+ * failed: Documents that failed in the current index generation.
+ * empty: Current documents that contain no searchable chunks.
+ * ready: Current documents whose complete embeddings are published.
+ * backfill_complete: Whether all source rows have been enumerated.
+ * partial: Whether the index is unavailable or results may be incomplete.
+ */
+export type SearchIndexStatus = {
+  state: SearchState
+  pending?: number
+  failed?: number
+  empty?: number
+  ready?: number
+  backfill_complete?: boolean
+  partial?: boolean
+}
+
+/**
+ * Workspace availability states controlling search and indexing.
+ */
+export type SearchState = "disabled" | "active" | "paused" | "reindex_required"
 
 /**
  * Secret artifact stub. Extend when secret surfaces are wired.
@@ -6242,7 +7766,7 @@ export type SecretRead = {
   type: SecretType
   name: string
   description?: string | null
-  encrypted_keys: Blob | File
+  encrypted_keys: string
   environment: string
   tags?: {
     [key: string]: string
@@ -6250,6 +7774,10 @@ export type SecretRead = {
   created_at: string
   updated_at: string
   workspace_id: string
+  source?: SecretSource
+  store_id?: string | null
+  remote_reference?: string | null
+  remote_key_mapping?: AwsSecretKeyMapping | null
 }
 
 export type SecretReadMinimal = {
@@ -6260,6 +7788,93 @@ export type SecretReadMinimal = {
   keys: Array<string>
   environment: string
   is_corrupted?: boolean
+  source?: SecretSource
+  store_id?: string | null
+  store_name?: string | null
+  remote_reference?: string | null
+}
+
+/**
+ * Outcome of a reference check. Never contains the remote value.
+ */
+export type SecretReferenceCheckResult = {
+  ok: boolean
+  error_code?: AwsSecretResolutionErrorCode | null
+  message?: string | null
+  resolved_keys?: Array<string>
+}
+
+/**
+ * Where a workspace secret's values live.
+ */
+export type SecretSource = "local" | "aws_secrets_manager"
+
+/**
+ * Authorize a workspace to reference a store.
+ */
+export type SecretStoreAuthorizationCreate = {
+  workspace_id: string
+}
+
+export type SecretStoreAuthorizationRead = {
+  id: string
+  store_id: string
+  workspace_id: string
+  created_at: string
+}
+
+/**
+ * Create an organization-owned external secret store.
+ */
+export type SecretStoreCreate = {
+  name: string
+  description?: string | null
+  provider?: SecretStoreProvider
+  config: AwsSecretsManagerStoreCreate
+  enabled?: boolean
+  /**
+   * Allow all current and future workspaces.
+   */
+  all_workspaces?: boolean
+}
+
+/**
+ * Supported external secret store providers.
+ */
+export type SecretStoreProvider = "aws_secrets_manager"
+
+/**
+ * Organization view of a secret store, including trust-policy inputs.
+ */
+export type SecretStoreRead = {
+  id: string
+  organization_id: string
+  name: string
+  description?: string | null
+  provider: SecretStoreProvider
+  config: AwsSecretsManagerStoreConfig
+  enabled: boolean
+  all_workspaces: boolean
+  tracecat_aws_account_id?: string | null
+  tracecat_aws_principal_arn?: string | null
+  authorized_workspace_ids?: Array<string>
+  reference_count?: number
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Update an organization-owned secret store. Server-owned fields are immutable.
+ */
+export type SecretStoreUpdate = {
+  name?: string | null
+  description?: string | null
+  config?: AwsSecretsManagerStoreUpdate | null
+  enabled?: boolean | null
+  /**
+   * Allow all current and future workspaces.
+   */
+  all_workspaces?: boolean
 }
 
 /**
@@ -6311,6 +7926,28 @@ export type SecretValidationResult = {
   msg?: string
   detail?: SecretValidationDetail | null
   ref?: string | null
+}
+
+/**
+ * Organization security settings.
+ */
+export type SecuritySettingsRead = {
+  ip_allowlist_enabled: boolean
+  ip_allowlists: Array<IPAllowlist>
+}
+
+/**
+ * Organization security settings.
+ */
+export type SecuritySettingsUpdate = {
+  /**
+   * Restrict organization API access to the configured IP allowlists. Has no effect while no allowlists exist.
+   */
+  ip_allowlist_enabled?: boolean
+  /**
+   * Named groups of allowed IP addresses or CIDR ranges.
+   */
+  ip_allowlists?: Array<IPAllowlist>
 }
 
 export type Select = {
@@ -6396,6 +8033,9 @@ export type SessionRead = {
   created_at: string
   user_id: string
   user_email: string
+  ip_address?: string | null
+  user_agent?: string | null
+  last_seen_at?: string | null
 }
 
 export type Session_Any_ = {
@@ -6433,6 +8073,22 @@ export type SeverityChangedEventRead = {
 export type SkillCreate = {
   name: string
   description?: string | null
+}
+
+/**
+ * Skill as a directory item.
+ */
+export type SkillDirectoryItem = {
+  type: "skill"
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  current_version_id: string | null
+  folder_id: string | null
+  tags: Array<TagRead>
+  created_at: string
+  updated_at: string
 }
 
 /**
@@ -6525,19 +8181,67 @@ export type SkillFileEntry = {
   content_type: string
 }
 
+export type SkillFolderCreate = {
+  name: string
+  parent_path?: string
+}
+
+export type SkillFolderDelete = {
+  recursive?: boolean
+}
+
+export type SkillFolderDirectoryItem = {
+  id: string
+  name: string
+  path: string
+  workspace_id: string
+  created_at: string
+  updated_at: string
+  type: "folder"
+  num_items: number
+}
+
+export type SkillFolderMove = {
+  new_parent_path?: string | null
+}
+
+export type SkillFolderRead = {
+  id: string
+  name: string
+  path: string
+  workspace_id: string
+  created_at: string
+  updated_at: string
+}
+
+export type SkillFolderUpdate = {
+  name?: string | null
+}
+
+/**
+ * Payload for moving a skill into a folder.
+ */
+export type SkillMoveToFolder = {
+  folder_path?: string | null
+}
+
 /**
  * Full response model for a workspace skill.
  */
 export type SkillRead = {
   id: string
   workspace_id: string
+  origin?: "workspace"
   name: string
+  slug: string
   description?: string | null
   current_version_id?: string | null
+  folder_id?: string | null
+  tags?: Array<TagRead>
   draft_revision: number
   created_at: string
   updated_at: string
-  archived_at?: string | null
+  deleted_at?: string | null
   current_version?: SkillVersionReadMinimal | null
   is_draft_publishable: boolean
   draft_validation_errors?: Array<SkillValidationErrorDetail>
@@ -6546,16 +8250,41 @@ export type SkillRead = {
 
 /**
  * Minimal response model for listing workspace skills.
+ *
+ * ``slug`` is the late-binding handle every skill API accepts; list
+ * responses must expose it so callers never have to guess it from ``name``
+ * (names are not unique — slugs are, per live row).
  */
 export type SkillReadMinimal = {
   id: string
   workspace_id: string
+  origin?: "workspace"
   name: string
+  slug: string
   description?: string | null
   current_version_id?: string | null
+  folder_id?: string | null
+  tags?: Array<TagRead>
   created_at: string
   updated_at: string
-  archived_at?: string | null
+  deleted_at?: string | null
+}
+
+/**
+ * Payload for adding a tag to a skill.
+ */
+export type SkillTagCreate = {
+  tag_id: string
+}
+
+/**
+ * Tag data.
+ */
+export type SkillTagRead = {
+  id: string
+  name: string
+  ref: string
+  color: string | null
 }
 
 /**
@@ -6799,6 +8528,31 @@ export type StringListFieldChange = {
   removed?: Array<string>
 }
 
+export type SyncPreviewResource = {
+  resource_type: string
+  source_id: string
+  name: string
+  path: string
+}
+
+/**
+ * Kind of workspace resource that can be synced to and from Git.
+ *
+ * Every member is adapter-backed: it can be projected to and imported from
+ * repository files.
+ */
+export type SyncResourceType =
+  | "workflow"
+  | "agent_preset"
+  | "skill"
+  | "table"
+  | "case_tag"
+  | "case_field"
+  | "case_dropdown"
+  | "case_duration"
+  | "variable"
+  | "secret_metadata"
+
 export type SyntaxToken = {
   type: string
   value: string
@@ -6838,6 +8592,10 @@ export type TableColumnCreate = {
   type: SqlType
   nullable?: boolean
   default?: unknown | null
+  /**
+   * Whether to create a unique index on the column
+   */
+  is_index?: boolean
   options?: Array<string> | null
 }
 
@@ -7042,6 +8800,96 @@ export type TableRowUpdate = {
   data: {
     [key: string]: unknown
   }
+}
+
+/**
+ * Persisted selection with truthful readiness; never includes credentials.
+ */
+export type TableSearchConfiguration = {
+  generation?: number
+  selected_column_ids?: Array<string>
+  status?: TableSearchDisplayState
+  index?: SearchIndexStatus | null
+}
+
+export type TableSearchDisplayState =
+  | "disabled"
+  | "unavailable"
+  | "indexing"
+  | "ready"
+  | "updating"
+  | "needs_attention"
+
+/**
+ * Bounded progress sample; chunk totals remain unknown until enumeration ends.
+ */
+export type TableSearchDocumentProgress = {
+  document_id: string
+  row_id: string
+  state: DocumentState
+  revision: number
+  expected_chunks: number | null
+  sampled_chunks: number
+  sampled_embedded: number
+  chunks_capped: boolean
+  error_code: string | null
+}
+
+/**
+ * Safe domain failure, including a stale generation precondition.
+ */
+export type TableSearchErrorRead = {
+  code: SearchErrorCode | "INVALID_SELECTION"
+}
+
+export type TableSearchErrorResponse = {
+  detail: TableSearchErrorRead
+}
+
+export type TableSearchProgressPage = {
+  generation: number
+  items: Array<TableSearchDocumentProgress>
+  next_cursor?: string | null
+  prev_cursor?: string | null
+  has_more?: boolean
+  has_previous?: boolean
+}
+
+/**
+ * Standard FastAPI request validation fields for the selection endpoint.
+ */
+export type TableSearchRequestValidationError = {
+  loc: Array<string | number>
+  msg: string
+  type: string
+  input?: JsonValue
+  ctx?: {
+    [key: string]: JsonValue
+  } | null
+}
+
+/**
+ * Retry a bounded explicit set of failed documents in the current generation.
+ */
+export type TableSearchRetry = {
+  expected_generation: number
+  document_ids: Array<string>
+}
+
+/**
+ * Set one selection; generation zero denotes an absent collection.
+ */
+export type TableSearchSelection = {
+  column_id: string
+  enabled: boolean
+  expected_generation: number
+}
+
+/**
+ * Invalid column selection or malformed request parameters.
+ */
+export type TableSearchSelectionErrorResponse = {
+  detail: TableSearchErrorRead | Array<TableSearchRequestValidationError>
 }
 
 /**
@@ -7481,9 +9329,33 @@ export type ToolApproved = {
   kind?: "tool-approved"
 }
 
+/**
+ * Persisted decision for a tool approved with argument overrides.
+ */
+export type ToolApprovedDecision = {
+  kind: "tool-approved"
+  override_args?: {
+    [key: string]: unknown
+  }
+  metadata?: {
+    [key: string]: unknown
+  }
+}
+
 export type ToolDenied = {
   message?: string
   kind?: "tool-denied"
+}
+
+/**
+ * Persisted decision for a denied tool call.
+ */
+export type ToolDeniedDecision = {
+  kind: "tool-denied"
+  message?: string
+  metadata?: {
+    [key: string]: unknown
+  }
 }
 
 export type ToolResultBlock = {
@@ -7496,36 +9368,6 @@ export type ToolResultBlock = {
     | null
   is_error?: boolean | null
 }
-
-export type ToolReturn = {
-  return_value: ToolReturnContent
-  content?:
-    | string
-    | Array<
-        | string
-        | ImageUrl
-        | AudioUrl
-        | DocumentUrl
-        | VideoUrl
-        | BinaryContent
-        | CachePoint
-      >
-    | null
-  metadata?: unknown
-  kind?: "tool-return"
-}
-
-export type ToolReturnContent =
-  | ImageUrl
-  | AudioUrl
-  | DocumentUrl
-  | VideoUrl
-  | BinaryContent
-  | Array<ToolReturnContent>
-  | {
-      [key: string]: ToolReturnContent
-    }
-  | unknown
 
 export type ToolUIPartInputAvailable = {
   type: string
@@ -7600,7 +9442,7 @@ export type Trigger = {
   }
 }
 
-export type type4 = "schedule" | "webhook"
+export type type5 = "schedule" | "webhook"
 
 /**
  * Trigger type for a workflow execution.
@@ -7776,6 +9618,28 @@ export type UserScopesRead = {
   scopes: Array<string>
 }
 
+/**
+ * Summary of a user for inbox item context.
+ */
+export type UserSummary = {
+  /**
+   * User ID
+   */
+  id: string
+  /**
+   * User email
+   */
+  email: string
+  /**
+   * User first name
+   */
+  first_name?: string | null
+  /**
+   * User last name
+   */
+  last_name?: string | null
+}
+
 export type UserUpdate = {
   password?: string | null
   email?: string | null
@@ -7800,6 +9664,10 @@ export type ValidationError = {
   loc: Array<string | number>
   msg: string
   type: string
+  input?: unknown
+  ctx?: {
+    [key: string]: unknown
+  }
 }
 
 export type ValidationResult =
@@ -7860,6 +9728,15 @@ export type VariableUpdate = {
 }
 
 /**
+ * Version control host backing a workspace sync repository.
+ */
+export type VcsProvider =
+  | "github"
+  | "gitlab"
+  | "bitbucket"
+  | "bitbucket_data_center"
+
+/**
  * Vercel AI SDK format request with structured UI messages.
  */
 export type VercelChatRequest = {
@@ -7910,36 +9787,6 @@ export type VertexAICatalogUpdate = {
   display_name?: string | null
   model_provider: "vertex_ai"
   vertex_model: string
-}
-
-/**
- * A URL to a video.
- */
-export type VideoUrl = {
-  url: string
-  force_download?: boolean | "allow-local"
-  vendor_metadata?: {
-    [key: string]: unknown
-  } | null
-  kind?: "video-url"
-  /**
-   * Return the media type of the file, based on the URL or the provided `media_type`.
-   */
-  readonly media_type: string
-  /**
-   * The identifier of the file, such as a unique ID.
-   *
-   * This identifier can be provided to the model in a message to allow it to refer to this file in a tool call argument,
-   * and the tool can look up the file in question by iterating over the message history and finding the matching `FileUrl`.
-   *
-   * This identifier is only automatically passed to the model when the `FileUrl` is returned by a tool.
-   * If you're passing the `FileUrl` as a user message, it's up to you to include a separate text part with the identifier,
-   * e.g. "This is file <identifier>:" preceding the `FileUrl`.
-   *
-   * It's also included in inline-text delimiters for providers that require inlining text documents, so the model can
-   * distinguish multiple files.
-   */
-  readonly identifier: string
 }
 
 export type WaitResultOutput =
@@ -8117,6 +9964,7 @@ export type WebhookCreate = {
   methods?: Array<WebhookMethod>
   entrypoint_ref?: string | null
   allowlisted_cidrs?: Array<string>
+  include_headers?: boolean
 }
 
 export type WebhookMethod = "GET" | "POST"
@@ -8134,9 +9982,23 @@ export type WebhookRead = {
    * Methods to allow
    */
   methods?: Array<WebhookMethod>
+  include_headers?: boolean
   workflow_id: string
   url: string
   api_key?: WebhookApiKeyRead | null
+}
+
+/**
+ * Standard FastAPI request validation fields for the shared 422 response.
+ */
+export type WebhookRequestValidationError = {
+  loc: Array<string | number>
+  msg: string
+  type: string
+  input?: unknown
+  ctx?: {
+    [key: string]: JsonValue
+  } | null
 }
 
 export type WebhookStatus = "online" | "offline"
@@ -8161,6 +10023,23 @@ export type WebhookUpdate = {
   methods?: Array<WebhookMethod> | null
   entrypoint_ref?: string | null
   allowlisted_cidrs?: Array<string> | null
+  include_headers?: boolean | null
+}
+
+/**
+ * Invalid request parameters or a classified user workflow failure.
+ */
+export type WebhookWaitErrorResponse = {
+  detail: WebhookWaitFailureDetail | Array<WebhookRequestValidationError>
+}
+
+/**
+ * Public metadata for a user-owned workflow failure.
+ */
+export type WebhookWaitFailureDetail = {
+  code: RuntimeErrorKind
+  wf_exec_id: string
+  message?: string
 }
 
 export type WorkflowAlias = {
@@ -8189,7 +10068,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status5 = "success" | "failure"
+export type status9 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -8204,6 +10083,10 @@ export type WorkflowDefinitionRead = {
   } | null
   created_at: string
   updated_at: string
+  /**
+   * Registry lock origins with server-normalized display labels.
+   */
+  readonly registry_lock_entries: Array<RegistryLockEntryRead>
 }
 
 export type WorkflowDefinitionReadMinimal = {
@@ -8230,6 +10113,31 @@ export type WorkflowDirectoryItem = {
   type: "workflow"
 }
 
+/**
+ * Canonical editable draft document plus its content-hash revision.
+ */
+export type WorkflowDraftRead = {
+  workflow_id: string
+  draft_revision: string
+  document: WorkflowEditDocument_Output
+}
+
+/**
+ * Wholesale replacement of a workflow draft.
+ *
+ * ``document`` is the full desired draft state (metadata, definition, layout,
+ * schedules, case trigger). ``schedules`` is optional: when omitted, the
+ * workflow's existing schedules are left untouched so they can be owned by
+ * the standalone ``/schedules`` resource; when present, they are replaced.
+ * Other omitted sections fall back to their defaults and are treated as
+ * changed. When ``base_revision`` is set, the update is rejected with 409 if
+ * the current draft revision differs.
+ */
+export type WorkflowDraftUpdate = {
+  document: WorkflowEditDocument_Input
+  base_revision?: string | null
+}
+
 export type WorkflowDslPublish = {
   message?: string | null
   branch?: string | null
@@ -8248,7 +10156,45 @@ export type WorkflowDslPublishResult = {
   message: string
 }
 
-export type status6 = "committed" | "no_op"
+export type status10 = "committed" | "no_op"
+
+export type WorkflowEditDefinition_Input = {
+  entrypoint?: DSLEntrypoint_Input
+  actions?: Array<ActionStatement_Input>
+  config?: DSLConfig_Input
+  returns?: unknown | null
+}
+
+export type WorkflowEditDefinition_Output = {
+  entrypoint?: DSLEntrypoint_Output
+  actions?: Array<ActionStatement_Output>
+  config?: DSLConfig_Output
+  returns?: unknown | null
+}
+
+export type WorkflowEditDocument_Input = {
+  metadata: WorkflowEditMetadata
+  definition: WorkflowEditDefinition_Input
+  layout?: WorkflowLayout
+  schedules?: Array<WorkflowSchedule>
+  case_trigger?: CaseTriggerConfig | null
+}
+
+export type WorkflowEditDocument_Output = {
+  metadata: WorkflowEditMetadata
+  definition: WorkflowEditDefinition_Output
+  layout?: WorkflowLayout
+  schedules?: Array<WorkflowSchedule>
+  case_trigger?: CaseTriggerConfig | null
+}
+
+export type WorkflowEditMetadata = {
+  title: string
+  description: string
+  status: "online" | "offline"
+  alias?: string | null
+  error_handler?: string | null
+}
 
 export type WorkflowEntrypointValidationRequest = {
   expects?: {
@@ -8394,6 +10340,7 @@ export type WorkflowExecutionCreateResponse = {
   message: string
   wf_id: string
   wf_exec_id: string
+  trace_id?: string
   payload?: unknown
 }
 
@@ -8413,7 +10360,7 @@ export type WorkflowExecutionEvent = {
   workflow_timeout?: number | null
 }
 
-export type WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_ = {
+export type WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_ = {
   source_event_id: number
   schedule_time: string
   start_time?: string | null
@@ -8566,7 +10513,7 @@ export type WorkflowExecutionRead = {
   interactions?: Array<InteractionRead>
 }
 
-export type status7 =
+export type status11 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
@@ -8575,7 +10522,7 @@ export type status7 =
   | "CONTINUED_AS_NEW"
   | "TIMED_OUT"
 
-export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
+export type WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
   /**
    * The ID of the workflow execution
    */
@@ -8619,7 +10566,7 @@ export type WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_ = {
   /**
    * Compact events in the workflow execution
    */
-  events: Array<WorkflowExecutionEventCompact_Any__Union_AgentOutput__Any___Any_>
+  events: Array<WorkflowExecutionEventCompact_Any_Union_AgentOutput__Any__Any_>
   /**
    * The interactions in the workflow execution
    */
@@ -8744,6 +10691,12 @@ export type WorkflowFolderUpdate = {
   name?: string | null
 }
 
+export type WorkflowLayout = {
+  trigger?: LayoutPosition | null
+  viewport?: LayoutViewport | null
+  actions?: Array<LayoutActionPosition>
+}
+
 export type WorkflowMoveToFolder = {
   folder_path?: string | null
 }
@@ -8772,6 +10725,7 @@ export type WorkflowRead = {
   alias?: string | null
   git_sync_branch?: string | null
   error_handler?: string | null
+  folder_id?: string | null
   trigger_position_x?: number
   trigger_position_y?: number
   graph_version?: number
@@ -8852,6 +10806,19 @@ export type WorkflowRunReadMinimal = {
   workflow_alias?: string | null
 }
 
+export type WorkflowSchedule = {
+  status?: "online" | "offline"
+  inputs?: {
+    [key: string]: unknown
+  } | null
+  cron?: string | null
+  every?: string | null
+  offset?: string | null
+  start_at?: string | null
+  end_at?: string | null
+  timeout?: number
+}
+
 /**
  * Summary of a workflow for inbox item context.
  */
@@ -8882,6 +10849,18 @@ export type WorkflowSyncPullRequest = {
    * Validate only, don't perform actual import
    */
   dry_run?: boolean
+  /**
+   * Apply schedule definitions from Git. Defaults off to preserve destination schedules.
+   */
+  sync_schedules?: boolean
+  /**
+   * Explicit source-to-target model choices from the pull preview.
+   */
+  catalog_mappings?: Array<CatalogMappingSelection>
+  /**
+   * Explicit source-to-target MCP integration choices from the pull preview.
+   */
+  mcp_integration_mappings?: Array<McpIntegrationMappingSelection>
 }
 
 export type WorkflowTagCreate = {
@@ -8971,6 +10950,10 @@ export type WorkspaceRead = {
   name: string
   settings?: WorkspaceSettingsRead | null
   organization_id: string
+  /**
+   * Whether the organization lets this workspace's actions opt into showing original error details when secrets are in scope.
+   */
+  unsafe_disable_secret_error_withholding_allowed?: boolean
 }
 
 export type WorkspaceReadMinimal = {
@@ -8978,7 +10961,20 @@ export type WorkspaceReadMinimal = {
   name: string
 }
 
+/**
+ * Workspace view of an authorized store. Never exposes the external ID.
+ */
+export type WorkspaceSecretStoreRead = {
+  id: string
+  name: string
+  description?: string | null
+  provider: SecretStoreProvider
+  region: string
+  enabled: boolean
+}
+
 export type WorkspaceSettingsRead = {
+  git_provider?: VcsProvider | null
   git_repo_url?: string | null
   workflow_unlimited_timeout_enabled?: boolean | null
   workflow_default_timeout_seconds?: number | null
@@ -8996,6 +10992,7 @@ export type WorkspaceSettingsRead = {
 }
 
 export type WorkspaceSettingsUpdate = {
+  git_provider?: VcsProvider | null
   git_repo_url?: string | null
   /**
    * Allow workflows to run indefinitely without timeout constraints. When enabled, individual workflow timeout settings are ignored.
@@ -9019,6 +11016,117 @@ export type WorkspaceSettingsUpdate = {
   validate_attachment_magic_number?: boolean | null
 }
 
+/**
+ * Projection summary of the resources an export would commit.
+ *
+ * Mirrors the pull dry-run preview: it projects the selected resources
+ * locally without writing to Git or mutating sync mappings.
+ */
+export type WorkspaceSyncExportPreview = {
+  /**
+   * Count of resources to commit, keyed by resource type.
+   */
+  resource_counts: {
+    [key: string]: number
+  }
+  /**
+   * Repository-relative paths the export would write.
+   */
+  files: Array<string>
+  /**
+   * Displayable resources included in the export preview.
+   */
+  resources?: Array<WorkspaceSyncPreviewResource>
+  /**
+   * Per-resource file diffs between the comparison ref and projected export.
+   */
+  resource_diffs?: Array<PullResourceDiff>
+}
+
+/**
+ * Request a dry-run projection of what an export would push to Git.
+ */
+export type WorkspaceSyncExportPreviewRequest = {
+  /**
+   * Specific resources to preview, or ``None`` for all.
+   */
+  resources?: Array<ResourceRef> | null
+  /**
+   * Whether to include workflow schedules in the preview.
+   */
+  include_schedules?: boolean
+  /**
+   * Repository ref to compare the projected export against. When omitted, the preview only returns the export manifest summary.
+   */
+  compare_ref?: string | null
+}
+
+/**
+ * Request to commit selected workspace resources to a Git branch.
+ */
+export type WorkspaceSyncExportRequest = {
+  /**
+   * Commit message for the export.
+   */
+  message: string
+  /**
+   * Target branch to commit to.
+   */
+  branch: string
+  /**
+   * Whether to open a pull request for the commit.
+   */
+  create_pr?: boolean
+  /**
+   * Base branch for the pull request, if created.
+   */
+  pr_base_branch?: string | null
+  /**
+   * Specific resources to export, or ``None`` to export all.
+   */
+  resources?: Array<ResourceRef> | null
+  /**
+   * Whether to include workflow schedules in the export.
+   */
+  include_schedules?: boolean
+}
+
+/**
+ * Outcome of a workspace export: the commit made and files written.
+ */
+export type WorkspaceSyncExportResult = {
+  /**
+   * Metadata for the commit that was created.
+   */
+  commit: CommitInfo
+  /**
+   * Repository-relative paths written by the export.
+   */
+  files: Array<string>
+}
+
+/**
+ * One resource included in a workspace sync export preview.
+ */
+export type WorkspaceSyncPreviewResource = {
+  /**
+   * Type of resource included in the preview.
+   */
+  resource_type: SyncResourceType
+  /**
+   * Stable Git source id for the resource.
+   */
+  source_id: string
+  /**
+   * Human-readable resource name.
+   */
+  name: string
+  /**
+   * Primary repository path written for the resource.
+   */
+  path: string
+}
+
 export type WorkspaceUpdate = {
   name?: string | null
   settings?: WorkspaceSettingsUpdate | null
@@ -9026,6 +11134,15 @@ export type WorkspaceUpdate = {
 
 export type Yaml = {
   component_id?: "yaml"
+}
+
+export type login = {
+  grant_type?: string | null
+  username: string
+  password: string
+  scope?: string
+  client_id?: string | null
+  client_secret?: string | null
 }
 
 /**
@@ -9258,7 +11375,7 @@ export type WorkspacesUpdateWorkspaceData = {
   workspaceId: string
 }
 
-export type WorkspacesUpdateWorkspaceResponse = void
+export type WorkspacesUpdateWorkspaceResponse = WorkspaceRead
 
 export type WorkspacesDeleteWorkspaceData = {
   workspaceId: string
@@ -9284,7 +11401,8 @@ export type WorkspacesCreateWorkspaceMembershipData = {
   workspaceId: string
 }
 
-export type WorkspacesCreateWorkspaceMembershipResponse = unknown
+export type WorkspacesCreateWorkspaceMembershipResponse =
+  WorkspaceMembershipRead
 
 export type WorkspacesGetWorkspaceMembershipData = {
   userId: string
@@ -9322,6 +11440,12 @@ export type WorkspacesRevokeWorkspaceInvitationData = {
 }
 
 export type WorkspacesRevokeWorkspaceInvitationResponse = void
+
+export type SearchGetEmbeddingConfigurationData = {
+  workspaceId: string
+}
+
+export type SearchGetEmbeddingConfigurationResponse = EmbeddingConfigurationRead
 
 export type ServiceAccountsListWorkspaceServiceAccountsData = {
   cursor?: string | null
@@ -9474,7 +11598,7 @@ export type WorkflowsUpdateWorkflowData = {
   workspaceId: string
 }
 
-export type WorkflowsUpdateWorkflowResponse = void
+export type WorkflowsUpdateWorkflowResponse = WorkflowRead
 
 export type WorkflowsDeleteWorkflowData = {
   workflowId: string
@@ -9533,12 +11657,20 @@ export type WorkflowsGetWorkflowDefinitionData = {
 
 export type WorkflowsGetWorkflowDefinitionResponse = WorkflowDefinitionRead
 
-export type WorkflowsCreateWorkflowDefinitionData = {
+export type WorkflowsGetWorkflowDraftData = {
   workflowId: string
   workspaceId: string
 }
 
-export type WorkflowsCreateWorkflowDefinitionResponse = WorkflowDefinitionRead
+export type WorkflowsGetWorkflowDraftResponse = WorkflowDraftRead
+
+export type WorkflowsReplaceWorkflowDraftData = {
+  requestBody: WorkflowDraftUpdate
+  workflowId: string
+  workspaceId: string
+}
+
+export type WorkflowsReplaceWorkflowDraftResponse = WorkflowDraftRead
 
 export type TriggersCreateWebhookData = {
   requestBody: WebhookCreate
@@ -9546,7 +11678,7 @@ export type TriggersCreateWebhookData = {
   workspaceId: string
 }
 
-export type TriggersCreateWebhookResponse = unknown
+export type TriggersCreateWebhookResponse = WebhookRead
 
 export type TriggersGetWebhookData = {
   workflowId: string
@@ -9561,7 +11693,7 @@ export type TriggersUpdateWebhookData = {
   workspaceId: string
 }
 
-export type TriggersUpdateWebhookResponse = void
+export type TriggersUpdateWebhookResponse = WebhookRead
 
 export type TriggersCreateCaseTriggerData = {
   requestBody: CaseTriggerCreate
@@ -9584,7 +11716,7 @@ export type TriggersUpdateCaseTriggerData = {
   workspaceId: string
 }
 
-export type TriggersUpdateCaseTriggerResponse = void
+export type TriggersUpdateCaseTriggerResponse = CaseTriggerRead
 
 export type TriggersGenerateWebhookApiKeyData = {
   workflowId: string
@@ -9733,7 +11865,7 @@ export type WorkflowExecutionsGetWorkflowExecutionCompactData = {
 }
 
 export type WorkflowExecutionsGetWorkflowExecutionCompactResponse =
-  WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+  WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
 
 export type WorkflowExecutionsGetWorkflowExecutionObjectDownloadData = {
   executionId: string
@@ -9863,6 +11995,13 @@ export type WorkflowsPublishWorkflowData = {
 
 export type WorkflowsPublishWorkflowResponse = WorkflowDslPublishResult
 
+export type WorkflowsListWorkflowRepositoriesData = {
+  workspaceId: string
+}
+
+export type WorkflowsListWorkflowRepositoriesResponse =
+  Array<GitHubAppRepository>
+
 export type WorkflowsListWorkflowCommitsData = {
   /**
    * Branch name to fetch commits from
@@ -9887,12 +12026,58 @@ export type WorkflowsListWorkflowBranchesData = {
 
 export type WorkflowsListWorkflowBranchesResponse = Array<GitBranchInfo>
 
+export type WorkflowsExportWorkspaceSyncData = {
+  requestBody: WorkspaceSyncExportRequest
+  workspaceId: string
+}
+
+export type WorkflowsExportWorkspaceSyncResponse = WorkspaceSyncExportResult
+
+export type WorkflowsPreviewExportWorkspaceSyncData = {
+  requestBody: WorkspaceSyncExportPreviewRequest
+  workspaceId: string
+}
+
+export type WorkflowsPreviewExportWorkspaceSyncResponse =
+  WorkspaceSyncExportPreview
+
 export type WorkflowsPullWorkflowsData = {
   requestBody: WorkflowSyncPullRequest
   workspaceId: string
 }
 
 export type WorkflowsPullWorkflowsResponse = PullResult
+
+export type SecretsCreateAwsSecretReferenceData = {
+  requestBody: AwsSecretReferenceCreate
+  workspaceId: string
+}
+
+export type SecretsCreateAwsSecretReferenceResponse = unknown
+
+export type SecretsUpdateAwsSecretReferenceData = {
+  requestBody: AwsSecretReferenceUpdate
+  secretId: string
+  workspaceId: string
+}
+
+export type SecretsUpdateAwsSecretReferenceResponse = void
+
+export type SecretsCheckAwsSecretReferenceData = {
+  secretId: string
+  workspaceId: string
+}
+
+export type SecretsCheckAwsSecretReferenceResponse = SecretReferenceCheckResult
+
+export type SecretsListAuthorizedSecretStoresData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type SecretsListAuthorizedSecretStoresResponse =
+  Page_WorkspaceSecretStoreRead_
 
 export type SecretsSearchSecretsData = {
   environment: string
@@ -9928,7 +12113,7 @@ export type SecretsCreateSecretData = {
   workspaceId: string
 }
 
-export type SecretsCreateSecretResponse = unknown
+export type SecretsCreateSecretResponse = SecretReadMinimal
 
 export type SecretsListSecretDefinitionsData = {
   workspaceId: string
@@ -9955,7 +12140,7 @@ export type SecretsUpdateSecretByIdData = {
   workspaceId: string
 }
 
-export type SecretsUpdateSecretByIdResponse = void
+export type SecretsUpdateSecretByIdResponse = SecretReadMinimal
 
 export type SecretsDeleteSecretByIdData = {
   secretId: string
@@ -10113,6 +12298,9 @@ export type OrganizationDeleteOrganizationData = {
 
 export type OrganizationDeleteOrganizationResponse = void
 
+export type OrganizationListCurrentUserOrganizationMembershipsResponse =
+  Array<tracecat__organization__schemas__OrgRead>
+
 export type OrganizationListOrganizationDomainsResponse =
   Array<tracecat__organization__schemas__OrgDomainRead>
 
@@ -10161,6 +12349,12 @@ export type OrganizationRevokeInvitationData = {
 }
 
 export type OrganizationRevokeInvitationResponse = void
+
+export type OrganizationResendInvitationData = {
+  invitationId: string
+}
+
+export type OrganizationResendInvitationResponse = OrgInvitationRead
 
 export type OrganizationGetInvitationTokenData = {
   invitationId: string
@@ -10300,6 +12494,14 @@ export type AgentDeleteProviderCredentialsData = {
 
 export type AgentDeleteProviderCredentialsResponse = {
   [key: string]: string
+}
+
+export type AgentRefreshProviderModelsData = {
+  provider: string
+}
+
+export type AgentRefreshProviderModelsResponse = {
+  [key: string]: number
 }
 
 export type AgentGetDefaultModelResponse = string | null
@@ -10503,6 +12705,13 @@ export type AgentPresetsCreateAgentPresetData = {
 }
 
 export type AgentPresetsCreateAgentPresetResponse = AgentPresetRead
+
+export type AgentPresetsPreviewToolPolicyData = {
+  requestBody: AgentPresetToolPolicyPreview
+  workspaceId: string
+}
+
+export type AgentPresetsPreviewToolPolicyResponse = AgentPresetToolPolicyRead
 
 export type AgentPresetsGetAgentPresetData = {
   presetId: string
@@ -10749,6 +12958,14 @@ export type AgentSkillsArchiveSkillData = {
 
 export type AgentSkillsArchiveSkillResponse = void
 
+export type AgentSkillsMoveSkillData = {
+  requestBody: SkillMoveToFolder
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsMoveSkillResponse = void
+
 export type AgentSkillsGetSkillDraftData = {
   skillId: string
   workspaceId: string
@@ -10823,6 +13040,142 @@ export type AgentSkillsRestoreSkillVersionData = {
 
 export type AgentSkillsRestoreSkillVersionResponse = SkillReadMinimal
 
+export type SkillFoldersGetDirectoryData = {
+  /**
+   * Folder path
+   */
+  path?: string
+  workspaceId: string
+}
+
+export type SkillFoldersGetDirectoryResponse = Array<
+  SkillDirectoryItem | SkillFolderDirectoryItem
+>
+
+export type SkillFoldersListFoldersData = {
+  cursor?: string | null
+  limit?: number
+  /**
+   * Parent folder path
+   */
+  parentPath?: string
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type SkillFoldersListFoldersResponse =
+  CursorPaginatedResponse_SkillFolderRead_
+
+export type SkillFoldersCreateFolderData = {
+  requestBody: SkillFolderCreate
+  workspaceId: string
+}
+
+export type SkillFoldersCreateFolderResponse = SkillFolderRead
+
+export type SkillFoldersGetFolderData = {
+  folderId: string
+  workspaceId: string
+}
+
+export type SkillFoldersGetFolderResponse = SkillFolderRead
+
+export type SkillFoldersUpdateFolderData = {
+  folderId: string
+  requestBody: SkillFolderUpdate
+  workspaceId: string
+}
+
+export type SkillFoldersUpdateFolderResponse = SkillFolderRead
+
+export type SkillFoldersDeleteFolderData = {
+  folderId: string
+  requestBody?: SkillFolderDelete | null
+  workspaceId: string
+}
+
+export type SkillFoldersDeleteFolderResponse = void
+
+export type SkillFoldersMoveFolderData = {
+  folderId: string
+  requestBody: SkillFolderMove
+  workspaceId: string
+}
+
+export type SkillFoldersMoveFolderResponse = SkillFolderRead
+
+export type SkillTagsListSkillTagsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type SkillTagsListSkillTagsResponse =
+  CursorPaginatedResponse_SkillTagRead_
+
+export type SkillTagsCreateSkillTagData = {
+  requestBody: TagCreate
+  workspaceId: string
+}
+
+export type SkillTagsCreateSkillTagResponse = SkillTagRead
+
+export type SkillTagsGetSkillTagData = {
+  tagId: string
+  workspaceId: string
+}
+
+export type SkillTagsGetSkillTagResponse = SkillTagRead
+
+export type SkillTagsUpdateSkillTagData = {
+  requestBody: TagUpdate
+  tagId: string
+  workspaceId: string
+}
+
+export type SkillTagsUpdateSkillTagResponse = SkillTagRead
+
+export type SkillTagsDeleteSkillTagData = {
+  tagId: string
+  workspaceId: string
+}
+
+export type SkillTagsDeleteSkillTagResponse = void
+
+export type AgentSkillsListSkillTagsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsListSkillTagsResponse =
+  CursorPaginatedResponse_SkillTagRead_
+
+export type AgentSkillsAddSkillTagData = {
+  requestBody: SkillTagCreate
+  skillId: string
+  workspaceId: string
+}
+
+export type AgentSkillsAddSkillTagResponse = unknown
+
+export type AgentSkillsRemoveSkillTagData = {
+  skillId: string
+  tagId: string
+  workspaceId: string
+}
+
+export type AgentSkillsRemoveSkillTagResponse = void
+
+export type AgentSessionsListAgentBackendsData = {
+  workspaceId: string
+}
+
+export type AgentSessionsListAgentBackendsResponse = Array<AgentBackendRead>
+
 export type AgentSessionsCreateSessionData = {
   requestBody: AgentSessionCreate
   workspaceId: string
@@ -10831,6 +13184,10 @@ export type AgentSessionsCreateSessionData = {
 export type AgentSessionsCreateSessionResponse = AgentSessionRead
 
 export type AgentSessionsListSessionsData = {
+  /**
+   * Filter by session creator. Omit to list the entire workspace.
+   */
+  createdBy?: string | null
   /**
    * Filter by entity ID
    */
@@ -10893,7 +13250,16 @@ export type AgentSessionsGetSessionVercelResponse =
 
 export type AgentSessionsRemoveSessionArtifactData = {
   artifactId: string
-  artifactType: ArtifactType
+  artifactType:
+    | "case"
+    | "workflow"
+    | "run"
+    | "table"
+    | "agent"
+    | "alert"
+    | "integration"
+    | "secret"
+    | "generic"
   sessionId: string
   workspaceId: string
 }
@@ -10927,6 +13293,14 @@ export type AgentSessionsForkSessionData = {
 }
 
 export type AgentSessionsForkSessionResponse = AgentSessionRead
+
+export type AgentSessionsCancelSessionData = {
+  requestBody?: AgentSessionCancelRequest | null
+  sessionId: string
+  workspaceId: string
+}
+
+export type AgentSessionsCancelSessionResponse = AgentSessionCancelResponse
 
 export type ApprovalsSubmitApprovalsData = {
   requestBody: ApprovalSubmission
@@ -11062,6 +13436,13 @@ export type AdminRevokeOrganizationInvitationData = {
 
 export type AdminRevokeOrganizationInvitationResponse = void
 
+export type AdminResendOrganizationInvitationData = {
+  invitationId: string
+  orgId: string
+}
+
+export type AdminResendOrganizationInvitationResponse = AdminOrgInvitationRead
+
 export type AdminListOrganizationDomainsData = {
   orgId: string
 }
@@ -11123,6 +13504,20 @@ export type AdminPromoteOrgRepositoryVersionData = {
 
 export type AdminPromoteOrgRepositoryVersionResponse =
   OrgRegistryVersionPromoteResponse
+
+export type AdminGetAuditSettingsResponse = PlatformAuditSettingsRead
+
+export type AdminUpdateAuditSettingsData = {
+  requestBody: PlatformAuditSettingsUpdate
+}
+
+export type AdminUpdateAuditSettingsResponse = PlatformAuditSettingsRead
+
+export type AdminTestAuditWebhookData = {
+  requestBody: PlatformAuditSettingsUpdate
+}
+
+export type AdminTestAuditWebhookResponse = AuditWebhookTestResult
 
 export type AdminGetRegistrySettingsResponse = PlatformRegistrySettingsRead
 
@@ -11202,6 +13597,12 @@ export type AdminGetUserData = {
 
 export type AdminGetUserResponse = AdminUserRead
 
+export type AdminDeleteUserData = {
+  userId: string
+}
+
+export type AdminDeleteUserResponse = void
+
 export type AdminPromoteToSuperuserData = {
   userId: string
 }
@@ -11222,6 +13623,16 @@ export type AdminAgentListPlatformCatalogData = {
 }
 
 export type AdminAgentListPlatformCatalogResponse = AgentCatalogListResponse
+
+export type AdminMaintenanceStartCaseAgentSessionInteractionBackfillResponse =
+  CaseAgentSessionInteractionBackfillStartResponse
+
+export type AdminMaintenanceGetCaseAgentSessionInteractionBackfillData = {
+  operationId: string
+}
+
+export type AdminMaintenanceGetCaseAgentSessionInteractionBackfillResponse =
+  CaseAgentSessionInteractionBackfillStatusResponse
 
 export type AdminRegistryListPlatformRepositoriesResponse =
   Array<RegistryRepositoryReadMinimal>
@@ -11278,6 +13689,13 @@ export type AdminRegistryPromoteRegistryVersionData = {
 export type AdminRegistryPromoteRegistryVersionResponse =
   tracecat__admin__registry__schemas__RegistryVersionPromoteResponse
 
+export type AdminRegistryDeleteRegistryVersionData = {
+  repositoryId: string
+  versionId: string
+}
+
+export type AdminRegistryDeleteRegistryVersionResponse = void
+
 export type InboxGetPendingCountData = {
   workspaceId: string
 }
@@ -11285,17 +13703,41 @@ export type InboxGetPendingCountData = {
 export type InboxGetPendingCountResponse = InboxPendingCount
 
 export type InboxListItemsData = {
+  /**
+   * Filter items to root sessions associated with this case
+   */
+  caseId?: string | null
+  /**
+   * Only items created at or after this time (ISO 8601)
+   */
+  createdAfter?: string | null
   cursor?: string | null
+  /**
+   * Filter items to a single entity type
+   */
+  entityType?: AgentSessionEntity | null
+  /**
+   * Filter items to a single display group
+   */
+  group?: InboxGroup | null
   limit?: number
   /**
-   * Column name to order by (created_at, updated_at, status)
+   * Column name to order by (created_at, updated_at)
    */
-  orderBy?: string | null
+  orderBy?: "created_at" | "updated_at" | null
   reverse?: boolean
+  /**
+   * Case-insensitive search on item title
+   */
+  search?: string | null
   /**
    * Sort direction (asc or desc)
    */
   sort?: "asc" | "desc" | null
+  /**
+   * Only items updated at or after this time (ISO 8601)
+   */
+  updatedAfter?: string | null
   workspaceId: string
 }
 
@@ -11461,6 +13903,26 @@ export type SettingsUpdateAuditSettingsData = {
 
 export type SettingsUpdateAuditSettingsResponse = void
 
+export type SettingsGetSecuritySettingsResponse = SecuritySettingsRead
+
+export type SettingsUpdateSecuritySettingsData = {
+  requestBody: SecuritySettingsUpdate
+}
+
+export type SettingsUpdateSecuritySettingsResponse = void
+
+export type SettingsCheckIpAllowlistData = {
+  requestBody: IPAllowlistCheckRequest
+}
+
+export type SettingsCheckIpAllowlistResponse = IPAllowlistCheckResult
+
+export type SettingsTestAuditWebhookData = {
+  requestBody: AuditSettingsUpdate
+}
+
+export type SettingsTestAuditWebhookResponse = AuditWebhookTestResult
+
 export type SettingsGetAgentSettingsResponse = AgentSettingsRead
 
 export type SettingsUpdateAgentSettingsData = {
@@ -11468,6 +13930,14 @@ export type SettingsUpdateAgentSettingsData = {
 }
 
 export type SettingsUpdateAgentSettingsResponse = void
+
+export type SettingsGetAgentOtelSettingsResponse = AgentOtelSettingsRead
+
+export type SettingsUpdateAgentOtelSettingsData = {
+  requestBody: AgentOtelSettingsUpdate
+}
+
+export type SettingsUpdateAgentOtelSettingsResponse = void
 
 export type OrganizationSecretsListOrgSecretsData = {
   /**
@@ -11482,7 +13952,7 @@ export type OrganizationSecretsCreateOrgSecretData = {
   requestBody: SecretCreate
 }
 
-export type OrganizationSecretsCreateOrgSecretResponse = unknown
+export type OrganizationSecretsCreateOrgSecretResponse = SecretReadMinimal
 
 export type OrganizationSecretsGetOrgSecretByNameData = {
   environment?: string | null
@@ -11497,13 +13967,61 @@ export type OrganizationSecretsUpdateOrgSecretByIdData = {
   secretId: string
 }
 
-export type OrganizationSecretsUpdateOrgSecretByIdResponse = void
+export type OrganizationSecretsUpdateOrgSecretByIdResponse = SecretReadMinimal
 
 export type OrganizationSecretsDeleteOrgSecretByIdData = {
   secretId: string
 }
 
 export type OrganizationSecretsDeleteOrgSecretByIdResponse = void
+
+export type OrganizationSecretStoresListSecretStoresData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type OrganizationSecretStoresListSecretStoresResponse =
+  Page_SecretStoreRead_
+
+export type OrganizationSecretStoresCreateSecretStoreData = {
+  requestBody: SecretStoreCreate
+}
+
+export type OrganizationSecretStoresCreateSecretStoreResponse = SecretStoreRead
+
+export type OrganizationSecretStoresGetSecretStoreData = {
+  storeId: string
+}
+
+export type OrganizationSecretStoresGetSecretStoreResponse = SecretStoreRead
+
+export type OrganizationSecretStoresUpdateSecretStoreData = {
+  requestBody: SecretStoreUpdate
+  storeId: string
+}
+
+export type OrganizationSecretStoresUpdateSecretStoreResponse = void
+
+export type OrganizationSecretStoresDeleteSecretStoreData = {
+  storeId: string
+}
+
+export type OrganizationSecretStoresDeleteSecretStoreResponse = void
+
+export type OrganizationSecretStoresAuthorizeSecretStoreWorkspaceData = {
+  requestBody: SecretStoreAuthorizationCreate
+  storeId: string
+}
+
+export type OrganizationSecretStoresAuthorizeSecretStoreWorkspaceResponse =
+  SecretStoreAuthorizationRead
+
+export type OrganizationSecretStoresRevokeSecretStoreWorkspaceData = {
+  storeId: string
+  workspaceId: string
+}
+
+export type OrganizationSecretStoresRevokeSecretStoreWorkspaceResponse = void
 
 export type TablesListTablesData = {
   workspaceId: string
@@ -11516,7 +14034,7 @@ export type TablesCreateTableData = {
   workspaceId: string
 }
 
-export type TablesCreateTableResponse = unknown
+export type TablesCreateTableResponse = TableRead
 
 export type TablesGetTableData = {
   tableId: string
@@ -11531,7 +14049,7 @@ export type TablesUpdateTableData = {
   workspaceId: string
 }
 
-export type TablesUpdateTableResponse = void
+export type TablesUpdateTableResponse = TableRead
 
 export type TablesDeleteTableData = {
   tableId: string
@@ -11546,7 +14064,7 @@ export type TablesCreateColumnData = {
   workspaceId: string
 }
 
-export type TablesCreateColumnResponse = unknown
+export type TablesCreateColumnResponse = TableColumnRead
 
 export type TablesUpdateColumnData = {
   columnId: string
@@ -11555,7 +14073,7 @@ export type TablesUpdateColumnData = {
   workspaceId: string
 }
 
-export type TablesUpdateColumnResponse = void
+export type TablesUpdateColumnResponse = TableColumnRead
 
 export type TablesDeleteColumnData = {
   columnId: string
@@ -11589,7 +14107,7 @@ export type TablesInsertRowData = {
   workspaceId: string
 }
 
-export type TablesInsertRowResponse = unknown
+export type TablesInsertRowResponse = TableRowRead
 
 export type TablesGetRowData = {
   rowId: string
@@ -11597,7 +14115,7 @@ export type TablesGetRowData = {
   workspaceId: string
 }
 
-export type TablesGetRowResponse = unknown
+export type TablesGetRowResponse = TableRowRead
 
 export type TablesDeleteRowData = {
   rowId: string
@@ -11655,6 +14173,39 @@ export type TablesImportCsvData = {
 
 export type TablesImportCsvResponse = TableRowInsertBatchResponse
 
+export type TablesGetTableSearchData = {
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesGetTableSearchResponse = TableSearchConfiguration
+
+export type TablesSelectTableSearchColumnData = {
+  requestBody: TableSearchSelection
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesSelectTableSearchColumnResponse = TableSearchConfiguration
+
+export type TablesRetryTableSearchData = {
+  requestBody: TableSearchRetry
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesRetryTableSearchResponse = void
+
+export type TablesGetTableSearchProgressData = {
+  cursor?: string | null
+  generation: number
+  limit?: number
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesGetTableSearchProgressResponse = TableSearchProgressPage
+
 export type CasesListCasesData = {
   /**
    * Cursor for pagination
@@ -11668,6 +14219,10 @@ export type CasesListCasesData = {
    * Include case duration values
    */
   includeDurations?: boolean
+  /**
+   * Include case payload
+   */
+  includePayload?: boolean
   /**
    * Include linked table rows
    */
@@ -11705,7 +14260,7 @@ export type CasesCreateCaseData = {
   workspaceId: string
 }
 
-export type CasesCreateCaseResponse = unknown
+export type CasesCreateCaseResponse = CaseRead
 
 export type CasesSearchCasesData = {
   /**
@@ -11732,6 +14287,10 @@ export type CasesSearchCasesData = {
    * Include case duration values
    */
   includeDurations?: boolean
+  /**
+   * Include case payload
+   */
+  includePayload?: boolean
   /**
    * Include linked table rows
    */
@@ -11850,6 +14409,20 @@ export type CasesSearchCaseAggregatesData = {
 
 export type CasesSearchCaseAggregatesResponse = CaseSearchAggregateRead
 
+export type CasesBatchUpdateCasesData = {
+  requestBody: CaseBatchUpdate
+  workspaceId: string
+}
+
+export type CasesBatchUpdateCasesResponse = CaseBatchResponse
+
+export type CasesBatchDeleteCasesData = {
+  requestBody: CaseBatchDelete
+  workspaceId: string
+}
+
+export type CasesBatchDeleteCasesResponse = CaseBatchResponse
+
 export type CasesGetCaseData = {
   caseId: string
   /**
@@ -11863,11 +14436,15 @@ export type CasesGetCaseResponse = CaseRead
 
 export type CasesUpdateCaseData = {
   caseId: string
+  /**
+   * Include linked table rows
+   */
+  includeRows?: boolean
   requestBody: CaseUpdate
   workspaceId: string
 }
 
-export type CasesUpdateCaseResponse = void
+export type CasesUpdateCaseResponse = CaseRead
 
 export type CasesDeleteCaseData = {
   caseId: string
@@ -11889,7 +14466,7 @@ export type CasesCreateCommentData = {
   workspaceId: string
 }
 
-export type CasesCreateCommentResponse = unknown
+export type CasesCreateCommentResponse = CaseCommentRead
 
 export type CasesListCommentThreadsData = {
   caseId: string
@@ -11905,7 +14482,7 @@ export type CasesUpdateCommentData = {
   workspaceId: string
 }
 
-export type CasesUpdateCommentResponse = void
+export type CasesUpdateCommentResponse = CaseCommentRead
 
 export type CasesDeleteCommentData = {
   caseId: string
@@ -11954,11 +14531,51 @@ export type CasesDeleteTaskData = {
 
 export type CasesDeleteTaskResponse = void
 
+export type CasesListCaseVersionsData = {
+  caseId: string
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  /**
+   * Optionally include only summary or description versions
+   */
+  field?: CaseVersionField | null
+  /**
+   * Maximum items per page
+   */
+  limit?: number
+  workspaceId: string
+}
+
+export type CasesListCaseVersionsResponse =
+  CursorPaginatedResponse_CaseVersionReadMinimal_
+
+export type CasesCompareCaseVersionData = {
+  caseId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type CasesCompareCaseVersionResponse = CaseVersionCompareRead
+
+export type CasesRestoreCaseVersionData = {
+  caseId: string
+  versionId: string
+  workspaceId: string
+}
+
+export type CasesRestoreCaseVersionResponse = CaseVersionRestoreRead
+
 export type CasesListCaseRowsData = {
   caseId: string
   cursor?: string | null
   limit?: number
   reverse?: boolean
+  /**
+   * Restrict results to one linked table
+   */
+  tableId?: string | null
   workspaceId: string
 }
 
@@ -11973,6 +14590,13 @@ export type CasesLinkCaseRowData = {
 
 export type CasesLinkCaseRowResponse = CaseTableRowRead
 
+export type CasesListCaseLinkedTablesData = {
+  caseId: string
+  workspaceId: string
+}
+
+export type CasesListCaseLinkedTablesResponse = Array<CaseLinkedTableRead>
+
 export type CasesInsertCaseRowData = {
   caseId: string
   requestBody: CaseTableRowInsertCreate
@@ -11980,6 +14604,22 @@ export type CasesInsertCaseRowData = {
 }
 
 export type CasesInsertCaseRowResponse = CaseTableRowRead
+
+export type CasesBatchLinkCaseRowsData = {
+  caseId: string
+  requestBody: CaseTableRowBatchLink
+  workspaceId: string
+}
+
+export type CasesBatchLinkCaseRowsResponse = CaseTableRowBatchLinkResponse
+
+export type CasesBatchUnlinkCaseRowsData = {
+  caseId: string
+  requestBody: CaseTableRowBatchUnlink
+  workspaceId: string
+}
+
+export type CasesBatchUnlinkCaseRowsResponse = CaseTableRowBatchUnlinkResponse
 
 export type CasesUnlinkCaseRowData = {
   caseId: string
@@ -12001,7 +14641,7 @@ export type CasesCreateFieldData = {
   workspaceId: string
 }
 
-export type CasesCreateFieldResponse = unknown
+export type CasesCreateFieldResponse = CaseFieldReadMinimal
 
 export type CasesUpdateFieldData = {
   fieldId: string
@@ -12009,7 +14649,7 @@ export type CasesUpdateFieldData = {
   workspaceId: string
 }
 
-export type CasesUpdateFieldResponse = void
+export type CasesUpdateFieldResponse = CaseFieldReadMinimal
 
 export type CasesDeleteFieldData = {
   fieldId: string
@@ -12445,6 +15085,47 @@ export type McpIntegrationsListMcpIntegrationsData = {
 export type McpIntegrationsListMcpIntegrationsResponse =
   Array<MCPIntegrationRead>
 
+export type McpIntegrationsListPlatformMcpCatalogData = {
+  /**
+   * Filter by category
+   */
+  category?: string | null
+  /**
+   * Cursor for pagination
+   */
+  cursor?: string | null
+  limit?: number
+  /**
+   * Search name, slug, description
+   */
+  q?: string | null
+  /**
+   * Filter by catalog status
+   */
+  status?: "available" | "coming_soon" | "deprecated" | "hidden" | null
+  workspaceId: string
+}
+
+export type McpIntegrationsListPlatformMcpCatalogResponse =
+  PlatformMCPCatalogListResponse
+
+export type McpIntegrationsConnectPlatformMcpCatalogData = {
+  catalogSlug: string
+  requestBody?: MCPCatalogConnectRequest | null
+  workspaceId: string
+}
+
+export type McpIntegrationsConnectPlatformMcpCatalogResponse =
+  MCPCatalogConnectResponse
+
+export type McpIntegrationsConnectMcpIntegrationData = {
+  requestBody: MCPIntegrationCreate
+  workspaceId: string
+}
+
+export type McpIntegrationsConnectMcpIntegrationResponse =
+  MCPCatalogConnectResponse
+
 export type McpIntegrationsGetMcpIntegrationData = {
   mcpIntegrationId: string
   workspaceId: string
@@ -12466,6 +15147,46 @@ export type McpIntegrationsDeleteMcpIntegrationData = {
 }
 
 export type McpIntegrationsDeleteMcpIntegrationResponse = void
+
+export type McpIntegrationsGetMcpIntegrationVerificationStatusData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsGetMcpIntegrationVerificationStatusResponse =
+  MCPVerificationStatusRead
+
+export type McpIntegrationsUpdateMcpIntegrationToolPoliciesData = {
+  mcpIntegrationId: string
+  requestBody: MCPToolPolicyUpdateRequest
+  workspaceId: string
+}
+
+export type McpIntegrationsUpdateMcpIntegrationToolPoliciesResponse =
+  MCPIntegrationRead
+
+export type McpIntegrationsTestMcpConnectionConfigData = {
+  requestBody: MCPIntegrationTestConnectionRequest
+  workspaceId: string
+}
+
+export type McpIntegrationsTestMcpConnectionConfigResponse =
+  MCPIntegrationTestConnectionResponse
+
+export type McpIntegrationsTestMcpIntegrationConnectionData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsTestMcpIntegrationConnectionResponse =
+  MCPIntegrationTestConnectionResponse
+
+export type McpIntegrationsDisconnectMcpIntegrationData = {
+  mcpIntegrationId: string
+  workspaceId: string
+}
+
+export type McpIntegrationsDisconnectMcpIntegrationResponse = void
 
 export type FeatureFlagsGetFeatureFlagsResponse = FeatureFlagsRead
 
@@ -12494,14 +15215,49 @@ export type VcsSaveGithubAppCredentialsData = {
   requestBody: GitHubAppCredentialsRequest
 }
 
-export type VcsSaveGithubAppCredentialsResponse = {
-  [key: string]: string
-}
+export type VcsSaveGithubAppCredentialsResponse =
+  GitHubAppCredentialsSaveResponse
 
 export type VcsDeleteGithubAppCredentialsResponse = void
 
 export type VcsGetGithubAppCredentialsStatusResponse =
   GitHubAppCredentialsStatus
+
+export type VcsSaveGitlabTokenCredentialsData = {
+  requestBody: GitLabTokenCredentialsRequest
+}
+
+export type VcsSaveGitlabTokenCredentialsResponse =
+  GitLabTokenCredentialsSaveResponse
+
+export type VcsDeleteGitlabTokenCredentialsResponse = void
+
+export type VcsGetGitlabTokenCredentialsStatusResponse =
+  GitLabTokenCredentialsStatus
+
+export type VcsSaveBitbucketTokenCredentialsData = {
+  requestBody: BitbucketTokenCredentialsRequest
+}
+
+export type VcsSaveBitbucketTokenCredentialsResponse =
+  BitbucketTokenCredentialsSaveResponse
+
+export type VcsDeleteBitbucketTokenCredentialsResponse = void
+
+export type VcsGetBitbucketTokenCredentialsStatusResponse =
+  BitbucketTokenCredentialsStatus
+
+export type VcsSaveBitbucketDataCenterTokenCredentialsData = {
+  requestBody: BitbucketDataCenterTokenCredentialsRequest
+}
+
+export type VcsSaveBitbucketDataCenterTokenCredentialsResponse =
+  BitbucketDataCenterTokenCredentialsSaveResponse
+
+export type VcsDeleteBitbucketDataCenterTokenCredentialsResponse = void
+
+export type VcsGetBitbucketDataCenterTokenCredentialsStatusResponse =
+  BitbucketDataCenterTokenCredentialsStatus
 
 export type UsersGetMyScopesData = {
   workspaceId?: string | null
@@ -12714,7 +15470,7 @@ export type UsersUsersDeleteUserData = {
 export type UsersUsersDeleteUserResponse = void
 
 export type AuthAuthDatabaseLoginData = {
-  formData: Body_auth_auth_database_login
+  formData: login
 }
 
 export type AuthAuthDatabaseLoginResponse = unknown | void
@@ -12782,8 +15538,6 @@ export type AuthDiscoverAuthMethodResponse = AuthDiscoverResponse
 
 export type PublicCheckHealthResponse = HealthResponse
 
-export type PublicCheckReadyResponse = ReadinessResponse
-
 export type $OpenApiTs = {
   "/webhooks/{workflow_id}/{secret}": {
     post: {
@@ -12826,9 +15580,9 @@ export type $OpenApiTs = {
          */
         413: WaitResultUnwrapOverflowResponse
         /**
-         * Validation Error
+         * Invalid request parameters or a user-owned workflow failure.
          */
-        422: HTTPValidationError
+        422: WebhookWaitErrorResponse
       }
     }
   }
@@ -12950,7 +15704,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: WorkspaceRead
         /**
          * Validation Error
          */
@@ -13006,7 +15760,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: WorkspaceMembershipRead
         /**
          * Validation Error
          */
@@ -13082,6 +15836,41 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/search/configuration": {
+    get: {
+      req: SearchGetEmbeddingConfigurationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: EmbeddingConfigurationRead
+        /**
+         * Bad Request
+         */
+        400: EmbeddingErrorResponse
+        /**
+         * Conflict
+         */
+        409: EmbeddingErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * Too Many Requests
+         */
+        429: EmbeddingErrorResponse
+        /**
+         * Bad Gateway
+         */
+        502: EmbeddingErrorResponse
+        /**
+         * Gateway Timeout
+         */
+        504: EmbeddingErrorResponse
       }
     }
   }
@@ -13335,7 +16124,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: WorkflowRead
         /**
          * Validation Error
          */
@@ -13430,13 +16219,28 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
-    post: {
-      req: WorkflowsCreateWorkflowDefinitionData
+  }
+  "/workspaces/{workspace_id}/workflows/{workflow_id}/draft": {
+    get: {
+      req: WorkflowsGetWorkflowDraftData
       res: {
         /**
          * Successful Response
          */
-        200: WorkflowDefinitionRead
+        200: WorkflowDraftRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: WorkflowsReplaceWorkflowDraftData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkflowDraftRead
         /**
          * Validation Error
          */
@@ -13451,7 +16255,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: WebhookRead
         /**
          * Validation Error
          */
@@ -13477,7 +16281,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: WebhookRead
         /**
          * Validation Error
          */
@@ -13518,7 +16322,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: CaseTriggerRead
         /**
          * Validation Error
          */
@@ -13737,7 +16541,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: WorkflowExecutionReadCompact_Any__Union_AgentOutput__Any___Any_
+        200: WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_
         /**
          * Validation Error
          */
@@ -13977,6 +16781,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/workflows/sync/repositories": {
+    get: {
+      req: WorkflowsListWorkflowRepositoriesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<GitHubAppRepository>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/workflows/sync/commits": {
     get: {
       req: WorkflowsListWorkflowCommitsData
@@ -14007,6 +16826,36 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/workflows/sync/export": {
+    post: {
+      req: WorkflowsExportWorkspaceSyncData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceSyncExportResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/export/preview": {
+    post: {
+      req: WorkflowsPreviewExportWorkspaceSyncData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: WorkspaceSyncExportPreview
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/workflows/sync/pull": {
     post: {
       req: WorkflowsPullWorkflowsData
@@ -14015,6 +16864,66 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: PullResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secrets/aws": {
+    post: {
+      req: SecretsCreateAwsSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secrets/aws/{secret_id}": {
+    post: {
+      req: SecretsUpdateAwsSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secrets/aws/{secret_id}/check": {
+    post: {
+      req: SecretsCheckAwsSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SecretReferenceCheckResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secret-stores": {
+    get: {
+      req: SecretsListAuthorizedSecretStoresData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_WorkspaceSecretStoreRead_
         /**
          * Validation Error
          */
@@ -14057,7 +16966,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: SecretReadMinimal
         /**
          * Validation Error
          */
@@ -14117,7 +17026,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: SecretReadMinimal
         /**
          * Validation Error
          */
@@ -14415,6 +17324,16 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/organization/memberships": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<tracecat__organization__schemas__OrgRead>
+      }
+    }
+  }
   "/organization/domains": {
     get: {
       res: {
@@ -14544,6 +17463,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/invitations/{invitation_id}/resend": {
+    post: {
+      req: OrganizationResendInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: OrgInvitationRead
         /**
          * Validation Error
          */
@@ -14849,6 +17783,23 @@ export type $OpenApiTs = {
          */
         200: {
           [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/providers/{provider}/refresh": {
+    post: {
+      req: AgentRefreshProviderModelsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: number
         }
         /**
          * Validation Error
@@ -15262,6 +18213,25 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/agent/presets/tool-policy": {
+    post: {
+      req: AgentPresetsPreviewToolPolicyData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentPresetToolPolicyRead
+        /**
+         * Invalid tool policy selections
+         */
+        400: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/agent/presets/{preset_id}": {
     get: {
       req: AgentPresetsGetAgentPresetData
@@ -15296,6 +18266,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Agent preset not found
+         */
+        404: unknown
         /**
          * Validation Error
          */
@@ -15675,6 +18649,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/move": {
+    post: {
+      req: AgentSkillsMoveSkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/agent/skills/{skill_id}/draft": {
     get: {
       req: AgentSkillsGetSkillDraftData
@@ -15801,6 +18790,232 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: SkillReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-folders/directory": {
+    get: {
+      req: SkillFoldersGetDirectoryData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<SkillDirectoryItem | SkillFolderDirectoryItem>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-folders": {
+    get: {
+      req: SkillFoldersListFoldersData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SkillFolderRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: SkillFoldersCreateFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SkillFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-folders/{folder_id}": {
+    get: {
+      req: SkillFoldersGetFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: SkillFoldersUpdateFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: SkillFoldersDeleteFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-folders/{folder_id}/move": {
+    post: {
+      req: SkillFoldersMoveFolderData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-tags": {
+    get: {
+      req: SkillTagsListSkillTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SkillTagRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: SkillTagsCreateSkillTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SkillTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-tags/{tag_id}": {
+    get: {
+      req: SkillTagsGetSkillTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: SkillTagsUpdateSkillTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SkillTagRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: SkillTagsDeleteSkillTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/tags": {
+    get: {
+      req: AgentSkillsListSkillTagsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_SkillTagRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: AgentSkillsAddSkillTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/skills/{skill_id}/tags/{tag_id}": {
+    delete: {
+      req: AgentSkillsRemoveSkillTagData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/backends": {
+    get: {
+      req: AgentSessionsListAgentBackendsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<AgentBackendRead>
         /**
          * Validation Error
          */
@@ -15945,6 +19160,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentSessionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/agent/sessions/{session_id}/cancel": {
+    post: {
+      req: AgentSessionsCancelSessionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentSessionCancelResponse
         /**
          * Validation Error
          */
@@ -16192,6 +19422,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/admin/organizations/{org_id}/invitations/{invitation_id}/resend": {
+    post: {
+      req: AdminResendOrganizationInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AdminOrgInvitationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/admin/organizations/{org_id}/domains": {
     get: {
       req: AdminListOrganizationDomainsData
@@ -16301,6 +19546,44 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: OrgRegistryVersionPromoteResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/settings/audit": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformAuditSettingsRead
+      }
+    }
+    patch: {
+      req: AdminUpdateAuditSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformAuditSettingsRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/settings/audit/test": {
+    post: {
+      req: AdminTestAuditWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AuditWebhookTestResult
         /**
          * Validation Error
          */
@@ -16480,6 +19763,19 @@ export type $OpenApiTs = {
         422: HTTPValidationError
       }
     }
+    delete: {
+      req: AdminDeleteUserData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
   }
   "/admin/users/{user_id}/promote": {
     post: {
@@ -16519,6 +19815,31 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentCatalogListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/maintenance/case-agent-session-interactions/backfill": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        202: CaseAgentSessionInteractionBackfillStartResponse
+      }
+    }
+  }
+  "/admin/maintenance/case-agent-session-interactions/backfill/{operation_id}": {
+    get: {
+      req: AdminMaintenanceGetCaseAgentSessionInteractionBackfillData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseAgentSessionInteractionBackfillStatusResponse
         /**
          * Validation Error
          */
@@ -16629,6 +19950,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: tracecat__admin__registry__schemas__RegistryVersionPromoteResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/admin/registry/{repository_id}/versions/{version_id}": {
+    delete: {
+      req: AdminRegistryDeleteRegistryVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
@@ -17025,6 +20361,59 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/settings/security": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SecuritySettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateSecuritySettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/security/ip-allowlist/check": {
+    post: {
+      req: SettingsCheckIpAllowlistData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: IPAllowlistCheckResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/audit/test": {
+    post: {
+      req: SettingsTestAuditWebhookData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AuditWebhookTestResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/settings/agent": {
     get: {
       res: {
@@ -17036,6 +20425,29 @@ export type $OpenApiTs = {
     }
     patch: {
       req: SettingsUpdateAgentSettingsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/settings/agent-otel": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: AgentOtelSettingsRead
+      }
+    }
+    patch: {
+      req: SettingsUpdateAgentOtelSettingsData
       res: {
         /**
          * Successful Response
@@ -17068,7 +20480,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: SecretReadMinimal
         /**
          * Validation Error
          */
@@ -17098,7 +20510,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: SecretReadMinimal
         /**
          * Validation Error
          */
@@ -17107,6 +20519,105 @@ export type $OpenApiTs = {
     }
     delete: {
       req: OrganizationSecretsDeleteOrgSecretByIdData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/secret-stores": {
+    get: {
+      req: OrganizationSecretStoresListSecretStoresData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_SecretStoreRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: OrganizationSecretStoresCreateSecretStoreData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SecretStoreRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/secret-stores/{store_id}": {
+    get: {
+      req: OrganizationSecretStoresGetSecretStoreData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SecretStoreRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: OrganizationSecretStoresUpdateSecretStoreData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: OrganizationSecretStoresDeleteSecretStoreData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/secret-stores/{store_id}/authorizations": {
+    post: {
+      req: OrganizationSecretStoresAuthorizeSecretStoreWorkspaceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SecretStoreAuthorizationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/secret-stores/{store_id}/authorizations/{workspace_id}": {
+    delete: {
+      req: OrganizationSecretStoresRevokeSecretStoreWorkspaceData
       res: {
         /**
          * Successful Response
@@ -17139,7 +20650,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: TableRead
         /**
          * Validation Error
          */
@@ -17167,7 +20678,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: TableRead
         /**
          * Validation Error
          */
@@ -17195,7 +20706,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: TableColumnRead
         /**
          * Validation Error
          */
@@ -17210,7 +20721,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: TableColumnRead
         /**
          * Validation Error
          */
@@ -17251,7 +20762,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: TableRowRead
         /**
          * Validation Error
          */
@@ -17266,7 +20777,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        200: unknown
+        200: TableRowRead
         /**
          * Validation Error
          */
@@ -17375,6 +20886,102 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/tables/{table_id}/search": {
+    get: {
+      req: TablesGetTableSearchData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableSearchConfiguration
+        /**
+         * Not Found
+         */
+        404: TableSearchErrorResponse
+        /**
+         * Conflict
+         */
+        409: TableSearchErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tables/{table_id}/search/selection": {
+    patch: {
+      req: TablesSelectTableSearchColumnData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableSearchConfiguration
+        /**
+         * Not Found
+         */
+        404: TableSearchErrorResponse
+        /**
+         * Conflict
+         */
+        409: TableSearchErrorResponse
+        /**
+         * Unprocessable Entity
+         */
+        422: TableSearchSelectionErrorResponse
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tables/{table_id}/search/retry": {
+    post: {
+      req: TablesRetryTableSearchData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Not Found
+         */
+        404: TableSearchErrorResponse
+        /**
+         * Conflict
+         */
+        409: TableSearchErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tables/{table_id}/search/documents": {
+    get: {
+      req: TablesGetTableSearchProgressData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableSearchProgressPage
+        /**
+         * Bad Request
+         */
+        400: TableSearchErrorResponse
+        /**
+         * Not Found
+         */
+        404: TableSearchErrorResponse
+        /**
+         * Conflict
+         */
+        409: TableSearchErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/cases": {
     get: {
       req: CasesListCasesData
@@ -17395,7 +21002,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: CaseRead
         /**
          * Validation Error
          */
@@ -17433,6 +21040,36 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/cases/batch-update": {
+    post: {
+      req: CasesBatchUpdateCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/batch-delete": {
+    post: {
+      req: CasesBatchDeleteCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/cases/{case_id}": {
     get: {
       req: CasesGetCaseData
@@ -17453,7 +21090,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: CaseRead
         /**
          * Validation Error
          */
@@ -17494,7 +21131,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: CaseCommentRead
         /**
          * Validation Error
          */
@@ -17524,7 +21161,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: CaseCommentRead
         /**
          * Validation Error
          */
@@ -17616,6 +21253,51 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/cases/{case_id}/versions": {
+    get: {
+      req: CasesListCaseVersionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_CaseVersionReadMinimal_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/versions/{version_id}/compare": {
+    get: {
+      req: CasesCompareCaseVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseVersionCompareRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/versions/{version_id}/restore": {
+    post: {
+      req: CasesRestoreCaseVersionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseVersionRestoreRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/cases/{case_id}/rows": {
     get: {
       req: CasesListCaseRowsData
@@ -17644,6 +21326,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/cases/{case_id}/rows/tables": {
+    get: {
+      req: CasesListCaseLinkedTablesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<CaseLinkedTableRead>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/cases/{case_id}/rows/insert": {
     post: {
       req: CasesInsertCaseRowData
@@ -17652,6 +21349,36 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: CaseTableRowRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/rows/batch-link": {
+    post: {
+      req: CasesBatchLinkCaseRowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseTableRowBatchLinkResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/{case_id}/rows/batch-unlink": {
+    post: {
+      req: CasesBatchUnlinkCaseRowsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseTableRowBatchUnlinkResponse
         /**
          * Validation Error
          */
@@ -17694,7 +21421,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: unknown
+        201: CaseFieldReadMinimal
         /**
          * Validation Error
          */
@@ -17709,7 +21436,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        204: void
+        200: CaseFieldReadMinimal
         /**
          * Validation Error
          */
@@ -18479,6 +22206,51 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/mcp-integrations/catalog": {
+    get: {
+      req: McpIntegrationsListPlatformMcpCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PlatformMCPCatalogListResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/catalog/{catalog_slug}/connect": {
+    post: {
+      req: McpIntegrationsConnectPlatformMcpCatalogData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: MCPCatalogConnectResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/connect": {
+    post: {
+      req: McpIntegrationsConnectMcpIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: MCPCatalogConnectResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}": {
     get: {
       req: McpIntegrationsGetMcpIntegrationData
@@ -18508,6 +22280,81 @@ export type $OpenApiTs = {
     }
     delete: {
       req: McpIntegrationsDeleteMcpIntegrationData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/verification-status": {
+    get: {
+      req: McpIntegrationsGetMcpIntegrationVerificationStatusData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPVerificationStatusRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/tools": {
+    patch: {
+      req: McpIntegrationsUpdateMcpIntegrationToolPoliciesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPIntegrationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/test": {
+    post: {
+      req: McpIntegrationsTestMcpConnectionConfigData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPIntegrationTestConnectionResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/test": {
+    post: {
+      req: McpIntegrationsTestMcpIntegrationConnectionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: MCPIntegrationTestConnectionResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/mcp-integrations/{mcp_integration_id}/disconnect": {
+    post: {
+      req: McpIntegrationsDisconnectMcpIntegrationData
       res: {
         /**
          * Successful Response
@@ -18579,9 +22426,7 @@ export type $OpenApiTs = {
         /**
          * Successful Response
          */
-        201: {
-          [key: string]: string
-        }
+        201: GitHubAppCredentialsSaveResponse
         /**
          * Validation Error
          */
@@ -18604,6 +22449,105 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: GitHubAppCredentialsStatus
+      }
+    }
+  }
+  "/organization/vcs/gitlab/credentials": {
+    post: {
+      req: VcsSaveGitlabTokenCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: GitLabTokenCredentialsSaveResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/organization/vcs/gitlab/credentials/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: GitLabTokenCredentialsStatus
+      }
+    }
+  }
+  "/organization/vcs/bitbucket/credentials": {
+    post: {
+      req: VcsSaveBitbucketTokenCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: BitbucketTokenCredentialsSaveResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/organization/vcs/bitbucket/credentials/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BitbucketTokenCredentialsStatus
+      }
+    }
+  }
+  "/organization/vcs/bitbucket-data-center/credentials": {
+    post: {
+      req: VcsSaveBitbucketDataCenterTokenCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: BitbucketDataCenterTokenCredentialsSaveResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/organization/vcs/bitbucket-data-center/credentials/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BitbucketDataCenterTokenCredentialsStatus
       }
     }
   }
@@ -19301,20 +23245,6 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: HealthResponse
-      }
-    }
-  }
-  "/ready": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: ReadinessResponse
-        /**
-         * API startup or platform registry sync is incomplete.
-         */
-        503: ReadinessResponse
       }
     }
   }

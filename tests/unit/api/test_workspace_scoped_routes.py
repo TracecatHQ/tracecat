@@ -1,7 +1,6 @@
 from typing import get_type_hints
 
-from fastapi.routing import APIRoute
-
+from tests._route_utils import EffectiveRoute, iter_effective_api_routes
 from tracecat.api.app import app
 from tracecat.auth.dependencies import (
     WorkspaceActorRouteRole,
@@ -56,18 +55,18 @@ def _is_workspace_scoped_public_route(path: str) -> bool:
     )
 
 
-def _route_key(route: APIRoute) -> tuple[str, frozenset[str]]:
+def _route_key(route: EffectiveRoute) -> tuple[str, frozenset[str]]:
     return route.path, frozenset(route.methods or ())
 
 
-def _legacy_route_key(route: APIRoute) -> tuple[str, frozenset[str]]:
+def _legacy_route_key(route: EffectiveRoute) -> tuple[str, frozenset[str]]:
     return (
         route.path.removeprefix("/workspaces/{workspace_id}"),
         frozenset(route.methods or ()),
     )
 
 
-def _uses_route_workspace_role_dependency(route: APIRoute) -> bool:
+def _uses_route_workspace_role_dependency(route: EffectiveRoute) -> bool:
     return any(
         getattr(dependency.call, "__name__", "").startswith(
             "role_dependency_req_ws_auto"
@@ -76,14 +75,14 @@ def _uses_route_workspace_role_dependency(route: APIRoute) -> bool:
     )
 
 
-def _has_workspace_path_dependency(route: APIRoute) -> bool:
+def _has_workspace_path_dependency(route: EffectiveRoute) -> bool:
     return any(
         dependency.call is require_workspace_id_path
         for dependency in route.dependant.dependencies
     )
 
 
-def _workspace_role_hint(route: APIRoute):
+def _workspace_role_hint(route: EffectiveRoute):
     hints = get_type_hints(route.endpoint, include_extras=True)
     return hints.get("role") or hints.get("_role")
 
@@ -123,7 +122,7 @@ def test_workspace_scoped_public_routes_are_canonical_in_openapi() -> None:
 
 
 def test_workspace_scoped_public_route_aliases_share_handlers_and_auth() -> None:
-    routes = [route for route in app.routes if isinstance(route, APIRoute)]
+    routes = iter_effective_api_routes(app)
     routes_by_key = {_route_key(route): route for route in routes}
     canonical_routes = [
         route for route in routes if _is_workspace_scoped_public_route(route.path)

@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Get galaxy
+  description: Retrieve a MISP galaxy and optionally include all of its clusters.
+  display_group: MISP
+  doc_url: https://www.misp-project.org/openapi/#tag/Galaxies/operation/getGalaxyById
+  namespace: tools.misp
+  name: get_galaxy
+  secrets:
+    - name: misp
+      keys: ["MISP_API_KEY"]
+  expects:
+    galaxy_id:
+      type: int
+      description: Numeric ID of the galaxy to retrieve.
+    with_clusters:
+      type: bool
+      description: Include clusters associated with the galaxy.
+      default: true
+    base_url:
+      type: str | None
+      description: MISP base URL. Falls back to VARS.misp.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.misp.base_url }}/galaxies/view/${{ FN.url_encode(str(inputs.galaxy_id)) }}
+        method: GET
+        params:
+          withCluster: ${{ inputs.with_clusters }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ${{ SECRETS.misp.MISP_API_KEY }}
+          Accept: application/json
+  returns: ${{ steps.request.result.data }}

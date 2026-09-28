@@ -109,7 +109,9 @@ async def call_paginated_method(
                 )
         else:
             members.append(data)
-    return members
+        if len(members) >= limit:
+            break
+    return members[:limit]
 
 
 ### Other utilities

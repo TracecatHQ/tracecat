@@ -146,3 +146,25 @@ async def promote_registry_version(
         ) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.delete(
+    "/{repository_id}/versions/{version_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_registry_version(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    repository_id: uuid.UUID,
+    version_id: uuid.UUID,
+) -> None:
+    """Delete an unused, non-current platform registry version."""
+    service = AdminRegistryService(session, role)
+    try:
+        await service.delete_version(repository_id=repository_id, version_id=version_id)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

@@ -27,17 +27,17 @@ definition:
       description: Phone number of the user to search for.
       default: ""
     has_email:
-      type: bool
+      type: bool | None
       description: Whether the user has an email.
-      default: ""
+      default: null
     has_phone:
-      type: bool
+      type: bool | None
       description: Whether the user has a phone number.
-      default: ""
+      default: null
     has_device:
-      type: bool
+      type: bool | None
       description: Whether the user has an registered device.
-      default: ""
+      default: null
     ordering:
       type: str
       description: Sort users in response by one of last_name, first_name, last_login, email, mobile_phone, date_updated. Add - before the field name to reverse the order (e.g. ?ordering=-last_name returns users sorted by last name Z-A)
@@ -59,6 +59,7 @@ definition:
           has_email: ${{ inputs.has_email }}
           has_phone: ${{ inputs.has_phone }}
           has_device: ${{ inputs.has_device }}
+          ordering: ${{ inputs.ordering }}
         headers:
           Item-Range: items=${{ inputs.item_range }}
           Authorization: Bearer ${{ SECRETS.alertmedia.ALERTMEDIA_API_KEY }}

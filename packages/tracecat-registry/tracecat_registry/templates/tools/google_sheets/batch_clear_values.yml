@@ -9,7 +9,15 @@ definition:
   secrets:
     - type: oauth
       provider_id: google_sheets
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_sheets
       grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
       optional: true
   expects:
     spreadsheet_id:
@@ -20,13 +28,16 @@ definition:
       description: List of A1 notation ranges to clear.
   steps:
     - ref: batch_clear_values
-      action: core.http_request
+      action: tools.google_api.call_api
       args:
-        url: https://sheets.googleapis.com/v4/spreadsheets/${{ FN.url_encode(inputs.spreadsheet_id) }}/values:batchClear
-        method: POST
-        headers:
-          Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
-          Content-Type: application/json
-        payload:
-          ranges: ${{ inputs.ranges }}
-  returns: ${{ steps.batch_clear_values.result.data }}
+        service_name: sheets
+        version: v4
+        resource: spreadsheets.values
+        method_name: batchClear
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+        params:
+          spreadsheetId: ${{ inputs.spreadsheet_id }}
+          body:
+            ranges: ${{ inputs.ranges }}
+  returns: ${{ steps.batch_clear_values.result }}

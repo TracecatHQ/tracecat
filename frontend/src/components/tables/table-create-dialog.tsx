@@ -296,7 +296,7 @@ export function CreateTableDialog({
                                       value={field.value}
                                       onValueChange={field.onChange}
                                     >
-                                      <SelectTrigger>
+                                      <SelectTrigger className="[&>span]:!flex [&>span]:items-center">
                                         <SelectValue placeholder="Select column type" />
                                       </SelectTrigger>
                                       <SelectContent>

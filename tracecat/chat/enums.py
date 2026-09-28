@@ -26,3 +26,6 @@ class MessageKind(StrEnum):
     COMPACTION = (
         "compaction"  # Compaction status badge shown when conversation is compacted
     )
+    CANCELLED = (
+        "cancelled"  # Marker shown where the user stopped an in-flight agent turn
+    )

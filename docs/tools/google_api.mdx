@@ -8,7 +8,7 @@ description: "Reference for the Tracecat Google API integration: registered acti
 
 Action ID: `tools.google_api.call_api`
 
-Instantiate a Google API client and call a Google API method.
+Call a Google API method.
 
 Reference: [https://googleapis.github.io/google-api-python-client/docs/dyn/](https://googleapis.github.io/google-api-python-client/docs/dyn/)
 
@@ -17,7 +17,7 @@ Reference: [https://googleapis.github.io/google-api-python-client/docs/dyn/](htt
 Optional secrets:
 
 - `google_oauth`: OAuth token `GOOGLE_SERVICE_TOKEN`.
-- `google_api`: required values `GOOGLE_API_CREDENTIALS`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
 
@@ -42,6 +42,22 @@ Google API service name, e.g. `drive` or `sheets`.
 <ParamField path="version" type="string" required>
 
 Google API version, e.g. `v3` or `v4`.
+
+</ParamField>
+
+<ParamField path="access_token" type="string | null">
+
+OAuth access token from a Tracecat OAuth integration, e.g. `$&#123;&#123; SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN &#125;&#125;`. Use the secret key for the configured grant; a fallback expression is valid only when both grants are connected. When set it is used as-is and `scopes`/`subject` are ignored.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="media" type="GoogleMediaUpload | null">
+
+File content for upload methods (e.g. Drive `files.create`). Sent as `media_body`.
+
+Default: `null`.
 
 </ParamField>
 
@@ -55,7 +71,15 @@ Default: `null`.
 
 <ParamField path="scopes" type="array[string] | null">
 
-Service account scopes. Defaults to ["https://www.googleapis.com/auth/cloud-platform"].
+Scopes used when minting a token from `GOOGLE_API_CREDENTIALS`. Defaults to ["https://www.googleapis.com/auth/cloud-platform"].
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="static_discovery" type="boolean | null">
+
+Whether to use the discovery document bundled with the client library. Defaults to the library behaviour (bundled). Set to false to fetch the discovery document at runtime, which is required for API versions that are not bundled (e.g. `securitycenter` `v2`).
 
 Default: `null`.
 
@@ -63,7 +87,7 @@ Default: `null`.
 
 <ParamField path="subject" type="string | null">
 
-Optional service account domain-wide delegation subject.
+Optional domain-wide delegation subject (user email) applied when minting from `GOOGLE_API_CREDENTIALS`. Defaults to the `GOOGLE_API_SUBJECT` secret key, then the `subject` key inside the JSON.
 
 Default: `null`.
 
@@ -73,7 +97,7 @@ Default: `null`.
 
 Action ID: `tools.google_api.call_paginated_api`
 
-Instantiate a Google API client and call a paginated Google API method.
+Call a paginated Google API method and return every page fetched.
 
 Reference: [https://googleapis.github.io/google-api-python-client/docs/dyn/](https://googleapis.github.io/google-api-python-client/docs/dyn/)
 
@@ -82,7 +106,7 @@ Reference: [https://googleapis.github.io/google-api-python-client/docs/dyn/](htt
 Optional secrets:
 
 - `google_oauth`: OAuth token `GOOGLE_SERVICE_TOKEN`.
-- `google_api`: required values `GOOGLE_API_CREDENTIALS`.
+- `google_api`: required values `GOOGLE_API_CREDENTIALS`; optional values `GOOGLE_API_SUBJECT`.
 
 ### Input fields
 
@@ -107,6 +131,22 @@ Google API service name, e.g. `drive` or `sheets`.
 <ParamField path="version" type="string" required>
 
 Google API version, e.g. `v3` or `v4`.
+
+</ParamField>
+
+<ParamField path="access_token" type="string | null">
+
+OAuth access token from a Tracecat OAuth integration, e.g. `$&#123;&#123; SECRETS.google_drive_oauth.GOOGLE_DRIVE_USER_TOKEN &#125;&#125;`. Use the secret key for the configured grant; a fallback expression is valid only when both grants are connected. When set it is used as-is and `scopes`/`subject` are ignored.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="max_pages" type="integer | null">
+
+Maximum number of pages to fetch. If null, fetches every page.
+
+Default: `null`.
 
 </ParamField>
 
@@ -136,7 +176,15 @@ Default: `null`.
 
 <ParamField path="scopes" type="array[string] | null">
 
-Service account scopes. Defaults to ["https://www.googleapis.com/auth/cloud-platform"].
+Scopes used when minting a token from `GOOGLE_API_CREDENTIALS`. Defaults to ["https://www.googleapis.com/auth/cloud-platform"].
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="static_discovery" type="boolean | null">
+
+Whether to use the discovery document bundled with the client library. Defaults to the library behaviour (bundled). Set to false to fetch the discovery document at runtime, which is required for API versions that are not bundled (e.g. `securitycenter` `v2`).
 
 Default: `null`.
 
@@ -144,7 +192,7 @@ Default: `null`.
 
 <ParamField path="subject" type="string | null">
 
-Optional service account domain-wide delegation subject.
+Optional domain-wide delegation subject (user email) applied when minting from `GOOGLE_API_CREDENTIALS`. Defaults to the `GOOGLE_API_SUBJECT` secret key, then the `subject` key inside the JSON.
 
 Default: `null`.
 

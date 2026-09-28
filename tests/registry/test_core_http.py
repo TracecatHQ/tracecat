@@ -5,6 +5,7 @@ import base64
 import httpx
 import pytest
 import respx
+from pydantic import ValidationError
 from tenacity import RetryError
 from tracecat_registry._internal.exceptions import TracecatException
 from tracecat_registry.core.http import (
@@ -16,6 +17,10 @@ from tracecat_registry.core.http import (
 )
 
 from tracecat.expressions.functions import str_to_b64
+from tracecat.registry.repository import (
+    RegisterKwargs,
+    generate_model_from_function,
+)
 
 PNG_URL = "https://urlscan.io/screenshots/019aa89e-05c5-714d-80ea-83fbeb06a500.png"
 
@@ -223,6 +228,53 @@ async def test_http_request_with_json_payload() -> None:
     assert route.called
     assert route.calls.last.request.content.replace(b" ", b"") == b'{"data":"value"}'
     assert result["status_code"] == 200
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_request_with_raw_content() -> None:
+    """Test sending a raw string as the complete request body."""
+    route = respx.post("https://api.example.com").mock(
+        return_value=httpx.Response(status_code=200)
+    )
+
+    content = "name: Example detection\n"
+    result = await http_request(
+        url="https://api.example.com",
+        method="POST",
+        headers={"Content-Type": "application/x-yaml"},
+        content=content,
+    )
+
+    assert route.called
+    request = route.calls.last.request
+    assert request.content == content.encode()
+    assert request.headers["Content-Type"] == "application/x-yaml"
+    assert result["status_code"] == 200
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "conflicting_body",
+    [
+        {"payload": {"data": "value"}},
+        {"form_data": {"field": "value"}},
+        {"files": {"file": "ZmlsZQ=="}},
+    ],
+)
+async def test_http_request_rejects_raw_content_with_other_body_modes(
+    conflicting_body: dict[str, object],
+) -> None:
+    with pytest.raises(
+        ValueError,
+        match="Raw content cannot be combined with payload, form_data, or files",
+    ):
+        await http_request(
+            url="https://api.example.com",
+            method="POST",
+            content="raw body",
+            **conflicting_body,  # type: ignore[arg-type]
+        )
 
 
 @pytest.mark.anyio
@@ -1568,3 +1620,163 @@ async def test_http_paginate_kandji_body_next_results() -> None:
 
     assert route.call_count == 3
     assert result == [1, 2, 3, 4, 5, 6]
+
+
+# Test unset optional params and headers are omitted, not sent as empty values
+@pytest.mark.anyio
+@respx.mock
+async def test_http_request_omits_none_params() -> None:
+    """Test that params set to None are dropped instead of sent as `key=`."""
+    route = respx.get("https://api.example.com").mock(
+        return_value=httpx.Response(status_code=200)
+    )
+
+    result = await http_request(
+        url="https://api.example.com",
+        method="GET",
+        params={"present": "yes", "unset": None},
+    )
+
+    assert route.called
+    request = route.calls.last.request
+    assert request.url.params["present"] == "yes"
+    assert "unset" not in request.url.params
+    assert "unset" not in str(request.url)
+    assert result["status_code"] == 200
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_request_preserves_falsy_params() -> None:
+    """Test that only None is dropped: empty string, False and 0 are still sent."""
+    route = respx.get("https://api.example.com").mock(
+        return_value=httpx.Response(status_code=200)
+    )
+
+    result = await http_request(
+        url="https://api.example.com",
+        method="GET",
+        params={"flag": False, "count": 0, "empty": ""},
+    )
+
+    assert route.called
+    params = route.calls.last.request.url.params
+    assert params["flag"] == "false"
+    assert params["count"] == "0"
+    assert params["empty"] == ""
+    assert result["status_code"] == 200
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_request_omits_none_headers() -> None:
+    """Test that headers set to None are dropped instead of sent empty."""
+    route = respx.get("https://api.example.com").mock(
+        return_value=httpx.Response(status_code=200)
+    )
+
+    result = await http_request(
+        url="https://api.example.com",
+        method="GET",
+        headers={"X-Present": "yes", "X-Unset": None},
+    )
+
+    assert route.called
+    request = route.calls.last.request
+    assert request.headers["X-Present"] == "yes"
+    assert "X-Unset" not in request.headers
+    assert result["status_code"] == 200
+
+
+def test_http_request_rejects_non_string_header() -> None:
+    """Test that `dict[str, str | None]` headers still reject non-string values.
+
+    The annotation was widened to allow None so unset optional headers can be
+    pruned. It must still reject a `bool` or `int`, which httpx cannot encode.
+    """
+    args_model, _, _ = generate_model_from_function(
+        http_request,
+        RegisterKwargs(namespace="core", description="HTTP request"),
+    )
+
+    with pytest.raises(ValidationError):
+        args_model(
+            url="https://api.example.com",
+            method="GET",
+            headers={"X-Privacy-Mode": True},
+        )
+
+    validated = args_model(
+        url="https://api.example.com",
+        method="GET",
+        headers={"X-Privacy-Mode": None},
+    )
+    assert validated.model_dump()["headers"] == {"X-Privacy-Mode": None}
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_poll_omits_none_params_and_headers() -> None:
+    """Test that http_poll drops None params and headers before polling."""
+    route = respx.get("https://api.example.com").mock(
+        return_value=httpx.Response(
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+            json={"message": "success"},
+        )
+    )
+
+    result = await http_poll(
+        url="https://api.example.com",
+        method="GET",
+        params={"present": "yes", "unset": None},
+        headers={"X-Present": "yes", "X-Unset": None},
+        poll_retry_codes=202,
+        poll_interval=0.1,
+        poll_max_attempts=3,
+    )
+
+    assert route.call_count == 1
+    request = route.calls.last.request
+    assert request.url.params["present"] == "yes"
+    assert "unset" not in request.url.params
+    assert request.headers["X-Present"] == "yes"
+    assert "X-Unset" not in request.headers
+    assert result["status_code"] == 200
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_http_paginate_omits_none_cursor() -> None:
+    """Test that a None cursor from `next_request` is dropped, not sent as `cursor=`.
+
+    Pagination stops on `has_more`, so the final page is still requested even
+    though the previous page returned no cursor.
+    """
+    route = respx.get("https://api.example.com/resources").mock(
+        side_effect=[
+            httpx.Response(
+                status_code=200,
+                json={"items": [1], "next_cursor": None, "has_more": True},
+            ),
+            httpx.Response(
+                status_code=200,
+                json={"items": [2], "next_cursor": None, "has_more": False},
+            ),
+        ]
+    )
+
+    result = await http_paginate(
+        url="https://api.example.com/resources",
+        method="GET",
+        stop_condition="lambda x: not x['data'].get('has_more')",
+        next_request="lambda x: {'params': {'cursor': x['data'].get('next_cursor')}}",
+        items_jsonpath="$.items",
+        limit=1000,
+    )
+
+    assert route.call_count == 2
+    assert result == [1, 2]
+    for call in route.calls:
+        assert "cursor" not in call.request.url.params
+        assert "cursor=" not in str(call.request.url)

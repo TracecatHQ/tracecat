@@ -865,18 +865,17 @@ class TestExecuteWithSyncedRegistry:
         runner = ActionRunner(cache_dir=temp_cache_dir)
 
         # Download and materialize the registry artifact
-        extracted_paths = await runner.ensure_registry_environment(tarball_uri)
+        async with runner.registry_artifacts.lease([tarball_uri]) as extracted_paths:
+            # Verify extraction
+            assert len(extracted_paths) == 1
+            extracted_path = extracted_paths[0]
+            assert extracted_path.exists()
+            assert extracted_path.is_dir()
 
-        # Verify extraction
-        assert len(extracted_paths) == 1
-        extracted_path = extracted_paths[0]
-        assert extracted_path.exists()
-        assert extracted_path.is_dir()
-
-        # Should have Python packages extracted
-        # The tarball contains site-packages content
-        files = list(extracted_path.rglob("*"))
-        assert len(files) > 0
+            # Should have Python packages extracted
+            # The tarball contains site-packages content
+            files = list(extracted_path.rglob("*"))
+            assert len(files) > 0
 
     @pytest.mark.anyio
     async def test_execute_action_with_ephemeral_backend(

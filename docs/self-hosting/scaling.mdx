@@ -1,0 +1,157 @@
+---
+title: Scaling action throughput
+description: "Size a Docker Compose deployment for a target sustained action throughput: executor replicas, concurrency settings, PostgreSQL connections, and host hardware from the default settings up to 256 actions per second."
+sidebarTitle: Scaling
+---
+
+Action throughput in Docker Compose is bounded by three independent budgets: executor CPU, executor action admission, and PostgreSQL capacity.
+This page gives you a sizing table and the exact Compose changes for each throughput tier.
+
+## How throughput is calculated
+
+Tracecat benchmarks a reference workload of independent `core.table.insert_row` actions on three 4 vCPU executors.
+The measured coefficients for that workload are:
+
+| Coefficient | Measured value | Meaning |
+| :---------- | :------------- | :------ |
+| CPU per action | 1.21 CPU-seconds | Executor CPU consumed by one action |
+| Wall time per action | 2.6 seconds | Mean start-to-close duration (p95: 4.0 seconds) |
+| Target utilization | 80% | Headroom to keep on both CPU and admission |
+
+Two formulas size the executor tier for a target of `λ` actions per second:
+
+```text
+executor vCPU needed        = λ × 1.21 / 0.8  ≈ 1.5 × λ
+in-flight actions needed    = λ × 2.6  / 0.8  ≈ 3.25 × λ
+```
+
+`TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES` controls in-flight actions per executor replica, not actions per second.
+A 4 vCPU replica completes about `0.8 × 4 / 1.21 ≈ 2.7` actions per second for the reference workload whether it admits 8 or 32 activities, so keep the default of 32 and add replicas to add throughput.
+The extra admission absorbs bursts; it does not add CPU.
+
+Your actions differ from the reference workload.
+HTTP actions that wait on remote APIs use less CPU and longer wall time, so they need more admission and fewer cores.
+Python and data-transform actions use more CPU per action.
+Measure both coefficients on your own workload before committing hardware, and re-run the formulas with your numbers.
+
+## Sizing table
+
+Every tier uses the same executor replica shape: 4 vCPU, 4 GiB memory, the default 32 admitted activities, and a Postgres client pool of 8 + 8 connections.
+Host totals add roughly 8 vCPU and 16 GiB for the API, worker, UI, Temporal, both PostgreSQL instances, Redis, and MinIO.
+
+| Target | Executor replicas | `MAX_CONCURRENT_ACTIVITIES` | In-flight actions | Executor vCPU / RAM | Host total (approx.) | Postgres `max_connections` | Evidence |
+| :----- | ----------------: | --------------------------: | ----------------: | :------------------ | :------------------- | -------------------------: | :------- |
+| Default settings | 1 | 32 | 32 | Unlimited (shares host) | 8 vCPU / 16 GiB | 100 | ~3–5 actions/s on an 8-core host |
+| 8 actions/s | 3 | 32 | 96 | 12 vCPU / 12 GiB | 20 vCPU / 32 GiB | 200 | Measured: 8.4–8.5 actions/s (with 8 admitted per replica) |
+| 16 actions/s | 6 | 32 | 192 | 24 vCPU / 24 GiB | 32 vCPU / 48 GiB | 300 | Projected |
+| 32 actions/s | 12 | 32 | 384 | 48 vCPU / 48 GiB | 56 vCPU / 80 GiB | 400 | Projected |
+| 64 actions/s | 24 | 32 | 768 | 96 vCPU / 96 GiB | 104+ vCPU / 144 GiB | 600 or a pooler | Projected, multi-node |
+| 128 actions/s | 48 | 32 | 1536 | 192 vCPU / 192 GiB | 200+ vCPU / 256 GiB | Pooler required | Projected, multi-node |
+| 256 actions/s | 96 | 32 | 3072 | 384 vCPU / 384 GiB | 392+ vCPU / 512 GiB | Pooler required | Projected, multi-node |
+
+Only the 8 actions/s row is measured, on three 4 vCPU executors that admitted 8 activities each.
+The benchmark also showed that admitting more per replica did not raise throughput, so the rows keep the default 32 and change only the replica count: three executors per 8 actions per second, doubling with each tier.
+The in-flight column is the burst the tier can hold, not its sustained rate.
+The rows assume the reference action mix and that every replica gets its own physical cores.
+Validate any tier above 16 actions/s with the [benchmark suite](https://github.com/TracecatHQ/tracecat/tree/main/packages/tracecat-benchmark) on the target hardware before you commit to it.
+
+The default settings row is deliberately conservative.
+A single executor with 32 admitted activities could reach 32 / 2.6 ≈ 12 actions per second, but on an 8-core host shared with every other service it has roughly 4 cores available, which caps it at 0.8 × 4 / 1.21 ≈ 2.6 actions per second for the reference workload.
+Adding cores or replicas, not a higher `TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES`, raises sustained throughput on that host.
+
+## Physical capacity is a hard limit
+
+Compose `cpus` limits and replica counts do not create capacity.
+Declaring six 4 vCPU executors on a 12-core host dropped measured throughput from 8.4 to 2.9 actions per second because the host was oversubscribed.
+Before adding a replica, confirm the host has 4 idle cores for it: `executor replicas × 4 + 8 ≤ host cores`.
+
+A single Docker Compose host tops out around 32 actions per second on commodity 64-core machines.
+Above that, [convert to Docker Swarm](/self-hosting/docker-compose#convert-to-docker-swarm) across several nodes or deploy on [Kubernetes](/self-hosting/kubernetes), and move PostgreSQL and Temporal to managed services.
+
+## Configure a tier
+
+<Steps>
+  <Step title="Keep the default executor concurrency">
+    Leave `TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES` and `TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS` at their default of 32.
+    Every tier scales by replica count, not by this value.
+
+    Actions that use `for_each` multiply database concurrency by `TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY` (default 4), so one replica can queue 128 database-bound tasks against its 8 + 8 pool.
+    If executor logs show pool timeouts, lower `TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY` to 1 or lower `TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES` to 8 rather than raising the pool, because the validated 8 + 8 pool is what the `max_connections` column budgets for.
+  </Step>
+  <Step title="Pin executor resources and Postgres pools">
+    Create `docker-compose.override.yml` next to `docker-compose.yml`.
+    Compose merges it automatically.
+
+    ```yaml
+    services:
+      executor:
+        deploy:
+          resources:
+            limits:
+              cpus: "4"
+              memory: 4G
+        environment:
+          TRACECAT__DB_POOL_SIZE: 8
+          TRACECAT__DB_MAX_OVERFLOW: 8
+          TRACECAT__DB_POOL_TIMEOUT: 30
+
+      postgres_db:
+        command: ["postgres", "-c", "max_connections=200", "-c", "shared_buffers=1GB"]
+        deploy:
+          resources:
+            limits:
+              cpus: "2"
+              memory: 4G
+    ```
+
+    Use the `max_connections` value from the table.
+    Each executor replica can open at most `TRACECAT__DB_POOL_SIZE + TRACECAT__DB_MAX_OVERFLOW` connections per pool, and the API, worker, and agent services keep their default 10 + 60 pools.
+    Budget `max_connections ≥ 16 × executor replicas + 150` so a burst cannot exhaust PostgreSQL connection slots.
+    Set `shared_buffers` to about 25% of the PostgreSQL memory limit.
+  </Step>
+  <Step title="Start with the executor replica count">
+    ```bash
+    docker compose up -d --scale executor=3
+    ```
+
+    Repeat the command with a new count to scale up or down.
+    The `executor` service has no fixed `container_name`, so Compose can run several replicas behind the shared Temporal task queue with no other changes.
+  </Step>
+  <Step title="Verify against the target">
+    Watch these signals while running a representative burst:
+
+    - `docker stats`: executor containers should sit below 80% of their CPU limit. Sustained 100% means you need more replicas.
+    - `SELECT count(*) FROM pg_stat_activity;` on `postgres_db`: peak connections should stay below `max_connections` with headroom for migrations and administration.
+    - Temporal UI (uncomment the `temporal_ui` port mapping in `docker-compose.yml`, then open `http://localhost:8081`): a growing `shared-action-queue` backlog with idle executor CPU means admission is too low; a growing backlog with saturated CPU means you are out of cores.
+  </Step>
+</Steps>
+
+## Add a connection pooler above 12 executors
+
+Client pools fan out with executor replicas while the useful number of PostgreSQL backends does not.
+In the reference benchmark, 16 physical executor backends behind PgDog preserved 99% of direct throughput while cutting peak PostgreSQL connections by 32%; 12 backends kept 90%.
+Twice as many executor backends did not raise throughput.
+
+From 12 executor replicas upward, place a transaction-mode pooler such as PgDog or PgBouncer between the executors and PostgreSQL, and size its executor backend pool at roughly 1.3 backends per executor vCPU (the benchmark's 16 backends for 12 vCPU).
+A pooler multiplexes connections; it does not add database CPU.
+If PostgreSQL CPU or I/O saturates while connections stay within budget, give PostgreSQL more vCPU or move it to a managed instance.
+
+## Scale the supporting services
+
+The executor tier is measured; the other services are sized from defaults and operational experience.
+
+| Service | Default | 32 actions/s | 64+ actions/s |
+| :------ | :------ | :----------- | :------------ |
+| Worker (DSL) | 1 replica, 100 activity slots | 2 replicas (`--scale worker=2`) | 1 replica per 12 executors |
+| Application PostgreSQL | Container defaults | 2 vCPU / 4 GiB, `max_connections=400` | 4+ vCPU, managed instance, pooler |
+| Temporal + Temporal PostgreSQL | Container defaults | 4 vCPU / 8 GiB total | Temporal Cloud or dedicated node |
+| API | 1 replica | 2 vCPU / 2 GiB | 4 vCPU / 4 GiB |
+
+Add worker replicas when workflow-task schedule-to-start latency in the Temporal UI grows while executor CPU stays idle.
+Lower `TEMPORAL__THREADPOOL_MAX_WORKERS` and `TEMPORAL__MAX_CONCURRENT_WORKFLOW_TASKS` from 100 on workers with fewer than 4 cores.
+
+## Related pages
+
+- See [Docker Compose](/self-hosting/docker-compose) for the base deployment, general host sizing, and the Docker Swarm conversion.
+- See [Kubernetes](/self-hosting/kubernetes) for KEDA autoscaling of worker and executor deployments beyond a single host.
+- See [Architecture](/self-hosting/architecture) for how the API, worker, executor, Temporal, and PostgreSQL services fit together.

@@ -1,0 +1,66 @@
+type: action
+definition:
+  title: Get values
+  description: Returns a range of values from a spreadsheet. The caller must specify the spreadsheet ID and a range.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/get
+  namespace: tools.google_sheets
+  name: get_values
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    spreadsheet_id:
+      type: str
+      description: The ID of the spreadsheet to retrieve data from.
+    range:
+      type: str
+      description: The A1 notation or R1C1 notation of the range to retrieve values from.
+    major_dimension:
+      type: str | None
+      description: >-
+        The major dimension that results should use. One of `ROWS` or `COLUMNS`. For example, if
+        the spreadsheet data in Sheet1 is `A1=1,B1=2,A2=3,B2=4`, then requesting
+        `range=Sheet1!A1:B2` with `majorDimension=ROWS` returns `[[1,2],[3,4]]`, whereas
+        `majorDimension=COLUMNS` returns `[[1,3],[2,4]]`.
+      default: null
+    value_render_option:
+      type: str | None
+      description: >-
+        How values should be represented in the output. One of `FORMATTED_VALUE`,
+        `UNFORMATTED_VALUE` or `FORMULA`. The default render option is `FORMATTED_VALUE`.
+      default: null
+    date_time_render_option:
+      type: str | None
+      description: >-
+        How dates, times, and durations should be represented in the output. One of `SERIAL_NUMBER`
+        or `FORMATTED_STRING`. This is ignored if value_render_option is `FORMATTED_VALUE`. The
+        default dateTime render option is `SERIAL_NUMBER`.
+      default: null
+  steps:
+    - ref: get_values
+      action: tools.google_api.call_api
+      args:
+        service_name: sheets
+        version: v4
+        resource: spreadsheets.values
+        method_name: get
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+        params:
+          spreadsheetId: ${{ inputs.spreadsheet_id }}
+          range: ${{ inputs.range }}
+          majorDimension: ${{ inputs.major_dimension }}
+          valueRenderOption: ${{ inputs.value_render_option }}
+          dateTimeRenderOption: ${{ inputs.date_time_render_option }}
+  returns: ${{ steps.get_values.result }}

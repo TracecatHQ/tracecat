@@ -1,0 +1,48 @@
+---
+title: "Workflow metadata"
+description: "Read workflow run metadata in Tracecat expressions with the ENV context: execution IDs, timestamps, trigger type, and the active Workflow environment."
+---
+
+## Overview
+
+The `ENV` context exposes metadata about the current workflow run: execution IDs, run timestamps, the trigger type, and the active Workflow environment.
+
+## Using workflow metadata in expressions
+
+Access workflow metadata in expressions with:
+
+```yaml
+${{ ENV.workflow.<field> }}
+```
+
+<CodeGroup>
+```yaml Expression
+execution_id: ${{ ENV.workflow.execution_id }}
+trigger_type: ${{ ENV.workflow.trigger_type }}
+```
+
+```json Result
+{
+  "execution_id": "wf_6dKVihiTHnzsxznV2Wku3S/exec_4itKqkgCZrLhgYiq5L211X",
+  "trigger_type": "webhook"
+}
+```
+</CodeGroup>
+
+## When to use workflow metadata
+
+Use workflow metadata to:
+
+- Stamp tickets, alerts, and log entries with `ENV.workflow.execution_id` so you can trace a record back to the run that created it
+- Branch on `ENV.workflow.trigger_type` to handle manual runs differently from webhook or scheduled runs
+- Record when a run started with `ENV.workflow.start_time`
+
+## Workflow environment
+
+`ENV.environment` resolves to the [Workflow environment](/automations/workflows#environments) the run executes in, the same environment that scopes [secrets](/automations/core-concepts/secrets) and [variables](/automations/core-concepts/variables).
+
+## Related pages
+
+- See the [Workflow metadata cheatsheet](/cheatsheets/workflow-metadata) for the `ENV` field reference.
+- See [Expressions](/automations/core-concepts/expressions) for expression syntax and the other contexts.
+- See [Secrets](/automations/core-concepts/secrets) for how the Workflow environment scopes credentials.

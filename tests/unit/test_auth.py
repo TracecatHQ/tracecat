@@ -1,3 +1,4 @@
+import importlib
 import os
 import uuid
 
@@ -5,6 +6,7 @@ import pytest
 from httpx import AsyncClient
 
 from tracecat import config
+from tracecat.auth import users as users_mod
 from tracecat.auth.types import Role
 from tracecat.clients import AuthenticatedAPIClient, AuthenticatedServiceClient
 from tracecat.contexts import ctx_role
@@ -188,3 +190,24 @@ async def test_authenticated_api_client_init_with_role(mock_user_id, mock_org_id
         assert "x-tracecat-role-user-id" not in client.headers
         assert uuid.UUID(client.headers["x-tracecat-role-workspace-id"]) == mock_org_id
         assert client.base_url == config.TRACECAT__API_URL
+
+
+@pytest.mark.parametrize(
+    ("public_api_url", "expected"),
+    [
+        # Browser-facing URL terminates TLS at the load balancer, so the session
+        # cookie must be marked Secure regardless of the internal API URL scheme.
+        ("https://tracecat.example.com/api", True),
+        ("http://localhost/api", False),
+    ],
+)
+def test_cookie_secure_derived_from_public_api_url(
+    monkeypatch, public_api_url, expected
+):
+    monkeypatch.setattr(config, "TRACECAT__PUBLIC_API_URL", public_api_url)
+    reloaded = importlib.reload(users_mod)
+    assert reloaded.cookie_transport.cookie_secure is expected
+    # Ensure the internal API URL never gates the Secure flag on its own.
+    monkeypatch.setattr(config, "TRACECAT__API_URL", "http://api-service:8000")
+    reloaded = importlib.reload(users_mod)
+    assert reloaded.cookie_transport.cookie_secure is expected

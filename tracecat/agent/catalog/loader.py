@@ -2,26 +2,34 @@
 
 import importlib.resources as resources
 import logging
+from typing import Any, cast
 
 import orjson
-from pydantic import TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from tracecat.agent.catalog.service import AgentCatalogService, PlatformCatalogEntry
 from tracecat.db.engine import get_async_session_bypass_rls_context_manager
 
 logger = logging.getLogger(__name__)
 
-PlatformCatalogEntryValidator: TypeAdapter[PlatformCatalogEntry] = TypeAdapter(
-    PlatformCatalogEntry
-)
+
+class RawPlatformCatalogEntry(BaseModel):
+    """Model row from bundled platform_catalog.json (trust boundary)."""
+
+    model_config = ConfigDict(extra="ignore", protected_namespaces=())
+
+    model_provider: str = Field(min_length=1)
+    model_name: str = Field(min_length=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 def get_platform_catalog_models() -> list[PlatformCatalogEntry]:
     """Load and parse platform_catalog.json.
 
     Returns a list of ``PlatformCatalogEntry`` rows (model_provider,
-    model_name, metadata). Empty list if the bundled file is missing or
-    invalid so API startup stays resilient to packaging issues.
+    model_name, metadata); malformed rows are skipped. Empty list if the
+    bundled file is missing or invalid so API startup stays resilient to
+    packaging issues.
     """
     try:
         catalog_data = orjson.loads(
@@ -34,19 +42,26 @@ def get_platform_catalog_models() -> list[PlatformCatalogEntry]:
 
     if not isinstance(catalog_data, dict):
         return []
+    catalog_doc = cast(dict[str, Any], catalog_data)
 
-    models = catalog_data.get("models", [])
-    if not isinstance(models, list):
+    raw_models = catalog_doc.get("models", [])
+    if not isinstance(raw_models, list):
         return []
+    models = cast(list[Any], raw_models)
 
     valid_models: list[PlatformCatalogEntry] = []
     for model in models:
         try:
-            entry = PlatformCatalogEntryValidator.validate_python(model)
+            raw = RawPlatformCatalogEntry.model_validate(model)
         except ValidationError:
             continue
-        if entry["model_provider"] and entry["model_name"]:
-            valid_models.append(entry)
+        valid_models.append(
+            PlatformCatalogEntry(
+                model_provider=raw.model_provider,
+                model_name=raw.model_name,
+                metadata=raw.metadata,
+            )
+        )
     return valid_models
 
 

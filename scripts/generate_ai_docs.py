@@ -28,8 +28,9 @@ EXAMPLES: dict[str, dict[str, str]] = {
             - ref: extract_alert
               action: ai.action
               args:
-                model_name: gpt-4.1-mini
-                model_provider: openai
+                model:
+                  model_name: gpt-4.1-mini
+                  model_provider: openai
                 instructions: |
                   Extract the alert into the requested schema.
                   Use null for fields that are missing.
@@ -66,8 +67,9 @@ EXAMPLES: dict[str, dict[str, str]] = {
             - ref: classify_email
               action: ai.action
               args:
-                model_name: claude-3-5-sonnet-latest
-                model_provider: anthropic
+                model:
+                  model_name: claude-3-5-sonnet-latest
+                  model_provider: anthropic
                 instructions: |
                   Return one of: phishing, benign, spam, unknown.
                 user_prompt: |
@@ -93,8 +95,9 @@ EXAMPLES: dict[str, dict[str, str]] = {
             - ref: investigate_alert
               action: ai.agent
               args:
-                model_name: gpt-4.1
-                model_provider: openai
+                model:
+                  model_name: gpt-4.1
+                  model_provider: openai
                 instructions: |
                   You are a security triage agent.
                   Review the alert, gather missing context, and write a concise analyst summary.
@@ -128,19 +131,20 @@ EXAMPLES: dict[str, dict[str, str]] = {
             - ref: draft_case_update
               action: ai.agent
               args:
-                model_name: claude-3-5-sonnet-latest
-                model_provider: anthropic
+                model:
+                  model_name: claude-3-5-sonnet-latest
+                  model_provider: anthropic
                 instructions: |
                   Investigate the incident, then propose the next action.
                   Create or update records only if the required approval is granted.
                 user_prompt: |
                   Review the latest evidence for case ${{ TRIGGER.case_id }} and decide what to do next.
                 actions:
-                  - core.cases.get
+                  - core.cases.get_case
                   - core.cases.create_comment
-                  - core.cases.update
+                  - core.cases.update_case
                 tool_approvals:
-                  core.cases.update: true
+                  core.cases.update_case: true
                 max_tool_calls: 4
             """
         ).strip(),
@@ -154,7 +158,6 @@ EXAMPLES: dict[str, dict[str, str]] = {
               action: ai.preset_agent
               args:
                 preset: security-analyst
-                preset_version: 3
                 user_prompt: |
                   Review the incident below and decide whether to escalate it:
 
@@ -188,12 +191,21 @@ PAGES: list[dict[str, Any]] = [
             - Use a JSON schema object when you need named fields.
             - Tracecat parses valid JSON before storing it in the action result.
 
+            ## Timeouts
+
+            `timeout` caps active runtime in seconds. Unset means 1800 seconds, and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds. See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape. A ceiling below 1800 seconds lowers both the default and the floor to the ceiling.
+
             ## Reference
             """
         ).strip(),
         "actions": [
             {
                 "id": "ai.action",
+                "warning": (
+                    "`ai.action` requires a model selection at runtime. Set `model` "
+                    "with both `model_name` and `model_provider`, or set the deprecated "
+                    "top-level `model_name` and `model_provider` inputs together."
+                ),
                 "examples": [
                     "ai_action_extract_json",
                     "ai_action_classify_email",
@@ -204,16 +216,16 @@ PAGES: list[dict[str, Any]] = [
     {
         "slug": "ai-agent",
         "title": "AI agent",
-        "description": "Use `ai.agent` and `ai.preset_agent` for tool-calling agent runs in workflows.",
+        "description": "Run tool-calling agents with Tracecat actions, MCP servers, structured outputs, approvals, and reusable presets.",
         "body": dedent(
             """
             Use `ai.agent` when the model needs tool calls. You give the agent a prompt, instructions, and an allowlist of actions it can call during the run.
 
             ## Capabilities
 
-            - `ai.agent`: Prompt plus tool calls. Use the `actions` list to control which Tracecat actions the agent can use.
-            - <Badge icon="lock" color="blue" size="sm" shape="pill">EE</Badge> `ai.preset_agent`: Prompt plus a saved agent configuration. Use this when you want reusable instructions, tools, and MCP integrations across workflows.
-            - `tool_approvals`: Require approval before selected tools run. This is an enterprise feature.
+            - `ai.agent`: Prompt plus tool calls. Use `actions` for Tracecat actions and `mcp_integrations` for saved MCP servers.
+            - `ai.preset_agent`: Prompt plus a saved agent configuration. Use this when you want reusable instructions, tools, skills, and MCP integrations across workflows.
+            - <Badge icon="lock" color="blue" size="sm" shape="pill">EE</Badge> `tool_approvals`: Require approval before selected tools run.
             - `max_tool_calls` and `max_requests`: Bound how much work the agent can do in a single run.
 
             ## Structured outputs
@@ -223,16 +235,27 @@ PAGES: list[dict[str, Any]] = [
             - Use it when the agent should return a final object or typed value after tool use.
             - Keep the schema focused on the final answer, not the intermediate tool steps.
 
-            ## MCP
+            ## MCP servers
+
+            <Badge icon="github" color="gray" size="lg" shape="pill">Open source</Badge>
+
+            `ai.agent` can call tools from saved MCP integrations. Bring your own remote or `stdio` MCP server, or connect one from the catalog of 50+ preconfigured MCP servers with guided connection setup, including Splunk, SentinelOne Purple AI, CrowdStrike Falcon, Microsoft Sentinel, Elastic, Wiz, GreyNoise, and PagerDuty. Select the saved integration in the action's `mcp_integrations` input, or save it on an agent preset with reusable instructions and tools and run it with `ai.preset_agent`.
 
             <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
-            `ai.agent` does not take MCP servers directly in the workflow action. If you need MCP, save that configuration in an agent preset and run it with `ai.preset_agent`.
-            `ai.preset_agent` supports both remote and stdio MCP servers.
+            Enterprise adds tool approvals for MCP tools and the agent inbox for reviewing them.
 
             Internet access is controlled by the root preset for the shared sandbox process. Subagent presets can define their own tools and MCP integrations, but their internet setting does not grant network access unless the root preset also enables it.
 
             See [MCP integrations](/automations/integrations/mcp-integrations) to learn more.
+
+            ## Timeouts
+
+            The action's `timeout` caps the agent's active runtime in seconds. Unset means 1800 seconds, and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds. A ceiling below 1800 seconds lowers both the default and the floor to the ceiling.
+
+            A pause for a tool approval does not count toward the timeout, and the resumed run gets the full timeout again. With the default timeout, a run that reaches it fails with `Agent execution timed out after 1800s`.
+
+            See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape, and [Environment variables](/self-hosting/environment-variables) for the ceiling.
 
             ## Reference
             """
@@ -240,6 +263,11 @@ PAGES: list[dict[str, Any]] = [
         "actions": [
             {
                 "id": "ai.agent",
+                "warning": (
+                    "`ai.agent` requires a model selection at runtime. Set `model` "
+                    "with both `model_name` and `model_provider`, or set the deprecated "
+                    "top-level `model_name` and `model_provider` inputs together."
+                ),
                 "examples": [
                     "ai_agent_investigate_alert",
                     "ai_agent_with_approvals",
@@ -247,9 +275,63 @@ PAGES: list[dict[str, Any]] = [
             },
             {
                 "id": "ai.preset_agent",
+                "note": (
+                    "The `actions` input replaces the preset's registry actions for a "
+                    "single run rather than adding to them. See "
+                    "[AI preset agent](/agents/ai-preset-agent#where-tools-come-from)."
+                ),
                 "examples": ["preset_agent_run"],
             },
         ],
+        "footer": dedent(
+            """
+            ## FAQ
+
+            <AccordionGroup>
+              <Accordion title="When should I use ai.action, ai.agent, or ai.preset_agent?">
+                - Use `ai.action` when you only need one model response and no tools.
+                - Use `ai.agent` when the model must call Tracecat actions or saved MCP integrations during the run.
+                - Use `ai.preset_agent` when you want a reusable configuration with shared instructions, skills, tools, or MCP integrations.
+
+                <CodeGroup>
+                ```yaml Use ai.agent for tool calls
+                - ref: analyze_input
+                  action: ai.agent
+                  args:
+                    model:
+                      model_name: gpt-4.1-mini
+                      model_provider: openai
+                    instructions: |
+                      Investigate the alert and summarize the next step.
+                    user_prompt: |
+                      Review this alert:
+
+                      ${{ TRIGGER.alert }}
+                    actions:
+                      - tools.github.search_code
+                      - core.cases.create_comment
+                    max_tool_calls: 4
+                ```
+
+                ```yaml Use ai.preset_agent for saved configuration
+                - ref: analyze_with_preset
+                  action: ai.preset_agent
+                  args:
+                    preset: security-analyst
+                    user_prompt: |
+                      Review this alert and write a short analyst summary:
+
+                      ${{ TRIGGER.alert }}
+                ```
+                </CodeGroup>
+              </Accordion>
+
+              <Accordion title="How do I use MCP servers with ai.agent?">
+                Connect a server from the MCP catalog or add a custom remote or `stdio` MCP server, then select the saved integration in the `mcp_integrations` input. Both paths are available in open source.
+              </Accordion>
+            </AccordionGroup>
+            """
+        ).strip(),
     },
 ]
 
@@ -481,6 +563,12 @@ def _render_action_section(action_entry: dict[str, Any], action: Any) -> list[st
 
     lines.extend([_escape_text(_get_description(action)), ""])
 
+    if warning := action_entry.get("warning"):
+        lines.extend(["<Warning>", str(warning).strip(), "</Warning>", ""])
+
+    if note := action_entry.get("note"):
+        lines.extend(["<Note>", str(note).strip(), "</Note>", ""])
+
     lines.extend(["#### Inputs", ""])
     lines.extend(_render_input_fields(expects_schema))
     lines.extend(["#### Examples", ""])
@@ -504,6 +592,9 @@ def _render_page(page: dict[str, Any], actions_by_id: dict[str, Any]) -> str:
     for action_entry in page["actions"]:
         action_id = action_entry["id"]
         lines.extend(_render_action_section(action_entry, actions_by_id[action_id]))
+
+    if footer := page.get("footer"):
+        lines.extend([str(footer).strip(), ""])
 
     return "\n".join(lines).rstrip() + "\n"
 

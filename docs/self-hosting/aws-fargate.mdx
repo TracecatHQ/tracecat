@@ -3,6 +3,9 @@ title: AWS ECS Fargate
 description: "Deploy self-hosted Tracecat to AWS ECS Fargate using Terraform: provision RDS, networking, secrets, and Temporal alongside Tracecat services in your own AWS account."
 ---
 
+import FirstSuperadmin from "/snippets/first-superadmin.mdx";
+import GenerateSecrets from "/snippets/generate-secrets.mdx";
+
 <Warning>
   This stack exposes Tracecat to the public internet.
   We've set the `auth_types` Terraform variable to `saml` by default.
@@ -28,7 +31,7 @@ cd tracecat/deployments/fargate
 
 ## Create core secrets
 
-<Snippet file="generate-secrets.mdx" />
+<GenerateSecrets />
 
 You can create these in AWS Secrets Manager manually or use the helper script:
 
@@ -45,12 +48,11 @@ Depending on your chosen `auth_types` (e.g. `saml`, `oidc`, `oauth`), provide th
 
 For example, for SAML:
 - `saml_idp_metadata_url_arn`
-- `saml_ca_certs_arn`
-- `saml_metadata_cert_arn`
 
 ## Initialize and deploy
 
 Initialize Terraform and apply the configuration.
+`auth_superadmin_email` has no default — if you leave it unset, no one can sign in to the new deployment.
 
 ```bash
 terraform init
@@ -63,9 +65,10 @@ export TF_VAR_tracecat_db_encryption_key_arn=<secret-arn>
 export TF_VAR_tracecat_service_key_arn=<secret-arn>
 export TF_VAR_tracecat_signing_secret_arn=<secret-arn>
 export TF_VAR_user_auth_secret_arn=<secret-arn>
+export TF_VAR_auth_superadmin_email=<email>
 
 # Optional but recommended
-export TF_VAR_tracecat_image_tag=1.0.0-beta.48
+export TF_VAR_tracecat_image_tag=1.0.1
 
 terraform apply
 ```
@@ -78,6 +81,10 @@ Once deployed, access your instance at:
 - UI: `https://<domain>`
 - API docs: `https://<domain>/api/docs`
 - MCP: `https://<domain>/mcp`
+
+## First login
+
+<FirstSuperadmin />
 
 ## Updating Tracecat
 
@@ -92,7 +99,7 @@ cd tracecat/deployments/fargate
 git pull origin main
 
 # Set variables as before, then update the image tag
-export TF_VAR_tracecat_image_tag=1.0.0-beta.48
+export TF_VAR_tracecat_image_tag=1.0.1
 
 terraform apply
 ```
@@ -115,7 +122,7 @@ If you are using Temporal Cloud or another external Temporal cluster, set `disab
 <AccordionGroup>
   <Accordion title="Is untrusted code execution safe on Fargate?">
     Fargate does not support the permissions model required by `nsjail`. Tracecat uses a fallback executor without `nsjail` isolation on Fargate.
-    If you need the highest isolation for untrusted code execution (like custom registry actions or `core.script.run_python`), deploy Tracecat on Kubernetes using the [Helm chart](https://github.com/TracecatHQ/tracecat/tree/main/deployments/k8s/helm), where `nsjail` is enabled by default.
+    If you need the highest isolation for untrusted code execution (like custom registry actions or `core.script.run_python`), [deploy Tracecat on Kubernetes](/self-hosting/kubernetes), where `nsjail` is enabled by default.
   </Accordion>
 
   <Accordion title="What infrastructure does this stack create?">
@@ -126,6 +133,12 @@ If you are using Temporal Cloud or another external Temporal cluster, set `disab
     - ElastiCache Redis
     - S3 buckets for attachments, registry, and workflow artifacts
     - VPC endpoints for S3 and Secrets Manager
+  </Accordion>
+
+  <Accordion title="Connecting a VPC-internal LiteLLM, vLLM, or Ollama fails with 'Host is not allowed'">
+    Tracecat rejects LLM provider and MCP endpoints that resolve to private addresses unless you allow them.
+    Set `outbound_allowed_private_cidrs` in your Terraform variables to the endpoint's IP or CIDR, e.g. `"10.0.12.34/32"`, and apply.
+    See [Private endpoints](/agents/llm-providers#private-endpoints).
   </Accordion>
 
   <Accordion title="What happens if database migrations fail?">

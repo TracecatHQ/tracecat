@@ -13,11 +13,12 @@ import {
   LayoutListIcon,
   RotateCcw,
 } from "lucide-react"
-import { useForm } from "react-hook-form"
+import { type DefaultValues, useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   ApiError,
   type ExpectedField_Input,
+  type RegistryLockEntryRead,
   type WorkflowDefinitionRead,
   type WorkflowRead,
   type WorkflowUpdate,
@@ -190,9 +191,9 @@ export function WorkflowPanel({
         onValueChange={(value) => setActiveTab(value as WorkflowPanelTab)}
         className="flex h-full w-full flex-col"
       >
-        <div className="w-full min-w-[30rem] shrink-0">
-          <div className="flex items-center justify-start">
-            <TabsList className="h-9 justify-start rounded-none bg-transparent p-0">
+        <div className="w-full shrink-0">
+          <div className="no-scrollbar flex items-center justify-start overflow-x-auto">
+            <TabsList className="h-9 shrink-0 justify-start rounded-none bg-transparent p-0">
               <TabsTrigger
                 className="flex h-full min-w-24 items-center justify-center rounded-none px-5 py text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                 value="workflow"
@@ -366,9 +367,12 @@ function WorkflowVersionsHistory({
         {definitions.map((definition, index) => {
           const isCurrent = definition.version === currentVersion
           const isLatest = definition.version === latestVersion
+          const registryLockEntries = getRegistryLockEntries(definition)
+          const registryLockSummary =
+            formatRegistryLockSummary(registryLockEntries)
           return (
             <div key={definition.id}>
-              <div className="flex items-center gap-3 px-4 py-3">
+              <div className="flex items-start gap-3 px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{`v${definition.version}`}</span>
@@ -379,6 +383,39 @@ function WorkflowVersionsHistory({
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
                     {getRelativeTime(new Date(definition.created_at))}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    {registryLockSummary ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Badge
+                            variant="outline"
+                            className="max-w-full overflow-hidden truncate whitespace-nowrap font-mono font-normal"
+                            tabIndex={0}
+                            aria-label={`Registry lock: ${registryLockSummary}`}
+                          >
+                            {registryLockSummary}
+                          </Badge>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-sm">
+                          <div className="space-y-1">
+                            <div className="font-medium">Registry lock</div>
+                            {registryLockEntries.map((entry) => (
+                              <div
+                                key={entry.origin}
+                                className="break-all font-mono text-xs"
+                              >
+                                {`${entry.origin}@${entry.version}`}
+                              </div>
+                            ))}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        No registry lock
+                      </span>
+                    )}
                   </div>
                 </div>
                 {!isCurrent ? (
@@ -409,6 +446,43 @@ function WorkflowVersionsHistory({
   )
 }
 
+function getRegistryLockEntries(
+  definition: WorkflowDefinitionRead
+): RegistryLockEntryRead[] {
+  return definition.registry_lock_entries
+}
+
+function formatRegistryLockSummary(
+  entries: RegistryLockEntryRead[]
+): string | null {
+  if (entries.length === 0) {
+    return null
+  }
+  const [{ label }] = entries
+  if (entries.length === 1) {
+    return label
+  }
+  return `${label} +${entries.length - 1}`
+}
+
+function getWorkflowFormValues(
+  workflow: WorkflowRead
+): DefaultValues<WorkflowUpdateForm> {
+  return {
+    title: workflow.title,
+    alias: workflow.alias,
+    environment: workflow.config?.environment || "default",
+    timeout: workflow.config?.timeout || 0,
+    // Use undefined for empty objects so the YAML editor shows empty instead of {}
+    expects:
+      workflow.expects && Object.keys(workflow.expects).length > 0
+        ? workflow.expects
+        : undefined,
+    returns: workflow.returns,
+    error_handler: workflow.error_handler || "",
+  }
+}
+
 function WorkflowSettingsPanel({
   workflow,
 }: {
@@ -423,20 +497,18 @@ function WorkflowSettingsPanel({
     resolver: zodResolver(workflowUpdateFormSchema, undefined, {
       mode: "async",
     }),
-    defaultValues: {
-      title: workflow.title,
-      alias: workflow.alias,
-      environment: workflow.config?.environment || "default",
-      timeout: workflow.config?.timeout || 0,
-      // Use undefined for empty objects so the YAML editor shows empty instead of {}
-      expects:
-        workflow.expects && Object.keys(workflow.expects).length > 0
-          ? workflow.expects
-          : undefined,
-      returns: workflow.returns,
-      error_handler: workflow.error_handler || "",
-    },
+    defaultValues: getWorkflowFormValues(workflow),
   })
+
+  useEffect(() => {
+    // Resync when the workflow changes outside this form (e.g. a breadcrumb
+    // rename) so a later blur-save doesn't submit stale cached values.
+    // keepDirtyValues preserves edits the user is still making here.
+    methods.reset(getWorkflowFormValues(workflow), {
+      keepDirtyValues: true,
+      keepErrors: true,
+    })
+  }, [methods, workflow])
 
   const onSubmit = useCallback(
     async (values: WorkflowUpdateForm) => {

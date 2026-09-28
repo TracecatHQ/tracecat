@@ -90,17 +90,9 @@ export function SignUp({
     if (!user) {
       return
     }
-    if (user.isSuperuser && appInfoIsLoading) {
-      return
-    }
     // Invitation acceptance is handled atomically during registration.
-    router.push(
-      getPostAuthRedirectPath({
-        isSuperuser: user.isSuperuser,
-        eeMultiTenant: appInfo?.ee_multi_tenant ?? true,
-      })
-    )
-  }, [appInfo?.ee_multi_tenant, appInfoIsLoading, user, router])
+    router.push(getPostAuthRedirectPath({}))
+  }, [user, router])
 
   if (appInfoIsLoading) {
     return <CenteredSpinner />

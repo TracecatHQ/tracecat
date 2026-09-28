@@ -1,0 +1,50 @@
+type: action
+definition:
+  title: Create presentation
+  description: Creates a blank presentation using the title given in the request.
+  display_group: Google Slides
+  doc_url: https://developers.google.com/workspace/slides/api/reference/rest/v1/presentations/create
+  namespace: tools.google_slides
+  name: create_presentation
+  secrets:
+    - type: oauth
+      provider_id: google_slides
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_slides
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    title:
+      type: str | None
+      description: The title of the presentation.
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          title: ${{ inputs.title }}
+        script: |
+          def main(title):
+              # Values inside `body` are not pruned, and Slides rejects a null title.
+              body = {}
+              if title is not None:
+                  body["title"] = title
+              return {"body": body}
+    - ref: create_presentation
+      action: tools.google_api.call_api
+      args:
+        service_name: slides
+        version: v1
+        resource: presentations
+        method_name: create
+        access_token: ${{ SECRETS.google_slides_oauth.GOOGLE_SLIDES_USER_TOKEN || SECRETS.google_slides_oauth.GOOGLE_SLIDES_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/presentations"]
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.create_presentation.result }}

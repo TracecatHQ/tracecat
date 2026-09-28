@@ -16,13 +16,16 @@ from tracecat.authz.seeding import seed_system_scopes
 from tracecat.db.models import (
     Group,
     GroupMember,
+    GroupRoleAssignment,
     Organization,
     OrganizationMembership,
+    RoleScope,
     Scope,
     User,
     UserRoleAssignment,
     Workspace,
 )
+from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -88,11 +91,84 @@ async def seeded_scopes(session: AsyncSession) -> list[Scope]:
 
 
 @pytest.fixture
-def role(org: Organization, user: User) -> Role:
-    """Create a test role for the service."""
+def admin_assignable_scopes(seeded_scopes: list[Scope]) -> list[Scope]:
+    """Return seeded scopes held by the organization-admin test role."""
+    return [scope for scope in seeded_scopes if scope.name in ORG_ADMIN_SCOPES]
+
+
+@pytest.fixture
+async def privileged_role(
+    session: AsyncSession,
+    org: Organization,
+    user: User,
+    seeded_scopes: list[Scope],
+) -> DBRole:
+    """Create a pre-existing role with an owner-only scope."""
+    owner_scope = next(
+        scope for scope in seeded_scopes if scope.name == "org:owner:assign"
+    )
+    privileged_role = DBRole(
+        name="Privileged Test Role",
+        slug=None,
+        description=None,
+        organization_id=org.id,
+        created_by=user.id,
+    )
+    session.add(privileged_role)
+    await session.flush()
+    session.add(RoleScope(role_id=privileged_role.id, scope_id=owner_scope.id))
+    await session.commit()
+    await session.refresh(privileged_role, ["scopes"])
+    return privileged_role
+
+
+@pytest.fixture
+async def role(
+    session: AsyncSession,
+    org: Organization,
+    seeded_scopes: list[Scope],
+) -> Role:
+    """Create a test role for the service.
+
+    The caller is a separate admin user backed by a real org-wide assignment:
+    grant ceilings read the caller's scopes from the database, so an
+    in-memory-only role would be denied. Keeping the caller distinct from the
+    ``user`` fixture leaves that user's assignment slots free for tests.
+    """
+    admin_user = User(
+        id=uuid.uuid4(),
+        email="admin@example.com",
+        hashed_password="test",
+    )
+    session.add(admin_user)
+    await session.flush()
+    session.add(OrganizationMembership(user_id=admin_user.id, organization_id=org.id))
+
+    admin_role = DBRole(
+        name="Test Org Admin",
+        slug=None,
+        description=None,
+        organization_id=org.id,
+        created_by=admin_user.id,
+    )
+    session.add(admin_role)
+    await session.flush()
+    for scope in seeded_scopes:
+        if scope.name in ORG_ADMIN_SCOPES:
+            session.add(RoleScope(role_id=admin_role.id, scope_id=scope.id))
+    session.add(
+        UserRoleAssignment(
+            organization_id=org.id,
+            user_id=admin_user.id,
+            workspace_id=None,
+            role_id=admin_role.id,
+        )
+    )
+    await session.commit()
+
     return Role(
         type="user",
-        user_id=user.id,
+        user_id=admin_user.id,
         organization_id=org.id,
         service_id="tracecat-api",
         scopes=ORG_ADMIN_SCOPES,
@@ -210,17 +286,54 @@ class TestRBACServiceRoles:
         self,
         session: AsyncSession,
         role: Role,
-        seeded_scopes: list[Scope],
+        admin_assignable_scopes: list[Scope],
     ):
         """Create a role with scopes assigned."""
         service = RBACService(session, role=role)
-        scope_ids = [s.id for s in seeded_scopes[:3]]
+        scope_ids = [scope.id for scope in admin_assignable_scopes[:3]]
 
         custom_role = await service.create_role(
             name="Custom Role With Scopes",
             scope_ids=scope_ids,
         )
         assert len(custom_role.scopes) == 3
+
+    async def test_create_role_rejects_unheld_scopes(
+        self,
+        session: AsyncSession,
+        role: Role,
+        privileged_role: DBRole,
+    ):
+        """Creating a role cannot grant scopes outside the caller's ceiling."""
+        service = RBACService(session, role=role)
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Cannot grant scopes not held by the caller",
+        ):
+            await service.create_role(
+                name="Escalated Role",
+                scope_ids=[privileged_role.scopes[0].id],
+            )
+
+    async def test_update_role_rejects_unheld_scopes(
+        self,
+        session: AsyncSession,
+        role: Role,
+        privileged_role: DBRole,
+    ):
+        """Updating a role cannot grant scopes outside the caller's ceiling."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Assignable Role")
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Cannot grant scopes not held by the caller",
+        ):
+            await service.update_role(
+                custom_role.id,
+                scope_ids=[privileged_role.scopes[0].id],
+            )
 
     async def test_update_role(
         self,
@@ -238,6 +351,7 @@ class TestRBACServiceRoles:
         )
         assert updated.name == "Updated Name"
         assert updated.description == "New description"
+        assert updated.updated_at >= updated.created_at
 
     async def test_delete_role(
         self,
@@ -296,6 +410,25 @@ class TestRBACServiceGroups:
         assert group.organization_id == org.id
         assert group.created_by == role.user_id
 
+    async def test_update_group(
+        self,
+        session: AsyncSession,
+        role: Role,
+    ):
+        """Updated groups expose server-generated timestamps without lazy IO."""
+        service = RBACService(session, role=role)
+        group = await service.create_group(name="Original Group")
+
+        updated = await service.update_group(
+            group.id,
+            name="Updated Group",
+            description="New description",
+        )
+
+        assert updated.name == "Updated Group"
+        assert updated.description == "New description"
+        assert updated.updated_at >= updated.created_at
+
     async def test_add_member_to_group(
         self,
         session: AsyncSession,
@@ -325,6 +458,34 @@ class TestRBACServiceGroups:
         await service.add_group_member(group.id, user.id)
 
         with pytest.raises(TracecatValidationError):
+            await service.add_group_member(group.id, user.id)
+
+    async def test_add_member_rejects_unheld_group_role(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        user: User,
+        privileged_role: DBRole,
+    ):
+        """Adding a member cannot grant scopes outside the caller's ceiling."""
+        service = RBACService(session, role=role)
+        group = await service.create_group(name="Privileged Group")
+        session.add(
+            GroupRoleAssignment(
+                organization_id=org.id,
+                group_id=group.id,
+                role_id=privileged_role.id,
+                workspace_id=None,
+                assigned_by=user.id,
+            )
+        )
+        await session.commit()
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Cannot grant scopes not held by the caller",
+        ):
             await service.add_group_member(group.id, user.id)
 
     async def test_remove_member_from_group(
@@ -500,6 +661,49 @@ class TestRBACServiceAssignments:
 
         assert updated.role_id == role2.id
 
+    async def test_create_assignment_rejects_unheld_role(
+        self,
+        session: AsyncSession,
+        role: Role,
+        privileged_role: DBRole,
+    ):
+        """Group assignment creation enforces the caller's scope ceiling."""
+        service = RBACService(session, role=role)
+        group = await service.create_group(name="Target Group")
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Cannot grant scopes not held by the caller",
+        ):
+            await service.create_group_role_assignment(
+                group_id=group.id,
+                role_id=privileged_role.id,
+            )
+
+    async def test_update_assignment_rejects_unheld_role(
+        self,
+        session: AsyncSession,
+        role: Role,
+        privileged_role: DBRole,
+    ):
+        """Group assignment updates enforce the caller's scope ceiling."""
+        service = RBACService(session, role=role)
+        assignable_role = await service.create_role(name="Assignable Role")
+        group = await service.create_group(name="Target Group")
+        assignment = await service.create_group_role_assignment(
+            group_id=group.id,
+            role_id=assignable_role.id,
+        )
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Cannot grant scopes not held by the caller",
+        ):
+            await service.update_group_role_assignment(
+                assignment.id,
+                role_id=privileged_role.id,
+            )
+
 
 @pytest.mark.anyio
 class TestRBACServiceUserAssignments:
@@ -625,6 +829,49 @@ class TestRBACServiceUserAssignments:
                 role_id=custom_role.id,
             )
 
+    async def test_create_user_assignment_rejects_unheld_role(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        privileged_role: DBRole,
+    ):
+        """User assignment creation enforces the caller's scope ceiling."""
+        service = RBACService(session, role=role)
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Cannot grant scopes not held by the caller",
+        ):
+            await service.create_user_assignment(
+                user_id=user.id,
+                role_id=privileged_role.id,
+            )
+
+    async def test_update_user_assignment_rejects_unheld_role(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        privileged_role: DBRole,
+    ):
+        """User assignment updates enforce the caller's scope ceiling."""
+        service = RBACService(session, role=role)
+        assignable_role = await service.create_role(name="Assignable Role")
+        assignment = await service.create_user_assignment(
+            user_id=user.id,
+            role_id=assignable_role.id,
+        )
+
+        with pytest.raises(
+            TracecatAuthorizationError,
+            match="Cannot grant scopes not held by the caller",
+        ):
+            await service.update_user_assignment(
+                assignment.id,
+                role_id=privileged_role.id,
+            )
+
 
 @pytest.mark.anyio
 class TestRBACServiceScopeComputation:
@@ -646,13 +893,13 @@ class TestRBACServiceScopeComputation:
         session: AsyncSession,
         role: Role,
         user: User,
-        seeded_scopes: list[Scope],
+        admin_assignable_scopes: list[Scope],
     ):
         """User gets scopes from group membership."""
         service = RBACService(session, role=role)
 
         # Create role with scopes
-        scope_ids = [s.id for s in seeded_scopes[:2]]
+        scope_ids = [scope.id for scope in admin_assignable_scopes[:2]]
         custom_role = await service.create_role(
             name="Test Role",
             scope_ids=scope_ids,
@@ -670,7 +917,10 @@ class TestRBACServiceScopeComputation:
 
         # Get scopes
         scopes = await service.get_group_scopes(user.id)
-        expected_names = {seeded_scopes[0].name, seeded_scopes[1].name}
+        expected_names = {
+            admin_assignable_scopes[0].name,
+            admin_assignable_scopes[1].name,
+        }
         assert scopes == expected_names
 
     async def test_get_group_scopes_workspace_specific(
@@ -679,7 +929,7 @@ class TestRBACServiceScopeComputation:
         role: Role,
         user: User,
         workspace: Workspace,
-        seeded_scopes: list[Scope],
+        admin_assignable_scopes: list[Scope],
     ):
         """Workspace-specific assignments only apply when workspace matches."""
         service = RBACService(session, role=role)
@@ -687,7 +937,7 @@ class TestRBACServiceScopeComputation:
         # Create role with scopes
         custom_role = await service.create_role(
             name="Workspace Role",
-            scope_ids=[seeded_scopes[0].id],
+            scope_ids=[admin_assignable_scopes[0].id],
         )
 
         # Create group, add user, and assign to specific workspace
@@ -707,7 +957,7 @@ class TestRBACServiceScopeComputation:
         scopes_with_ws = await service.get_group_scopes(
             user.id, workspace_id=workspace.id
         )
-        assert seeded_scopes[0].name in scopes_with_ws
+        assert admin_assignable_scopes[0].name in scopes_with_ws
 
     async def test_get_group_scopes_org_wide_applies_to_workspace(
         self,
@@ -715,7 +965,7 @@ class TestRBACServiceScopeComputation:
         role: Role,
         user: User,
         workspace: Workspace,
-        seeded_scopes: list[Scope],
+        admin_assignable_scopes: list[Scope],
     ):
         """Org-wide assignments apply even when workspace is specified."""
         service = RBACService(session, role=role)
@@ -723,7 +973,7 @@ class TestRBACServiceScopeComputation:
         # Create role with scopes
         custom_role = await service.create_role(
             name="Org Role",
-            scope_ids=[seeded_scopes[0].id],
+            scope_ids=[admin_assignable_scopes[0].id],
         )
 
         # Create group, add user, and assign org-wide
@@ -737,4 +987,4 @@ class TestRBACServiceScopeComputation:
 
         # With workspace context, org-wide scopes still apply
         scopes = await service.get_group_scopes(user.id, workspace_id=workspace.id)
-        assert seeded_scopes[0].name in scopes
+        assert admin_assignable_scopes[0].name in scopes

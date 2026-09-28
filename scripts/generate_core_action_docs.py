@@ -286,9 +286,15 @@ def _render_page(
         f'title: "{title}"',
         "---",
         "",
-        AUTO_GENERATED_COMMENT,
-        "",
     ]
+
+    if imports_block := page.get("imports"):
+        lines.extend([str(imports_block).strip(), ""])
+
+    lines.extend([AUTO_GENERATED_COMMENT, ""])
+
+    if info_block := page.get("info"):
+        lines.extend([str(info_block).strip(), ""])
 
     for action_entry in action_entries:
         action_id = action_entry["id"]
@@ -321,6 +327,9 @@ def _render_page(
 
         lines.extend(["### Examples", ""])
         lines.extend(_render_examples(action_entry["examples"], examples))
+
+    if footer_block := page.get("footer"):
+        lines.extend([str(footer_block).strip(), ""])
 
     return "\n".join(lines).rstrip() + "\n"
 
@@ -382,14 +391,30 @@ def main() -> None:
                     f"Action {action_id!r} must define at least one example."
                 )
 
+    excluded = manifest.get("excluded_actions") or []
+    if not isinstance(excluded, list) or not all(
+        isinstance(action_id, str) for action_id in excluded
+    ):
+        raise ValueError("'excluded_actions' must be a list of action id strings.")
+    excluded_action_ids = set(excluded)
+
     registered_core_actions = {
         action.action
         for action in repo.store.values()
         if action.action.startswith("core.")
     }
-    undocumented_actions = sorted(registered_core_actions - seen_action_ids)
+    undocumented_actions = sorted(
+        registered_core_actions - seen_action_ids - excluded_action_ids
+    )
     unknown_actions = sorted(seen_action_ids - registered_core_actions)
-    if undocumented_actions or unknown_actions:
+    unknown_excluded = sorted(excluded_action_ids - registered_core_actions)
+    documented_and_excluded = sorted(excluded_action_ids & seen_action_ids)
+    if (
+        undocumented_actions
+        or unknown_actions
+        or unknown_excluded
+        or documented_and_excluded
+    ):
         problems: list[str] = []
         if undocumented_actions:
             problems.append(
@@ -400,6 +425,16 @@ def main() -> None:
             problems.append(
                 "Unknown core actions in manifest: "
                 + ", ".join(f"`{action_id}`" for action_id in unknown_actions)
+            )
+        if unknown_excluded:
+            problems.append(
+                "Excluded actions that are not registered: "
+                + ", ".join(f"`{action_id}`" for action_id in unknown_excluded)
+            )
+        if documented_and_excluded:
+            problems.append(
+                "Actions both documented and excluded: "
+                + ", ".join(f"`{action_id}`" for action_id in documented_and_excluded)
             )
         raise ValueError("\n".join(problems))
 

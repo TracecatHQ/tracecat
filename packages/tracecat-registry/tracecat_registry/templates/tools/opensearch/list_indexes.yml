@@ -1,0 +1,59 @@
+type: action
+definition:
+  title: List indexes
+  description: List OpenSearch indexes as JSON for data-source discovery and threat hunting.
+  display_group: OpenSearch
+  doc_url: https://docs.opensearch.org/latest/api-reference/cat/cat-indices/
+  namespace: tools.opensearch
+  name: list_indexes
+  secrets:
+    - name: opensearch
+      keys: ["OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD"]
+  expects:
+    index:
+      type: str | None
+      description: Optional index name or pattern used to filter the response.
+      default: null
+    params:
+      type: dict[str, Any] | None
+      description: Optional native CAT indices query parameters. The format parameter is always set to json.
+      default: null
+    base_url:
+      type: str | None
+      description: OpenSearch base URL (e.g. https://localhost:9200).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: build_path
+      action: core.script.run_python
+      args:
+        inputs:
+          index: ${{ inputs.index }}
+        script: |
+          from urllib.parse import quote
+
+          def main(index):
+              if index:
+                  return f"/_cat/indices/{quote(index, safe='*,-_')}"
+              return "/_cat/indices"
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params: ${{ inputs.params }}
+        script: |
+          def main(params):
+              return {**(params or {}), "format": "json"}
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.opensearch.base_url }}${{ steps.build_path.result }}
+        method: GET
+        params: ${{ steps.build_params.result }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.opensearch.OPENSEARCH_USERNAME + ":" + SECRETS.opensearch.OPENSEARCH_PASSWORD) }}
+  returns: ${{ steps.request.result.data }}

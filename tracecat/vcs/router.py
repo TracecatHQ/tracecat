@@ -4,24 +4,51 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from tracecat.auth.dependencies import OrgUserRole
+from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import EntitlementRequired
 from tracecat.logger import logger
+from tracecat.vcs.bitbucket.app import BitbucketError, BitbucketTokenService
+from tracecat.vcs.bitbucket_data_center.app import (
+    BitbucketDataCenterError,
+    BitbucketDataCenterTokenService,
+)
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.github.flows import handle_manifest_conversion
 from tracecat.vcs.github.manifest import generate_github_app_manifest
+from tracecat.vcs.gitlab.app import GitLabError, GitLabTokenService
 from tracecat.vcs.schemas import (
+    BitbucketDataCenterTokenCredentialsRequest,
+    BitbucketDataCenterTokenCredentialsSaveResponse,
+    BitbucketDataCenterTokenCredentialsStatus,
+    BitbucketTokenCredentialsRequest,
+    BitbucketTokenCredentialsSaveResponse,
+    BitbucketTokenCredentialsStatus,
     GitHubAppCredentialsRequest,
+    GitHubAppCredentialsSaveResponse,
     GitHubAppCredentialsStatus,
     GitHubAppManifestResponse,
+    GitLabTokenCredentialsRequest,
+    GitLabTokenCredentialsSaveResponse,
+    GitLabTokenCredentialsStatus,
 )
 
 org_router = APIRouter(prefix="/organization/vcs", tags=["vcs", "organization"])
 """Manage organization-level VCS features."""
 
+bitbucket_data_center_router = APIRouter(
+    prefix="/bitbucket-data-center", tags=["vcs", "organization"]
+)
+bitbucket_router = APIRouter(
+    prefix="/bitbucket", tags=["vcs", "bitbucket", "organization"]
+)
+
 github_router = APIRouter(prefix="/github", tags=["vcs", "github", "organization"])
 """Manage GitHub App for organization-level features."""
+
+gitlab_router = APIRouter(prefix="/gitlab", tags=["vcs", "gitlab", "organization"])
+"""Manage GitLab token credentials for organization-level features."""
 
 
 @github_router.get("/manifest", response_model=GitHubAppManifestResponse)
@@ -122,14 +149,18 @@ async def github_webhook(*, payload: dict[str, Any]) -> dict[str, str]:
         ) from e
 
 
-@github_router.post("/credentials", status_code=status.HTTP_201_CREATED)
+@github_router.post(
+    "/credentials",
+    status_code=status.HTTP_201_CREATED,
+    response_model=GitHubAppCredentialsSaveResponse,
+)
 @require_scope("org:settings:update")
 async def save_github_app_credentials(
     *,
     session: AsyncDBSession,
-    role: OrgUserRole,
+    role: OrgActorRole,
     request: GitHubAppCredentialsRequest,
-) -> dict[str, str]:
+) -> GitHubAppCredentialsSaveResponse:
     """Save GitHub App credentials (register new or update existing)."""
     # Organization-level operation, no specific checks needed since this is org VCS
     try:
@@ -147,11 +178,11 @@ async def save_github_app_credentials(
             app_id=request.app_id,
         )
 
-        return {
-            "message": f"GitHub App credentials {action} successfully",
-            "action": action,
-            "app_id": config.app_id or request.app_id,
-        }
+        return GitHubAppCredentialsSaveResponse(
+            message=f"GitHub App credentials {action} successfully",
+            action=action,
+            app_id=config.app_id or request.app_id,
+        )
 
     except GitHubAppError as e:
         logger.error(
@@ -180,7 +211,7 @@ async def save_github_app_credentials(
 async def delete_github_app_credentials(
     *,
     session: AsyncDBSession,
-    role: OrgUserRole,
+    role: OrgActorRole,
 ) -> None:
     """Delete GitHub App credentials."""
     try:
@@ -206,7 +237,7 @@ async def delete_github_app_credentials(
 async def get_github_app_credentials_status(
     *,
     session: AsyncDBSession,
-    role: OrgUserRole,
+    role: OrgActorRole,
 ) -> GitHubAppCredentialsStatus:
     """Get the status of GitHub App credentials."""
     # Organization-level operation, no specific checks needed since this is org VCS
@@ -227,5 +258,333 @@ async def get_github_app_credentials_status(
         ) from e
 
 
-# Mount GitHub sub-router to organization VCS router after all endpoints are defined
+@gitlab_router.post(
+    "/credentials",
+    status_code=status.HTTP_201_CREATED,
+    response_model=GitLabTokenCredentialsSaveResponse,
+)
+@require_scope("org:settings:update")
+async def save_gitlab_token_credentials(
+    *,
+    session: AsyncDBSession,
+    role: OrgActorRole,
+    request: GitLabTokenCredentialsRequest,
+) -> GitLabTokenCredentialsSaveResponse:
+    """Save GitLab token credentials (create if new or update existing)."""
+    try:
+        gitlab_service = GitLabTokenService(session=session, role=role)
+        credentials, was_created = await gitlab_service.save_gitlab_token_credentials(
+            base_url=request.base_url,
+            token=request.token,
+        )
+        action = "created" if was_created else "updated"
+        return GitLabTokenCredentialsSaveResponse(
+            message=f"GitLab token credentials {action} successfully",
+            action=action,
+            base_url=credentials.base_url,
+        )
+    except (GitLabError, ValueError) as e:
+        logger.error("Failed to save GitLab token credentials", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to save GitLab token credentials: {str(e)}",
+        ) from e
+    except EntitlementRequired:
+        raise
+    except Exception as e:
+        logger.error(
+            "Error saving GitLab token credentials",
+            error_type=type(e).__name__,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error while saving credentials",
+        ) from e
+
+
+@gitlab_router.delete("/credentials", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:delete")
+async def delete_gitlab_token_credentials(
+    *,
+    session: AsyncDBSession,
+    role: OrgActorRole,
+) -> None:
+    """Delete GitLab token credentials."""
+    try:
+        gitlab_service = GitLabTokenService(session=session, role=role)
+        await gitlab_service.delete_gitlab_token_credentials()
+    except GitLabError as e:
+        logger.error("Failed to delete GitLab token credentials", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to delete GitLab token credentials: {str(e)}",
+        ) from e
+    except EntitlementRequired:
+        raise
+    except Exception as e:
+        logger.error("Error deleting GitLab token credentials", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error while deleting credentials",
+        ) from e
+
+
+@gitlab_router.get("/credentials/status", response_model=GitLabTokenCredentialsStatus)
+@require_scope("org:settings:read")
+async def get_gitlab_token_credentials_status(
+    *,
+    session: AsyncDBSession,
+    role: OrgActorRole,
+) -> GitLabTokenCredentialsStatus:
+    """Get the status of GitLab token credentials."""
+    try:
+        gitlab_service = GitLabTokenService(session=session, role=role)
+        status_data = await gitlab_service.get_gitlab_token_credentials_status()
+        return GitLabTokenCredentialsStatus(**status_data)
+    except EntitlementRequired:
+        raise
+    except Exception as e:
+        logger.error(
+            "Error getting GitLab token credentials status",
+            error_type=type(e).__name__,
+            error=str(e),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error while getting credentials status",
+        ) from e
+
+
+@bitbucket_router.post(
+    "/credentials",
+    status_code=status.HTTP_201_CREATED,
+    response_model=BitbucketTokenCredentialsSaveResponse,
+)
+@require_scope("org:settings:update")
+async def save_bitbucket_token_credentials(
+    *,
+    session: AsyncDBSession,
+    role: OrgActorRole,
+    request: BitbucketTokenCredentialsRequest,
+) -> BitbucketTokenCredentialsSaveResponse:
+    """Save Bitbucket token credentials (create if new or update existing)."""
+    try:
+        bitbucket_service = BitbucketTokenService(session=session, role=role)
+        (
+            credentials,
+            was_created,
+        ) = await bitbucket_service.save_bitbucket_token_credentials(
+            email=request.email,
+            token=request.token,
+        )
+        action = "created" if was_created else "updated"
+        return BitbucketTokenCredentialsSaveResponse(
+            message=f"Bitbucket token credentials {action} successfully",
+            action=action,
+            email=credentials.email,
+        )
+    except (BitbucketError, ValueError) as e:
+        logger.error(
+            "Failed to save Bitbucket token credentials", error_type=type(e).__name__
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to save Bitbucket Cloud credentials",
+        ) from e
+    except EntitlementRequired:
+        raise
+    except Exception as e:
+        logger.error(
+            "Error saving Bitbucket token credentials",
+            error_type=type(e).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error while saving credentials",
+        ) from e
+
+
+@bitbucket_router.delete("/credentials", status_code=status.HTTP_204_NO_CONTENT)
+@require_scope("org:settings:delete")
+async def delete_bitbucket_token_credentials(
+    *,
+    session: AsyncDBSession,
+    role: OrgActorRole,
+) -> None:
+    """Delete Bitbucket token credentials."""
+    try:
+        bitbucket_service = BitbucketTokenService(session=session, role=role)
+        await bitbucket_service.delete_bitbucket_token_credentials()
+    except BitbucketError as e:
+        logger.error(
+            "Failed to delete Bitbucket token credentials", error_type=type(e).__name__
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to delete Bitbucket Cloud credentials",
+        ) from e
+    except EntitlementRequired:
+        raise
+    except Exception as e:
+        logger.error(
+            "Error deleting Bitbucket token credentials", error_type=type(e).__name__
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error while deleting credentials",
+        ) from e
+
+
+@bitbucket_router.get(
+    "/credentials/status", response_model=BitbucketTokenCredentialsStatus
+)
+@require_scope("org:settings:read")
+async def get_bitbucket_token_credentials_status(
+    *,
+    session: AsyncDBSession,
+    role: OrgActorRole,
+) -> BitbucketTokenCredentialsStatus:
+    """Get the status of Bitbucket token credentials."""
+    try:
+        bitbucket_service = BitbucketTokenService(session=session, role=role)
+        status_data = await bitbucket_service.get_bitbucket_token_credentials_status()
+        return status_data
+    except EntitlementRequired:
+        raise
+    except Exception as e:
+        logger.error(
+            "Error getting Bitbucket token credentials status",
+            error_type=type(e).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error while getting credentials status",
+        ) from e
+
+
+@bitbucket_data_center_router.post(
+    "/credentials",
+    status_code=status.HTTP_201_CREATED,
+    response_model=BitbucketDataCenterTokenCredentialsSaveResponse,
+)
+@require_scope("org:settings:update")
+async def save_bitbucket_data_center_token_credentials(
+    *,
+    session: AsyncDBSession,
+    role: OrgActorRole,
+    request: BitbucketDataCenterTokenCredentialsRequest,
+) -> BitbucketDataCenterTokenCredentialsSaveResponse:
+    """Save Bitbucket Data Center token credentials (create if new or update existing)."""
+    try:
+        bitbucket_data_center_service = BitbucketDataCenterTokenService(
+            session=session, role=role
+        )
+        (
+            credentials,
+            was_created,
+        ) = await bitbucket_data_center_service.save_bitbucket_data_center_token_credentials(
+            base_url=request.base_url,
+            token=request.token,
+        )
+        action = "created" if was_created else "updated"
+        return BitbucketDataCenterTokenCredentialsSaveResponse(
+            message=f"BitbucketDataCenter token credentials {action} successfully",
+            action=action,
+            base_url=credentials.base_url,
+        )
+    except (BitbucketDataCenterError, ValueError) as e:
+        logger.error(
+            "Failed to save Bitbucket Data Center token credentials",
+            error_type=type(e).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to save Bitbucket Data Center credentials",
+        ) from e
+    except EntitlementRequired:
+        raise
+    except Exception as e:
+        logger.error(
+            "Error saving Bitbucket Data Center token credentials",
+            error_type=type(e).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error while saving credentials",
+        ) from e
+
+
+@bitbucket_data_center_router.delete(
+    "/credentials", status_code=status.HTTP_204_NO_CONTENT
+)
+@require_scope("org:settings:delete")
+async def delete_bitbucket_data_center_token_credentials(
+    *,
+    session: AsyncDBSession,
+    role: OrgActorRole,
+) -> None:
+    """Delete Bitbucket Data Center token credentials."""
+    try:
+        bitbucket_data_center_service = BitbucketDataCenterTokenService(
+            session=session, role=role
+        )
+        await bitbucket_data_center_service.delete_bitbucket_data_center_token_credentials()
+    except BitbucketDataCenterError as e:
+        logger.error(
+            "Failed to delete Bitbucket Data Center token credentials",
+            error_type=type(e).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Failed to delete Bitbucket Data Center credentials",
+        ) from e
+    except EntitlementRequired:
+        raise
+    except Exception as e:
+        logger.error(
+            "Error deleting Bitbucket Data Center token credentials",
+            error_type=type(e).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error while deleting credentials",
+        ) from e
+
+
+@bitbucket_data_center_router.get(
+    "/credentials/status", response_model=BitbucketDataCenterTokenCredentialsStatus
+)
+@require_scope("org:settings:read")
+async def get_bitbucket_data_center_token_credentials_status(
+    *,
+    session: AsyncDBSession,
+    role: OrgActorRole,
+) -> BitbucketDataCenterTokenCredentialsStatus:
+    """Get the status of Bitbucket Data Center token credentials."""
+    try:
+        bitbucket_data_center_service = BitbucketDataCenterTokenService(
+            session=session, role=role
+        )
+        status_data = await bitbucket_data_center_service.get_bitbucket_data_center_token_credentials_status()
+        return status_data
+    except EntitlementRequired:
+        raise
+    except Exception as e:
+        logger.error(
+            "Error getting Bitbucket Data Center token credentials status",
+            error_type=type(e).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error while getting credentials status",
+        ) from e
+
+
+# Mount VCS sub-routers after all endpoints are defined.
 org_router.include_router(github_router)
+org_router.include_router(gitlab_router)
+
+org_router.include_router(bitbucket_router)
+
+org_router.include_router(bitbucket_data_center_router)

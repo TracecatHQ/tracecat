@@ -26,6 +26,19 @@ class CasesClient:
     def __init__(self, client: TracecatClient) -> None:
         self._client = client
 
+    async def aggregate_cases(self, spec: dict[str, Any]) -> types.AggregateResponse:
+        """Aggregate cases using the server's JSON query specification.
+
+        Args:
+            spec: Plain JSON filters, grouping, calculations, and result options.
+                The server owns validation; its recursive models cannot be
+                imported or mirrored by the standalone registry package.
+
+        Returns:
+            Flat groups and whether additional groups were omitted.
+        """
+        return await self._client.post("/cases/aggregate", json=spec)
+
     @staticmethod
     def _serialize_dropdown_values(
         dropdown_values: list[types.CaseDropdownValueInput] | None,
@@ -189,6 +202,7 @@ class CasesClient:
         order_by: str | Unset = UNSET,
         sort: Literal["asc", "desc"] | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
+        include_payload: bool | Unset = UNSET,
     ) -> types.CaseListResponse:
         """List cases using default server-side filtering.
 
@@ -213,6 +227,8 @@ class CasesClient:
             params["sort"] = sort
         if is_set(include_rows):
             params["include_rows"] = include_rows
+        if is_set(include_payload):
+            params["include_payload"] = include_payload
 
         return await self._client.get("/cases", params=params)
 
@@ -236,6 +252,7 @@ class CasesClient:
         updated_after: datetime | str | Unset = UNSET,
         updated_before: datetime | str | Unset = UNSET,
         include_rows: bool | Unset = UNSET,
+        include_payload: bool | Unset = UNSET,
     ) -> types.CaseListResponse:
         """Search cases with filtering and pagination."""
         params: dict[str, Any] = {"limit": limit}
@@ -285,6 +302,10 @@ class CasesClient:
                 if isinstance(updated_before, datetime)
                 else updated_before
             )
+        if is_set(include_rows):
+            params["include_rows"] = include_rows
+        if is_set(include_payload):
+            params["include_payload"] = include_payload
 
         return await self._client.get("/cases/search", params=params)
 

@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, NamedTuple
 
 from slugify import slugify
 from sqlalchemy import (
@@ -14,6 +14,7 @@ from sqlalchemy import (
     bindparam,
     cast,
     column,
+    delete,
     false,
     func,
     literal,
@@ -24,6 +25,7 @@ from sqlalchemy import case as sql_case
 from sqlalchemy import values as sql_values
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -41,6 +43,11 @@ from tracecat.cases.durations.schemas import (
     CaseDurationRead,
     CaseDurationUpdate,
 )
+from tracecat.cases.durations.sync_queue import (
+    CaseDurationSyncReason,
+    enqueue_case_duration_sync_after_commit,
+    sync_workspace_case_durations_inline,
+)
 from tracecat.cases.enums import CaseEventType
 from tracecat.concurrency import cooperative_every
 from tracecat.db.models import Case, CaseDuration, CaseEvent
@@ -54,6 +61,13 @@ from tracecat.tables.common import coerce_to_utc_datetime
 from tracecat.tiers.enums import Entitlement
 
 type _DurationEventMatch = tuple[uuid.UUID, datetime]
+
+
+class _AnchorStorage(NamedTuple):
+    event_type: CaseEventType
+    timestamp_path: str
+    field_filters: dict[str, Any]
+    selection: CaseDurationAnchorSelection
 
 
 class CaseDurationDefinitionService(BaseWorkspaceService):
@@ -101,6 +115,9 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             **self._anchor_attributes(params.end_anchor, "end"),
         )
         self.session.add(entity)
+        await self._backfill_after_definition_change(
+            reason="duration_definition_created"
+        )
         await self.session.commit()
         await self.session.refresh(entity)
         return self._to_read_model(entity)
@@ -117,6 +134,7 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             return self._to_read_model(entity)
 
         set_fields = params.model_fields_set
+        anchor_state_before = self._anchor_storage_state(entity)
 
         if (new_name := updates.get("name")) is not None:
             await self._ensure_unique_name(new_name, exclude_id=entity.id)
@@ -142,6 +160,10 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             self._apply_anchor(entity, end_anchor, "end")
 
         self.session.add(entity)
+        if self._anchor_storage_state(entity) != anchor_state_before:
+            await self._backfill_after_definition_change(
+                reason="duration_definition_updated"
+            )
         await self.session.commit()
         await self.session.refresh(entity)
         return self._to_read_model(entity)
@@ -153,6 +175,30 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
         entity = await self._get_definition_entity(duration_id)
         await self.session.delete(entity)
         await self.session.commit()
+
+    async def _backfill_after_definition_change(
+        self, *, reason: CaseDurationSyncReason
+    ) -> None:
+        enqueue_case_duration_sync_after_commit(
+            self.session,
+            workspace_id=self.workspace_id,
+            reason=reason,
+            inline_fallback=self._sync_existing_case_durations_inline_after_commit,
+        )
+
+    async def _sync_existing_case_durations_inline_after_commit(self) -> bool:
+        """Backfill workspace cases through the locked per-case sync path.
+
+        Each case syncs in its own transaction under the case's advisory lock,
+        so two concurrent fallbacks (or a fallback racing the consumer) can no
+        longer insert the same ``(case_id, definition_id)`` row and roll back
+        a whole workspace-wide transaction. Returns False when any case was
+        skipped because its lock was held, so the caller's bounded retry can
+        re-run this backfill.
+        """
+        return await sync_workspace_case_durations_inline(
+            workspace_id=self.workspace_id
+        )
 
     async def _get_definition_entity(
         self, duration_id: uuid.UUID
@@ -196,10 +242,11 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
     def _anchor_from_entity(
         self, entity: CaseDurationDefinitionDB, prefix: Literal["start", "end"]
     ) -> CaseDurationEventAnchor:
-        raw_filters = dict(getattr(entity, f"{prefix}_field_filters") or {})
-        event_type = getattr(entity, f"{prefix}_event_type")
-        selection = getattr(entity, f"{prefix}_selection")
-        timestamp_path = getattr(entity, f"{prefix}_timestamp_path") or "created_at"
+        storage = self._read_anchor_storage(entity, prefix)
+        raw_filters = storage.field_filters
+        event_type = storage.event_type
+        selection = storage.selection
+        timestamp_path = storage.timestamp_path
         filters, has_unsupported_filters = self._filters_from_storage(
             event_type, raw_filters
         )
@@ -244,14 +291,59 @@ class CaseDurationDefinitionService(BaseWorkspaceService):
             f"{prefix}_selection": anchor.selection,
         }
 
+    def _anchor_storage_state(
+        self, entity: CaseDurationDefinitionDB
+    ) -> tuple[_AnchorStorage, _AnchorStorage]:
+        return (
+            self._read_anchor_storage(entity, "start"),
+            self._read_anchor_storage(entity, "end"),
+        )
+
+    def _read_anchor_storage(
+        self, entity: CaseDurationDefinitionDB, prefix: Literal["start", "end"]
+    ) -> _AnchorStorage:
+        if prefix == "start":
+            event_type = entity.start_event_type
+            timestamp_path = entity.start_timestamp_path
+            field_filters = entity.start_field_filters
+            selection = entity.start_selection
+        else:
+            event_type = entity.end_event_type
+            timestamp_path = entity.end_timestamp_path
+            field_filters = entity.end_field_filters
+            selection = entity.end_selection
+        return _AnchorStorage(
+            event_type,
+            timestamp_path or "created_at",
+            dict(field_filters or {}),
+            selection,
+        )
+
+    def _write_anchor_storage(
+        self,
+        entity: CaseDurationDefinitionDB,
+        anchor: CaseDurationEventAnchor,
+        prefix: Literal["start", "end"],
+    ) -> None:
+        filters = self._filters_to_storage(anchor.filters)
+        if prefix == "start":
+            entity.start_event_type = anchor.event_type
+            entity.start_timestamp_path = anchor._timestamp_path
+            entity.start_field_filters = filters
+            entity.start_selection = anchor.selection
+        else:
+            entity.end_event_type = anchor.event_type
+            entity.end_timestamp_path = anchor._timestamp_path
+            entity.end_field_filters = filters
+            entity.end_selection = anchor.selection
+
     def _apply_anchor(
         self,
         entity: CaseDurationDefinitionDB,
         anchor: CaseDurationEventAnchor,
         prefix: Literal["start", "end"],
     ) -> None:
-        for attr, value in self._anchor_attributes(anchor, prefix).items():
-            setattr(entity, attr, value)
+        self._write_anchor_storage(entity, anchor, prefix)
 
     def _json_compatible(self, value: Any) -> Any:
         if isinstance(value, Enum):
@@ -1039,38 +1131,50 @@ class CaseDurationService(BaseWorkspaceService):
         case_obj = await self._resolve_case(case)
         computations = await self.compute_duration(case_obj)
 
-        stmt = select(CaseDuration).where(
+        seen = [computation.duration_id for computation in computations]
+        if computations:
+            stmt = pg_insert(CaseDuration).values(
+                [
+                    {
+                        "workspace_id": self.workspace_id,
+                        "case_id": case_obj.id,
+                        "definition_id": computation.duration_id,
+                        "start_event_id": computation.start_event_id,
+                        "end_event_id": computation.end_event_id,
+                        "started_at": computation.started_at,
+                        "ended_at": computation.ended_at,
+                        "duration": computation.duration,
+                    }
+                    for computation in computations
+                ]
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["case_id", "definition_id"],
+                set_={
+                    "start_event_id": stmt.excluded.start_event_id,
+                    "end_event_id": stmt.excluded.end_event_id,
+                    "started_at": stmt.excluded.started_at,
+                    "ended_at": stmt.excluded.ended_at,
+                    "duration": stmt.excluded.duration,
+                    "updated_at": func.now(),
+                },
+            )
+            # RETURNING + populate_existing refreshes any CaseDuration rows
+            # already loaded in this session, which the bulk upsert bypasses.
+            upserted = await self.session.scalars(
+                stmt.returning(CaseDuration),
+                execution_options={"populate_existing": True},
+            )
+            upserted.all()
+
+        delete_stmt = delete(CaseDuration).where(
             CaseDuration.workspace_id == self.workspace_id,
             CaseDuration.case_id == case_obj.id,
         )
-        existing_result = await self.session.execute(stmt)
-        existing_by_definition = {
-            entity.definition_id: entity for entity in existing_result.scalars().all()
-        }
+        if computations:
+            delete_stmt = delete_stmt.where(CaseDuration.definition_id.not_in(seen))
+        await self.session.execute(delete_stmt)
 
-        seen_definitions: set[uuid.UUID] = set()
-        for computation in computations:
-            seen_definitions.add(computation.duration_id)
-            entity = existing_by_definition.get(computation.duration_id)
-            if entity is None:
-                entity = CaseDuration(
-                    workspace_id=self.workspace_id,
-                    case_id=case_obj.id,
-                    definition_id=computation.duration_id,
-                )
-
-            entity.start_event_id = computation.start_event_id
-            entity.end_event_id = computation.end_event_id
-            entity.started_at = computation.started_at
-            entity.ended_at = computation.ended_at
-            entity.duration = computation.duration
-            self.session.add(entity)
-
-        for definition_id, entity in existing_by_definition.items():
-            if definition_id not in seen_definitions:
-                await self.session.delete(entity)
-
-        await self.session.flush()
         return computations
 
     async def _ensure_unique_case_duration(

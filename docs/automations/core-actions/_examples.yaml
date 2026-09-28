@@ -12,7 +12,7 @@ examples:
             Authorization: Bearer ${{ SECRETS.alerts.API_TOKEN }}
 
   http-poll-job:
-    title: Poll until complete
+    title: Poll until terminal status
     language: yaml
     code: |
       - ref: wait_for_export
@@ -24,7 +24,7 @@ examples:
             Authorization: Bearer ${{ SECRETS.exports.API_TOKEN }}
           poll_interval: 5
           poll_max_attempts: 24
-          poll_condition: "lambda response: response['data'].get('status') == 'completed'"
+          poll_condition: "lambda response: response['data'].get('status') in ['completed', 'failed', 'cancelled']"
 
   http-paginate-results:
     title: Follow next page links
@@ -306,6 +306,39 @@ examples:
             GROUP BY severity
             ORDER BY count DESC
 
+  sql-duckdb-s3:
+    title: Read from S3
+    language: yaml
+    code: |
+      # Attach the amazon_s3 secret (static keys or AWS_ROLE_ARN for AssumeRole).
+      - ref: read_s3
+        action: core.duckdb.execute_sql
+        args:
+          sql: |
+            SELECT *
+            FROM read_parquet('s3://my-bucket/findings/*.parquet')
+
+  sql-duckdb-s3-cross-account:
+    title: Read a bucket in another account and region
+    language: yaml
+    code: |
+      # role_arn chains from the amazon_s3 credentials into a role in the
+      # bucket's account. region_name is the bucket's region and overrides the
+      # secret's AWS_REGION, so one secret can read buckets in several regions.
+      - ref: read_audit_logs
+        action: core.duckdb.execute_sql
+        args:
+          role_arn: arn:aws:iam::123456789012:role/log-reader
+          region_name: us-west-2
+          sql: |
+            SELECT action, count(*) AS events
+            FROM read_json(
+              's3://my-audit-logs/2026/01/01/*/*.json.gz',
+              format = 'newline_delimited',
+              compression = 'gzip'
+            )
+            GROUP BY action
+
   ssh-command:
     title: Execute a remote command
     language: yaml
@@ -350,8 +383,8 @@ examples:
           payload:
             id: ${{ TRIGGER.alert_id }}
 
-  cases-create-case:
-    title: Create and fetch a case
+  cases-create:
+    title: Create a case
     language: yaml
     code: |
       - ref: create_case
@@ -363,14 +396,17 @@ examples:
           severity: high
           tags:
             - phishing
+
+  cases-get:
+    title: Get a case
+    language: yaml
+    code: |
       - ref: get_case
         action: core.cases.get_case
-        depends_on:
-          - create_case
         args:
-          case_id: ${{ ACTIONS.create_case.result.id }}
+          case_id: ${{ TRIGGER.case_id }}
 
-  cases-update-case:
+  cases-update:
     title: Update case fields
     language: yaml
     code: |
@@ -385,8 +421,8 @@ examples:
             Analyst note:
             - Escalated after credential theft indicators were confirmed.
 
-  cases-list-search:
-    title: List, search, and inspect case activity
+  cases-list:
+    title: List cases
     language: yaml
     code: |
       - ref: list_cases
@@ -395,6 +431,11 @@ examples:
           limit: 25
           order_by: updated_at
           sort: desc
+
+  cases-search:
+    title: Search cases
+    language: yaml
+    code: |
       - ref: search_cases
         action: core.cases.search_cases
         args:
@@ -403,13 +444,98 @@ examples:
             - new
             - in_progress
           limit: 25
-      - ref: case_events
+
+  cases-aggregate:
+    title: Count open cases by priority and day
+    language: yaml
+    code: |
+      - ref: cases_by_priority_per_day
+        action: core.cases.aggregate_cases
+        args:
+          filters:
+            and:
+              - field: status
+                op: in
+                value: [new, in_progress]
+              - field: created_at
+                op: gte
+                value: "2026-08-01T00:00:00Z"
+              - or:
+                  - field: priority
+                    op: gte
+                    value: high
+                  - field: fields.region
+                    op: eq
+                    value: emea
+          group_by:
+            - priority
+            - field: created_at
+              bucket: day
+          aggs:
+            - function: count
+          limit: 100
+
+  cases-list-events:
+    title: List case events
+    language: yaml
+    code: |
+      - ref: list_case_events
         action: core.cases.list_case_events
         args:
           case_id: ${{ TRIGGER.case_id }}
 
-  cases-comments:
-    title: Manage case comments
+  cases-assign-user:
+    title: Assign a user by ID
+    language: yaml
+    code: |
+      - ref: assign_user
+        action: core.cases.assign_user
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          assignee_id: ${{ TRIGGER.assignee_id }}
+
+  cases-assign-user-by-email:
+    title: Assign a user by email
+    language: yaml
+    code: |
+      - ref: assign_user_by_email
+        action: core.cases.assign_user_by_email
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          assignee_email: analyst@example.com
+
+  cases-add-tag:
+    title: Add a case tag
+    language: yaml
+    code: |
+      - ref: add_case_tag
+        action: core.cases.add_case_tag
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          tag: credential-theft
+          create_if_missing: true
+
+  cases-remove-tag:
+    title: Remove a case tag
+    language: yaml
+    code: |
+      - ref: remove_case_tag
+        action: core.cases.remove_case_tag
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          tag: needs-triage
+
+  cases-delete:
+    title: Delete a case
+    language: yaml
+    code: |
+      - ref: delete_case
+        action: core.cases.delete_case
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+
+  cases-create-comment:
+    title: Create a comment
     language: yaml
     code: |
       - ref: create_comment
@@ -417,69 +543,57 @@ examples:
         args:
           case_id: ${{ TRIGGER.case_id }}
           content: "Initial triage started."
+
+  cases-reply-to-comment:
+    title: Reply to a comment
+    language: yaml
+    code: |
       - ref: reply_to_comment
         action: core.cases.reply_to_comment
-        depends_on:
-          - create_comment
         args:
           case_id: ${{ TRIGGER.case_id }}
-          parent_comment_id: ${{ ACTIONS.create_comment.result.id }}
+          parent_comment_id: ${{ TRIGGER.comment_id }}
           content: "Added IOC context."
+
+  cases-update-comment:
+    title: Update a comment
+    language: yaml
+    code: |
       - ref: update_comment
         action: core.cases.update_comment
-        depends_on:
-          - create_comment
         args:
-          comment_id: ${{ ACTIONS.create_comment.result.id }}
+          comment_id: ${{ TRIGGER.comment_id }}
           content: "Initial triage started. Waiting on endpoint data."
+
+  cases-list-comments:
+    title: List comments
+    language: yaml
+    code: |
       - ref: list_comments
         action: core.cases.list_comments
         args:
           case_id: ${{ TRIGGER.case_id }}
+
+  cases-list-comment-threads:
+    title: List comment threads
+    language: yaml
+    code: |
       - ref: list_comment_threads
         action: core.cases.list_comment_threads
         args:
           case_id: ${{ TRIGGER.case_id }}
+
+  cases-get-comment-thread:
+    title: Get a comment thread
+    language: yaml
+    code: |
       - ref: get_comment_thread
         action: core.cases.get_comment_thread
-        depends_on:
-          - create_comment
         args:
-          comment_id: ${{ ACTIONS.create_comment.result.id }}
+          comment_id: ${{ TRIGGER.comment_id }}
 
-  cases-assignment:
-    title: Assign a case
-    language: yaml
-    code: |
-      - ref: assign_by_id
-        action: core.cases.assign_user
-        args:
-          case_id: ${{ TRIGGER.case_id }}
-          assignee_id: ${{ TRIGGER.assignee_id }}
-      - ref: assign_by_email
-        action: core.cases.assign_user_by_email
-        args:
-          case_id: ${{ TRIGGER.case_id }}
-          assignee_email: analyst@example.com
-
-  cases-tags:
-    title: Add and remove tags
-    language: yaml
-    code: |
-      - ref: add_tag
-        action: core.cases.add_case_tag
-        args:
-          case_id: ${{ TRIGGER.case_id }}
-          tag: credential-theft
-          create_if_missing: true
-      - ref: remove_tag
-        action: core.cases.remove_case_tag
-        args:
-          case_id: ${{ TRIGGER.case_id }}
-          tag: needs-triage
-
-  cases-attachments:
-    title: Work with attachments
+  cases-upload-attachment:
+    title: Upload an attachment
     language: yaml
     code: |
       - ref: upload_attachment
@@ -489,6 +603,11 @@ examples:
           file_name: note.txt
           content_base64: Zm9yZW5zaWMgbm90ZXM=
           content_type: text/plain
+
+  cases-upload-attachment-from-url:
+    title: Upload an attachment from a URL
+    language: yaml
+    code: |
       - ref: upload_attachment_from_url
         action: core.cases.upload_attachment_from_url
         args:
@@ -497,59 +616,59 @@ examples:
           headers:
             Authorization: Bearer ${{ SECRETS.artifacts.API_TOKEN }}
           file_name: evidence.json
+
+  cases-list-attachments:
+    title: List attachments
+    language: yaml
+    code: |
       - ref: list_attachments
         action: core.cases.list_attachments
         args:
           case_id: ${{ TRIGGER.case_id }}
+
+  cases-get-attachment:
+    title: Get attachment metadata
+    language: yaml
+    code: |
       - ref: get_attachment
         action: core.cases.get_attachment
         args:
           case_id: ${{ TRIGGER.case_id }}
           attachment_id: ${{ TRIGGER.attachment_id }}
-      - ref: get_download_url
+
+  cases-get-attachment-download-url:
+    title: Get an attachment download URL
+    language: yaml
+    code: |
+      - ref: get_attachment_download_url
         action: core.cases.get_attachment_download_url
         args:
           case_id: ${{ TRIGGER.case_id }}
           attachment_id: ${{ TRIGGER.attachment_id }}
           expiry: 900
+
+  cases-download-attachment:
+    title: Download an attachment
+    language: yaml
+    code: |
       - ref: download_attachment
         action: core.cases.download_attachment
         args:
           case_id: ${{ TRIGGER.case_id }}
           attachment_id: ${{ TRIGGER.attachment_id }}
+
+  cases-delete-attachment:
+    title: Delete an attachment
+    language: yaml
+    code: |
       - ref: delete_attachment
         action: core.cases.delete_attachment
         args:
           case_id: ${{ TRIGGER.case_id }}
           attachment_id: ${{ TRIGGER.attachment_id }}
 
-  cases-rows:
-    title: Link table rows to a case
-    language: yaml
-    code: |
-      - ref: link_row
-        action: core.cases.link_row
-        args:
-          case_id: ${{ TRIGGER.case_id }}
-          table_id: indicators
-          row_id: ${{ TRIGGER.row_id }}
-      - ref: unlink_row
-        action: core.cases.unlink_row
-        args:
-          case_id: ${{ TRIGGER.case_id }}
-          table_id: indicators
-          row_id: ${{ TRIGGER.row_id }}
-      - ref: insert_case_row
-        action: core.cases.insert_row
-        args:
-          case_id: ${{ TRIGGER.case_id }}
-          table_id: indicators
-          row:
-            value: ${{ TRIGGER.indicator }}
-            indicator_type: domain
-
-  cases-tasks:
-    title: Manage case tasks
+  cases-create-task:
+    title: Create a task
     language: yaml
     code: |
       - ref: create_task
@@ -560,29 +679,87 @@ examples:
           description: Pull the original message from the mail gateway.
           priority: high
           status: todo
+
+  cases-get-task:
+    title: Get a task
+    language: yaml
+    code: |
       - ref: get_task
         action: core.cases.get_task
-        depends_on:
-          - create_task
         args:
-          task_id: ${{ ACTIONS.create_task.result.id }}
+          task_id: ${{ TRIGGER.task_id }}
+
+  cases-list-tasks:
+    title: List tasks
+    language: yaml
+    code: |
       - ref: list_tasks
         action: core.cases.list_tasks
         args:
           case_id: ${{ TRIGGER.case_id }}
+
+  cases-update-task:
+    title: Update a task
+    language: yaml
+    code: |
       - ref: update_task
         action: core.cases.update_task
-        depends_on:
-          - create_task
         args:
-          task_id: ${{ ACTIONS.create_task.result.id }}
+          task_id: ${{ TRIGGER.task_id }}
           status: in_progress
+
+  cases-delete-task:
+    title: Delete a task
+    language: yaml
+    code: |
       - ref: delete_task
         action: core.cases.delete_task
-        depends_on:
-          - create_task
         args:
-          task_id: ${{ ACTIONS.create_task.result.id }}
+          task_id: ${{ TRIGGER.task_id }}
+
+  cases-link-row:
+    title: Link a table row
+    language: yaml
+    code: |
+      - ref: link_row
+        action: core.cases.link_row
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          table_id: indicators
+          row_id: ${{ TRIGGER.row_id }}
+
+  cases-unlink-row:
+    title: Unlink a table row
+    language: yaml
+    code: |
+      - ref: unlink_row
+        action: core.cases.unlink_row
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          table_id: indicators
+          row_id: ${{ TRIGGER.row_id }}
+
+  cases-insert-row:
+    title: Insert and link a table row
+    language: yaml
+    code: |
+      - ref: insert_case_row
+        action: core.cases.insert_row
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+          table_id: indicators
+          row:
+            value: ${{ TRIGGER.indicator }}
+            indicator_type: domain
+
+  cases-get-linked-rows:
+    title: Get linked table rows
+    language: yaml
+    code: |
+      - ref: linked_rows
+        action: core.cases.get_linked_case_rows
+        args:
+          case_id: ${{ TRIGGER.case_id }}
 
   cases-metrics:
     title: Read case metrics
@@ -594,22 +771,6 @@ examples:
           case_ids:
             - ${{ TRIGGER.case_id }}
             - ${{ TRIGGER.related_case_id }}
-
-  cases-delete-case:
-    title: Delete a case
-    language: yaml
-    code: |
-      - ref: close_case
-        action: core.cases.update_case
-        args:
-          case_id: ${{ TRIGGER.case_id }}
-          status: closed
-      - ref: delete_case
-        action: core.cases.delete_case
-        depends_on:
-          - close_case
-        args:
-          case_id: ${{ TRIGGER.case_id }}
 
   tables-admin:
     title: Create and inspect a table
@@ -631,6 +792,98 @@ examples:
         action: core.table.get_table_metadata
         args:
           name: asset_inventory
+
+  tables-schema:
+    title: Manage table schema
+    language: yaml
+    code: |
+      - ref: rename_table
+        action: core.table.update_table
+        args:
+          name: asset_inventory
+          new_name: assets
+      - ref: add_owner_team
+        action: core.table.create_column
+        depends_on:
+          - rename_table
+        args:
+          table: assets
+          column:
+            name: owner_team
+            type: SELECT
+            options:
+              - secops
+              - platform
+      - ref: drop_owner_team
+        action: core.table.delete_column
+        depends_on:
+          - add_owner_team
+        args:
+          table: assets
+          column: owner_team
+
+  tables-rename:
+    title: Rename a table
+    language: yaml
+    code: |
+      - ref: rename_table
+        action: core.table.update_table
+        args:
+          name: asset_inventory
+          new_name: assets
+
+  tables-drop-column:
+    title: Delete a column
+    language: yaml
+    code: |
+      - ref: drop_owner_team
+        action: core.table.delete_column
+        args:
+          table: assets
+          column: owner_team
+
+  tables-unique-index:
+    title: Create a unique index and upsert
+    language: yaml
+    code: |
+      - ref: ensure_alerts_table
+        action: core.table.create_table
+        args:
+          name: alerts
+          columns:
+            - name: alert_id
+              type: TEXT
+            - name: status
+              type: TEXT
+          raise_on_duplicate: false
+      - ref: alerts_metadata
+        action: core.table.get_table_metadata
+        depends_on:
+          - ensure_alerts_table
+        args:
+          name: alerts
+      - ref: index_alert_id
+        action: core.table.update_column
+        depends_on:
+          - alerts_metadata
+        run_if: ${{ FN.length(ACTIONS.alerts_metadata.result.columns[?(@.is_index == true)]) == 0 }}
+        args:
+          table: alerts
+          column: alert_id
+          update:
+            is_index: true
+      - ref: upsert_alert
+        action: core.table.insert_row
+        depends_on:
+          - alerts_metadata
+          - index_alert_id
+        join_strategy: any
+        args:
+          table: alerts
+          upsert: true
+          row_data:
+            alert_id: ${{ TRIGGER.alert_id }}
+            status: ${{ TRIGGER.status }}
 
   tables-lookup:
     title: Look up rows
@@ -667,6 +920,35 @@ examples:
           search_term: database
           limit: 50
           paginate: true
+
+  tables-aggregate:
+    title: Sum bytes by source and hour
+    language: yaml
+    code: |
+      - ref: bytes_by_source_hourly
+        action: core.table.aggregate_rows
+        args:
+          table: alerts
+          filters:
+            and:
+              - field: disposition
+                op: ne
+                value: benign
+              - field: created_at
+                op: gte
+                value: "2026-08-31T00:00:00Z"
+          group_by:
+            - source
+            - field: created_at
+              bucket: hour
+          aggs:
+            - function: count
+            - function: sum
+              field: bytes_out
+              alias: total_bytes
+            - function: median
+              field: duration_ms
+          limit: 200
 
   tables-write:
     title: Insert, update, and delete rows

@@ -15,12 +15,10 @@ from tracecat_registry.integrations.agents.prompts.slackbot import (
     SlackPrompts,
 )
 from tracecat_registry.integrations.slack_sdk import call_method, slack_secret
-from tracecat_registry.sdk.agents import run_agent
 
-from tracecat_registry import registry
-from tracecat_registry.core.agent import PYDANTIC_AI_REGISTRY_SECRETS
+from tracecat_registry import ActionIsInterfaceError, registry
 from tracecat_registry.fields import ActionType, AgentModel, ModelSelection, TextArea
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing_extensions import Doc
 from typing import Annotated, Any
 from slack_sdk.errors import SlackApiError
@@ -73,6 +71,27 @@ async def _remove_ack(channel_id: str, ts: str):
     )
 
 
+class SlackbotContext(BaseModel):
+    """Slack thread coordinates for post-run acknowledgement cleanup."""
+
+    model_config = ConfigDict(frozen=True)
+
+    channel_id: str
+    thread_ts: str | None = None
+    ts: str | None = None
+
+
+class PreparedSlackbotPrompt(BaseModel):
+    """Agent prompt fields plus the Slack context needed for cleanup."""
+
+    model_config = ConfigDict(frozen=True)
+
+    user_prompt: str
+    instructions: str
+    actions: list[str]
+    context: SlackbotContext
+
+
 class AppMentionEvent(BaseModel):
     channel_id: str
     thread_ts: str
@@ -93,9 +112,6 @@ async def _handle_app_mention(
         user_id = event_body.get("user")
     except KeyError as exc:
         raise ValueError("Expected 'ts', 'thread_ts', and 'channel' in event.") from exc
-
-    # Add "eyes" emoji to the app mention message
-    await _ack_event(channel_id, ts)
 
     if thread_ts:
         # If in thread, list message replies
@@ -166,9 +182,6 @@ async def _handle_interaction_payload(
             "Interaction payload is missing response_url for post_response tool."
         )
 
-    # Add "eyes" emoji to the interaction payload message
-    await _ack_event(channel_id, ts)
-
     if thread_ts:
         # If in thread, list message replies
         response = await call_method(
@@ -202,54 +215,16 @@ async def _handle_interaction_payload(
     )
 
 
-@registry.register(
-    default_title="AI Slackbot",
-    description="Agentic AI Slackbot with tool calling capabilities.",
-    display_group="AI",
-    doc_url="https://docs.slack.dev/reference/events/app_mention/",
-    namespace="ai",
-    secrets=[*PYDANTIC_AI_REGISTRY_SECRETS, slack_secret],
-)
-async def slackbot(
-    event: Annotated[
-        dict[str, Any] | None,
-        Doc(
-            "Slack app mention event or interaction payload (e.g. for button clicks) passed in via Tracecat webhook TRIGGER. If None, the agent will send a message to the channel."
-        ),
-    ],
-    prompt: Annotated[
-        str,
-        Doc("Initial prompt for the agent. Used when no event is provided."),
-        TextArea(),
-    ],
-    instructions: Annotated[
-        str,
-        Doc(
-            "Instructions for the agent across proactive, app mention, and interaction flows."
-        ),
-        TextArea(),
-    ],
-    channel_id: Annotated[str, Doc("Channel ID to send the initial message to.")],
-    model: Annotated[
-        ModelSelection,
-        Doc("Model to use. Pick from the list of models enabled for this workspace."),
-        AgentModel(),
-    ],
-    actions: Annotated[
-        list[str] | None,
-        Doc(
-            "Actions to include in the agent on top of the default Slack actions (e.g. 'tools.slack.post_message')."
-        ),
-        ActionType(multiple=True),
-    ] = None,
-    model_settings: Annotated[
-        dict[str, Any] | None, Doc("Model settings for the agent.")
-    ] = None,
-    retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
-    limit_messages: Annotated[
-        int, Doc("Max number of messages to look back in the conversation.")
-    ] = 5,
-) -> Any:
+async def prepare_slackbot(
+    *,
+    event: dict[str, Any] | None,
+    prompt: str,
+    instructions: str,
+    channel_id: str,
+    actions: list[str] | None,
+    limit_messages: int,
+) -> PreparedSlackbotPrompt:
+    """Prepare an agent request and Slack cleanup context."""
     if limit_messages > 20:
         raise ValueError("Cannot look back more than 20 messages in a conversation.")
 
@@ -263,7 +238,6 @@ async def slackbot(
 
     ts = None
     thread_ts = None
-
     prompts: SlackPrompts
 
     if event and ("event" in event or "payload" in event):
@@ -305,22 +279,78 @@ async def slackbot(
             initial_prompt=prompt,
         )
 
-    try:
-        response = await run_agent(
-            user_prompt=prompts.user_prompt,
-            model_name=model.model_name,
-            model_provider=model.model_provider,
-            catalog_id=model.catalog_id,
-            actions=bot_actions,
-            instructions=prompts.instructions,
-            model_settings=model_settings,
-            retries=retries,
-        )
-    except Exception as e:
-        # Send unexpected error message to Slack with the thread_ts
-        await _notify_error(channel_id, thread_ts, ts)
-        raise e
-    else:
+    prepared = PreparedSlackbotPrompt(
+        user_prompt=prompts.user_prompt,
+        instructions=prompts.instructions,
+        actions=bot_actions,
+        context=SlackbotContext(
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            ts=ts,
+        ),
+    )
+    # Ack last so a failure above never leaves the reaction behind.
+    if ts:
+        await _ack_event(channel_id, ts)
+    return prepared
+
+
+async def finalize_slackbot(context: SlackbotContext, *, succeeded: bool) -> None:
+    """Finalize Slack acknowledgement state after the child agent exits."""
+    ts = context.ts
+    if succeeded:
         if ts:
-            await _remove_ack(channel_id, ts)
-    return response
+            await _remove_ack(context.channel_id, ts)
+        return
+    await _notify_error(context.channel_id, context.thread_ts, ts)
+
+
+@registry.register(
+    default_title="AI Slackbot",
+    description="Agentic AI Slackbot with tool calling capabilities.",
+    display_group="AI",
+    doc_url="https://docs.slack.dev/reference/events/app_mention/",
+    namespace="ai",
+    secrets=[slack_secret],
+)
+async def slackbot(
+    event: Annotated[
+        dict[str, Any] | None,
+        Doc(
+            "Slack app mention event or interaction payload (e.g. for button clicks) passed in via Tracecat webhook TRIGGER. If None, the agent will send a message to the channel."
+        ),
+    ],
+    prompt: Annotated[
+        str,
+        Doc("Initial prompt for the agent. Used when no event is provided."),
+        TextArea(),
+    ],
+    instructions: Annotated[
+        str,
+        Doc(
+            "Instructions for the agent across proactive, app mention, and interaction flows."
+        ),
+        TextArea(),
+    ],
+    channel_id: Annotated[str, Doc("Channel ID to send the initial message to.")],
+    model: Annotated[
+        ModelSelection,
+        Doc("Model to use. Pick from the list of models enabled for this workspace."),
+        AgentModel(),
+    ],
+    actions: Annotated[
+        list[str] | None,
+        Doc(
+            "Actions to include in the agent on top of the default Slack actions (e.g. 'tools.slack.post_message')."
+        ),
+        ActionType(multiple=True),
+    ] = None,
+    model_settings: Annotated[
+        dict[str, Any] | None, Doc("Model settings for the agent.")
+    ] = None,
+    retries: Annotated[int, Doc("Number of retries for the agent.")] = 6,
+    limit_messages: Annotated[
+        int, Doc("Max number of messages to look back in the conversation.")
+    ] = 5,
+) -> Any:
+    raise ActionIsInterfaceError()

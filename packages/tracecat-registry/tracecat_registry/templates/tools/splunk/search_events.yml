@@ -35,6 +35,10 @@ definition:
       type: bool
       description: Whether to verify SSL certificates.
       default: true
+    include_headers:
+      type: bool
+      description: Include headers in the response?
+      default: false
   steps:
     - ref: search_job
       action: core.http_request
@@ -53,4 +57,4 @@ definition:
           output_mode: json
           max_count: ${{ inputs.limit }}
           count: 0
-  returns: ${{ steps.search_job.result.data }}
+  returns: ${{ inputs.include_headers && steps.search_job.result || steps.search_job.result.data }}

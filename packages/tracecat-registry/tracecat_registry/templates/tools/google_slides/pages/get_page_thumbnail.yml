@@ -1,0 +1,63 @@
+type: action
+definition:
+  title: Get page thumbnail
+  description: >-
+    Generates a thumbnail of the latest version of the specified page in the
+    presentation and returns a URL to the thumbnail image.
+  display_group: Google Slides
+  doc_url: https://developers.google.com/workspace/slides/api/reference/rest/v1/presentations.pages/getThumbnail
+  namespace: tools.google_slides
+  name: get_page_thumbnail
+  secrets:
+    - type: oauth
+      provider_id: google_slides
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_slides
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    presentation_id:
+      type: str
+      description: The ID of the presentation to retrieve.
+    page_object_id:
+      type: str
+      description: The object ID of the page whose thumbnail to retrieve.
+    thumbnail_properties_mime_type:
+      type: str | None
+      description: >-
+        The optional mime type of the thumbnail image. If you don't specify the mime
+        type, the mime type defaults to PNG. Allowed value: PNG.
+      default: null
+    thumbnail_properties_thumbnail_size:
+      type: str | None
+      description: >-
+        The optional thumbnail image size. If you don't specify the size, the server
+        chooses a default size of the image. Allowed values:
+        THUMBNAIL_SIZE_UNSPECIFIED (the server chooses the size),
+        LARGE (thumbnail image width of 1600px), MEDIUM (800px), SMALL (200px).
+      default: null
+  steps:
+    - ref: get_page_thumbnail
+      action: tools.google_api.call_api
+      args:
+        service_name: slides
+        version: v1
+        resource: presentations.pages
+        method_name: getThumbnail
+        access_token: ${{ SECRETS.google_slides_oauth.GOOGLE_SLIDES_USER_TOKEN || SECRETS.google_slides_oauth.GOOGLE_SLIDES_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/presentations.readonly"]
+        params:
+          presentationId: ${{ inputs.presentation_id }}
+          pageObjectId: ${{ inputs.page_object_id }}
+          # The client library flattens the dotted query parameters
+          # `thumbnailProperties.mimeType` and `thumbnailProperties.thumbnailSize`
+          # into these underscore keyword arguments.
+          thumbnailProperties_mimeType: ${{ inputs.thumbnail_properties_mime_type }}
+          thumbnailProperties_thumbnailSize: ${{ inputs.thumbnail_properties_thumbnail_size }}
+  returns: ${{ steps.get_page_thumbnail.result }}

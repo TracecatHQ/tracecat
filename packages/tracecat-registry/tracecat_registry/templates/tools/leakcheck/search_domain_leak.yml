@@ -8,9 +8,9 @@ definition:
   doc_url: https://wiki.leakcheck.io/en/api
   author: y0no
   secrets:
-    - name: leakcheck_api
+    - name: leakcheck
       keys:
-        - API_KEY
+        - LEAKCHECK_API_KEY
   expects:
     domain_name:
       type: str
@@ -24,5 +24,5 @@ definition:
           type: domain
         method: GET
         headers:
-          x-api-key: ${{ SECRETS.leakcheck_api.API_KEY }}
+          x-api-key: ${{ SECRETS.leakcheck.LEAKCHECK_API_KEY }}
   returns: ${{ steps.search_domain_leak.result.data }}

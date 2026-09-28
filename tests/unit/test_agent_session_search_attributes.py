@@ -9,13 +9,21 @@ from unittest.mock import AsyncMock, create_autospec, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.api.workflowservice.v1 import StartWorkflowExecutionRequest
+from temporalio.client import Client
 from temporalio.common import TypedSearchAttributes
+from temporalio.converter import decode_typed_search_attributes
 
-from tracecat.agent.session.service import AgentSessionService
+from tracecat.agent.adapter.vercel import UIMessage
+from tracecat.agent.backends.schemas import AgentWorkflowArgs
+from tracecat.agent.session.service import (
+    AGENT_SESSION_EXECUTION_SCOPES,
+    AgentSessionService,
+)
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
-from tracecat.chat.schemas import BasicChatRequest, ChatRequest
+from tracecat.chat.schemas import BasicChatRequest, ChatRequest, VercelChatRequest
 from tracecat.db.models import AgentSession
 from tracecat.workflow.executions.correlation import build_agent_session_correlation_id
 from tracecat.workflow.executions.enums import (
@@ -87,34 +95,53 @@ async def _mock_agent_config_context(
 @pytest.mark.anyio
 async def test_run_turn_stamps_tracecat_search_attributes(
     role_with_user: Role,
+    temporal_start_client: tuple[Client, AsyncMock],
 ) -> None:
     service = AgentSessionService(_build_db_session(), role_with_user)
     session_id = uuid.uuid4()
     agent_session = _build_session(role_with_user, session_id=session_id)
 
-    temporal_client = AsyncMock()
+    temporal_client, start_rpc = temporal_start_client
+    first_prompt_check = AsyncMock()
 
     with (
         patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service.session, "scalar", AsyncMock(return_value=agent_session)),
         patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
+        patch.object(
+            service,
+            "is_first_prompt_for_session",
+            first_prompt_check,
+        ),
         patch.object(service, "auto_title_session_on_first_prompt", AsyncMock()),
         patch.object(service, "_build_agent_config", _mock_agent_config_context),
         patch(
-            "tracecat.agent.session.service.get_temporal_client",
+            "tracecat.agent.backends.base.get_temporal_client",
             AsyncMock(return_value=temporal_client),
         ),
     ):
         response = await service.run_turn(
             session_id=session_id,
             request=cast(ChatRequest, BasicChatRequest(message="hello world")),
+            is_first_prompt=False,
         )
 
     assert response is not None
-    temporal_client.start_workflow.assert_awaited_once()
-    kwargs = temporal_client.start_workflow.await_args.kwargs
-    search_attributes = kwargs["search_attributes"]
-    assert isinstance(search_attributes, TypedSearchAttributes)
-    pairs = _search_attr_map(search_attributes)
+    first_prompt_check.assert_not_awaited()
+    start_rpc.assert_awaited_once()
+    assert start_rpc.await_args is not None
+    start_request = start_rpc.await_args.args[1]
+    assert isinstance(start_request, StartWorkflowExecutionRequest)
+    (workflow_args,) = await temporal_client.data_converter.decode(
+        list(start_request.input.payloads), [AgentWorkflowArgs]
+    )
+    assert workflow_args.role.scopes == (
+        (role_with_user.scopes or frozenset()) | AGENT_SESSION_EXECUTION_SCOPES
+    )
+    assert role_with_user.scopes == frozenset({"agent:execute", "secret:read"})
+    pairs = _search_attr_map(
+        decode_typed_search_attributes(start_request.search_attributes)
+    )
     assert pairs[TemporalSearchAttr.TRIGGER_TYPE.value] == TriggerType.MANUAL.value
     assert (
         pairs[TemporalSearchAttr.EXECUTION_TYPE.value] == ExecutionType.PUBLISHED.value
@@ -133,32 +160,38 @@ async def test_run_turn_stamps_tracecat_search_attributes(
 @pytest.mark.anyio
 async def test_run_turn_omits_triggered_by_when_role_has_no_user_id(
     role_without_user: Role,
+    temporal_start_client: tuple[Client, AsyncMock],
 ) -> None:
     service = AgentSessionService(_build_db_session(), role_without_user)
     session_id = uuid.uuid4()
     agent_session = _build_session(role_without_user, session_id=session_id)
 
-    temporal_client = AsyncMock()
+    temporal_client, start_rpc = temporal_start_client
 
     with (
         patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service.session, "scalar", AsyncMock(return_value=agent_session)),
         patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
         patch.object(service, "auto_title_session_on_first_prompt", AsyncMock()),
         patch.object(service, "_build_agent_config", _mock_agent_config_context),
         patch(
-            "tracecat.agent.session.service.get_temporal_client",
+            "tracecat.agent.backends.base.get_temporal_client",
             AsyncMock(return_value=temporal_client),
         ),
     ):
         _ = await service.run_turn(
             session_id=session_id,
             request=cast(ChatRequest, BasicChatRequest(message="hello world")),
+            is_first_prompt=False,
         )
 
-    kwargs = temporal_client.start_workflow.await_args.kwargs
-    search_attributes = kwargs["search_attributes"]
-    assert isinstance(search_attributes, TypedSearchAttributes)
-    pairs = _search_attr_map(search_attributes)
+    start_rpc.assert_awaited_once()
+    assert start_rpc.await_args is not None
+    start_request = start_rpc.await_args.args[1]
+    assert isinstance(start_request, StartWorkflowExecutionRequest)
+    pairs = _search_attr_map(
+        decode_typed_search_attributes(start_request.search_attributes)
+    )
     assert pairs[TemporalSearchAttr.TRIGGER_TYPE.value] == TriggerType.MANUAL.value
     assert (
         pairs[TemporalSearchAttr.EXECUTION_TYPE.value] == ExecutionType.PUBLISHED.value
@@ -170,3 +203,91 @@ async def test_run_turn_omits_triggered_by_when_role_has_no_user_id(
         role_without_user.workspace_id
     )
     assert TemporalSearchAttr.TRIGGERED_BY_USER_ID.value not in pairs
+
+
+@pytest.mark.anyio
+async def test_run_turn_uses_only_vercel_text_parts(
+    role_with_user: Role,
+    temporal_start_client: tuple[Client, AsyncMock],
+) -> None:
+    service = AgentSessionService(_build_db_session(), role_with_user)
+    session_id = uuid.uuid4()
+    agent_session = _build_session(role_with_user, session_id=session_id)
+
+    temporal_client, start_rpc = temporal_start_client
+    request = VercelChatRequest(
+        message=UIMessage(
+            id="msg-1",
+            role="user",
+            parts=[
+                {"type": "text", "text": "Investigate this alert"},
+                {
+                    "type": "file",
+                    "mediaType": "image/png",
+                    "url": "data:image/png;base64,aGVsbG8=",
+                    "filename": "example.png",
+                },
+            ],
+        ),
+        model="gpt-4o-mini",
+        model_provider="openai",
+    )
+
+    with (
+        patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service.session, "scalar", AsyncMock(return_value=agent_session)),
+        patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
+        patch.object(service, "_build_agent_config", _mock_agent_config_context),
+        patch(
+            "tracecat.agent.backends.base.get_temporal_client",
+            AsyncMock(return_value=temporal_client),
+        ),
+    ):
+        response = await service.run_turn(
+            session_id=session_id,
+            request=cast(ChatRequest, request),
+            is_first_prompt=False,
+        )
+
+    assert response is not None
+    start_rpc.assert_awaited_once()
+    assert start_rpc.await_args is not None
+    start_request = start_rpc.await_args.args[1]
+    assert isinstance(start_request, StartWorkflowExecutionRequest)
+    (workflow_args,) = await temporal_client.data_converter.decode(
+        list(start_request.input.payloads), [AgentWorkflowArgs]
+    )
+    assert workflow_args.agent_args.user_prompt == "Investigate this alert"
+
+
+@pytest.mark.anyio
+async def test_run_turn_rejects_vercel_file_only_prompt(
+    role_with_user: Role,
+) -> None:
+    service = AgentSessionService(_build_db_session(), role_with_user)
+    session_id = uuid.uuid4()
+    agent_session = _build_session(role_with_user, session_id=session_id)
+    request = VercelChatRequest(
+        message=UIMessage(
+            id="msg-1",
+            role="user",
+            parts=[
+                {
+                    "type": "file",
+                    "mediaType": "image/png",
+                    "url": "data:image/png;base64,aGVsbG8=",
+                }
+            ],
+        )
+    )
+
+    with (
+        patch.object(service, "get_session", AsyncMock(return_value=agent_session)),
+        patch.object(service.session, "scalar", AsyncMock(return_value=agent_session)),
+        patch.object(service, "has_pending_approvals", AsyncMock(return_value=False)),
+        pytest.raises(ValueError, match="no supported text parts"),
+    ):
+        await service.run_turn(
+            session_id=session_id,
+            request=cast(ChatRequest, request),
+        )

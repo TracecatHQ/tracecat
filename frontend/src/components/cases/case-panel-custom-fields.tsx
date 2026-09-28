@@ -1,11 +1,5 @@
-import { Check } from "lucide-react"
-import {
-  type CSSProperties,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react"
+import { Check, CircleSlash } from "lucide-react"
+import { type CSSProperties, useCallback, useState } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
 import { z } from "zod"
 import type { CaseFieldRead, CaseUpdate } from "@/client"
@@ -13,11 +7,14 @@ import {
   ExpandFieldCell,
   JsonFieldDialog,
   LongTextFieldDialog,
-  UrlFieldCell,
-  UrlFieldDialog,
 } from "@/components/cases/case-field-kind-dialogs"
+import {
+  UrlFieldPopover,
+  type UrlFieldValue,
+} from "@/components/cases/case-url-field-popover"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { CheckIndicator } from "@/components/ui/check-indicator"
 import {
   Command,
   CommandEmpty,
@@ -47,9 +44,12 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
+import { useOverflowBadges } from "@/hooks/use-overflow-badges"
 import { getCaseFieldEditorValue } from "@/lib/case-field-display"
 import { cn, linearStyles } from "@/lib/utils"
 
@@ -69,7 +69,7 @@ export function CustomField({
   formClassName,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
   inputClassName?: string
   inputStyle?: CSSProperties
   onValueChange?: (id: string, value: unknown) => void
@@ -112,7 +112,7 @@ function InlineCustomField({
   formClassName,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
   inputClassName?: string
   inputStyle?: CSSProperties
   onValueChange?: (id: string, value: unknown) => void
@@ -162,7 +162,7 @@ function LongTextCustomField({
   updateCase,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
 }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const currentValue =
@@ -190,7 +190,7 @@ function LongTextCustomField({
       <LongTextFieldDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        fieldLabel={customField.id}
+        fieldLabel={customField.display_name}
         initialValue={currentValue}
         onSave={handleSave}
       />
@@ -203,28 +203,24 @@ function UrlCustomField({
   updateCase,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
 }) {
-  const [dialogOpen, setDialogOpen] = useState(false)
-
   const parsed =
     customField.value &&
     typeof customField.value === "object" &&
     !Array.isArray(customField.value)
       ? (customField.value as { url?: string; label?: string })
       : null
-  const urlValue = {
+  const urlValue: UrlFieldValue = {
     url: parsed?.url ?? "",
     label: parsed?.label ?? "",
   }
 
   const handleSave = useCallback(
-    async (value: { url: string; label: string }) => {
+    async (value: UrlFieldValue | null) => {
       try {
         await updateCase({
-          fields: {
-            [customField.id]: value.url && value.label ? value : null,
-          },
+          fields: { [customField.id]: value },
         })
       } catch (error) {
         console.error(error)
@@ -234,19 +230,11 @@ function UrlCustomField({
   )
 
   return (
-    <>
-      <UrlFieldCell
-        value={urlValue.url ? urlValue : null}
-        onEdit={() => setDialogOpen(true)}
-      />
-      <UrlFieldDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        fieldLabel={customField.id}
-        initialValue={urlValue}
-        onSave={handleSave}
-      />
-    </>
+    <UrlFieldPopover
+      fieldLabel={customField.display_name}
+      value={urlValue.url ? urlValue : null}
+      onSave={handleSave}
+    />
   )
 }
 
@@ -255,7 +243,7 @@ function JsonCustomField({
   updateCase,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
 }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const hasValue = customField.value !== null && customField.value !== undefined
@@ -282,7 +270,7 @@ function JsonCustomField({
       <JsonFieldDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        fieldLabel={customField.id}
+        fieldLabel={customField.display_name}
         initialValue={customField.value}
         onSave={handleSave}
       />
@@ -298,6 +286,60 @@ interface CustomFieldProps {
 }
 
 /**
+ * Sentinel Select item value for the boolean field's clear row. Radix Select
+ * forbids empty-string item values, so the clear item carries this marker and
+ * `onValueChange` translates it to `null` before anything is persisted.
+ */
+const CLEAR_SELECT_VALUE = "__clear__"
+
+/**
+ * Divider plus pinned "Clear" row rendered as a sibling of a cmdk `Command`
+ * inside a popover, so the search filter can never hide it and it never
+ * scrolls away with the option list. Clears the field back to null.
+ */
+function ClearFieldRow({
+  fieldLabel,
+  onClear,
+}: {
+  fieldLabel: string
+  onClear: () => void
+}) {
+  return (
+    <>
+      <Separator />
+      <div className="p-1">
+        <button
+          type="button"
+          aria-label={`Clear ${fieldLabel} field`}
+          className="flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+          onClick={onClear}
+        >
+          <CircleSlash
+            className="h-3 w-3 shrink-0 text-muted-foreground"
+            aria-hidden
+          />
+          Clear
+        </button>
+      </div>
+    </>
+  )
+}
+
+/** Map a boolean field value to its controlled Select value ("" when unset). */
+function booleanSelectValue(value: unknown): "true" | "false" | "" {
+  if (value === true) return "true"
+  if (value === false) return "false"
+  return ""
+}
+
+/** Display label for a boolean field value; empty string when unset. */
+function booleanDisplayLabel(value: unknown): string {
+  if (value === true) return "True"
+  if (value === false) return "False"
+  return ""
+}
+
+/**
  * Renders badges in a single-line container with overflow detection.
  * When badges overflow, shows only those that fit plus a "+N" indicator.
  *
@@ -305,51 +347,8 @@ interface CustomFieldProps {
  * ResizeObserver can re-expand the visible set when the container grows.
  */
 function MultiSelectBadges({ values }: { values: string[] }) {
-  const measureRef = useRef<HTMLDivElement>(null)
-  const [visibleCount, setVisibleCount] = useState(values.length)
-
-  useEffect(() => {
-    const container = measureRef.current
-    if (!container) return
-
-    const measure = () => {
-      const children = Array.from(container.children) as HTMLElement[]
-      // Last child is the +N indicator placeholder
-      const indicatorEl = children[children.length - 1]
-      const badges = children.slice(0, -1)
-      const indicatorWidth = indicatorEl ? indicatorEl.offsetWidth : 0
-      const gap = 4 // gap-1 = 0.25rem = 4px
-
-      let count = 0
-      for (const child of badges) {
-        if (child.offsetLeft + child.offsetWidth > container.clientWidth) {
-          break
-        }
-        count++
-      }
-
-      // If there are hidden badges, reserve space for the +N indicator
-      if (count > 1 && count < badges.length) {
-        const lastVisible = badges[count - 1]
-        if (
-          lastVisible.offsetLeft +
-            lastVisible.offsetWidth +
-            gap +
-            indicatorWidth >
-          container.clientWidth
-        ) {
-          count--
-        }
-      }
-
-      setVisibleCount(count > 0 ? count : 1)
-    }
-
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [values])
+  // gap-1 = 0.25rem = 4px between badges.
+  const { measureRef, visibleCount } = useOverflowBadges(values, { gap: 4 })
 
   const hiddenCount = values.length - visibleCount
 
@@ -511,55 +510,77 @@ export function CustomFieldInner({
         <FormField
           control={form.control}
           name="value"
-          render={({ field }) => (
-            <FormItem>
-              <FormControl>
-                <Select
-                  value={
-                    field.value === true
-                      ? "true"
-                      : field.value === false
-                        ? "false"
-                        : undefined
-                  }
-                  onValueChange={(value) => {
-                    const next = value === "true"
-                    field.onChange(next)
-                    onBlur?.(customField.id, next)
-                  }}
-                >
-                  <SelectTrigger
-                    className={cn(
-                      linearStyles.trigger.base,
-                      "h-7 w-full justify-end px-2 text-sm [&>span]:w-full [&>svg]:hidden"
-                    )}
-                    style={inputStyle}
+          render={({ field }) => {
+            const hasValue = field.value === true || field.value === false
+            return (
+              <FormItem>
+                <FormControl>
+                  <Select
+                    value={booleanSelectValue(field.value)}
+                    onValueChange={(value) => {
+                      if (value === CLEAR_SELECT_VALUE) {
+                        field.onChange(null)
+                        onBlur?.(customField.id, null)
+                        return
+                      }
+                      const next = value === "true"
+                      field.onChange(next)
+                      onBlur?.(customField.id, next)
+                    }}
                   >
-                    <SelectValue>
-                      <div className="flex w-full items-center justify-end text-right text-sm">
-                        {field.value === true ? (
-                          <span>True</span>
-                        ) : field.value === false ? (
-                          <span>False</span>
-                        ) : (
-                          <span className="text-muted-foreground">Empty</span>
-                        )}
-                      </div>
-                    </SelectValue>
-                  </SelectTrigger>
-                  <SelectContent align="end">
-                    <SelectItem value="true">
-                      <span className="text-sm">True</span>
-                    </SelectItem>
-                    <SelectItem value="false">
-                      <span className="text-sm">False</span>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
+                    <SelectTrigger
+                      className={cn(
+                        linearStyles.trigger.base,
+                        "h-7 w-full justify-end px-2 text-sm [&>span]:w-full [&>svg]:hidden"
+                      )}
+                      style={inputStyle}
+                    >
+                      <SelectValue
+                        placeholder={
+                          <div className="flex w-full items-center justify-end text-right text-sm">
+                            <span className="text-muted-foreground">Empty</span>
+                          </div>
+                        }
+                      >
+                        <div className="flex w-full items-center justify-end text-right text-sm">
+                          <span>{booleanDisplayLabel(field.value)}</span>
+                        </div>
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      <SelectItem value="true">
+                        <span className="text-sm">True</span>
+                      </SelectItem>
+                      <SelectItem value="false">
+                        <span className="text-sm">False</span>
+                      </SelectItem>
+                      {hasValue && (
+                        <>
+                          <SelectSeparator />
+                          <SelectItem
+                            value={CLEAR_SELECT_VALUE}
+                            aria-label={`Clear ${customField.display_name} field`}
+                            // Radix sets aria-labelledby on every item, which
+                            // outranks aria-label; drop it so the label wins.
+                            aria-labelledby={undefined}
+                          >
+                            <span className="flex items-center gap-2 text-sm">
+                              <CircleSlash
+                                className="h-3 w-3 shrink-0 text-muted-foreground"
+                                aria-hidden
+                              />
+                              Clear
+                            </span>
+                          </SelectItem>
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )
+          }}
         />
       )
     // JSONB fields are handled by JsonCustomField before reaching this switch
@@ -659,6 +680,7 @@ export function CustomFieldInner({
           render={({ field }) => {
             const currentValue =
               typeof field.value === "string" ? field.value : ""
+            const hasValue = currentValue.length > 0
             return (
               <FormItem>
                 <Popover>
@@ -687,7 +709,7 @@ export function CustomFieldInner({
                         placeholder="Search..."
                         className="h-8 text-sm"
                       />
-                      <CommandList>
+                      <CommandList className="max-h-56">
                         <CommandEmpty className="py-2 text-center text-sm">
                           No option found
                         </CommandEmpty>
@@ -716,6 +738,15 @@ export function CustomFieldInner({
                         </CommandGroup>
                       </CommandList>
                     </Command>
+                    {hasValue && (
+                      <ClearFieldRow
+                        fieldLabel={customField.display_name}
+                        onClear={() => {
+                          field.onChange(null)
+                          onBlur?.(customField.id, null)
+                        }}
+                      />
+                    )}
                   </PopoverContent>
                 </Popover>
                 <FormMessage />
@@ -752,12 +783,15 @@ export function CustomFieldInner({
               }
             }
 
+            const hasValue = currentValues.length > 0
+
             const toggleOption = (option: string) => {
               const newValues = currentValues.includes(option)
                 ? currentValues.filter((v) => v !== option)
                 : [...currentValues, option]
-              field.onChange(newValues)
-              onBlur?.(customField.id, newValues)
+              const next = newValues.length === 0 ? null : newValues
+              field.onChange(next)
+              onBlur?.(customField.id, next)
             }
 
             return (
@@ -814,7 +848,7 @@ export function CustomFieldInner({
                         placeholder="Search..."
                         className="h-8 text-sm"
                       />
-                      <CommandList>
+                      <CommandList className="max-h-56">
                         <CommandEmpty className="py-2 text-center text-sm">
                           No option found
                         </CommandEmpty>
@@ -823,16 +857,11 @@ export function CustomFieldInner({
                             <CommandItem
                               key={option}
                               value={option}
-                              className="text-sm"
+                              className="group text-sm"
                               onSelect={() => toggleOption(option)}
                             >
-                              <Check
-                                className={cn(
-                                  "mr-2 h-4 w-4",
-                                  currentValues.includes(option)
-                                    ? "opacity-100"
-                                    : "opacity-0"
-                                )}
+                              <CheckIndicator
+                                checked={currentValues.includes(option)}
                               />
                               {option}
                             </CommandItem>
@@ -840,6 +869,15 @@ export function CustomFieldInner({
                         </CommandGroup>
                       </CommandList>
                     </Command>
+                    {hasValue && (
+                      <ClearFieldRow
+                        fieldLabel={customField.display_name}
+                        onClear={() => {
+                          field.onChange(null)
+                          onBlur?.(customField.id, null)
+                        }}
+                      />
+                    )}
                   </PopoverContent>
                 </Popover>
                 <FormMessage />

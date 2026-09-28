@@ -11,6 +11,7 @@ from uuid import uuid4
 import orjson
 import pytest
 from claude_agent_sdk import ClaudeAgentOptions
+from claude_agent_sdk._errors import CLIConnectionError, ProcessError
 from claude_agent_sdk.types import (
     AgentDefinition,
     McpHttpServerConfig,
@@ -18,8 +19,13 @@ from claude_agent_sdk.types import (
     McpStdioServerConfig,
 )
 
+from tracecat.agent.common.config import (
+    TRACECAT__AGENT_SANDBOX_TIMEOUT,
+    build_agent_runtime_uv_env,
+)
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.types import SandboxAgentConfig
+from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
 from tracecat.agent.executor.loopback import LoopbackResult
 from tracecat.agent.runtime import session_paths as session_paths_module
 from tracecat.agent.runtime.claude_code import broker as broker_module
@@ -34,6 +40,7 @@ from tracecat.agent.runtime.claude_code.transport import (
     open_mcp_bridge_binding,
 )
 from tracecat.agent.runtime.session_paths import AgentSandboxPathMapping
+from tracecat.agent.sandbox.config import AgentResourceLimits
 
 
 def _make_request(tmp_path: Path) -> ClaudeTurnRequest:
@@ -59,7 +66,11 @@ def _make_request(tmp_path: Path) -> ClaudeTurnRequest:
     )
 
 
-def _make_transport(tmp_path: Path, *, use_jailed_paths: bool) -> SandboxedCLITransport:
+def _make_transport(
+    tmp_path: Path,
+    *,
+    use_jailed_paths: bool,
+) -> SandboxedCLITransport:
     runtime_home_dir = Path("/home/agent") if use_jailed_paths else tmp_path / "home"
     runtime_work_dir = Path("/work") if use_jailed_paths else tmp_path / "work"
     path_mapping = AgentSandboxPathMapping(
@@ -281,6 +292,33 @@ def test_build_path_mapping_is_stable_per_session(
     assert first == second
 
 
+@pytest.mark.parametrize(
+    ("use_jailed_paths", "expected_state_dir"),
+    [
+        pytest.param(True, "/run/tracecat/uv-state", id="nsjail"),
+        pytest.param(False, "job/uv-state", id="direct"),
+    ],
+)
+def test_transport_pins_protected_uv_settings_for_runtime_paths(
+    tmp_path: Path,
+    use_jailed_paths: bool,
+    expected_state_dir: str,
+) -> None:
+    transport = _make_transport(tmp_path / "job", use_jailed_paths=use_jailed_paths)
+
+    options = transport._options_with_protected_runtime_settings(
+        ClaudeAgentOptions(settings='{"env":{"UV_LINK_MODE":"symlink"}}')
+    )
+
+    assert options.settings is not None
+    expected_path = Path(
+        expected_state_dir if use_jailed_paths else tmp_path / expected_state_dir
+    )
+    settings = orjson.loads(options.settings)
+    assert settings == {"env": build_agent_runtime_uv_env(expected_path)}
+    assert settings["env"]["UV_PYTHON_CACHE_DIR"] == str(expected_path / "python-cache")
+
+
 def test_transport_rewrites_bundled_claude_path_for_jail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -441,7 +479,10 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    transport = _make_transport(tmp_path, use_jailed_paths=False)
+    transport = _make_transport(
+        tmp_path,
+        use_jailed_paths=False,
+    )
     options = ClaudeAgentOptions(
         mcp_servers={"tracecat-registry": _trusted_mcp_config(4101, token="root")},
         agents={
@@ -460,8 +501,10 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
     )
     transport._options = options
     captured_spawn_kwargs: dict[str, object] = {}
+    captured_command_options: list[ClaudeAgentOptions] = []
 
     async def fake_build_claude_command() -> list[str]:
+        captured_command_options.append(transport._options)
         return ["claude", "--print"]
 
     async def fake_spawn_jailed_runtime(
@@ -489,6 +532,21 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
     assert selected_port > 0
     assert init_payload["mcp_bridge_fd"] is not None
     assert captured_spawn_kwargs["inherited_fds"] == (init_payload["mcp_bridge_fd"],)
+    assert len(captured_command_options) == 1
+    command_settings = captured_command_options[0].settings
+    assert command_settings is not None
+    assert orjson.loads(command_settings) == {
+        "env": build_agent_runtime_uv_env(tmp_path / "uv-state")
+    }
+    # The transport relies on the sandbox default resource limits, which pin
+    # the static kill ceiling rather than the per-run timeout.
+    assert "config" not in captured_spawn_kwargs
+    expected_sandbox_limit = (
+        TRACECAT__AGENT_SANDBOX_TIMEOUT + AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
+    )
+    default_limits = AgentResourceLimits()
+    assert default_limits.cpu_seconds == expected_sandbox_limit
+    assert default_limits.timeout_seconds == expected_sandbox_limit
 
     mcp_servers = cast(dict[str, Any], options.mcp_servers)
     assert mcp_servers["tracecat-registry"]["url"] == (
@@ -500,3 +558,134 @@ async def test_transport_connect_applies_selected_direct_port_to_sdk_options(
     agent_entry = cast(dict[str, Any], agent.mcpServers[0])
     child_server = cast(dict[str, Any], agent_entry["tracecat-registry-analyst"])
     assert child_server["url"] == f"http://127.0.0.1:{selected_port}/mcp"
+
+
+@pytest.mark.anyio
+async def test_transport_close_removes_runtime_owned_job_directory(
+    tmp_path: Path,
+) -> None:
+    """Transport close removes a job directory owned by the spawned runtime."""
+    job_dir = tmp_path / "runtime-owned-job"
+    uv_file = job_dir / "uv-state" / "cache" / "archive" / "artifact"
+    uv_file.parent.mkdir(parents=True)
+    uv_file.write_text("cached artifact")
+    transport = _make_transport(job_dir, use_jailed_paths=False)
+    transport._spawned_runtime = transport_module.SpawnedRuntime(
+        process=cast(Any, _FakeSandboxProcess()),
+        job_dir=job_dir,
+    )
+
+    await transport.close()
+
+    assert not job_dir.exists()
+    assert transport._spawned_runtime is None
+
+
+@pytest.mark.anyio
+async def test_transport_close_preserves_caller_owned_job_directory(
+    tmp_path: Path,
+) -> None:
+    """Transport close leaves activity-owned state when the spawn owns no job dir."""
+    job_dir = tmp_path / "caller-owned-job"
+    uv_file = job_dir / "uv-state" / "cache" / "archive" / "artifact"
+    uv_file.parent.mkdir(parents=True)
+    uv_file.write_text("cached artifact")
+    transport = _make_transport(job_dir, use_jailed_paths=False)
+    transport._spawned_runtime = transport_module.SpawnedRuntime(
+        process=cast(Any, _FakeSandboxProcess()),
+        job_dir=None,
+    )
+
+    await transport.close()
+
+    assert job_dir.is_dir()
+    assert uv_file.is_file()
+    assert transport._spawned_runtime is None
+
+
+@pytest.mark.parametrize("use_jailed_paths", [True, False])
+@pytest.mark.parametrize("resume", [None, "existing-session"])
+def test_transport_loads_platform_plugin_on_fresh_and_resumed_turns(
+    tmp_path: Path, use_jailed_paths: bool, resume: str | None
+) -> None:
+    plugin = tmp_path / "platform-skills"
+    manifest = plugin / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text('{"name":"tracecat"}')
+    transport = _make_transport(tmp_path, use_jailed_paths=use_jailed_paths)
+    options = transport._options_with_platform_skills(ClaudeAgentOptions(resume=resume))
+    expected = Path("/run/tracecat/job/platform-skills") if use_jailed_paths else plugin
+    assert options.plugins == [{"type": "local", "path": str(expected)}]
+    assert options.resume == resume
+
+
+def test_transport_does_not_reuse_plugins_without_a_staged_catalog(
+    tmp_path: Path,
+) -> None:
+    transport = _make_transport(tmp_path, use_jailed_paths=True)
+    options = transport._options_with_platform_skills(
+        ClaudeAgentOptions(plugins=[{"type": "local", "path": "/previous-turn/plugin"}])
+    )
+    assert options.plugins == []
+
+
+@pytest.mark.anyio
+async def test_transport_records_shim_exit_code_when_stream_ends(
+    tmp_path: Path,
+) -> None:
+    """Invariant: the shim exit code survives the ProcessError the SDK erases.
+
+    ``read_messages`` still raises ``ProcessError`` for the SDK, and the same
+    exit code stays readable on the transport for the runtime to attribute.
+    """
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+
+    class _ExitedStdout:
+        @staticmethod
+        async def readline() -> bytes:
+            return b""
+
+    class _ExitedProcess:
+        returncode = 134
+        stdout = _ExitedStdout()
+        stderr = None
+
+        @staticmethod
+        async def wait() -> int:
+            return 134
+
+    transport._process = cast(Any, _ExitedProcess())
+
+    with pytest.raises(ProcessError) as excinfo:
+        async for _ in transport.read_messages():
+            pass
+
+    assert excinfo.value.exit_code == 134
+    assert transport.exit_code == 134
+
+
+@pytest.mark.anyio
+async def test_transport_records_shim_exit_code_observed_on_write(
+    tmp_path: Path,
+) -> None:
+    """Invariant: a shim death seen at write time is still attributable.
+
+    The SDK cancels its reader task when a write fails, so ``read_messages``
+    may never reach its own recording point. A resource-limit death observed
+    while writing a prompt must not degrade to retryable executor
+    unavailability for want of the exit code.
+    """
+    transport = _make_transport(tmp_path, use_jailed_paths=False)
+
+    class _ExitedProcess:
+        returncode = 137
+        stdin = SimpleNamespace()
+        stdout = SimpleNamespace()
+
+    transport._process = cast(Any, _ExitedProcess())
+    transport._ready = True
+
+    with pytest.raises(CLIConnectionError):
+        await transport.write('{"type":"user"}\n')
+
+    assert transport.exit_code == 137

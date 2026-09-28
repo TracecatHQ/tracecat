@@ -39,15 +39,19 @@ class TestTokenBucket:
         assert bucket.tokens == 20.0
 
     @pytest.mark.anyio
-    async def test_refill(self):
+    async def test_refill(self, monkeypatch: pytest.MonkeyPatch):
         """Test that tokens are refilled based on elapsed time."""
+        current_time = 1_000.0
+        monkeypatch.setattr(
+            "tracecat.middleware.rate_limit.time.time", lambda: current_time
+        )
         bucket = TokenBucket(rate=10.0, capacity=20.0)
         # Consume some tokens
         await bucket.consume(tokens=15.0)
         assert bucket.tokens == 5.0
 
         # Manually set the last refill time to simulate elapsed time
-        bucket.last_refill = time.time() - 1.0  # 1 second ago
+        current_time += 1.0
 
         # Consume again, which should trigger a refill
         result = await bucket.consume(tokens=1.0)

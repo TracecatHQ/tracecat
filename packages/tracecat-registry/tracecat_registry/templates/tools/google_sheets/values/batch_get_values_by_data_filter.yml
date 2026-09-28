@@ -1,0 +1,95 @@
+type: action
+definition:
+  title: Batch get values by data filter
+  description: >-
+    Returns one or more ranges of values that match the specified data filters. The caller must
+    specify the spreadsheet ID and one or more DataFilters. Ranges that match any of the data
+    filters in the request will be returned.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/batchGetByDataFilter
+  namespace: tools.google_sheets
+  name: batch_get_values_by_data_filter
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    spreadsheet_id:
+      type: str
+      description: The ID of the spreadsheet to retrieve data from.
+    data_filters:
+      # Generic: the vendor's body is a discriminated union. Each `DataFilter` sets exactly one of
+      # `a1Range`, `gridRange` or `developerMetadataLookup`.
+      type: list[dict[str, Any]]
+      description: >-
+        The data filters used to match the ranges of values to retrieve. Ranges that match any of
+        the specified data filters are included in the response. Each entry sets exactly one of
+        `a1Range`, `gridRange` or `developerMetadataLookup`. See
+        https://developers.google.com/workspace/sheets/api/reference/rest/v4/DataFilter
+    major_dimension:
+      type: str | None
+      description: >-
+        The major dimension that results should use. One of `ROWS` or `COLUMNS`. For example, if
+        the spreadsheet data is `A1=1,B1=2,A2=3,B2=4`, then a request that selects that range and
+        sets `majorDimension=ROWS` returns `[[1,2],[3,4]]`, whereas a request that sets
+        `majorDimension=COLUMNS` returns `[[1,3],[2,4]]`.
+      default: null
+    value_render_option:
+      type: str | None
+      description: >-
+        How values should be represented in the output. One of `FORMATTED_VALUE`,
+        `UNFORMATTED_VALUE` or `FORMULA`. The default render option is `FORMATTED_VALUE`.
+      default: null
+    date_time_render_option:
+      type: str | None
+      description: >-
+        How dates, times, and durations should be represented in the output. One of `SERIAL_NUMBER`
+        or `FORMATTED_STRING`. This is ignored if value_render_option is `FORMATTED_VALUE`. The
+        default dateTime render option is `SERIAL_NUMBER`.
+      default: null
+  steps:
+    - ref: build_body
+      action: core.script.run_python
+      args:
+        inputs:
+          data_filters: ${{ inputs.data_filters }}
+          major_dimension: ${{ inputs.major_dimension }}
+          value_render_option: ${{ inputs.value_render_option }}
+          date_time_render_option: ${{ inputs.date_time_render_option }}
+        script: |
+          def main(
+              data_filters,
+              major_dimension,
+              value_render_option,
+              date_time_render_option,
+          ):
+              body = {"dataFilters": data_filters}
+              if major_dimension is not None:
+                  body["majorDimension"] = major_dimension
+              if value_render_option is not None:
+                  body["valueRenderOption"] = value_render_option
+              if date_time_render_option is not None:
+                  body["dateTimeRenderOption"] = date_time_render_option
+              return body
+    - ref: batch_get_values_by_data_filter
+      action: tools.google_api.call_api
+      args:
+        service_name: sheets
+        version: v4
+        resource: spreadsheets.values
+        method_name: batchGetByDataFilter
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+        params:
+          spreadsheetId: ${{ inputs.spreadsheet_id }}
+          body: ${{ steps.build_body.result }}
+  returns: ${{ steps.batch_get_values_by_data_filter.result }}

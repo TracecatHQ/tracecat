@@ -1,29 +1,20 @@
 # Tracecat agent notes
 
-Use this file for repo-wide guidance. Prefer the more specific notes in nested
-`AGENTS.md` files when you are working inside those paths.
+Repo-wide guidance only. Nested `AGENTS.md` files load when you work under
+their directory and carry the detailed rules:
 
-## Path-specific notes
+- `tracecat/AGENTS.md`: backend Python, typing, services, SQLAlchemy, config.
+- `frontend/AGENTS.md`: React, TypeScript, and UI conventions.
+- `packages/tracecat-registry/AGENTS.md`: integrations and templates.
+- `alembic/AGENTS.md`: migration safety and expand/contract rules.
+- `deployments/AGENTS.md`: Fargate, Terraform, and deployment review.
+- `docs/AGENTS.md`: documentation structure and writing rules.
+- `.github/AGENTS.md`: GitHub Actions security rules.
 
-- `frontend/AGENTS.md`: Frontend, React, TypeScript, and UI conventions.
-- `tracecat/AGENTS.md`: Backend Python, service, typing, SQLAlchemy, and API
-  conventions.
-- `docs/AGENTS.md`: Documentation structure and writing rules.
+## Setup
 
-## Repo map
-
-- `tracecat/`: API, services, workflow engine, executor, auth, and shared
-  backend code.
-- `frontend/`: Next.js app, React UI, generated client, and frontend tests.
-- `packages/tracecat-registry/`: Integrations, templates, and registry SDK.
-- `packages/tracecat-admin/`: Operator CLI.
-- `packages/tracecat-ee/`: Enterprise features and shims.
-- `alembic/`: Database migrations.
-- `deployments/`: Docker, Fargate, EKS, and Helm deployment targets.
-
-## Setup and verification
-
-Use `uv` for Python commands and `pnpm` for frontend commands.
+Use `uv` for Python commands and `pnpm` for frontend commands. Prefer `rg`
+over slower text search and `fd` over `find`.
 
 ```bash
 uv sync
@@ -31,245 +22,98 @@ pnpm install --dir frontend
 uv run pre-commit install
 ```
 
-If you update dependencies, regenerate and reinstall the lockfile explicitly:
+If you change dependencies, regenerate the lockfile with
+`rm uv.lock && uv sync`. Pin dependencies to exact versions in
+`pyproject.toml`; never switch to range constraints.
 
-```bash
-rm uv.lock && uv sync
-# or
-uv pip compile pyproject.toml -o uv.lock
-uv sync
-```
+## Development stack
 
-## Development stack safety
+Before using `just cluster`, check whether a `tracecat` stack already exists
+with `docker compose ls --filter name=tracecat`. If it does, decide whether to
+keep using `docker compose` against it or use `just cluster` for this worktree.
 
-Before using `just cluster`, check whether a `docker compose` stack named
-`tracecat` is already running:
-
-```bash
-docker compose ls --filter name=tracecat
-```
-
-- If a stack already exists, decide whether to keep using `docker compose`
-  against that stack or use `just cluster` for this worktree.
+- Prefer `just cluster` (`up -d`, `up -d --seed`, `ps`, `logs -f api`,
+  `restart api`, `attach api`, `db`, `ports`) over raw `docker compose` for
+  Tracecat services, logs, and restarts.
 - Never remove volumes with `docker compose down -v`, `docker volume rm`,
-  `just cluster rm`, or similar commands unless the user explicitly asks for it
-  and confirms data loss is acceptable.
-- Prefer `just cluster` for live Tracecat services, logs, restarts, and local
-  database-backed development.
+  `just cluster rm`, or similar unless the user explicitly asks for it and
+  confirms data loss is acceptable.
+- Bring the cluster up when work needs PostgreSQL, Temporal, integration
+  tests, or live service logs.
 
-Common `just cluster` commands:
-
-```bash
-just cluster up -d
-just cluster up -d --seed
-just cluster ps
-just cluster logs api
-just cluster logs -f api
-just cluster restart api
-just cluster down
-just cluster rm
-just cluster attach api
-just cluster db
-just cluster ports
-just cluster list
-```
-
-Use `just cluster up -d` when you need PostgreSQL, Temporal, integration tests,
-or live service logs.
-
-## Testing
+## Testing and verification
 
 ```bash
 just test
-uv run pytest tests/unit
-uv run pytest tests/integration
-uv run pytest tests/registry
-uv run pytest tests/unit/test_functions.py -x --last-failed
 uv run pytest tests/unit -n auto
-uv run pytest -k "keyword"
 uv run pytest -m "not slow and not temporal"
 uv run pytest -m temporal
-just bench
 pnpm -C frontend test
 just temporal-stop-all
 ```
 
-## Linting, typechecking, and pre-push verification
-
-Run autofixers before final verification when you change Python or frontend
-code:
+Run the autofixers before final verification, then the same checks CI runs:
 
 ```bash
-uv run ruff check --fix .
-pnpm -C frontend exec biome check --write .
-```
-
-Core verification:
-
-```bash
-uv run ruff check .
-uv run ruff format --check .
+uv run ruff check --fix . && pnpm -C frontend exec biome check --write .
+uv run ruff check . && uv run ruff format --check .
 uv run basedpyright --warnings --threads 4
-pnpm -C frontend check
-pnpm -C frontend run typecheck
+pnpm -C frontend check && pnpm -C frontend run typecheck
 ```
 
-Useful aliases and focused commands:
-
-```bash
-just fix
-just lint-fix
-just lint-fix-app
-just lint-fix-ui
-cd frontend && pnpm lint
-cd frontend && pnpm format:write
-cd frontend && pnpm check
-just typecheck
-uv run basedpyright tracecat/api/
-```
-
-Recommended pre-push hook:
-
-```bash
-cat > .git/hooks/pre-push <<'EOF'
-#!/bin/sh
-set -e
-
-uv run ruff check --fix .
-pnpm -C frontend exec biome check --write .
-
-git diff --exit-code
-
-uv run ruff check .
-uv run ruff format --check .
-uv run basedpyright --warnings --threads 4
-pnpm -C frontend check
-pnpm -C frontend run typecheck
-EOF
-
-chmod +x .git/hooks/pre-push
-```
-
-Pre-commit hooks cover Ruff, Gitleaks, YAML/TOML validation, UV lock sync,
-frontend client generation when relevant, Python type checks, frontend Biome
-checks, and frontend type checks.
-
-## Code generation
-
-```bash
-just gen-client-ci
-just gen-api
-just gen-integrations
-just gen-functions
-```
+Regenerate the frontend client with `just gen-client-ci` after backend schema
+changes.
 
 ## Repo-wide rules
 
-- Pin dependencies to exact versions in `pyproject.toml`. Do not switch to
-  range-based constraints.
 - Do not bypass commit signing with `--no-gpg-sign` or `--no-verify`. If
   signing is broken, stop and ask the user to fix it.
-- Never copy customer-provided identifiers, URLs, tenant IDs, subscription IDs,
-  workspace names, resource group names, incident IDs, emails, domains, tokens,
-  or other potentially sensitive values into tests, docs, fixtures, snapshots,
-  examples, logs, or committed code. Replace them with clearly synthetic values
-  before writing files, and search for the original strings before committing.
-- Do not assume PostgreSQL superuser access in migrations, queries, or scripts.
-- Never add methods to `tracecat/db/models.py`; keep database models minimal.
-- Use `pnpm` instead of `npm`, and prefer `rg` over slower text-search tools.
+- Never copy customer-provided identifiers, customer names, URLs, tenant IDs,
+  subscription IDs, workspace names, resource group names, incident IDs, emails,
+  domains, tokens, or other potentially sensitive values into tests, docs,
+  fixtures, snapshots, examples, logs, committed code, commit messages, PR or
+  issue titles/bodies, PR comments, issue comments, review comments, or any
+  other published repository text. Use generic phrasing such as "affected
+  customer" or clearly synthetic placeholders instead, and search for the
+  original strings before committing, pushing, or publishing PR/issue text.
+  Exception: the workspace sync feature may publish the source workspace name
+  and initiating user's email in the generated sync PR body because that
+  attribution is product behavior for user-initiated sync PRs.
+- Boolean env vars exposed through Docker Compose use `${VAR:-default}`, never
+  `${VAR}`, `VAR=`, or a hardcoded literal, so `.env` overrides still work. In
+  `.env.example`, use an explicit `true` or `false`, never a blank value, and
+  update `tests/unit/test_config.py` when adding deployment env files.
+- Keep `.env.example` focused on settings ordinary open-source and self-hosted
+  users are expected to configure. Advanced tuning knobs and operator-only
+  overrides stay overrideable through deployment configuration instead; being
+  supported by config or Compose is not a reason to advertise a variable.
+- Never add `pull_request_target` to GitHub Actions. Read `.github/AGENTS.md`
+  before changing any workflow.
+- Read `deployments/AGENTS.md` before changing any root `docker-compose*.yml`
+  file. Infrastructure changes are reviewed across Compose, Fargate, and the
+  separate `TracecatHQ/k8s` repository.
 - Ask clarifying questions when the task lacks enough context to make a safe
   change.
 
-## CI and workflow security
-
-- Never add `pull_request_target` to GitHub Actions in this repo.
-- Use `push`, `pull_request`, and protected branch or tag triggers instead of
-  `pull_request_target`.
-- Treat `workflow_dispatch` as a privileged path, not a convenience default.
-- Guard privileged manual workflows with `TRUSTED_CI_ACTORS_JSON`.
-- If another workflow triggers guarded `workflow_dispatch`, account for
-  `github-actions[bot]` explicitly instead of weakening the allowlist.
-- Keep workflow permissions read-only by default and grant write scopes only at
-  the job level when a step demonstrably needs them.
-- Do not add `pull-requests: write`, `packages: write`, or `id-token: write`
-  unless a specific job step requires them.
-- Use protected environments for secret-backed jobs when possible.
-- Keep `CROSS_REPO_AUTOMATION_APP_PRIVATE_KEY` in the `release` environment and
-  `CUSTOM_REPO_SSH_PRIVATE_KEY` in the `internal-registry-ci` environment.
-- External fork PRs must not reach secret-backed or private-infrastructure jobs.
-- Release automation should validate trusted inputs before mutating tags,
-  releases, downstream repos, or registries.
-- Use `concurrency` on publishing and downstream-dispatch workflows to avoid
-  duplicate runs racing each other.
-- If you change workflow logic, review triggers, permissions, environment use,
-  and trusted-input validation before considering the change done.
-
-## Key files
-
-- `pyproject.toml`: Python dependencies and tool config.
-- `frontend/package.json`: Frontend dependencies and scripts.
-- `docker-compose.dev.yml`: Local development stack.
-- `alembic.ini`: Alembic config.
-- `scripts/cluster`: Cluster orchestration entrypoint.
-
-## Infra and migrations
-
-- Infrastructure changes must be reviewed across all relevant deployment
-  targets: `docker-compose*.yml`, `deployments/fargate/`,
-  `deployments/k8s/eks/`, `deployments/k8s/eks/modules/eks/`, and
-  `deployments/k8s/helm/`.
-- Check the matching `values.yaml`, `variables.tf`, and `main.tf` files before
-  closing out infra work.
-- For Alembic work, bring up the database first, check the cluster port with
-  `just cluster ports`, and prefer `uv run alembic revision --autogenerate`
-  before manually editing a new migration.
-
 ## Pull requests
 
-### Titles
-
-- Always use conventional commit prefixes: `feat:`, `fix:`, `chore:`, `docs:`,
-  `refactor:`, `test:`, `ci:`, `perf:`, etc.
-- Keep the first line under 72 characters.
-- Optionally include a scope, e.g. `fix(agent): ...`, `feat(ui): ...`.
-
-### Labels
-
-- Always label PRs on a best-effort basis. Do not skip labeling.
-- Before labeling, list existing repo labels with `gh label list` and pick from
-  that set. Do not invent new labels unless the user explicitly asks for one.
-- Apply labels with `gh pr edit <pr-number> --add-label "<label>"`.
-
-### Descriptions
-
-- Never use `gh pr create --body "..."` when the body includes Markdown or
-  backticks.
-- Write the PR body to a file with a single-quoted heredoc (`<<'EOF'`) and pass
-  it with `gh pr create --body-file <file>`.
-- After creating or editing a PR body, verify it with
-  `gh pr view <pr-number> --json body --jq .body`.
-- If formatting is wrong, fix it with `gh pr edit <pr-number> --body-file` and
-  re-verify.
-- Keep auto-generated PR content from cubic unless the user explicitly asks to
-  remove it.
-
-## Services and logging
-
-- Prefer `just cluster logs <service>` and `just cluster logs -f <service>` for
-  service logs.
-- Use `just cluster ps` to inspect running services and `just cluster restart`
-  to bounce a service after code changes.
-- Use `just cluster attach <service>` when you need a shell inside a container.
-- Avoid raw `docker` and `docker compose` for normal Tracecat stack management
-  unless you are intentionally working with an existing non-`just cluster`
-  stack.
-
-## Registry and templates
-
-- Registry templates live in
-  `packages/tracecat-registry/tracecat_registry/templates/`.
-- Use the `tools.{integration_name}` namespace for integrations.
-- Keep template expressions platform-native. For anything complex, prefer
-  `core.script.run_python` over dense inline expressions.
-- When adding SDK helpers, verify the exact request path and add or update a
-  regression test that covers it.
+- The title is the changelog line and the squash-commit subject. Format:
+  `<type>(<scope>)!: <description>`, under 72 characters. Validate with
+  `just check-pr-title "<title>"` before opening the PR.
+- Types and scopes are a closed vocabulary in `.github/commit-conventions.toml`.
+  Never add types, scopes, aliases, or labels (`gh label create`) to make a
+  title pass. If something seems genuinely missing, stop and say so; a human
+  decides.
+- Vendor names are not scopes: write `feat(integrations): add Jira issue
+  search`. At most two scopes, joined with `+`. GitHub Actions work is a bare
+  `ci:`; workflow-engine work is `engine`.
+- Write PR bodies to a file with a single-quoted heredoc and pass
+  `--body-file`; never `--body` with Markdown. Verify with
+  `gh pr view <n> --json body --jq .body`.
+- Every PR body includes a LOC breakdown table (Logic, Tests, Infra/config,
+  Docs, Generated; `+` and `-` columns) computed from
+  `git diff --numstat <base>...HEAD`.
+- Keep auto-generated PR content from cubic unless the user asks to remove it.
+- The `make-pr` skill holds the full conventions: scope disambiguation,
+  deprecations, dependency bumps, labels, and revert titles. `CONTRIBUTING.md`
+  has the human-facing version.

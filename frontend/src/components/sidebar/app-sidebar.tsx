@@ -21,9 +21,9 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { useParams, usePathname } from "next/navigation"
+import { usePathname } from "next/navigation"
 import type * as React from "react"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo, useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   LockedFeatureChip,
@@ -52,7 +52,6 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
-  useSidebar,
 } from "@/components/ui/sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { usePendingApprovalsCount } from "@/hooks/use-pending-approvals-count"
@@ -69,12 +68,15 @@ type NavItem = {
   icon: LucideIcon
   isActive?: boolean
   isLocked?: boolean
+  isPendingEntitlement?: boolean
   onSelect?: () => void
   locked?: boolean
   visible?: boolean
   requiredScope?: string
   badgeCount?: number
   badgeLabel?: string
+  /** Small status pill shown after the title, e.g. "Beta". */
+  tag?: string
   items?: {
     title: string
     url: string
@@ -85,27 +87,8 @@ type NavItem = {
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
   const workspaceId = useWorkspaceId()
-  const params = useParams<{ caseId?: string }>()
-  const { setOpen: setSidebarOpen } = useSidebar()
-  const setSidebarOpenRef = useRef(setSidebarOpen)
   const basePath = `/workspaces/${workspaceId}`
-  const caseId = params?.caseId
-  const casesListPath = `${basePath}/cases`
-  const isCasesList = pathname === casesListPath
   const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
-
-  useEffect(() => {
-    setSidebarOpenRef.current = setSidebarOpen
-  }, [setSidebarOpen])
-
-  useEffect(() => {
-    const updateSidebarOpen = setSidebarOpenRef.current
-    if (caseId) {
-      updateSidebarOpen(false)
-    } else if (isCasesList) {
-      updateSidebarOpen(true)
-    }
-  }, [caseId, isCasesList])
 
   // Scope checks for sidebar items
   const canViewWorkflows = useScopeCheck("workflow:read")
@@ -128,9 +111,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     canExecuteAgents === true ||
     canViewServiceAccounts === true ||
     canViewInbox === true
-  const { hasEntitlement, isLoading: entitlementsIsLoading } = useEntitlements({
+  const {
+    hasEntitlement,
+    hasEntitlementData,
+    isLoading: entitlementsIsLoading,
+  } = useEntitlements({
     enabled: shouldLoadEntitlements,
   })
+  const entitlementsKnown = !entitlementsIsLoading && hasEntitlementData
   const agentAddonsEnabled = hasEntitlement("agent_addons")
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
@@ -148,12 +136,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         title: "Chat",
         url: `${basePath}/chat`,
         icon: BotIcon,
+        tag: "Beta",
         isActive: pathname?.startsWith(`${basePath}/chat`),
         visible: canAccessMissionControl,
-        isLocked: entitlementsIsLoading || !workspaceChatEnabled,
-        onSelect: entitlementsIsLoading
-          ? undefined
-          : () => setLockedFeatureDialogOpen(true),
+        isLocked: entitlementsKnown && !workspaceChatEnabled,
+        isPendingEntitlement: !entitlementsKnown,
+        onSelect:
+          entitlementsKnown && !workspaceChatEnabled
+            ? () => setLockedFeatureDialogOpen(true)
+            : undefined,
       },
       {
         title: "Workflows",
@@ -175,10 +166,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         icon: MousePointerClickIcon,
         isActive: pathname?.startsWith(`${basePath}/agents`),
         visible: canViewAgents === true,
-        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
-        onSelect: entitlementsIsLoading
-          ? undefined
-          : () => setLockedFeatureDialogOpen(true),
       },
       {
         title: "Tables",
@@ -220,10 +207,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         url: `${basePath}/skills`,
         icon: Pyramid,
         isActive: pathname?.startsWith(`${basePath}/skills`),
-        isLocked: entitlementsIsLoading || !agentAddonsEnabled,
-        onSelect: entitlementsIsLoading
-          ? undefined
-          : () => setLockedFeatureDialogOpen(true),
         visible: canViewAgents === true,
       },
       {
@@ -244,8 +227,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       canViewVariables,
       canViewSecrets,
       canViewIntegrations,
-      entitlementsIsLoading,
-      agentAddonsEnabled,
+      entitlementsKnown,
       workspaceChatEnabled,
       canViewAgents,
       canViewActions,
@@ -261,7 +243,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       visible: canViewWorkflows === true,
     },
     {
-      title: "Approvals",
+      title: "Inbox",
       url: `${basePath}/inbox`,
       icon: ListChecksIcon,
       isActive: pathname?.startsWith(`${basePath}/inbox`),
@@ -299,7 +281,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                         <SidebarMenuItem key={item.title}>
                           {item.items ? (
                             <SidebarMenuItem>
-                              <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-zinc-700 dark:text-zinc-300">
+                              <div className="flex w-full items-center gap-2 overflow-hidden rounded-md py-1.5 px-2 text-left text-[13px] text-sidebar-foreground">
                                 <item.icon className="size-4 shrink-0" />
                                 <span className="font-medium">
                                   {item.title}
@@ -332,11 +314,30 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                               <span>{item.title}</span>
                               <LockedFeatureChip className="ml-auto shrink-0" />
                             </SidebarMenuButton>
+                          ) : item.isPendingEntitlement ? (
+                            <SidebarMenuButton
+                              type="button"
+                              isActive={item.isActive}
+                              disabled
+                            >
+                              <item.icon />
+                              <span>{item.title}</span>
+                              {item.tag ? (
+                                <span className="ml-auto shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium leading-none text-muted-foreground">
+                                  {item.tag}
+                                </span>
+                              ) : null}
+                            </SidebarMenuButton>
                           ) : (
                             <SidebarMenuButton asChild isActive={item.isActive}>
                               <Link href={item.url!}>
                                 <item.icon />
                                 <span>{item.title}</span>
+                                {item.tag ? (
+                                  <span className="ml-auto shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium leading-none text-muted-foreground">
+                                    {item.tag}
+                                  </span>
+                                ) : null}
                               </Link>
                             </SidebarMenuButton>
                           )}
@@ -386,7 +387,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                           {item.badgeCount ? (
                             <SidebarMenuBadge
                               aria-label={item.badgeLabel}
-                              className="top-1/2 -translate-y-1/2 bg-violet-500/10 text-violet-700 peer-data-[size=default]/menu-button:top-1/2 peer-data-[size=lg]/menu-button:top-1/2 peer-data-[size=sm]/menu-button:top-1/2 dark:text-violet-300"
+                              className="bg-violet-500/10 text-violet-700 dark:text-violet-300"
                             >
                               {formatPendingApprovalCount(item.badgeCount)}
                             </SidebarMenuBadge>
@@ -427,7 +428,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   title: "MCP access",
                   href: `${basePath}/mcp`,
                   icon: TerminalIcon,
-                  isActive: pathname?.startsWith(`${basePath}/mcp`),
+                  isActive:
+                    pathname === `${basePath}/mcp` ||
+                    pathname?.startsWith(`${basePath}/mcp/`),
                 }
               : null,
           ].filter((item) => item !== null)}

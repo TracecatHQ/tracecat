@@ -11,9 +11,20 @@ set for related Python packages in this repo.
 - Use `uv run` for Python commands and tests.
 - Use `uv pip install` for package installation.
 - Avoid `type: ignore`. If imports are cyclical, prefer `if TYPE_CHECKING:`.
-- Prefer `frozen=True` dataclasses for immutable value objects.
-- Prefer `TypedDict` for structured dictionaries and `Protocol` for structural
-  typing.
+- Prefer `@dataclass(frozen=True, slots=True)` for immutable value objects,
+  and over `NamedTuple`. It is smaller and blocks positional/iteration access,
+  so fields stay named. Measured on this repo's CPython 3.12.8 (shallow
+  instance size): `NamedTuple` 56 bytes, `@dataclass(frozen=True, slots=True)`
+  48 bytes, plain dataclass 344 bytes including `__dict__`. Use `NamedTuple`
+  only when tuple unpacking or tuple compatibility is actually required.
+- Avoid `getattr()`; use direct attribute access so the type checker can verify
+  the attribute. If `getattr()` is unavoidable, add a nearby comment clearly
+  explaining why it is needed.
+- Never use untyped dictionaries unless there is a compelling reason. Model
+  structured data with a dataclass or Pydantic model; if dictionary semantics
+  are required, use `TypedDict`. Any unavoidable untyped-dictionary exception
+  must include a clear nearby explanation of why the typed alternatives are
+  unsuitable. Use `Protocol` for structural typing.
 - Use `TypedDict` with `NotRequired` for optional configuration keys.
 - Use `@runtime_checkable` on protocols that need runtime structural checks.
 - Use PEP 695 generics for new generic definitions.
@@ -39,6 +50,10 @@ Keep type layers separate to avoid circular imports and make reviews easier.
   role fallback, and `with_session()` lifecycle handling.
 - Request-scoped state lives in `tracecat/contexts.py`; use existing context
   variables instead of threading ad hoc state through unrelated layers.
+- Never inspect exception or error-message strings to decide API behavior,
+  status codes, retries, or control flow. Use explicit exception types,
+  `StrEnum`/`Literal` error codes in exception details, or typed structured
+  errors instead.
 - Keep router, service, schema, and type responsibilities separate:
   router for transport, service for business logic, schema for API contracts,
   and `types.py` for domain typing.
@@ -76,6 +91,7 @@ Common role types:
 - Avoid N+1 query patterns; batch related reads with joins, `IN`, eager
   loading, or subqueries when that keeps the code clear.
 - Use `.tuples().all()` when iterating over multi-column result sets.
+- Do not assume PostgreSQL superuser access in migrations, queries, or scripts.
 
 ## Pagination and API shape
 
@@ -106,9 +122,30 @@ Common role types:
 - Required secret accessors live in `tracecat/auth/secrets.py`. Call the helper
   at the point of use instead of reading raw config values directly.
 - Do not default secrets to empty strings.
-- In `tracecat/config.py`, prefer `int(os.environ.get("VAR") or default)` so
-  empty environment variables do not break parsing.
+- Treat blank environment values as unset when a default exists; use the shared
+  helpers in `tracecat/config.py` so defaults stay defined in code.
+- Keep security-sensitive defaults in config code instead of relying on Compose,
+  `.env.example`, or deployment templates to provide them.
+- In `tracecat/config.py`, prefer `int(os.environ.get("VAR") or default)` for
+  numeric config so empty environment variables do not break parsing.
+- Boolean environment variables in `tracecat/config.py` must use
+  `env_bool(...)`. Do not add inline `.lower() == "true"`,
+  `.lower() in (...)`, or `bool(os.environ.get(...))` parsing.
 - Prefer `orjson` over stdlib `json` when the dependency is available.
+- Expression errors can carry secret plaintext: failing operations echo their
+  operand, and `repr()` escaping means exact-string masking will not match it.
+  `Expression.result()` uses input provenance and observed AST intermediate
+  values to mask diagnostics. The executor shares an invocation-scoped mask
+  collector across template steps and sanitizes errors before transport.
+  Results from opaque code receiving secret arguments or environment values
+  are registered before later template steps consume them. Transformations
+  inside code that fails before returning are not tracked; do not claim
+  complete redaction of unobserved values.
+- A sanitized replacement exception must be raised only after the handler has
+  exited: `raise ... from None` clears `__cause__` but not `__context__`, so
+  raising in place leaves the plaintext original attached. Use
+  `call_with_masked_errors()` / `await_with_masked_errors()`, which own that
+  capture-then-raise dance, instead of hand-rolling it.
 
 ## Readability rules
 

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import event, inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.cases.durations import (
@@ -24,7 +24,7 @@ from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, Case
 from tracecat.cases.schemas import CaseCreate, CaseUpdate
 from tracecat.cases.service import CasesService
 from tracecat.cases.tags.service import CaseTagsService
-from tracecat.db.models import CaseDuration, CaseEvent
+from tracecat.db.models import Case, CaseDuration, CaseEvent
 from tracecat.db.models import CaseDurationDefinition as CaseDurationDefinitionDB
 from tracecat.tags.schemas import TagCreate
 
@@ -49,6 +49,18 @@ def stub_case_duration_entitlements() -> Iterator[None]:
             "has_entitlement",
             new=AsyncMock(return_value=False),
         ),
+        patch(
+            "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+            return_value=None,
+        ),
+        patch(
+            "tracecat.cases.events.enqueue_case_duration_sync_after_commit",
+            return_value=None,
+        ),
+        patch(
+            "tracecat.cases.events.publish_case_event_payload",
+            new=AsyncMock(return_value=None),
+        ),
     ):
         yield
 
@@ -71,6 +83,251 @@ def make_case_create(
             "severity": severity,
         }
     )
+
+
+def test_duration_relationships_require_explicit_loading() -> None:
+    definition_relationships = inspect(CaseDurationDefinitionDB).relationships
+    duration_relationships = inspect(CaseDuration).relationships
+    case_relationships = inspect(Case).relationships
+
+    assert definition_relationships.case_durations.lazy == "raise"
+    assert definition_relationships.case_durations.passive_deletes is True
+    assert duration_relationships.case.lazy == "raise"
+    assert duration_relationships.definition.lazy == "raise"
+    assert case_relationships.durations.lazy == "raise"
+    assert case_relationships.durations.passive_deletes is True
+
+
+@pytest.mark.anyio
+async def test_list_definitions_does_not_load_persisted_duration_graph(
+    session: AsyncSession,
+    svc_role,
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    definition = await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="No implicit graph",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CLOSED,
+            ),
+        )
+    )
+    case = await cases_service.create_case(make_case_create())
+    session.add(
+        CaseDuration(
+            workspace_id=case.workspace_id,
+            case_id=case.id,
+            definition_id=definition.id,
+            started_at=datetime.now(UTC) - timedelta(minutes=5),
+            ended_at=datetime.now(UTC),
+            duration=timedelta(minutes=5),
+        )
+    )
+    await session.commit()
+    session.expunge_all()
+
+    loaded_cases: list[uuid.UUID] = []
+    loaded_durations: list[uuid.UUID] = []
+
+    def record_case_load(entity: Case, _context: object) -> None:
+        loaded_cases.append(entity.id)
+
+    def record_duration_load(entity: CaseDuration, _context: object) -> None:
+        loaded_durations.append(entity.id)
+
+    event.listen(Case, "load", record_case_load)
+    event.listen(CaseDuration, "load", record_duration_load)
+    try:
+        definitions = await definition_service.list_definitions()
+    finally:
+        event.remove(Case, "load", record_case_load)
+        event.remove(CaseDuration, "load", record_duration_load)
+
+    assert [item.id for item in definitions] == [definition.id]
+    assert loaded_durations == []
+    assert loaded_cases == []
+
+
+@pytest.mark.anyio
+async def test_delete_definition_uses_database_duration_cascade_without_loading(
+    session: AsyncSession,
+    svc_role,
+) -> None:
+    cases_service = CasesService(session=session, role=svc_role)
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    definition = await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Passive duration cascade",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CLOSED,
+            ),
+        )
+    )
+    case = await cases_service.create_case(make_case_create())
+    duration = CaseDuration(
+        workspace_id=case.workspace_id,
+        case_id=case.id,
+        definition_id=definition.id,
+        started_at=datetime.now(UTC) - timedelta(minutes=5),
+        ended_at=datetime.now(UTC),
+        duration=timedelta(minutes=5),
+    )
+    session.add(duration)
+    await session.commit()
+    duration_id = duration.id
+    session.expunge_all()
+
+    loaded_durations: list[uuid.UUID] = []
+
+    def record_duration_load(entity: CaseDuration, _context: object) -> None:
+        loaded_durations.append(entity.id)
+
+    event.listen(CaseDuration, "load", record_duration_load)
+    try:
+        await definition_service.delete_definition(definition.id)
+    finally:
+        event.remove(CaseDuration, "load", record_duration_load)
+
+    assert loaded_durations == []
+    assert (
+        await session.scalar(
+            select(CaseDuration.id).where(CaseDuration.id == duration_id)
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+async def test_create_definition_enqueues_backfill_after_commit(
+    session: AsyncSession,
+    svc_role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_enqueue(*args, **kwargs) -> None:
+        calls.append(kwargs)
+
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+        fake_enqueue,
+    )
+
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Backfilled Duration",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["workspace_id"] == svc_role.workspace_id
+    assert calls[0]["reason"] == "duration_definition_created"
+
+
+@pytest.mark.anyio
+async def test_update_definition_skips_backfill_for_metadata_only_changes(
+    session: AsyncSession,
+    svc_role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_enqueue(*args, **kwargs) -> None:
+        calls.append(kwargs)
+
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    definition = await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Backfilled Duration",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+    calls.clear()
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+        fake_enqueue,
+    )
+
+    await definition_service.update_definition(
+        definition.id,
+        CaseDurationDefinitionUpdate(
+            name="Renamed Duration",
+            description="Updated description",
+        ),
+    )
+
+    assert calls == []
+
+
+@pytest.mark.anyio
+async def test_update_definition_enqueues_backfill_after_anchor_change(
+    session: AsyncSession,
+    svc_role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_enqueue(*args, **kwargs) -> None:
+        calls.append(kwargs)
+
+    definition_service = CaseDurationDefinitionService(session=session, role=svc_role)
+    definition = await definition_service.create_definition(
+        CaseDurationDefinitionCreate(
+            name="Backfilled Duration",
+            start_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.CASE_CREATED,
+            ),
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(
+                    new_values=[CaseStatus.RESOLVED.value]
+                ),
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        "tracecat.cases.durations.service.enqueue_case_duration_sync_after_commit",
+        fake_enqueue,
+    )
+
+    await definition_service.update_definition(
+        definition.id,
+        CaseDurationDefinitionUpdate(
+            end_anchor=CaseDurationEventAnchor(
+                event_type=CaseEventType.STATUS_CHANGED,
+                filters=CaseDurationEventFilters(new_values=[CaseStatus.CLOSED.value]),
+            ),
+        ),
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["workspace_id"] == svc_role.workspace_id
+    assert calls[0]["reason"] == "duration_definition_updated"
 
 
 @pytest.mark.anyio
@@ -109,6 +366,7 @@ async def test_compute_case_durations_from_events(
     assert value.end_event_id is None
     assert value.duration is None
 
+    await duration_service.sync_case_durations(case)
     initial_stmt = select(CaseDuration).where(CaseDuration.case_id == case.id)
     initial_duration = await session.execute(initial_stmt)
     initial_record = initial_duration.scalar_one()
@@ -130,6 +388,7 @@ async def test_compute_case_durations_from_events(
     assert value.duration is not None
     assert value.duration.total_seconds() >= 0
 
+    await duration_service.sync_case_durations(updated_case)
     duration_stmt = select(CaseDuration).where(CaseDuration.case_id == case.id)
     stored_duration = await session.execute(duration_stmt)
     record = stored_duration.scalar_one()
@@ -1040,6 +1299,7 @@ def test_duration_anchor_rejects_empty_required_filters(
         CaseEventType.CASE_CREATED,
         CaseEventType.CASE_CLOSED,
         CaseEventType.CASE_REOPENED,
+        CaseEventType.CASE_VIEWED,
     ],
 )
 def test_duration_anchor_allows_empty_filters_for_unfiltered_events(

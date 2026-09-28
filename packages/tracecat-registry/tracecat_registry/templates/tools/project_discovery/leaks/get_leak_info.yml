@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Get leak info
+  description: >-
+    Get leak information. Calls POST /v1/leaks/info directly.
+  display_group: ProjectDiscovery
+  doc_url: https://docs.projectdiscovery.io/api-reference/leaks/get-leak-info
+  namespace: tools.project_discovery
+  name: get_leak_info
+  secrets:
+    - name: project_discovery
+      keys: ["PDCP_API_KEY"]
+  expects:
+    leakid:
+      type: str
+      description: 32-character MD5 hash identifying the leak (from list_leaks).
+    base_url:
+      type: str | None
+      description: ProjectDiscovery Cloud API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.project_discovery.base_url || "https://api.projectdiscovery.io" }}/v1/leaks/info
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}
+          Content-Type: application/json
+        payload:
+          leakid: ${{ inputs.leakid }}
+  returns: ${{ steps.request.result }}

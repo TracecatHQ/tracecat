@@ -1,19 +1,54 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { renderHook, waitFor } from "@testing-library/react"
+import { act, renderHook, waitFor } from "@testing-library/react"
 import type {
   AgentSessionRead,
   AgentSessionReadVercel,
   AgentSessionReadWithMessages,
 } from "@/client"
-import { agentSessionsUpdateSession } from "@/client"
-import { useUpdateChat } from "@/hooks/use-chat"
+import {
+  agentSessionsListAgentBackends,
+  agentSessionsUpdateSession,
+} from "@/client"
+import { useAgentBackends, useUpdateChat } from "@/hooks/use-chat"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => {
   const actual = jest.requireActual("@/client")
   return {
     ...actual,
     agentSessionsUpdateSession: jest.fn(),
+    agentSessionsListAgentBackends: jest.fn(),
   }
+})
+
+describe("useAgentBackends", () => {
+  it("exposes discovery failure and can retry successfully", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const error = new Error("Discovery failed")
+    const backends = [{ id: "custom", name: "Custom" }]
+    jest
+      .mocked(agentSessionsListAgentBackends)
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce(backends)
+    const { result } = renderHook(() => useAgentBackends("workspace-1"), {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={queryClient}>
+          {children}
+        </QueryClientProvider>
+      ),
+    })
+    expect(result.current.backendsReady).toBe(false)
+    await waitFor(() => expect(result.current.backendsError).toBe(error))
+    expect(result.current.backendsLoading).toBe(false)
+    expect(result.current.backendsReady).toBe(false)
+    await act(async () => {
+      await result.current.refetchBackends()
+    })
+    await waitFor(() => expect(result.current.backendsReady).toBe(true))
+    expect(result.current.backendsError).toBeNull()
+    expect(result.current.backends).toEqual(backends)
+  })
 })
 
 const mockAgentSessionsUpdateSession =
@@ -43,6 +78,7 @@ function createSessionRead(
     entity_id: "case-1",
     channel_context: null,
     tools: [],
+    mcp_integrations: [],
     agent_preset_id: null,
     agent_preset_version_id: null,
     agents_binding: null,
@@ -104,7 +140,7 @@ describe("useUpdateChat", () => {
       createSessionReadVercel()
     )
     queryClient.setQueryData(
-      ["chats", "workspace-1", "case", "case-1", 50],
+      ["chats", "workspace-1", "case", "case-1", undefined, 50],
       [createSessionRead()]
     )
 
@@ -144,6 +180,7 @@ describe("useUpdateChat", () => {
         "workspace-1",
         "case",
         "case-1",
+        undefined,
         50,
       ])?.[0]?.tools
     ).toEqual(["core.cases.list_cases"])
@@ -176,7 +213,7 @@ describe("useUpdateChat", () => {
       })
     )
     queryClient.setQueryData(
-      ["chats", "workspace-1", "case", "case-1", 50],
+      ["chats", "workspace-1", "case", "case-1", undefined, 50],
       [
         createSessionRead({
           agent_preset_id: "preset-old",
@@ -230,6 +267,7 @@ describe("useUpdateChat", () => {
         "workspace-1",
         "case",
         "case-1",
+        undefined,
         50,
       ])?.[0]
     ).toMatchObject({

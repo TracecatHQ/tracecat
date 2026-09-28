@@ -5,10 +5,13 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Schedule
-from tracecat.exceptions import TracecatNotFoundError, TracecatServiceError
-from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery, WorkflowUUID
+from tracecat.exceptions import (
+    TracecatConflictError,
+    TracecatNotFoundError,
+    TracecatServiceError,
+)
+from tracecat.identifiers.workflow import OptionalAnyWorkflowIDQuery
 from tracecat.logger import logger
-from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.schedules.dependencies import AnyScheduleIDPath
 from tracecat.workflow.schedules.schemas import (
     ScheduleCreate,
@@ -42,21 +45,19 @@ async def create_schedule(
 ) -> ScheduleRead:
     """Create a schedule for a workflow."""
     service = WorkflowSchedulesService(session, role=role)
-    workflow_svc = WorkflowsManagementService(session, role=role)
-    workflow = await workflow_svc.get_workflow(WorkflowUUID.new(params.workflow_id))
-    if not workflow:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workflow not found. Please check the workflow ID and try again.k",
-        )
-    if not workflow.version:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Workflow must be saved before creating a schedule.",
-        )
     try:
         schedule = await service.create_schedule(params)
         return ScheduleRead.model_validate(schedule)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
     except TracecatServiceError as e:
         logger.error("Error creating schedule", error=e)
         raise HTTPException(
@@ -122,6 +123,11 @@ async def delete_schedule(
     service = WorkflowSchedulesService(session, role=role)
     try:
         await service.delete_schedule(schedule_id)
+    except TracecatNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Schedule {schedule_id} not found. Please check whether this schedule exists and try again.",
+        ) from e
     except TracecatServiceError as e:
         logger.error("Error deleting schedule", error=e)
         raise HTTPException(

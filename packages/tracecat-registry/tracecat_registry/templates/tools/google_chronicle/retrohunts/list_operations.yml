@@ -1,0 +1,61 @@
+type: action
+definition:
+  title: List operations
+  description: >-
+    Lists operations that match the specified filter in the request. If the server
+    doesn't support this method, it returns UNIMPLEMENTED.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.operations/list
+  namespace: tools.google_chronicle
+  name: list_operations
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        The name of the operation's parent resource. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    filter:
+      type: str | None
+      description: The standard list filter.
+      default: null
+    pageSize:
+      type: int | None
+      description: The standard list page size.
+      default: null
+    pageToken:
+      type: str | None
+      description: The standard list page token.
+      default: null
+    returnPartialSuccess:
+      type: bool | None
+      description: >-
+        Return reachable operations normally and report unreachable collections in the
+        response. Chronicle may return UNIMPLEMENTED when this option is unsupported.
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/operations
+        method: GET
+        params:
+          filter: ${{ inputs.filter }}
+          pageSize: ${{ inputs.pageSize }}
+          pageToken: ${{ inputs.pageToken }}
+          returnPartialSuccess: ${{ inputs.returnPartialSuccess }}
+  returns: ${{ steps.call_api.result }}

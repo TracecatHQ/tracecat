@@ -69,7 +69,7 @@ export TF_VAR_hosted_zone_id=Z1234567890
 export TF_VAR_tracecat_db_encryption_key_arn=arn:aws:secretsmanager:...
 export TF_VAR_tracecat_service_key_arn=arn:aws:secretsmanager:...
 export TF_VAR_tracecat_signing_secret_arn=arn:aws:secretsmanager:...
-export TF_VAR_tracecat_image_tag=1.0.0-beta.48
+export TF_VAR_tracecat_image_tag=1.0.0
 
 terraform apply
 ```
@@ -77,6 +77,14 @@ terraform apply
 For Terraform Cloud direct OIDC runs, the target account and role come from `TFC_AWS_RUN_ROLE_ARN`. This stack now uses the ambient AWS credentials from the execution environment and no longer accepts `aws_account_id` / `aws_role_name` inputs for a second provider-side assume-role hop.
 
 ## Self-contained migrations
+
+Before introducing vector-dependent application migrations, provision pgvector
+in the application RDS database using a database administrator, then run the
+read-only check as the migration role. The PostgreSQL 16.10 default supports
+pgvector; no engine-version change is required. See the
+[application database prerequisite and upgrade guide](../postgres/README.md).
+The migrations init container must not assume extension-installation privileges.
+The Temporal RDS database does not need pgvector.
 
 - API task startup includes an internal migrations init container.
 - API container starts only if migrations succeed (`dependsOn: SUCCESS`).

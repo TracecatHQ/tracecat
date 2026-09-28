@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: BinExplode file
+  description: Submit a base64-encoded file to Sublime BinExplode and return the task response.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/postscan-1
+  namespace: tools.sublime
+  name: binexplode
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    file_contents:
+      type: str
+      description: Base64-encoded raw file contents.
+    file_name:
+      type: str
+      description: Name of the submitted file.
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/binexplode/scan
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+        payload:
+          file_contents: ${{ inputs.file_contents }}
+          file_name: ${{ inputs.file_name }}
+  returns: ${{ steps.request.result.data }}

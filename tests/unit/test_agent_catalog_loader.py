@@ -4,6 +4,7 @@ import orjson
 import pytest
 
 from tracecat.agent.catalog import loader
+from tracecat.agent.catalog.service import PlatformCatalogEntry
 
 
 class _CatalogResource:
@@ -66,9 +67,23 @@ def test_get_platform_catalog_models_filters_malformed_entries(
     )
 
     assert loader.get_platform_catalog_models() == [
-        {
-            "model_provider": "openai",
-            "model_name": "gpt-5",
-            "metadata": {"family": "gpt"},
-        }
+        PlatformCatalogEntry(
+            model_provider="openai",
+            model_name="gpt-5",
+            metadata={"family": "gpt"},
+        )
     ]
+
+
+def test_platform_catalog_includes_gpt_5_6_models() -> None:
+    entries = {
+        entry.model_name: entry
+        for entry in loader.get_platform_catalog_models()
+        if entry.model_provider == "openai"
+    }
+
+    assert {"gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}.issubset(entries)
+    assert entries["gpt-5.6"].metadata["input_cost_per_token"] == 5e-06
+    assert entries["gpt-5.6-sol"].metadata["max_input_tokens"] == 1050000
+    assert entries["gpt-5.6-terra"].metadata["output_cost_per_token"] == 1.5e-05
+    assert entries["gpt-5.6-luna"].metadata["input_cost_per_token"] == 1e-06

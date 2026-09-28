@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: Search detection alerts
+  description: Find or aggregate Elastic Security detection alerts using the API-native search body.
+  display_group: Elastic Security
+  doc_url: https://www.elastic.co/docs/api/doc/kibana/operation/operation-searchalerts
+  namespace: tools.elastic_security
+  name: search_detection_alerts
+  secrets:
+    - name: elastic_security
+      keys: ["ELASTIC_API_KEY"]
+  expects:
+    payload:
+      # Free-form: the vendor documents this body as a raw Elasticsearch query DSL document, so there is
+      # no single field set to enumerate.
+      type: dict[str, Any]
+      description: API-native JSON request body.
+    base_url:
+      type: str | None
+      description: Kibana base URL (e.g. https://localhost:5601).
+      default: null
+    space_id:
+      type: str | None
+      description: Optional Kibana space ID. Omit for the default space.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: build_path
+      action: core.script.run_python
+      args:
+        inputs:
+          path: /api/detection_engine/signals/search
+          space_id: ${{ inputs.space_id }}
+        script: |
+          from urllib.parse import quote
+
+          def main(path, space_id):
+              if space_id:
+                  return f"/s/{quote(space_id, safe='')}{path}"
+              return path
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.elastic_security.base_url }}${{ steps.build_path.result }}
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ApiKey ${{ SECRETS.elastic_security.ELASTIC_API_KEY }}
+          kbn-xsrf: tracecat
+          Content-Type: application/json
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result.data }}

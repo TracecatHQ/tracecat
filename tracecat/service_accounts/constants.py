@@ -39,6 +39,7 @@ WORKSPACE_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = frozenset(
         "variable:delete",
         "workflow:read",
         "workflow:sync",
+        "workspace_sync:sync",
         "workflow:create",
         "workflow:update",
         "workflow:delete",
@@ -62,8 +63,17 @@ ORG_SERVICE_ACCOUNT_ASSIGNABLE_SCOPES: frozenset[str] = (
             "org:secret:create",
             "org:secret:update",
             "org:secret:delete",
+            "org:settings:read",
+            "org:settings:update",
+            "org:settings:delete",
             "org:workspace:read",
             "workspace:create",
+            # RBAC management — lets a service account mirror user/role
+            # assignments across workspaces (e.g. membership-sync principals).
+            "org:rbac:read",
+            "org:rbac:create",
+            "org:rbac:update",
+            "org:rbac:delete",
         }
     )
 )

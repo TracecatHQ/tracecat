@@ -89,7 +89,9 @@ export default React.memo(function TriggerNode({
   const { breakpoint, style } = useTriggerNodeZoomBreakpoint()
   const { hasEntitlement } = useEntitlements()
   const caseAddonsEnabled = hasEntitlement("case_addons")
-  const { data: caseTrigger } = useCaseTrigger(workspaceId, workflowId)
+  const { data: caseTrigger } = useCaseTrigger(workspaceId, workflowId, {
+    enabled: caseAddonsEnabled,
+  })
   const isCaseTriggerEnabled = caseTrigger?.status === "online"
   const eventKey = useMemo(
     () => String(isCaseTriggerEnabled),
@@ -282,7 +284,7 @@ export default React.memo(function TriggerNode({
                       "ml-2 inline-block size-2 rounded-full ",
                       workflow.webhook.status === "online"
                         ? "bg-emerald-500"
-                        : "bg-gray-300"
+                        : "bg-muted-foreground/30"
                     )}
                   />
                 </div>
@@ -303,7 +305,9 @@ export default React.memo(function TriggerNode({
                     <span
                       className={cn(
                         "ml-2 inline-block size-2 rounded-full",
-                        isCaseTriggerEnabled ? "bg-emerald-500" : "bg-gray-300"
+                        isCaseTriggerEnabled
+                          ? "bg-emerald-500"
+                          : "bg-muted-foreground/30"
                       )}
                     />
                   </div>
@@ -349,7 +353,7 @@ export default React.memo(function TriggerNode({
                   </button>
                 </HoverCardTrigger>
                 <HoverCardContent
-                  className="w-[300px] bg-white p-3 font-mono text-xs tracking-tight text-foreground"
+                  className="w-[300px] bg-popover p-3 font-mono text-xs tracking-tight text-foreground"
                   side="top"
                   align="start"
                   sideOffset={10}

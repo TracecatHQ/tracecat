@@ -1,0 +1,73 @@
+type: action
+definition:
+  title: Search news
+  description: Search Exa's news index for current events, journalism, campaign chatter, and executive-protection monitoring.
+  display_group: Exa
+  doc_url: https://exa.ai/docs/reference/verticals/news-for-coding-agents
+  namespace: tools.exa
+  name: search_news
+  secrets:
+    - name: exa
+      keys: ["EXA_API_KEY"]
+  expects:
+    query:
+      type: str
+      description: Natural language news query for a topic, company, person, event, domain, product, vulnerability, or campaign artifact.
+    type:
+      type: enum["instant", "fast", "auto", "deep-lite", "deep", "deep-reasoning"] | None
+      description: Search method. Exa recommends auto for news; use fast or instant when latency matters.
+      default: auto
+    numResults:
+      type: int | None
+      description: Number of news results to return. Exa supports 1 to 100.
+      default: null
+    includeDomains:
+      type: list[str] | None
+      description: Only return news results from these domains.
+      default: null
+    excludeDomains:
+      type: list[str] | None
+      description: Exclude news results from these domains.
+      default: null
+    startPublishedDate:
+      type: str | None
+      description: ISO 8601 lower bound for published date.
+      default: null
+    endPublishedDate:
+      type: str | None
+      description: ISO 8601 upper bound for published date.
+      default: null
+    contents:
+      type: dict[str, Any] | None
+      description: Optional Exa contents options nested under the search request contents field, such as highlights, text, summary, maxAgeHours, subpages, or extras.
+      default: null
+    outputSchema:
+      type: dict[str, Any] | None
+      description: Optional JSON schema for structured output when using Exa synthesis.
+      default: null
+    compliance:
+      type: enum["hipaa"] | None
+      description: Optional Exa enterprise compliance mode.
+      default: null
+  steps:
+    - ref: search_news
+      action: core.http_request
+      args:
+        url: https://api.exa.ai/search
+        method: POST
+        headers:
+          Content-Type: application/json
+          x-api-key: ${{ SECRETS.exa.EXA_API_KEY }}
+        payload:
+          query: ${{ inputs.query }}
+          category: news
+          type: ${{ inputs.type }}
+          numResults: ${{ inputs.numResults }}
+          includeDomains: ${{ inputs.includeDomains }}
+          excludeDomains: ${{ inputs.excludeDomains }}
+          startPublishedDate: ${{ inputs.startPublishedDate }}
+          endPublishedDate: ${{ inputs.endPublishedDate }}
+          contents: ${{ inputs.contents }}
+          outputSchema: ${{ inputs.outputSchema }}
+          compliance: ${{ inputs.compliance }}
+  returns: ${{ steps.search_news.result.data }}

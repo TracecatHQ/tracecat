@@ -221,7 +221,7 @@ async def get_action_secrets(
                         grant_type=integration.grant_type,
                     )
                     fetched_keys.add(provider_key)
-                    await service.refresh_token_if_needed(integration)
+                    integration = await service.refresh_token_if_needed(integration)
                     try:
                         if access_token := await service.get_access_token(integration):
                             # SECRETS.<provider_id>_oauth.[<prefix>_[SERVICE|USER]_TOKEN]

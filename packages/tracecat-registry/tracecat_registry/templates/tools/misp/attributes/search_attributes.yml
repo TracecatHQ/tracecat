@@ -1,0 +1,123 @@
+type: action
+definition:
+  title: Search attributes
+  description: Search individual MISP indicators across events for threat enrichment.
+  display_group: MISP
+  doc_url: https://www.misp-project.org/openapi/#tag/Attributes/operation/restSearchAttributes
+  namespace: tools.misp
+  name: search_attributes
+  secrets:
+    - name: misp
+      keys: ["MISP_API_KEY"]
+  expects:
+    value:
+      type: str | None
+      description: Indicator value such as an IP address, domain, URL, or hash.
+      default: null
+    type_attribute:
+      type: str | None
+      description: MISP attribute type such as ip-src, domain, url, md5, or sha256.
+      default: null
+    category:
+      type: str | None
+      description: MISP attribute category.
+      default: null
+    org:
+      type: str | None
+      description: Creator organisation name or ID.
+      default: null
+    tags:
+      type: list[str] | None
+      description: Attribute tags to include or exclude.
+      default: null
+    date_from:
+      type: str | None
+      description: Earliest event date in YYYY-MM-DD format.
+      default: null
+    date_to:
+      type: str | None
+      description: Latest event date in YYYY-MM-DD format.
+      default: null
+    eventid:
+      type: int | list[int] | None
+      description: Parent event ID or list of event IDs.
+      default: null
+    published:
+      type: bool | None
+      description: Filter by parent event publication state.
+      default: null
+    enforce_warninglist:
+      type: bool | None
+      description: Exclude attributes matching enabled warning lists.
+      default: null
+    to_ids:
+      type: bool | None
+      description: Filter attributes by their IDS flag.
+      default: null
+    include_event_uuid:
+      type: bool
+      description: Include the parent event UUID.
+      default: true
+    include_event_tags:
+      type: bool
+      description: Include parent event tags.
+      default: false
+    include_correlations:
+      type: bool
+      description: Include correlation data.
+      default: false
+    include_sightings:
+      type: bool
+      description: Include sighting data.
+      default: false
+    include_decay_score:
+      type: bool
+      description: Include indicator decay scores.
+      default: false
+    limit:
+      type: int
+      description: Maximum number of attributes to return.
+      default: 50
+    page:
+      type: int
+      description: Result page number.
+      default: 1
+    base_url:
+      type: str | None
+      description: MISP base URL. Falls back to VARS.misp.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.misp.base_url }}/attributes/restSearch
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ${{ SECRETS.misp.MISP_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          value: ${{ inputs.value }}
+          type: ${{ inputs.type_attribute }}
+          category: ${{ inputs.category }}
+          org: ${{ inputs.org }}
+          tags: ${{ inputs.tags }}
+          from: ${{ inputs.date_from }}
+          to: ${{ inputs.date_to }}
+          eventid: ${{ inputs.eventid }}
+          published: ${{ inputs.published }}
+          enforceWarninglist: ${{ inputs.enforce_warninglist }}
+          to_ids: ${{ inputs.to_ids }}
+          includeEventUuid: ${{ inputs.include_event_uuid }}
+          includeEventTags: ${{ inputs.include_event_tags }}
+          includeCorrelations: ${{ inputs.include_correlations }}
+          includeSightings: ${{ inputs.include_sightings }}
+          includeDecayScore: ${{ inputs.include_decay_score }}
+          limit: ${{ inputs.limit }}
+          page: ${{ inputs.page }}
+  returns: ${{ steps.request.result.data }}

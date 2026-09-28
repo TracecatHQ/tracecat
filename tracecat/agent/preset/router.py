@@ -9,11 +9,12 @@ from tracecat.agent.preset.schemas import (
     AgentPresetMoveToFolder,
     AgentPresetRead,
     AgentPresetReadMinimal,
+    AgentPresetToolPolicyPreview,
+    AgentPresetToolPolicyRead,
     AgentPresetUpdate,
     AgentPresetVersionDiff,
     AgentPresetVersionRead,
     AgentPresetVersionReadMinimal,
-    build_agent_preset_read_minimal,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
@@ -35,7 +36,31 @@ async def list_agent_presets(
     """List all agent presets for the current workspace."""
     service = AgentPresetService(session, role=role)
     presets = await service.list_presets()
-    return [build_agent_preset_read_minimal(preset) for preset in presets]
+    return await service.build_preset_list_reads(presets)
+
+
+@router.post(
+    "/tool-policy",
+    response_model=AgentPresetToolPolicyRead,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"description": "Invalid tool policy selections"},
+    },
+)
+@require_scope("agent:read")
+async def preview_tool_policy(
+    *,
+    params: AgentPresetToolPolicyPreview,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+) -> AgentPresetToolPolicyRead:
+    """Evaluate unsaved tool selections without changing a preset."""
+    try:
+        return await AgentPresetService(session, role=role).preview_tool_policy(params)
+    except TracecatValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=exc.detail if exc.detail is not None else str(exc),
+        ) from exc
 
 
 @router.post(
@@ -114,11 +139,22 @@ async def update_agent_preset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset {preset_id} not found",
         )
-    preset = await service.update_preset(preset, params)
+    try:
+        preset = await service.update_preset(preset, params)
+    except TracecatNotFoundError as e:
+        # The preset can be soft-deleted between the lookup above and the
+        # service's row lock; surface that race as a 404, not a 500.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     return await service.build_preset_read(preset)
 
 
-@router.delete("/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{preset_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "Agent preset not found"},
+    },
+)
 @require_scope("agent:delete")
 async def delete_agent_preset(
     *,
@@ -133,7 +169,12 @@ async def delete_agent_preset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset {preset_id} not found",
         )
-    await service.delete_preset(preset)
+    try:
+        await service.delete_preset(preset)
+    except TracecatNotFoundError as e:
+        # The preset can be soft-deleted between the lookup above and the
+        # service's row lock; surface that race as a 404, not a 500.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.get(
@@ -179,8 +220,11 @@ async def get_agent_preset_version(
 ) -> AgentPresetVersionRead:
     """Retrieve an immutable agent preset version."""
     service = AgentPresetService(session, role=role)
-    version = await service.get_version(version_id)
-    if version is None or version.preset_id != preset_id:
+    version = await service.get_active_version(
+        preset_id=preset_id,
+        version_id=version_id,
+    )
+    if version is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset version '{version_id}' not found",
@@ -203,14 +247,20 @@ async def compare_agent_preset_versions(
 ) -> AgentPresetVersionDiff:
     """Compare two preset versions belonging to the same preset."""
     service = AgentPresetService(session, role=role)
-    base_version = await service.get_version(version_id)
-    compare_version = await service.get_version(compare_to)
-    if base_version is None or base_version.preset_id != preset_id:
+    base_version = await service.get_active_version(
+        preset_id=preset_id,
+        version_id=version_id,
+    )
+    compare_version = await service.get_active_version(
+        preset_id=preset_id,
+        version_id=compare_to,
+    )
+    if base_version is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset version '{version_id}' not found",
         )
-    if compare_version is None or compare_version.preset_id != preset_id:
+    if compare_version is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Agent preset version '{compare_to}' not found",
@@ -246,6 +296,12 @@ async def restore_agent_preset_version(
         )
     try:
         restored = await service.restore_version(preset, version)
+    except TracecatNotFoundError as exc:
+        # The preset can be soft-deleted between the lookup above and the
+        # service's row lock; surface that race as a 404, not a 500.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
     except TracecatValidationError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

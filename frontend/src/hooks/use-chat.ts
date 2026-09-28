@@ -1,20 +1,17 @@
 import * as aiSdk from "@ai-sdk/react"
 import {
-  type UseQueryResult,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
-import {
   type ChatOnDataCallback,
+  type ChatStatus,
   DefaultChatTransport,
   type UIMessage,
 } from "ai"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  type AgentBackendRead,
   type AgentSessionCreate,
   type AgentSessionEntity,
   type AgentSessionRead,
+  type AgentSessionsCancelSessionResponse,
   type AgentSessionsGetSessionResponse,
   type AgentSessionsGetSessionVercelResponse,
   type AgentSessionsListSessionsResponse,
@@ -22,10 +19,12 @@ import {
   type AgentSessionsRemoveSessionArtifactResponse,
   type AgentSessionUpdate,
   type ApiError,
+  agentSessionsCancelSession,
   agentSessionsCreateSession,
   agentSessionsDeleteSession,
   agentSessionsGetSession,
   agentSessionsGetSessionVercel,
+  agentSessionsListAgentBackends,
   agentSessionsListSessions,
   agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
@@ -35,6 +34,13 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { getBaseUrl } from "@/lib/api"
 import { type ModelInfo, toServerUIMessage } from "@/lib/chat"
+import {
+  type QueryClient,
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@/lib/query"
 
 const DEFAULT_CHAT_ERROR_MESSAGE =
   "The assistant couldn't complete that request. Please try again."
@@ -66,6 +72,9 @@ function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
     updated_at: new Date().toISOString(),
     ...(typeof update.title === "string" ? { title: update.title } : {}),
     ...(update.tools !== undefined ? { tools: update.tools ?? [] } : {}),
+    ...(update.mcp_integrations !== undefined
+      ? { mcp_integrations: update.mcp_integrations ?? [] }
+      : {}),
     ...(update.agent_preset_id !== undefined
       ? { agent_preset_id: update.agent_preset_id }
       : {}),
@@ -78,9 +87,71 @@ function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
   }
 }
 
+/**
+ * Extract an actionable message from a FastAPI validation error (HTTP 422).
+ *
+ * These surface as an `ApiError` whose `message` is just "Validation Error",
+ * so we reach into the response body's `detail` to explain what actually
+ * failed. Field limits such as the per-chat tool cap get a friendly message;
+ * everything else falls back to Pydantic's own `msg` text. Returns `null` when
+ * the error isn't a recognizable 422 payload.
+ */
+function parseValidationError(error: unknown): string | null {
+  if (!error || typeof error !== "object") {
+    return null
+  }
+
+  const { status, body } = error as { status?: number; body?: unknown }
+  if (status !== 422 || !body || typeof body !== "object") {
+    return null
+  }
+
+  const detail = (body as { detail?: unknown }).detail
+  if (typeof detail === "string" && detail.trim()) {
+    return detail.trim()
+  }
+  if (!Array.isArray(detail)) {
+    return null
+  }
+
+  const messages: string[] = []
+  for (const item of detail) {
+    if (!item || typeof item !== "object") {
+      continue
+    }
+    const loc = (item as { loc?: unknown }).loc
+    const field = Array.isArray(loc)
+      ? loc.filter((part) => typeof part === "string" && part !== "body").pop()
+      : undefined
+    const maxLength = (item as { ctx?: { max_length?: unknown } }).ctx
+      ?.max_length
+    if (
+      (field === "tools" || field === "mcp_integrations") &&
+      typeof maxLength === "number"
+    ) {
+      const noun = field === "tools" ? "tools" : "MCP integrations"
+      messages.push(
+        `You can add at most ${maxLength} ${noun}. Remove some and try again.`
+      )
+      continue
+    }
+    const msg = (item as { msg?: unknown }).msg
+    if (typeof msg === "string" && msg.trim()) {
+      messages.push(msg.trim())
+    }
+  }
+
+  return messages.length > 0 ? messages.join(" ") : null
+}
+
 export function parseChatError(error: unknown): string {
   if (!error) {
     return DEFAULT_CHAT_ERROR_MESSAGE
+  }
+
+  const validationMessage = parseValidationError(error)
+  if (validationMessage) {
+    return validationMessage
   }
 
   if (typeof error === "string") {
@@ -155,11 +226,13 @@ export function useListChats(
     workspaceId,
     entityType,
     entityId,
+    createdBy,
     limit = 50,
   }: {
     workspaceId: string
     entityType?: AgentSessionEntity
     entityId?: string
+    createdBy?: string
     limit?: number
   },
   options?: { enabled?: boolean }
@@ -178,12 +251,13 @@ export function useListChats(
     error: chatsError,
     refetch,
   } = useQuery<AgentSessionsListSessionsResponse, ApiError>({
-    queryKey: ["chats", workspaceId, entityType, entityId, limit],
+    queryKey: ["chats", workspaceId, entityType, entityId, createdBy, limit],
     queryFn: () =>
       agentSessionsListSessions({
         workspaceId,
         entityType: entityType || null,
         entityId: entityId || null,
+        createdBy: createdBy || null,
         limit,
       }),
     enabled: options?.enabled ?? true,
@@ -231,6 +305,7 @@ export function useUpdateChat(workspaceId: string) {
         workspaceId,
         requestBody: update,
       }),
+    meta: { suppressErrorToast: false },
     onMutate: async ({ chatId, update }) => {
       await Promise.all([
         queryClient.cancelQueries({
@@ -358,6 +433,41 @@ export function useDeleteChat(workspaceId: string) {
   }
 }
 
+/** Request cancellation for the currently running agent turn. */
+export function useCancelChatTurn(workspaceId: string) {
+  const queryClient = useQueryClient()
+
+  const mutation = useMutation<
+    AgentSessionsCancelSessionResponse,
+    ApiError,
+    { chatId: string }
+  >({
+    mutationFn: ({ chatId }) =>
+      agentSessionsCancelSession({
+        sessionId: chatId,
+        workspaceId,
+        requestBody: { reason: "user_cancel" },
+      }),
+    onSettled: (_, __, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.chatId, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["chat", variables.chatId, workspaceId, "vercel"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["chats", workspaceId],
+      })
+    },
+  })
+
+  return {
+    cancelChatTurn: mutation.mutateAsync,
+    isCancellingChatTurn: mutation.isPending,
+    cancelChatTurnError: mutation.error,
+  }
+}
+
 export function useGetChatVercel({
   chatId,
   workspaceId,
@@ -381,6 +491,10 @@ export function useGetChatVercel({
       })
     },
     enabled: !!chatId,
+    // A remount must never render a stale cache snapshot as the final
+    // transcript: always refetch so the pane adopts the current server copy
+    // (e.g. after an approval was resolved from another surface).
+    refetchOnMount: "always",
   })
   return { chat, chatLoading, chatError }
 }
@@ -425,6 +539,34 @@ export function useRemoveSessionArtifact(workspaceId: string) {
   }
 }
 
+/**
+ * Refresh all queries whose data can change when a chat turn finishes.
+ */
+export function invalidateChatTurnQueries(
+  queryClient: QueryClient,
+  {
+    chatId,
+    workspaceId,
+  }: {
+    chatId?: string
+    workspaceId: string
+  }
+) {
+  queryClient.invalidateQueries({
+    queryKey: ["chat", chatId, workspaceId, "vercel"],
+  })
+  queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
+  // A completed turn can change a session's inbox status (e.g. an approval
+  // continuation moves a row from "Review required" to "Completed"). The inbox
+  // detail pane derives its status/approval state from these queries, so refresh
+  // them here too. Both are already polled, so this just makes the update
+  // prompt; it is a no-op when no inbox view is mounted to observe them.
+  queryClient.invalidateQueries({ queryKey: ["inbox-items"] })
+  queryClient.invalidateQueries({
+    queryKey: ["pending-approvals-count", workspaceId],
+  })
+}
+
 // Combined hook for chat functionality with Vercel AI SDK streaming
 export function useVercelChat({
   chatId,
@@ -432,15 +574,26 @@ export function useVercelChat({
   messages,
   modelInfo,
   onData,
+  resume = true,
 }: {
   chatId?: string
   workspaceId: string
   messages: UIMessage[]
-  modelInfo: ModelInfo
+  modelInfo?: ModelInfo
   onData?: ChatOnDataCallback<UIMessage>
+  /**
+   * Reconnect to the live event stream on mount. Defaults to true. Set to
+   * false for terminal sessions whose history is already seeded from the DB:
+   * resuming there replays the last persisted turn on top of the seeded
+   * messages, duplicating the chat.
+   */
+  resume?: boolean
 }) {
   const queryClient = useQueryClient()
-  const [lastError, setLastError] = useState<string | null>(null)
+  const [lastError, setLastError] = useState<{
+    chatId: string | undefined
+    message: string
+  } | null>(null)
 
   // Build the Vercel streaming endpoint URL
   const apiEndpoint = useMemo(() => {
@@ -450,11 +603,13 @@ export function useVercelChat({
     return url.toString()
   }, [chatId, workspaceId])
 
-  // Use Vercel's useChat hook for streaming
+  // Use Vercel's useChat hook for streaming. On reconnect the server replays the
+  // whole active turn from the start (it hides the active run's DB rows mid-turn,
+  // so Redis is the sole source for the live assistant); we therefore do not send
+  // a Last-Event-ID cursor.
   const chat = aiSdk.useChat({
     id: chatId,
-    resume: !!chatId,
-    experimental_throttle: 50,
+    resume: !!chatId && resume,
     messages,
     transport: new DefaultChatTransport({
       api: apiEndpoint,
@@ -497,7 +652,7 @@ export function useVercelChat({
     }),
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
-      setLastError(friendlyMessage)
+      setLastError({ chatId, message: friendlyMessage })
       console.error("Error in Vercel chat:", error)
       toast({
         title: "Chat error",
@@ -506,27 +661,99 @@ export function useVercelChat({
     },
     onFinish: () => {
       setLastError(null)
-      queryClient.invalidateQueries({
-        queryKey: ["chat", chatId, workspaceId, "vercel"],
-      })
-      queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
+      invalidateChatTurnQueries(queryClient, { chatId, workspaceId })
+      // First-prompt auto-titling runs as a detached backend task that can
+      // commit after the immediate invalidation on fast turns, leaving the
+      // placeholder title ("Chat 1", ...) in the sidebar until the next
+      // mutation. Re-check on a delay — the second point covers the titling
+      // LLM call's 15s timeout. No-op when nothing is stale or mounted.
+      for (const delayMs of [4_000, 16_000]) {
+        setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ["chats", workspaceId] })
+        }, delayMs)
+      }
     },
     onData,
   })
 
   return {
     ...chat,
-    lastError,
+    lastError:
+      lastError && lastError.chatId === chatId ? lastError.message : null,
     clearError: useCallback(() => setLastError(null), []),
   }
 }
 
-// --- Approvals helpers (CE handshake) ----------------------------------------
+/**
+ * Identity signature of a transcript: message ids plus the id, type, state, and
+ * text of each part. Two transcripts with the same signature carry the same
+ * rendered content, so an unchanged signature means there is nothing to adopt.
+ */
+function transcriptSignature(messages: UIMessage[]): string {
+  return JSON.stringify(
+    messages.map((m) => [
+      m.id,
+      m.parts.map((p) => [
+        p.type,
+        "state" in p ? p.state : undefined,
+        "text" in p ? p.text : undefined,
+      ]),
+    ])
+  )
+}
 
-export type ApprovalCard = {
-  tool_call_id: string
-  tool_name: string
-  args?: unknown
+/** A message whose parts are all approval-request cards (nothing else). */
+function isApprovalCardMessage(m: UIMessage): boolean {
+  return (
+    m.parts.length > 0 &&
+    m.parts.every((p) => p.type === "data-approval-request")
+  )
+}
+
+/**
+ * Adopt the server transcript wholesale at quiescent boundaries.
+ *
+ * While a turn streams, useChat owns the transcript; the moment it goes
+ * quiescent (`ready`) we adopt the server copy WHOLESALE once it has caught up.
+ * Message ids differ between the DB serialization and the live stream, so
+ * merging is impossible by design — we replace, never merge.
+ *
+ * The backend guarantees this is always safe: an approval pause returns 204 on
+ * resume, DB history already includes the paused partial turn, and any
+ * continuation stream carries only the suffix. A normal turn can still finish
+ * before curr_run_id is cleared, though, making the immediate onFinish refetch
+ * omit the just-finished rows. Keep the longer live transcript until a later
+ * server snapshot catches up. Never adopt while streaming/submitted either.
+ */
+export function useAdoptServerTranscript({
+  status,
+  serverMessages,
+  liveMessages,
+  setMessages,
+}: {
+  status: ChatStatus
+  serverMessages: UIMessage[]
+  liveMessages: UIMessage[]
+  setMessages: (messages: UIMessage[]) => void
+}) {
+  const adoptedSignatureRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (status !== "ready") return
+    const serverSignature = transcriptSignature(serverMessages)
+    if (adoptedSignatureRef.current === serverSignature) return
+    if (transcriptSignature(liveMessages) === serverSignature) {
+      adoptedSignatureRef.current = serverSignature
+      return
+    }
+    // A resolved approval drops its card from the server transcript, so exclude
+    // approval-card-only messages from the finalize-race length guard.
+    const liveComparableLength = liveMessages.filter(
+      (m) => !isApprovalCardMessage(m)
+    ).length
+    if (serverMessages.length < liveComparableLength) return
+    adoptedSignatureRef.current = serverSignature
+    setMessages(serverMessages)
+  }, [status, serverMessages, liveMessages, setMessages])
 }
 
 /**
@@ -546,5 +773,28 @@ export function makeContinueMessage(
         data: { kind: "continue", source, decisions },
       } as UIMessage["parts"][number],
     ],
+  }
+}
+
+const EMPTY_BACKENDS: AgentBackendRead[] = []
+
+/** Discover enabled backend providers without coupling the UI to their names. */
+export function useAgentBackends(
+  workspaceId?: string,
+  options?: { enabled?: boolean }
+) {
+  const { data, isLoading, isSuccess, error, refetch } = useQuery({
+    queryKey: ["agent-backends", workspaceId],
+    queryFn: () =>
+      agentSessionsListAgentBackends({ workspaceId: workspaceId! }),
+    enabled: Boolean(workspaceId) && (options?.enabled ?? true),
+    staleTime: 60_000,
+  })
+  return {
+    backends: data ?? EMPTY_BACKENDS,
+    backendsLoading: isLoading,
+    backendsReady: isSuccess,
+    backendsError: error,
+    refetchBackends: refetch,
   }
 }
