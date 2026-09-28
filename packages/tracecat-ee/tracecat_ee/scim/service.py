@@ -673,6 +673,7 @@ class SCIMService(BaseOrgService):
         Raises:
             TracecatNotFoundError: No connection exists, or a mapping side is
                 not in this organization.
+            TracecatConflictError: The connection is not pending activation.
         """
         await lock_role_changes(self.session, self.organization_id)
         connection = (
@@ -684,6 +685,9 @@ class SCIMService(BaseOrgService):
         ).scalar_one_or_none()
         if connection is None:
             raise TracecatNotFoundError("SCIM connection not found")
+        # A stale client must not activate a disconnected or already active directory.
+        if connection.status != ScimConnectionStatus.PENDING:
+            raise TracecatConflictError("SCIM connection is not pending activation")
 
         # Status first: admission and mapping installation below read it.
         connection.status = ScimConnectionStatus.ACTIVE

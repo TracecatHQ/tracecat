@@ -160,6 +160,8 @@ async def activate_scim_connection(
         await SCIMService(session, role=role).activate(params.mappings)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
 @mappings_router.get("/mappings", response_model=Page[ExternalGroupMappingRead])

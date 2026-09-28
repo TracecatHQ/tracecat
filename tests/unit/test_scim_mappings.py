@@ -825,6 +825,33 @@ async def test_activation_review_marks_manual_members_the_idp_also_lists(
     assert (transition.gained, transition.lost) == (0, 0)
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "state", [ScimConnectionStatus.ACTIVE, ScimConnectionStatus.DISABLED]
+)
+async def test_activation_requires_a_pending_connection(
+    session: AsyncSession,
+    org: Organization,
+    service: SCIMService,
+    state: ScimConnectionStatus,
+) -> None:
+    """A stale activate call cannot reopen a disconnected or active directory."""
+    await _make_group(session, org)
+    await session.execute(
+        update(ScimConnection)
+        .where(ScimConnection.organization_id == org.id)
+        .values(status=state)
+    )
+
+    with pytest.raises(TracecatConflictError):
+        await service.activate([])
+
+    status = await session.scalar(
+        select(ScimConnection.status).where(ScimConnection.organization_id == org.id)
+    )
+    assert status == state
+
+
 async def _pushed_member(
     session: AsyncSession, org: Organization, external_group_id: uuid.UUID
 ) -> User:

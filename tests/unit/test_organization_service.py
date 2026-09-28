@@ -2127,6 +2127,22 @@ class TestOrganizationScimInviteWarning:
         assert await service.is_scim_connected() is True
 
     @pytest.mark.anyio
+    async def test_is_scim_connected_false_after_disconnect(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        connection = await self._connect_scim(session, org1.id)
+        connection.status = ScimConnectionStatus.DISABLED
+        await session.commit()
+        service = InvitationService(
+            session, role=create_admin_role(org1.id, admin_in_org1.id)
+        )
+
+        assert await service.is_scim_connected() is False
+
+    @pytest.mark.anyio
     async def test_is_scim_connected_ignores_other_org_connection(
         self,
         session: AsyncSession,

@@ -24,6 +24,7 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
 from tracecat.contexts import RequestAuditContext, ctx_request_audit
+from tracecat.db.engine import AuthSession
 from tracecat.db.models import Organization, User
 from tracecat.tiers import defaults as tier_defaults
 
@@ -57,8 +58,8 @@ def auth_session(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None
     """Point the auth bulkhead session at the test session."""
 
     @asynccontextmanager
-    async def _session_cm() -> AsyncIterator[AsyncSession]:
-        yield session
+    async def _session_cm() -> AsyncIterator[AuthSession]:
+        yield AuthSession(session)
 
     monkeypatch.setattr(
         "tracecat_ee.scim.credentials.get_async_session_auth_context_manager",
@@ -229,6 +230,43 @@ async def test_last_used_at_is_recorded(
 
     await session.refresh(issued.connection)
     assert issued.connection.last_used_at is not None
+
+
+@pytest.mark.anyio
+async def test_allowlist_cache_miss_does_not_nest_auth_sessions(
+    session: AsyncSession,
+    org: Organization,
+    admin_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    issued = await ScimConnectionService(session, role=admin_role).issue_token()
+    auth_session_open = False
+
+    @asynccontextmanager
+    async def guarded_session() -> AsyncIterator[AuthSession]:
+        nonlocal auth_session_open
+        assert not auth_session_open, "nested auth-pool session"
+        auth_session_open = True
+        try:
+            yield AuthSession(session)
+        finally:
+            auth_session_open = False
+
+    monkeypatch.setattr(
+        "tracecat_ee.scim.credentials.get_async_session_auth_context_manager",
+        guarded_session,
+    )
+    monkeypatch.setattr(
+        ip_allowlist_enforcement,
+        "get_async_session_auth_context_manager",
+        guarded_session,
+    )
+    ip_allowlist_enforcement.clear_ip_allowlist_cache()
+    try:
+        role = await authenticate_scim_connection(_bearer(issued.token))
+    finally:
+        ip_allowlist_enforcement.clear_ip_allowlist_cache()
+    assert role.organization_id == org.id
 
 
 @pytest.mark.anyio
