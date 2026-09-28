@@ -541,12 +541,28 @@ async def test_gateway_redirects_preserve_only_same_origin(
     ],
 )
 @pytest.mark.parametrize("private", [True, False])
+@pytest.mark.parametrize("rust_requested", [False, True])
 async def test_gateway_credential_urls_use_guarded_transport(
     provider: str,
     private: bool,
+    rust_requested: bool,
     network: RecordingBackend,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("LITELLM_RUST", "true")
+    # Make the native path available on every test platform, but never let a
+    # regression perform real I/O outside the recording socket backend.
+    monkeypatch.setattr(
+        "litellm.rust_bridge.chat_completions._load_rust_decline",
+        lambda: Mock(return_value=None),
+    )
+    native_request = AsyncMock(side_effect=AssertionError("Unguarded native request"))
+    monkeypatch.setattr(
+        "litellm.rust_bridge.chat_completions.load_rust_achat_completions",
+        lambda: native_request,
+    )
+    resolver = AsyncMock(wraps=resolve_outbound_addresses)
+    monkeypatch.setattr("tracecat.outbound.resolve_outbound_addresses", resolver)
     base = "http://127.0.0.1/v1" if private else "https://8.8.8.8/v1"
     if provider == "azure_openai_cloudflare":
         provider = "azure_openai"
@@ -577,7 +593,7 @@ async def test_gateway_credential_urls_use_guarded_transport(
             },
         ),
         cache=DualCache(),
-        data={},
+        data={"rust": True} if rust_requested else {},
         call_type="completion",
     )
     body = {
@@ -644,6 +660,8 @@ async def test_gateway_credential_urls_use_guarded_transport(
             assert isinstance(result, litellm.ModelResponse)
             assert result.choices[0].message.content == "hello"
             assert network.connections == [("8.8.8.8", 443)]
+        native_request.assert_not_awaited()
+        resolver.assert_awaited()
     finally:
         if handler._outbound_http_handler is not None:
             await handler._outbound_http_handler.close()

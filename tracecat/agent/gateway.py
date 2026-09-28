@@ -577,6 +577,10 @@ class TracecatCallbackHandler(CustomLogger):
         )
         data.update(model_settings)
 
+        # LiteLLM's native Rust transport bypasses our guarded HTTPX factories.
+        # A request override takes precedence over process and environment flags.
+        data["rust"] = False
+
         if provider == CUSTOM_MODEL_PROVIDER_SLUG:
             # Custom providers expose the OpenAI-compatible protocol. Make the
             # adapter explicit even for model IDs containing a vendor prefix,
