@@ -1,10 +1,9 @@
 "use client"
 
-import { type ReactNode, useState } from "react"
+import { useState } from "react"
 import type {
   ExternalGroupMappingRead,
   ScimActivationReviewRead,
-  ScimConnectionRead,
   ScimReviewRequest,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
@@ -16,80 +15,26 @@ import {
   type ScimMappingDraft,
 } from "@/components/organization/org-settings-scim-mappings"
 import { ScimReviewDialog } from "@/components/organization/scim-review-dialog"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   useScimActivation,
   useScimConnection,
   useScimMappings,
 } from "@/hooks/use-scim"
-import { cn } from "@/lib/utils"
 
 const DESCRIPTION = "Sync users and groups from your identity provider."
 
-type ConnectionState = "pending" | "active" | "disabled" | "revoked"
-
-function connectionState(connection: ScimConnectionRead): ConnectionState {
-  if (connection.status === "disabled") return "disabled"
-  if (connection.revoked_at) return "revoked"
-  return connection.status
-}
-
-const STATE_COPY: Record<ConnectionState, { label: string; dot: string }> = {
-  pending: {
-    label: "Pending activation",
-    dot: "bg-muted-foreground",
-  },
-  active: {
-    label: "Active",
-    dot: "bg-green-500",
-  },
-  disabled: {
-    label: "Disconnected",
-    dot: "bg-muted-foreground",
-  },
-  revoked: {
-    label: "Token revoked",
-    dot: "bg-rose-500",
-  },
-}
-
-/** Settings page header: title, optional status badge, and one action. */
-export function ScimPageHeader({
-  badge,
-  action,
-}: {
-  badge?: ReactNode
-  action?: ReactNode
-}) {
+/** Settings page header: title and description. */
+export function ScimPageHeader() {
   return (
-    <div className="flex w-full items-start gap-6">
-      <div className="flex-1 items-start space-y-3 text-left">
-        <div className="flex items-center gap-3">
-          <h2 className="text-2xl font-semibold tracking-tight">
-            SCIM provisioning
-          </h2>
-          {badge}
-        </div>
+    <div className="flex w-full items-start">
+      <div className="items-start space-y-3 text-left">
+        <h2 className="text-2xl font-semibold tracking-tight">
+          SCIM provisioning
+        </h2>
         <p className="text-base text-muted-foreground">{DESCRIPTION}</p>
       </div>
-      {action ? (
-        <div className="flex shrink-0 items-start">{action}</div>
-      ) : null}
     </div>
-  )
-}
-
-function StatusBadge({ state }: { state: ConnectionState }) {
-  const copy = STATE_COPY[state]
-  return (
-    <Badge
-      variant="outline"
-      className="gap-1.5 font-normal text-muted-foreground"
-    >
-      <span className={cn("size-1.5 rounded-full", copy.dot)} />
-      {copy.label}
-    </Badge>
   )
 }
 
@@ -97,6 +42,7 @@ type Review = {
   review: ScimActivationReviewRead
   activation: boolean
   request: ScimReviewRequest
+  complete: boolean
 }
 
 function sameTarget(a: ScimMappingDraft, b: ScimMappingDraft): boolean {
@@ -143,7 +89,6 @@ export function OrgSettingsScim() {
     )
   }
 
-  const state = connection ? connectionState(connection) : null
   const reviewIsPending = review.isPending || activate.isPending
 
   function openReview(activation: boolean) {
@@ -157,7 +102,12 @@ export function OrgSettingsScim() {
     void review
       .mutateAsync(request)
       .then((result) =>
-        setPendingReview({ review: result, activation, request })
+        setPendingReview({
+          review: result,
+          activation,
+          request,
+          complete: false,
+        })
       )
       .catch(() => {})
   }
@@ -187,6 +137,22 @@ export function OrgSettingsScim() {
     setDrafts((current) => current.filter((item) => !sameTarget(item, draft)))
   }
 
+  function loadFullReview() {
+    if (!pendingReview || pendingReview.complete || review.isPending) return
+    const { request } = pendingReview
+    void review
+      .mutateAsync({ ...request, full: true })
+      .then((result) =>
+        setPendingReview((current) =>
+          // Ignore a late reply for a review that was closed or replaced.
+          current?.request === request
+            ? { ...current, review: result, complete: true }
+            : current
+        )
+      )
+      .catch(() => {})
+  }
+
   async function confirmReview() {
     if (!pendingReview) return
     // Apply exactly what was reviewed, even if the table changed meanwhile.
@@ -203,19 +169,7 @@ export function OrgSettingsScim() {
 
   return (
     <>
-      <ScimPageHeader
-        badge={state ? <StatusBadge state={state} /> : undefined}
-        action={
-          state === "pending" ? (
-            <Button
-              disabled={!canManage || reviewIsPending}
-              onClick={() => openReview(true)}
-            >
-              Review and activate
-            </Button>
-          ) : undefined
-        }
-      />
+      <ScimPageHeader />
       <OrgSettingsScimConnection
         onDisconnect={() => {
           // Drafts target the detached directory; keep none for the next one.
@@ -240,11 +194,25 @@ export function OrgSettingsScim() {
           onReviewChanges={() => openReview(false)}
         />
       )}
+      {connection?.status === "pending" && !connection.revoked_at && (
+        <div className="flex justify-end">
+          <Button
+            disabled={!canManage || reviewIsPending}
+            onClick={() => openReview(true)}
+          >
+            Review and activate
+          </Button>
+        </div>
+      )}
       {pendingReview && (
         <ScimReviewDialog
           review={pendingReview.review}
           activation={pendingReview.activation}
+          complete={pendingReview.complete}
+          loadingAll={review.isPending}
+          pushedAt={connection?.last_used_at}
           pending={activate.isPending || applyMappingChangesIsPending}
+          onShowAll={loadFullReview}
           onClose={() => setPendingReview(null)}
           onConfirm={confirmReview}
         />

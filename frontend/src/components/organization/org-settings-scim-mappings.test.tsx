@@ -105,32 +105,33 @@ jest.mock("@/lib/hooks", () => ({
   },
 }))
 
+type ReviewPerson = { user_id: string; email: string; groups?: string[] }
+
+function people(...items: ReviewPerson[]) {
+  return { count: items.length, items }
+}
+
+const none = people()
+
 const preview = {
-  users: [
-    {
-      id: "user",
-      email: "eligible@example.com",
-      external_id: "idp-user",
-      active: true,
-      is_member: false,
-    },
-  ],
-  plans: [],
+  joining: people({ user_id: "user", email: "eligible@example.com" }),
+  leaving: none,
+  losing: people({
+    user_id: "manual",
+    email: "manual@example.com",
+    groups: ["Target team"],
+  }),
+  to_idp: none,
+  to_manual: none,
   groups: [
     {
       group_id: "target",
       group_name: "Target team",
       added_sources: ["IdP team"],
       removed_sources: [],
-      changes: [
-        {
-          user_id: "manual",
-          email: "manual@example.com",
-          kind: "lose",
-          from_source: "manual",
-        },
-        { user_id: "user", email: "eligible@example.com", kind: "gain" },
-      ],
+      gained: 1,
+      lost: 1,
+      takes_over: true,
     },
   ],
 }
@@ -195,13 +196,19 @@ test("pending mappings stay local until reviewed activation", async () => {
   expect(applyMappingChanges).not.toHaveBeenCalled()
   expect(activate.mutateAsync).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole("button", { name: "Review and activate" }))
-  expect(await screen.findByText("manual@example.com")).toBeInTheDocument()
+  fireEvent.click(
+    await screen.findByRole("button", { name: /loses? group access/ })
+  )
+  expect(screen.getByText("manual@example.com")).toBeInTheDocument()
   expect(review.mutateAsync).toHaveBeenCalledWith({
     mappings: [{ external_group_id: "source", group_id: "target" }],
     delete: [],
   })
-  fireEvent.click(screen.getByRole("button", { name: /Organization members/ }))
-  expect(screen.getByText("joins")).toBeInTheDocument()
+  expect(screen.getByText("Removed from Target team")).toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: /from your directory/ }))
+  expect(screen.getByText("eligible@example.com")).toBeInTheDocument()
+  // The preview already holds everyone, so nothing is refetched.
+  expect(review.mutateAsync).toHaveBeenCalledTimes(1)
   fireEvent.click(screen.getByRole("button", { name: "Activate for 1 user" }))
   await waitFor(() =>
     expect(activate.mutateAsync).toHaveBeenCalledWith([
@@ -230,10 +237,18 @@ test("active changes stay drafts until one review applies them", async () => {
   expect(review.mutateAsync).not.toHaveBeenCalled()
   expect(screen.getByText(/1 draft applies after review/)).toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "Review changes" }))
-  expect(await screen.findByText("manual@example.com")).toBeInTheDocument()
-  expect(screen.getByText("manual → removed")).toBeInTheDocument()
-  expect(screen.getByText("eligible@example.com")).toBeInTheDocument()
-  expect(screen.queryByText("new → IdP")).toBeNull()
+  await user.click(
+    await screen.findByRole("button", { name: /loses? group access/ })
+  )
+  expect(screen.getByText("manual@example.com")).toBeInTheDocument()
+  expect(screen.getByText("Removed from Target team")).toBeInTheDocument()
+  expect(screen.getByText("Added IdP team")).toBeInTheDocument()
+  expect(screen.getByText("1 added · 1 removed")).toBeInTheDocument()
+  expect(
+    screen.getByText("Removes 1 previously added member.")
+  ).toBeInTheDocument()
+  // Joining the organization is an activation outcome only.
+  expect(screen.queryByText("eligible@example.com")).toBeNull()
   expect(applyMappingChanges).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole("button", { name: "Apply 1 change" }))
   await waitFor(() =>
@@ -248,12 +263,7 @@ test("missing affected-user labels prevent confirmation", async () => {
   connection = { ...initialConnection, status: "active" }
   review.mutateAsync.mockResolvedValue({
     ...preview,
-    groups: [
-      {
-        ...preview.groups[0],
-        changes: [{ user_id: "manual", email: "", kind: "lose" }],
-      },
-    ],
+    losing: people({ user_id: "manual", email: "", groups: ["Target team"] }),
   })
   const user = userEvent.setup()
   renderScim()
@@ -269,7 +279,7 @@ test("missing affected-user labels prevent confirmation", async () => {
 test("cancelling review leaves memberships untouched", async () => {
   renderScim()
   fireEvent.click(screen.getByRole("button", { name: "Review and activate" }))
-  await screen.findByText("manual@example.com")
+  await screen.findByRole("button", { name: /loses? group access/ })
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
   expect(activate.mutateAsync).not.toHaveBeenCalled()
   expect(applyMappingChanges).not.toHaveBeenCalled()
@@ -343,28 +353,26 @@ test("mapping pages load on request and removals apply after review", async () =
     "Target team"
   )
   review.mutateAsync.mockResolvedValue({
-    users: [],
-    plans: [],
+    ...preview,
+    joining: none,
+    losing: people({
+      user_id: "gone",
+      email: "gone@example.com",
+      groups: ["Target team"],
+    }),
+    to_manual: people({
+      user_id: "kept",
+      email: "kept@example.com",
+      groups: ["Target team"],
+    }),
     groups: [
       {
         group_id: "target",
         group_name: "Target team",
         added_sources: [],
         removed_sources: ["IdP team"],
-        changes: [
-          {
-            user_id: "kept",
-            email: "kept@example.com",
-            kind: "to_manual",
-            from_source: "idp",
-          },
-          {
-            user_id: "gone",
-            email: "gone@example.com",
-            kind: "lose",
-            from_source: "idp",
-          },
-        ],
+        gained: 0,
+        lost: 1,
       },
     ],
   })
@@ -375,10 +383,15 @@ test("mapping pages load on request and removals apply after review", async () =
     mappings: [],
     delete: ["mapping"],
   })
-  expect(await screen.findByText("kept@example.com")).toBeInTheDocument()
-  expect(screen.getByText("IdP → manual")).toBeInTheDocument()
+  await user.click(
+    await screen.findByRole("button", { name: /loses? group access/ })
+  )
   expect(screen.getByText("gone@example.com")).toBeInTheDocument()
-  expect(screen.getByText("IdP → removed")).toBeInTheDocument()
+  expect(screen.getByText("removed IdP team")).toBeInTheDocument()
+  await user.click(
+    screen.getByRole("button", { name: /1 IdP member becomes manual/ })
+  )
+  expect(screen.getByText("kept@example.com")).toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "Apply 1 change" }))
   await waitFor(() =>
     expect(applyMappingChanges).toHaveBeenCalledWith({
@@ -412,13 +425,13 @@ test("generic RBAC permissions cannot administer mappings", () => {
 
 test("pending connection is labelled pending, with directory counts", () => {
   renderScim()
-  expect(screen.getByText("Pending activation")).toBeInTheDocument()
+  expect(screen.getByText("Pending")).toBeInTheDocument()
   expect(screen.queryByText("Active")).not.toBeInTheDocument()
   expect(
     screen.getByText(
       (_, element) =>
         element?.tagName === "DD" &&
-        element.textContent === "3 users (1 inactive) · 1 group"
+        element.textContent === "Pending·3 users (1 inactive)·1 group"
     )
   ).toBeInTheDocument()
 })
@@ -466,7 +479,7 @@ test("unknown plan access shows an error instead of an upgrade denial", () => {
   expect(screen.getByText("Not available on your plan")).toBeInTheDocument()
   entitled = true
   rerender(<ScimSettingsPage />)
-  expect(screen.getByText("Pending activation")).toBeInTheDocument()
+  expect(screen.getByText("Pending")).toBeInTheDocument()
 })
 
 test("a SCIM-only custom role can navigate to SCIM settings", () => {
@@ -584,30 +597,34 @@ test("disconnect confirms before detaching", async () => {
   expect(screen.queryByText(/draft applies/)).not.toBeInTheDocument()
 })
 
-test("review caps source changes like gains", async () => {
-  review.mutateAsync.mockResolvedValue({
-    users: [],
-    plans: [],
-    groups: [
-      {
-        group_id: "target",
-        group_name: "Target team",
-        added_sources: ["IdP team"],
-        removed_sources: [],
-        changes: Array.from({ length: 12 }, (_, index) => ({
-          user_id: `mover-${index}`,
-          email: `mover-${String(index).padStart(2, "0")}@example.com`,
-          kind: "to_idp" as const,
-        })),
-      },
-    ],
-  })
+test("show all fetches the full review once", async () => {
+  const movers = Array.from({ length: 12 }, (_, index) => ({
+    user_id: `mover-${index}`,
+    email: `mover-${String(index).padStart(2, "0")}@example.com`,
+    groups: ["Target team"],
+  }))
+  review.mutateAsync
+    .mockResolvedValueOnce({
+      ...preview,
+      to_idp: { count: 12, items: movers.slice(0, 10) },
+    })
+    .mockResolvedValueOnce({ ...preview, to_idp: people(...movers) })
   renderScim()
   fireEvent.click(screen.getByRole("button", { name: "Review and activate" }))
-  fireEvent.click(await screen.findByRole("button", { name: /Target team/ }))
+  fireEvent.click(
+    await screen.findByRole("button", {
+      name: /12 manual members become IdP-managed/,
+    })
+  )
   expect(screen.getByText("mover-09@example.com")).toBeInTheDocument()
-  expect(screen.queryByText("mover-10@example.com")).not.toBeInTheDocument()
-  expect(screen.getByText("2 more users")).toBeInTheDocument()
+  expect(await screen.findByText("mover-11@example.com")).toBeInTheDocument()
+  expect(review.mutateAsync).toHaveBeenLastCalledWith({
+    mappings: [],
+    delete: [],
+    full: true,
+  })
+  fireEvent.click(screen.getByRole("button", { name: /from your directory/ }))
+  expect(review.mutateAsync).toHaveBeenCalledTimes(2)
 })
 
 test("a disconnected directory offers a new token instead", async () => {
@@ -641,47 +658,21 @@ test("a picker with several groups lists every name A to Z", () => {
 
 test("activation discloses inactive members leaving the organization", async () => {
   review.mutateAsync.mockResolvedValue({
-    users: [
-      {
-        id: "joiner",
-        email: "joiner@example.com",
-        external_id: "idp-joiner",
-        active: true,
-        is_member: false,
-      },
-      {
-        id: "existing",
-        email: "existing@example.com",
-        external_id: "idp-existing",
-        active: true,
-        is_member: true,
-      },
-      {
-        id: "leaver",
-        email: "leaver@example.com",
-        external_id: "idp-leaver",
-        active: false,
-        is_member: true,
-      },
-      {
-        id: "stranger",
-        email: "stranger@example.com",
-        external_id: "idp-stranger",
-        active: false,
-        is_member: false,
-      },
-    ],
-    plans: [],
+    ...preview,
+    joining: people({ user_id: "joiner", email: "joiner@example.com" }),
+    leaving: people({ user_id: "leaver", email: "leaver@example.com" }),
+    losing: none,
     groups: [],
   })
   renderScim()
   fireEvent.click(screen.getByRole("button", { name: "Review and activate" }))
-  expect(await screen.findByText("leaver@example.com")).toBeInTheDocument()
+  fireEvent.click(
+    await screen.findByRole("button", { name: /leaves? the organization/ })
+  )
+  expect(screen.getByText("leaver@example.com")).toBeInTheDocument()
   expect(
-    screen.getByText("inactive → leaves the organization")
+    screen.getByText("1 person joins the organization and 1 loses access.")
   ).toBeInTheDocument()
-  expect(screen.getByText("inactive, skipped")).toBeInTheDocument()
-  expect(screen.queryByText("existing@example.com")).not.toBeInTheDocument()
   expect(
     screen.getByRole("button", { name: "Activate for 1 user" })
   ).toBeInTheDocument()

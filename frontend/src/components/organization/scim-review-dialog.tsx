@@ -1,18 +1,13 @@
 "use client"
 
-import { ChevronRightIcon, CircleMinusIcon, CirclePlusIcon } from "lucide-react"
+import { ChevronRightIcon, Loader2 } from "lucide-react"
 import { type ReactNode, useState } from "react"
 import type {
   ScimActivationReviewRead,
-  ScimDirectoryUserRead,
   ScimGroupTransitionRead,
+  ScimReviewPeople,
 } from "@/client"
 import { Button } from "@/components/ui/button"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
 import {
   Dialog,
   DialogContent,
@@ -21,307 +16,322 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { formatRelative } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
-type DiffKind = "added" | "removed" | "modified" | "unchanged"
+type Section = "leave" | "lose" | "join" | "to_idp" | "to_manual"
 
-type DiffLine = { key: string; kind: DiffKind; text: string; note?: string }
-
-const DIFF_MARKER: Record<DiffKind, string> = {
-  added: "+",
-  removed: "-",
-  modified: "~",
-  unchanged: "",
-}
+type PersonLine = { key: string; email: string; note?: string }
 
 function plural(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`
 }
 
-/** Membership changes in the house unified-diff style. */
-function MembershipDiff({ lines }: { lines: DiffLine[] }) {
+function Avatar({ email, stacked }: { email: string; stacked?: boolean }) {
   return (
-    <div className="overflow-hidden rounded-md border bg-background py-1 font-mono text-xs leading-5">
-      {lines.map((line) => (
-        <div
-          key={line.key}
-          className={cn(
-            "grid grid-cols-[1.25rem_minmax(0,1fr)_auto] gap-x-2 pr-2",
-            line.kind === "added" && "bg-diff-added text-diff-added-foreground",
-            line.kind === "removed" &&
-              "bg-diff-removed text-diff-removed-foreground",
-            line.kind === "modified" &&
-              "bg-amber-50 text-amber-900 dark:bg-amber-500/15 dark:text-amber-200"
-          )}
-        >
-          <span
-            className={cn(
-              "select-none text-center",
-              line.kind === "added" && "text-diff-marker-added",
-              line.kind === "removed" && "text-diff-marker-removed",
-              line.kind === "modified" && "text-amber-600 dark:text-amber-400"
-            )}
-          >
-            {DIFF_MARKER[line.kind]}
-          </span>
-          <span className="truncate">{line.text}</span>
-          {line.note ? (
-            <span className="font-sans text-muted-foreground">{line.note}</span>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-type CountPart = { kind: Exclude<DiffKind, "unchanged">; value: number }
-
-const COUNT_SIGN: Record<CountPart["kind"], string> = {
-  added: "+",
-  removed: "−",
-  modified: "~",
-}
-
-const COUNT_CLASS: Record<CountPart["kind"], string> = {
-  added: "text-diff-marker-added",
-  removed: "text-diff-marker-removed",
-  modified: "text-amber-600 dark:text-amber-400",
-}
-
-/** People counts per change kind, colored like their diff lines. */
-function Counts({ parts }: { parts: CountPart[] }) {
-  return (
-    <span className="flex shrink-0 gap-2 font-mono text-[11px]">
-      {parts
-        .filter((part) => part.value > 0)
-        .map((part) => (
-          <span key={part.kind} className={COUNT_CLASS[part.kind]}>
-            {COUNT_SIGN[part.kind]}
-            {part.value}
-          </span>
-        ))}
+    <span
+      aria-hidden
+      className={cn(
+        "flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-medium text-muted-foreground",
+        stacked && "-ml-2 border-2 border-background first:ml-0"
+      )}
+    >
+      {(email[0] ?? "?").toUpperCase()}
     </span>
   )
 }
 
-/** The IdP groups a change adds or removes as sources of a Tracecat group. */
-function SourceChanges({
-  added,
-  removed,
+/** People rows; scrolls once expanded past the preview. */
+function PeopleList({
+  lines,
+  expanded,
+  loading,
 }: {
-  added: string[]
-  removed: string[]
+  lines: PersonLine[]
+  expanded: boolean
+  loading: boolean
 }) {
-  if (added.length === 0 && removed.length === 0) return null
   return (
-    <div className="flex flex-wrap gap-x-3 gap-y-1 pb-2 text-xs text-muted-foreground">
-      {added.map((name) => (
-        <span key={`added-${name}`} className="flex items-center gap-1">
-          <CirclePlusIcon
-            aria-label="Source added"
-            className="size-3 text-diff-marker-added"
-          />
-          {name}
-        </span>
+    <div
+      className={cn(
+        "divide-y rounded-md border",
+        expanded && "max-h-72 overflow-y-auto"
+      )}
+    >
+      {lines.map((line) => (
+        <div key={line.key} className="flex items-center gap-2.5 px-3 py-2">
+          <Avatar email={line.email} />
+          <span className="min-w-0 flex-1 truncate text-sm">
+            {line.email || "User details unavailable"}
+          </span>
+          {line.note ? (
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {line.note}
+            </span>
+          ) : null}
+        </div>
       ))}
-      {removed.map((name) => (
-        <span key={`removed-${name}`} className="flex items-center gap-1">
-          <CircleMinusIcon
-            aria-label="Source removed"
-            className="size-3 text-diff-marker-removed"
-          />
-          {name}
-        </span>
-      ))}
+      {loading ? (
+        <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+          <Loader2 className="size-3 animate-spin" />
+          Loading everyone…
+        </div>
+      ) : null}
     </div>
   )
 }
 
-/** One collapsible change: a title, its counts, and the diff behind it. */
-function ChangeRow({
-  title,
-  counts,
-  lines,
-  defaultOpen,
+/** A collapsed summary line that opens its people list. */
+function CollapsedRow({
+  open,
+  onToggle,
+  leading,
+  label,
+  hint,
+  trailing,
   children,
 }: {
-  title: ReactNode
-  counts: CountPart[]
-  lines: DiffLine[]
-  defaultOpen: boolean
-  children?: ReactNode
+  open: boolean
+  onToggle: () => void
+  leading?: ReactNode
+  label: string
+  /** Why this happens, shown on hovering the label. */
+  hint?: string
+  trailing: string
+  children: ReactNode
 }) {
-  const [open, setOpen] = useState(defaultOpen)
   return (
-    <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger className="flex w-full items-center gap-2 px-3 py-2.5 text-left outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring">
+    <div className="space-y-2">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="flex w-full items-center gap-2.5 rounded-md border px-3 py-2 text-left text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+      >
         <ChevronRightIcon
           className={cn(
             "size-3.5 shrink-0 text-muted-foreground transition-transform",
             open && "rotate-90"
           )}
         />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">
-          {title}
+        {leading}
+        <span className="min-w-0 flex-1 truncate">
+          {hint ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="cursor-help underline decoration-dotted underline-offset-2">
+                  {label}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs">{hint}</TooltipContent>
+            </Tooltip>
+          ) : (
+            label
+          )}
         </span>
-        <Counts parts={counts} />
-      </CollapsibleTrigger>
-      <CollapsibleContent>
-        <div className="px-3 pb-3 pl-8">
-          {children}
-          <MembershipDiff lines={lines} />
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {trailing}
+        </span>
+      </button>
+      {open ? children : null}
+    </div>
   )
 }
 
-const MAX_LISTED = 10
+function groupNote(group: ScimGroupTransitionRead, activation: boolean) {
+  if (activation) {
+    return group.added_sources.length > 0
+      ? `from ${group.added_sources.join(", ")}`
+      : null
+  }
+  const parts = [
+    group.added_sources.length > 0
+      ? `Added ${group.added_sources.join(", ")}`
+      : null,
+    group.removed_sources.length > 0
+      ? `removed ${group.removed_sources.join(", ")}`
+      : null,
+  ].filter(Boolean)
+  return parts.length > 0 ? parts.join(" · ") : null
+}
 
-const SOURCE_LABEL = { manual: "manual", idp: "IdP" } as const
-
-function groupLines(group: ScimGroupTransitionRead): DiffLine[] {
-  const email = (value: string) => value || "User details unavailable"
-  const from = (source: "manual" | "idp" | null | undefined) =>
-    source ? SOURCE_LABEL[source] : "manual"
-  const lines: DiffLine[] = []
-  for (const change of group.changes) {
-    if (change.kind === "lose") {
-      lines.push({
-        key: change.user_id,
-        kind: "removed",
-        text: email(change.email),
-        note: `${from(change.from_source)} → removed`,
-      })
-    }
-  }
-  const gains = group.changes.filter((change) => change.kind === "gain")
-  for (const change of gains.slice(0, MAX_LISTED)) {
-    lines.push({
-      key: change.user_id,
-      kind: "added",
-      text: email(change.email),
-    })
-  }
-  if (gains.length > MAX_LISTED) {
-    lines.push({
-      key: "gain-more",
-      kind: "added",
-      text: plural(gains.length - MAX_LISTED, "more user", "more users"),
-    })
-  }
-  const moves = group.changes.filter(
-    (change) => change.kind === "to_idp" || change.kind === "to_manual"
+/** Explain that a first mapping replaces the group's manual membership. */
+function TakeoverNote({ group }: { group: ScimGroupTransitionRead }) {
+  const sources = group.added_sources.join(", ")
+  return (
+    <p className="mt-0.5 text-xs text-muted-foreground">
+      Becomes IdP-managed.
+      {group.lost > 0 ? (
+        <>
+          {" "}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                tabIndex={0}
+                className="cursor-help underline decoration-dotted underline-offset-2 outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                Removes{" "}
+                {plural(
+                  group.lost,
+                  "previously added member",
+                  "previously added members"
+                )}
+                .
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-xs">
+              Membership now comes from {sources}. People added to this group
+              before who are not in {sources} are removed.
+            </TooltipContent>
+          </Tooltip>
+        </>
+      ) : null}
+    </p>
   )
-  for (const change of moves.slice(0, MAX_LISTED)) {
-    lines.push({
-      key: change.user_id,
-      kind: "modified",
-      text: email(change.email),
-      note: change.kind === "to_idp" ? "manual → IdP" : "IdP → manual",
-    })
-  }
-  if (moves.length > MAX_LISTED) {
-    lines.push({
-      key: "move-more",
-      kind: "modified",
-      text: plural(moves.length - MAX_LISTED, "more user", "more users"),
-    })
-  }
-  if (lines.length === 0) {
-    lines.push({
-      key: "none",
-      kind: "unchanged",
-      text: "No membership changes",
-    })
-  }
-  return lines
 }
 
-function groupCounts(group: ScimGroupTransitionRead): CountPart[] {
-  const count = (kinds: string[]) =>
-    group.changes.filter((change) => kinds.includes(change.kind)).length
-  return [
-    { kind: "added", value: count(["gain"]) },
-    { kind: "removed", value: count(["lose"]) },
-    { kind: "modified", value: count(["to_idp", "to_manual"]) },
-  ]
+function groupCounts(group: ScimGroupTransitionRead): string {
+  const parts = [
+    group.gained > 0 ? `${group.gained} added` : null,
+    group.lost > 0 ? `${group.lost} removed` : null,
+  ].filter(Boolean)
+  return parts.length > 0 ? parts.join(" · ") : "No membership change"
 }
 
-function userLine(user: ScimDirectoryUserRead): DiffLine {
-  if (user.active) {
-    return { key: user.id, kind: "added", text: user.email, note: "joins" }
+function reviewSummary(
+  activation: boolean,
+  joinCount: number,
+  loseCount: number
+): string {
+  if (activation) {
+    const joins = `${plural(joinCount, "person joins", "people join")} the organization`
+    return loseCount > 0
+      ? `${joins} and ${plural(loseCount, "loses", "lose")} access.`
+      : `${joins}.`
   }
-  if (user.is_member) {
-    // Activation deprovisions inactive members, with their roles and groups.
-    return {
-      key: user.id,
-      kind: "removed",
-      text: user.email,
-      note: "inactive → leaves the organization",
-    }
+  if (loseCount > 0) {
+    return `${plural(loseCount, "person loses", "people lose")} group access.`
   }
-  return {
-    key: user.id,
-    kind: "unchanged",
-    text: user.email,
-    note: "inactive, skipped",
-  }
+  return "No one loses access."
 }
 
-function usersLines(
-  pushedCount: number,
-  listedUsers: ScimDirectoryUserRead[]
-): DiffLine[] {
-  if (pushedCount === 0) {
-    return [
-      { key: "none", kind: "unchanged", text: "No users have been pushed yet" },
-    ]
-  }
-  if (listedUsers.length === 0) {
-    return [{ key: "none", kind: "unchanged", text: "No membership changes" }]
-  }
-  return listedUsers.map(userLine)
+function isTruncated(people: ScimReviewPeople): boolean {
+  return people.items.length < people.count
 }
 
-/** Review what activation or a batch of mapping changes does, then confirm. */
+/**
+ * Review who activation or a batch of mapping changes affects, then confirm.
+ *
+ * Lists arrive as previews with true counts. "Show all" asks the parent for
+ * the full review once; every list then reads from it.
+ */
 export function ScimReviewDialog({
   review,
   activation,
+  complete,
+  loadingAll,
+  pushedAt,
   pending,
+  onShowAll,
   onClose,
   onConfirm,
 }: {
   review: ScimActivationReviewRead
   activation: boolean
+  complete: boolean
+  loadingAll: boolean
+  pushedAt?: string | null
   pending: boolean
+  onShowAll: () => void
   onClose: () => void
   onConfirm: () => Promise<void>
 }) {
-  const joining = review.users.filter((user) => user.active && !user.is_member)
-  // Activation leaves active users who are already members unchanged.
-  const listedUsers = review.users.filter(
-    (user) => !(user.active && user.is_member)
+  const [open, setOpen] = useState<Set<Section>>(new Set())
+
+  function toggle(section: Section, people: ScimReviewPeople[]) {
+    const next = new Set(open)
+    if (next.has(section)) {
+      next.delete(section)
+    } else {
+      next.add(section)
+      if (!complete && people.some(isTruncated)) onShowAll()
+    }
+    setOpen(next)
+  }
+
+  const leaving = activation
+    ? review.leaving
+    : { count: 0, items: [] as ScimReviewPeople["items"] }
+  const joining = activation
+    ? review.joining
+    : { count: 0, items: [] as ScimReviewPeople["items"] }
+  const loseCount = leaving.count + review.losing.count
+  const losses = [
+    {
+      section: "leave" as const,
+      people: leaving,
+      label: `${plural(leaving.count, "person leaves", "people leave")} the organization`,
+      hint: "Your IdP marks them inactive, so turning on SCIM removes them from this organization.",
+      lines: leaving.items.map((person) => ({
+        key: `leave-${person.user_id}`,
+        email: person.email,
+      })),
+    },
+    {
+      section: "lose" as const,
+      people: review.losing,
+      label: `${plural(review.losing.count, "person loses", "people lose")} group access`,
+      hint: "Your IdP doesn't list them in the groups mapped to these Tracecat groups, so they're removed from them.",
+      lines: review.losing.items.map((person) => ({
+        key: `lose-${person.user_id}`,
+        email: person.email,
+        note: `Removed from ${(person.groups ?? []).join(", ")}`,
+      })),
+    },
+  ].filter((loss) => loss.people.count > 0)
+  const loseLines: PersonLine[] = losses.flatMap((loss) => loss.lines)
+  const moves = [
+    {
+      section: "to_idp" as const,
+      people: review.to_idp,
+      label: `${plural(review.to_idp.count, "manual member becomes", "manual members become")} IdP-managed`,
+    },
+    {
+      section: "to_manual" as const,
+      people: review.to_manual,
+      label: `${plural(review.to_manual.count, "IdP member becomes", "IdP members become")} manual`,
+    },
+  ].filter((move) => move.people.count > 0)
+
+  const missingLabels = [...loseLines, ...joining.items].some(
+    (line) => !line.email
   )
-  const leaving = review.users.filter((user) => !user.active && user.is_member)
-  const groups = review.groups ?? []
-  const missingLabels = groups.some((group) =>
-    group.changes.some((change) => !change.email)
-  )
-  const changeCount = groups.reduce(
+  const changeCount = review.groups.reduce(
     (total, group) =>
       total + group.added_sources.length + group.removed_sources.length,
     0
   )
+  const pushed = formatRelative(pushedAt)
+  const summary = reviewSummary(activation, joining.count, loseCount)
   const confirmLabel = activation
-    ? `Activate for ${plural(joining.length, "user", "users")}`
+    ? `Activate for ${plural(joining.count, "user", "users")}`
     : `Apply ${plural(changeCount, "change", "changes")}`
+  const nothingChanges =
+    loseCount === 0 &&
+    joining.count === 0 &&
+    moves.length === 0 &&
+    review.groups.length === 0
 
   return (
     <Dialog
       open
-      onOpenChange={(open) => {
-        if (!open && !pending) onClose()
+      onOpenChange={(next) => {
+        if (!next && !pending) onClose()
       }}
     >
       <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
@@ -331,39 +341,138 @@ export function ScimReviewDialog({
               ? "Activate SCIM provisioning"
               : "Review mapping changes"}
           </DialogTitle>
-          <DialogDescription>
-            Access from other roles and groups is unchanged.
+          <DialogDescription className="text-foreground/80">
+            {summary}
           </DialogDescription>
+          <p className="text-xs text-muted-foreground">
+            {pushed ? `Based on directory data pushed ${pushed}. ` : null}
+            Access from other roles and groups is unchanged.
+          </p>
         </DialogHeader>
 
-        <div className="divide-y rounded-md border">
-          {activation && (
-            <ChangeRow
-              title="Organization members"
-              counts={[
-                { kind: "added", value: joining.length },
-                { kind: "removed", value: leaving.length },
-              ]}
-              defaultOpen={leaving.length > 0}
-              lines={usersLines(review.users.length, listedUsers)}
-            />
+        <div className="space-y-6">
+          {loseCount > 0 && (
+            <section className="space-y-2">
+              <h3 className="text-xs font-semibold text-rose-700 dark:text-rose-400">
+                Lose access · {loseCount}
+              </h3>
+              {losses.map((loss) => (
+                <CollapsedRow
+                  key={loss.section}
+                  open={open.has(loss.section)}
+                  onToggle={() => toggle(loss.section, [loss.people])}
+                  leading={
+                    <span className="flex shrink-0">
+                      {loss.lines.slice(0, 4).map((line) => (
+                        <Avatar key={line.key} email={line.email} stacked />
+                      ))}
+                    </span>
+                  }
+                  label={loss.label}
+                  hint={loss.hint}
+                  trailing={open.has(loss.section) ? "Hide" : "Show all"}
+                >
+                  <PeopleList
+                    lines={loss.lines}
+                    expanded
+                    loading={loadingAll}
+                  />
+                </CollapsedRow>
+              ))}
+            </section>
           )}
-          {groups.map((group) => (
-            <ChangeRow
-              key={group.group_id}
-              title={group.group_name}
-              counts={groupCounts(group)}
-              defaultOpen={group.changes.some(
-                (change) => change.kind === "lose"
-              )}
-              lines={groupLines(group)}
+
+          {joining.count > 0 && (
+            <section className="space-y-2">
+              <h3 className="text-xs font-semibold">
+                Join the organization · {joining.count}
+              </h3>
+              <CollapsedRow
+                open={open.has("join")}
+                onToggle={() => toggle("join", [joining])}
+                leading={
+                  <span className="flex shrink-0">
+                    {joining.items.slice(0, 4).map((person) => (
+                      <Avatar
+                        key={person.user_id}
+                        email={person.email}
+                        stacked
+                      />
+                    ))}
+                  </span>
+                }
+                label={`${plural(joining.count, "person", "people")} from your directory`}
+                trailing={open.has("join") ? "Hide" : "Show all"}
+              >
+                <PeopleList
+                  lines={joining.items.map((person) => ({
+                    key: person.user_id,
+                    email: person.email,
+                  }))}
+                  expanded
+                  loading={loadingAll}
+                />
+              </CollapsedRow>
+            </section>
+          )}
+
+          {review.groups.length > 0 && (
+            <section className="space-y-2">
+              <h3 className="text-xs font-semibold">Group access</h3>
+              <div className="divide-y rounded-md border">
+                {review.groups.map((group) => {
+                  const note = groupNote(group, activation)
+                  return (
+                    <div key={group.group_id} className="px-3 py-2.5">
+                      <div className="flex items-baseline gap-3">
+                        <span className="min-w-0 flex-1 text-sm">
+                          <span className="font-medium">
+                            {group.group_name}
+                          </span>
+                          {note ? (
+                            <span className="text-muted-foreground">
+                              {" "}
+                              {note}
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {groupCounts(group)}
+                        </span>
+                      </div>
+                      {group.takes_over ? <TakeoverNote group={group} /> : null}
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+
+          {moves.map((move) => (
+            <CollapsedRow
+              key={move.section}
+              open={open.has(move.section)}
+              onToggle={() => toggle(move.section, [move.people])}
+              label={move.label}
+              trailing="No access change"
             >
-              <SourceChanges
-                added={group.added_sources}
-                removed={group.removed_sources}
+              <PeopleList
+                lines={move.people.items.map((person) => ({
+                  key: person.user_id,
+                  email: person.email,
+                  note: (person.groups ?? []).join(", "),
+                }))}
+                expanded
+                loading={loadingAll}
               />
-            </ChangeRow>
+            </CollapsedRow>
           ))}
+
+          {nothingChanges && (
+            <p className="text-sm text-muted-foreground">
+              No one&apos;s access changes.
+            </p>
+          )}
         </div>
 
         {missingLabels && (

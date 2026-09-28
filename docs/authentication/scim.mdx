@@ -121,17 +121,18 @@ When a mapping applies, your IdP takes over membership of the Tracecat group:
 - Manual members who are not in the IdP group lose access through that Tracecat group.
 - Access from other roles and groups is unchanged.
 
-The review dialog groups changes by Tracecat group. Expand a row to see membership gains, losses, and changes between manual and IdP management.
+The review dialog groups changes by outcome. Everyone who loses access is listed first, then people joining the organization, then each Tracecat group with its added and removed member counts. Lists show the first 10 people; select `Show all` to load everyone.
 
 Removing the last mapping for a Tracecat group keeps its current members as manual members. Removing one of several mappings removes only the members that mapping supplied.
 
 ## Review and activate
 
-While the status is `Pending activation`, select `Review and activate` at the top of the page.
+While the status is `Pending`, select `Review and activate` at the bottom of the page.
 
-1. Expand `Organization members` to inspect active users and inactive users who will leave the organization.
-2. Review each Tracecat group's combined membership changes. Rows with membership losses expand automatically.
-3. Select `Activate for N users` to apply the directory and mappings together.
+1. Check `Lose access` for inactive users who will leave the organization and members who will lose a Tracecat group.
+2. Expand `Join the organization` to see the active users activation admits.
+3. Review `Group access` for each Tracecat group's added and removed member counts.
+4. Select `Activate for N users` to apply the directory and mappings together.
 
 <Warning>
     Activation removes existing organization members that your IdP pushed as inactive, including their direct roles and manual group memberships in this organization.
@@ -147,7 +148,7 @@ The status changes to `Active`. Subsequent IdP pushes apply as they arrive.
 
 Use the same group dropdowns to add or remove mappings. Changes stay as drafts until you select `Review changes` below the table.
 
-Expand the affected Tracecat groups, inspect the combined result of your additions and removals, then select `Apply N changes`. Select `Cancel` to return to your drafts.
+Check who loses access and each Tracecat group's added and removed member counts, then select `Apply N changes`. Select `Cancel` to return to your drafts.
 
 ![Review of active mapping changes showing access removal and conversion to manual membership](/img/authentication/scim/mapping-review.png)
 

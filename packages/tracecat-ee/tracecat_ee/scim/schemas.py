@@ -91,44 +91,19 @@ class ExternalGroupMappingCreate(BaseModel):
     group_id: UUID
 
 
-class ScimDirectoryUserRead(Schema):
-    """A user the provider has pushed into this organization."""
-
-    id: UUID
-    email: str
-    external_id: str
-    active: bool
-    # Inactive members are removed from the organization on activation.
-    is_member: bool = False
-
-
-class ScimMappingPlanRead(Schema):
-    """What activating one proposed mapping would do to a Tracecat group."""
-
-    external_group_id: UUID
-    external_group_display_name: str
-    group_id: UUID
-    group_name: str
-    manual_members_purged: list[UUID]
-    manual_member_emails: dict[UUID, str]
-    # Manual members the mapped IdP group also lists; the rest stay via another mapping.
-    manual_members_in_source: list[UUID] = Field(default_factory=list)
-    users_gaining_access: list[UUID]
-    gaining_member_emails: dict[UUID, str] = Field(default_factory=dict)
-    users_losing_access: list[UUID]
-
-
-ScimMembershipChangeKind = Literal["gain", "lose", "to_idp", "to_manual"]
-
-
-class ScimMembershipChange(Schema):
-    """How one person's membership of a Tracecat group changes."""
+class ScimReviewPerson(Schema):
+    """One person a review lists, with the Tracecat groups the change touches."""
 
     user_id: UUID
     email: str
-    kind: ScimMembershipChangeKind
-    # How the person held the group before the change, when they did.
-    from_source: Literal["manual", "idp"] | None = None
+    groups: list[str] = Field(default_factory=list)
+
+
+class ScimReviewPeople(Schema):
+    """A counted list of people; ``items`` is a preview unless ``full`` was asked."""
+
+    count: int
+    items: list[ScimReviewPerson]
 
 
 class ScimGroupTransitionRead(Schema):
@@ -138,15 +113,23 @@ class ScimGroupTransitionRead(Schema):
     group_name: str
     added_sources: list[str]
     removed_sources: list[str]
-    changes: list[ScimMembershipChange]
+    gained: int
+    lost: int
+    # The IdP replaces the group's manual membership.
+    takes_over: bool = False
 
 
 class ScimActivationReviewRead(Schema):
-    """What arrived while the connection was pending, and the effect of each mapping."""
+    """Who a proposed activation or mapping change affects, by outcome."""
 
-    users: list[ScimDirectoryUserRead]
-    plans: list[ScimMappingPlanRead]
-    groups: list[ScimGroupTransitionRead] = Field(default_factory=list)
+    # Active pushed users activation admits.
+    joining: ScimReviewPeople
+    # Inactive pushed users activation removes from the organization.
+    leaving: ScimReviewPeople
+    losing: ScimReviewPeople
+    to_idp: ScimReviewPeople
+    to_manual: ScimReviewPeople
+    groups: list[ScimGroupTransitionRead]
 
 
 class ScimMappingChangesRequest(BaseModel):
@@ -165,6 +148,8 @@ class ScimReviewRequest(BaseModel):
         default_factory=list, max_length=100
     )
     delete: list[UUID] = Field(default_factory=list, max_length=100)
+    # Every person instead of a preview per list.
+    full: bool = False
 
 
 class ScimActivationRequest(BaseModel):

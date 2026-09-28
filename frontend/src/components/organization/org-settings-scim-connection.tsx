@@ -43,6 +43,7 @@ import {
 import { useScimConnection, useScimDirectorySummary } from "@/hooks/use-scim"
 import { getBaseUrl } from "@/lib/api"
 import { formatRelative } from "@/lib/time"
+import { cn } from "@/lib/utils"
 
 const SCIM_DOCS_URL = "https://docs.tracecat.com/authentication/scim"
 
@@ -69,6 +70,21 @@ function tokenUsage(connection: ScimConnectionRead): string {
   return lastUsed ? `Last used ${lastUsed}` : "Never used"
 }
 
+type ConnectionState = "pending" | "active" | "disabled" | "revoked"
+
+function connectionState(connection: ScimConnectionRead): ConnectionState {
+  if (connection.status === "disabled") return "disabled"
+  if (connection.revoked_at) return "revoked"
+  return connection.status
+}
+
+const STATE_COPY: Record<ConnectionState, { label: string; dot: string }> = {
+  pending: { label: "Pending", dot: "bg-muted-foreground" },
+  active: { label: "Active", dot: "bg-green-500" },
+  disabled: { label: "Disconnected", dot: "bg-muted-foreground" },
+  revoked: { label: "Token revoked", dot: "bg-rose-500" },
+}
+
 function ConnectionDetails({
   connection,
   baseUrl,
@@ -79,6 +95,7 @@ function ConnectionDetails({
   const { directorySummary } = useScimDirectorySummary({ enabled: true })
   const users = directorySummary?.users
   const groups = directorySummary?.groups
+  const state = STATE_COPY[connectionState(connection)]
   return (
     <dl className="grid grid-cols-[140px_1fr] items-center gap-x-6 gap-y-3 px-5 py-4 text-sm">
       <dt className="text-muted-foreground">SCIM base URL</dt>
@@ -104,18 +121,26 @@ function ConnectionDetails({
       </dd>
 
       <dt className="text-muted-foreground">Directory</dt>
-      <dd>
+      <dd className="flex min-w-0 flex-wrap items-center gap-x-2">
+        <span className="flex items-center gap-1.5">
+          <span className={cn("size-1.5 rounded-full", state.dot)} />
+          {state.label}
+        </span>
         {users && groups ? (
           <>
-            {users.total} {users.total === 1 ? "user" : "users"}{" "}
-            <span className="text-muted-foreground">
-              ({users.inactive} inactive)
-            </span>{" "}
-            · {groups.total} {groups.total === 1 ? "group" : "groups"}
+            <span className="text-muted-foreground">·</span>
+            <span>
+              {users.total} {users.total === 1 ? "user" : "users"}{" "}
+              <span className="text-muted-foreground">
+                ({users.inactive} inactive)
+              </span>
+            </span>
+            <span className="text-muted-foreground">·</span>
+            <span>
+              {groups.total} {groups.total === 1 ? "group" : "groups"}
+            </span>
           </>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
+        ) : null}
       </dd>
     </dl>
   )

@@ -7824,12 +7824,15 @@ export type ScimActivationRequest = {
 }
 
 /**
- * What arrived while the connection was pending, and the effect of each mapping.
+ * Who a proposed activation or mapping change affects, by outcome.
  */
 export type ScimActivationReviewRead = {
-  users: Array<ScimDirectoryUserRead>
-  plans: Array<ScimMappingPlanRead>
-  groups?: Array<ScimGroupTransitionRead>
+  joining: ScimReviewPeople
+  leaving: ScimReviewPeople
+  losing: ScimReviewPeople
+  to_idp: ScimReviewPeople
+  to_manual: ScimReviewPeople
+  groups: Array<ScimGroupTransitionRead>
 }
 
 /**
@@ -7885,17 +7888,6 @@ export type ScimDirectoryUserCounts = {
 }
 
 /**
- * A user the provider has pushed into this organization.
- */
-export type ScimDirectoryUserRead = {
-  id: string
-  email: string
-  external_id: string
-  active: boolean
-  is_member?: boolean
-}
-
-/**
  * One entry of a user's multi-valued email attribute.
  */
 export type ScimEmail = {
@@ -7942,7 +7934,9 @@ export type ScimGroupTransitionRead = {
   group_name: string
   added_sources: Array<string>
   removed_sources: Array<string>
-  changes: Array<ScimMembershipChange>
+  gained: number
+  lost: number
+  takes_over?: boolean
 }
 
 /**
@@ -7965,38 +7959,6 @@ export type ScimMappingChangesRequest = {
   create?: Array<ExternalGroupMappingCreate>
   delete?: Array<string>
 }
-
-/**
- * What activating one proposed mapping would do to a Tracecat group.
- */
-export type ScimMappingPlanRead = {
-  external_group_id: string
-  external_group_display_name: string
-  group_id: string
-  group_name: string
-  manual_members_purged: Array<string>
-  manual_member_emails: {
-    [key: string]: string
-  }
-  manual_members_in_source?: Array<string>
-  users_gaining_access: Array<string>
-  gaining_member_emails?: {
-    [key: string]: string
-  }
-  users_losing_access: Array<string>
-}
-
-/**
- * How one person's membership of a Tracecat group changes.
- */
-export type ScimMembershipChange = {
-  user_id: string
-  email: string
-  kind: "gain" | "lose" | "to_idp" | "to_manual"
-  from_source?: "manual" | "idp" | null
-}
-
-export type kind = "gain" | "lose" | "to_idp" | "to_manual"
 
 /**
  * Resource metadata. Only the fields Okta reads are emitted.
@@ -8040,11 +8002,29 @@ export type ScimPatchOperation = {
 export type op = "add" | "remove" | "replace"
 
 /**
+ * A counted list of people; ``items`` is a preview unless ``full`` was asked.
+ */
+export type ScimReviewPeople = {
+  count: number
+  items: Array<ScimReviewPerson>
+}
+
+/**
+ * One person a review lists, with the Tracecat groups the change touches.
+ */
+export type ScimReviewPerson = {
+  user_id: string
+  email: string
+  groups?: Array<string>
+}
+
+/**
  * Mapping additions and removals to preview without applying them.
  */
 export type ScimReviewRequest = {
   mappings?: Array<ExternalGroupMappingCreate>
   delete?: Array<string>
+  full?: boolean
 }
 
 /**
@@ -8609,7 +8589,7 @@ export type SkillDraftFileRead = {
   download_url?: string | null
 }
 
-export type kind2 = "inline" | "download"
+export type kind = "inline" | "download"
 
 /**
  * Move (rename) a draft file to a new path while preserving its blob.
@@ -10525,7 +10505,7 @@ export type WebhookStoredObjectDownloadResponse = {
   size_bytes: number
 }
 
-export type kind3 = "download_file" | "download_export"
+export type kind2 = "download_file" | "download_export"
 
 export type WebhookStoredObjectInlineResponse = {
   kind: "value"

@@ -11,8 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.rbac.router import list_groups
 from tracecat_ee.rbac.service import RBACService
 from tracecat_ee.scim.connections import ScimConnectionService
-from tracecat_ee.scim.schemas import ExternalGroupMappingCreate
-from tracecat_ee.scim.service import SCIMService
+from tracecat_ee.scim.schemas import (
+    ExternalGroupMappingCreate,
+    ScimReviewPerson,
+)
+from tracecat_ee.scim.service import REVIEW_PREVIEW_LIMIT, SCIMService
 
 from tests.support.membership import (
     grant_org_membership,
@@ -743,7 +746,7 @@ async def test_activation_admits_pushed_users_and_installs_mappings(
 async def test_activation_review_reports_the_plan_without_storing_it(
     session: AsyncSession, org: Organization, service: SCIMService
 ) -> None:
-    """The review names the manual rows a mapping would purge, and changes nothing."""
+    """The review names manual members a mapping would remove, and changes nothing."""
     member = await _make_user(session, org)
     group = await _make_group(session, org)
     await seed_group_member(session, group_id=group.id, user_id=member.id)
@@ -755,20 +758,22 @@ async def test_activation_review_reports_the_plan_without_storing_it(
         [ExternalGroupMappingCreate(external_group_id=external.id, group_id=group.id)]
     )
 
-    assert [p.manual_members_purged for p in review.plans] == [[member.id]]
-    assert review.plans[0].manual_member_emails == {member.id: member.email}
-    assert [p.users_losing_access for p in review.plans] == [[member.id]]
-    assert review.plans[0].manual_members_in_source == []
+    assert review.losing.items == [
+        ScimReviewPerson(user_id=member.id, email=member.email, groups=[group.name])
+    ]
+    (transition,) = review.groups
+    assert (transition.gained, transition.lost) == (0, 1)
+    assert transition.takes_over
     # A review is a read: the manual row and the absent mapping both survive.
     assert await _manual_members(session, group.id) == {member.id}
     assert (await service.list_mappings(page=PageParams())).items == []
 
 
 @pytest.mark.anyio
-async def test_activation_review_names_users_gaining_access(
+async def test_activation_review_counts_users_gaining_access(
     session: AsyncSession, org: Organization, service: SCIMService
 ) -> None:
-    """Pushed members who would gain access are listed by email."""
+    """Pushed members who would gain access are counted on their group."""
     pushed = await _make_user(session, org)
     external_user_id = await seed_external_user(
         session, organization_id=org.id, user_id=pushed.id
@@ -785,9 +790,9 @@ async def test_activation_review_names_users_gaining_access(
         [ExternalGroupMappingCreate(external_group_id=external.id, group_id=group.id)]
     )
 
-    assert review.plans[0].users_gaining_access == [pushed.id]
-    assert review.plans[0].gaining_member_emails == {pushed.id: pushed.email}
-    assert review.plans[0].manual_members_in_source == []
+    (transition,) = review.groups
+    assert (transition.gained, transition.lost) == (1, 0)
+    assert review.losing.count == 0
 
 
 @pytest.mark.anyio
@@ -812,10 +817,12 @@ async def test_activation_review_marks_manual_members_the_idp_also_lists(
         [ExternalGroupMappingCreate(external_group_id=external.id, group_id=group.id)]
     )
 
-    plan = review.plans[0]
-    assert plan.manual_members_in_source == [member.id]
-    assert plan.users_losing_access == []
-    assert plan.users_gaining_access == []
+    assert review.to_idp.items == [
+        ScimReviewPerson(user_id=member.id, email=member.email, groups=[group.name])
+    ]
+    assert review.losing.count == 0
+    (transition,) = review.groups
+    assert (transition.gained, transition.lost) == (0, 0)
 
 
 async def _pushed_member(
@@ -850,10 +857,10 @@ async def test_review_of_a_last_mapping_removal_keeps_members_as_manual(
 
     review = await service.review_activation([], [mapping.id])
 
-    (transition,) = review.groups
-    assert [(c.user_id, c.kind, c.email) for c in transition.changes] == [
-        (member.id, "to_manual", member.email)
+    assert review.to_manual.items == [
+        ScimReviewPerson(user_id=member.id, email=member.email, groups=[group.name])
     ]
+    (transition,) = review.groups
     assert transition.removed_sources == ["idp-last"]
     # The preview matches the removal itself.
     await service.delete_mapping(mapping.id)
@@ -890,10 +897,9 @@ async def test_review_of_one_of_several_mappings_names_who_loses_access(
 
     review = await service.review_activation([], [mapping.id])
 
+    assert [p.user_id for p in review.losing.items] == [only_removed.id]
     (transition,) = review.groups
-    assert [(c.user_id, c.kind, c.from_source) for c in transition.changes] == [
-        (only_removed.id, "lose", "idp")
-    ]
+    assert (transition.gained, transition.lost) == (0, 1)
 
 
 @pytest.mark.anyio
@@ -1011,11 +1017,11 @@ async def test_removing_every_source_keeps_members_in_any_order(
     review = await service.review_activation([], ids[::-1] if reverse else ids)
     await service.apply_mapping_changes(create=[], delete=ids[::-1] if reverse else ids)
 
-    (transition,) = review.groups
-    assert {(c.user_id, c.kind) for c in transition.changes} == {
-        (only_first.id, "to_manual"),
-        (only_second.id, "to_manual"),
+    assert {p.user_id for p in review.to_manual.items} == {
+        only_first.id,
+        only_second.id,
     }
+    assert review.losing.count == 0
     assert await _manual_members(session, group.id) == {only_first.id, only_second.id}
 
 
@@ -1043,13 +1049,13 @@ async def test_review_discloses_losses_when_a_source_is_replaced(
     review = await service.review_activation(swap, [old.id])
     await service.apply_mapping_changes(create=swap, delete=[old.id])
 
+    assert [p.user_id for p in review.losing.items] == [leaving.id]
     (transition,) = review.groups
-    assert {(c.user_id, c.kind) for c in transition.changes} == {
-        (leaving.id, "lose"),
-        (joining.id, "gain"),
-    }
+    assert (transition.gained, transition.lost) == (1, 1)
     assert transition.added_sources == ["idp-new"]
     assert transition.removed_sources == ["idp-old"]
+    # The IdP already owned the group, so the swap is not a takeover.
+    assert not transition.takes_over
     # The preview matches the swap itself.
     assert await _manual_members(session, group.id) == set()
     assert await _idp_members(session, group.id) == {joining.id}
@@ -1069,8 +1075,124 @@ async def test_activation_review_marks_inactive_members(
 
     review = await service.review_activation([])
 
-    (user,) = [u for u in review.users if u.email == member.email]
-    assert (user.active, user.is_member) == (False, True)
+    assert review.leaving.items == [
+        ScimReviewPerson(user_id=member.id, email=member.email)
+    ]
+    assert review.joining.count == 0
+
+
+@pytest.mark.anyio
+async def test_activation_review_lists_a_leaving_member_once(
+    session: AsyncSession, org: Organization
+) -> None:
+    """An inactive manual member shows as leaving, not also as losing a group."""
+    member = await _make_user(session, org)
+    await session.execute(
+        update(ExternalUser)
+        .where(ExternalUser.user_id == member.id)
+        .values(active=False)
+    )
+    group = await _make_group(session, org)
+    await session.execute(
+        update(ScimConnection)
+        .where(ScimConnection.organization_id == org.id)
+        .values(status=ScimConnectionStatus.PENDING)
+    )
+    await seed_group_member(session, group_id=group.id, user_id=member.id)
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-leaving"
+    )
+
+    review = await SCIMService(
+        session, _role(org, "org:scim:manage")
+    ).review_activation(
+        [ExternalGroupMappingCreate(external_group_id=external.id, group_id=group.id)]
+    )
+
+    assert [p.user_id for p in review.leaving.items] == [member.id]
+    assert review.losing.count == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("reverse", [False, True])
+async def test_activation_review_combines_sources_per_target(
+    session: AsyncSession, org: Organization, service: SCIMService, reverse: bool
+) -> None:
+    """Retained members move, shared gains count once, the rest lose the group."""
+    source_a = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-combine-a"
+    )
+    source_b = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-combine-b"
+    )
+    group = await _make_group(session, org)
+    retained = await _pushed_member(session, org, source_b.id)
+    lost = await _make_user(session, org)
+    for manual in (retained, lost):
+        await seed_group_member(session, group_id=group.id, user_id=manual.id)
+    shared = await _pushed_member(session, org, source_a.id)
+    await seed_external_group_members(
+        session,
+        external_group_id=source_b.id,
+        external_user_ids=[
+            await seed_external_user(session, organization_id=org.id, user_id=shared.id)
+        ],
+    )
+    await _pushed_member(session, org, source_a.id)
+    await _pushed_member(session, org, source_b.id)
+    first, second = (source_b, source_a) if reverse else (source_a, source_b)
+    proposed = [
+        ExternalGroupMappingCreate(external_group_id=s.id, group_id=group.id)
+        for s in (first, second, first)
+    ]
+
+    review = await service.review_activation(proposed)
+
+    assert [p.user_id for p in review.losing.items] == [lost.id]
+    assert [p.user_id for p in review.to_idp.items] == [retained.id]
+    (transition,) = review.groups
+    assert (transition.gained, transition.lost) == (3, 1)
+    assert transition.added_sources == ["idp-combine-a", "idp-combine-b"]
+
+
+@pytest.mark.anyio
+async def test_review_previews_each_outcome_unless_full(
+    session: AsyncSession, org: Organization, service: SCIMService
+) -> None:
+    """Lists stop at the preview size with a true count; full lists everyone."""
+    group = await _make_group(session, org)
+    extra = 2
+    members = [
+        await _make_user(session, org) for _ in range(REVIEW_PREVIEW_LIMIT + extra)
+    ]
+    for member in members:
+        await seed_group_member(session, group_id=group.id, user_id=member.id)
+    for _ in range(REVIEW_PREVIEW_LIMIT + extra):
+        user = User(
+            id=uuid.uuid4(),
+            email=f"joiner-{uuid.uuid4().hex[:10]}@example.com",
+            hashed_password="test",
+        )
+        session.add(user)
+        await session.flush()
+        await seed_external_user(session, organization_id=org.id, user_id=user.id)
+    external = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-preview"
+    )
+    proposed = [
+        ExternalGroupMappingCreate(external_group_id=external.id, group_id=group.id)
+    ]
+
+    preview = await service.review_activation(proposed)
+    full = await service.review_activation(proposed, full=True)
+
+    for outcome in (preview.losing, preview.joining):
+        assert outcome.count == REVIEW_PREVIEW_LIMIT + extra
+        assert len(outcome.items) == REVIEW_PREVIEW_LIMIT
+    emails = sorted(member.email for member in members)
+    assert [p.email for p in preview.losing.items] == emails[:REVIEW_PREVIEW_LIMIT]
+    assert [p.email for p in full.losing.items] == emails
+    assert len(full.joining.items) == REVIEW_PREVIEW_LIMIT + extra
 
 
 async def _is_member(

@@ -142,7 +142,7 @@ async def review_scim_activation(
     """
     try:
         return await SCIMService(session, role=role).review_activation(
-            params.mappings, params.delete
+            params.mappings, params.delete, full=params.full
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

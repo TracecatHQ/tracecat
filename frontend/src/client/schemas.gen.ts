@@ -25579,19 +25579,20 @@ export const $ScimActivationRequest = {
 
 export const $ScimActivationReviewRead = {
   properties: {
-    users: {
-      items: {
-        $ref: "#/components/schemas/ScimDirectoryUserRead",
-      },
-      type: "array",
-      title: "Users",
+    joining: {
+      $ref: "#/components/schemas/ScimReviewPeople",
     },
-    plans: {
-      items: {
-        $ref: "#/components/schemas/ScimMappingPlanRead",
-      },
-      type: "array",
-      title: "Plans",
+    leaving: {
+      $ref: "#/components/schemas/ScimReviewPeople",
+    },
+    losing: {
+      $ref: "#/components/schemas/ScimReviewPeople",
+    },
+    to_idp: {
+      $ref: "#/components/schemas/ScimReviewPeople",
+    },
+    to_manual: {
+      $ref: "#/components/schemas/ScimReviewPeople",
     },
     groups: {
       items: {
@@ -25602,10 +25603,10 @@ export const $ScimActivationReviewRead = {
     },
   },
   type: "object",
-  required: ["users", "plans"],
+  required: ["joining", "leaving", "losing", "to_idp", "to_manual", "groups"],
   title: "ScimActivationReviewRead",
   description:
-    "What arrived while the connection was pending, and the effect of each mapping.",
+    "Who a proposed activation or mapping change affects, by outcome.",
 } as const
 
 export const $ScimConnectionRead = {
@@ -25751,37 +25752,6 @@ export const $ScimDirectoryUserCounts = {
   required: ["total", "active", "inactive"],
   title: "ScimDirectoryUserCounts",
   description: "Pushed users, split by the provider's active flag.",
-} as const
-
-export const $ScimDirectoryUserRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    email: {
-      type: "string",
-      title: "Email",
-    },
-    external_id: {
-      type: "string",
-      title: "External Id",
-    },
-    active: {
-      type: "boolean",
-      title: "Active",
-    },
-    is_member: {
-      type: "boolean",
-      title: "Is Member",
-      default: false,
-    },
-  },
-  type: "object",
-  required: ["id", "email", "external_id", "active"],
-  title: "ScimDirectoryUserRead",
-  description: "A user the provider has pushed into this organization.",
 } as const
 
 export const $ScimEmail = {
@@ -25973,12 +25943,18 @@ export const $ScimGroupTransitionRead = {
       type: "array",
       title: "Removed Sources",
     },
-    changes: {
-      items: {
-        $ref: "#/components/schemas/ScimMembershipChange",
-      },
-      type: "array",
-      title: "Changes",
+    gained: {
+      type: "integer",
+      title: "Gained",
+    },
+    lost: {
+      type: "integer",
+      title: "Lost",
+    },
+    takes_over: {
+      type: "boolean",
+      title: "Takes Over",
+      default: false,
     },
   },
   type: "object",
@@ -25987,7 +25963,8 @@ export const $ScimGroupTransitionRead = {
     "group_name",
     "added_sources",
     "removed_sources",
-    "changes",
+    "gained",
+    "lost",
   ],
   title: "ScimGroupTransitionRead",
   description:
@@ -26053,130 +26030,6 @@ export const $ScimMappingChangesRequest = {
   type: "object",
   title: "ScimMappingChangesRequest",
   description: "Mapping removals and additions to apply in one transaction.",
-} as const
-
-export const $ScimMappingPlanRead = {
-  properties: {
-    external_group_id: {
-      type: "string",
-      format: "uuid",
-      title: "External Group Id",
-    },
-    external_group_display_name: {
-      type: "string",
-      title: "External Group Display Name",
-    },
-    group_id: {
-      type: "string",
-      format: "uuid",
-      title: "Group Id",
-    },
-    group_name: {
-      type: "string",
-      title: "Group Name",
-    },
-    manual_members_purged: {
-      items: {
-        type: "string",
-        format: "uuid",
-      },
-      type: "array",
-      title: "Manual Members Purged",
-    },
-    manual_member_emails: {
-      additionalProperties: {
-        type: "string",
-      },
-      propertyNames: {
-        format: "uuid",
-      },
-      type: "object",
-      title: "Manual Member Emails",
-    },
-    manual_members_in_source: {
-      items: {
-        type: "string",
-        format: "uuid",
-      },
-      type: "array",
-      title: "Manual Members In Source",
-    },
-    users_gaining_access: {
-      items: {
-        type: "string",
-        format: "uuid",
-      },
-      type: "array",
-      title: "Users Gaining Access",
-    },
-    gaining_member_emails: {
-      additionalProperties: {
-        type: "string",
-      },
-      propertyNames: {
-        format: "uuid",
-      },
-      type: "object",
-      title: "Gaining Member Emails",
-    },
-    users_losing_access: {
-      items: {
-        type: "string",
-        format: "uuid",
-      },
-      type: "array",
-      title: "Users Losing Access",
-    },
-  },
-  type: "object",
-  required: [
-    "external_group_id",
-    "external_group_display_name",
-    "group_id",
-    "group_name",
-    "manual_members_purged",
-    "manual_member_emails",
-    "users_gaining_access",
-    "users_losing_access",
-  ],
-  title: "ScimMappingPlanRead",
-  description:
-    "What activating one proposed mapping would do to a Tracecat group.",
-} as const
-
-export const $ScimMembershipChange = {
-  properties: {
-    user_id: {
-      type: "string",
-      format: "uuid",
-      title: "User Id",
-    },
-    email: {
-      type: "string",
-      title: "Email",
-    },
-    kind: {
-      type: "string",
-      enum: ["gain", "lose", "to_idp", "to_manual"],
-      title: "Kind",
-    },
-    from_source: {
-      anyOf: [
-        {
-          type: "string",
-          enum: ["manual", "idp"],
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "From Source",
-    },
-  },
-  type: "object",
-  required: ["user_id", "email", "kind"],
-  title: "ScimMembershipChange",
-  description: "How one person's membership of a Tracecat group changes.",
 } as const
 
 export const $ScimMeta = {
@@ -26323,6 +26176,53 @@ export const $ScimPatchOperation = {
 sends \`\`add\`\`.`,
 } as const
 
+export const $ScimReviewPeople = {
+  properties: {
+    count: {
+      type: "integer",
+      title: "Count",
+    },
+    items: {
+      items: {
+        $ref: "#/components/schemas/ScimReviewPerson",
+      },
+      type: "array",
+      title: "Items",
+    },
+  },
+  type: "object",
+  required: ["count", "items"],
+  title: "ScimReviewPeople",
+  description:
+    "A counted list of people; ``items`` is a preview unless ``full`` was asked.",
+} as const
+
+export const $ScimReviewPerson = {
+  properties: {
+    user_id: {
+      type: "string",
+      format: "uuid",
+      title: "User Id",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+    groups: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Groups",
+    },
+  },
+  type: "object",
+  required: ["user_id", "email"],
+  title: "ScimReviewPerson",
+  description:
+    "One person a review lists, with the Tracecat groups the change touches.",
+} as const
+
 export const $ScimReviewRequest = {
   properties: {
     mappings: {
@@ -26341,6 +26241,11 @@ export const $ScimReviewRequest = {
       type: "array",
       maxItems: 100,
       title: "Delete",
+    },
+    full: {
+      type: "boolean",
+      title: "Full",
+      default: false,
     },
   },
   type: "object",
