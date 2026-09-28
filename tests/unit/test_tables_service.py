@@ -8,7 +8,6 @@ import pytest
 import sqlalchemy as sa
 from pydantic import ValidationError
 from sqlalchemy import select
-from sqlalchemy.exc import DBAPIError, StatementError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -34,8 +33,10 @@ from tracecat.tables.common import (
     ColumnHasDuplicateValuesError,
     handle_default_value,
     parse_postgres_default,
+    to_sql_clause,
 )
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableRowError
 from tracecat.tables.schemas import (
     TableAggregateRequest,
     TableColumnCreate,
@@ -1040,8 +1041,8 @@ class TestTableColumns:
             table, TableRowInsert(data={"name": "UniqueUser", "age": 25})
         )
 
-        # Attempt to insert a row with the same name, should fail with integrity error
-        with pytest.raises(ValueError) as exc_info:
+        # Duplicate user input is a structured conflict.
+        with pytest.raises(TableRowError) as exc_info:
             await tables_service.insert_row(
                 table, TableRowInsert(data={"name": "UniqueUser", "age": 30})
             )
@@ -1903,7 +1904,7 @@ class TestTableRows:
 
         # Input coercion now fails before SQL execution, but the batch should
         # still behave atomically and leave the table unchanged.
-        with pytest.raises(ValueError, match="Invalid integer value: 'invalid'"):
+        with pytest.raises(TableRowError, match="requires a valid INTEGER value"):
             await tables_service.batch_insert_rows(table, rows)
 
         # Verify no rows were inserted (transaction rolled back)
@@ -2287,25 +2288,25 @@ class TestTableDataTypes:
             # Test invalid integer
             pytest.param(
                 {"int_col": "not a number"},
-                "Invalid integer value: 'not a number'",
+                "Column 'int_col' requires a valid INTEGER value.",
                 id="invalid_integer",
             ),
             # Test invalid boolean
             pytest.param(
                 {"bool_col": "not a boolean"},
-                "Expected bool or 0/1, got str",
+                "Column 'bool_col' requires a valid BOOLEAN value.",
                 id="invalid_boolean",
             ),
-            # Test invalid JSON - this raises TypeError directly
+            # Test invalid JSON input
             pytest.param(
                 {"json_col": object()},
-                "Object of type object is not JSON serializable",
+                "Column 'json_col' requires a valid JSONB value.",
                 id="invalid_json",
             ),
             # Test invalid timestamp
             pytest.param(
                 {"timestamptz_col": "not-a-timestamp"},
-                "Invalid ISO datetime string: 'not-a-timestamp'",
+                "Column 'timestamptz_col' requires a valid TIMESTAMPTZ value.",
                 id="invalid_timestamp",
             ),
         ],
@@ -2321,9 +2322,7 @@ class TestTableDataTypes:
         """Test that invalid type conversions are handled appropriately."""
         try:
             # Don't start a new transaction, just use the existing one
-            with pytest.raises(
-                (DBAPIError, TypeError, ValueError, StatementError)
-            ) as exc_info:
+            with pytest.raises(TableRowError) as exc_info:
                 row_insert = TableRowInsert(data=invalid_data)
                 await tables_service.insert_row(complex_table, row_insert)
 
@@ -2865,3 +2864,254 @@ class TestTableAggregations:
                     aggs=[AggSpec(function=AggFunction.MEDIAN, field="value")],
                 ),
             )
+
+
+@pytest.fixture
+async def required_row_table(tables_service: TablesService) -> Table:
+    return await tables_service.create_table(
+        TableCreate(
+            name="required_row_values",
+            columns=[
+                TableColumnCreate(
+                    name="record_key", type=SqlType.TEXT, nullable=False, is_index=True
+                ),
+                TableColumnCreate(name="description", type=SqlType.TEXT),
+                TableColumnCreate(
+                    name="attempts", type=SqlType.INTEGER, nullable=False, default=0
+                ),
+            ],
+        )
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("batch", [False, True])
+@pytest.mark.parametrize("upsert", [False, True])
+@pytest.mark.parametrize(
+    "data,code",
+    [({}, "missing_required_column"), ({"record_key": None}, "null_not_allowed")],
+)
+async def test_required_row_input_rejected_before_write(
+    tables_service: TablesService,
+    required_row_table: Table,
+    batch: bool,
+    upsert: bool,
+    data: dict[str, Any],
+    code: str,
+) -> None:
+    with pytest.raises(TableRowError) as exc:
+        if batch:
+            await tables_service.batch_insert_rows(
+                required_row_table, [{"record_key": "valid"}, data], upsert=upsert
+            )
+        else:
+            await tables_service.insert_row(
+                required_row_table, TableRowInsert(data=data, upsert=upsert)
+            )
+    assert exc.value.code == code
+    assert exc.value.detail["column"] == "record_key"
+    assert exc.value.__context__ is None
+    assert await _list_rows(tables_service, required_row_table) == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("batch", [False, True])
+async def test_required_row_defaults_and_partial_updates(
+    tables_service: TablesService, required_row_table: Table, batch: bool
+) -> None:
+    if batch:
+        await tables_service.batch_insert_rows(
+            required_row_table, [{"record_key": "first"}]
+        )
+        row = (await _list_rows(tables_service, required_row_table))[0]
+    else:
+        row = await tables_service.insert_row(
+            required_row_table, TableRowInsert(data={"record_key": "first"})
+        )
+    assert row["attempts"] == 0
+    assert row["description"] is None
+    updated = await tables_service.update_row(
+        required_row_table, row["id"], {"description": "updated"}
+    )
+    assert updated["record_key"] == "first"
+    with pytest.raises(TableRowError) as exc:
+        await tables_service.update_row(
+            required_row_table, row["id"], {"attempts": None}
+        )
+    assert exc.value.code == "null_not_allowed"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("batch", [False, True])
+async def test_duplicate_row_is_safe_conflict(
+    tables_service: TablesService, required_row_table: Table, batch: bool
+) -> None:
+    data = {"record_key": "private-test-value"}
+    await tables_service.insert_row(required_row_table, TableRowInsert(data=data))
+    with pytest.raises(TableRowError) as exc:
+        if batch:
+            await tables_service.batch_insert_rows(required_row_table, [data])
+        else:
+            await tables_service.insert_row(
+                required_row_table, TableRowInsert(data=data)
+            )
+    assert exc.value.code == "duplicate_value"
+    assert "private-test-value" not in str(exc.value.detail)
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
+    await tables_service.session.rollback()
+
+
+@pytest.mark.anyio
+async def test_batch_upsert_repeated_key_is_safe_conflict(
+    tables_service: TablesService, required_row_table: Table
+) -> None:
+    with pytest.raises(TableRowError) as exc:
+        await tables_service.batch_insert_rows(
+            required_row_table,
+            [
+                {"record_key": "private-test-value", "description": "first"},
+                {"record_key": "private-test-value", "description": "second"},
+            ],
+            upsert=True,
+        )
+    assert exc.value.code == "duplicate_value"
+    assert "private-test-value" not in str(exc.value.detail)
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
+    await tables_service.session.rollback()
+    await tables_service.session.refresh(required_row_table)
+    assert await _list_rows(tables_service, required_row_table) == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "sql_type,value",
+    [
+        (SqlType.TEXT, 123),
+        (SqlType.JSONB, {"value": "private-test-value\u0000"}),
+    ],
+)
+async def test_batch_invalid_database_values_are_safe_client_errors(
+    tables_service: TablesService, table: Table, sql_type: SqlType, value: Any
+) -> None:
+    await tables_service.create_column(
+        table, TableColumnCreate(name="payload", type=sql_type)
+    )
+    with pytest.raises(TableRowError) as exc:
+        await tables_service.batch_insert_rows(table, [{"payload": value}])
+    assert exc.value.code == "invalid_value"
+    assert "private-test-value" not in str(exc.value.detail)
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
+    await tables_service.session.rollback()
+    await tables_service.session.refresh(table)
+    assert await _list_rows(tables_service, table) == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("batch", [False, True])
+async def test_database_not_null_fallback(
+    tables_service: TablesService, required_row_table: Table, batch: bool
+) -> None:
+    # Simulate metadata lag: PostgreSQL's constraint still protects the row.
+    column = next(c for c in required_row_table.columns if c.name == "record_key")
+    column.nullable = True
+    await tables_service.session.flush()
+    with pytest.raises(TableRowError) as exc:
+        if batch:
+            await tables_service.batch_insert_rows(
+                required_row_table, [{"description": "private-test-value"}]
+            )
+        else:
+            await tables_service.insert_row(
+                required_row_table,
+                TableRowInsert(data={"description": "private-test-value"}),
+            )
+    assert exc.value.code == "null_not_allowed"
+    assert exc.value.detail["column"] == "record_key"
+    assert "private-test-value" not in str(exc.value.detail)
+    assert exc.value.__context__ is None
+    await tables_service.session.rollback()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("true", True),
+        ("false", False),
+        ("1", True),
+        ("0", False),
+        ("TRUE", True),
+        ("FaLsE", False),
+        (True, True),
+        (False, False),
+        (1, True),
+        (0, False),
+    ],
+)
+async def test_boolean_row_writes_preserve_supported_values(
+    tables_service: TablesService,
+    table: Table,
+    value: str | bool | int,
+    expected: bool,
+) -> None:
+    await tables_service.create_column(
+        table, TableColumnCreate(name="enabled", type=SqlType.BOOLEAN)
+    )
+    await tables_service.create_unique_index(table, "name")
+    assert to_sql_clause(value, "enabled", SqlType.BOOLEAN).value is expected
+
+    row = await tables_service.insert_row(
+        table, TableRowInsert(data={"name": "single", "enabled": value})
+    )
+    assert row["enabled"] is expected
+    updated = await tables_service.update_row(table, row["id"], {"enabled": value})
+    assert updated["enabled"] is expected
+    upserted = await tables_service.insert_row(
+        table, TableRowInsert(data={"name": "single", "enabled": value}, upsert=True)
+    )
+    assert upserted["enabled"] is expected
+
+    assert (
+        await tables_service.batch_insert_rows(
+            table, [{"name": "batch", "enabled": value}]
+        )
+        == 1
+    )
+    assert (
+        await tables_service.batch_insert_rows(
+            table, [{"name": "batch", "enabled": value}], upsert=True
+        )
+        == 1
+    )
+    assert (
+        await tables_service.batch_update_rows(table, [row["id"]], {"enabled": value})
+        == 1
+    )
+    rows = await _list_rows(tables_service, table)
+    assert len(rows) == 2
+    assert all(result["enabled"] is expected for result in rows)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("value", ["yes", "", 2, 1.5, {}, []])
+@pytest.mark.parametrize("batch", [False, True])
+async def test_boolean_row_writes_reject_invalid_values_safely(
+    tables_service: TablesService, table: Table, value: Any, batch: bool
+) -> None:
+    await tables_service.create_column(
+        table, TableColumnCreate(name="enabled", type=SqlType.BOOLEAN)
+    )
+    with pytest.raises(TableRowError) as exc:
+        if batch:
+            await tables_service.batch_insert_rows(table, [{"enabled": value}])
+        else:
+            await tables_service.insert_row(
+                table, TableRowInsert(data={"enabled": value})
+            )
+    assert exc.value.code == "invalid_value"
+    assert exc.value.detail["column"] == "enabled"
+    assert exc.value.__context__ is None
+    assert await _list_rows(tables_service, table) == []

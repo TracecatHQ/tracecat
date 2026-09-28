@@ -20,6 +20,7 @@ from pydantic_core import to_jsonable_python
 from tracecat.api.common import (
     query_overflow_exception_handler,
     query_timeout_exception_handler,
+    table_row_exception_handler,
 )
 from tracecat.contexts import ctx_role
 from tracecat.executor.action_gateway.policy import (
@@ -31,6 +32,7 @@ from tracecat.query.errors import (
     TracecatQueryOverflowError,
     TracecatQueryTimeoutError,
 )
+from tracecat.tables.exceptions import TableRowError
 
 router = APIRouter(
     prefix="/internal",
@@ -194,6 +196,7 @@ def _add_exception_handlers(app: FastAPI) -> None:
         auth_pool_exhausted_exception_handler,
     )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
+    app.add_exception_handler(TableRowError, table_row_exception_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
         query_timeout_exception_handler,

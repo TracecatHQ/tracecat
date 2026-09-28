@@ -31,6 +31,7 @@ from tracecat.query.errors import (
     TracecatQueryOverflowError,
     TracecatQueryTimeoutError,
 )
+from tracecat.tables.exceptions import TableRowError
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 # All Tracecat search attributes are Keyword-typed.
@@ -172,6 +173,20 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
             "message": msg,
             "detail": tracecat_exc.detail,
         },
+    )
+
+
+async def table_row_exception_handler(request: Request, exc: Exception) -> Response:
+    """Report invalid row input as a client error, without capturing an outage."""
+    if not isinstance(exc, TableRowError):
+        raise exc
+    status_code = (
+        status.HTTP_409_CONFLICT
+        if exc.code == "duplicate_value"
+        else status.HTTP_400_BAD_REQUEST
+    )
+    return await http_exception_handler(
+        request, HTTPException(status_code=status_code, detail=exc.detail)
     )
 
 
