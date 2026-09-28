@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorOwner
+
+
+class AlertPriority(StrEnum):
+    """Routing intent, independent of diagnostic severity or Slack channels."""
+
+    LOW = "low"
+    URGENT = "urgent"
 
 
 class PlatformErrorCapture(BaseModel):

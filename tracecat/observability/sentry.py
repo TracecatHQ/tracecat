@@ -25,8 +25,16 @@ from tracecat import config
 from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.logger import logger
-from tracecat.observability.types import PlatformErrorCapture, ProxyFailureContext
-from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorOwner
+from tracecat.observability.types import (
+    AlertPriority,
+    PlatformErrorCapture,
+    ProxyFailureContext,
+)
+from tracecat.runtime.errors import (
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.temporal.error_chain import iter_error_chain
 
 
@@ -49,6 +57,7 @@ class SentryTag(StrEnum):
     LLM_PROVIDER_CONFIGURATION = "tracecat.llm.provider_configuration"
     ERROR_OWNER = "tracecat.error.owner"
     ERROR_KIND = "tracecat.error.kind"
+    ALERT_PRIORITY = "tracecat.alert.priority"
     ERROR_RETRY_DISPOSITION = "tracecat.error.retry_disposition"
     ERROR_CAUSE_TYPE = "tracecat.error.cause_type"
     WORKFLOW_TYPE = "temporal.workflow.type"
@@ -77,6 +86,7 @@ _WORKER_ALLOWED_TAGS = frozenset(
         SentryTag.SERVICE_NAME.value,
         SentryTag.ERROR_OWNER.value,
         SentryTag.ERROR_KIND.value,
+        SentryTag.ALERT_PRIORITY.value,
         SentryTag.ERROR_RETRY_DISPOSITION.value,
         SentryTag.ERROR_CAUSE_TYPE.value,
         SentryTag.WORKFLOW_TYPE.value,
@@ -86,6 +96,7 @@ _WORKER_ALLOWED_TAGS = frozenset(
 )
 _API_ALLOWED_TAGS = frozenset(
     {
+        SentryTag.ALERT_PRIORITY.value,
         SentryTag.ERROR_OWNER.value,
         SentryTag.COMPONENT.value,
         SentryTag.SERVICE_NAME.value,
@@ -168,6 +179,15 @@ def _set_diagnostic_tags(
         return
 
 
+def _platform_alert_priority(
+    classification: RuntimeErrorClassification,
+) -> AlertPriority:
+    """Keep non-paging runtime classifications in code, not alert routing rules."""
+    if classification.kind is RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND:
+        return AlertPriority.LOW
+    return AlertPriority.URGENT
+
+
 def capture_activity_failure(
     error: BaseException,
     classification: RuntimeErrorClassification,
@@ -216,6 +236,9 @@ def capture_activity_failure(
             _set_diagnostic_tags(scope, diagnostics)
             scope.set_tag(SentryTag.ERROR_OWNER.value, classification.owner.value)
             scope.set_tag(SentryTag.ERROR_KIND.value, classification.kind.value)
+            scope.set_tag(
+                SentryTag.ALERT_PRIORITY.value, _platform_alert_priority(classification)
+            )
             scope.set_tag(
                 SentryTag.ERROR_RETRY_DISPOSITION.value,
                 classification.retry_disposition.value,
@@ -299,6 +322,9 @@ def capture_platform_failure(
             scope.set_tag(SentryTag.ERROR_OWNER.value, classification.owner.value)
             scope.set_tag(SentryTag.ERROR_KIND.value, classification.kind.value)
             scope.set_tag(
+                SentryTag.ALERT_PRIORITY.value, _platform_alert_priority(classification)
+            )
+            scope.set_tag(
                 SentryTag.ERROR_RETRY_DISPOSITION.value,
                 classification.retry_disposition.value,
             )
@@ -362,6 +388,29 @@ def capture_auth_pool_exhaustion(error: AuthPoolExhaustedError) -> None:
     except Exception as reporting_error:
         logger.warning(
             "Failed to capture authentication pool exhaustion in Sentry",
+            reporting_error_type=type(reporting_error).__name__,
+        )
+
+
+def capture_api_exception(
+    error: Exception,
+    *,
+    priority: AlertPriority = AlertPriority.URGENT,
+    level: Literal["warning", "error"] = "error",
+) -> None:
+    """Best-effort capture of a handled API exception with explicit routing.
+
+    Callers choose severity and priority independently. The temporary scope
+    keeps those choices from affecting later events in the same request.
+    """
+    try:
+        with sentry_sdk.new_scope() as scope:
+            scope.set_tag(SentryTag.ALERT_PRIORITY.value, priority)
+            scope.set_level(level)
+            sentry_sdk.capture_exception(error)
+    except Exception as reporting_error:
+        logger.warning(
+            "Failed to capture API exception in Sentry",
             reporting_error_type=type(reporting_error).__name__,
         )
 
@@ -506,6 +555,14 @@ def _sanitize_event(
         if isinstance(tags, Mapping)
         else {}
     )
+    # Only the explicit low-priority flag can opt out of paging. Missing or
+    # invalid values remain urgent, including events from older producers.
+    priority = sanitized_event["tags"].get(SentryTag.ALERT_PRIORITY.value)
+    sanitized_event["tags"][SentryTag.ALERT_PRIORITY.value] = (
+        AlertPriority.LOW.value
+        if priority == AlertPriority.LOW
+        else AlertPriority.URGENT.value
+    )
     contexts = event.get("contexts")
     sanitized_contexts: dict[str, dict[str, Any]] = {}
     if isinstance(contexts, Mapping):
@@ -564,13 +621,18 @@ def _sanitize_api_event(
         }
     _enrich_api_request_event(event, tags)
     event["tags"] = dict(tags)
-    return _sanitize_event(
+    sanitized = _sanitize_event(
         event,
         safe_value="Tracecat API failure",
         allowed_event_fields=_API_ALLOWED_EVENT_FIELDS,
         allowed_tags=_API_ALLOWED_TAGS,
         allowed_context_fields=_API_ALLOWED_CONTEXT_FIELDS,
     )
+    if sanitized.get("tags", {}).get(SentryTag.ALERT_PRIORITY) == AlertPriority.LOW:
+        # Separate triage issues from historical urgent issues, preserving
+        # Sentry's grouping within each priority. Never retain raw fingerprints.
+        sanitized["fingerprint"] = ["tracecat-api-triage-v1", "{{ default }}"]
+    return sanitized
 
 
 def _initialize_sentry(

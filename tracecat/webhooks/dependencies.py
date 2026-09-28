@@ -12,6 +12,7 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import NoResultFound
+from starlette.requests import ClientDisconnect
 
 from tracecat.auth.api_keys import verify_api_key
 from tracecat.auth.types import Role
@@ -29,6 +30,8 @@ from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_api_exception
+from tracecat.observability.types import AlertPriority
 from tracecat.webhooks.schemas import NDJSON_CONTENT_TYPES
 from tracecat.workflow.management.management import WorkflowsManagementService
 
@@ -261,7 +264,17 @@ async def parse_webhook_payload(
     Returns:
         Parsed payload as TriggerInputs or None if no payload
     """
-    body = await request.body()
+    try:
+        body = await request.body()
+    except ClientDisconnect as error:
+        capture_api_exception(error, priority=AlertPriority.LOW, level="warning")
+        body = None
+    if body is None:
+        # Raise outside the handler so the disconnect is not retained as context.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Client disconnected before sending the complete webhook payload",
+        )
     if not body:
         return None
 
