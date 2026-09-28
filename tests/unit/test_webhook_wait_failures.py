@@ -24,6 +24,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.observability import sentry as sentry_module
 from tracecat.observability.sentry import SentryTag, initialize_api_sentry
+from tracecat.observability.types import AlertPriority
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
@@ -168,10 +169,7 @@ async def test_disconnected_body_returns_400_with_triage_warning(
     event = webhook.sentry_events[0]
     assert event.get("level") == "warning"
     assert event.get("tags", {}).get(SentryTag.ALERT_PRIORITY) == "low"
-    assert event.get("fingerprint") == ["tracecat-webhook-client-disconnected-v1"]
-    assert (
-        event.get("tags", {}).get(SentryTag.ERROR_KIND) == "webhook.client_disconnected"
-    )
+    assert event.get("fingerprint") == ["tracecat-api-triage-v1", "{{ default }}"]
     assert "exception" in event
     assert event["exception"]["values"][-1]["type"] == "ClientDisconnect"
     assert event["exception"]["values"][-1]["mechanism"]["handled"] is True
@@ -195,7 +193,9 @@ def test_disconnect_reporting_failure_does_not_replace_handled_response(
 def test_disconnect_classification_does_not_leak_into_other_events(
     webhook: _WebhookHarness,
 ) -> None:
-    sentry_module.capture_webhook_client_disconnect(ClientDisconnect())
+    sentry_module.capture_api_exception(
+        ClientDisconnect(), priority=AlertPriority.LOW, level="warning"
+    )
     sentry_sdk.capture_exception(ClientDisconnect())
     sentry_sdk.flush()
 

@@ -16,7 +16,6 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.starlette import StarletteIntegration
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
-from starlette.requests import ClientDisconnect
 from temporalio import activity
 from temporalio.exceptions import ActivityError
 from temporalio.exceptions import TimeoutError as TemporalTimeoutError
@@ -136,7 +135,6 @@ _BASE_ALLOWED_EVENT_FIELDS = frozenset(
 )
 _WORKER_ALLOWED_EVENT_FIELDS = _BASE_ALLOWED_EVENT_FIELDS | {"fingerprint"}
 _API_ALLOWED_EVENT_FIELDS = _BASE_ALLOWED_EVENT_FIELDS | {"transaction"}
-_WEBHOOK_CLIENT_DISCONNECTED = "webhook.client_disconnected"
 _ALLOWED_EXCEPTION_STRING_FIELDS = frozenset({"module", "type"})
 _ALLOWED_MECHANISM_STRING_FIELDS = frozenset({"type"})
 _ALLOWED_MECHANISM_BOOLEAN_FIELDS = frozenset(
@@ -394,16 +392,25 @@ def capture_auth_pool_exhaustion(error: AuthPoolExhaustedError) -> None:
         )
 
 
-def capture_webhook_client_disconnect(error: ClientDisconnect) -> None:
-    """Retain interrupted uploads as warnings for non-paging alert routing."""
+def capture_api_exception(
+    error: Exception,
+    *,
+    priority: AlertPriority = AlertPriority.URGENT,
+    level: Literal["warning", "error"] = "error",
+) -> None:
+    """Best-effort capture of a handled API exception with explicit routing.
+
+    Callers choose severity and priority independently. The temporary scope
+    keeps those choices from affecting later events in the same request.
+    """
     try:
         with sentry_sdk.new_scope() as scope:
-            scope.set_tag(SentryTag.ERROR_KIND.value, _WEBHOOK_CLIENT_DISCONNECTED)
-            scope.set_tag(SentryTag.ALERT_PRIORITY.value, AlertPriority.LOW)
+            scope.set_tag(SentryTag.ALERT_PRIORITY.value, priority)
+            scope.set_level(level)
             sentry_sdk.capture_exception(error)
     except Exception as reporting_error:
         logger.warning(
-            "Failed to capture webhook client disconnect in Sentry",
+            "Failed to capture API exception in Sentry",
             reporting_error_type=type(reporting_error).__name__,
         )
 
@@ -600,22 +607,8 @@ def _sanitize_api_event(
     component: Literal["api", "action_gateway"] = "api",
 ) -> Event:
     """Strip API events to stable, privacy-reviewed metadata."""
+    del hint
     tags = cast(MutableMapping[str, Any], event.get("tags") or {})
-    safe_value = "Tracecat API failure"
-    allowed_tags = _API_ALLOWED_TAGS
-    allowed_event_fields = _API_ALLOWED_EVENT_FIELDS
-    exc_info = hint.get("exc_info")
-    if (
-        exc_info is not None
-        and isinstance(exc_info[1], ClientDisconnect)
-        and tags.get(SentryTag.ERROR_KIND.value) == _WEBHOOK_CLIENT_DISCONNECTED
-    ):
-        event["level"] = "warning"
-        # Start a triage issue instead of updating the historical unhandled error.
-        event["fingerprint"] = ["tracecat-webhook-client-disconnected-v1"]
-        safe_value = "Webhook client disconnected before sending the complete payload"
-        allowed_tags = allowed_tags | {SentryTag.ERROR_KIND.value}
-        allowed_event_fields = allowed_event_fields | {"fingerprint"}
     tags[SentryTag.SERVICE_NAME.value] = service_name
     tags[SentryTag.ERROR_OWNER.value] = "platform"
     tags[SentryTag.COMPONENT.value] = component
@@ -628,13 +621,18 @@ def _sanitize_api_event(
         }
     _enrich_api_request_event(event, tags)
     event["tags"] = dict(tags)
-    return _sanitize_event(
+    sanitized = _sanitize_event(
         event,
-        safe_value=safe_value,
-        allowed_event_fields=allowed_event_fields,
-        allowed_tags=allowed_tags,
+        safe_value="Tracecat API failure",
+        allowed_event_fields=_API_ALLOWED_EVENT_FIELDS,
+        allowed_tags=_API_ALLOWED_TAGS,
         allowed_context_fields=_API_ALLOWED_CONTEXT_FIELDS,
     )
+    if sanitized.get("tags", {}).get(SentryTag.ALERT_PRIORITY) == AlertPriority.LOW:
+        # Separate triage issues from historical urgent issues, preserving
+        # Sentry's grouping within each priority. Never retain raw fingerprints.
+        sanitized["fingerprint"] = ["tracecat-api-triage-v1", "{{ default }}"]
+    return sanitized
 
 
 def _initialize_sentry(

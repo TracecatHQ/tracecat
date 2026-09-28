@@ -76,12 +76,14 @@ from tracecat.observability.sentry import (
     _sanitize_platform_event,
     capture_activity_failure,
     capture_api_background_task_failure,
+    capture_api_exception,
     capture_platform_failure,
     initialize_api_sentry,
     initialize_executor_sentry,
     initialize_worker_sentry,
     initialize_worker_sentry_from_environment,
 )
+from tracecat.observability.types import AlertPriority
 from tracecat.query.errors import TracecatQueryOverflowError, TracecatQueryTimeoutError
 from tracecat.runtime.errors import (
     RetryDisposition,
@@ -498,6 +500,31 @@ async def test_unclassified_platform_failure_is_attributed_then_captured_once(
     }
     assert set(event["contexts"]) <= {"runtime", "tracecat_workflow"}
     assert not {"breadcrumbs", "extra", "request", "user"} & event.keys()
+    assert _SENSITIVE_VALUE not in json.dumps(event)
+
+
+@pytest.mark.parametrize("priority", list(AlertPriority))
+@pytest.mark.parametrize("level", ["warning", "error"])
+def test_handled_api_capture_keeps_priority_independent_of_severity(
+    api_sentry_events: list[Event],
+    priority: AlertPriority,
+    level: Literal["warning", "error"],
+) -> None:
+    with sentry_sdk.new_scope() as scope:
+        scope.fingerprint = [_SENSITIVE_VALUE]
+        capture_api_exception(
+            ValueError(_SENSITIVE_VALUE), priority=priority, level=level
+        )
+    sentry_sdk.flush()
+
+    assert len(api_sentry_events) == 1
+    event = api_sentry_events[0]
+    assert event.get("level") == level
+    assert event.get("tags", {}).get(SentryTag.ALERT_PRIORITY) == priority
+    if priority is AlertPriority.LOW:
+        assert event.get("fingerprint") == ["tracecat-api-triage-v1", "{{ default }}"]
+    else:
+        assert "fingerprint" not in event
     assert _SENSITIVE_VALUE not in json.dumps(event)
 
 
