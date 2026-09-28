@@ -321,7 +321,9 @@ class CaseTagsService(BaseWorkspaceService):
 
         case_tag = await self.get_case_tag(case_id, tag.id)
         if not case_tag:
-            raise ValueError(f"Tag {tag_identifier} not found on case {case_id}")
+            raise TracecatNotFoundError(
+                f"Tag {tag_identifier} not found on case {case_id}"
+            )
         await self.session.delete(case_tag)
         await self._create_tag_event(
             case=case, tag=tag, event_type=CaseEventType.TAG_REMOVED

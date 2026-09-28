@@ -7091,7 +7091,7 @@ async def remove_case_tag(
             return MCPMessageResponse(
                 message=f"Case tag {tag_identifier} removed from case {case_id}"
             )
-    except NoResultFound as e:
+    except (NoResultFound, TracecatNotFoundError) as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
