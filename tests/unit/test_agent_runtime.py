@@ -3928,12 +3928,16 @@ async def test_run_keeps_original_error_when_sandbox_process_did_not_exit(
 @pytest.mark.anyio
 @pytest.mark.parametrize("interrupt_in_flight", [False, True])
 @pytest.mark.parametrize("runtime_failed", [False, True])
+@pytest.mark.parametrize(
+    "connection_error", [CLIConnectionError, BrokenPipeError, ConnectionResetError]
+)
 async def test_interrupt_racing_sdk_teardown_preserves_turn_outcome(
     mock_socket_writer: MagicMock,
     mock_claude_sdk_client: MagicMock,
     sample_init_payload: RuntimeInitPayload,
     interrupt_in_flight: bool,
     runtime_failed: bool,
+    connection_error: type[Exception],
 ) -> None:
     """Late stop requests must not replace a completed or failed turn's outcome."""
     response_started = asyncio.Event()
@@ -3957,7 +3961,7 @@ async def test_interrupt_racing_sdk_teardown_preserves_turn_outcome(
     async def interrupt() -> None:
         interrupt_started.set()
         await disconnect_started.wait()
-        raise CLIConnectionError("synthetic closed transport")
+        raise connection_error("synthetic closed transport")
 
     mock_claude_sdk_client.receive_response = receive_response
     mock_claude_sdk_client.disconnect.side_effect = disconnect
@@ -4000,19 +4004,21 @@ async def test_interrupt_racing_sdk_teardown_preserves_turn_outcome(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "connection_error", [CLIConnectionError, BrokenPipeError, ConnectionResetError]
+)
 async def test_interrupt_preserves_live_connection_error(
     mock_socket_writer: MagicMock,
+    connection_error: type[Exception],
 ) -> None:
     runtime = ClaudeAgentRuntime(
         mock_socket_writer, transport_factory=lambda _: MagicMock()
     )
     client = MagicMock()
-    client.interrupt = AsyncMock(
-        side_effect=CLIConnectionError("synthetic live failure")
-    )
+    client.interrupt = AsyncMock(side_effect=connection_error("synthetic live failure"))
     runtime.client = client
     runtime._client_connected_event.set()
     runtime._query_sent_event.set()
 
-    with pytest.raises(CLIConnectionError, match="synthetic live failure"):
+    with pytest.raises(connection_error, match="synthetic live failure"):
         await runtime.interrupt(reason="user_cancel")

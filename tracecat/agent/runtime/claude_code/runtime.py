@@ -1232,7 +1232,7 @@ class ClaudeAgentRuntime:
             client = self.client
             try:
                 await client.interrupt()
-            except CLIConnectionError:
+            except (CLIConnectionError, BrokenPipeError, ConnectionResetError):
                 # The turn can enter SDK teardown while the interrupt write is
                 # suspended. Its original outcome belongs to run(), not this
                 # best-effort stop request. Live connection errors still fail.
