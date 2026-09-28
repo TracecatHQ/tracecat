@@ -11,7 +11,7 @@ from asyncpg import DuplicateColumnError, DuplicateTableError
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from pydantic_core import to_jsonable_python
-from sqlalchemy.exc import DBAPIError, ProgrammingError
+from sqlalchemy.exc import ProgrammingError
 
 from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
@@ -576,12 +576,6 @@ async def insert_rows_batch(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
-        ) from exc
-    except DBAPIError as exc:
-        detail = str(exc.__cause__ or exc)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Database error: {detail}",
         ) from exc
 
 

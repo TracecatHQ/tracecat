@@ -63,6 +63,7 @@ from tracecat.api.common import (
     http_exception_handler,
     query_overflow_exception_handler,
     query_timeout_exception_handler,
+    table_row_exception_handler,
     tracecat_exception_handler,
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
@@ -178,6 +179,7 @@ from tracecat.storage.blob import (
     configure_bucket_lifecycle,
     ensure_bucket_exists,
 )
+from tracecat.tables.exceptions import TableRowError
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
 from tracecat.variables.router import router as variables_router
@@ -660,6 +662,7 @@ def create_app(**kwargs) -> FastAPI:
         auth_pool_exhausted_exception_handler,
     )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
+    app.add_exception_handler(TableRowError, table_row_exception_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
         query_timeout_exception_handler,

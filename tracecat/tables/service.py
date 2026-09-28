@@ -1,4 +1,5 @@
 import csv
+import json
 from collections import defaultdict
 from collections.abc import Sequence
 from datetime import datetime
@@ -80,6 +81,7 @@ from tracecat.tables.common import (
     validate_identifier as validate_identifier,
 )
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableRowError, execute_row_write
 from tracecat.tables.importer import (
     CSVSchemaInferer,
     InferredCSVColumn,
@@ -312,43 +314,72 @@ class BaseTablesService(BaseWorkspaceService):
         return value
 
     def _normalize_row_inputs(
-        self, table: Table, data: dict[str, Any]
+        self, table: Table, data: dict[str, Any], *, inserting: bool = False
     ) -> dict[str, Any]:
-        """Coerce row inputs to the expected SQL types."""
-        if not data:
-            return {}
+        """Validate row fields and coerce values without exposing rejected data."""
+        if inserting:
+            for column in table.columns:
+                if (
+                    not column.nullable
+                    and column.default is None
+                    and column.name not in data
+                ):
+                    raise TableRowError(
+                        "missing_required_column",
+                        f"Required column '{column.name}' is missing.",
+                        column=column.name,
+                    )
 
         column_index = {column.name: column for column in table.columns}
         normalised: dict[str, Any] = {}
         for column_name, value in data.items():
             column = column_index.get(column_name)
             if column is None:
-                raise ValueError(
-                    f"Column '{column_name}' does not exist in table '{table.name}'"
+                raise TableRowError(
+                    "unknown_column",
+                    f"Column '{column_name}' does not exist.",
+                    column=column_name,
                 )
-
-            sql_type = SqlType(column.type)
             if value is None:
+                if not column.nullable:
+                    raise TableRowError(
+                        "null_not_allowed",
+                        f"Column '{column_name}' cannot be null.",
+                        column=column_name,
+                    )
                 normalised[column_name] = None
                 continue
 
-            if sql_type in (SqlType.SELECT, SqlType.MULTI_SELECT):
-                normalised[column_name] = self._coerce_value_for_column(
-                    sql_type, value, column.options
+            sql_type = SqlType(column.type)
+            invalid = False
+            try:
+                if sql_type in (SqlType.SELECT, SqlType.MULTI_SELECT):
+                    value = self._coerce_value_for_column(
+                        sql_type, value, column.options
+                    )
+                elif sql_type is SqlType.TIMESTAMPTZ:
+                    value = coerce_to_utc_datetime(value)
+                elif sql_type is SqlType.INTEGER:
+                    value = coerce_integer_value(value)
+                elif sql_type is SqlType.NUMERIC:
+                    value = coerce_numeric_value(value)
+                elif sql_type is SqlType.DATE:
+                    value = coerce_to_date(value)
+                elif sql_type is SqlType.BOOLEAN:
+                    if not isinstance(value, (bool, int)) or value not in (0, 1):
+                        raise ValueError("Expected bool or 0/1")
+                elif sql_type is SqlType.JSONB:
+                    # Match SQLAlchemy's JSON serializer before reaching the DB.
+                    json.dumps(value)
+            except (ValueError, TypeError, OverflowError):
+                invalid = True
+            if invalid:
+                raise TableRowError(
+                    "invalid_value",
+                    f"Column '{column_name}' requires a valid {sql_type.value} value.",
+                    column=column_name,
                 )
-                continue
-
-            if sql_type is SqlType.TIMESTAMPTZ:
-                normalised[column_name] = coerce_to_utc_datetime(value)
-            elif sql_type is SqlType.INTEGER:
-                normalised[column_name] = coerce_integer_value(value)
-            elif sql_type is SqlType.NUMERIC:
-                normalised[column_name] = coerce_numeric_value(value)
-            elif sql_type is SqlType.DATE and value is not None:
-                normalised[column_name] = coerce_to_date(value)
-            else:
-                normalised[column_name] = value
-
+            normalised[column_name] = value
         return normalised
 
     def _sa_type_for_column(self, sql_type: SqlType) -> sa.types.TypeEngine[Any]:
@@ -999,14 +1030,14 @@ class BaseTablesService(BaseWorkspaceService):
         schema_name = self._get_schema_name()
         conn = await self.session.connection()
 
-        row_data = self._normalize_row_inputs(table, params.data)
+        row_data = self._normalize_row_inputs(table, params.data, inserting=True)
         col_map = {c.name: c for c in table.columns}
         upsert = params.upsert
+        needs_indexing = True
 
         value_clauses: dict[str, sa.BindParameter] = {}
         cols = []
 
-        table_name_for_logging = table.name
         sanitized_table_name = self._sanitize_identifier(table.name)
 
         for col, value in row_data.items():
@@ -1055,66 +1086,19 @@ class BaseTablesService(BaseWorkspaceService):
                 .select_from(table_obj)
                 .where(*[sa.column(key) == value_clauses[key] for key in index])
             )
-            try:
-                # Complete the statement with on_conflict_do_update
-                stmt = pg_stmt.on_conflict_do_update(
-                    index_elements=index, set_=update_dict
-                ).returning(*self._visible_columns(table))
+            needs_indexing = existed is None or bool(
+                self.search.selected_names(collection, table).intersection(update_dict)
+            )
+            stmt = pg_stmt.on_conflict_do_update(
+                index_elements=index, set_=update_dict
+            ).returning(*self._visible_columns(table))
 
-                result = await conn.execute(stmt)
-                await self.session.flush()
-                row = result.mappings().one()
-                if existed is None or self.search.selected_names(
-                    collection, table
-                ).intersection(update_dict):
-                    await self.search.record_rows(collection, [row["id"]])
-                return dict(row)
-            except ProgrammingError as e:
-                # Drill down to the root cause
-                original_error = e
-                while (cause := e.__cause__) is not None:
-                    e = cause
-                if "violates unique constraint" in str(e):
-                    self.logger.warning(
-                        "Trying to insert duplicate values",
-                        index=index,
-                        table_name=table_name_for_logging,
-                    )
-                    raise ValueError(
-                        "Please check for duplicate values in the unique index columns"
-                    ) from original_error
-                elif (
-                    "no unique or exclusion constraint matching the ON CONFLICT"
-                    in str(e)
-                ):
-                    raise ValueError(
-                        "Please check that the unique index columns are present in the data"
-                    ) from original_error
-                raise
-
-        # For non-upsert or if the exception handling for upsert didn't return
-        try:
-            result = await conn.execute(stmt)
-            await self.session.flush()
-            row = result.mappings().one()
+        result = await execute_row_write(conn.execute(stmt), table.columns)
+        await self.session.flush()
+        row = result.mappings().one()
+        if needs_indexing:
             await self.search.record_rows(collection, [row["id"]])
-            return dict(row)
-        except IntegrityError as e:
-            # Drill down to the root cause
-            original_error = e
-            while (cause := e.__cause__) is not None:
-                e = cause
-
-            # Check for unique constraint violations (which are the most common IntegrityErrors)
-            if "violates unique constraint" in str(e):
-                self.logger.warning(
-                    "Trying to insert duplicate values",
-                    table_name=table_name_for_logging,
-                )
-                raise ValueError(
-                    "Please check for duplicate values"
-                ) from original_error
-            raise
+        return dict(row)
 
     async def update_row(
         self,
@@ -1742,7 +1726,7 @@ class BaseTablesService(BaseWorkspaceService):
         # Group rows by their column sets to avoid inserting NULL into missing columns.
         rows_by_columns: dict[frozenset[str], list[dict[str, Any]]] = defaultdict(list)
         for row in rows:
-            normalised_row = self._normalize_row_inputs(table, row)
+            normalised_row = self._normalize_row_inputs(table, row, inserting=True)
             rows_by_columns[frozenset(normalised_row.keys())].append(normalised_row)
 
         column_type_map = {
@@ -1846,22 +1830,17 @@ class BaseTablesService(BaseWorkspaceService):
             else:
                 existing_ids = set()
                 changed_ids = set()
-            try:
-                written = (
-                    (await conn.execute(stmt.returning(sa.column("id"))))
-                    .scalars()
-                    .all()
-                )
-                total_affected += len(written)
-                ids = [
-                    row_id
-                    for row_id in written
-                    if row_id not in existing_ids or row_id in changed_ids
-                ]
-                await self.search.record_rows(collection, ids)
-            except Exception as e:
-                # Re-raise as DBAPIError for consistency
-                raise DBAPIError("Failed to insert batch", str(e), e) from e
+            result = await execute_row_write(
+                conn.execute(stmt.returning(sa.column("id"))), table.columns
+            )
+            written = result.scalars().all()
+            total_affected += len(written)
+            ids = [
+                row_id
+                for row_id in written
+                if row_id not in existing_ids or row_id in changed_ids
+            ]
+            await self.search.record_rows(collection, ids)
 
         # Flush once at the end to ensure changes are persisted within the transaction.
         await self.session.flush()

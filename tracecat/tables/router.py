@@ -575,12 +575,6 @@ async def batch_insert_rows(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except DBAPIError as e:
-        logger.exception("Database error occurred during batch row insert")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A database error occurred. Please check your input and try again.",
-        ) from e
 
 
 @router.post("/{table_id}/rows/batch-delete")
