@@ -1,4 +1,6 @@
 import json
+import subprocess
+import sys
 from types import SimpleNamespace
 from typing import Any
 
@@ -121,6 +123,63 @@ def test_thread_limit_none_without_address_space_cap(
     assert _thread_limit() is None
 
 
+def test_connect_caps_malloc_arenas_before_connect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    order: list[str] = []
+    connection = object()
+
+    def mallopt(option: int, value: int) -> None:
+        assert (option, value) == (-8, 2)
+        order.append("mallopt")
+
+    def connect(**kwargs: Any) -> object:
+        order.append("connect")
+        return connection
+
+    limit = 1024 * 1024 * 1024
+    monkeypatch.setattr(duckdb_action.sys, "platform", "linux")
+    monkeypatch.setattr(duckdb_action.resource, "getrlimit", lambda _: (limit, limit))
+    monkeypatch.setattr(
+        duckdb_action.ctypes,
+        "CDLL",
+        lambda _: SimpleNamespace(mallopt=mallopt),
+    )
+    monkeypatch.setattr(duckdb_action.duckdb, "connect", connect)
+
+    assert duckdb_action._connect() is connection
+    assert order == ["mallopt", "connect"]
+
+
+def test_cap_malloc_arenas_skips_infinite_address_space(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(duckdb_action.sys, "platform", "linux")
+    monkeypatch.setattr(
+        duckdb_action.resource,
+        "getrlimit",
+        lambda _: (duckdb_action.resource.RLIM_INFINITY,) * 2,
+    )
+
+    def unexpected_cdll(_: None) -> None:
+        pytest.fail("CDLL should not be called without an address-space limit")
+
+    monkeypatch.setattr(duckdb_action.ctypes, "CDLL", unexpected_cdll)
+
+    duckdb_action._cap_malloc_arenas()
+
+
+def test_cap_malloc_arenas_ignores_missing_mallopt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    limit = 1024 * 1024 * 1024
+    monkeypatch.setattr(duckdb_action.sys, "platform", "linux")
+    monkeypatch.setattr(duckdb_action.resource, "getrlimit", lambda _: (limit, limit))
+    monkeypatch.setattr(duckdb_action.ctypes, "CDLL", lambda _: SimpleNamespace())
+
+    duckdb_action._cap_malloc_arenas()
+
+
 @pytest.mark.parametrize(
     ("limit_mib", "cpus", "expected"),
     [(2048, 16, 4), (2048, 2, 2), (256, 16, 1)],
@@ -148,3 +207,47 @@ def test_thread_limit_none_without_resource_module(
 ) -> None:
     monkeypatch.setattr(duckdb_action, "resource", None)
     assert _thread_limit() is None
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="requires Linux glibc")
+def test_execute_sql_with_s3_credentials_under_address_space_limit() -> None:
+    con = duckdb_action._connect()
+    try:
+        try:
+            con.execute("LOAD httpfs")
+        except duckdb_action.duckdb.Error as exc:
+            pytest.skip(f"httpfs is unavailable: {exc}")
+    finally:
+        con.close()
+
+    code = """
+import resource
+
+limit = 1024 * 1024 * 1024
+resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+
+from tracecat_registry import secrets
+from tracecat_registry.core.duckdb import execute_sql
+
+token = secrets.set_context(
+    {
+        "AWS_ACCESS_KEY_ID": "test-access-key",
+        "AWS_SECRET_ACCESS_KEY": "test-secret-key",
+    }
+)
+try:
+    for _ in range(5):
+        assert execute_sql("SELECT 1") == [{"1": 1}]
+finally:
+    secrets.reset_context(token)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "terminate called" not in result.stderr
