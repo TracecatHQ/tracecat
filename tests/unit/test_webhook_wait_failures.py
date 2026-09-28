@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from sentry_sdk.envelope import Envelope
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event
+from starlette.requests import ClientDisconnect
 from starlette.types import Message, Scope
 from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
@@ -123,7 +124,7 @@ def webhook(monkeypatch: pytest.MonkeyPatch) -> Iterator[_WebhookHarness]:
     "content_type",
     ["application/json", "application/x-ndjson", "application/x-www-form-urlencoded"],
 )
-async def test_disconnected_body_returns_400_without_workflow_or_sentry(
+async def test_disconnected_body_returns_400_with_triage_warning(
     webhook: _WebhookHarness, partial_body: bytes, content_type: str
 ) -> None:
     incoming: list[Message] = []
@@ -163,7 +164,44 @@ async def test_disconnected_body_returns_400_without_workflow_or_sentry(
         "detail": "Client disconnected before sending the complete webhook payload"
     }
     webhook.execute.assert_not_awaited()
-    assert webhook.sentry_events == []
+    assert len(webhook.sentry_events) == 1
+    event = webhook.sentry_events[0]
+    assert event.get("level") == "warning"
+    assert event.get("fingerprint") == ["tracecat-webhook-client-disconnected-v1"]
+    assert (
+        event.get("tags", {}).get(SentryTag.ERROR_KIND) == "webhook.client_disconnected"
+    )
+    assert "exception" in event
+    assert event["exception"]["values"][-1]["type"] == "ClientDisconnect"
+    assert event["exception"]["values"][-1]["mechanism"]["handled"] is True
+    serialized = orjson.dumps(event).decode()
+    assert "synthetic-secret" not in serialized
+    assert str(_WORKFLOW_ID) not in serialized
+    assert "request" not in event
+
+
+def test_disconnect_reporting_failure_does_not_replace_handled_response(
+    webhook: _WebhookHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Request, "body", AsyncMock(side_effect=ClientDisconnect))
+    with patch.object(sentry_sdk, "capture_exception", side_effect=RuntimeError):
+        response = webhook.client.post(_WEBHOOK_PATH, json={})
+
+    assert response.status_code == 400
+    webhook.execute.assert_not_awaited()
+
+
+def test_disconnect_classification_does_not_leak_into_other_events(
+    webhook: _WebhookHarness,
+) -> None:
+    sentry_module.capture_webhook_client_disconnect(ClientDisconnect())
+    sentry_sdk.capture_exception(ClientDisconnect())
+    sentry_sdk.flush()
+
+    assert len(webhook.sentry_events) == 2
+    assert webhook.sentry_events[0].get("level") == "warning"
+    assert webhook.sentry_events[1].get("level") == "error"
+    assert SentryTag.ERROR_KIND not in webhook.sentry_events[1].get("tags", {})
 
 
 def test_unexpected_body_read_error_still_reports_to_sentry(
@@ -179,6 +217,8 @@ def test_unexpected_body_read_error_still_reports_to_sentry(
     assert response.status_code == 500
     webhook.execute.assert_not_awaited()
     assert len(webhook.sentry_events) == 1
+    assert webhook.sentry_events[0].get("level") == "error"
+    assert SentryTag.ERROR_KIND not in webhook.sentry_events[0].get("tags", {})
 
 
 @pytest.mark.parametrize("unwrap", [False, True])

@@ -30,6 +30,7 @@ from tracecat.ee.interactions.schemas import InteractionInput
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath
 from tracecat.logger import logger
+from tracecat.observability.sentry import capture_webhook_client_disconnect
 from tracecat.webhooks.schemas import NDJSON_CONTENT_TYPES
 from tracecat.workflow.management.management import WorkflowsManagementService
 
@@ -264,7 +265,8 @@ async def parse_webhook_payload(
     """
     try:
         body = await request.body()
-    except ClientDisconnect:
+    except ClientDisconnect as error:
+        capture_webhook_client_disconnect(error)
         body = None
     if body is None:
         # Raise outside the handler so the disconnect is not retained as context.
