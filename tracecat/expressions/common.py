@@ -1,6 +1,6 @@
 import threading
 from collections import OrderedDict
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from enum import StrEnum, auto
 from typing import Any, TypeVar
@@ -160,6 +160,11 @@ class IterableExpr[T]:
             yield self.iterator, item
 
 
+type JSONPathFinder = Callable[
+    [jsonpath_nodes.JSONPath, Any], list[jsonpath_nodes.DatumInContext]
+]
+
+
 K = TypeVar("K", str, StrEnum)
 ExprOperand = Mapping[K, Any]
 
@@ -174,6 +179,7 @@ def eval_jsonpath(
     *,
     context_type: ExprContext | None = None,
     strict: bool = False,
+    find: JSONPathFinder | None = None,
 ) -> Any | None:
     """Evaluate a jsonpath expression on the target object (operand)."""
 
@@ -193,7 +199,10 @@ def eval_jsonpath(
         )
         formatted_expr = _expr_with_context(expr, context_type)
         raise TracecatExpressionError(f"Invalid jsonpath {formatted_expr!r}") from e
-    matches = [found.value for found in jsonpath_expr.find(operand)]
+    found = (
+        jsonpath_expr.find(operand) if find is None else find(jsonpath_expr, operand)
+    )
+    matches = [match.value for match in found]
 
     def _contains_filter(path: jsonpath_nodes.JSONPath) -> bool:
         stack: list[jsonpath_nodes.JSONPath] = [path]

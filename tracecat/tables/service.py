@@ -701,6 +701,7 @@ class BaseTablesService(BaseWorkspaceService):
             ProgrammingError: If the database operation fails
         """
         collection = await self.search.for_table(column.table_id)
+        table = await self.search.table(column.table_id)
         await self.session.refresh(column)
         set_fields = params.model_dump(exclude_unset=True)
         self._assert_user_column_name_allowed(column.name)
@@ -709,15 +710,15 @@ class BaseTablesService(BaseWorkspaceService):
                 set_fields.pop("name")
             else:
                 self._assert_user_column_name_allowed(requested_name)
-        full_table_name = self._full_table_name(column.table.name)
+        full_table_name = self._full_table_name(table.name)
         conn = await self.session.connection()
         is_index = set_fields.pop("is_index", None)
         requested_options = set_fields.pop("options", None)
 
         if is_index is True:
-            await self.create_unique_index(column.table, column.name)
+            await self.create_unique_index(table, column.name)
         elif is_index is False:
-            await self.drop_unique_index(column.table, column.name)
+            await self.drop_unique_index(table, column.name)
 
         # Handle options for SELECT/MULTI_SELECT columns
         target_type = (
@@ -908,9 +909,10 @@ class BaseTablesService(BaseWorkspaceService):
     async def delete_column(self, column: TableColumn) -> None:
         """Remove a column from an existing table."""
         collection = await self.search.for_table(column.table_id)
+        table = await self.search.table(column.table_id)
         await self.search.column_changed(collection, column, removed=True)
         self._assert_user_column_name_allowed(column.name)
-        full_table_name = self._full_table_name(column.table.name)
+        full_table_name = self._full_table_name(table.name)
         sanitized_column = self._sanitize_identifier(column.name)
 
         # Delete the column metadata first

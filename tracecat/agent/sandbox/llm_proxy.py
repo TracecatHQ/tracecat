@@ -48,12 +48,15 @@ from tracecat.agent.gateway_providers import (
     resolve_gateway_provider_config,
 )
 from tracecat.agent.observability import get_load_tracker
+from tracecat.agent.sandbox.shim_entrypoint import HTTPRequestError, read_http_request
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
 from tracecat.network import DisallowedUrlError
+from tracecat.observability.sentry import capture_activity_failure
+from tracecat.observability.types import PlatformErrorCapture, ProxyFailureContext
 from tracecat.outbound import create_outbound_http_client
 from tracecat.runtime.errors import RuntimeErrorClassification
 
@@ -118,6 +121,8 @@ _ERROR_MESSAGES = {
     403: "Access denied - check your API permissions",
     404: "Model not found - check your model configuration",
     405: "HTTP method not allowed by the LLM socket proxy",
+    413: "Content Too Large",
+    431: "Request Header Fields Too Large",
     429: "Rate limit exceeded - please try again later",
     500: "LLM provider internal error",
     502: "LLM provider unavailable",
@@ -202,6 +207,7 @@ class LLMProxyError:
     message: str
     classification: RuntimeErrorClassification
     diagnostic: LLMErrorDiagnostics | None = None
+    sentry_capture: PlatformErrorCapture | None = None
 
 
 def _error_object_strings(body: bytes) -> tuple[str | None, str | None]:
@@ -855,6 +861,8 @@ class LLMSocketProxy:
         classification: RuntimeErrorClassification,
         *,
         diagnostic: LLMErrorDiagnostics | None = None,
+        error: Exception | None = None,
+        context: ProxyFailureContext | None = None,
     ) -> None:
         """Emit error via callback (only once)."""
         self._emit_proxy_error(
@@ -862,13 +870,37 @@ class LLMSocketProxy:
                 message=message,
                 classification=classification,
                 diagnostic=diagnostic,
-            )
+            ),
+            source_error=error,
+            context=context,
         )
 
-    def _emit_proxy_error(self, error: LLMProxyError) -> None:
+    def _emit_proxy_error(
+        self,
+        error: LLMProxyError,
+        *,
+        source_error: Exception | None = None,
+        context: ProxyFailureContext | None = None,
+    ) -> None:
         """Emit one terminal proxy error via callback (only once)."""
         if not self._stopping and not self._error_emitted:
             self._error_emitted = True
+            if source_error is not None:
+                classification = error.classification.model_copy(
+                    update={"cause_type": type(source_error).__name__}
+                )
+                error = replace(error, classification=classification)
+                if self._on_error:
+                    error = replace(
+                        error,
+                        sentry_capture=capture_activity_failure(
+                            source_error,
+                            classification,
+                            existing_capture=error.sentry_capture,
+                            proxy_context=context,
+                            diagnostics=(error.diagnostic,) if error.diagnostic else (),
+                        ),
+                    )
             logger.error("LLM proxy error", error=error.message, **_load_fields())
             if self._on_error:
                 self._on_error(error)
@@ -923,6 +955,14 @@ class LLMSocketProxy:
             # Forward to the selected backend and stream response back
             await self._forward_request(request, writer)
 
+        except HTTPRequestError as exc:
+            await self._write_error_response(
+                writer,
+                status_code=exc.status_code,
+                detail=str(exc),
+                request_counter=0,
+                trace_request_id=str(uuid4()),
+            )
         except asyncio.IncompleteReadError:
             logger.debug("Client disconnected during request")
         except ConnectionError:
@@ -940,6 +980,7 @@ class LLMSocketProxy:
                 self._emit_error(
                     f"Proxy error: {e}",
                     agent_executor_protocol_failed(e),
+                    error=e,
                 )
         finally:
             _proxy_load_tracker.end_connection()
@@ -958,62 +999,22 @@ class LLMSocketProxy:
         Returns:
             Dict with method, path, headers, and body, or None if connection closed.
         """
-        # Read request line
-        request_line = await reader.readline()
-        if not request_line:
+        raw_request = await read_http_request(reader, max_body_size=MAX_BODY_SIZE)
+        if raw_request is None:
             return None
-
+        header_block, body = raw_request
+        request_line, *header_lines = header_block.split(b"\r\n")
         try:
-            request_line_str = request_line.decode("utf-8").strip()
-            parts = request_line_str.split(" ", 2)
-            if len(parts) < 2:
-                self._emit_error(
-                    "Malformed request line",
-                    agent_executor_protocol_failed(),
-                )
-                return None
-            method = parts[0]
-            path = parts[1]
-        except (UnicodeDecodeError, ValueError):
-            self._emit_error(
-                "Invalid request encoding",
-                agent_executor_protocol_failed(),
-            )
-            return None
-
-        # Read headers
+            method, path, version = request_line.decode("ascii").split(" ")
+        except ValueError:
+            raise HTTPRequestError("Malformed request line") from None
+        if version not in {"HTTP/1.0", "HTTP/1.1"}:
+            raise HTTPRequestError("Unsupported HTTP version")
         headers: dict[str, str] = {}
-        content_length = 0
-        while True:
-            line = await reader.readline()
-            if not line or line == b"\r\n":
-                break
-            try:
-                header_str = line.decode("utf-8").strip()
-                if ":" in header_str:
-                    key, value = header_str.split(":", 1)
-                    key = key.strip()
-                    value = value.strip()
-                    headers[key] = value
-                    if key.lower() == "content-length":
-                        content_length = int(value)
-            except (UnicodeDecodeError, ValueError):
-                continue
-
-        # Validate content length to prevent memory exhaustion DoS
-        if content_length > MAX_BODY_SIZE:
-            logger.warning(
-                "Request body too large",
-                content_length=content_length,
-                max_size=MAX_BODY_SIZE,
-            )
-            self._emit_error("Request body too large", user_agent_execution_failed())
-            return None
-
-        # Read body if present
-        body = b""
-        if content_length > 0:
-            body = await reader.readexactly(content_length)
+        for line in header_lines:
+            if line:
+                key, value = line.decode("latin-1").split(":", 1)
+                headers[key] = value.strip()
 
         return {
             "method": method,
@@ -1168,6 +1169,12 @@ class LLMSocketProxy:
                 ):
                     response_phase = "error_body"
                     error_body = await response.aread()
+                    logger.warning(
+                        "LLM upstream returned an error",
+                        status_code=response.status_code,
+                        request_body_bytes=len(upstream_request.body),
+                        trace_request_id=trace_request_id,
+                    )
                     classification = _http_error_classification(
                         response.status_code,
                         route_is_direct=route.is_direct,
@@ -1175,11 +1182,20 @@ class LLMSocketProxy:
                     )
                     # Error bodies may echo credentials, budgets or request data.
                     # Keep durable failure text source-owned and privacy-safe.
-                    self._emit_error(
-                        classification.message,
-                        classification,
-                        diagnostic=diagnostic(),
-                    )
+                    # This stack is the local response check, not the remote provider.
+                    try:
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError as exc:
+                        self._emit_error(
+                            classification.message,
+                            classification,
+                            diagnostic=diagnostic(),
+                            error=exc,
+                            context=ProxyFailureContext(
+                                route="direct" if route.is_direct else "managed",
+                                status_code=response.status_code,
+                            ),
+                        )
                     body_chunks = [error_body]
                 else:
                     body_chunks = response.aiter_bytes()
@@ -1236,7 +1252,11 @@ class LLMSocketProxy:
                             else f"LLM upstream unavailable: {exc}"
                         ),
                         diagnostic=diagnostic(),
-                    )
+                    ),
+                    source_error=exc,
+                    context=ProxyFailureContext(
+                        route="direct" if route.is_direct else "managed"
+                    ),
                 )
 
     async def _write_response(
@@ -1378,6 +1398,11 @@ class LLMSocketProxy:
                         surfaced_error,
                         classification,
                         diagnostic=diagnostic_factory() if diagnostic_factory else None,
+                        error=exc,
+                        context=ProxyFailureContext(
+                            route="direct" if route_is_direct else "managed",
+                            status_code=status_code,
+                        ),
                     )
                 error_payload = orjson.dumps(
                     {
@@ -1412,7 +1437,12 @@ class LLMSocketProxy:
                             diagnostic=diagnostic_factory()
                             if diagnostic_factory
                             else None,
-                        )
+                        ),
+                        source_error=exc,
+                        context=ProxyFailureContext(
+                            route="direct" if route_is_direct else "managed",
+                            status_code=status_code,
+                        ),
                     )
             else:
                 raise

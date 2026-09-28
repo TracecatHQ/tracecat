@@ -15,8 +15,12 @@ from tracecat.cases.schemas import (
     CaseCommentThreadRead,
     CaseReadMinimal,
 )
-from tracecat.db.models import Case, Workspace
-from tracecat.exceptions import EntitlementRequired, TracecatValidationError
+from tracecat.db.models import Case, CaseTag, Workspace
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.pagination import CursorPaginatedResponse
 
 
@@ -212,6 +216,36 @@ async def test_internal_update_case_simple_invalid_integer_fields_returns_400(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "Invalid integer value: '1.5'"
+
+
+@pytest.mark.anyio
+async def test_internal_update_case_simple_removed_tag_returns_400(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_internal_case: Case,
+) -> None:
+    """A tag removed after listing remains a client error during replacement."""
+    tag = CaseTag(id=uuid.uuid4(), name="Escalated", ref="escalated")
+    message = f"Tag {tag.ref} not found on case {mock_internal_case.id}"
+    with patch.object(internal_cases_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_internal_case
+        mock_service.update_case.return_value = mock_internal_case
+        mock_service.tags.list_tags_for_case.return_value = [tag]
+        mock_service.tags.remove_case_tag.side_effect = TracecatNotFoundError(message)
+        mock_service_cls.return_value = mock_service
+
+        response = action_gateway_client.patch(
+            f"/internal/cases/{mock_internal_case.id}/simple",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"tags": []},
+        )
+
+    mock_service.tags.remove_case_tag.assert_awaited_once_with(
+        mock_internal_case.id, tag.ref
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == message
 
 
 @pytest.mark.anyio

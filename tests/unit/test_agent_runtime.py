@@ -1995,7 +1995,10 @@ class TestClaudeAgentRuntimeRun:
         assert messages == [
             {
                 "type": "user",
-                "message": {"role": "user", "content": "Continue."},
+                "message": {
+                    "role": "user",
+                    "content": runtime_module.APPROVAL_CONTINUATION_PROMPT,
+                },
                 "parent_tool_use_id": None,
                 "session_id": "default",
                 "isMeta": True,

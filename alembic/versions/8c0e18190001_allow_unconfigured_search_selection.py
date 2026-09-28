@@ -1,7 +1,7 @@
 """Allow saving table selections before an embedding provider is available.
 
 Revision ID: 8c0e18190001
-Revises: 391f391da70b, bc3124ad3437
+Revises: 391f391da70b
 
 Existing configured collections are unchanged. A NULL configuration never passes
 current-version eligibility or worker claims, including in the previous writer.
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "8c0e18190001"
-down_revision = ("391f391da70b", "bc3124ad3437")
+down_revision = "391f391da70b"
 branch_labels = None
 depends_on = None
 

@@ -17,6 +17,7 @@ from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.secrets.stores.backends import get_backend
 from tracecat_registry._internal import secrets as registry_secrets
 
 from tracecat.agent.access.service import AgentModelAccessService
@@ -65,11 +66,22 @@ from tracecat.secrets import secrets_manager
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, decrypt_value
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.schemas import (
+    SecretCreate,
+    SecretKeyValue,
+    SecretSearch,
+    SecretUpdate,
+)
+from tracecat.secrets.service import (
+    SecretsService,
+    build_external_secret_reference,
+    is_external_reference,
+)
 from tracecat.service import BaseOrgService
 from tracecat.settings.schemas import SettingCreate, SettingUpdate, ValueType
 from tracecat.settings.service import SettingsService
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 
 _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
 _VERTEX_BEARER_TOKEN_KEY = "VERTEX_AI_BEARER_TOKEN"
@@ -516,17 +528,28 @@ class AgentManagementService(BaseOrgService):
         self,
         provider: str,
     ) -> dict[str, str] | None:
-        """Get decrypted credentials for an AI provider at workspace level."""
+        """Resolve local or externally backed workspace credentials for a provider.
+
+        Commits the caller's session before resolving an external reference.
+        """
         secret_name = self._get_workspace_credential_secret_name(provider)
-        try:
-            secret = await self.secrets_service.get_secret_by_name(
-                secret_name,
-                DEFAULT_SECRETS_ENVIRONMENT,
-            )
-            decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
-            return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
-        except TracecatNotFoundError:
+        secrets = await self.secrets_service.search_secrets(
+            SecretSearch(names={secret_name}, environment=DEFAULT_SECRETS_ENVIRONMENT)
+        )
+        if not secrets:
             return None
+        secret = secrets[0]
+        if is_external_reference(secret):
+            await check_entitlement(
+                self.session, self.role, Entitlement.EXTERNAL_SECRET_STORES
+            )
+            reference = build_external_secret_reference(secret)
+            # Release the DB connection before the remote call.
+            await self.session.commit()
+            values = await get_backend(reference.provider).resolve([reference])
+            return values.get(secret_name)
+        decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
+        return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
 
     async def _augment_runtime_provider_credentials(
         self, provider: str, credentials: dict[str, str]

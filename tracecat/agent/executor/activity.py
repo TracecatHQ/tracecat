@@ -251,7 +251,7 @@ class AgentExecutorResult(BaseModel):
     diagnostic: LLMErrorDiagnostics | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
-    sentry_capture: PlatformErrorCapture | None = Field(default=None, exclude=True)
+    sentry_capture: PlatformErrorCapture | None = Field(default=None)
     # None means a legacy activity result did not carry this field. The
     # workflow treats unknown failed results as already terminal-emitted so old
     # histories keep their original command shape.
@@ -930,6 +930,7 @@ class SandboxedAgentExecutor:
                             proxy_error.classification,
                             diagnostic=proxy_error.diagnostic,
                         )
+                        result.sentry_capture = proxy_error.sentry_capture
                         result.terminal_stream_error_emitted = (
                             await handler.emit_terminal_error(
                                 proxy_error.message,

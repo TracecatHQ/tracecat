@@ -61,3 +61,11 @@ class EntitlementsDict(TypedDict, total=False):
             " (agent sessions, tool-call telemetry, and controls)"
         ),
     ]
+    external_secret_stores: Annotated[
+        bool,
+        Field(
+            title="External secret stores",
+            description="Whether workspace secrets may reference external"
+            " secret stores such as AWS Secrets Manager",
+        ),
+    ]

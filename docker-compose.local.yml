@@ -98,6 +98,7 @@ services:
       TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS:-128}
       # Blob Storage
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      TRACECAT__BLOB_STORAGE_SSL_VERIFY: ${TRACECAT__BLOB_STORAGE_SSL_VERIFY:-true}
       TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: ${TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:-${TRACECAT__PUBLIC_APP_URL}/s3}
       TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS: ${TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS:-30}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
@@ -119,7 +120,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost:$${PORT:-8000}/health"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -192,6 +193,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       # Blob storage (for S3)
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      TRACECAT__BLOB_STORAGE_SSL_VERIFY: ${TRACECAT__BLOB_STORAGE_SSL_VERIFY:-true}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     command: ["python", "-m", "tracecat.dsl.worker"]
@@ -311,6 +313,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       # Blob storage (for S3/MinIO wheel access)
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      TRACECAT__BLOB_STORAGE_SSL_VERIFY: ${TRACECAT__BLOB_STORAGE_SSL_VERIFY:-true}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
@@ -394,6 +397,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       # Blob storage (for S3/MinIO tarball access)
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      TRACECAT__BLOB_STORAGE_SSL_VERIFY: ${TRACECAT__BLOB_STORAGE_SSL_VERIFY:-true}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     command: ["python", "-m", "tracecat.agent.worker"]
@@ -437,7 +441,7 @@ services:
       migrations:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health/readiness"]
+      test: ["CMD-SHELL", "curl -f http://localhost:$${TRACECAT__LITELLM_PORT:-4000}/health/readiness"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -549,6 +553,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       # Blob storage (for S3/MinIO tarball access)
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      TRACECAT__BLOB_STORAGE_SSL_VERIFY: ${TRACECAT__BLOB_STORAGE_SSL_VERIFY:-true}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     volumes:
@@ -614,6 +619,7 @@ services:
       TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS:-128}
       # Blob Storage
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      TRACECAT__BLOB_STORAGE_SSL_VERIFY: ${TRACECAT__BLOB_STORAGE_SSL_VERIFY:-true}
       TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: ${TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:-${TRACECAT__PUBLIC_APP_URL}/s3}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -748,8 +754,17 @@ services:
     depends_on:
       - temporal
 
+  minio-init:
+    image: cgr.dev/chainguard/minio:latest@sha256:6a1d0b45c8669726bba580ced0bfa4cb9fdeed1ed636dfabd81d1577beb6937b
+    user: "0:0"
+    entrypoint: ["chown", "-R", "65532:65532", "/data"]
+    volumes:
+      - minio-data:/data
+    network_mode: none
+    restart: "no"
+
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: cgr.dev/chainguard/minio:latest@sha256:6a1d0b45c8669726bba580ced0bfa4cb9fdeed1ed636dfabd81d1577beb6937b
     container_name: minio
     restart: unless-stopped
     networks:
@@ -763,6 +778,9 @@ services:
     volumes:
       - minio-data:/data
     command: server /data --console-address ":9001"
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s
