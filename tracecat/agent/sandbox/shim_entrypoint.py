@@ -170,6 +170,44 @@ class ClaudeShimInitPayload(TypedDict):
     mcp_bridge_fd: NotRequired[int | None]
 
 
+def _close_connection_headers(headers: bytes) -> bytes:
+    """Declare the bridge's single-request connection lifecycle on either hop."""
+    first_line, *lines = headers[:-4].split(b"\r\n")
+    return (
+        first_line
+        + b"\r\n"
+        + b"".join(
+            line + b"\r\n"
+            for line in lines
+            if line.partition(b":")[0].lower() not in {b"connection", b"keep-alive"}
+        )
+        + b"Connection: close\r\n\r\n"
+    )
+
+
+async def _read_response_headers(reader: asyncio.StreamReader) -> tuple[int, bytes]:
+    """Read a bounded upstream header block without buffering its streamed body."""
+    try:
+        headers = await reader.readuntil(b"\r\n\r\n")
+    except (asyncio.LimitOverrunError, asyncio.IncompleteReadError):
+        raise HTTPRequestError("Invalid upstream response headers", 502) from None
+    if len(headers) > HTTP_HEADER_LIMIT:
+        raise HTTPRequestError("Upstream response headers too large", 502)
+    status_line, *lines = headers[:-4].split(b"\r\n")
+    match = re.fullmatch(rb"HTTP/1\.[01] ([0-9]{3})(?: [^\r\n]*)?", status_line)
+    if match is None:
+        raise HTTPRequestError("Unsupported upstream HTTP response", 502)
+    status = int(match[1])
+    if not 100 <= status <= 599 or status == 101:
+        raise HTTPRequestError("Unsupported upstream HTTP response", 502)
+    try:
+        for line in lines:
+            _http_header_name(line + b"\r\n")
+    except HTTPRequestError:
+        raise HTTPRequestError("Invalid upstream response headers", 502) from None
+    return status, headers
+
+
 class SandboxSocketBridge:
     """HTTP bridge: 127.0.0.1:<port> -> UDS at ``socket_path``.
 
@@ -196,12 +234,13 @@ class SandboxSocketBridge:
         self._actual_port: int | None = None
         self._server: asyncio.Server | None = None
         self._serve_task: asyncio.Task[None] | None = None
+        self._connections: set[asyncio.Task[None]] = set()
 
     async def start(self) -> int:
         """Start the bridge and return the bound localhost port."""
         if self._listener_fd is None:
             self._server = await asyncio.start_server(
-                self._handle_connection,
+                self._accept_connection,
                 host=BRIDGE_HOST,
                 port=self._requested_port,
             )
@@ -209,7 +248,7 @@ class SandboxSocketBridge:
             listener = socket.socket(fileno=self._listener_fd)
             listener.setblocking(False)
             self._server = await asyncio.start_server(
-                self._handle_connection,
+                self._accept_connection,
                 sock=listener,
             )
         if not self._server.sockets:
@@ -231,6 +270,14 @@ class SandboxSocketBridge:
 
     async def stop(self) -> None:
         """Stop the bridge server."""
+        if self._server is not None:
+            self._server.close()
+        # Open SSE responses can outlive the listener. Own their tasks so they
+        # remain alive while serving and release both sockets on shutdown.
+        connections = list(self._connections)
+        for task in connections:
+            task.cancel()
+        await asyncio.gather(*connections, return_exceptions=True)
         if self._serve_task is not None:
             if not self._serve_task.done():
                 self._serve_task.cancel()
@@ -242,6 +289,13 @@ class SandboxSocketBridge:
             await self._server.wait_closed()
             self._server = None
             LOGGER.info("%s stopped", self._log_label)
+
+    def _accept_connection(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        task = asyncio.create_task(self._handle_connection(reader, writer))
+        self._connections.add(task)
+        task.add_done_callback(self._connections.discard)
 
     def _on_serve_done(self, task: asyncio.Task[None]) -> None:
         """Log unexpected bridge task failures."""
@@ -261,7 +315,8 @@ class SandboxSocketBridge:
         client_reader: asyncio.StreamReader,
         client_writer: asyncio.StreamWriter,
     ) -> None:
-        """Forward one HTTP client connection to the Unix socket."""
+        """Forward one request and stream its response, closing both HTTP hops."""
+        response_started = False
         try:
             request_data = await self._read_http_request(client_reader)
             if not request_data:
@@ -278,6 +333,17 @@ class SandboxSocketBridge:
             try:
                 sock_writer.write(request_data)
                 await sock_writer.drain()
+                # Upstream close is requested, but HTTP only recommends echoing
+                # that header. Advertise closure to our client explicitly too.
+                while True:
+                    status, headers = await _read_response_headers(sock_reader)
+                    if status >= 200:
+                        headers = _close_connection_headers(headers)
+                        response_started = True
+                    client_writer.write(headers)
+                    await client_writer.drain()
+                    if status >= 200:
+                        break
                 while chunk := await sock_reader.read(8192):
                     client_writer.write(chunk)
                     await client_writer.drain()
@@ -296,7 +362,7 @@ class SandboxSocketBridge:
             LOGGER.debug("%s client disconnected during request", self._log_label)
         except Exception as exc:
             LOGGER.warning("%s error: %s", self._log_label, exc)
-            if self._on_uds_failure == "error":
+            if self._on_uds_failure == "error" and not response_started:
                 with contextlib.suppress(Exception):
                     await self._send_error_response(
                         client_writer,
@@ -329,7 +395,7 @@ class SandboxSocketBridge:
         if request is None:
             return None
         headers, body = request
-        return headers + body
+        return _close_connection_headers(headers) + body
 
     async def _send_error_response(
         self,

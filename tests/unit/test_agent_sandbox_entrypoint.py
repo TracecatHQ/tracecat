@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import signal
 import socket
 import tempfile
@@ -8,6 +9,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, cast
 
+import httpx
 import orjson
 import pytest
 
@@ -15,18 +17,22 @@ from tracecat.agent.sandbox.shim_entrypoint import (
     BRIDGE_HOST,
     DEFAULT_LLM_SOCKET_PATH,
     DEFAULT_MCP_SOCKET_PATH,
+    HTTP_HEADER_LIMIT,
     INIT_PAYLOAD_ENV_VAR,
     LLM_MAX_BODY_SIZE,
     LLM_SOCKET_ENV_VAR,
     MCP_SOCKET_ENV_VAR,
+    HTTPRequestError,
     SandboxSocketBridge,
     _forward_exit_code,
     _pump_stdin_to_process,
+    _read_response_headers,
     _read_stdin_chunk,
     _resolve_init_payload_path,
     _resolve_mcp_socket_path,
     _rewrite_mcp_bridge_command_port,
     _wait_for_process_with_stdin,
+    read_http_request,
     run_sandboxed_claude_shim,
 )
 from tracecat.agent.sandbox.shim_entrypoint import (
@@ -345,10 +351,10 @@ def short_socket_dir() -> Iterator[Path]:
 
 
 @pytest.mark.anyio
-async def test_sandbox_socket_bridge_forwards_unchanged_without_hook(
+async def test_sandbox_socket_bridge_preserves_request_body(
     short_socket_dir: Path,
 ) -> None:
-    """No before_forward hook means request bytes pass through unchanged."""
+    """Connection normalization preserves the payload and its framing."""
     socket_path = short_socket_dir / "upstream.sock"
     received: list[bytes] = []
 
@@ -395,6 +401,168 @@ async def test_sandbox_socket_bridge_forwards_unchanged_without_hook(
     assert response.startswith(b"HTTP/1.1 200 OK")
     assert received and received[0].endswith(b"\r\n\r\nbody")
     assert b"Content-Length: 4" in received[0]
+
+
+@pytest.mark.anyio
+async def test_bridge_stop_closes_an_open_event_stream(short_socket_dir: Path) -> None:
+    socket_path = short_socket_dir / "events.sock"
+    upstream_closed = asyncio.Event()
+
+    async def upstream(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        try:
+            await read_http_request(reader, max_body_size=1024)
+            writer.write(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n"
+                b"Transfer-Encoding: chunked\r\n\r\n"
+            )
+            await writer.drain()
+            await reader.read()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            upstream_closed.set()
+
+    server = await asyncio.start_unix_server(upstream, path=str(socket_path))
+    bridge = SandboxSocketBridge(
+        socket_path=socket_path,
+        max_body_size=1024,
+        on_uds_failure="error",
+        log_label="MCP bridge",
+    )
+    port = await bridge.start()
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        writer.write(b"GET /mcp HTTP/1.1\r\nHost: bridge\r\n\r\n")
+        await writer.drain()
+        await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), 2)
+        await asyncio.wait_for(bridge.stop(), 2)
+        assert await asyncio.wait_for(reader.read(), 2) == b""
+        await asyncio.wait_for(upstream_closed.wait(), 2)
+    finally:
+        writer.close()
+        await writer.wait_closed()
+        await bridge.stop()
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "response",
+    [
+        b"HTTP/1.1 200 OK\r\n",  # Truncated headers.
+        b"not HTTP\r\n\r\n",
+        b"HTTP/1.1 101 Switching Protocols\r\n\r\n",
+        b"HTTP/1.1 000 Invalid\r\n\r\n",
+        b"HTTP/1.1 200 OK\r\nBad header\r\n\r\n",
+        b"HTTP/1.1 200 OK\r\nX-Large: " + b"a" * HTTP_HEADER_LIMIT + b"\r\n\r\n",
+    ],
+)
+async def test_bridge_rejects_invalid_upstream_headers(response: bytes) -> None:
+    reader = asyncio.StreamReader()
+    reader.feed_data(response)
+    reader.feed_eof()
+
+    with pytest.raises(HTTPRequestError) as error:
+        await _read_response_headers(reader)
+    assert error.value.status_code == 502
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("chunked", [False, True])
+@pytest.mark.parametrize("response_connection", [b"", b"Connection: keep-alive\r\n"])
+async def test_bridge_reconnects_between_complete_streamed_responses(
+    short_socket_dir: Path, chunked: bool, response_connection: bytes
+) -> None:
+    """A pooling client receives each complete stream and reconnects promptly."""
+    socket_path = short_socket_dir / "persistent.sock"
+    release_body = asyncio.Event()
+    requests: list[bytes] = []
+    handlers: set[asyncio.Task[None]] = set()
+    first, last = b"data: first\n\n", b"data: last\n\n"
+
+    async def upstream(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        task = asyncio.current_task()
+        assert task is not None
+        handlers.add(task)
+        try:
+            while request := await read_http_request(reader, max_body_size=1024):
+                headers, body = request
+                requests.append(body)
+                framing = (
+                    b"Transfer-Encoding: chunked\r\n"
+                    if chunked
+                    else f"Content-Length: {len(first) + len(last)}\r\n".encode()
+                )
+                # Exercise interim headers as well as the final response.
+                writer.write(b"HTTP/1.1 103 Early Hints\r\n\r\n")
+                writer.write(
+                    b"HTTP/1.1 200 OK\r\n"
+                    + framing
+                    + response_connection
+                    + b"Content-Type: text/event-stream\r\n\r\n"
+                )
+                writer.write(
+                    f"{len(first):x}\r\n".encode() + first + b"\r\n"
+                    if chunked
+                    else first
+                )
+                await writer.drain()
+                await release_body.wait()
+                writer.write(
+                    f"{len(last):x}\r\n".encode() + last + b"\r\n0\r\n\r\n"
+                    if chunked
+                    else last
+                )
+                await writer.drain()
+                if b"connection: close\r\n" in headers.lower():
+                    break
+        finally:
+            writer.close()
+            with contextlib.suppress(ConnectionError):
+                await writer.wait_closed()
+            handlers.discard(task)
+
+    server = await asyncio.start_unix_server(upstream, path=str(socket_path))
+    bridge = SandboxSocketBridge(
+        socket_path=socket_path,
+        max_body_size=1024,
+        on_uds_failure="error",
+        log_label="MCP bridge",
+    )
+    port = await bridge.start()
+    try:
+        async with httpx.AsyncClient(timeout=2) as client:
+            for index in range(3):
+                release_body.clear()
+                async with client.stream(
+                    "POST",
+                    f"http://127.0.0.1:{port}/mcp",
+                    content=str(index).encode(),
+                    headers={"Connection": "keep-alive", "Keep-Alive": "timeout=60"},
+                ) as response:
+                    assert response.status_code == 200
+                    assert response.headers["connection"] == "close"
+                    assert "keep-alive" not in response.headers
+                    chunks = response.aiter_bytes()
+                    # The first chunk must arrive before the upstream completes.
+                    assert await anext(chunks) == first
+                    release_body.set()
+                    assert b"".join([chunk async for chunk in chunks]) == last
+        assert requests == [b"0", b"1", b"2"]
+    finally:
+        release_body.set()
+        server.close()
+        pending = list(handlers)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        await server.wait_closed()
+        await bridge.stop()
 
 
 @pytest.mark.anyio
