@@ -12,6 +12,7 @@ from pydantic import (
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from tracecat.agent.common.exceptions import UserMCPDiscoveryError
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
@@ -25,6 +26,7 @@ from tracecat.agent.error_policy import (
     registry_lock_action_ambiguous,
     registry_lock_invalid_data,
     tenant_entitlement_denied,
+    user_mcp_discovery_failed,
 )
 from tracecat.agent.mcp.internal_tools import (
     BUILDER_BUNDLED_ACTIONS,
@@ -502,6 +504,10 @@ class AgentActivities:
                     server_count=len(hydrated_servers),
                 )
                 if args.fail_on_mcp_discovery_error:
+                    if isinstance(e, UserMCPDiscoveryError):
+                        raise_application_error_from_classification(
+                            user_mcp_discovery_failed(e)
+                        )
                     raise_application_error_from_classification(
                         invalid_agent_configuration(e)
                     )

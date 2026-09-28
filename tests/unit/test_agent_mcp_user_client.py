@@ -13,6 +13,7 @@ from mcp.types import (
 )
 from pydantic import AnyUrl
 
+from tracecat.agent.common.exceptions import UserMCPDiscoveryError
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.agent.mcp.http_limits import BoundedResponseTransport
 from tracecat.agent.mcp.user_client import UserMCPClient, _create_transport
@@ -82,10 +83,51 @@ async def test_discover_tools_fails_closed_in_strict_mode(
     client = UserMCPClient([_mcp_server("working"), _mcp_server("broken")])
 
     with pytest.raises(
-        RuntimeError,
+        UserMCPDiscoveryError,
         match="Failed to discover tools from user MCP server 'broken'",
-    ):
+    ) as exc_info:
         await client.discover_tools(fail_on_error=True)
+
+    assert exc_info.value.server_name == "broken"
+    assert exc_info.value.error_summary == "RuntimeError"
+
+
+@pytest.mark.anyio
+async def test_strict_mode_error_summary_omits_response_body_and_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = httpx.Request("GET", "https://broken.example/mcp?token=secret")
+    response = httpx.Response(
+        401, request=request, text='{"error": "invalid_token abc123"}'
+    )
+
+    async def fake_discover_server_tools(
+        self: UserMCPClient,
+        server_name: str,
+        config: MCPHttpServerConfig,
+    ) -> dict[str, MCPToolDefinition]:
+        del self, config, server_name
+        raise httpx.HTTPStatusError(
+            "Client error '401 Unauthorized'", request=request, response=response
+        )
+
+    monkeypatch.setattr(
+        UserMCPClient,
+        "_discover_server_tools",
+        fake_discover_server_tools,
+    )
+    client = UserMCPClient([_mcp_server("broken")])
+
+    with pytest.raises(UserMCPDiscoveryError) as exc_info:
+        await client.discover_tools(fail_on_error=True)
+
+    exc = exc_info.value
+    assert exc.error_summary == "HTTPStatusError(status_code=401)"
+    surfaced = f"{exc} {exc.server_name} {exc.error_summary}"
+    assert "abc123" not in surfaced
+    assert "token=secret" not in surfaced
+    assert "broken.example" not in surfaced
+    assert isinstance(exc.__cause__, httpx.HTTPStatusError)
 
 
 # Regression: fastmcp's StreamableHttpTransport.connect_session merges any

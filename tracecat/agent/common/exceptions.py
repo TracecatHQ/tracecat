@@ -19,6 +19,22 @@ class AgentSandboxExecutionError(AgentSandboxError):
     """Raised when agent execution fails."""
 
 
+class UserMCPDiscoveryError(RuntimeError):
+    """Raised when strict tool discovery fails for a user-configured MCP server.
+
+    Carries only the workspace-owned server name and a sanitized error summary
+    (exception type plus status/MCP code); response bodies, headers, and URLs
+    stay in the chained cause.
+    """
+
+    def __init__(self, server_name: str, error_summary: str) -> None:
+        super().__init__(
+            f"Failed to discover tools from user MCP server '{server_name}'"
+        )
+        self.server_name = server_name
+        self.error_summary = error_summary
+
+
 class AgentSandboxProcessExitError(AgentSandboxExecutionError):
     """Raised when the jailed agent runtime process exited with a failure code.
 

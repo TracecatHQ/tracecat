@@ -6,7 +6,10 @@ import signal
 from dataclasses import dataclass
 
 from tracecat.agent.common.config import TRACECAT__AGENT_SANDBOX_MEMORY_MB
-from tracecat.agent.common.exceptions import AgentSandboxProcessExitError
+from tracecat.agent.common.exceptions import (
+    AgentSandboxProcessExitError,
+    UserMCPDiscoveryError,
+)
 from tracecat.exceptions import RegistryLockAmbiguousActionError
 from tracecat.runtime.errors import (
     RetryDisposition,
@@ -47,6 +50,26 @@ def invalid_agent_configuration(
     return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
         message="Agent configuration is invalid",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def user_mcp_discovery_failed(
+    error: UserMCPDiscoveryError,
+) -> RuntimeErrorClassification:
+    """Classify a strict tool-discovery failure against a user MCP server.
+
+    The server name and sanitized error summary are the caller's own
+    configuration and a status code; the upstream response stays in the cause.
+    """
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+        message=(
+            "Agent configuration is invalid: tool discovery failed for MCP server "
+            f"{error.server_name!r} ({error.error_summary}); "
+            "check the integration's connection"
+        ),
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,
     )
