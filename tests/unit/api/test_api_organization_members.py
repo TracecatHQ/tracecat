@@ -134,6 +134,32 @@ async def test_list_org_members_omits_superuser_flag(
 
 
 @pytest.mark.anyio
+async def test_list_org_members_labels_roleless_member(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    user = _member_user()
+    mock_session = await app.dependency_overrides[get_async_session]()
+    rbac_result = Mock()
+    rbac_result.tuples.return_value = Mock(all=Mock(return_value=[]))
+    inv_result = Mock()
+    inv_result.scalars.return_value = Mock(all=Mock(return_value=[]))
+    mock_session.execute = AsyncMock(side_effect=[rbac_result, inv_result])
+
+    with patch.object(organization_router, "OrgService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.list_members.return_value = [user]
+        mock_svc.list_invitations.return_value = []
+        MockService.return_value = mock_svc
+
+        response = client.get("/organization/members")
+
+    assert response.status_code == status.HTTP_200_OK
+    [member] = response.json()
+    assert member["role_name"] == "Member"
+    assert member["role_slug"] is None
+
+
+@pytest.mark.anyio
 async def test_update_org_member_omits_superuser_flag(
     client: TestClient, test_admin_role: Role
 ) -> None:

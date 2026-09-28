@@ -11,7 +11,10 @@ export function invitationGrantLabel(
   const scope = grant.workspace_id
     ? (workspaces.find((w) => w.id === grant.workspace_id)?.name ?? "Workspace")
     : "Organization"
-  const role = roles.find((r) => r.id === grant.role_id)?.name ?? "Role"
+  // The roles list hides the implicit organization-member role.
+  const role =
+    roles.find((r) => r.id === grant.role_id)?.name ??
+    (grant.workspace_id ? "Role" : "Member")
   return `${scope}: ${role}`
 }
 

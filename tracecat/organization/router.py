@@ -320,7 +320,7 @@ async def list_org_members(
         if rbac_info:
             role_name, role_slug = rbac_info
         else:
-            role_name = ""
+            role_name = "Member"
             role_slug = None
         result.append(
             OrgMemberRead(
