@@ -25,14 +25,12 @@ from tracecat.auth.users import (
     get_user_manager_context,
 )
 from tracecat.authz.controls import has_scope, require_scope
+from tracecat.authz.membership import drop_workspace_membership_mirror, ensure_member
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.db.models import (
     AccessToken,
     Group,
     GroupMember,
-    MCPPersonalAccessToken,
-    MCPRefreshToken,
-    Membership,
     Organization,
     OrganizationInvitation,
     OrganizationMembership,
@@ -45,7 +43,7 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat.identifiers import OrganizationID, SessionID, UserID
+from tracecat.identifiers import SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.invitations.service import reset_invitation_email
 from tracecat.organization.management import (
@@ -151,33 +149,8 @@ async def accept_invitation_for_user(
             # Shouldn't reach here, but handle gracefully
             raise TracecatAuthorizationError("Invitation is no longer valid")
 
-        # Upsert membership — idempotent if single-tenant defaults already ran.
-        membership_stmt = (
-            pg_insert(OrganizationMembership)
-            .values(
-                user_id=user_id,
-                organization_id=invitation.organization_id,
-            )
-            .on_conflict_do_nothing(
-                index_elements=[
-                    OrganizationMembership.user_id,
-                    OrganizationMembership.organization_id,
-                ]
-            )
-            .returning(OrganizationMembership)
-        )
-        membership_result = await session.execute(membership_stmt)
-        membership = membership_result.scalar_one_or_none()
-        if membership is None:
-            # Row already existed; fetch it.
-            existing = await session.execute(
-                select(OrganizationMembership).where(
-                    OrganizationMembership.user_id == user_id,
-                    OrganizationMembership.organization_id
-                    == invitation.organization_id,
-                )
-            )
-            membership = existing.scalar_one()
+        # The membership row is the aggregate root the assignment hangs off.
+        await ensure_member(session, invitation.organization_id, user_id)
 
         # Upsert the org-wide role assignment to the invitation's role.
         # Uses on_conflict_do_update so a pre-existing organization-member row
@@ -201,9 +174,18 @@ async def accept_invitation_for_user(
             )
         )
         await session.execute(assignment_stmt)
-
         await session.commit()
-        await session.refresh(membership)
+
+        # Membership row was written above.
+        membership = (
+            await session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user_id,
+                    OrganizationMembership.organization_id
+                    == invitation.organization_id,
+                )
+            )
+        ).scalar_one()
     except TracecatAuthorizationError:
         # Re-raise auth errors without logging as failure (expected user errors)
         raise
@@ -297,10 +279,10 @@ class OrgService(BaseOrgService):
 
         This method removes a specified member from the current organization
         without deleting the global user record, so memberships in other
-        organizations are preserved. It revokes global app sessions and
-        organization-scoped MCP tokens so removed members lose stale access
-        immediately. It raises an authorization error for superusers, as
-        superusers cannot be removed.
+        organizations are preserved. It revokes global app sessions; deleting
+        the membership row cascades the user's role paths and fires the trigger
+        that revokes their organization-scoped MCP tokens. It raises an
+        authorization error for superusers, as superusers cannot be removed.
 
         Args:
             user_id (UserID): The unique identifier of the user to be removed.
@@ -315,43 +297,16 @@ class OrgService(BaseOrgService):
         await self.session.execute(
             delete(AccessToken).where(type_cast(Any, AccessToken.user_id) == user.id)
         )
-        await self.session.execute(
-            update(MCPRefreshToken)
-            .where(
-                MCPRefreshToken.user_id == user.id,
-                MCPRefreshToken.organization_id == self.organization_id,
-                MCPRefreshToken.status != "revoked",
-            )
-            .values(status="revoked")
-        )
-        await self.session.execute(
-            update(MCPPersonalAccessToken)
-            .where(
-                MCPPersonalAccessToken.user_id == user.id,
-                MCPPersonalAccessToken.organization_id == self.organization_id,
-                MCPPersonalAccessToken.revoked_at.is_(None),
-            )
-            .values(revoked_at=datetime.now(UTC), revoked_by=self.role.user_id)
-        )
-
         workspace_ids = select(Workspace.id).where(
             Workspace.organization_id == self.organization_id
         )
+        await drop_workspace_membership_mirror(
+            self.session, user_id=user.id, workspace_ids=workspace_ids
+        )
+        # Rows written by older app versions carry no organization_id, so the
+        # composite-FK cascade below cannot reach them.
         group_ids = select(Group.id).where(
             Group.organization_id == self.organization_id
-        )
-
-        await self.session.execute(
-            delete(Membership).where(
-                Membership.user_id == user.id,
-                Membership.workspace_id.in_(workspace_ids),
-            )
-        )
-        await self.session.execute(
-            delete(UserRoleAssignment).where(
-                UserRoleAssignment.user_id == user.id,
-                UserRoleAssignment.organization_id == self.organization_id,
-            )
         )
         await self.session.execute(
             delete(GroupMember).where(
@@ -359,13 +314,13 @@ class OrgService(BaseOrgService):
                 GroupMember.group_id.in_(group_ids),
             )
         )
+        # Deleting the aggregate root cascades assignments and group members.
         await self.session.execute(
             delete(OrganizationMembership).where(
                 OrganizationMembership.user_id == user.id,
                 OrganizationMembership.organization_id == self.organization_id,
             )
         )
-
         await self.session.commit()
 
     @require_scope("org:member:update")
@@ -395,39 +350,6 @@ class OrgService(BaseOrgService):
                 user_update=params, user=user, safe=True
             )
         return updated_user
-
-    @audit_log(resource_type="organization_member", action="create")
-    async def add_member(
-        self,
-        *,
-        user_id: UserID,
-        organization_id: OrganizationID,
-    ) -> OrganizationMembership:
-        """Add a user to an organization.
-
-        This method creates an OrganizationMembership record linking a user
-        to an organization. It is typically called from the invitation flow
-        when a user accepts an invitation.
-
-        Note: This method does not require scope checks as it is
-        intended to be called by internal services (e.g., invitation service).
-        RBAC role assignment is handled separately.
-
-        Args:
-            user_id: The unique identifier of the user to add.
-            organization_id: The unique identifier of the organization.
-
-        Returns:
-            OrganizationMembership: The created membership record.
-        """
-        membership = OrganizationMembership(
-            user_id=user_id,
-            organization_id=organization_id,
-        )
-        self.session.add(membership)
-        await self.session.commit()
-        await self.session.refresh(membership)
-        return membership
 
     @audit_log(resource_type="organization", action="delete")
     @require_scope("org:delete")
@@ -762,12 +684,10 @@ class OrgService(BaseOrgService):
                 # Shouldn't reach here, but handle gracefully
                 raise TracecatAuthorizationError("Invitation is no longer valid")
 
-            # Create membership (still needed for org membership existence checks)
-            membership = OrganizationMembership(
-                user_id=self.role.user_id,
-                organization_id=invitation.organization_id,
+            # The membership row is the aggregate root the assignment hangs off.
+            await ensure_member(
+                self.session, invitation.organization_id, self.role.user_id
             )
-            self.session.add(membership)
 
             # Create RBAC role assignment from invitation's role_id
             assignment = UserRoleAssignment(
@@ -779,7 +699,6 @@ class OrgService(BaseOrgService):
             self.session.add(assignment)
 
             await self.session.commit()
-            await self.session.refresh(membership)
         except TracecatAuthorizationError:
             # Re-raise auth errors without logging as failure (expected user errors)
             raise
@@ -795,6 +714,17 @@ class OrgService(BaseOrgService):
                     status=AuditEventStatus.FAILURE,
                 )
             raise
+
+        # Membership row was written above.
+        membership = (
+            await self.session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == self.role.user_id,
+                    OrganizationMembership.organization_id
+                    == invitation.organization_id,
+                )
+            )
+        ).scalar_one()
 
         # Log audit success outside the try-except to avoid logging FAILURE
         # if only audit logging fails after a successful commit

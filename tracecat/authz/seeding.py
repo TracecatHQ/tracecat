@@ -17,7 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
-from tracecat.db.models import Organization, Role, RoleScope, Scope
+from tracecat.db.models import (
+    Organization,
+    Role,
+    RoleScope,
+    Scope,
+)
 from tracecat.logger import logger
 
 # =============================================================================

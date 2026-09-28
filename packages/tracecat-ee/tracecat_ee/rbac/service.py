@@ -16,12 +16,17 @@ from tracecat.authz.controls import (
     validate_scope_string,
 )
 from tracecat.authz.enums import ScopeSource
+from tracecat.authz.membership import (
+    drop_workspace_membership_mirror,
+    mirror_workspace_membership,
+)
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
 from tracecat.authz.service import resolve_grantable_role, resolve_granter_scopes
 from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
+    Membership,
     OrganizationMembership,
     RoleScope,
     Scope,
@@ -321,6 +326,26 @@ class RBACService(BaseOrgService):
         if result.scalar_one_or_none() is None:
             raise TracecatNotFoundError("Group not found")
 
+    async def _user_in_organization(self, user_id: UUID) -> bool:
+        """Check whether the user holds any role path in the organization."""
+        # A workspace path is enough to keep the user grantable.
+        stmt = (
+            select(OrganizationMembership.user_id)
+            .where(
+                OrganizationMembership.user_id == user_id,
+                OrganizationMembership.organization_id == self.organization_id,
+            )
+            .union(
+                select(Membership.user_id).where(
+                    Membership.user_id == user_id,
+                    Membership.organization_id == self.organization_id,
+                )
+            )
+            .limit(1)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none() is not None
+
     async def _ensure_can_grant_scopes(self, scopes: Sequence[Scope]) -> None:
         """Reject grants containing scopes the caller does not hold."""
         if self.role.is_platform_superuser:
@@ -439,12 +464,7 @@ class RBACService(BaseOrgService):
         await self._ensure_group_membership_assignable(group_id)
 
         # Verify user belongs to this organization
-        stmt = select(OrganizationMembership).where(
-            OrganizationMembership.user_id == user_id,
-            OrganizationMembership.organization_id == self.organization_id,
-        )
-        result = await self.session.execute(stmt)
-        if result.scalar_one_or_none() is None:
+        if not await self._user_in_organization(user_id):
             raise TracecatNotFoundError("User not found in organization")
 
         # Check if already a member
@@ -456,7 +476,11 @@ class RBACService(BaseOrgService):
         if result.scalar_one_or_none() is not None:
             raise TracecatValidationError("User is already a member of this group")
 
-        member = GroupMember(group_id=group_id, user_id=user_id)
+        member = GroupMember(
+            group_id=group_id,
+            user_id=user_id,
+            organization_id=self.organization_id,
+        )
         self.session.add(member)
         await self.session.commit()
 
@@ -700,12 +724,7 @@ class RBACService(BaseOrgService):
             Created UserRoleAssignment
         """
         # Verify user belongs to this organization
-        stmt = select(OrganizationMembership).where(
-            OrganizationMembership.user_id == user_id,
-            OrganizationMembership.organization_id == self.organization_id,
-        )
-        result = await self.session.execute(stmt)
-        if result.scalar_one_or_none() is None:
+        if not await self._user_in_organization(user_id):
             raise TracecatNotFoundError("User not found in organization")
 
         # Verify role exists
@@ -728,6 +747,11 @@ class RBACService(BaseOrgService):
             workspace_id=workspace_id,
             assigned_by=self.role.user_id,
         )
+        if workspace_id is not None:
+            # Legacy workspace table is still written for app versions reading it.
+            await mirror_workspace_membership(
+                self.session, user_id=user_id, workspace_id=workspace_id
+            )
         self.session.add(assignment)
         try:
             await self.session.commit()
@@ -772,6 +796,13 @@ class RBACService(BaseOrgService):
         """Delete a user role assignment."""
         assignment = await self.get_user_assignment(assignment_id)
         await self.session.delete(assignment)
+        # Org presence outlives the assignment; only the workspace mirror follows it.
+        if assignment.workspace_id is not None:
+            await drop_workspace_membership_mirror(
+                self.session,
+                user_id=assignment.user_id,
+                workspace_ids=[assignment.workspace_id],
+            )
         await self.session.commit()
 
     async def get_user_role_scopes(
