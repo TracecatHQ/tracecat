@@ -5,7 +5,7 @@ from asyncpg.exceptions import CheckViolationError, NotNullViolationError
 from sqlalchemy.exc import IntegrityError
 
 from tracecat.db.models import TableColumn
-from tracecat.tables.exceptions import execute_row_write
+from tracecat.tables.service import _execute_row_write
 
 
 @pytest.mark.anyio
@@ -24,5 +24,5 @@ async def test_unrecognized_constraints_are_not_client_errors(cause: Exception) 
         raise error
 
     with pytest.raises(IntegrityError) as exc:
-        await execute_row_write(failed_write(), [TableColumn(name="record_key")])
+        await _execute_row_write(failed_write(), [TableColumn(name="record_key")])
     assert exc.value is error

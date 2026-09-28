@@ -1,7 +1,7 @@
 import csv
 import json
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Awaitable, Sequence
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
@@ -12,7 +12,9 @@ import sqlalchemy as sa
 from asyncpg.exceptions import (
     InFailedSQLTransactionError,
     InvalidCachedStatementError,
+    NotNullViolationError,
     UndefinedTableError,
+    UniqueViolationError,
 )
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -82,7 +84,7 @@ from tracecat.tables.common import (
     validate_identifier as validate_identifier,
 )
 from tracecat.tables.enums import SqlType
-from tracecat.tables.exceptions import TableRowError, execute_row_write
+from tracecat.tables.exceptions import TableRowError
 from tracecat.tables.importer import (
     CSVSchemaInferer,
     InferredCSVColumn,
@@ -136,6 +138,43 @@ def visible_column_clauses(column_names: Sequence[str]) -> list[sa.ColumnClause]
     return [
         sa.column(column_name) for column_name in visible_column_names(column_names)
     ]
+
+
+async def _execute_row_write[T](
+    operation: Awaitable[T], columns: Sequence[TableColumn]
+) -> T:
+    """Translate known row constraints without exposing SQL or submitted values.
+
+    Unknown NOT NULL columns and constraint types remain server errors.
+    """
+    error: TableRowError | None = None
+    try:
+        return await operation
+    except IntegrityError as exc:
+        cause: BaseException | None = exc.orig
+        while cause is not None:
+            if isinstance(cause, NotNullViolationError):
+                column_name = cause.as_dict().get("column_name")
+                column = next((c for c in columns if c.name == column_name), None)
+                if column is not None:
+                    error = TableRowError(
+                        "null_not_allowed",
+                        f"Column '{column.name}' cannot be null.",
+                        column=column.name,
+                    )
+                break
+            if isinstance(cause, UniqueViolationError):
+                error = TableRowError(
+                    "duplicate_value", "A value already exists in a unique column."
+                )
+                break
+            cause = cause.__cause__
+        if error is None:
+            raise
+    # Raise outside the handler so raw database values are not retained in the
+    # exception context consumed by workflow and observability code.
+    assert error is not None
+    raise error
 
 
 class BaseTablesService(BaseWorkspaceService):
@@ -1093,7 +1132,7 @@ class BaseTablesService(BaseWorkspaceService):
                 index_elements=index, set_=update_dict
             ).returning(*self._visible_columns(table))
 
-        result = await execute_row_write(conn.execute(stmt), table.columns)
+        result = await _execute_row_write(conn.execute(stmt), table.columns)
         await self.session.flush()
         row = result.mappings().one()
         if needs_indexing:
@@ -1830,7 +1869,7 @@ class BaseTablesService(BaseWorkspaceService):
             else:
                 existing_ids = set()
                 changed_ids = set()
-            result = await execute_row_write(
+            result = await _execute_row_write(
                 conn.execute(stmt.returning(sa.column("id"))), table.columns
             )
             written = result.scalars().all()
