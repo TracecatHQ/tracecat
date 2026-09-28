@@ -27,6 +27,7 @@ import orjson
 from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    CLIConnectionError,
     HookMatcher,
     SandboxSettings,
     Transport,
@@ -1228,7 +1229,16 @@ class ClaudeAgentRuntime:
             )
             self._was_interrupted = True
             self._interrupt_sent = True
-            await self.client.interrupt()
+            client = self.client
+            try:
+                await client.interrupt()
+            except CLIConnectionError:
+                # The turn can enter SDK teardown while the interrupt write is
+                # suspended. Its original outcome belongs to run(), not this
+                # best-effort stop request. Live connection errors still fail.
+                if self.client is client:
+                    raise
+                logger.debug("Claude runtime closed while interrupting")
 
     async def _pre_tool_use_hook(
         self,
@@ -1950,6 +1960,9 @@ class ClaudeAgentRuntime:
                             elif isinstance(message, UserMessage):
                                 await self._emit_user_tool_results(message)
                 finally:
+                    # Stop accepting interrupts before SDK context teardown
+                    # closes the transport, including while stderr drains.
+                    self.client = None
                     stderr_task.cancel()
                     try:
                         await stderr_task

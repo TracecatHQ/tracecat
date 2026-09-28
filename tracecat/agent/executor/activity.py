@@ -1023,10 +1023,10 @@ class SandboxedAgentExecutor:
                     # runtime or the turn ends on its own, mirroring the Redis
                     # cancel-signal watcher. The runtime dedupes the interrupt
                     # if both paths deliver it.
-                    while not await broker.interrupt_turn(
-                        str(self.input.session_id), reason
-                    ):
-                        if broker_task is None or broker_task.done():
+                    while broker_task is not None and not broker_task.done():
+                        if await broker.interrupt_turn(
+                            str(self.input.session_id), reason
+                        ):
                             break
                         await asyncio.sleep(TURN_CANCEL_POLL_INTERVAL_SECONDS)
                     if broker_task is not None:
@@ -1100,11 +1100,9 @@ class SandboxedAgentExecutor:
                 # interrupt_turn no-ops while the runtime is still starting up
                 # (work-dir hydration) - retry until it reaches a live runtime
                 # or the turn ends on its own.
-                while not await broker.interrupt_turn(
-                    str(self.input.session_id), reason
-                ):
-                    if broker_task.done():
-                        return
+                while not broker_task.done():
+                    if await broker.interrupt_turn(str(self.input.session_id), reason):
+                        break
                     await asyncio.sleep(TURN_CANCEL_POLL_INTERVAL_SECONDS)
                 # Interrupt delivered; the runtime should now wind down and
                 # complete the broker turn. Exceptions surface to the main
