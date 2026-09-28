@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -58,3 +59,11 @@ class PlatformErrorCapture(BaseModel):
         if representative is None:
             return None
         return cls.for_error(representative.event_id, classification)
+
+
+@dataclass(frozen=True, slots=True)
+class ProxyFailureContext:
+    """Bounded local proxy diagnostics; never upstream URLs or payloads."""
+
+    route: Literal["managed", "direct"]
+    status_code: int | None = None

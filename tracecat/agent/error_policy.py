@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from tracecat.agent.common.config import TRACECAT__AGENT_SANDBOX_MEMORY_MB
 from tracecat.agent.common.exceptions import AgentSandboxProcessExitError
+from tracecat.exceptions import RegistryLockAmbiguousActionError
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
@@ -46,6 +47,39 @@ def invalid_agent_configuration(
     return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
         message="Agent configuration is invalid",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def registry_lock_invalid_data(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Classify deterministic registry lock resolution failures.
+
+    Missing or unsupported actions are resolution gaps in the registry itself
+    rather than a fault in the agent's configuration.
+    """
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.REGISTRY_LOCK_INVALID_DATA,
+        message="Tracecat could not resolve the agent's registry actions",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def registry_lock_action_ambiguous(
+    error: RegistryLockAmbiguousActionError,
+) -> RuntimeErrorClassification:
+    """Classify an action name that resolves to more than one registry.
+
+    The collision comes from an org's custom registry shadowing another
+    registry's action, so the org owns the fix and the message only exposes
+    the action name and registry origins the org already controls.
+    """
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.REGISTRY_LOCK_ACTION_AMBIGUOUS,
+        message=str(error),
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,
     )

@@ -1,6 +1,12 @@
 "use client"
 
-import { ChevronDownIcon, FilePlus, Plus, Upload } from "lucide-react"
+import {
+  ChevronDownIcon,
+  FilePlus,
+  FolderIcon,
+  Plus,
+  Upload,
+} from "lucide-react"
 import { useRouter } from "next/navigation"
 import {
   type ChangeEvent,
@@ -23,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
+import { useMoveSkill } from "@/hooks/use-skill-folders"
 import { useCreateSkill, useUploadSkill } from "@/hooks/use-skills"
 import { getApiErrorDetail } from "@/lib/errors"
 import {
@@ -40,11 +47,20 @@ import { useWorkspaceId } from "@/providers/workspace-id"
  *
  * @returns The dropdown button plus dialogs.
  */
-export function CreateSkillButton() {
+export function CreateSkillButton({
+  currentPath = null,
+  showFolder = false,
+  onCreateFolder,
+}: {
+  currentPath?: string | null
+  showFolder?: boolean
+  onCreateFolder?: () => void
+}) {
   const router = useRouter()
   const workspaceId = useWorkspaceId()
   const { createSkill, createSkillPending } = useCreateSkill(workspaceId)
   const { uploadSkill, uploadSkillPending } = useUploadSkill(workspaceId)
+  const { moveSkill } = useMoveSkill(workspaceId)
 
   const [showNewSkillDialog, setShowNewSkillDialog] = useState(false)
 
@@ -65,13 +81,20 @@ export function CreateSkillButton() {
           name,
           description: description || null,
         })
+        if (currentPath && currentPath !== "/") {
+          try {
+            await moveSkill({ skillId: created.id, folder_path: currentPath })
+          } catch {
+            // Move hook already reports failures; continue to open the skill.
+          }
+        }
         setShowNewSkillDialog(false)
         router.push(`/workspaces/${workspaceId}/skills/${created.id}`)
       } catch {
         // toast handled in mutation onError
       }
     },
-    [createSkill, router, workspaceId]
+    [createSkill, currentPath, moveSkill, router, workspaceId]
   )
 
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
@@ -148,6 +171,13 @@ export function CreateSkillButton() {
         name: name || "skill",
         files: normalizedFiles,
       })
+      if (currentPath && currentPath !== "/") {
+        try {
+          await moveSkill({ skillId: created.id, folder_path: currentPath })
+        } catch {
+          // Move hook already reports failures; continue to open the skill.
+        }
+      }
       setShowUploadConfirmDialog(false)
       setPendingUploadFiles([])
       router.push(`/workspaces/${workspaceId}/skills/${created.id}`)
@@ -161,7 +191,15 @@ export function CreateSkillButton() {
       uploadConfirmPendingRef.current = false
       setUploadConfirmPending(false)
     }
-  }, [pendingUploadFiles, router, uploadSkill, uploadSkillPending, workspaceId])
+  }, [
+    currentPath,
+    moveSkill,
+    pendingUploadFiles,
+    router,
+    uploadSkill,
+    uploadSkillPending,
+    workspaceId,
+  ])
 
   const handleCancelUpload = useCallback(() => {
     setShowUploadConfirmDialog(false)
@@ -206,6 +244,17 @@ export function CreateSkillButton() {
               </span>
             </div>
           </DropdownMenuItem>
+          {showFolder && onCreateFolder ? (
+            <DropdownMenuItem onSelect={onCreateFolder}>
+              <FolderIcon className="size-4 text-foreground/80" />
+              <div className="flex flex-col text-xs">
+                <span>Folder</span>
+                <span className="text-xs text-muted-foreground">
+                  Create a new folder
+                </span>
+              </div>
+            </DropdownMenuItem>
+          ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
 

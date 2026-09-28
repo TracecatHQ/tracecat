@@ -1,0 +1,133 @@
+type: action
+definition:
+  title: List builds
+  description: "List builds in a project matching optional filters. Returns one page; pass `continuation_token` to fetch the next page."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/build/builds/list?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: list_builds
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    definitions:
+      type: str | None
+      description: "Comma-separated list of definition IDs."
+      default: null
+    build_ids:
+      type: str | None
+      description: "Comma-separated list of build IDs."
+      default: null
+    build_number:
+      type: str | None
+      description: "Filter by build number (supports trailing `*` wildcard)."
+      default: null
+    branch_name:
+      type: str | None
+      description: "Filter by branch ref (e.g. `refs/heads/main`)."
+      default: null
+    min_time:
+      type: str | None
+      description: "Only builds finished/started after this time (ISO 8601)."
+      default: null
+    max_time:
+      type: str | None
+      description: "Only builds finished/started before this time (ISO 8601)."
+      default: null
+    requested_for:
+      type: str | None
+      description: "Filter by the user who requested the build."
+      default: null
+    reason_filter:
+      type: str | None
+      description: "Filter by build reason (e.g. `manual`, `individualCI`, `schedule`, `pullRequest`)."
+      default: null
+    status_filter:
+      type: str | None
+      description: "Filter by status (e.g. `inProgress`, `completed`, `cancelling`, `postponed`, `notStarted`, `all`)."
+      default: null
+    result_filter:
+      type: str | None
+      description: "Filter by result (e.g. `succeeded`, `partiallySucceeded`, `failed`, `canceled`)."
+      default: null
+    tag_filters:
+      type: str | None
+      description: "Comma-separated list of tags."
+      default: null
+    repository_id:
+      type: str | None
+      description: "Filter by repository ID."
+      default: null
+    repository_type:
+      type: str | None
+      description: "Filter by repository type."
+      default: null
+    query_order:
+      type: str | None
+      description: "Result order (e.g. `finishTimeDescending`, `queueTimeDescending`, `startTimeDescending`)."
+      default: null
+    max_builds_per_definition:
+      type: int | None
+      description: "Maximum number of builds to return per definition."
+      default: null
+    top:
+      type: int | None
+      description: "Maximum number of builds to return."
+      default: null
+    continuation_token:
+      type: str | None
+      description: "Continuation token from the previous page."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            definitions: ${{ inputs.definitions }}
+            buildIds: ${{ inputs.build_ids }}
+            buildNumber: ${{ inputs.build_number }}
+            branchName: ${{ inputs.branch_name }}
+            minTime: ${{ inputs.min_time }}
+            maxTime: ${{ inputs.max_time }}
+            requestedFor: ${{ inputs.requested_for }}
+            reasonFilter: ${{ inputs.reason_filter }}
+            statusFilter: ${{ inputs.status_filter }}
+            resultFilter: ${{ inputs.result_filter }}
+            tagFilters: ${{ inputs.tag_filters }}
+            repositoryId: ${{ inputs.repository_id }}
+            repositoryType: ${{ inputs.repository_type }}
+            queryOrder: ${{ inputs.query_order }}
+            maxBuildsPerDefinition: ${{ inputs.max_builds_per_definition }}
+            $top: ${{ inputs.top }}
+            continuationToken: ${{ inputs.continuation_token }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.8"
+              return query
+    - ref: list_builds
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/${{ FN.url_encode(inputs.project) }}/_apis/build/builds
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_builds.result }}

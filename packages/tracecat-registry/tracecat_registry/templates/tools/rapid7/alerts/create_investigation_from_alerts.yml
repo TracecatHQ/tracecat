@@ -1,0 +1,68 @@
+type: action
+definition:
+  title: Create investigation from alerts
+  description: "Create investigation from alerts. Calls POST /idr/at/alerts/ops/investigate directly."
+  display_group: Rapid7
+  doc_url: https://docs.rapid7.com/insightidr/api/alert-triage/#operation/investigateAlerts
+  namespace: tools.rapid7
+  name: create_investigation_from_alerts
+  secrets:
+    - name: rapid7
+      keys: ["RAPID7_API_KEY"]
+  expects:
+    organization_id:
+      type: str
+      description: "The organization the investigation belongs to."
+    title:
+      type: str
+      description: "The investigation title."
+    disposition:
+      type: str
+      description: "The investigation disposition."
+    status:
+      type: str
+      description: "The investigation status."
+    assignee_id:
+      type: str | None
+      description: "The assigned user identifier."
+      default: null
+    priority:
+      type: str | None
+      description: "The investigation priority."
+      default: null
+    comment:
+      type: str | None
+      description: "The reason for creating the investigation."
+      default: null
+    tags:
+      type: list[str] | None
+      description: "The tags to apply."
+      default: null
+    search:
+      type: dict[str, Any]
+      description: "The search terms to match against."
+    base_url:
+      type: str | None
+      description: "Regional Insight Platform API base URL (e.g. https://eu.api.insight.rapid7.com). Regions: us, us2, us3, eu, ca, au, ap."
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rapid7.base_url || "https://us.api.insight.rapid7.com" }}/idr/at/alerts/ops/investigate
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.rapid7.RAPID7_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          organization_id: ${{ inputs.organization_id }}
+          title: ${{ inputs.title }}
+          disposition: ${{ inputs.disposition }}
+          status: ${{ inputs.status }}
+          assignee_id: ${{ inputs.assignee_id }}
+          priority: ${{ inputs.priority }}
+          comment: ${{ inputs.comment }}
+          tags: ${{ inputs.tags }}
+          search: ${{ inputs.search }}
+  returns: ${{ steps.request.result }}

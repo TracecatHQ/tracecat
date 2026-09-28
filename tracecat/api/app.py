@@ -18,6 +18,11 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.router import router as admin_router
 from tracecat_ee.agent.approvals.router import router as approvals_router
+from tracecat_ee.secrets.references.router import router as external_secrets_router
+from tracecat_ee.secrets.references.router import (
+    stores_router as workspace_secret_stores_router,
+)
+from tracecat_ee.secrets.stores.router import router as org_secret_stores_router
 from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION
@@ -26,6 +31,7 @@ from tracecat.admin.agent.router import router as admin_agent_router
 from tracecat.admin.maintenance.router import router as admin_maintenance_router
 from tracecat.admin.registry.router import router as admin_registry_router
 from tracecat.agent.access.router import router as agent_model_access_router
+from tracecat.agent.backends.registry import get_agent_backends
 from tracecat.agent.catalog.loader import load_platform_catalog_on_startup
 from tracecat.agent.catalog.router import router as agent_catalog_router
 from tracecat.agent.channels.management_router import (
@@ -38,7 +44,12 @@ from tracecat.agent.provider.router import router as agent_custom_provider_route
 from tracecat.agent.router import router as agent_router
 from tracecat.agent.router import workspace_router as agent_workspace_router
 from tracecat.agent.session.router import router as agent_session_router
+from tracecat.agent.skill.folders.router import router as skill_folders_router
 from tracecat.agent.skill.router import router as agent_skill_router
+from tracecat.agent.skill.tags.definitions_router import (
+    router as skill_tag_definitions_router,
+)
+from tracecat.agent.skill.tags.router import router as skill_tags_router
 from tracecat.agent.tags.definitions_router import (
     router as agent_tag_definitions_router,
 )
@@ -103,6 +114,7 @@ from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.db.rls import set_rls_context_from_role
 from tracecat.db.soft_delete import assert_soft_delete_listener_registered
 from tracecat.editor.router import router as editor_router
+from tracecat.email.transport import SMTPTransport
 from tracecat.exceptions import (
     EntitlementRequired,
     ScopeDeniedError,
@@ -120,6 +132,7 @@ from tracecat.integrations.router import (
 from tracecat.integrations.router import (
     oauth_router as integrations_oauth_router,
 )
+from tracecat.invitations.consumer import start_invitation_email_consumer
 from tracecat.logger import logger
 from tracecat.mcp.oidc import router as mcp_oidc_router
 from tracecat.mcp.personal_access_tokens.router import (
@@ -149,6 +162,7 @@ from tracecat.query.errors import (
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
+from tracecat.search.embeddings.router import router as embedding_configuration_router
 from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.service_accounts.router import (
@@ -190,6 +204,7 @@ from tracecat.workspaces.service import WorkspaceService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    get_agent_backends()  # Fail startup on invalid or duplicate installed plugins.
     # USER_AUTH_SECRET is required for all auth types — UserManager uses it
     # for password reset and email verification token signing. Validated here
     # (not in create_app) because the app module is imported at collection time
@@ -259,6 +274,13 @@ async def lifespan(app: FastAPI):
         start_case_duration_sync_consumer,
         name="case_duration_sync_consumer",
     )
+
+    # SMTP configuration is loaded at process startup; enabling it needs a restart.
+    if SMTPTransport.from_config() is not None:
+        supervisor.spawn_stoppable(
+            start_invitation_email_consumer,
+            name="invitation_email_consumer",
+        )
 
     logger.info(
         "Feature flags", feature_flags=[f.value for f in config.TRACECAT__FEATURE_FLAGS]
@@ -479,6 +501,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(webhook_router)
     app.include_router(agent_channels_router)
     app.include_router(workspaces_router)
+    app.include_router(embedding_configuration_router)
     app.include_router(workspace_service_accounts_router)
     app.include_router(mcp_personal_access_tokens_router)
     _include_workspace_scoped_router(app, workflow_management_router)
@@ -488,6 +511,9 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, workflow_actions_router)
     _include_workspace_scoped_router(app, workflow_tags_router)
     _include_workspace_scoped_router(app, workflow_store_router)
+    # EE references register first so POST /secrets/aws wins over /secrets/{secret_id}.
+    _include_workspace_scoped_router(app, external_secrets_router)
+    _include_workspace_scoped_router(app, workspace_secret_stores_router)
     _include_workspace_scoped_router(app, secrets_router)
     _include_workspace_scoped_router(app, variables_router)
     _include_workspace_scoped_router(app, schedules_router)
@@ -506,6 +532,9 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, agent_folders_router)
     _include_workspace_scoped_router(app, agent_tag_definitions_router)
     _include_workspace_scoped_router(app, agent_skill_router)
+    _include_workspace_scoped_router(app, skill_folders_router)
+    _include_workspace_scoped_router(app, skill_tag_definitions_router)
+    _include_workspace_scoped_router(app, skill_tags_router)
     _include_workspace_scoped_router(app, agent_session_router)
     _include_workspace_scoped_router(app, approvals_router)
     app.include_router(watchtower_router)
@@ -519,6 +548,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(registry_actions_router)
     app.include_router(org_settings_router)
     app.include_router(org_secrets_router)
+    app.include_router(org_secret_stores_router)
     _include_workspace_scoped_router(app, tables_router)
     _include_workspace_scoped_router(app, cases_router)
     _include_workspace_scoped_router(app, case_versions_router)

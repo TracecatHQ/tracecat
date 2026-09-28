@@ -329,18 +329,21 @@ class TestCaseTagsService:  # noqa: D101
         assert case_tag is None
 
     @pytest.mark.anyio
-    async def test_remove_nonexistent_tag_raises_error(
+    @pytest.mark.parametrize("identifier_type", ["id", "ref"])
+    async def test_remove_unattached_tag_raises_not_found(
         self,
+        identifier_type: str,
         case_tags_service: CaseTagsService,
         case_id: uuid.UUID,
         tag_params: TagCreate,
     ) -> None:
-        """Test that removing a non-existent tag raises appropriate error."""
+        """An existing tag not attached to the case is a not-found error."""
         tag = await case_tags_service.create_tag(tag_params)
 
         # Try to remove tag that was never added
-        with pytest.raises(ValueError):
-            await case_tags_service.remove_case_tag(case_id, str(tag.id))
+        identifier = str(tag.id) if identifier_type == "id" else tag.ref
+        with pytest.raises(TracecatNotFoundError, match="not found on case"):
+            await case_tags_service.remove_case_tag(case_id, identifier)
 
     @pytest.mark.anyio
     async def test_tag_slug_generation(

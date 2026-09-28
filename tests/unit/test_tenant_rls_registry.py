@@ -18,6 +18,7 @@ from tracecat.db.tenant_rls import (
     SPECIAL_WORKSPACE_POLICY_TABLES,
     WORKSPACE_POLICY_TABLES,
     enable_agent_tag_link_table_rls,
+    enable_skill_tag_link_table_rls,
 )
 from tracecat.tables.service import TablesService
 
@@ -104,6 +105,24 @@ def test_agent_tag_link_rls_policy_uses_parent_workspace_scopes() -> None:
     assert "FROM agent_preset" in policy_sql
     assert "agent_preset.id = agent_tag_link.preset_id" in policy_sql
     assert "agent_preset.workspace_id = NULLIF(current_setting" in policy_sql
+    assert "WITH CHECK" in policy_sql
+
+
+def test_skill_tag_link_is_registered_for_tenant_rls() -> None:
+    assert "skill_tag_link" in SPECIAL_TENANT_POLICY_TABLES
+
+
+def test_skill_tag_link_rls_policy_uses_parent_workspace_scopes() -> None:
+    policy_sql = enable_skill_tag_link_table_rls()
+
+    assert 'ALTER TABLE "skill_tag_link" ENABLE ROW LEVEL SECURITY' in policy_sql
+    assert "CREATE POLICY rls_policy_skill_tag_link" in policy_sql
+    assert "FROM skill_tag" in policy_sql
+    assert "skill_tag.id = skill_tag_link.tag_id" in policy_sql
+    assert "skill_tag.workspace_id = NULLIF(current_setting" in policy_sql
+    assert "FROM skill" in policy_sql
+    assert "skill.id = skill_tag_link.skill_id" in policy_sql
+    assert "skill.workspace_id = NULLIF(current_setting" in policy_sql
     assert "WITH CHECK" in policy_sql
 
 

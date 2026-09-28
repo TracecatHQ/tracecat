@@ -436,13 +436,17 @@
 <ResponseField name="create_agent_preset" type="tool">
   Create an agent preset in the selected workspace.
 
-  Use `skills` to attach published skills. Each binding contains `skill_id`.
+  Use `skills` to attach published skills. Each binding contains `skill_id` only; the preset always runs each skill's latest published version, so there is no version to pin.
+
+  Attach tools via `actions`, `mcp_integration_ids`, or a skill's `metadata.tools`.
 </ResponseField>
 
 <ResponseField name="update_agent_preset" type="tool">
   Update an existing agent preset in the selected workspace.
 
-  Use `skills` to replace attached published skills. Each binding contains `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list to detach all skills.
+  Use `skills` to replace attached published skills. Each binding contains `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list to detach all skills. Attached skills always run at their latest published version, so do not call this after `publish_skill` just to refresh a skill version; only pass `skills` when adding or removing a skill.
+
+  Attach tools via `actions`, `mcp_integration_ids`, or a skill's `metadata.tools`.
 
   Set `clear_output_type=true` to remove an existing `output_type` (agent returns plain text). Omitting `output_type` leaves it unchanged.
 </ResponseField>
@@ -471,6 +475,30 @@
   Move agent presets into or out of a folder by preset slug.
 </ResponseField>
 
+<ResponseField name="list_skill_tree" type="tool">
+  List skill folders and skills under a path.
+</ResponseField>
+
+<ResponseField name="create_skill_folder" type="tool">
+  Create a skill folder by absolute path.
+</ResponseField>
+
+<ResponseField name="rename_skill_folder" type="tool">
+  Rename a skill folder by absolute path.
+</ResponseField>
+
+<ResponseField name="move_skill_folder" type="tool">
+  Move a skill folder under a new parent path.
+</ResponseField>
+
+<ResponseField name="delete_skill_folder" type="tool">
+  Delete a skill folder by absolute path.
+</ResponseField>
+
+<ResponseField name="move_skills" type="tool">
+  Move skills by slug into a destination folder.
+</ResponseField>
+
 <ResponseField name="list_skills" type="tool">
   List workspace skills with IDs, names, and current published versions.
 
@@ -497,6 +525,8 @@
   This is the preferred local-directory upload path. Pass file paths, SHA-256 digests, sizes, and content types only; never inline file contents or base64. Omit `skill_id` and provide `name` to create a skill, or provide `skill_id` and omit `name`/`description` to replace an existing draft.
 
   Upload every file to its short-lived URL with the returned method and headers, then call `complete_skill_upload` with the returned `skill_id`, `base_revision`, paths, and upload IDs.
+
+  Declare the skill's tools in its SKILL.md frontmatter `metadata.tools`.
 </ResponseField>
 
 <ResponseField name="complete_skill_upload" type="tool">
@@ -508,7 +538,7 @@
 <ResponseField name="publish_skill" type="tool">
   Publish a skill draft into an immutable skill version.
 
-  Only published skill versions can be attached to agent presets.
+  Only published skills can be attached to agent presets. Presets that already have this skill attached pick up the new version automatically on their next run; no `update_agent_preset` call is needed afterwards.
 </ResponseField>
 
 <ResponseField name="list_agent_presets" type="tool">
@@ -524,5 +554,5 @@
 <ResponseField name="run_agent_preset" type="tool">
   Run an agent preset with a prompt and return text or approval status.
 
-  Creates an ephemeral session, triggers the agent workflow, and waits for the response. The agent has access to all tools configured on the preset.
+  Creates an ephemeral session, triggers the agent workflow, and waits for the response. The agent has access to all tools configured on the preset and its skills.
 </ResponseField>

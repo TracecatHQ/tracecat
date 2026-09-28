@@ -986,7 +986,6 @@ class _RegistryArtifactLease:
     cache_key: str | None
     attempt: RegistryArtifactCacheLeaseAttempt
     paths: list[Path] | None = None
-    paths_may_be_modified: bool = False
     _closed: bool = False
     _entry_lease: RegistryArtifactCacheEntryLease | None = None
 
@@ -1038,8 +1037,6 @@ class _RegistryArtifactLease:
         if cache_key is None or entry_lease is None:
             return
 
-        if self.paths_may_be_modified:
-            self.cache._budget_dirty = True
         idle = entry_lease.release()
         try:
             if idle or self.cache._budget_dirty:
@@ -1060,19 +1057,17 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
     async def lease(
         self,
         artifact_uris: list[str] | None,
-        *,
-        paths_may_be_modified: bool = False,
     ) -> AsyncGenerator[list[Path]]:
         """Materialize registry artifacts and pin them for the life of the context.
 
         Leased cache entries are never evicted, so callers may keep importing
-        from the returned paths until the context exits.
+        from the returned paths until the context exits. These shared import
+        inputs are immutable by contract; consumers must write runtime data
+        elsewhere. Cache writes and startup trigger accounting, not execution.
 
         Args:
             artifact_uris: Registry artifact URIs in deterministic PYTHONPATH
                 order. Empty input requests no additional import paths.
-            paths_may_be_modified: Whether the consumer can write to returned
-                paths. Mutable leases re-arm budget convergence after use.
 
         Yields:
             Importable Python paths for the requested artifacts.
@@ -1089,10 +1084,7 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
 
             async def enter_lease_once() -> list[Path]:
                 return await lease_stack.enter_async_context(
-                    self._lease_once(
-                        artifact_uris,
-                        paths_may_be_modified=paths_may_be_modified,
-                    )
+                    self._lease_once(artifact_uris)
                 )
 
             registry_paths = await AsyncRetrying(
@@ -1114,13 +1106,10 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
     async def _lease_once(
         self,
         artifact_uris: list[str],
-        *,
-        paths_may_be_modified: bool,
     ) -> AsyncGenerator[list[Path]]:
         """Acquire one complete lease set, releasing partial pins on failure."""
         attempt = RegistryArtifactCacheLeaseAttempt()
         async with contextlib.AsyncExitStack() as leases:
-            handles: list[_RegistryArtifactLease] = []
             registry_paths: list[Path] = []
             for artifact_uri in artifact_uris:
                 cache_key = (
@@ -1135,14 +1124,10 @@ class RegistryArtifactCache(RegistryArtifactCacheStorage):
                     attempt=attempt,
                 )
                 registry_paths.extend(await leases.enter_async_context(handle))
-                handles.append(handle)
             logger.info(
                 "Using registry artifact environments",
                 count=len(registry_paths),
             )
-            if paths_may_be_modified:
-                for handle in handles:
-                    handle.paths_may_be_modified = True
             yield registry_paths
 
     async def _finish_lease_cleanup(self, idle_keys: list[str]) -> None:

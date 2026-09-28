@@ -687,6 +687,80 @@ async def test_terminal_error_streams_error_and_closes_only_external_sink() -> N
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("delivery_times_out", [False, True])
+async def test_runtime_cleanup_does_not_close_slack_before_executor_error(
+    monkeypatch: pytest.MonkeyPatch,
+    delivery_times_out: bool,
+) -> None:
+    handler = _make_handler()
+    redis_stream = _FakeStream()
+    redis_entered = asyncio.Event()
+    release_redis = asyncio.Event()
+
+    async def stalled_error(_error: str) -> None:
+        redis_entered.set()
+        await release_redis.wait()
+
+    redis_stream.error.side_effect = stalled_error
+    slack_sink = SlackStreamSink(
+        slack_bot_token="xoxb-test",
+        channel_id="C123",
+        thread_ts="1700000000.000001",
+        session_id=str(handler.input.session_id),
+        workspace_id=str(handler.input.workspace_id),
+    )
+    append_stream_text = AsyncMock()
+    terminal_reaction = AsyncMock()
+    monkeypatch.setattr(slack_sink, "_append_stream_text", append_stream_text)
+    monkeypatch.setattr(slack_sink, "_set_terminal_reaction", terminal_reaction)
+    handler._stream_sink = FanoutStreamSink(
+        sinks=(
+            AgentStreamSink(stream=cast(AgentStream, redis_stream)),
+            slack_sink,
+        )
+    )
+    if delivery_times_out:
+        monkeypatch.setattr(
+            loopback_module, "TERMINAL_STREAM_ERROR_TIMEOUT_SECONDS", 0.01
+        )
+    error = "provider request failed"
+    classification = user_agent_execution_failed()
+
+    async with asyncio.timeout(5):
+        async with asyncio.TaskGroup() as tasks:
+            terminal_task = tasks.create_task(
+                handler.emit_terminal_error(error, classification=classification)
+            )
+            await redis_entered.wait()
+            # The SDK can finish cleanup while the executor is still sending
+            # its error to Redis, before the fanout reaches Slack.
+            await handler.send_error("secondary runtime failure")
+            await handler.send_done()
+            terminal_reaction.assert_not_awaited()
+            assert slack_sink._is_closed is False
+            if not delivery_times_out:
+                release_redis.set()
+
+    # A later cleanup callback must not turn a timed-out delivery into success.
+    await handler.send_done()
+    result = handler.build_result()
+    assert result.success is False
+    assert result.error == error
+    assert result.classification == classification
+    assert terminal_task.result() is (not delivery_times_out)
+    assert result.terminal_stream_error_emitted is (not delivery_times_out)
+    redis_stream.error.assert_awaited_once_with(error)
+    redis_stream.done.assert_not_awaited()
+    if delivery_times_out:
+        append_stream_text.assert_not_awaited()
+        terminal_reaction.assert_not_awaited()
+    else:
+        append_stream_text.assert_awaited_once_with(f"\n\nError: {error}")
+        terminal_reaction.assert_awaited_once_with(is_error=True)
+        assert slack_sink._is_closed is True
+
+
+@pytest.mark.anyio
 async def test_terminal_error_leaves_redis_open_for_workflow() -> None:
     handler = _make_handler()
     stream = _FakeStream()

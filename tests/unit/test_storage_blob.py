@@ -84,6 +84,12 @@ class TestS3Operations:
             "http://localhost:9002",
             raising=False,
         )
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_SSL_VERIFY",
+            True,
+            raising=False,
+        )
         monkeypatch.setenv("AWS_ACCESS_KEY_ID", "minioadmin")
         monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
 
@@ -98,6 +104,7 @@ class TestS3Operations:
                 "s3",
                 endpoint_url="http://localhost:9002",
                 config=blob_module._STORAGE_CLIENT_CONFIG,
+                verify=None,
                 aws_access_key_id="minioadmin",
                 aws_secret_access_key="minioadmin",
             )
@@ -111,6 +118,12 @@ class TestS3Operations:
             None,
             raising=False,
         )
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_SSL_VERIFY",
+            True,
+            raising=False,
+        )
 
         with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
             mock_session = mock_session_cls.return_value
@@ -120,8 +133,60 @@ class TestS3Operations:
             async with get_storage_client() as client:
                 assert client is mock_client
             mock_session.client.assert_called_once_with(
-                "s3", config=blob_module._AWS_STORAGE_CLIENT_CONFIG
+                "s3", config=blob_module._AWS_STORAGE_CLIENT_CONFIG, verify=None
             )
+
+    @pytest.mark.anyio
+    async def test_get_storage_client_minio_ssl_verify_disabled(self, monkeypatch):
+        """SSL verification can be disabled for self-signed MinIO/S3 endpoints."""
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_ENDPOINT",
+            "https://minio.internal:9000",
+            raising=False,
+        )
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_SSL_VERIFY",
+            False,
+            raising=False,
+        )
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "minioadmin")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
+
+        with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            mock_client = AsyncMock()
+            mock_session.client.return_value.__aenter__.return_value = mock_client
+
+            async with get_storage_client() as client:
+                assert client is mock_client
+            assert mock_session.client.call_args.kwargs["verify"] is False
+
+    @pytest.mark.anyio
+    async def test_get_storage_client_s3_ssl_verify_disabled(self, monkeypatch):
+        """SSL verification flag is honored on the default AWS S3 path too."""
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_ENDPOINT",
+            None,
+            raising=False,
+        )
+        monkeypatch.setattr(
+            blob_module.config,
+            "TRACECAT__BLOB_STORAGE_SSL_VERIFY",
+            False,
+            raising=False,
+        )
+
+        with patch("tracecat.storage.blob.aioboto3.Session") as mock_session_cls:
+            mock_session = mock_session_cls.return_value
+            mock_client = AsyncMock()
+            mock_session.client.return_value.__aenter__.return_value = mock_client
+
+            async with get_storage_client() as client:
+                assert client is mock_client
+            assert mock_session.client.call_args.kwargs["verify"] is False
 
     @pytest.mark.anyio
     async def test_get_storage_client_reuses_entered_client_per_event_loop(
@@ -147,7 +212,7 @@ class TestS3Operations:
 
             mock_session_cls.assert_called_once()
             mock_session.client.assert_called_once_with(
-                "s3", config=blob_module._AWS_STORAGE_CLIENT_CONFIG
+                "s3", config=blob_module._AWS_STORAGE_CLIENT_CONFIG, verify=None
             )
             mock_session.client.return_value.__aenter__.assert_awaited_once()
 
@@ -181,7 +246,7 @@ class TestS3Operations:
 
             mock_session_cls.assert_called_once()
             mock_session.client.assert_called_once_with(
-                "s3", config=blob_module._AWS_STORAGE_CLIENT_CONFIG
+                "s3", config=blob_module._AWS_STORAGE_CLIENT_CONFIG, verify=None
             )
             mock_session.client.return_value.__aenter__.assert_awaited_once()
 

@@ -49,6 +49,7 @@ from tracecat.tables.schemas import (
     TableRowUpdate,
     TableUpdate,
 )
+from tracecat.tables.search.router import router as search_router
 from tracecat.tables.service import TablesService
 
 router = APIRouter(prefix="/tables", tags=["tables"])
@@ -835,3 +836,7 @@ async def import_csv(
             csv_file.close()
 
     return TableRowInsertBatchResponse(rows_inserted=importer.total_rows_inserted)
+
+
+# Table lifecycle routes share the public table prefix, not internal query routes.
+router.include_router(search_router)

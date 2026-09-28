@@ -1,7 +1,9 @@
 """Pure chunker tests: production code only receives bounded source slices."""
 
+import asyncio
 import hashlib
 import math
+import threading
 from dataclasses import dataclass, replace
 from uuid import UUID
 
@@ -753,3 +755,47 @@ async def test_invalid_configuration_and_batch_limits() -> None:
             await chunker().prepare_batch(PatternReader({}), max_chunks=value)
         with pytest.raises(InvalidChunkingConfig):
             await chunker().prepare_batch(PatternReader({}), max_windows=value)
+
+
+@pytest.mark.parametrize("resume", [False, True])
+async def test_tokenization_does_not_block_the_source_event_loop(resume: bool):
+    loop_thread = threading.get_ident()
+    loop = asyncio.get_running_loop()
+    entered = asyncio.Event()
+    release = threading.Event()
+
+    class BlockingCounter(ByteCounter):
+        armed = False
+
+        def count_tokens(self, text: str) -> int:
+            if self.armed:
+                assert threading.get_ident() != loop_thread
+                loop.call_soon_threadsafe(entered.set)
+                assert release.wait(2), "event loop could not release tokenization"
+            return super().count_tokens(text)
+
+    class LoopReader(PatternReader):
+        async def read_slice(
+            self, identity: ChunkingIdentity, column_id: UUID, start: int, limit: int
+        ) -> SourceSlice:
+            assert threading.get_ident() == loop_thread
+            return await super().read_slice(identity, column_id, start, limit)
+
+    counter = BlockingCounter()
+    splitter = chunker(counter=counter)
+    reader = LoopReader({COLUMN.id: PatternSource("synthetic text. ", 20)})
+    if resume:
+        prepared = await splitter.prepare_batch(reader, max_chunks=1)
+        operation = splitter.reconstruct_input(reader, prepared.chunks[0].metadata)
+    else:
+        operation = splitter.prepare_batch(reader, max_chunks=1)
+    counter.armed = True
+    task = asyncio.create_task(operation)
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        # Reaching here proves the owning loop runs while tokenization waits.
+        release.set()
+        await asyncio.wait_for(task, 2)
+    finally:
+        release.set()
+        await task

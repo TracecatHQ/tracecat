@@ -1436,6 +1436,50 @@ class TestTableRows:
 
         assert exists is True
 
+    async def test_lookup_row_by_id_string(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        """JSON callers pass ids as strings; they must bind as uuid, not varchar."""
+        inserted = await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 40})
+        )
+
+        results = await tables_service.lookup_rows(
+            table_name=table.name,
+            columns=["id"],
+            values=[str(inserted["id"])],
+        )
+        assert len(results) == 1
+        assert results[0]["id"] == inserted["id"]
+
+        exists = await tables_service.exists_rows(
+            table_name=table.name,
+            columns=["id"],
+            values=[str(inserted["id"])],
+        )
+        assert exists is True
+
+    async def test_lookup_row_by_id_rejects_non_uuid(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        with pytest.raises(ValueError, match="expects a UUID"):
+            await tables_service.lookup_rows(
+                table_name=table.name, columns=["id"], values=["not-a-uuid"]
+            )
+
+    async def test_lookup_row_coerces_string_to_integer_column(
+        self, tables_service: TablesService, table: Table
+    ) -> None:
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"name": "Bob", "age": 40})
+        )
+
+        results = await tables_service.lookup_rows(
+            table_name=table.name, columns=["age"], values=["40"]
+        )
+        assert len(results) == 1
+        assert results[0]["age"] == 40
+
     async def test_list_rows(self, tables_service: TablesService, table: Table) -> None:
         """Test listing rows with cursor-based pagination."""
         # Insert multiple test rows

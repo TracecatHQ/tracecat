@@ -79,6 +79,7 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.skill.folders.service import SkillFolderService
 from tracecat.agent.skill.schemas import (
     SkillCreate,
     SkillDownloadPreparedResponse,
@@ -236,7 +237,7 @@ from tracecat.registry.repositories.schemas import RegistryRepositorySync
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.service import SecretsService, secret_key_names
 from tracecat.storage import blob
 from tracecat.storage.object import (
     CollectionObject,
@@ -528,8 +529,10 @@ def _build_output_type_context() -> dict[str, Any]:
             },
         },
         "notes": [
-            "Use a literal string output_type for simple primitive responses.",
-            "Use a JSON Schema object when you want structured agent output.",
+            "Set an output_type only when the user explicitly asks for "
+            "structured output. Otherwise leave it unset.",
+            "When the user does ask: use a literal string output_type for a "
+            "primitive response, or a JSON Schema object for structured output.",
             "Prefer no output_type at all. The agent's side effects — cases "
             "opened, messages sent, rows written — are its output.",
             "Define an output_type only when a downstream deterministic step "
@@ -942,6 +945,75 @@ class AgentPresetMoveResponse(BaseModel):
     moved_presets: list[AgentPresetMoveItem] = Field(default_factory=list)
     movable_presets: list[AgentPresetMoveItem] = Field(default_factory=list)
     errors: list[AgentPresetMoveError] = Field(default_factory=list)
+
+
+class SkillTreeFolderItem(BaseModel):
+    """Folder item in the skill tree response."""
+
+    type: Literal["folder"]
+    path: str
+    name: str
+    depth: int
+
+
+class SkillFolderCreatedResponse(BaseModel):
+    """Result of creating a skill folder."""
+
+    path: str
+    folder_id: uuid.UUID
+    created_paths: list[str] = Field(default_factory=list)
+    already_existed: bool
+
+
+class SkillTreeSkillItem(BaseModel):
+    """Skill item in the skill tree response."""
+
+    type: Literal["skill"]
+    name: str
+    slug: str
+    description: str | None = None
+    current_version_id: uuid.UUID | None = None
+    folder_path: str
+    depth: int
+    tags: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+SkillTreeItem = SkillTreeFolderItem | SkillTreeSkillItem
+
+
+class SkillTreeResponse(MCPPaginatedResponse[SkillTreeItem]):
+    """Paginated skill tree response."""
+
+    root_path: str
+    depth: int | Literal["unlimited"]
+
+
+class SkillMoveItem(BaseModel):
+    """Skill move candidate/result item."""
+
+    skill_slug: str
+    name: str
+
+
+class SkillMoveError(BaseModel):
+    """Per-skill move error."""
+
+    skill_slug: str
+    error: str
+
+
+class SkillMoveResponse(BaseModel):
+    """Bulk skill move response."""
+
+    destination_path: str
+    requested_count: int
+    moved_count: int | None = None
+    movable_count: int | None = None
+    moved_skills: list[SkillMoveItem] = Field(default_factory=list)
+    movable_skills: list[SkillMoveItem] = Field(default_factory=list)
+    errors: list[SkillMoveError] = Field(default_factory=list)
 
 
 class WorkflowPublishResponse(BaseModel):
@@ -2199,6 +2271,8 @@ show candidate integrations first.
 `core.script.run_python` unless a specific integration is requested.
 - For `ai.agent`, prefer the `model` object. Use legacy top-level \
 `model_name`/`model_provider` only when requested.
+- For `ai.preset_agent`, tools come from the preset and its skills; the \
+`actions` input swaps the preset's registry actions for one run.
 
 ## Expression syntax (used in action `args:` values)
 - `${{ TRIGGER.<field> }}` — workflow trigger input
@@ -2309,6 +2383,11 @@ docstring carries the full RFC 6902 patch rules.
 - {_SKILL_FILE_WARNING}
 - Call `prepare_skill_upload` with file metadata, upload the raw bytes to each
   returned URL, then call `complete_skill_upload` with the upload IDs.
+- Skill versions cannot be pinned on agent presets. Bindings carry only
+  `skill_id`; the preset always runs, and `get_agent_preset` always reports,
+  the skill's latest published version. After `publish_skill`, do NOT call
+  `update_agent_preset` (or re-send `skills`); only touch `skills` to attach
+  or detach a skill.
 
 ## Structured argument quick reference
 Tool docstrings are the source of truth for every other argument shape.
@@ -2371,9 +2450,8 @@ mcp.add_middleware(
 _DSL_REFERENCE_TEXT = """\
 # Tracecat Workflow DSL Reference
 
-This resource covers workflow YAML/DSL syntax and examples. It is not the source
-of truth for MCP tool arguments; use each MCP tool schema and docstring for calls
-such as workflow updates, table management, and case field changes.
+This resource covers workflow YAML/DSL syntax and examples. For MCP arguments,
+use each tool schema and docstring.
 
 ## Workflow YAML Structure
 
@@ -2564,7 +2642,7 @@ Tables: `core.table.aggregate_rows`, `core.table.create_column`, `core.table.cre
 `core.table.delete_column`, `core.table.delete_row`, `core.table.download`,
 `core.table.get_table_metadata`, `core.table.insert_row`,
 `core.table.insert_rows`, `core.table.is_in`, `core.table.list_tables`,
-`core.table.lookup`, `core.table.lookup_many`, `core.table.search_rows`,
+`core.table.lookup`, `core.table.lookup_many`, `core.table.search`, `core.table.search_rows`,
 `core.table.update_column`, `core.table.update_row`, `core.table.update_table`
 
 Cases: `core.cases.add_case_tag`, `core.cases.aggregate_cases`, `core.cases.assign_user`,
@@ -2590,9 +2668,12 @@ Require/Python: `core.require`, `core.script.run_python`
 AI: `ai.action`, `ai.agent`, `ai.preset_agent`, `ai.agent.create_preset`,
 `ai.agent.delete_preset`, `ai.agent.get_preset`, `ai.agent.list_presets`,
 `ai.agent.update_preset`, `ai.skill.archive_skill`, `ai.skill.create_skill`,
-`ai.skill.get_skill`, `ai.skill.get_skill_version`,
+`ai.skill.get_skill`, `ai.skill.get_skill_draft`,
+`ai.skill.get_skill_draft_file`, `ai.skill.get_skill_version`,
 `ai.skill.list_skill_versions`, `ai.skill.list_skills`,
-`ai.skill.publish_skill_version`, `ai.skill.restore_skill_version`
+`ai.skill.publish_skill_draft`, `ai.skill.publish_skill_version`,
+`ai.skill.restore_skill_version`, `ai.skill.update_skill`,
+`ai.skill.update_skill_draft`
 
 ## Third-Party Integration Action Syntax
 
@@ -2692,6 +2773,17 @@ actions:
       max_tool_calls: 10
 ```
 Use top-level `model_name` and `model_provider` only when explicitly requested.
+
+### AI Preset Agent
+Tools come from the preset and its skills.
+```yaml
+actions:
+  - ref: triage
+    action: ai.preset_agent
+    args:
+      preset: security-analyst
+      user_prompt: "Triage ${{ TRIGGER.alert }}"
+```
 
 ### For-each Syntax (Avoid by Default)
 Avoid `for_each` unless the list is known and bounded and the user explicitly
@@ -2973,6 +3065,16 @@ helpers call Tracecat APIs.
 3. `list_actions` / `get_action_context` — choose exact tools and schemas
 4. `create_agent_preset` or `update_agent_preset`
 5. `list_agent_presets`, `get_agent_preset`, or `run_agent_preset` as needed
+
+### Where tools live
+- Preset tools: registry `actions`, plus MCP integrations attached via
+`mcp_integration_ids`.
+- A skill's `metadata.tools` (registry actions or `mcp.<slug>` references) fits a
+group of tools several agents share.
+- The `actions` input on an `ai.preset_agent` action swaps the preset's registry
+actions for one run — MCP tools stay, an empty list is ignored — which is handy
+for a test or an eval.
+- Set an `output_type` only when the user explicitly asks for structured output.
 """
 
 
@@ -6994,7 +7096,7 @@ async def remove_case_tag(
             return MCPMessageResponse(
                 message=f"Case tag {tag_identifier} removed from case {case_id}"
             )
-    except NoResultFound as e:
+    except (NoResultFound, TracecatNotFoundError) as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
@@ -8187,7 +8289,7 @@ async def list_secrets_metadata(
             for secret in workspace_secrets:
                 if secret.environment != environment:
                     continue
-                keys = [kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)]
+                keys = secret_key_names(svc, secret)
                 result.append(
                     SecretMetadataResponse(
                         id=secret.id,
@@ -8244,7 +8346,7 @@ async def get_secret_metadata(
                 name=secret.name,
                 type=secret.type,
                 environment=secret.environment,
-                keys=[kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)],
+                keys=secret_key_names(svc, secret),
                 tags=secret.tags,
             )
     except ToolError:
@@ -8446,7 +8548,12 @@ async def create_agent_preset(
 ) -> AgentPresetRead:
     """Create an agent preset in the selected workspace.
 
-    Use `skills` to attach published skills. Each binding contains `skill_id`.
+    Use `skills` to attach published skills. Each binding contains `skill_id`
+    only; the preset always runs each skill's latest published version, so
+    there is no version to pin.
+
+    Attach tools via `actions`, `mcp_integration_ids`, or a skill's
+    `metadata.tools`.
     """
 
     try:
@@ -8530,7 +8637,12 @@ async def update_agent_preset(
 
     Use `skills` to replace attached published skills. Each binding contains
     `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list
-    to detach all skills.
+    to detach all skills. Attached skills always run at their latest published
+    version, so do not call this after `publish_skill` just to refresh a
+    skill version; only pass `skills` when adding or removing a skill.
+
+    Attach tools via `actions`, `mcp_integration_ids`, or a skill's
+    `metadata.tools`.
 
     Set `clear_output_type=true` to remove an existing `output_type` (agent
     returns plain text). Omitting `output_type` leaves it unchanged.
@@ -8968,6 +9080,369 @@ async def move_agent_presets(
 
 
 @mcp.tool()
+async def list_skill_tree(
+    workspace_id: uuid.UUID,
+    path: str = "/",
+    depth: int = 1,
+    include_skills: bool = True,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> SkillTreeResponse:
+    """List skill folders and skills under a path."""
+
+    try:
+        if depth < 0:
+            raise ToolError("depth must be >= 0")
+        _, role = await _resolve_workspace_role(workspace_id)
+        root_path = _normalize_folder_path_arg(path)
+        limit = _normalize_limit(
+            limit,
+            default=config.TRACECAT__LIMIT_DEFAULT,
+            max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+        )
+        filters = {"path": root_path, "depth": depth, "include_skills": include_skills}
+        fingerprint = _pagination_fingerprint("list_skill_tree", **filters)
+        start = (
+            _decode_offset_cursor(cursor, expected_fingerprint=fingerprint)
+            if cursor is not None
+            else 0
+        )
+        end = start + limit
+
+        async with SkillFolderService.with_session(role=role) as svc:
+            queue: deque[tuple[str, int]] = deque([(root_path, 1)])
+            items: list[SkillTreeItem] = []
+            seen_items = 0
+            has_more = False
+
+            def collect_item(item: SkillTreeItem) -> None:
+                nonlocal seen_items, has_more
+                if seen_items >= end:
+                    has_more = True
+                    return
+                if seen_items >= start:
+                    items.append(item)
+                seen_items += 1
+
+            while queue and not has_more:
+                current_path, current_depth = queue.popleft()
+                for item in await svc.get_directory_items(
+                    current_path, order_by="desc"
+                ):
+                    payload = item.model_dump(mode="json")
+                    if payload["type"] == "folder":
+                        collect_item(
+                            SkillTreeFolderItem(
+                                type="folder",
+                                path=payload["path"],
+                                name=payload["name"],
+                                depth=current_depth,
+                            )
+                        )
+                        if depth == 0 or current_depth < depth:
+                            queue.append((payload["path"], current_depth + 1))
+                    elif include_skills:
+                        collect_item(
+                            SkillTreeSkillItem(
+                                type="skill",
+                                name=payload["name"],
+                                slug=payload["slug"],
+                                description=payload.get("description"),
+                                current_version_id=payload.get("current_version_id"),
+                                folder_path=current_path,
+                                depth=current_depth,
+                                tags=payload.get("tags") or [],
+                                created_at=payload["created_at"],
+                                updated_at=payload["updated_at"],
+                            )
+                        )
+                    if has_more:
+                        break
+
+            next_cursor = _encode_offset_cursor(end, fingerprint) if has_more else None
+            prev_start = max(0, start - limit)
+            prev_cursor = (
+                _encode_offset_cursor(prev_start, fingerprint) if start > 0 else None
+            )
+            return SkillTreeResponse(
+                items=items,
+                next_cursor=next_cursor,
+                prev_cursor=prev_cursor,
+                has_more=next_cursor is not None,
+                has_previous=start > 0,
+                root_path=root_path,
+                depth="unlimited" if depth == 0 else depth,
+            )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list skill tree", error=str(e))
+        raise ToolError(f"Failed to list skill tree: {e}") from None
+
+
+@mcp.tool()
+async def create_skill_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    parents: bool = False,
+) -> SkillFolderCreatedResponse:
+    """Create a skill folder by absolute path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+        parts = [part for part in normalized_path.strip("/").split("/") if part]
+
+        async with SkillFolderService.with_session(role=role) as svc:
+            if not parents:
+                parent_parts = parts[:-1]
+                parent_path = f"/{'/'.join(parent_parts)}/" if parent_parts else "/"
+                if existing := await svc.get_folder_by_path(normalized_path):
+                    folder = existing
+                    created_paths = []
+                else:
+                    folder = await svc.create_folder(
+                        name=parts[-1], parent_path=parent_path
+                    )
+                    created_paths = [normalized_path]
+            else:
+                current_path = "/"
+                created_paths: list[str] = []
+                folder = None
+                for part in parts:
+                    next_path = (
+                        f"{current_path}{part}/" if current_path != "/" else f"/{part}/"
+                    )
+                    if existing := await svc.get_folder_by_path(next_path):
+                        folder = existing
+                    else:
+                        folder = await svc.create_folder(
+                            name=part,
+                            parent_path=current_path,
+                        )
+                        created_paths.append(next_path)
+                    current_path = next_path
+
+                if folder is None:
+                    raise ToolError(f"Failed to create folder {normalized_path}")
+
+            return SkillFolderCreatedResponse(
+                path=normalized_path,
+                folder_id=folder.id,
+                created_paths=created_paths,
+                already_existed=not created_paths,
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create skill folder", error=str(e))
+        raise ToolError(f"Failed to create skill folder: {e}") from None
+
+
+@mcp.tool()
+async def rename_skill_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    new_name: str,
+) -> FolderOperationResponse:
+    """Rename a skill folder by absolute path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+
+        async with SkillFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+            renamed = await svc.rename_folder(folder.id, new_name)
+            return FolderOperationResponse(
+                folder_id=renamed.id,
+                path=renamed.path,
+                message=f"Skill folder {normalized_path} renamed to {renamed.path}",
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to rename skill folder", error=str(e))
+        raise ToolError(f"Failed to rename skill folder: {e}") from None
+
+
+@mcp.tool()
+async def move_skill_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    destination_parent_path: str = "/",
+) -> FolderOperationResponse:
+    """Move a skill folder under a new parent path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+        normalized_parent_path = _normalize_folder_path_arg(destination_parent_path)
+
+        async with SkillFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+
+            new_parent_id = None
+            if normalized_parent_path != "/":
+                parent_folder = await svc.get_folder_by_path(normalized_parent_path)
+                if parent_folder is None:
+                    raise ToolError(f"Folder {normalized_parent_path} not found")
+                new_parent_id = parent_folder.id
+
+            moved = await svc.move_folder(folder.id, new_parent_id)
+            return FolderOperationResponse(
+                folder_id=moved.id,
+                path=moved.path,
+                message=(
+                    f"Skill folder {normalized_path} moved under "
+                    f"{normalized_parent_path}"
+                ),
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to move skill folder", error=str(e))
+        raise ToolError(f"Failed to move skill folder: {e}") from None
+
+
+@mcp.tool()
+async def delete_skill_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    recursive: bool = False,
+) -> FolderDeleteResponse:
+    """Delete a skill folder by absolute path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+
+        async with SkillFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+            folder_id = folder.id
+            await svc.delete_folder(folder_id, recursive=recursive)
+            return FolderDeleteResponse(
+                folder_id=folder_id,
+                path=normalized_path,
+                recursive=recursive,
+                message=f"Skill folder {normalized_path} deleted",
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete skill folder", error=str(e))
+        raise ToolError(f"Failed to delete skill folder: {e}") from None
+
+
+@mcp.tool()
+async def move_skills(
+    workspace_id: uuid.UUID,
+    skill_slugs: list[str],
+    destination_path: str = "/",
+    dry_run: bool = False,
+) -> SkillMoveResponse:
+    """Move skills by slug into a destination folder."""
+
+    try:
+        if not skill_slugs:
+            raise ToolError("skill_slugs must not be empty")
+
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_destination = _normalize_folder_path_arg(destination_path)
+        async with SkillFolderService.with_session(role=role) as folder_svc:
+            folder = None
+            if normalized_destination != "/":
+                folder = await folder_svc.get_folder_by_path(normalized_destination)
+                if folder is None:
+                    raise ToolError(f"Folder {normalized_destination} not found")
+            async with SkillService.with_session(role=role) as skill_svc:
+                validated: list[tuple[uuid.UUID, SkillMoveItem]] = []
+                errors: list[SkillMoveError] = []
+                for slug in skill_slugs:
+                    if not slug.strip():
+                        errors.append(
+                            SkillMoveError(
+                                skill_slug=slug,
+                                error="Skill slug cannot be empty",
+                            )
+                        )
+                        continue
+                    try:
+                        skill = await skill_svc.get_skill_by_identifier(slug)
+                    except Exception as exc:
+                        errors.append(SkillMoveError(skill_slug=slug, error=str(exc)))
+                        continue
+                    if skill is None:
+                        errors.append(
+                            SkillMoveError(
+                                skill_slug=slug,
+                                error=f"Skill '{slug}' not found",
+                            )
+                        )
+                        continue
+                    validated.append(
+                        (
+                            skill.id,
+                            SkillMoveItem(
+                                skill_slug=skill.slug or slug, name=skill.name
+                            ),
+                        )
+                    )
+                if dry_run:
+                    return SkillMoveResponse(
+                        destination_path=normalized_destination,
+                        requested_count=len(skill_slugs),
+                        movable_count=len(validated),
+                        movable_skills=[item for _, item in validated],
+                        errors=errors,
+                    )
+
+                moved: list[SkillMoveItem] = []
+                for skill_id, skill_info in validated:
+                    try:
+                        await folder_svc.move_skill(skill_id, folder)
+                        moved.append(skill_info)
+                    except Exception as e:
+                        await folder_svc.session.rollback()
+                        errors.append(
+                            SkillMoveError(
+                                skill_slug=skill_info.skill_slug,
+                                error=str(e),
+                            )
+                        )
+                return SkillMoveResponse(
+                    destination_path=normalized_destination,
+                    requested_count=len(skill_slugs),
+                    moved_count=len(moved),
+                    moved_skills=moved,
+                    errors=errors,
+                )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to move skills", error=str(e))
+        raise ToolError(f"Failed to move skills: {e}") from None
+
+
+@mcp.tool()
 async def list_skills(
     workspace_id: uuid.UUID,
     limit: int = config.TRACECAT__LIMIT_DEFAULT,
@@ -9137,6 +9612,8 @@ async def prepare_skill_upload(
     Upload every file to its short-lived URL with the returned method and
     headers, then call `complete_skill_upload` with the returned `skill_id`,
     `base_revision`, paths, and upload IDs.
+
+    Declare the skill's tools in its SKILL.md frontmatter `metadata.tools`.
     """
 
     try:
@@ -9304,7 +9781,9 @@ async def publish_skill(
 ) -> SkillVersionRead:
     """Publish a skill draft into an immutable skill version.
 
-    Only published skill versions can be attached to agent presets.
+    Only published skills can be attached to agent presets. Presets that
+    already have this skill attached pick up the new version automatically on
+    their next run; no `update_agent_preset` call is needed afterwards.
     """
 
     try:
@@ -9460,7 +9939,8 @@ async def run_agent_preset(
     """Run an agent preset with a prompt and return text or approval status.
 
     Creates an ephemeral session, triggers the agent workflow, and waits
-    for the response. The agent has access to all tools configured on the preset.
+    for the response. The agent has access to all tools configured on the preset
+    and its skills.
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).

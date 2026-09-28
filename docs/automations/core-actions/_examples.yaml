@@ -318,6 +318,27 @@ examples:
             SELECT *
             FROM read_parquet('s3://my-bucket/findings/*.parquet')
 
+  sql-duckdb-s3-cross-account:
+    title: Read a bucket in another account and region
+    language: yaml
+    code: |
+      # role_arn chains from the amazon_s3 credentials into a role in the
+      # bucket's account. region_name is the bucket's region and overrides the
+      # secret's AWS_REGION, so one secret can read buckets in several regions.
+      - ref: read_audit_logs
+        action: core.duckdb.execute_sql
+        args:
+          role_arn: arn:aws:iam::123456789012:role/log-reader
+          region_name: us-west-2
+          sql: |
+            SELECT action, count(*) AS events
+            FROM read_json(
+              's3://my-audit-logs/2026/01/01/*/*.json.gz',
+              format = 'newline_delimited',
+              compression = 'gzip'
+            )
+            GROUP BY action
+
   ssh-command:
     title: Execute a remote command
     language: yaml

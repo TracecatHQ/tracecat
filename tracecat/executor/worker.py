@@ -50,6 +50,10 @@ from temporalio.worker.workflow_sandbox import (
 
 with workflow.unsafe.imports_passed_through():
     import uvloop
+    from tracecat_ee.secrets.references.workflows import (
+        SecretReferenceCheckWorkflow,
+        check_secret_reference_activity,
+    )
 
     from tracecat import config
     from tracecat.dsl.client import get_temporal_client
@@ -162,12 +166,14 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         activities = [
             *ExecutorActivities.get_activities(),
             *RegistrySyncActivities.get_activities(),
+            check_secret_reference_activity,
         ]
 
         # Collect all workflows
         workflows = [
             RegistrySyncWorkflow,
             RegistryArtifactsBackfillWorkflow,
+            SecretReferenceCheckWorkflow,
         ]
         interceptors: list[Interceptor] = [RuntimeErrorAttributionInterceptor()]
 

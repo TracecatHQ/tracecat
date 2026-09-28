@@ -1125,7 +1125,11 @@ function AgentPresetMoveDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="flex w-full items-center py-4">
-          <Popover open={openFolderSelect} onOpenChange={setOpenFolderSelect}>
+          <Popover
+            modal
+            open={openFolderSelect}
+            onOpenChange={setOpenFolderSelect}
+          >
             <PopoverTrigger asChild>
               <Button
                 variant="outline"

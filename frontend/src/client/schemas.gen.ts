@@ -116,7 +116,7 @@ export const $ActionControlFlow = {
       type: "boolean",
       title: "Unsafe Disable Secret Error Withholding",
       description:
-        "UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked.",
+        "Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.",
       default: false,
     },
   },
@@ -647,7 +647,7 @@ export const $ActionStatement_Input = {
       type: "boolean",
       title: "Unsafe Disable Secret Error Withholding",
       description:
-        "UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked, but the original text may echo transformed secret values that exact-string masking cannot catch.",
+        "Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.",
       default: false,
     },
   },
@@ -801,7 +801,7 @@ export const $ActionStatement_Output = {
       type: "boolean",
       title: "Unsafe Disable Secret Error Withholding",
       description:
-        "UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked, but the original text may echo transformed secret values that exact-string masking cannot catch.",
+        "Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.",
       default: false,
     },
   },
@@ -1148,6 +1148,18 @@ export const $AdminOrgInvitationCreateResponse = {
       type: "boolean",
       title: "Created By Platform Admin",
     },
+    last_emailed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Emailed At",
+    },
     token: {
       type: "string",
       title: "Token",
@@ -1249,6 +1261,18 @@ export const $AdminOrgInvitationRead = {
     created_by_platform_admin: {
       type: "boolean",
       title: "Created By Platform Admin",
+    },
+    last_emailed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Emailed At",
     },
   },
   type: "object",
@@ -1427,6 +1451,23 @@ export const $AgentArtifact = {
   required: ["id", "title"],
   title: "AgentArtifact",
   description: "Agent preset artifact shown in artifact-capable chat surfaces.",
+} as const
+
+export const $AgentBackendRead = {
+  properties: {
+    id: {
+      type: "string",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["id", "name"],
+  title: "AgentBackendRead",
+  description: "An enabled installed backend available for session creation.",
 } as const
 
 export const $AgentCatalogListResponse = {
@@ -3050,7 +3091,10 @@ export const $AgentPresetSkillBindingBase = {
   type: "object",
   required: ["skill_id"],
   title: "AgentPresetSkillBindingBase",
-  description: "Shared fields for preset skill bindings.",
+  description: `Shared fields for preset skill bindings.
+
+Bindings reference a skill only; presets always run its latest published
+version, so there is no version to pin.`,
 } as const
 
 export const $AgentPresetSkillBindingChange = {
@@ -4022,10 +4066,30 @@ export const $AgentSessionCreate = {
       description:
         "Pinned preset version used for this session. If null, the session follows the preset's current version.",
     },
+    backend_id: {
+      type: "string",
+      maxLength: 50,
+      minLength: 1,
+      pattern: "^[a-z][a-z0-9_]*$",
+      title: "Backend Id",
+      description: "Opaque agent backend identifier",
+      default: "oss",
+    },
     harness_type: {
-      $ref: "#/components/schemas/HarnessType",
-      description: "Agent harness type",
-      default: "claude_code",
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Harness Type",
+      description:
+        "Execution harness; defaults to the selected backend's harness",
     },
   },
   type: "object",
@@ -4193,6 +4257,11 @@ export const $AgentSessionRead = {
           type: "null",
         },
       ],
+    },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "oss",
     },
     harness_type: {
       anyOf: [
@@ -4393,6 +4462,11 @@ export const $AgentSessionReadVercel = {
           type: "null",
         },
       ],
+    },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "oss",
     },
     harness_type: {
       anyOf: [
@@ -4602,6 +4676,11 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
     },
+    backend_id: {
+      type: "string",
+      title: "Backend Id",
+      default: "oss",
+    },
     harness_type: {
       anyOf: [
         {
@@ -4768,16 +4847,35 @@ export const $AgentSessionUpdate = {
       description:
         "Pinned preset version to use for this session. Set null to follow the preset's current version.",
     },
-    harness_type: {
+    backend_id: {
       anyOf: [
         {
-          $ref: "#/components/schemas/HarnessType",
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
         },
         {
           type: "null",
         },
       ],
-      description: "Agent harness type",
+      title: "Backend Id",
+      description: "Immutable agent backend identifier",
+    },
+    harness_type: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 50,
+          minLength: 1,
+          pattern: "^[a-z][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Harness Type",
+      description: "Immutable execution harness",
     },
   },
   type: "object",
@@ -5095,7 +5193,7 @@ export const $AppSettingsUpdate = {
       type: "array",
       title: "App Unsafe Disable Secret Error Withholding Workspace Ids",
       description:
-        "UNSAFE: workspaces whose actions may opt into showing their original error message when secrets are in scope. Each action must still enable 'Show error details' individually. Known secret values are still masked.",
+        "Legacy allow-list, ignored by action execution. Error diagnostics always mask known secrets and observed secret-derived values.",
     },
   },
   type: "object",
@@ -6091,6 +6189,351 @@ export const $AwsAssumeRoleAccessRead = {
     "Workspace-scoped AWS AssumeRole details shown in the credentials UI.",
 } as const
 
+export const $AwsSecretJsonField = {
+  properties: {
+    key: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$",
+      title: "Key",
+    },
+    field: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "Field",
+    },
+  },
+  type: "object",
+  required: ["key", "field"],
+  title: "AwsSecretJsonField",
+  description: "One declared output key sourced from a top-level JSON field.",
+} as const
+
+export const $AwsSecretKeyMapping = {
+  properties: {
+    mode: {
+      $ref: "#/components/schemas/AwsSecretMappingMode",
+    },
+    keys: {
+      items: {
+        type: "string",
+        pattern: "^[a-zA-Z_][a-zA-Z0-9_]*$",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Keys",
+    },
+    fields: {
+      items: {
+        $ref: "#/components/schemas/AwsSecretJsonField",
+      },
+      type: "array",
+      maxItems: 100,
+      title: "Fields",
+    },
+  },
+  type: "object",
+  required: ["mode"],
+  title: "AwsSecretKeyMapping",
+  description: `Declares how a remote AWS secret value maps onto output keys.
+
+\`\`whole_string\`\` maps the entire \`\`SecretString\`\` onto exactly one key.
+\`\`json\`\` maps selected top-level string fields onto declared keys.`,
+} as const
+
+export const $AwsSecretMappingMode = {
+  type: "string",
+  enum: ["whole_string", "json"],
+  title: "AwsSecretMappingMode",
+  description:
+    "How an AWS Secrets Manager value maps onto declared secret keys.",
+} as const
+
+export const $AwsSecretReferenceCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      pattern: "^[a-z_][a-z0-9_]*$",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    environment: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Environment",
+      default: "default",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    store_id: {
+      type: "string",
+      format: "uuid",
+      title: "Store Id",
+    },
+    remote_reference: {
+      type: "string",
+      maxLength: 2048,
+      pattern:
+        "^(?:arn:aws(?:-[a-z]+)*:secretsmanager:[a-z0-9-]+:\\d{12}:secret:[^\\s]+|[A-Za-z0-9/_+=.@-]{1,512})$",
+      title: "Remote Reference",
+    },
+    key_mapping: {
+      $ref: "#/components/schemas/AwsSecretKeyMapping",
+    },
+  },
+  type: "object",
+  required: ["name", "store_id", "remote_reference", "key_mapping"],
+  title: "AwsSecretReferenceCreate",
+  description:
+    "Create a workspace custom secret backed by AWS Secrets Manager.",
+} as const
+
+export const $AwsSecretReferenceUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          pattern: "^[a-z_][a-z0-9_]*$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 255,
+          minLength: 0,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    environment: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Environment",
+    },
+    tags: {
+      anyOf: [
+        {
+          additionalProperties: {
+            type: "string",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tags",
+    },
+    store_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Store Id",
+    },
+    remote_reference: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          pattern:
+            "^(?:arn:aws(?:-[a-z]+)*:secretsmanager:[a-z0-9-]+:\\d{12}:secret:[^\\s]+|[A-Za-z0-9/_+=.@-]{1,512})$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Remote Reference",
+    },
+    key_mapping: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AwsSecretKeyMapping",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "AwsSecretReferenceUpdate",
+  description:
+    "Update an AWS-backed workspace secret. Values are never accepted.",
+} as const
+
+export const $AwsSecretResolutionErrorCode = {
+  type: "string",
+  enum: [
+    "store_disabled",
+    "store_not_authorized",
+    "assume_role_failed",
+    "access_denied",
+    "not_found",
+    "decryption_failed",
+    "throttled",
+    "timeout",
+    "binary_value",
+    "malformed_json",
+    "missing_field",
+    "non_string_field",
+    "invalid_mapping",
+    "region_mismatch",
+    "unknown",
+  ],
+  title: "AwsSecretResolutionErrorCode",
+  description: "Sanitized failure classes for AWS Secrets Manager resolution.",
+} as const
+
+export const $AwsSecretsManagerStoreConfig = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "aws_secrets_manager",
+      title: "Provider",
+      default: "aws_secrets_manager",
+    },
+    role_arn: {
+      type: "string",
+      maxLength: 2048,
+      pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+      title: "Role Arn",
+    },
+    region: {
+      type: "string",
+      maxLength: 64,
+      pattern: "^[a-z]{2}(?:-[a-z]+)+-\\d$",
+      title: "Region",
+    },
+    external_id: {
+      type: "string",
+      maxLength: 255,
+      minLength: 1,
+      title: "External Id",
+    },
+  },
+  type: "object",
+  required: ["role_arn", "region", "external_id"],
+  title: "AwsSecretsManagerStoreConfig",
+  description:
+    "Persisted provider configuration for an AWS Secrets Manager store.",
+} as const
+
+export const $AwsSecretsManagerStoreCreate = {
+  properties: {
+    provider: {
+      type: "string",
+      const: "aws_secrets_manager",
+      title: "Provider",
+      default: "aws_secrets_manager",
+    },
+    role_arn: {
+      type: "string",
+      maxLength: 2048,
+      pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+      title: "Role Arn",
+    },
+    region: {
+      type: "string",
+      maxLength: 64,
+      pattern: "^[a-z]{2}(?:-[a-z]+)+-\\d$",
+      title: "Region",
+    },
+  },
+  type: "object",
+  required: ["role_arn", "region"],
+  title: "AwsSecretsManagerStoreCreate",
+  description:
+    "Client-supplied fields when creating an AWS Secrets Manager store.",
+} as const
+
+export const $AwsSecretsManagerStoreUpdate = {
+  properties: {
+    role_arn: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Arn",
+    },
+    region: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 64,
+          pattern: "^[a-z]{2}(?:-[a-z]+)+-\\d$",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Region",
+    },
+  },
+  type: "object",
+  title: "AwsSecretsManagerStoreUpdate",
+  description:
+    "Client-supplied fields when updating an AWS Secrets Manager store.",
+} as const
+
 export const $AzureAICatalogCreate = {
   properties: {
     display_name: {
@@ -6364,6 +6807,168 @@ export const $BedrockCatalogUpdate = {
   type: "object",
   required: ["model_provider"],
   title: "BedrockCatalogUpdate",
+} as const
+
+export const $BitbucketDataCenterTokenCredentialsRequest = {
+  properties: {
+    base_url: {
+      type: "string",
+      title: "Base Url",
+    },
+    token: {
+      type: "string",
+      minLength: 1,
+      format: "password",
+      title: "Token",
+      writeOnly: true,
+    },
+  },
+  type: "object",
+  required: ["base_url", "token"],
+  title: "BitbucketDataCenterTokenCredentialsRequest",
+  description:
+    "Register or rotate the organization Bitbucket Data Center API token.",
+} as const
+
+export const $BitbucketDataCenterTokenCredentialsSaveResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    action: {
+      type: "string",
+      enum: ["created", "updated"],
+      title: "Action",
+    },
+    base_url: {
+      type: "string",
+      title: "Base Url",
+    },
+  },
+  type: "object",
+  required: ["message", "action", "base_url"],
+  title: "BitbucketDataCenterTokenCredentialsSaveResponse",
+} as const
+
+export const $BitbucketDataCenterTokenCredentialsStatus = {
+  properties: {
+    exists: {
+      type: "boolean",
+      title: "Exists",
+    },
+    is_corrupted: {
+      type: "boolean",
+      title: "Is Corrupted",
+      default: false,
+    },
+    base_url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Base Url",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["exists"],
+  title: "BitbucketDataCenterTokenCredentialsStatus",
+} as const
+
+export const $BitbucketTokenCredentialsRequest = {
+  properties: {
+    email: {
+      type: "string",
+      format: "email",
+      title: "Email",
+    },
+    token: {
+      type: "string",
+      minLength: 1,
+      format: "password",
+      title: "Token",
+      writeOnly: true,
+    },
+  },
+  type: "object",
+  required: ["email", "token"],
+  title: "BitbucketTokenCredentialsRequest",
+  description: "Register or rotate the organization Bitbucket Cloud API token.",
+} as const
+
+export const $BitbucketTokenCredentialsSaveResponse = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    action: {
+      type: "string",
+      enum: ["created", "updated"],
+      title: "Action",
+    },
+    email: {
+      type: "string",
+      title: "Email",
+    },
+  },
+  type: "object",
+  required: ["message", "action", "email"],
+  title: "BitbucketTokenCredentialsSaveResponse",
+} as const
+
+export const $BitbucketTokenCredentialsStatus = {
+  properties: {
+    exists: {
+      type: "boolean",
+      title: "Exists",
+    },
+    is_corrupted: {
+      type: "boolean",
+      title: "Is Corrupted",
+      default: false,
+    },
+    email: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Email",
+    },
+    created_at: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["exists"],
+  title: "BitbucketTokenCredentialsStatus",
 } as const
 
 export const $Body_auth_reset_forgot_password = {
@@ -12367,6 +12972,69 @@ export const $CursorPaginatedResponse_ServiceAccountRead_ = {
   title: "CursorPaginatedResponse[ServiceAccountRead]",
 } as const
 
+export const $CursorPaginatedResponse_SkillFolderRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SkillFolderRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SkillFolderRead]",
+} as const
+
 export const $CursorPaginatedResponse_SkillReadMinimal_ = {
   properties: {
     items: {
@@ -12428,6 +13096,69 @@ export const $CursorPaginatedResponse_SkillReadMinimal_ = {
   type: "object",
   required: ["items"],
   title: "CursorPaginatedResponse[SkillReadMinimal]",
+} as const
+
+export const $CursorPaginatedResponse_SkillTagRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SkillTagRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[SkillTagRead]",
 } as const
 
 export const $CursorPaginatedResponse_SkillVersionReadMinimal_ = {
@@ -13243,6 +13974,13 @@ export const $DefaultModelSelectionUpdate = {
     "Payload for updating the organization's default model selection.",
 } as const
 
+export const $DocumentState = {
+  type: "string",
+  enum: ["pending", "building", "ready", "empty", "failed", "deleted"],
+  title: "DocumentState",
+  description: "Lifecycle states of a row document within an index generation.",
+} as const
+
 export const $DropdownValueChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -13723,12 +14461,172 @@ export const $EffectiveEntitlements = {
         "Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)",
       default: false,
     },
+    external_secret_stores: {
+      type: "boolean",
+      title: "External secret stores",
+      description:
+        "Whether workspace secrets may reference external secret stores such as AWS Secrets Manager",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
   description: `Effective feature entitlements for an organization.
 
 Values are resolved from org overrides falling back to tier defaults.`,
+} as const
+
+export const $EmbeddingConfigurationRead = {
+  properties: {
+    available: {
+      type: "boolean",
+      title: "Available",
+    },
+    version: {
+      type: "integer",
+      title: "Version",
+    },
+    state: {
+      $ref: "#/components/schemas/SearchState",
+    },
+    configuration: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/EmbeddingModelRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    reindex_required: {
+      type: "boolean",
+      title: "Reindex Required",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["available", "version", "state"],
+  title: "EmbeddingConfigurationRead",
+  description:
+    "Availability from existing provider settings and current indexing state.",
+} as const
+
+export const $EmbeddingErrorCode = {
+  type: "string",
+  enum: [
+    "CREDENTIAL_INVALID",
+    "CONFIGURATION_INVALID",
+    "CONFIGURATION_CHANGED",
+    "INPUT_INVALID",
+    "RATE_LIMITED",
+    "TIMEOUT",
+    "UNAVAILABLE",
+    "RESPONSE_INVALID",
+    "NOT_CONFIGURED",
+  ],
+  title: "EmbeddingErrorCode",
+  description:
+    "Stable public failures; provider messages must never cross this boundary.",
+} as const
+
+export const $EmbeddingErrorRead = {
+  properties: {
+    code: {
+      $ref: "#/components/schemas/EmbeddingErrorCode",
+    },
+    retryable: {
+      type: "boolean",
+      title: "Retryable",
+    },
+    retry_after: {
+      anyOf: [
+        {
+          type: "number",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Retry After",
+    },
+  },
+  type: "object",
+  required: ["code", "retryable"],
+  title: "EmbeddingErrorRead",
+} as const
+
+export const $EmbeddingErrorResponse = {
+  properties: {
+    detail: {
+      $ref: "#/components/schemas/EmbeddingErrorRead",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "EmbeddingErrorResponse",
+} as const
+
+export const $EmbeddingModelRead = {
+  properties: {
+    provider: {
+      type: "string",
+      enum: ["openai", "gemini", "bedrock", "ollama", "vllm"],
+      title: "Provider",
+    },
+    model: {
+      type: "string",
+      enum: [
+        "text-embedding-3-small",
+        "text-embedding-3-large",
+        "gemini-embedding-001",
+        "amazon.titan-embed-text-v2:0",
+        "all-minilm",
+        "all-minilm:latest",
+        "all-minilm:22m",
+        "sentence-transformers/all-MiniLM-L6-v2",
+      ],
+      title: "Model",
+    },
+    dimensions: {
+      type: "integer",
+      title: "Dimensions",
+    },
+    tokenizer: {
+      type: "string",
+      title: "Tokenizer",
+    },
+    input_token_limit: {
+      type: "integer",
+      title: "Input Token Limit",
+    },
+    input_character_limit: {
+      type: "integer",
+      title: "Input Character Limit",
+    },
+    batch_size_limit: {
+      type: "integer",
+      title: "Batch Size Limit",
+    },
+    batch_token_limit: {
+      type: "integer",
+      title: "Batch Token Limit",
+    },
+  },
+  type: "object",
+  required: [
+    "provider",
+    "model",
+    "dimensions",
+    "tokenizer",
+    "input_token_limit",
+    "input_character_limit",
+    "batch_size_limit",
+    "batch_token_limit",
+  ],
+  title: "EmbeddingModelRead",
+  description:
+    "Public metadata needed for status and bounded chunk preparation.",
 } as const
 
 export const $EntitlementsDict = {
@@ -13781,6 +14679,12 @@ export const $EntitlementsDict = {
       title: "Watchtower",
       description:
         "Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)",
+    },
+    external_secret_stores: {
+      type: "boolean",
+      title: "External secret stores",
+      description:
+        "Whether workspace secrets may reference external secret stores such as AWS Secrets Manager",
     },
   },
   type: "object",
@@ -14291,6 +15195,7 @@ export const $FeatureFlag = {
     "workflow-concurrency-limits",
     "agent-channels",
     "agent-fs-persistence",
+    "agent-runtime",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",
@@ -14497,6 +15402,10 @@ export const $FolderDirectoryItem = {
       type: "integer",
       title: "Num Items",
     },
+    num_workflows: {
+      type: "integer",
+      title: "Num Workflows",
+    },
   },
   type: "object",
   required: [
@@ -14508,6 +15417,7 @@ export const $FolderDirectoryItem = {
     "updated_at",
     "type",
     "num_items",
+    "num_workflows",
   ],
   title: "FolderDirectoryItem",
 } as const
@@ -15628,13 +16538,6 @@ export const $HTTPValidationError = {
   },
   type: "object",
   title: "HTTPValidationError",
-} as const
-
-export const $HarnessType = {
-  type: "string",
-  enum: ["claude_code"],
-  title: "HarnessType",
-  description: "Supported agent harnesses.",
 } as const
 
 export const $HealthResponse = {
@@ -19154,6 +20057,18 @@ export const $OrgInvitationRead = {
       ],
       title: "Accepted At",
     },
+    last_emailed_at: {
+      anyOf: [
+        {
+          type: "string",
+          format: "date-time",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Last Emailed At",
+    },
   },
   type: "object",
   required: [
@@ -20201,6 +21116,84 @@ export const $OutputType = {
       type: "object",
     },
   ],
+} as const
+
+export const $Page_SecretStoreRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SecretStoreRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[SecretStoreRead]",
+} as const
+
+export const $Page_WorkspaceSecretStoreRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/WorkspaceSecretStoreRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[WorkspaceSecretStoreRead]",
 } as const
 
 export const $PayloadChangedEventRead = {
@@ -23438,6 +24431,8 @@ export const $RuntimeErrorKind = {
     "tenant.entitlement.denied",
     "integration.rate_limited",
     "registry.sync.validation_failed",
+    "registry.lock.invalid_data",
+    "registry.lock.action_ambiguous",
     "runtime.unclassified",
     "storage.materialization.transport_unavailable",
     "storage.materialization.invalid_data",
@@ -24126,6 +25121,86 @@ export const $ScopeSource = {
   description: "Source/ownership of a scope definition.",
 } as const
 
+export const $SearchErrorCode = {
+  type: "string",
+  enum: [
+    "NOT_FOUND",
+    "INDEX_NOT_READY",
+    "STALE_CLAIM",
+    "MANIFEST_CONFLICT",
+    "INVALID_VECTOR",
+    "CONFIGURATION_CHANGED",
+    "PROVIDER_UNAVAILABLE",
+    "INVALID_CURSOR",
+    "INVALID_TABLE_NAME",
+  ],
+  title: "SearchErrorCode",
+  description:
+    "Stable error codes safe to expose without source text or credentials.",
+} as const
+
+export const $SearchIndexStatus = {
+  properties: {
+    state: {
+      $ref: "#/components/schemas/SearchState",
+    },
+    pending: {
+      type: "integer",
+      minimum: 0,
+      title: "Pending",
+      default: 0,
+    },
+    failed: {
+      type: "integer",
+      minimum: 0,
+      title: "Failed",
+      default: 0,
+    },
+    empty: {
+      type: "integer",
+      minimum: 0,
+      title: "Empty",
+      default: 0,
+    },
+    ready: {
+      type: "integer",
+      minimum: 0,
+      title: "Ready",
+      default: 0,
+    },
+    backfill_complete: {
+      type: "boolean",
+      title: "Backfill Complete",
+      default: false,
+    },
+    partial: {
+      type: "boolean",
+      title: "Partial",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["state"],
+  title: "SearchIndexStatus",
+  description: `Index availability and document counts for a collection.
+
+Attributes:
+    state: Effective workspace or collection search state.
+    pending: Documents awaiting work for the current index configuration.
+    failed: Documents that failed in the current index generation.
+    empty: Current documents that contain no searchable chunks.
+    ready: Current documents whose complete embeddings are published.
+    backfill_complete: Whether all source rows have been enumerated.
+    partial: Whether the index is unavailable or results may be incomplete.`,
+} as const
+
+export const $SearchState = {
+  type: "string",
+  enum: ["disabled", "active", "paused", "reindex_required"],
+  title: "SearchState",
+  description: "Workspace availability states controlling search and indexing.",
+} as const
+
 export const $SecretArtifact = {
   properties: {
     id: {
@@ -24363,6 +25438,43 @@ export const $SecretRead = {
       format: "uuid",
       title: "Workspace Id",
     },
+    source: {
+      $ref: "#/components/schemas/SecretSource",
+      default: "local",
+    },
+    store_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Store Id",
+    },
+    remote_reference: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Remote Reference",
+    },
+    remote_key_mapping: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AwsSecretKeyMapping",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
   },
   type: "object",
   required: [
@@ -24420,10 +25532,355 @@ export const $SecretReadMinimal = {
       title: "Is Corrupted",
       default: false,
     },
+    source: {
+      $ref: "#/components/schemas/SecretSource",
+      default: "local",
+    },
+    store_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Store Id",
+    },
+    store_name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Store Name",
+    },
+    remote_reference: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Remote Reference",
+    },
   },
   type: "object",
   required: ["id", "type", "name", "keys", "environment"],
   title: "SecretReadMinimal",
+} as const
+
+export const $SecretReferenceCheckResult = {
+  properties: {
+    ok: {
+      type: "boolean",
+      title: "Ok",
+    },
+    error_code: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AwsSecretResolutionErrorCode",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    message: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Message",
+    },
+    resolved_keys: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Resolved Keys",
+    },
+  },
+  type: "object",
+  required: ["ok"],
+  title: "SecretReferenceCheckResult",
+  description: "Outcome of a reference check. Never contains the remote value.",
+} as const
+
+export const $SecretSource = {
+  type: "string",
+  enum: ["local", "aws_secrets_manager"],
+  title: "SecretSource",
+  description: "Where a workspace secret's values live.",
+} as const
+
+export const $SecretStoreAuthorizationCreate = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+  },
+  type: "object",
+  required: ["workspace_id"],
+  title: "SecretStoreAuthorizationCreate",
+  description: "Authorize a workspace to reference a store.",
+} as const
+
+export const $SecretStoreAuthorizationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    store_id: {
+      type: "string",
+      format: "uuid",
+      title: "Store Id",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+  },
+  type: "object",
+  required: ["id", "store_id", "workspace_id", "created_at"],
+  title: "SecretStoreAuthorizationRead",
+} as const
+
+export const $SecretStoreCreate = {
+  properties: {
+    name: {
+      type: "string",
+      maxLength: 100,
+      minLength: 1,
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/SecretStoreProvider",
+      default: "aws_secrets_manager",
+    },
+    config: {
+      $ref: "#/components/schemas/AwsSecretsManagerStoreCreate",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+      default: true,
+    },
+    all_workspaces: {
+      type: "boolean",
+      title: "All Workspaces",
+      description: "Allow all current and future workspaces.",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["name", "config"],
+  title: "SecretStoreCreate",
+  description: "Create an organization-owned external secret store.",
+} as const
+
+export const $SecretStoreProvider = {
+  type: "string",
+  enum: ["aws_secrets_manager"],
+  title: "SecretStoreProvider",
+  description: "Supported external secret store providers.",
+} as const
+
+export const $SecretStoreRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    organization_id: {
+      type: "string",
+      format: "uuid",
+      title: "Organization Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/SecretStoreProvider",
+    },
+    config: {
+      $ref: "#/components/schemas/AwsSecretsManagerStoreConfig",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+    all_workspaces: {
+      type: "boolean",
+      title: "All Workspaces",
+    },
+    tracecat_aws_account_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tracecat Aws Account Id",
+    },
+    tracecat_aws_principal_arn: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tracecat Aws Principal Arn",
+    },
+    authorized_workspace_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Authorized Workspace Ids",
+    },
+    reference_count: {
+      type: "integer",
+      title: "Reference Count",
+      default: 0,
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "organization_id",
+    "name",
+    "provider",
+    "config",
+    "enabled",
+    "all_workspaces",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SecretStoreRead",
+  description:
+    "Organization view of a secret store, including trust-policy inputs.",
+} as const
+
+export const $SecretStoreUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 100,
+          minLength: 1,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 1000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    config: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/AwsSecretsManagerStoreUpdate",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    enabled: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Enabled",
+    },
+    all_workspaces: {
+      type: "boolean",
+      title: "All Workspaces",
+      description: "Allow all current and future workspaces.",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "SecretStoreUpdate",
+  description:
+    "Update an organization-owned secret store. Server-owned fields are immutable.",
 } as const
 
 export const $SecretType = {
@@ -24462,7 +25919,7 @@ export const $SecretUpdate = {
       anyOf: [
         {
           type: "string",
-          maxLength: 1000,
+          maxLength: 255,
           minLength: 0,
         },
         {
@@ -25249,6 +26706,96 @@ export const $SkillCreate = {
   description: "Payload for creating a new logical skill.",
 } as const
 
+export const $SkillDirectoryItem = {
+  properties: {
+    type: {
+      type: "string",
+      const: "skill",
+      title: "Type",
+    },
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    current_version_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Current Version Id",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/TagRead",
+      },
+      type: "array",
+      title: "Tags",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: [
+    "type",
+    "id",
+    "name",
+    "slug",
+    "description",
+    "current_version_id",
+    "folder_id",
+    "tags",
+    "created_at",
+    "updated_at",
+  ],
+  title: "SkillDirectoryItem",
+  description: "Skill as a directory item.",
+} as const
+
 export const $SkillDraftAttachUploadedBlobOp = {
   properties: {
     op: {
@@ -25549,6 +27096,180 @@ export const $SkillFileEntry = {
     "Manifest entry for a skill file (used in both drafts and versions).",
 } as const
 
+export const $SkillFolderCreate = {
+  properties: {
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    parent_path: {
+      type: "string",
+      title: "Parent Path",
+      default: "/",
+    },
+  },
+  type: "object",
+  required: ["name"],
+  title: "SkillFolderCreate",
+} as const
+
+export const $SkillFolderDelete = {
+  properties: {
+    recursive: {
+      type: "boolean",
+      title: "Recursive",
+      default: false,
+    },
+  },
+  type: "object",
+  title: "SkillFolderDelete",
+} as const
+
+export const $SkillFolderDirectoryItem = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+    type: {
+      type: "string",
+      const: "folder",
+      title: "Type",
+    },
+    num_items: {
+      type: "integer",
+      title: "Num Items",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "name",
+    "path",
+    "workspace_id",
+    "created_at",
+    "updated_at",
+    "type",
+    "num_items",
+  ],
+  title: "SkillFolderDirectoryItem",
+} as const
+
+export const $SkillFolderMove = {
+  properties: {
+    new_parent_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "New Parent Path",
+    },
+  },
+  type: "object",
+  title: "SkillFolderMove",
+} as const
+
+export const $SkillFolderRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    updated_at: {
+      type: "string",
+      format: "date-time",
+      title: "Updated At",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "path", "workspace_id", "created_at", "updated_at"],
+  title: "SkillFolderRead",
+} as const
+
+export const $SkillFolderUpdate = {
+  properties: {
+    name: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Name",
+    },
+  },
+  type: "object",
+  title: "SkillFolderUpdate",
+} as const
+
+export const $SkillMoveToFolder = {
+  properties: {
+    folder_path: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Path",
+    },
+  },
+  type: "object",
+  title: "SkillMoveToFolder",
+  description: "Payload for moving a skill into a folder.",
+} as const
+
 export const $SkillRead = {
   properties: {
     id: {
@@ -25597,6 +27318,25 @@ export const $SkillRead = {
         },
       ],
       title: "Current Version Id",
+    },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/TagRead",
+      },
+      type: "array",
+      title: "Tags",
     },
     draft_revision: {
       type: "integer",
@@ -25715,6 +27455,25 @@ export const $SkillReadMinimal = {
       ],
       title: "Current Version Id",
     },
+    folder_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Folder Id",
+    },
+    tags: {
+      items: {
+        $ref: "#/components/schemas/TagRead",
+      },
+      type: "array",
+      title: "Tags",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -25746,6 +27505,53 @@ export const $SkillReadMinimal = {
 \`\`slug\`\` is the late-binding handle every skill API accepts; list
 responses must expose it so callers never have to guess it from \`\`name\`\`
 (names are not unique — slugs are, per live row).`,
+} as const
+
+export const $SkillTagCreate = {
+  properties: {
+    tag_id: {
+      type: "string",
+      format: "uuid",
+      title: "Tag Id",
+    },
+  },
+  type: "object",
+  required: ["tag_id"],
+  title: "SkillTagCreate",
+  description: "Payload for adding a tag to a skill.",
+} as const
+
+export const $SkillTagRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    ref: {
+      type: "string",
+      title: "Ref",
+    },
+    color: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Color",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "ref", "color"],
+  title: "SkillTagRead",
+  description: "Tag data.",
 } as const
 
 export const $SkillUpload = {
@@ -27127,6 +28933,332 @@ export const $TableRowUpdate = {
   required: ["data"],
   title: "TableRowUpdate",
   description: "Update model for a table row.",
+} as const
+
+export const $TableSearchConfiguration = {
+  properties: {
+    generation: {
+      type: "integer",
+      minimum: 0,
+      title: "Generation",
+      default: 0,
+    },
+    selected_column_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Selected Column Ids",
+    },
+    status: {
+      $ref: "#/components/schemas/TableSearchDisplayState",
+      default: "disabled",
+    },
+    index: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchIndexStatus",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  title: "TableSearchConfiguration",
+  description:
+    "Persisted selection with truthful readiness; never includes credentials.",
+} as const
+
+export const $TableSearchDisplayState = {
+  type: "string",
+  enum: [
+    "disabled",
+    "unavailable",
+    "indexing",
+    "ready",
+    "updating",
+    "needs_attention",
+  ],
+  title: "TableSearchDisplayState",
+} as const
+
+export const $TableSearchDocumentProgress = {
+  properties: {
+    document_id: {
+      type: "string",
+      format: "uuid",
+      title: "Document Id",
+    },
+    row_id: {
+      type: "string",
+      format: "uuid",
+      title: "Row Id",
+    },
+    state: {
+      $ref: "#/components/schemas/DocumentState",
+    },
+    revision: {
+      type: "integer",
+      title: "Revision",
+    },
+    expected_chunks: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Expected Chunks",
+    },
+    sampled_chunks: {
+      type: "integer",
+      title: "Sampled Chunks",
+    },
+    sampled_embedded: {
+      type: "integer",
+      title: "Sampled Embedded",
+    },
+    chunks_capped: {
+      type: "boolean",
+      title: "Chunks Capped",
+    },
+    error_code: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error Code",
+    },
+  },
+  type: "object",
+  required: [
+    "document_id",
+    "row_id",
+    "state",
+    "revision",
+    "expected_chunks",
+    "sampled_chunks",
+    "sampled_embedded",
+    "chunks_capped",
+    "error_code",
+  ],
+  title: "TableSearchDocumentProgress",
+  description:
+    "Bounded progress sample; chunk totals remain unknown until enumeration ends.",
+} as const
+
+export const $TableSearchErrorRead = {
+  properties: {
+    code: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/SearchErrorCode",
+        },
+        {
+          type: "string",
+          const: "INVALID_SELECTION",
+        },
+      ],
+      title: "Code",
+    },
+  },
+  type: "object",
+  required: ["code"],
+  title: "TableSearchErrorRead",
+  description:
+    "Safe domain failure, including a stale generation precondition.",
+} as const
+
+export const $TableSearchErrorResponse = {
+  properties: {
+    detail: {
+      $ref: "#/components/schemas/TableSearchErrorRead",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "TableSearchErrorResponse",
+} as const
+
+export const $TableSearchProgressPage = {
+  properties: {
+    generation: {
+      type: "integer",
+      title: "Generation",
+    },
+    items: {
+      items: {
+        $ref: "#/components/schemas/TableSearchDocumentProgress",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["generation", "items"],
+  title: "TableSearchProgressPage",
+} as const
+
+export const $TableSearchRequestValidationError = {
+  properties: {
+    loc: {
+      items: {
+        anyOf: [
+          {
+            type: "string",
+          },
+          {
+            type: "integer",
+          },
+        ],
+      },
+      type: "array",
+      title: "Loc",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+    },
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    input: {
+      $ref: "#/components/schemas/JsonValue",
+    },
+    ctx: {
+      anyOf: [
+        {
+          additionalProperties: {
+            $ref: "#/components/schemas/JsonValue",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ctx",
+    },
+  },
+  type: "object",
+  required: ["loc", "msg", "type"],
+  title: "TableSearchRequestValidationError",
+  description:
+    "Standard FastAPI request validation fields for the selection endpoint.",
+} as const
+
+export const $TableSearchRetry = {
+  properties: {
+    expected_generation: {
+      type: "integer",
+      minimum: 1,
+      title: "Expected Generation",
+    },
+    document_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 100,
+      minItems: 1,
+      title: "Document Ids",
+    },
+  },
+  type: "object",
+  required: ["expected_generation", "document_ids"],
+  title: "TableSearchRetry",
+  description:
+    "Retry a bounded explicit set of failed documents in the current generation.",
+} as const
+
+export const $TableSearchSelection = {
+  properties: {
+    column_id: {
+      type: "string",
+      format: "uuid",
+      title: "Column Id",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+    expected_generation: {
+      type: "integer",
+      minimum: 0,
+      title: "Expected Generation",
+    },
+  },
+  type: "object",
+  required: ["column_id", "enabled", "expected_generation"],
+  title: "TableSearchSelection",
+  description:
+    "Set one selection; generation zero denotes an absent collection.",
+} as const
+
+export const $TableSearchSelectionErrorResponse = {
+  properties: {
+    detail: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/TableSearchErrorRead",
+        },
+        {
+          items: {
+            $ref: "#/components/schemas/TableSearchRequestValidationError",
+          },
+          type: "array",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "TableSearchSelectionErrorResponse",
+  description: "Invalid column selection or malformed request parameters.",
 } as const
 
 export const $TableUpdate = {
@@ -30095,7 +32227,7 @@ export const $VariableUpdate = {
 
 export const $VcsProvider = {
   type: "string",
-  enum: ["github", "gitlab", "bitbucket"],
+  enum: ["github", "gitlab", "bitbucket", "bitbucket_data_center"],
   title: "VcsProvider",
   description: "Version control host backing a workspace sync repository.",
 } as const
@@ -34566,6 +36698,47 @@ export const $WorkspaceReadMinimal = {
   type: "object",
   required: ["id", "name"],
   title: "WorkspaceReadMinimal",
+} as const
+
+export const $WorkspaceSecretStoreRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    provider: {
+      $ref: "#/components/schemas/SecretStoreProvider",
+    },
+    region: {
+      type: "string",
+      title: "Region",
+    },
+    enabled: {
+      type: "boolean",
+      title: "Enabled",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "provider", "region", "enabled"],
+  title: "WorkspaceSecretStoreRead",
+  description:
+    "Workspace view of an authorized store. Never exposes the external ID.",
 } as const
 
 export const $WorkspaceSettingsRead = {

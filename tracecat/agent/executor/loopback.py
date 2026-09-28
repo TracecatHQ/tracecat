@@ -1003,6 +1003,12 @@ class LoopbackHandler:
             success=self._result.error is None,
         )
         await self._emit_failed_compaction_if_pending()
+        if self._executor_error_recorded:
+            # Executor error delivery owns external stream closure. Cleanup can
+            # arrive while its Redis write is pending, before Slack sees the
+            # error; closing here would mark the turn successful and drop it.
+            # Leave closure to that path even if its bounded delivery fails.
+            return True
         if self._result.error is not None:
             await self._close_external_stream()
             return True
