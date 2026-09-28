@@ -1537,6 +1537,7 @@ class DurableAgentWorkflow:
                 raise_application_error_from_classification(
                     classification,
                     build_error_transport_detail(classification, result.diagnostic),
+                    capture=result.sentry_capture,
                 )
 
             if result.approval_requested:

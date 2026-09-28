@@ -19,11 +19,14 @@ def test_agent_executor_result_legacy_result_output_alias() -> None:
     assert result.output == "legacy2"
 
 
-def test_source_capture_is_not_serialized_into_workflow_results() -> None:
+def test_source_capture_roundtrips_in_workflow_results() -> None:
     result = AgentExecutorResult(
         success=False,
         sentry_capture=PlatformErrorCapture.for_error(
             "a" * 32, agent_executor_unavailable()
         ),
     )
-    assert "sentry_capture" not in result.model_dump(mode="json")
+    assert (
+        AgentExecutorResult.model_validate_json(result.model_dump_json()).sentry_capture
+        == result.sentry_capture
+    )

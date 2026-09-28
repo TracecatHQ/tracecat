@@ -55,6 +55,8 @@ from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
 from tracecat.network import DisallowedUrlError
+from tracecat.observability.sentry import capture_activity_failure
+from tracecat.observability.types import PlatformErrorCapture, ProxyFailureContext
 from tracecat.outbound import create_outbound_http_client
 from tracecat.runtime.errors import RuntimeErrorClassification
 
@@ -205,6 +207,7 @@ class LLMProxyError:
     message: str
     classification: RuntimeErrorClassification
     diagnostic: LLMErrorDiagnostics | None = None
+    sentry_capture: PlatformErrorCapture | None = None
 
 
 def _error_object_strings(body: bytes) -> tuple[str | None, str | None]:
@@ -858,6 +861,8 @@ class LLMSocketProxy:
         classification: RuntimeErrorClassification,
         *,
         diagnostic: LLMErrorDiagnostics | None = None,
+        error: Exception | None = None,
+        context: ProxyFailureContext | None = None,
     ) -> None:
         """Emit error via callback (only once)."""
         self._emit_proxy_error(
@@ -865,13 +870,37 @@ class LLMSocketProxy:
                 message=message,
                 classification=classification,
                 diagnostic=diagnostic,
-            )
+            ),
+            source_error=error,
+            context=context,
         )
 
-    def _emit_proxy_error(self, error: LLMProxyError) -> None:
+    def _emit_proxy_error(
+        self,
+        error: LLMProxyError,
+        *,
+        source_error: Exception | None = None,
+        context: ProxyFailureContext | None = None,
+    ) -> None:
         """Emit one terminal proxy error via callback (only once)."""
         if not self._stopping and not self._error_emitted:
             self._error_emitted = True
+            if source_error is not None:
+                classification = error.classification.model_copy(
+                    update={"cause_type": type(source_error).__name__}
+                )
+                error = replace(error, classification=classification)
+                if self._on_error:
+                    error = replace(
+                        error,
+                        sentry_capture=capture_activity_failure(
+                            source_error,
+                            classification,
+                            existing_capture=error.sentry_capture,
+                            proxy_context=context,
+                            diagnostics=(error.diagnostic,) if error.diagnostic else (),
+                        ),
+                    )
             logger.error("LLM proxy error", error=error.message, **_load_fields())
             if self._on_error:
                 self._on_error(error)
@@ -951,6 +980,7 @@ class LLMSocketProxy:
                 self._emit_error(
                     f"Proxy error: {e}",
                     agent_executor_protocol_failed(e),
+                    error=e,
                 )
         finally:
             _proxy_load_tracker.end_connection()
@@ -1152,11 +1182,20 @@ class LLMSocketProxy:
                     )
                     # Error bodies may echo credentials, budgets or request data.
                     # Keep durable failure text source-owned and privacy-safe.
-                    self._emit_error(
-                        classification.message,
-                        classification,
-                        diagnostic=diagnostic(),
-                    )
+                    # This stack is the local response check, not the remote provider.
+                    try:
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError as exc:
+                        self._emit_error(
+                            classification.message,
+                            classification,
+                            diagnostic=diagnostic(),
+                            error=exc,
+                            context=ProxyFailureContext(
+                                route="direct" if route.is_direct else "managed",
+                                status_code=response.status_code,
+                            ),
+                        )
                     body_chunks = [error_body]
                 else:
                     body_chunks = response.aiter_bytes()
@@ -1213,7 +1252,11 @@ class LLMSocketProxy:
                             else f"LLM upstream unavailable: {exc}"
                         ),
                         diagnostic=diagnostic(),
-                    )
+                    ),
+                    source_error=exc,
+                    context=ProxyFailureContext(
+                        route="direct" if route.is_direct else "managed"
+                    ),
                 )
 
     async def _write_response(
@@ -1355,6 +1398,11 @@ class LLMSocketProxy:
                         surfaced_error,
                         classification,
                         diagnostic=diagnostic_factory() if diagnostic_factory else None,
+                        error=exc,
+                        context=ProxyFailureContext(
+                            route="direct" if route_is_direct else "managed",
+                            status_code=status_code,
+                        ),
                     )
                 error_payload = orjson.dumps(
                     {
@@ -1389,7 +1437,12 @@ class LLMSocketProxy:
                             diagnostic=diagnostic_factory()
                             if diagnostic_factory
                             else None,
-                        )
+                        ),
+                        source_error=exc,
+                        context=ProxyFailureContext(
+                            route="direct" if route_is_direct else "managed",
+                            status_code=status_code,
+                        ),
                     )
             else:
                 raise

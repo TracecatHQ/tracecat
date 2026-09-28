@@ -112,6 +112,7 @@ from tracecat.observability.otel import (
     initialize_platform_tracing,
     shutdown_platform_tracing,
 )
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import (
@@ -2156,9 +2157,12 @@ class TestSandboxedAgentExecutorHelpers:
         tmp_path: Path,
     ) -> None:
         executor = SandboxedAgentExecutor(input=executor_input)
+        classification = agent_executor_timed_out(TimeoutError("secret"))
+        capture = PlatformErrorCapture.for_error("a" * 32, classification)
         executor._fatal_error = LLMProxyError(
             message="raw gateway timeout",
-            classification=agent_executor_timed_out(TimeoutError("secret")),
+            classification=classification,
+            sentry_capture=capture,
             diagnostic=LLMErrorDiagnostics(
                 route="managed", provider_configuration="custom"
             ),
@@ -2176,6 +2180,9 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
         assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
         assert "secret" not in result.classification.message
+        assert result.sentry_capture == capture
+        restored = AgentExecutorResult.model_validate_json(result.model_dump_json())
+        assert restored.sentry_capture == capture
         assert result.diagnostic == executor._fatal_error.diagnostic
         assert "llm" not in result.model_dump(mode="json")["classification"]
         assert result.terminal_stream_error_emitted is True
