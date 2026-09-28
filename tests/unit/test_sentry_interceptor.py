@@ -479,6 +479,7 @@ async def test_unclassified_platform_failure_is_attributed_then_captured_once(
     ]
     assert "tags" in event
     assert event["tags"] == {
+        SentryTag.ALERT_PRIORITY.value: "urgent",
         SentryTag.SERVICE_NAME.value: "worker",
         SentryTag.WORKFLOW_ATTEMPT.value: "1",
         SentryTag.WORKFLOW_TYPE.value: "DSLWorkflow",
@@ -498,6 +499,62 @@ async def test_unclassified_platform_failure_is_attributed_then_captured_once(
     assert set(event["contexts"]) <= {"runtime", "tracecat_workflow"}
     assert not {"breadcrumbs", "extra", "request", "user"} & event.keys()
     assert _SENSITIVE_VALUE not in json.dumps(event)
+
+
+@pytest.mark.parametrize(
+    "priority", [None, "low", "urgent", "invalid-private-value", 1]
+)
+def test_api_alert_priority_is_bounded_and_defaults_to_urgent(
+    api_sentry_events: list[Event], priority: str | int | None
+) -> None:
+    with sentry_sdk.new_scope() as scope:
+        if priority is not None:
+            scope.set_tag(SentryTag.ALERT_PRIORITY.value, priority)
+        sentry_sdk.capture_exception(RuntimeError("Synthetic failure"))
+    sentry_sdk.flush()
+
+    assert len(api_sentry_events) == 1
+    event = api_sentry_events[0]
+    assert event.get("tags", {}).get(SentryTag.ALERT_PRIORITY) == (
+        "low" if priority == "low" else "urgent"
+    )
+    assert "invalid-private-value" not in json.dumps(event)
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected_priority"),
+    [
+        (RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND, "low"),
+        (RuntimeErrorKind.RUNTIME_UNCLASSIFIED, "urgent"),
+    ],
+)
+def test_runtime_alert_priority_is_owned_by_code(
+    sentry_events: list[Event], kind: RuntimeErrorKind, expected_priority: str
+) -> None:
+    error = RuntimeError("Synthetic failure")
+    classification = RuntimeErrorClassification.platform(
+        kind=kind,
+        message="Synthetic failure",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+    capture_platform_failure(
+        error,
+        classification,
+        WorkflowFailureEventContext(
+            run_id="00000000-0000-4000-8000-000000000001",
+            workflow_type="DSLWorkflow",
+            attempt=1,
+            trigger_type="manual",
+        ),
+    )
+    ActivityEnvironment().run(capture_activity_failure, error, classification)
+    sentry_sdk.flush()
+
+    assert len(sentry_events) == 2
+    assert all(
+        event.get("tags", {}).get(SentryTag.ALERT_PRIORITY) == expected_priority
+        for event in sentry_events
+    )
 
 
 def test_fastapi_integration_captures_sanitized_unhandled_request_failure(
@@ -524,6 +581,7 @@ def test_fastapi_integration_captures_sanitized_unhandled_request_failure(
     event = api_sentry_events[0]
     assert "tags" in event
     assert event["tags"] == {
+        SentryTag.ALERT_PRIORITY.value: "urgent",
         SentryTag.API_METHOD.value: "GET",
         SentryTag.API_ROUTE.value: "/items/{item_id}",
         SentryTag.SERVICE_NAME.value: "api",
@@ -636,6 +694,7 @@ def test_service_task_failure_emits_only_stable_task_name(
         "name": "platform_registry_sync"
     }
     assert set(event["tags"]) == {
+        SentryTag.ALERT_PRIORITY.value,
         SentryTag.ERROR_OWNER.value,
         SentryTag.COMPONENT.value,
         SentryTag.SERVICE_NAME.value,
@@ -851,6 +910,7 @@ def test_gateway_captures_once_without_replacing_runtime_capture(
     assert "tags" in event
     assert "exception" in event
     assert event["tags"] == {
+        SentryTag.ALERT_PRIORITY.value: "urgent",
         SentryTag.SERVICE_NAME.value: "executor",
         SentryTag.COMPONENT.value: "action_gateway",
         SentryTag.ERROR_OWNER.value: "platform",

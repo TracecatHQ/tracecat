@@ -167,6 +167,7 @@ async def test_disconnected_body_returns_400_with_triage_warning(
     assert len(webhook.sentry_events) == 1
     event = webhook.sentry_events[0]
     assert event.get("level") == "warning"
+    assert event.get("tags", {}).get(SentryTag.ALERT_PRIORITY) == "low"
     assert event.get("fingerprint") == ["tracecat-webhook-client-disconnected-v1"]
     assert (
         event.get("tags", {}).get(SentryTag.ERROR_KIND) == "webhook.client_disconnected"
@@ -201,6 +202,10 @@ def test_disconnect_classification_does_not_leak_into_other_events(
     assert len(webhook.sentry_events) == 2
     assert webhook.sentry_events[0].get("level") == "warning"
     assert webhook.sentry_events[1].get("level") == "error"
+    assert (
+        webhook.sentry_events[1].get("tags", {}).get(SentryTag.ALERT_PRIORITY)
+        == "urgent"
+    )
     assert SentryTag.ERROR_KIND not in webhook.sentry_events[1].get("tags", {})
 
 
@@ -218,6 +223,10 @@ def test_unexpected_body_read_error_still_reports_to_sentry(
     webhook.execute.assert_not_awaited()
     assert len(webhook.sentry_events) == 1
     assert webhook.sentry_events[0].get("level") == "error"
+    assert (
+        webhook.sentry_events[0].get("tags", {}).get(SentryTag.ALERT_PRIORITY)
+        == "urgent"
+    )
     assert SentryTag.ERROR_KIND not in webhook.sentry_events[0].get("tags", {})
 
 

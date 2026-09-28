@@ -26,8 +26,16 @@ from tracecat import config
 from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.db.exceptions import AuthPoolExhaustedError
 from tracecat.logger import logger
-from tracecat.observability.types import PlatformErrorCapture, ProxyFailureContext
-from tracecat.runtime.errors import RuntimeErrorClassification, RuntimeErrorOwner
+from tracecat.observability.types import (
+    AlertPriority,
+    PlatformErrorCapture,
+    ProxyFailureContext,
+)
+from tracecat.runtime.errors import (
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.temporal.error_chain import iter_error_chain
 
 
@@ -50,6 +58,7 @@ class SentryTag(StrEnum):
     LLM_PROVIDER_CONFIGURATION = "tracecat.llm.provider_configuration"
     ERROR_OWNER = "tracecat.error.owner"
     ERROR_KIND = "tracecat.error.kind"
+    ALERT_PRIORITY = "tracecat.alert.priority"
     ERROR_RETRY_DISPOSITION = "tracecat.error.retry_disposition"
     ERROR_CAUSE_TYPE = "tracecat.error.cause_type"
     WORKFLOW_TYPE = "temporal.workflow.type"
@@ -78,6 +87,7 @@ _WORKER_ALLOWED_TAGS = frozenset(
         SentryTag.SERVICE_NAME.value,
         SentryTag.ERROR_OWNER.value,
         SentryTag.ERROR_KIND.value,
+        SentryTag.ALERT_PRIORITY.value,
         SentryTag.ERROR_RETRY_DISPOSITION.value,
         SentryTag.ERROR_CAUSE_TYPE.value,
         SentryTag.WORKFLOW_TYPE.value,
@@ -87,6 +97,7 @@ _WORKER_ALLOWED_TAGS = frozenset(
 )
 _API_ALLOWED_TAGS = frozenset(
     {
+        SentryTag.ALERT_PRIORITY.value,
         SentryTag.ERROR_OWNER.value,
         SentryTag.COMPONENT.value,
         SentryTag.SERVICE_NAME.value,
@@ -170,6 +181,15 @@ def _set_diagnostic_tags(
         return
 
 
+def _platform_alert_priority(
+    classification: RuntimeErrorClassification,
+) -> AlertPriority:
+    """Keep non-paging runtime classifications in code, not alert routing rules."""
+    if classification.kind is RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND:
+        return AlertPriority.LOW
+    return AlertPriority.URGENT
+
+
 def capture_activity_failure(
     error: BaseException,
     classification: RuntimeErrorClassification,
@@ -218,6 +238,9 @@ def capture_activity_failure(
             _set_diagnostic_tags(scope, diagnostics)
             scope.set_tag(SentryTag.ERROR_OWNER.value, classification.owner.value)
             scope.set_tag(SentryTag.ERROR_KIND.value, classification.kind.value)
+            scope.set_tag(
+                SentryTag.ALERT_PRIORITY.value, _platform_alert_priority(classification)
+            )
             scope.set_tag(
                 SentryTag.ERROR_RETRY_DISPOSITION.value,
                 classification.retry_disposition.value,
@@ -301,6 +324,9 @@ def capture_platform_failure(
             scope.set_tag(SentryTag.ERROR_OWNER.value, classification.owner.value)
             scope.set_tag(SentryTag.ERROR_KIND.value, classification.kind.value)
             scope.set_tag(
+                SentryTag.ALERT_PRIORITY.value, _platform_alert_priority(classification)
+            )
+            scope.set_tag(
                 SentryTag.ERROR_RETRY_DISPOSITION.value,
                 classification.retry_disposition.value,
             )
@@ -373,6 +399,7 @@ def capture_webhook_client_disconnect(error: ClientDisconnect) -> None:
     try:
         with sentry_sdk.new_scope() as scope:
             scope.set_tag(SentryTag.ERROR_KIND.value, _WEBHOOK_CLIENT_DISCONNECTED)
+            scope.set_tag(SentryTag.ALERT_PRIORITY.value, AlertPriority.LOW)
             sentry_sdk.capture_exception(error)
     except Exception as reporting_error:
         logger.warning(
@@ -520,6 +547,14 @@ def _sanitize_event(
         }
         if isinstance(tags, Mapping)
         else {}
+    )
+    # Only the explicit low-priority flag can opt out of paging. Missing or
+    # invalid values remain urgent, including events from older producers.
+    priority = sanitized_event["tags"].get(SentryTag.ALERT_PRIORITY.value)
+    sanitized_event["tags"][SentryTag.ALERT_PRIORITY.value] = (
+        AlertPriority.LOW.value
+        if priority == AlertPriority.LOW
+        else AlertPriority.URGENT.value
     )
     contexts = event.get("contexts")
     sanitized_contexts: dict[str, dict[str, Any]] = {}
