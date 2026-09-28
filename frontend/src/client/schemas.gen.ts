@@ -21467,7 +21467,6 @@ export const $OutputType = {
   ],
 } as const
 
-export const $Page_SecretStoreRead_ = {
 export const $Page_ExternalGroupMappingRead_ = {
   properties: {
     items: {
@@ -21507,6 +21506,46 @@ export const $Page_ExternalGroupMappingRead_ = {
   title: "Page[ExternalGroupMappingRead]",
 } as const
 
+export const $Page_ExternalGroupRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/ExternalGroupRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[ExternalGroupRead]",
+} as const
+
+export const $Page_SecretStoreRead_ = {
   properties: {
     items: {
       items: {
@@ -21582,9 +21621,8 @@ export const $Page_WorkspaceSecretStoreRead_ = {
   type: "object",
   required: ["items"],
   title: "Page[WorkspaceSecretStoreRead]",
-export const $Page_ExternalGroupRead_ = {
-        $ref: "#/components/schemas/ExternalGroupRead",
-  title: "Page[ExternalGroupRead]",
+} as const
+
 export const $PayloadChangedEventRead = {
   properties: {
     wf_exec_id: {

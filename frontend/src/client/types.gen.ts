@@ -6529,6 +6529,30 @@ export type OutputType =
       [key: string]: unknown
     }
 
+export type Page_ExternalGroupMappingRead_ = {
+  items: Array<ExternalGroupMappingRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_ExternalGroupRead_ = {
+  items: Array<ExternalGroupRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
 export type Page_SecretStoreRead_ = {
   items: Array<SecretStoreRead>
   /**
@@ -6540,12 +6564,6 @@ export type Page_SecretStoreRead_ = {
    */
   prev_cursor?: string | null
 }
-export type Page_ExternalGroupMappingRead_ = {
-  items: Array<ExternalGroupMappingRead>
-
-export type Page_ExternalGroupRead_ = {
-  items: Array<ExternalGroupRead>
-
 
 export type Page_WorkspaceSecretStoreRead_ = {
   items: Array<WorkspaceSecretStoreRead>
