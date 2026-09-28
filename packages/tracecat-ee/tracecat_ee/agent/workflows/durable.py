@@ -338,6 +338,27 @@ def _start_registry_tool_call(
     )
 
 
+_DEFAULT_DENIAL_REASON = "Tool denied by user"
+
+
+def _denied_tool_result_text(denied_tool: DeniedToolCall) -> str:
+    """Build the tool_result text the model sees for a user-denied tool call."""
+    reason = denied_tool.reason.strip()
+    if not reason or reason == _DEFAULT_DENIAL_REASON:
+        header = "Tool denied by user (no reason given)"
+    else:
+        header = f"Tool denied by user: {reason}"
+    return (
+        f"{header}\n\n"
+        f"The user explicitly reviewed this '{denied_tool.tool_name}' call and "
+        "chose not to allow it. It was not executed. Do not retry it, do not "
+        "call the same tool with different arguments, and do not treat this as "
+        "a transient error or an accident. Acknowledge the denial and the "
+        "user's reason, do not offer to retry, and wait for the user to tell "
+        "you how to proceed."
+    )
+
+
 def _cancelled_tool_result(
     tool_call: ApprovedToolCall, *, started: bool
 ) -> PendingToolResult:
@@ -1863,7 +1884,7 @@ class DurableAgentWorkflow:
                     DeniedToolCall(
                         tool_call_id=tool_call_id,
                         tool_name=tool_name,
-                        reason=decision.message or "Tool denied by user",
+                        reason=decision.message or _DEFAULT_DENIAL_REASON,
                     )
                 )
             elif decision is False:
@@ -1871,7 +1892,7 @@ class DurableAgentWorkflow:
                     DeniedToolCall(
                         tool_call_id=tool_call_id,
                         tool_name=tool_name,
-                        reason="Tool denied by user",
+                        reason=_DEFAULT_DENIAL_REASON,
                     )
                 )
 
@@ -2007,7 +2028,7 @@ class DurableAgentWorkflow:
                 PendingToolResult(
                     tool_call_id=denied_tool.tool_call_id,
                     tool_name=denied_tool.tool_name,
-                    raw_result=f"Tool denied by user: {denied_tool.reason}",
+                    raw_result=_denied_tool_result_text(denied_tool),
                     is_error=True,
                 )
             )
