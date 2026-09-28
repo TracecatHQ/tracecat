@@ -128,6 +128,7 @@ import {
   type IntegrationRead,
   type IntegrationReadMinimal,
   type IntegrationUpdate,
+  type InvitationCreate,
   integrationsConnectProvider,
   integrationsDeleteIntegration,
   integrationsDisconnectIntegration,
@@ -135,6 +136,9 @@ import {
   integrationsListIntegrations,
   integrationsTestConnection,
   integrationsUpdateIntegration,
+  invitationsCreateInvitation,
+  invitationsResendInvitation,
+  invitationsRevokeInvitation,
   listCatalog,
   listCustomProviders,
   listEnabledModels,
@@ -159,15 +163,11 @@ import {
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
   type OrganizationUpdateOrgMemberData,
-  type OrgInvitationCreate,
   type OrgMemberRead,
-  organizationCreateInvitation,
   organizationDeleteOrgMember,
   organizationDeleteSession,
   organizationListOrgMembers,
   organizationListSessions,
-  organizationResendInvitation,
-  organizationRevokeInvitation,
   organizationSecretsCreateOrgSecret,
   organizationSecretsDeleteOrgSecretById,
   organizationSecretsListOrgSecrets,
@@ -2291,10 +2291,13 @@ export function useOrgMembers() {
     mutateAsync: createInvitation,
     isPending: createInvitationIsPending,
   } = useMutation({
-    mutationFn: async (params: OrgInvitationCreate) =>
-      await organizationCreateInvitation({ requestBody: params }),
+    mutationFn: async (params: InvitationCreate) =>
+      await invitationsCreateInvitation({ requestBody: params }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
+      queryClient.invalidateQueries({
+        queryKey: ["org-invitations", "pending"],
+      })
       toast({
         title: "Invitation created",
         description: "Invitation sent successfully.",
@@ -2313,9 +2316,12 @@ export function useOrgMembers() {
 
   const { mutateAsync: revokeInvitation } = useMutation({
     mutationFn: async (invitationId: string) =>
-      await organizationRevokeInvitation({ invitationId }),
+      await invitationsRevokeInvitation({ invitationId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
+      queryClient.invalidateQueries({
+        queryKey: ["org-invitations", "pending"],
+      })
       toast({
         title: "Invitation revoked",
         description: "Invitation has been revoked.",
@@ -2337,7 +2343,7 @@ export function useOrgMembers() {
     isPending: resendInvitationIsPending,
   } = useMutation({
     mutationFn: async (invitationId: string) =>
-      await organizationResendInvitation({ invitationId }),
+      await invitationsResendInvitation({ invitationId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
     },
