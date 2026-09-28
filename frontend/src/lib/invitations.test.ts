@@ -16,6 +16,12 @@ describe("invitationGrantLabel", () => {
     ).toBe("Organization: Member")
   })
 
+  it("keeps the generic label while roles are unresolved", () => {
+    expect(invitationGrantLabel({ role_id: "admin" }, null, workspaces)).toBe(
+      "Organization: Role"
+    )
+  })
+
   it("keeps the generic label for an unknown workspace role", () => {
     expect(
       invitationGrantLabel(

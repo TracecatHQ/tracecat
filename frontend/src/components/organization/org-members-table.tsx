@@ -90,7 +90,7 @@ export function OrgMembersTable() {
     resendInvitation,
     resendInvitationIsPending,
   } = useOrgMembers()
-  const { roles } = useRbacRoles()
+  const { roles, isLoading: rolesIsLoading, error: rolesError } = useRbacRoles()
   const { workspaces } = useWorkspaceManager()
   const searchParams = useSearchParams()
   const roleMenuTrigger = useRef<HTMLButtonElement | null>(null)
@@ -100,7 +100,7 @@ export function OrgMembersTable() {
     if (member.invitation_id) {
       return invitationGrantsSummary(
         { grants: member.grants ?? [] },
-        roles,
+        rolesIsLoading || rolesError ? null : roles,
         workspaces ?? []
       )
     }

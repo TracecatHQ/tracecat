@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -369,6 +370,22 @@ class TestRBACServiceRoles:
         assert updated.name == "Updated Name"
         assert updated.description == "New description"
         assert updated.updated_at >= updated.created_at
+
+    async def test_update_role_serializes_with_assignment_writers(
+        self,
+        session: AsyncSession,
+        role: Role,
+    ):
+        """Scope edits take the lock that grant-ceiling checks run under."""
+        service = RBACService(session, role=role)
+        custom_role = await service.create_role(name="Locked Role")
+
+        with patch(
+            "tracecat_ee.rbac.service.lock_role_changes", new_callable=AsyncMock
+        ) as lock:
+            await service.update_role(custom_role.id, scope_ids=[])
+
+        lock.assert_awaited_once_with(session, service.organization_id)
 
     async def test_delete_role(
         self,
@@ -1371,6 +1388,30 @@ async def _replacement(
 
 @pytest.mark.anyio
 class TestAtomicRoleEdits:
+    async def test_save_without_group_snapshot_changes_builtin_role(
+        self, session: AsyncSession, role: Role, org: Organization, workspace: Workspace
+    ):
+        """Without rbac_addons the UI cannot read groups and sends no snapshot."""
+        member = await _workspace_only_user(session, org, workspace)
+        await grant_org_membership(session, user_id=member.id, organization_id=org.id)
+        service = RBACService(session, role=role)
+        params = await _replacement(service, member.id)
+        params.expected_group_assignments = None
+        admin = await session.scalar(
+            select(DBRole.id).where(
+                DBRole.organization_id == org.id, DBRole.slug == "organization-admin"
+            )
+        )
+        assert admin
+        params.assignments = [
+            *(a for a in params.assignments if a.workspace_id),
+            UserRoleAssignmentSpec(role_id=admin),
+        ]
+
+        await service.replace_user_assignments(params)
+
+        assert (await _org_assignment(session, member.id)).role_id == admin
+
     async def test_move_final_workspace_and_promote_in_one_save(
         self, session: AsyncSession, role: Role, org: Organization, workspace: Workspace
     ):

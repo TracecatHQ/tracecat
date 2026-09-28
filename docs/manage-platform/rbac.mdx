@@ -36,9 +36,9 @@ Each user holds at most one direct assignment per workspace and at most one orga
 
 You can assign a role only when you hold every scope in it, and platform superusers are exempt from this rule. Tracecat refuses an assignment whose role carries a scope you lack, or adding a user to a group whose roles carry one, with `Cannot grant scopes not held by the caller`.
 
-You change a member's role on the workspace Members page at `/workspaces/{id}/members`, which writes a workspace-scoped user assignment for that member.
+You change a member's roles from the organization Members page with `Manage roles`, which edits their organization-wide and workspace assignments.
 
-Without the `rbac_addons` entitlement you manage access with built-in roles from the organization Members page and the workspace Members page. See [Custom roles and groups](/manage-platform/custom-roles) for custom roles, groups, and scopes.
+Without the `rbac_addons` entitlement you manage access with built-in roles from the organization Members page. See [Custom roles and groups](/manage-platform/custom-roles) for custom roles, groups, and scopes.
 
 ## Organization membership
 

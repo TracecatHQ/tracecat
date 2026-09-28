@@ -246,6 +246,8 @@ class RBACService(BaseOrgService):
 
         Preset roles cannot have their scopes modified.
         """
+        # Scope edits must not interleave with grant-ceiling checks on assignments.
+        await lock_role_changes(self.session, self.organization_id)
         role = await self.get_role(role_id)
 
         # Preset roles cannot have scopes modified
