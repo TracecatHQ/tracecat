@@ -11,6 +11,7 @@ import {
   ChevronsUpDown,
   Globe,
   Hash,
+  LibraryIcon,
   List,
   ListOrdered,
   ListTodo,
@@ -144,6 +145,7 @@ import {
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useSkillLibrary } from "@/hooks/use-skill-library"
 import { useSkills } from "@/hooks/use-skills"
 import {
   AGENT_PRESET_PUBLISHING_FIELDS,
@@ -243,6 +245,7 @@ const agentPresetSchema = z
         })
       )
       .default([]),
+    librarySkills: z.array(z.string()).default([]),
     toolApprovals: z
       .array(
         z.object({
@@ -396,6 +399,7 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   mcpIntegrations: [],
   subagents: [],
   skills: [],
+  librarySkills: [],
   toolApprovals: [],
   retries: DEFAULT_RETRIES,
   enableThinking: true,
@@ -1093,7 +1097,7 @@ function getAgentPresetErrorTab(
     return "structured-output"
   }
 
-  if (errors.skills) {
+  if (errors.skills || errors.librarySkills) {
     return "skills"
   }
 
@@ -1151,6 +1155,7 @@ const AGENT_PRESET_FORM_FIELD_TO_BACKEND_FIELD: Record<
   mcpIntegrations: "mcp_integrations",
   subagents: "agents",
   skills: "skills",
+  librarySkills: "library_skills",
   toolApprovals: "tool_approvals",
   retries: "retries",
   enableThinking: "enable_thinking",
@@ -2906,7 +2911,24 @@ function AgentPresetSkillsPanel({
 }) {
   const [isPickerOpen, setIsPickerOpen] = useState(false)
   const selectedSkills = form.watch("skills")
+  const selectedLibrarySkills = form.watch("librarySkills")
   const { skills, skillsLoading, skillsError } = useSkills(workspaceId)
+  const { librarySkills, librarySkillsIsLoading, librarySkillsError } =
+    useSkillLibrary(workspaceId)
+  const isLoadingSkills = skillsLoading || librarySkillsIsLoading
+  const skillsLoadError = skillsError ?? librarySkillsError
+  const librarySkillsBySlug = useMemo(
+    () => new Map((librarySkills ?? []).map((skill) => [skill.slug, skill])),
+    [librarySkills]
+  )
+  const availableLibrarySkillsToAdd = useMemo(
+    () =>
+      (librarySkills ?? []).filter(
+        (skill) =>
+          skill.installed && !(selectedLibrarySkills ?? []).includes(skill.slug)
+      ),
+    [librarySkills, selectedLibrarySkills]
+  )
   const attachedSkillIds = useMemo(
     () => new Set((selectedSkills ?? []).map((binding) => binding.skillId)),
     [selectedSkills]
@@ -2930,6 +2952,23 @@ function AgentPresetSkillsPanel({
     setIsPickerOpen(false)
   }
 
+  function setLibrarySkills(slugs: string[]) {
+    form.setValue("librarySkills", slugs, { shouldDirty: true })
+  }
+
+  function handleAddLibrarySkill(slug: string) {
+    setLibrarySkills([...(selectedLibrarySkills ?? []), slug])
+    setIsPickerOpen(false)
+  }
+
+  function handleRemoveLibrarySkill(slug: string) {
+    setLibrarySkills(
+      (selectedLibrarySkills ?? []).filter((selected) => selected !== slug)
+    )
+  }
+
+  const attachedLibrarySkills = selectedLibrarySkills ?? []
+
   return (
     <div className="h-full overflow-auto">
       <div className="flex min-w-0 w-full flex-col gap-8 px-6 py-6 pb-20 text-sm">
@@ -2947,27 +2986,30 @@ function AgentPresetSkillsPanel({
               variant="outline"
               onClick={() => setIsPickerOpen(true)}
               disabled={
-                isSaving || skillsLoading || availableSkillsToAdd.length === 0
+                isSaving ||
+                isLoadingSkills ||
+                (availableSkillsToAdd.length === 0 &&
+                  availableLibrarySkillsToAdd.length === 0)
               }
             >
               <Plus className="mr-2 size-4" />
               Add skill
             </Button>
           </div>
-          {skillsError ? (
+          {skillsLoadError ? (
             <Alert variant="destructive">
               <AlertCircle className="size-4" />
               <AlertTitle>Unable to load skills</AlertTitle>
               <AlertDescription>
-                {getApiErrorDetail(skillsError) ?? "Please try again."}
+                {getApiErrorDetail(skillsLoadError) ?? "Please try again."}
               </AlertDescription>
             </Alert>
-          ) : skillsLoading ? (
+          ) : isLoadingSkills ? (
             <div className="flex items-center gap-2 rounded-md border px-3 py-4 text-xs text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
               Loading skills...
             </div>
-          ) : skillFields.length === 0 ? (
+          ) : skillFields.length === 0 && attachedLibrarySkills.length === 0 ? (
             <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
               No skills attached yet.
             </p>
@@ -2984,10 +3026,19 @@ function AgentPresetSkillsPanel({
                   onRemove={onRemoveSkillBinding}
                 />
               ))}
+              {attachedLibrarySkills.map((slug) => (
+                <AgentPresetLibrarySkillRow
+                  key={slug}
+                  slug={slug}
+                  description={librarySkillsBySlug.get(slug)?.description}
+                  isSaving={isSaving}
+                  onRemove={handleRemoveLibrarySkill}
+                />
+              ))}
             </div>
           )}
-          {!skillsLoading &&
-          !skillsError &&
+          {!isLoadingSkills &&
+          !skillsLoadError &&
           skillFields.length > 0 &&
           availableSkillsToAdd.length === 0 ? (
             <p className="text-xs text-muted-foreground">
@@ -3018,8 +3069,68 @@ function AgentPresetSkillsPanel({
               </CommandItem>
             ))}
           </CommandGroup>
+          {availableLibrarySkillsToAdd.length > 0 ? (
+            <CommandGroup heading="Tracecat library">
+              {availableLibrarySkillsToAdd.map((skill) => (
+                <CommandItem
+                  key={skill.slug}
+                  value={`library ${skill.slug} ${skill.description ?? ""}`}
+                  onSelect={() => handleAddLibrarySkill(skill.slug)}
+                >
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span>{skill.slug}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {skill.description?.trim() || skill.slug}
+                    </span>
+                  </div>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          ) : null}
         </CommandList>
       </CommandDialog>
+    </div>
+  )
+}
+
+function AgentPresetLibrarySkillRow({
+  slug,
+  description,
+  isSaving,
+  onRemove,
+}: {
+  slug: string
+  description?: string | null
+  isSaving: boolean
+  onRemove: (slug: string) => void
+}) {
+  return (
+    <div className="flex min-w-0 items-start gap-3 rounded-md border px-3 py-2.5">
+      <LibraryIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+      <div className="min-w-0 flex-1 space-y-0.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-sm font-medium">{slug}</span>
+          <span className="text-xs text-muted-foreground">
+            Tracecat library
+          </span>
+        </div>
+        {description ? (
+          <p className="line-clamp-2 text-xs text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-7 shrink-0 text-muted-foreground"
+        onClick={() => onRemove(slug)}
+        disabled={isSaving}
+        aria-label="Remove attached library skill"
+      >
+        <Trash2 className="size-3.5" />
+      </Button>
     </div>
   )
 }
@@ -3549,6 +3660,7 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
           skillId: binding.skill_id,
         })
       ) ?? [],
+    librarySkills: preset.library_skills ?? [],
     retries: preset.retries ?? DEFAULT_RETRIES,
     enableThinking: preset.enable_thinking ?? true,
     enableInternetAccess: preset.enable_internet_access ?? false,
@@ -3589,6 +3701,8 @@ function formValuesToPayload(
     skills: values.skills.map((binding) => ({
       skill_id: binding.skillId,
     })),
+    library_skills:
+      values.librarySkills.length > 0 ? values.librarySkills : null,
     tool_approvals: toToolApprovalMap(values.toolApprovals),
     retries: values.retries,
     enable_thinking: values.enableThinking,

@@ -833,6 +833,14 @@ import type {
   SkillFoldersMoveFolderResponse,
   SkillFoldersUpdateFolderData,
   SkillFoldersUpdateFolderResponse,
+  SkillLibraryForkLibrarySkillData,
+  SkillLibraryForkLibrarySkillResponse,
+  SkillLibraryInstallLibrarySkillData,
+  SkillLibraryInstallLibrarySkillResponse,
+  SkillLibraryListLibrarySkillsData,
+  SkillLibraryListLibrarySkillsResponse,
+  SkillLibraryUninstallLibrarySkillData,
+  SkillLibraryUninstallLibrarySkillResponse,
   SkillTagsCreateSkillTagData,
   SkillTagsCreateSkillTagResponse,
   SkillTagsDeleteSkillTagData,
@@ -7103,6 +7111,112 @@ export const skillFoldersMoveFolder = (
     },
     body: data.requestBody,
     mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Library Skills
+ * List library skills with this workspace's install state.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_LibrarySkillRead_ Successful Response
+ * @throws ApiError
+ */
+export const skillLibraryListLibrarySkills = (
+  data: SkillLibraryListLibrarySkillsData
+): CancelablePromise<SkillLibraryListLibrarySkillsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/skill-library",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Install Library Skill
+ * Install a library skill into this workspace.
+ * @param data The data for the request.
+ * @param data.slug
+ * @param data.workspaceId
+ * @returns LibrarySkillRead Successful Response
+ * @throws ApiError
+ */
+export const skillLibraryInstallLibrarySkill = (
+  data: SkillLibraryInstallLibrarySkillData
+): CancelablePromise<SkillLibraryInstallLibrarySkillResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/skill-library/{slug}/install",
+    path: {
+      slug: data.slug,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Uninstall Library Skill
+ * Uninstall a library skill that no preset binds.
+ * @param data The data for the request.
+ * @param data.slug
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const skillLibraryUninstallLibrarySkill = (
+  data: SkillLibraryUninstallLibrarySkillData
+): CancelablePromise<SkillLibraryUninstallLibrarySkillResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/skill-library/{slug}/install",
+    path: {
+      slug: data.slug,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Fork Library Skill
+ * Copy a library skill into an editable workspace skill.
+ * @param data The data for the request.
+ * @param data.slug
+ * @param data.workspaceId
+ * @returns SkillRead Successful Response
+ * @throws ApiError
+ */
+export const skillLibraryForkLibrarySkill = (
+  data: SkillLibraryForkLibrarySkillData
+): CancelablePromise<SkillLibraryForkLibrarySkillResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/skill-library/{slug}/fork",
+    path: {
+      slug: data.slug,
+      workspace_id: data.workspaceId,
+    },
     errors: {
       422: "Validation Error",
     },

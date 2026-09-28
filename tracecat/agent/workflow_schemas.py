@@ -145,3 +145,4 @@ class AgentConfigPayload(BaseModel):
     enable_internet_access: bool = Field(default=False)
     resolved_skills: list[ResolvedSkillRefPayload] | None = Field(default=None)
     builtin_skills: list[str] | None = Field(default=None)
+    library_skills: list[str] | None = Field(default=None)

@@ -2574,6 +2574,23 @@ export const $AgentPresetCreate = {
       ],
       title: "Mcp Integrations",
     },
+    library_skills: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            maxLength: 64,
+            minLength: 1,
+            pattern: "^[a-z0-9-]+$",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Library Skills",
+    },
     agents: {
       $ref: "#/components/schemas/AgentSubagentsConfig-Input",
     },
@@ -2863,6 +2880,20 @@ export const $AgentPresetRead = {
         },
       ],
       title: "Mcp Integrations",
+    },
+    library_skills: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Library Skills",
     },
     agents: {
       $ref: "#/components/schemas/AgentSubagentsConfig-Output",
@@ -3491,6 +3522,23 @@ export const $AgentPresetUpdate = {
       ],
       title: "Mcp Integrations",
     },
+    library_skills: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            maxLength: 64,
+            minLength: 1,
+            pattern: "^[a-z0-9-]+$",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Library Skills",
+    },
     agents: {
       anyOf: [
         {
@@ -3759,6 +3807,20 @@ export const $AgentPresetVersionRead = {
         },
       ],
       title: "Mcp Integrations",
+    },
+    library_skills: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Library Skills",
     },
     agents: {
       $ref: "#/components/schemas/AgentSubagentsConfig-Output",
@@ -12922,6 +12984,69 @@ export const $CursorPaginatedResponse_InboxItemRead_ = {
   title: "CursorPaginatedResponse[InboxItemRead]",
 } as const
 
+export const $CursorPaginatedResponse_LibrarySkillRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/LibrarySkillRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[LibrarySkillRead]",
+} as const
+
 export const $CursorPaginatedResponse_MCPPersonalAccessTokenRead_ = {
   properties: {
     items: {
@@ -18140,6 +18265,34 @@ export const $LayoutViewport = {
   },
   type: "object",
   title: "LayoutViewport",
+} as const
+
+export const $LibrarySkillRead = {
+  properties: {
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    installed: {
+      type: "boolean",
+      title: "Installed",
+    },
+  },
+  type: "object",
+  required: ["slug", "installed"],
+  title: "LibrarySkillRead",
+  description: "A library skill and this workspace's install state.",
 } as const
 
 export const $MCPAuthType = {

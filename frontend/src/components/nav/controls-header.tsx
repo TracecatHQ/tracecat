@@ -370,11 +370,15 @@ function SkillsActions() {
   const organizationEnabled = hasEntitlement("agent_addons")
   const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
-  const catalogView = pathname?.includes("/skills/tags")
-    ? SkillsCatalogViewMode.Tags
-    : SkillsCatalogViewMode.Skills
+  let catalogView = SkillsCatalogViewMode.Skills
+  if (pathname?.includes("/skills/tags")) {
+    catalogView = SkillsCatalogViewMode.Tags
+  } else if (pathname?.includes("/skills/library")) {
+    catalogView = SkillsCatalogViewMode.Library
+  }
   const skillsHref = `/workspaces/${workspaceId}/skills`
   const tagsHref = `/workspaces/${workspaceId}/skills/tags`
+  const libraryHref = `/workspaces/${workspaceId}/skills/library`
   const isFoldersView =
     organizationEnabled && searchParams?.get("view") !== "list"
   const currentPath = normalizeAgentActionPath(
@@ -393,7 +397,7 @@ function SkillsActions() {
           />
         )
       }
-    } else {
+    } else if (catalogView === SkillsCatalogViewMode.Skills) {
       skillActionControls = (
         <>
           <CreateSkillButton
@@ -420,6 +424,7 @@ function SkillsActions() {
           view={catalogView}
           skillsHref={skillsHref}
           tagsHref={tagsHref}
+          libraryHref={libraryHref}
         />
       ) : null}
       <WorkspaceResourceSyncActions
@@ -2196,7 +2201,7 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/skills")) {
-    if (pagePath === "/skills/tags") {
+    if (pagePath === "/skills/tags" || pagePath === "/skills/library") {
       return {
         title: "Skills",
         actions: <SkillsActions />,

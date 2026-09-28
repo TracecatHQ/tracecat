@@ -16,6 +16,7 @@ from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.catalog.types import ModelKey
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.preset.types import SkillBindingSpec
+from tracecat.agent.skill.library.service import SkillLibraryService
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     ResolvedAgentsConfig,
@@ -216,6 +217,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 namespaces=sorted(execution.namespaces or []),
                 mcp_integrations=mcp_integrations,
                 mcp_integration_hints=mcp_integration_hints,
+                library_skills=sorted(execution.library_skills or []),
                 retries=execution.retries,
                 enable_thinking=execution.enable_thinking,
                 enable_internet_access=execution.enable_internet_access,
@@ -1341,6 +1343,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             preset = preset_by_source_id[source_id]
 
             # Apply desired config and topology after every child head exists.
+            if spec.library_skills:
+                await SkillLibraryService(
+                    workspace_service.session, role=workspace_service.role
+                ).validate_bindable(spec.library_skills)
             self._apply_preset_head_spec(preset, spec)
             resolved_subagents = await self._resolved_subagents_config(
                 workspace_service, spec
@@ -1702,6 +1708,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             "namespaces": spec.namespaces or None,
             "tool_approvals": _tool_approvals(spec.tool_approvals),
             "mcp_integrations": spec.mcp_integrations or None,
+            "library_skills": sorted(spec.library_skills) or None,
             "retries": spec.retries,
             "enable_thinking": spec.enable_thinking,
             "enable_internet_access": spec.enable_internet_access,

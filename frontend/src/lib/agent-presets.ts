@@ -23,6 +23,7 @@ export const AGENT_PRESET_PUBLISHING_FIELDS: ReadonlySet<string> = new Set([
   "namespaces",
   "tool_approvals",
   "mcp_integrations",
+  "library_skills",
   "agents",
   "retries",
   "enable_thinking",
