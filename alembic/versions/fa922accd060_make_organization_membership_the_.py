@@ -1,7 +1,7 @@
 """make organization membership the aggregate root
 
 Revision ID: fa922accd060
-Revises: 2f14222e0d12
+Revises: bf702946bf2a
 Create Date: 2026-09-16 00:00:00.000000
 
 Makes ``organization_membership`` the parent of everything a user holds in an
@@ -51,7 +51,7 @@ from tracecat.db.tenant_rls import (
 
 # revision identifiers, used by Alembic.
 revision: str = "fa922accd060"
-down_revision: str | None = "2f14222e0d12"
+down_revision: str | None = "bf702946bf2a"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
