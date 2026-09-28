@@ -55,28 +55,27 @@ def test_agent_session_update_ignores_agents_binding_payload() -> None:
     assert "agents_binding" not in session_update.model_dump(mode="json")
 
 
-def test_agent_session_read_defaults_missing_agents_binding() -> None:
+def test_agent_session_read_defaults_binding_without_availability_flags() -> None:
     now = datetime.now(UTC)
-    session = AgentSessionRead.model_validate(
-        SimpleNamespace(
-            id=uuid.uuid4(),
-            workspace_id=uuid.uuid4(),
-            title="New session",
-            created_by=uuid.uuid4(),
-            entity_type="approval",
-            entity_id=uuid.uuid4(),
-            channel_context=None,
-            tools=None,
-            mcp_integrations=None,
-            agent_preset_id=None,
-            agent_preset_version_id=None,
-            harness_type=None,
-            last_stream_id=None,
-            parent_session_id=None,
-            created_at=now,
-            updated_at=now,
-        ),
-        from_attributes=True,
+    source = SimpleNamespace(
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        title="New session",
+        created_by=uuid.uuid4(),
+        entity_type="approval",
+        entity_id=uuid.uuid4(),
+        channel_context=None,
+        tools=None,
+        mcp_integrations=None,
+        agent_preset_id=None,
+        agent_preset_version_id=None,
+        harness_type=None,
+        last_stream_id=None,
+        parent_session_id=None,
+        created_at=now,
+        updated_at=now,
     )
-
+    session = AgentSessionRead.model_validate(source, from_attributes=True)
     assert session.agents_binding is None
+    assert "backend_available" not in session.model_dump()
+    assert "history_available" not in session.model_dump()

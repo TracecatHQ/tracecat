@@ -50,6 +50,34 @@ class TablesClient:
         encoded_name = quote(table_name, safe="")
         return await self._client.post(f"/tables/{encoded_name}/aggregate", json=spec)
 
+    async def search(
+        self,
+        table: str,
+        query: str,
+        *,
+        limit: int = 10,
+        cursor: str | None = None,
+        allow_partial: bool = False,
+    ) -> types.SemanticSearchPage:
+        """Search selected text by meaning, returning bounded row excerpts."""
+        if (
+            not table
+            or table in {".", ".."}
+            or any(
+                char in "/\\%?#" or ord(char) < 32 or ord(char) == 127 for char in table
+            )
+        ):
+            raise ValueError("Table name must be a single URL path segment")
+        return await self._client.post(
+            f"/tables/{quote(table, safe='')}/rows/semantic-search",
+            json={
+                "query": query,
+                "limit": limit,
+                "cursor": cursor,
+                "allow_partial": allow_partial,
+            },
+        )
+
     async def list_tables(self) -> list[types.Table]:
         """List tables in the workspace."""
         return await self._client.get("/tables")

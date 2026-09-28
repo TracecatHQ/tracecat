@@ -423,9 +423,16 @@ class TestWorkflowFolderService:
             if item.type == "folder" and item.id == parent.id
         )
         assert parent_item.num_items == 5
+        assert parent_item.num_workflows == 4
 
         child_items = await folder_service.get_directory_items("/parent/")
         counts = {
             item.name: item.num_items for item in child_items if item.type == "folder"
         }
         assert counts == {"child-a": 2, "child-b": 0}
+        workflow_counts = {
+            item.name: item.num_workflows
+            for item in child_items
+            if item.type == "folder"
+        }
+        assert workflow_counts == {"child-a": 1, "child-b": 0}

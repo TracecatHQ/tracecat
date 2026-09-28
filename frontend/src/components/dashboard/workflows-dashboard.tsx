@@ -1239,9 +1239,19 @@ export function WorkflowsDashboard() {
     [canUseServerPaginatedList, sortedListItems, listStartIndex, limit]
   )
 
+  const directoryWorkflowCount = useMemo(
+    () =>
+      sortedDirectoryItems.reduce(
+        (total, item) =>
+          total + (item.type === "folder" ? item.num_workflows : 1),
+        0
+      ),
+    [sortedDirectoryItems]
+  )
+
   const headerTotalCount =
     view === "folders"
-      ? sortedDirectoryItems.length
+      ? directoryWorkflowCount
       : canUseServerPaginatedList
         ? workflowPagination.totalEstimate || sortedListItems.length
         : sortedListItems.length

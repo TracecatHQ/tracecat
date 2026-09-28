@@ -16,9 +16,9 @@ class SearchRequest(BaseModel):
         cursor: Opaque continuation token from a previous page.
         allow_partial: Whether results may come from an incomplete index."""
 
-    query: str = Field(min_length=1)
+    query: str = Field(min_length=1, max_length=131072)
     limit: int = Field(default=10, ge=1, le=100)
-    cursor: str | None = Field(default=None)
+    cursor: str | None = Field(default=None, max_length=256)
     allow_partial: bool = Field(default=False)
 
 
@@ -30,13 +30,15 @@ class SearchMatch(BaseModel):
         column_name: Column label recorded during indexing.
         text: Excerpt limited to 1,000 characters.
         start: Inclusive Unicode character offset in unmodified source text.
-        end: Exclusive Unicode character offset in unmodified source text."""
+        end: Exclusive Unicode character offset in unmodified source text.
+        shortened: Whether the excerpt omits the end of the winning chunk."""
 
     column_id: uuid.UUID
     column_name: str
     text: str = Field(max_length=1000)
     start: int = Field(ge=0)
     end: int = Field(ge=0)
+    shortened: bool = Field(default=False)
 
 
 class SearchResult(BaseModel):

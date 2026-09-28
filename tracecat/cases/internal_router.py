@@ -1334,7 +1334,7 @@ async def update_case_simple(
                 )
             await session.refresh(updated_case)
 
-    except NoResultFound as e:
+    except (NoResultFound, TracecatNotFoundError) as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),

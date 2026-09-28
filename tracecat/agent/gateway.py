@@ -20,6 +20,7 @@ from litellm.exceptions import (
 )
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAuth
+from litellm.types.router import RouterRateLimitError
 from litellm.types.utils import CallTypesLiteral
 from openai import RateLimitError as OpenAIRateLimitError
 
@@ -396,6 +397,12 @@ class _ProviderRateLimitHTTPException(HTTPException):
     type = "throttling_error"
 
 
+class _GatewayUnavailableHTTPException(HTTPException):
+    """Distinguish router availability failures from upstream throttling."""
+
+    type = "tracecat_llm_deployment_unavailable"
+
+
 def _response_has_provider_quota_code(response: httpx.Response) -> bool:
     if response.status_code != 429:
         return False
@@ -441,9 +448,19 @@ class TracecatCallbackHandler(CustomLogger):
         user_api_key_dict: UserAPIKeyAuth,
         traceback_str: str | None = None,
     ) -> HTTPException | None:
-        """Label typed provider failures without copying provider details."""
+        """Label typed gateway and provider failures without copying details."""
         del request_data, user_api_key_dict, traceback_str
-        if isinstance(original_exception, AuthenticationError | PermissionDeniedError):
+        if isinstance(original_exception, RouterRateLimitError):
+            # LiteLLM otherwise serializes this ValueError as a 429. Its
+            # deployment-scoped cooldown state is shared across credentials;
+            # even a cached 401 cannot establish this caller's auth failure.
+            replacement = _GatewayUnavailableHTTPException(
+                status_code=503,
+                detail="The LLM gateway has no available deployment; retry later",
+            )
+        elif isinstance(
+            original_exception, AuthenticationError | PermissionDeniedError
+        ):
             replacement = _ProviderAuthHTTPException(
                 status_code=original_exception.status_code,
                 detail="The LLM provider rejected authentication or access",
@@ -466,8 +483,13 @@ class TracecatCallbackHandler(CustomLogger):
         # LiteLLM's /v1/messages handler ignores the returned replacement and
         # serializes the original exception. Normalize its wire fields too;
         # other endpoints still use the bounded replacement above.
-        original_exception.type = replacement.type
-        original_exception.message = str(replacement.detail)
+        # RouterRateLimitError is a ValueError without these wire attributes;
+        # attach them explicitly for LiteLLM's duck-typed endpoint serializer.
+        original_exception.__dict__.update(
+            type=replacement.type,
+            message=str(replacement.detail),
+            status_code=replacement.status_code,
+        )
         return replacement
 
     async def async_pre_call_hook(

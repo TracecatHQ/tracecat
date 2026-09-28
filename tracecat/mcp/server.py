@@ -237,7 +237,7 @@ from tracecat.registry.repositories.schemas import RegistryRepositorySync
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.service import SecretsService, secret_key_names
 from tracecat.storage import blob
 from tracecat.storage.object import (
     CollectionObject,
@@ -2383,6 +2383,11 @@ docstring carries the full RFC 6902 patch rules.
 - {_SKILL_FILE_WARNING}
 - Call `prepare_skill_upload` with file metadata, upload the raw bytes to each
   returned URL, then call `complete_skill_upload` with the upload IDs.
+- Skill versions cannot be pinned on agent presets. Bindings carry only
+  `skill_id`; the preset always runs, and `get_agent_preset` always reports,
+  the skill's latest published version. After `publish_skill`, do NOT call
+  `update_agent_preset` (or re-send `skills`); only touch `skills` to attach
+  or detach a skill.
 
 ## Structured argument quick reference
 Tool docstrings are the source of truth for every other argument shape.
@@ -2637,7 +2642,7 @@ Tables: `core.table.aggregate_rows`, `core.table.create_column`, `core.table.cre
 `core.table.delete_column`, `core.table.delete_row`, `core.table.download`,
 `core.table.get_table_metadata`, `core.table.insert_row`,
 `core.table.insert_rows`, `core.table.is_in`, `core.table.list_tables`,
-`core.table.lookup`, `core.table.lookup_many`, `core.table.search_rows`,
+`core.table.lookup`, `core.table.lookup_many`, `core.table.search`, `core.table.search_rows`,
 `core.table.update_column`, `core.table.update_row`, `core.table.update_table`
 
 Cases: `core.cases.add_case_tag`, `core.cases.aggregate_cases`, `core.cases.assign_user`,
@@ -7091,7 +7096,7 @@ async def remove_case_tag(
             return MCPMessageResponse(
                 message=f"Case tag {tag_identifier} removed from case {case_id}"
             )
-    except NoResultFound as e:
+    except (NoResultFound, TracecatNotFoundError) as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
@@ -8284,7 +8289,7 @@ async def list_secrets_metadata(
             for secret in workspace_secrets:
                 if secret.environment != environment:
                     continue
-                keys = [kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)]
+                keys = secret_key_names(svc, secret)
                 result.append(
                     SecretMetadataResponse(
                         id=secret.id,
@@ -8341,7 +8346,7 @@ async def get_secret_metadata(
                 name=secret.name,
                 type=secret.type,
                 environment=secret.environment,
-                keys=[kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)],
+                keys=secret_key_names(svc, secret),
                 tags=secret.tags,
             )
     except ToolError:
@@ -8543,7 +8548,9 @@ async def create_agent_preset(
 ) -> AgentPresetRead:
     """Create an agent preset in the selected workspace.
 
-    Use `skills` to attach published skills. Each binding contains `skill_id`.
+    Use `skills` to attach published skills. Each binding contains `skill_id`
+    only; the preset always runs each skill's latest published version, so
+    there is no version to pin.
 
     Attach tools via `actions`, `mcp_integration_ids`, or a skill's
     `metadata.tools`.
@@ -8630,7 +8637,9 @@ async def update_agent_preset(
 
     Use `skills` to replace attached published skills. Each binding contains
     `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list
-    to detach all skills.
+    to detach all skills. Attached skills always run at their latest published
+    version, so do not call this after `publish_skill` just to refresh a
+    skill version; only pass `skills` when adding or removing a skill.
 
     Attach tools via `actions`, `mcp_integration_ids`, or a skill's
     `metadata.tools`.
@@ -9772,7 +9781,9 @@ async def publish_skill(
 ) -> SkillVersionRead:
     """Publish a skill draft into an immutable skill version.
 
-    Only published skill versions can be attached to agent presets.
+    Only published skills can be attached to agent presets. Presets that
+    already have this skill attached pick up the new version automatically on
+    their next run; no `update_agent_preset` call is needed afterwards.
     """
 
     try:

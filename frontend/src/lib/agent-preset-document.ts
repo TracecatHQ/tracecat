@@ -309,11 +309,11 @@ export function agentPresetVersionToDocumentInput(
 /**
  * Normalizes a draft create/update payload into the shared document input.
  *
- * The draft form tracks only `skill_id`, so each skill's pinned version is
- * resolved from `headBindingsBySkillId` — the CURRENT preset head's bindings,
- * keyed by `skill_id`. A skill already attached resolves to the version the
- * backend currently has pinned; a skill the user just attached in the form has
- * no pin yet and renders as `version: null`.
+ * The draft form tracks only `skill_id`, so each skill's version is resolved
+ * from `headBindingsBySkillId` — the CURRENT preset head's bindings, keyed by
+ * `skill_id`. A skill already attached resolves to its current published
+ * version; a skill the user just attached in the form has no binding yet and
+ * renders as `version: null`.
  */
 export function agentPresetPayloadToDocumentInput(
   payload: AgentPresetCreate,

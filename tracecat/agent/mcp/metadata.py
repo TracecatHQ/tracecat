@@ -104,14 +104,17 @@ def build_registry_tool_schema(
 
 
 def sanitize_message_tool_inputs(message: dict[str, Any]) -> dict[str, Any]:
-    """Remove proxy-only metadata from tool inputs in a persisted message payload.
+    """Normalize a persisted message payload for SDK message validation.
+
+    Strips proxy-only metadata from tool-call inputs and coerces thinking
+    blocks whose ``signature`` is missing or null to an empty string, since
+    non-Anthropic providers emit unsigned reasoning blocks.
 
     Args:
         message: Raw persisted message payload.
 
     Returns:
-        A deep-copied message with internal proxy metadata stripped from any
-        tool-call input payloads.
+        A deep-copied, normalized message.
     """
     sanitized = copy.deepcopy(message)
 
@@ -126,11 +129,12 @@ def sanitize_message_tool_inputs(message: dict[str, Any]) -> dict[str, Any]:
 
     if isinstance(content := sanitized.get("content"), list):
         for block in content:
-            if (
-                isinstance(block, dict)
-                and block.get("type") == "tool_use"
-                and isinstance(raw_input := block.get("input"), Mapping)
-            ):
-                block["input"] = strip_proxy_tool_metadata(raw_input)
+            if not isinstance(block, dict):
+                continue
+            match block.get("type"):
+                case "tool_use" if isinstance(raw_input := block.get("input"), Mapping):
+                    block["input"] = strip_proxy_tool_metadata(raw_input)
+                case "thinking" if not isinstance(block.get("signature"), str):
+                    block["signature"] = ""
 
     return sanitized

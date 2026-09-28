@@ -508,10 +508,9 @@ TRACECAT__UNSAFE_DISABLE_SM_MASKING = env_bool(
 TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING = env_bool(
     "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", default=False
 )
-"""UNSAFE: surface original action and expression error details even when
-secrets are in scope, instead of the generic "Details withheld" message. The
-original text may echo transformed secret values that exact-string masking
-cannot catch. Not recommended outside debugging.
+"""Legacy setting accepted by existing deployments; no longer changes behavior.
+Action and expression errors always use selective masking of known secrets and
+observed secret-derived values.
 """
 
 # === M2M config === #
@@ -547,6 +546,14 @@ TRACECAT__BLOB_STORAGE_BUCKET_SKILLS = os.environ.get(
 
 TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get("TRACECAT__BLOB_STORAGE_ENDPOINT", "")
 """Endpoint URL for blob storage."""
+
+TRACECAT__BLOB_STORAGE_SSL_VERIFY = env_bool(
+    "TRACECAT__BLOB_STORAGE_SSL_VERIFY", default=True
+)
+"""Verify TLS certificates when connecting to blob storage (S3/MinIO).
+
+Set to false for self-hosted S3-compatible storage that terminates TLS with a
+self-signed or otherwise unverifiable certificate. Defaults to true."""
 
 TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS = int(
     os.environ.get("TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS") or 5

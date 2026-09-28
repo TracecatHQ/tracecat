@@ -526,12 +526,11 @@ def test_workspace_settings_update_rejects_invalid_git_urls(invalid_url: str) ->
     assert "Must be a valid Git SSH URL" in str(exc_info.value)
 
 
-def test_workspace_settings_update_rejects_unsupported_git_provider() -> None:
-    """Workspace settings should reject providers without sync transport support."""
-    with pytest.raises(ValueError) as exc_info:
-        WorkspaceSettingsUpdate(git_provider=VcsProvider.BITBUCKET)
-
-    assert "bitbucket workspace sync is not implemented yet" in str(exc_info.value)
+def test_workspace_settings_update_accepts_bitbucket() -> None:
+    assert (
+        WorkspaceSettingsUpdate(git_provider=VcsProvider.BITBUCKET).git_provider
+        is VcsProvider.BITBUCKET
+    )
 
 
 # =============================================================================

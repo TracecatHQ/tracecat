@@ -27,7 +27,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionReadWithMessages,
 )
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.subagents import ResolvedAgentsConfig
+from tracecat.agent.session.views import build_session_read
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -171,7 +171,7 @@ async def _load_secret_inventory(
     role: Role,
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
     """Load workspace/org secret key inventories from default environment."""
-    from tracecat.secrets.service import SecretsService
+    from tracecat.secrets.service import SecretsService, secret_key_names
 
     async with SecretsService.with_session(role=role) as svc:
         workspace_inventory: dict[str, set[str]] = {}
@@ -181,17 +181,13 @@ async def _load_secret_inventory(
         for secret in workspace_secrets:
             if secret.environment != DEFAULT_SECRETS_ENVIRONMENT:
                 continue
-            workspace_inventory[secret.name] = {
-                kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)
-            }
+            workspace_inventory[secret.name] = set(secret_key_names(svc, secret))
 
         org_secrets = await svc.list_org_secrets()
         for secret in org_secrets:
             if secret.environment != DEFAULT_SECRETS_ENVIRONMENT:
                 continue
-            org_inventory[secret.name] = {
-                kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)
-            }
+            org_inventory[secret.name] = set(secret_key_names(svc, secret))
 
     return workspace_inventory, org_inventory
 
@@ -474,29 +470,8 @@ async def get_session(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str,
                 raise InternalToolError(f"Session {session_id} not found.")
 
             messages = await service.list_messages(session.id)
-            agents_binding = (
-                ResolvedAgentsConfig.model_validate(session.agents_binding)
-                if session.agents_binding is not None
-                else None
-            )
-
             return AgentSessionReadWithMessages(
-                id=session.id,
-                workspace_id=session.workspace_id,
-                title=session.title,
-                created_by=session.created_by,
-                entity_type=AgentSessionEntity(session.entity_type),
-                entity_id=session.entity_id,
-                channel_context=session.channel_context,
-                tools=session.tools,
-                mcp_integrations=session.mcp_integrations,
-                agent_preset_id=session.agent_preset_id,
-                agent_preset_version_id=session.agent_preset_version_id,
-                agents_binding=agents_binding,
-                harness_type=session.harness_type,
-                created_at=session.created_at,
-                updated_at=session.updated_at,
-                last_stream_id=session.last_stream_id,
+                **build_session_read(session, role).model_dump(),
                 messages=messages,
             ).model_dump(mode="json")
     except InternalToolError:

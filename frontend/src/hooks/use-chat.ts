@@ -7,6 +7,7 @@ import {
 } from "ai"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  type AgentBackendRead,
   type AgentSessionCreate,
   type AgentSessionEntity,
   type AgentSessionRead,
@@ -23,6 +24,7 @@ import {
   agentSessionsDeleteSession,
   agentSessionsGetSession,
   agentSessionsGetSessionVercel,
+  agentSessionsListAgentBackends,
   agentSessionsListSessions,
   agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
@@ -588,7 +590,10 @@ export function useVercelChat({
   resume?: boolean
 }) {
   const queryClient = useQueryClient()
-  const [lastError, setLastError] = useState<string | null>(null)
+  const [lastError, setLastError] = useState<{
+    chatId: string | undefined
+    message: string
+  } | null>(null)
 
   // Build the Vercel streaming endpoint URL
   const apiEndpoint = useMemo(() => {
@@ -647,7 +652,7 @@ export function useVercelChat({
     }),
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
-      setLastError(friendlyMessage)
+      setLastError({ chatId, message: friendlyMessage })
       console.error("Error in Vercel chat:", error)
       toast({
         title: "Chat error",
@@ -673,7 +678,8 @@ export function useVercelChat({
 
   return {
     ...chat,
-    lastError,
+    lastError:
+      lastError && lastError.chatId === chatId ? lastError.message : null,
     clearError: useCallback(() => setLastError(null), []),
   }
 }
@@ -767,5 +773,28 @@ export function makeContinueMessage(
         data: { kind: "continue", source, decisions },
       } as UIMessage["parts"][number],
     ],
+  }
+}
+
+const EMPTY_BACKENDS: AgentBackendRead[] = []
+
+/** Discover enabled backend providers without coupling the UI to their names. */
+export function useAgentBackends(
+  workspaceId?: string,
+  options?: { enabled?: boolean }
+) {
+  const { data, isLoading, isSuccess, error, refetch } = useQuery({
+    queryKey: ["agent-backends", workspaceId],
+    queryFn: () =>
+      agentSessionsListAgentBackends({ workspaceId: workspaceId! }),
+    enabled: Boolean(workspaceId) && (options?.enabled ?? true),
+    staleTime: 60_000,
+  })
+  return {
+    backends: data ?? EMPTY_BACKENDS,
+    backendsLoading: isLoading,
+    backendsReady: isSuccess,
+    backendsError: error,
+    refetchBackends: refetch,
   }
 }

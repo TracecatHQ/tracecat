@@ -1,4 +1,6 @@
+import ctypes
 import os
+import sys
 from typing import Annotated, Any
 
 import duckdb
@@ -29,6 +31,9 @@ _DEFAULT_EXTENSION_DIRECTORY = "/usr/local/lib/duckdb/extensions"
 # of a few hundred bytes each.
 _ADDRESS_SPACE_PER_THREAD = 512 * 1024 * 1024
 
+_M_ARENA_MAX = -8
+_MAX_MALLOC_ARENAS = 2
+
 
 def _rows_to_json(
     columns: list[str], rows: list[tuple[Any, ...]]
@@ -54,6 +59,21 @@ def _extension_directory() -> str | None:
     return None
 
 
+def _cap_malloc_arenas() -> None:
+    if resource is None or not sys.platform.startswith("linux"):
+        return
+    soft_limit, _ = resource.getrlimit(resource.RLIMIT_AS)
+    if soft_limit == resource.RLIM_INFINITY:
+        return
+
+    # The httpfs signature-check threads each reserve a 64 MiB glibc malloc
+    # arena, which can exhaust RLIMIT_AS long before process RSS reaches the cap.
+    try:
+        ctypes.CDLL(None).mallopt(_M_ARENA_MAX, _MAX_MALLOC_ARENAS)
+    except (OSError, AttributeError):
+        pass
+
+
 def _thread_limit() -> int | None:
     """Thread count that fits the process address-space cap, or None when uncapped.
 
@@ -75,6 +95,7 @@ def _connect() -> duckdb.DuckDBPyConnection:
     instead of autoinstalling over the network when that directory is available.
     Caps the thread pool to the address-space limit (see ``_thread_limit``).
     """
+    _cap_malloc_arenas()
     config: dict[str, str | bool | int | float | list[str]] = {}
     if extension_directory := _extension_directory():
         config["extension_directory"] = extension_directory
