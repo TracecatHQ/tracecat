@@ -15402,6 +15402,10 @@ export const $FolderDirectoryItem = {
       type: "integer",
       title: "Num Items",
     },
+    num_workflows: {
+      type: "integer",
+      title: "Num Workflows",
+    },
   },
   type: "object",
   required: [
@@ -15413,6 +15417,7 @@ export const $FolderDirectoryItem = {
     "updated_at",
     "type",
     "num_items",
+    "num_workflows",
   ],
   title: "FolderDirectoryItem",
 } as const

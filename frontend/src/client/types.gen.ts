@@ -4640,6 +4640,7 @@ export type FolderDirectoryItem = {
   updated_at: string
   type: "folder"
   num_items: number
+  num_workflows: number
 }
 
 /**

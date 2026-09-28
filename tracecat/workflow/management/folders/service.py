@@ -570,6 +570,39 @@ class WorkflowFolderService(BaseWorkspaceService):
                 counts[parent_path] = counts.get(parent_path, 0) + 1
         return counts
 
+    async def _count_workflows_in_subtrees(
+        self, folder_paths: Sequence[str]
+    ) -> dict[str, int]:
+        """Count workflows anywhere under each of the given sibling folder paths."""
+        if not folder_paths:
+            return {}
+        parent_paths = set(folder_paths)
+        # All folders here share a parent, so each subtree root has the same depth.
+        root_depth = next(iter(parent_paths)).count("/")
+        statement = (
+            select(WorkflowFolder.path, func.count(Workflow.id))
+            .join(Workflow, Workflow.folder_id == WorkflowFolder.id)
+            .where(
+                WorkflowFolder.workspace_id == self.workspace_id,
+                Workflow.workspace_id == self.workspace_id,
+                or_(
+                    *(
+                        WorkflowFolder.path.startswith(parent_path, autoescape=True)
+                        for parent_path in parent_paths
+                    )
+                ),
+            )
+            .group_by(WorkflowFolder.path)
+        )
+        result = await self.session.execute(statement)
+        counts: dict[str, int] = {}
+        for folder_path, count in result.tuples().all():
+            segments = folder_path.split("/")
+            root_path = "/".join(segments[:root_depth]) + "/"
+            if root_path in parent_paths:
+                counts[root_path] = counts.get(root_path, 0) + count
+        return counts
+
     async def _get_descendants(self, path: str) -> Sequence[WorkflowFolder]:
         """Get all descendant folders of a given path."""
         path = self._normalize_folder_path(path)
@@ -761,6 +794,9 @@ class WorkflowFolderService(BaseWorkspaceService):
         child_folder_counts_by_path = await self._count_child_folders_by_path(
             [folder.path for folder in folders]
         )
+        subtree_workflow_counts_by_path = await self._count_workflows_in_subtrees(
+            [folder.path for folder in folders]
+        )
 
         for folder in folders:
             num_items = child_folder_counts_by_path.get(
@@ -771,6 +807,7 @@ class WorkflowFolderService(BaseWorkspaceService):
                 FolderDirectoryItem(
                     type="folder",
                     num_items=num_items,
+                    num_workflows=subtree_workflow_counts_by_path.get(folder.path, 0),
                     id=folder.id,
                     name=folder.name,
                     path=folder.path,
