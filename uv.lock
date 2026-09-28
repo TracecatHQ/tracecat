@@ -957,20 +957,20 @@ wheels = [
 
 [[package]]
 name = "claude-agent-sdk"
-version = "0.1.81"
+version = "0.2.160"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
+    { name = "jsonschema" },
     { name = "mcp" },
     { name = "sniffio" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ab/ce/e7a02076df66dd7dd48764321a7b103fe13a2bdabd48e2eb25f45e6d1f9e/claude_agent_sdk-0.1.81.tar.gz", hash = "sha256:9a3e873c99cd98b2e11ae5e65fd250f38ea192c3a8ddd117ed69a10bbf2b913b", size = 250295, upload-time = "2026-05-11T18:56:44.76Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bd/46/ff902a63d79b278fd8631ef420b9d6a6e85959f0c75e87c3ecc7a0397608/claude_agent_sdk-0.2.160.tar.gz", hash = "sha256:1107f7804c656e194cbf80d9e20b4b861803bc16c4067a04839a347c9d140f48", size = 365170, upload-time = "2026-09-25T22:31:19.672Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/81/89/454cb0c45baf0776cc3f61d10d4bafdd55a7a56963266c3a843882ba2a64/claude_agent_sdk-0.1.81-py3-none-macosx_11_0_arm64.whl", hash = "sha256:e4bc8797cc2bc882031cf6b287a550ae2bb38a3822aa081e9ffc81bb4bed51da", size = 61076865, upload-time = "2026-05-11T18:56:48.378Z" },
-    { url = "https://files.pythonhosted.org/packages/d6/fa/1d895e20cae4cd767a714622825e2752257cdd3887586dea966afbb65aaf/claude_agent_sdk-0.1.81-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:a3cdbc00e18ed6b0f11387833bf2d4b7779e0f5f3a9ea63f27b6d6e62f304256", size = 63129573, upload-time = "2026-05-11T18:56:52.059Z" },
-    { url = "https://files.pythonhosted.org/packages/5d/09/4ea3baf9deaa098dd5bc5fc4aeb93a116ab879f0d63992a8ffa000b61afe/claude_agent_sdk-0.1.81-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:e08a03b414af5814573cf89646653c1398193557f536914103f8f0708068ed27", size = 70801456, upload-time = "2026-05-11T18:56:56.356Z" },
-    { url = "https://files.pythonhosted.org/packages/f1/0a/2d5325d3961b0896f41bcf74136350a2a54b3e4b9c3bd35f006b0adeb7b4/claude_agent_sdk-0.1.81-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:a75b3421eeabc57c31ee2515a7c58ddf17886a3166ee9481f0750ddb27eba8d8", size = 70988920, upload-time = "2026-05-11T18:57:01.024Z" },
-    { url = "https://files.pythonhosted.org/packages/30/dc/b925ae2f0bbd4783ef28f72871a9e59248f9df2f3ecb8ac6a937ad4b01f9/claude_agent_sdk-0.1.81-py3-none-win_amd64.whl", hash = "sha256:4214cef9c4fb4f6b850d23f5f931e0e556803f4c32c1ae9f87206d2327b4a1a8", size = 71616000, upload-time = "2026-05-11T18:57:05.723Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/c0/3ef94041ac8daf218e04d2047fa780643abeabbe9ca0495391f25078e169/claude_agent_sdk-0.2.160-py3-none-macosx_11_0_arm64.whl", hash = "sha256:547cb16c94c67b57873c1ac9b5ce83076941d5189d52601b9791032d13a21456", size = 93695006, upload-time = "2026-09-25T22:31:24.616Z" },
+    { url = "https://files.pythonhosted.org/packages/f2/6f/74ba55f294cc132ced13de24d8011e30f0073075fa829aa4aa09d66c1493/claude_agent_sdk-0.2.160-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:cc77386858bd5e716914544a35a0620fe1586d130299d1c7b2e207bebd02ace4", size = 98113129, upload-time = "2026-09-25T22:31:30.278Z" },
+    { url = "https://files.pythonhosted.org/packages/17/bf/560d9c04d574484d6659ba325693e14f03d8aa2ca38781736ed08635b22d/claude_agent_sdk-0.2.160-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:59638c6acd0159da200eb9d8fbb282d6c8d2191e6fcdd02fa751857c014b7e40", size = 103152841, upload-time = "2026-09-25T22:31:35.62Z" },
+    { url = "https://files.pythonhosted.org/packages/9d/04/fcb6c6a77d5ee04cd6dc7c1e43e824e73ce57d2c59f1cdb80c0255bfc4ac/claude_agent_sdk-0.2.160-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:70d1dd4286b69ecdc334d66e7b9dae8532790803f7cd7e0bf269bd5e407f2259", size = 103518762, upload-time = "2026-09-25T22:31:41.303Z" },
 ]
 
 [[package]]
@@ -5239,7 +5239,7 @@ requires-dist = [
     { name = "asyncpg", specifier = "==0.29.0" },
     { name = "authlib", specifier = "==1.6.12" },
     { name = "cachetools", specifier = "==7.0.6" },
-    { name = "claude-agent-sdk", specifier = "==0.1.81" },
+    { name = "claude-agent-sdk", specifier = "==0.2.160" },
     { name = "cloudpickle", specifier = "==3.1.1" },
     { name = "cramjam", specifier = "==2.11.0" },
     { name = "croniter", specifier = "==6.0.0" },
