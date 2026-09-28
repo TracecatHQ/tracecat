@@ -342,6 +342,34 @@ async def test_non_retryable_failure_leaves_the_row_claimed_forever(
 
 
 @pytest.mark.anyio
+async def test_pre_send_failure_rolls_back_the_claim(
+    session: AsyncSession,
+    org: Organization,
+    org_role: DBRole,
+    inviter: User,
+    smtp_configured: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invitation = await _add_invitation(session, org, org_role, inviter)
+    transport = FakeTransport()
+    _patch_transport(monkeypatch, transport)
+    monkeypatch.setattr(
+        "tracecat.invitations.consumer.load_invitation_grants",
+        AsyncMock(side_effect=RuntimeError("transient")),
+    )
+
+    with pytest.raises(RuntimeError, match="transient"):
+        await run_invitation_email_tick()
+    # Closing the tick's session rolls back what it did not commit.
+    await session.rollback()
+
+    row = await _reload(session, invitation.id)
+    assert row.email_claimed_at is None
+    assert row.email_attempts == 0
+    assert transport.sent == []
+
+
+@pytest.mark.anyio
 async def test_failed_delivery_does_not_strand_remaining_batch(
     session: AsyncSession,
     org: Organization,

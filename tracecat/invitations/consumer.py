@@ -100,22 +100,23 @@ async def deliver_next_invitation(
         )
     )
     row = claimed.one_or_none()
-    # Commit the claim before SMTP: a crash mid-send leaves the row claimed
-    # and unsent rather than risking a duplicate email.
-    await session.commit()
     if row is None:
+        await session.commit()
         return False
 
     invitation_id, email, token, attempts, organization_name = row.tuple()
+    # Build the message inside the claim transaction: a failure here rolls the
+    # claim back, since nothing has been sent yet.
     grants = await load_invitation_grants(session, invitation_id)
-    # The grants read opened a transaction; close it so SMTP starts with none.
-    await session.commit()
     message = invitation_email(
         to=email,
         organization_name=organization_name,
         token=token,
         grants=grants,
     )
+    # Commit the claim before SMTP: a crash mid-send leaves the row claimed
+    # and unsent rather than risking a duplicate email.
+    await session.commit()
     try:
         await transport.send(message)
     except EmailDeliveryError as error:
