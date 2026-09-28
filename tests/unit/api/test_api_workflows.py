@@ -21,13 +21,19 @@ from tracecat.db.models import (
     WorkflowTag,
     Workspace,
 )
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
+from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
     ValidationResultType,
 )
+from tracecat.workflow.management import draft
 from tracecat.workflow.management import router as workflow_management_router
 from tracecat.workflow.management.management import WorkflowPublishResult
 from tracecat.workflow.management.types import (
@@ -608,15 +614,21 @@ async def test_update_workflow_success(
     client: TestClient,
     test_admin_role: Role,
     mock_workflow: Workflow,
+    mock_webhook: Webhook,
 ) -> None:
-    """Test PATCH /workflows/{id} updates workflow."""
+    """Test PATCH /workflows/{id} updates workflow and returns it."""
     with (
         patch(
             "tracecat.workflow.management.router.WorkflowsManagementService"
         ) as MockService,
     ):
         mock_svc = AsyncMock()
+        mock_workflow.actions = []
+        mock_workflow.webhook = mock_webhook
+        mock_workflow.schedules = []
+        mock_workflow.title = "Updated Title"
         mock_svc.update_workflow.return_value = None
+        mock_svc.get_workflow.return_value = mock_workflow
         MockService.return_value = mock_svc
 
         # Make request
@@ -631,7 +643,10 @@ async def test_update_workflow_success(
         )
 
         # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["id"] == WorkflowUUID.new(mock_workflow.id).short()
+        assert data["title"] == "Updated Title"
 
         # Verify service was called with correct params
         mock_svc.update_workflow.assert_called_once()
@@ -900,3 +915,383 @@ async def test_get_workflow_with_relationships(
 
         assert "webhook" in data
         assert data["webhook"]["status"] == "online"
+
+
+@pytest.mark.anyio
+async def test_move_workflow_rejects_unknown_fields(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """POST /workflows/{id}/move with an unsupported key must not silently succeed."""
+    with patch(
+        "tracecat.workflow.management.router.WorkflowFolderService.move_workflow",
+        new_callable=AsyncMock,
+    ) as mock_move:
+        response = client.post(
+            f"/workflows/{mock_workflow.id}/move",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"folder_id": str(uuid.uuid4())},
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    mock_move.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_create_schedule_unpublished_workflow_returns_conflict(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    with patch(
+        "tracecat.workflow.schedules.router.WorkflowSchedulesService.create_schedule",
+        new_callable=AsyncMock,
+        side_effect=TracecatConflictError(
+            "Workflow must be saved before creating a schedule."
+        ),
+    ):
+        response = client.post(
+            "/schedules",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "workflow_id": WorkflowUUID.new(mock_workflow.id).short(),
+                "cron": "0 0 * * *",
+            },
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+
+
+@pytest.mark.anyio
+async def test_create_schedule_rejects_cron_and_every_together(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    response = client.post(
+        "/schedules",
+        params={"workspace_id": str(test_admin_role.workspace_id)},
+        json={
+            "workflow_id": WorkflowUUID.new(mock_workflow.id).short(),
+            "cron": "0 0 * * *",
+            "every": "PT1H",
+        },
+    )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.anyio
+async def test_delete_missing_schedule_returns_not_found(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch(
+        "tracecat.workflow.schedules.router.WorkflowSchedulesService.delete_schedule",
+        new_callable=AsyncMock,
+        side_effect=TracecatNotFoundError("Schedule not found"),
+    ):
+        response = client.delete(
+            "/schedules/sch_00000000000000000000000000000000",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def _draft_workflow(mock_workflow: Workflow) -> Workflow:
+    mock_workflow.actions = []
+    mock_workflow.schedules = []
+    mock_workflow.entrypoint = None
+    mock_workflow.expects = {}
+    return mock_workflow
+
+
+@pytest.mark.anyio
+async def test_get_workflow_draft_returns_document_and_revision(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Test GET /workflows/{id}/draft returns the editable document."""
+    workflow = _draft_workflow(mock_workflow)
+    with patch(
+        "tracecat.workflow.management.router.WorkflowsManagementService"
+    ) as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_workflow.return_value = workflow
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            f"/workflows/{workflow.id}/draft",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()
+    expected = draft.build_workflow_edit_document(workflow)
+    assert data["draft_revision"] == draft.compute_workflow_edit_revision(expected)
+    assert data["document"]["metadata"]["title"] == "Test Workflow"
+    assert data["document"]["definition"]["actions"] == []
+    assert data["document"]["schedules"] == []
+
+
+@pytest.mark.anyio
+async def test_get_workflow_draft_not_found(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Test GET /workflows/{id}/draft with non-existent ID returns 404."""
+    with patch(
+        "tracecat.workflow.management.router.WorkflowsManagementService"
+    ) as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_workflow.return_value = None
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            f"/workflows/{uuid.uuid4()}/draft",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_replace_workflow_draft_persists_changed_sections(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Test PUT /workflows/{id}/draft validates and persists the document."""
+    workflow = _draft_workflow(mock_workflow)
+    current = draft.build_workflow_edit_document(workflow)
+    updated_payload = current.model_dump(mode="json")
+    updated_payload["metadata"]["title"] = "Replaced title"
+    updated_payload["definition"]["actions"] = [
+        {"ref": "notify", "action": "core.transform.reshape", "args": {"value": 1}}
+    ]
+    updated_payload["definition"]["entrypoint"]["ref"] = "notify"
+    updated_payload["layout"]["actions"] = [{"ref": "notify", "x": 10.0, "y": 20.0}]
+
+    with (
+        patch(
+            "tracecat.workflow.management.router.WorkflowsManagementService"
+        ) as MockService,
+        patch(
+            "tracecat.workflow.management.router.validate_workflow_edit_document",
+            new_callable=AsyncMock,
+        ) as mock_validate,
+        patch(
+            "tracecat.workflow.management.router.persist_workflow_edit_document",
+            new_callable=AsyncMock,
+        ) as mock_persist,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.get_workflow.return_value = workflow
+        MockService.return_value = mock_svc
+
+        response = client.put(
+            f"/workflows/{workflow.id}/draft",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "document": updated_payload,
+                "base_revision": draft.compute_workflow_edit_revision(current),
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    mock_svc.get_workflow.assert_awaited_once()
+    assert mock_svc.get_workflow.await_args is not None
+    assert mock_svc.get_workflow.await_args.kwargs == {"for_update": True}
+
+    mock_validate.assert_awaited_once()
+    assert mock_validate.await_args is not None
+    validate_kwargs = mock_validate.await_args.kwargs
+    assert validate_kwargs["validate_definition"] is True
+    assert validate_kwargs["changed_sections"] == {"metadata", "definition", "layout"}
+
+    mock_persist.assert_awaited_once()
+    assert mock_persist.await_args is not None
+    persist_kwargs = mock_persist.await_args.kwargs
+    assert persist_kwargs["workflow"] is workflow
+    assert persist_kwargs["original_document"] == current
+    assert persist_kwargs["updated_document"].metadata.title == "Replaced title"
+    assert persist_kwargs["changed_sections"] == {"metadata", "definition", "layout"}
+    assert response.json()["draft_revision"]
+
+
+@pytest.mark.anyio
+async def test_replace_workflow_draft_omitted_schedules_left_untouched(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Test PUT /workflows/{id}/draft without ``schedules`` keeps existing ones."""
+    workflow = _draft_workflow(mock_workflow)
+    workflow.schedules = [
+        Schedule(
+            id=uuid.UUID("12345678-1234-4123-8123-123456789013"),
+            status="online",
+            workspace_id=workflow.workspace_id,
+            workflow_id=workflow.id,
+            cron="0 0 * * *",
+            inputs={},
+            offset=None,
+            start_at=None,
+            end_at=None,
+            timeout=None,
+            created_at=datetime(2024, 1, 1, tzinfo=UTC),
+            updated_at=datetime(2024, 1, 1, tzinfo=UTC),
+        )
+    ]
+    current = draft.build_workflow_edit_document(workflow)
+    assert len(current.schedules) == 1
+    updated_payload = current.model_dump(mode="json")
+    updated_payload["metadata"]["title"] = "Replaced title"
+    del updated_payload["schedules"]
+
+    with (
+        patch(
+            "tracecat.workflow.management.router.WorkflowsManagementService"
+        ) as MockService,
+        patch(
+            "tracecat.workflow.management.router.validate_workflow_edit_document",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "tracecat.workflow.management.router.persist_workflow_edit_document",
+            new_callable=AsyncMock,
+        ) as mock_persist,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.get_workflow.return_value = workflow
+        MockService.return_value = mock_svc
+
+        response = client.put(
+            f"/workflows/{workflow.id}/draft",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"document": updated_payload},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    mock_persist.assert_awaited_once()
+    assert mock_persist.await_args is not None
+    persist_kwargs = mock_persist.await_args.kwargs
+    assert persist_kwargs["changed_sections"] == {"metadata"}
+    assert persist_kwargs["updated_document"].schedules == current.schedules
+
+
+@pytest.mark.anyio
+async def test_replace_workflow_draft_stale_base_revision_returns_conflict(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Test PUT /workflows/{id}/draft returns 409 on base_revision mismatch."""
+    workflow = _draft_workflow(mock_workflow)
+    current = draft.build_workflow_edit_document(workflow)
+
+    with (
+        patch(
+            "tracecat.workflow.management.router.WorkflowsManagementService"
+        ) as MockService,
+        patch(
+            "tracecat.workflow.management.router.persist_workflow_edit_document",
+            new_callable=AsyncMock,
+        ) as mock_persist,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.get_workflow.return_value = workflow
+        MockService.return_value = mock_svc
+
+        response = client.put(
+            f"/workflows/{workflow.id}/draft",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "document": current.model_dump(mode="json"),
+                "base_revision": "stale",
+            },
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    detail = response.json()["detail"]
+    assert detail["type"] == "conflict"
+    assert detail["current_revision"] == draft.compute_workflow_edit_revision(current)
+    mock_persist.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_replace_workflow_draft_validation_error_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Test PUT /workflows/{id}/draft surfaces DSL validation errors as 400."""
+    workflow = _draft_workflow(mock_workflow)
+    current = draft.build_workflow_edit_document(workflow)
+    details = {
+        "type": "validation_error",
+        "message": "1 validation error(s)",
+        "status": "error",
+        "errors": [{"type": "dsl", "message": "bad action"}],
+    }
+
+    with (
+        patch(
+            "tracecat.workflow.management.router.WorkflowsManagementService"
+        ) as MockService,
+        patch(
+            "tracecat.workflow.management.router.validate_workflow_edit_document",
+            new_callable=AsyncMock,
+            side_effect=draft.WorkflowEditError(
+                "1 validation error(s)", code="validation_error", details=details
+            ),
+        ),
+        patch(
+            "tracecat.workflow.management.router.persist_workflow_edit_document",
+            new_callable=AsyncMock,
+        ) as mock_persist,
+    ):
+        mock_svc = AsyncMock()
+        mock_svc.get_workflow.return_value = workflow
+        MockService.return_value = mock_svc
+
+        response = client.put(
+            f"/workflows/{workflow.id}/draft",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"document": current.model_dump(mode="json")},
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == details
+    mock_persist.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_replace_workflow_draft_rejects_unknown_fields(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_workflow: Workflow,
+) -> None:
+    """Test PUT /workflows/{id}/draft rejects unknown document keys with 422."""
+    workflow = _draft_workflow(mock_workflow)
+    current = draft.build_workflow_edit_document(workflow)
+    payload = current.model_dump(mode="json")
+    payload["metadata"]["folder_id"] = str(uuid.uuid4())
+
+    with patch(
+        "tracecat.workflow.management.router.WorkflowsManagementService"
+    ) as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_workflow.return_value = workflow
+        MockService.return_value = mock_svc
+
+        response = client.put(
+            f"/workflows/{workflow.id}/draft",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"document": payload},
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY

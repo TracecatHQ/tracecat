@@ -1,0 +1,123 @@
+type: action
+definition:
+  title: Create enumeration
+  description: >-
+    Create an asset enumeration. Calls POST /v1/asset/enumerate directly.
+  display_group: ProjectDiscovery
+  doc_url: https://docs.projectdiscovery.io/api-reference/enumerations/create-enumeration
+  namespace: tools.project_discovery
+  name: create_enumeration
+  secrets:
+    - name: project_discovery
+      keys: ["PDCP_API_KEY"]
+  expects:
+    root_domains:
+      type: list[str] | None
+      description: Root domains to enumerate.
+      default: null
+    enrichment_inputs:
+      type: list[str] | None
+      description: Enrichment inputs.
+      default: null
+    cloudlist_config_ids:
+      type: list[str] | None
+      description: Cloudlist config IDs.
+      default: null
+    name:
+      type: str | None
+      description: Enumeration name.
+      default: null
+    steps:
+      type: list[str] | None
+      description: Enumeration steps to run (dns_resolve, dns_bruteforce, dns_permute, port_scan, http_probe, http_screenshot, endpoint_crawling, dns_passive, tls_scan, uncover_assets, dns_scraping).
+      default: null
+    enumeration_ports:
+      type: str | None
+      description: Enumeration ports.
+      default: null
+    alerting_config_ids:
+      type: list[str] | None
+      description: Alerting config IDs.
+      default: null
+    disable_global_alert_config:
+      type: bool | None
+      description: Disable the global alert config.
+      default: null
+    exclude_targets:
+      type: list[str] | None
+      description: Targets to exclude.
+      default: null
+    enumeration_config:
+      type: dict[str, Any] | None
+      description: Enumeration config object (documented keys are follow-redirect and ports).
+      default: null
+    automatic_vuln_scans:
+      type: bool | None
+      description: Enable automatic vulnerability scans.
+      default: null
+    per_domain_enumeration:
+      type: bool | None
+      description: Enable per-domain enumeration.
+      default: null
+    agent_id:
+      type: str | None
+      description: Agent ID.
+      default: null
+    agent_tags:
+      type: list[str] | None
+      description: Agent tags.
+      default: null
+    agent_networks:
+      type: list[str] | None
+      description: Agent networks.
+      default: null
+    agent_behavior:
+      type: str | None
+      description: Agent behavior (distribute or mirror). Defaults to distribute.
+      default: null
+    agent_auto_discover:
+      type: bool | None
+      description: Enable agent auto discovery.
+      default: null
+    exclusions:
+      type: list[str] | None
+      description: Combined inclusion and exclusion patterns for discovery scope. Exclusion patterns (e.g. `*.staging.company.com`) filter out matching targets. Inclusion patterns use a `+` prefix (e.g. `+prod-*.company.com`) to restrict discovery to only matching targets (allowlist mode). When inclusion patterns are present, targets must match at least one inclusion pattern and not match any exclusion pattern. Supports exact domains, wildcard patterns, IP addresses, and CIDR ranges.
+      default: null
+    team_id:
+      type: str | None
+      description: "Retrieve the Team ID from: https://cloud.projectdiscovery.io/settings/team"
+      default: null
+    base_url:
+      type: str | None
+      description: ProjectDiscovery Cloud API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.project_discovery.base_url || "https://api.projectdiscovery.io" }}/v1/asset/enumerate
+        method: POST
+        headers:
+          X-Api-Key: ${{ SECRETS.project_discovery.PDCP_API_KEY }}
+          X-Team-Id: ${{ inputs.team_id }}
+          Content-Type: application/json
+        payload:
+          root_domains: ${{ inputs.root_domains }}
+          enrichment_inputs: ${{ inputs.enrichment_inputs }}
+          cloudlist_config_ids: ${{ inputs.cloudlist_config_ids }}
+          name: ${{ inputs.name }}
+          steps: ${{ inputs.steps }}
+          enumeration_ports: ${{ inputs.enumeration_ports }}
+          alerting_config_ids: ${{ inputs.alerting_config_ids }}
+          disable_global_alert_config: ${{ inputs.disable_global_alert_config }}
+          exclude_targets: ${{ inputs.exclude_targets }}
+          enumeration_config: ${{ inputs.enumeration_config }}
+          automatic_vuln_scans: ${{ inputs.automatic_vuln_scans }}
+          per_domain_enumeration: ${{ inputs.per_domain_enumeration }}
+          agent_id: ${{ inputs.agent_id }}
+          agent_tags: ${{ inputs.agent_tags }}
+          agent_networks: ${{ inputs.agent_networks }}
+          agent_behavior: ${{ inputs.agent_behavior }}
+          agent_auto_discover: ${{ inputs.agent_auto_discover }}
+          exclusions: ${{ inputs.exclusions }}
+  returns: ${{ steps.request.result }}

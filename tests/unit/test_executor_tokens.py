@@ -18,6 +18,8 @@ from tracecat.auth.executor_tokens import (
     mint_executor_token,
     verify_executor_token,
 )
+from tracecat.contexts import ctx_agent_session_id
+from tracecat.identifiers import InternalServiceID
 
 
 def _make_request(token: str | None) -> Request:
@@ -52,6 +54,7 @@ def test_mint_and_verify_executor_token_roundtrip(monkeypatch: pytest.MonkeyPatc
     assert verified.wf_exec_id == wf_exec_id
     assert verified.execution_origin is None
     assert verified.root_action is None
+    assert verified.agent_session_id is None
 
 
 @pytest.mark.parametrize("execution_origin", ["agent", "workflow"])
@@ -74,6 +77,81 @@ def test_executor_token_preserves_execution_origin(
 
     assert verified.execution_origin == execution_origin
     assert verified.root_action == "core.script.run_python"
+
+
+def test_executor_token_preserves_agent_session_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    agent_session_id = uuid.uuid4()
+
+    token = mint_executor_token(
+        workspace_id=uuid.uuid4(),
+        user_id=None,
+        service_id="tracecat-mcp",
+        execution_origin="agent",
+        agent_session_id=agent_session_id,
+        wf_id="wf-1",
+        wf_exec_id="run-1",
+    )
+
+    verified = verify_executor_token(token)
+
+    assert verified.agent_session_id == agent_session_id
+
+
+@pytest.mark.parametrize(
+    ("service_id", "execution_origin"),
+    [
+        pytest.param("tracecat-mcp", "workflow", id="workflow-origin"),
+        pytest.param("tracecat-executor", "agent", id="non-mcp-service"),
+    ],
+)
+def test_executor_token_rejects_untrusted_agent_session_origin(
+    monkeypatch: pytest.MonkeyPatch,
+    service_id: InternalServiceID,
+    execution_origin: ExecutionOrigin,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+
+    with pytest.raises(
+        ValueError,
+        match="agent_session_id requires the tracecat-mcp agent execution origin",
+    ):
+        mint_executor_token(
+            workspace_id=uuid.uuid4(),
+            user_id=None,
+            service_id=service_id,
+            execution_origin=execution_origin,
+            agent_session_id=uuid.uuid4(),
+            wf_id="wf-1",
+            wf_exec_id="run-1",
+        )
+
+
+def test_verify_executor_token_rejects_inconsistent_agent_session_claims(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service_key = "test-service-key"
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", service_key)
+    now = datetime.now(UTC)
+    payload = {
+        "iss": EXECUTOR_TOKEN_ISSUER,
+        "aud": EXECUTOR_TOKEN_AUDIENCE,
+        "sub": "tracecat-executor",
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(seconds=60)).timestamp()),
+        "workspace_id": str(uuid.uuid4()),
+        "service_id": "tracecat-executor",
+        "execution_origin": "agent",
+        "agent_session_id": str(uuid.uuid4()),
+        "wf_id": "wf-1",
+        "wf_exec_id": "run-1",
+    }
+    token = jwt.encode(payload, service_key, algorithm="HS256")
+
+    with pytest.raises(ValueError, match="Executor token payload is invalid"):
+        verify_executor_token(token)
 
 
 def test_verify_executor_token_expired(monkeypatch: pytest.MonkeyPatch):
@@ -148,6 +226,7 @@ async def test_role_dependency_executor_token_populates_org_context(
     workspace_id = uuid.uuid4()
     user_id = uuid.uuid4()
     organization_id = uuid.uuid4()
+    agent_session_id = uuid.uuid4()
 
     # Mock the cached workspace->org lookup
     async def mock_get_workspace_org_id(ws_id: uuid.UUID) -> uuid.UUID | None:
@@ -158,6 +237,9 @@ async def test_role_dependency_executor_token_populates_org_context(
     token = mint_executor_token(
         workspace_id=workspace_id,
         user_id=user_id,
+        service_id="tracecat-mcp",
+        execution_origin="agent",
+        agent_session_id=agent_session_id,
         wf_id="wf-1",
         wf_exec_id="run-1",
         ttl_seconds=60,
@@ -179,10 +261,48 @@ async def test_role_dependency_executor_token_populates_org_context(
     )
 
     assert resolved.type == "service"
-    assert resolved.service_id == "tracecat-executor"
+    assert resolved.service_id == "tracecat-mcp"
     assert resolved.workspace_id == workspace_id
     assert resolved.user_id == user_id
     assert resolved.organization_id == organization_id
+    assert ctx_agent_session_id.get() == agent_session_id
+
+
+@pytest.mark.anyio
+async def test_role_dependency_workflow_token_clears_agent_session_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    workspace_id = uuid.uuid4()
+    organization_id = uuid.uuid4()
+
+    async def mock_get_workspace_org_id(ws_id: uuid.UUID) -> uuid.UUID | None:
+        return organization_id if ws_id == workspace_id else None
+
+    monkeypatch.setattr(credentials, "_get_workspace_org_id", mock_get_workspace_org_id)
+    token = mint_executor_token(
+        workspace_id=workspace_id,
+        user_id=None,
+        wf_id="wf-1",
+        wf_exec_id="run-1",
+    )
+    context_token = ctx_agent_session_id.set(uuid.uuid4())
+    try:
+        await _role_dependency(
+            request=_make_request(token),
+            session=AsyncMock(),
+            workspace_id=workspace_id,
+            user=None,
+            api_key=None,
+            allow_user=False,
+            allow_service=False,
+            allow_executor=True,
+            require_workspace="yes",
+        )
+
+        assert ctx_agent_session_id.get() is None
+    finally:
+        ctx_agent_session_id.reset(context_token)
 
 
 @pytest.mark.anyio

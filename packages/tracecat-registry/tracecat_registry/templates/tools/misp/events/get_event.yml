@@ -1,0 +1,63 @@
+type: action
+definition:
+  title: Get event
+  description: Retrieve a complete MISP event by ID, including its attributes, objects, tags, and metadata.
+  display_group: MISP
+  doc_url: https://www.misp-project.org/openapi/#tag/Events/operation/getEventById
+  namespace: tools.misp
+  name: get_event
+  secrets:
+    - name: misp
+      keys: ["MISP_API_KEY"]
+  expects:
+    event_id:
+      type: int
+      description: Numeric ID of the event to retrieve.
+    include_correlations:
+      type: bool
+      description: Include correlation data when supported by the MISP instance.
+      default: false
+    include_sightings:
+      type: bool
+      description: Include sighting data when supported by the MISP instance.
+      default: false
+    base_url:
+      type: str | None
+      description: MISP base URL. Falls back to VARS.misp.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: build_request
+      action: core.script.run_python
+      args:
+        inputs:
+          event_id: ${{ inputs.event_id }}
+          include_correlations: ${{ inputs.include_correlations }}
+          include_sightings: ${{ inputs.include_sightings }}
+        script: |
+          def main(event_id, include_correlations, include_sightings):
+              if include_correlations or include_sightings:
+                  return {
+                      "method": "POST",
+                      "payload": {
+                          "eventid": event_id,
+                          "includeCorrelations": include_correlations,
+                          "includeSightings": include_sightings,
+                          "limit": 1,
+                      },
+                  }
+              return {"method": "GET", "payload": None}
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.misp.base_url }}${{ "/events/restSearch" if inputs.include_correlations || inputs.include_sightings else "/events/view/" }}${{ "" if inputs.include_correlations || inputs.include_sightings else FN.url_encode(str(inputs.event_id)) }}
+        method: ${{ steps.build_request.result.method }}
+        payload: ${{ steps.build_request.result.payload }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ${{ SECRETS.misp.MISP_API_KEY }}
+          Accept: application/json
+  returns: ${{ steps.request.result.data }}

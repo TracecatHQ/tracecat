@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   agentSkillsArchiveSkill,
   agentSkillsCreateSkill,
@@ -33,6 +32,7 @@ import {
   retryHandler,
   type TracecatApiError,
 } from "@/lib/errors"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 /**
  * List all skills in the current workspace.
@@ -43,7 +43,10 @@ import {
  * @example
  * const { skills } = useSkills(workspaceId)
  */
-export function useSkills(workspaceId?: string) {
+export function useSkills(
+  workspaceId?: string,
+  options: { enabled?: boolean } = {}
+) {
   const query = useQuery<SkillReadMinimal[], TracecatApiError>({
     queryKey: ["skills", workspaceId],
     queryFn: async () => {
@@ -65,7 +68,7 @@ export function useSkills(workspaceId?: string) {
 
       return items
     },
-    enabled: Boolean(workspaceId),
+    enabled: Boolean(workspaceId) && (options.enabled ?? true),
     retry: retryHandler,
   })
 
@@ -295,7 +298,7 @@ export function useCreateSkill(workspaceId: string) {
     mutationFn: async (requestBody) =>
       await agentSkillsCreateSkill({ workspaceId, requestBody }),
     onSuccess: (skill) => {
-      queryClient.invalidateQueries({ queryKey: ["skills", workspaceId] })
+      invalidateSkillCatalogQueries(queryClient, workspaceId)
       queryClient.invalidateQueries({
         queryKey: ["skill", workspaceId, skill.id],
       })
@@ -335,7 +338,7 @@ export function useUploadSkill(workspaceId: string) {
     mutationFn: async (requestBody) =>
       await agentSkillsUploadSkill({ workspaceId, requestBody }),
     onSuccess: (skill) => {
-      queryClient.invalidateQueries({ queryKey: ["skills", workspaceId] })
+      invalidateSkillCatalogQueries(queryClient, workspaceId)
       queryClient.invalidateQueries({
         queryKey: ["skill", workspaceId, skill.id],
       })
@@ -379,6 +382,7 @@ export function usePatchSkillDraft(workspaceId: string) {
     mutationFn: async ({ skillId, requestBody }) =>
       await agentSkillsPatchSkillDraft({ workspaceId, skillId, requestBody }),
     onSuccess: (draft, variables) => {
+      invalidateSkillCatalogQueries(queryClient, workspaceId)
       queryClient.invalidateQueries({
         queryKey: ["skill", workspaceId, variables.skillId],
       })
@@ -453,9 +457,7 @@ export function usePublishSkill(workspaceId: string) {
     mutationFn: async ({ skillId }) =>
       await agentSkillsPublishSkill({ workspaceId, skillId }),
     onSuccess: (version, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["skills", workspaceId],
-      })
+      invalidateSkillCatalogQueries(queryClient, workspaceId)
       queryClient.invalidateQueries({
         queryKey: ["skill", workspaceId, variables.skillId],
       })
@@ -502,9 +504,7 @@ export function useRestoreSkillVersion(workspaceId: string) {
     mutationFn: async ({ skillId, versionId }) =>
       await agentSkillsRestoreSkillVersion({ workspaceId, skillId, versionId }),
     onSuccess: (_skill, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["skills", workspaceId],
-      })
+      invalidateSkillCatalogQueries(queryClient, workspaceId)
       queryClient.invalidateQueries({
         queryKey: ["skill", workspaceId, variables.skillId],
       })
@@ -548,7 +548,7 @@ export function useDeleteSkill(workspaceId: string) {
     mutationFn: async ({ skillId }) =>
       await agentSkillsArchiveSkill({ workspaceId, skillId }),
     onSuccess: (_result, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["skills", workspaceId] })
+      invalidateSkillCatalogQueries(queryClient, workspaceId)
       queryClient.removeQueries({
         queryKey: ["skill", workspaceId, variables.skillId],
       })
@@ -565,16 +565,9 @@ export function useDeleteSkill(workspaceId: string) {
     },
     onError: (error) => {
       const detail = getApiErrorDetail(error)
-      const isInUse =
-        typeof error.body === "object" &&
-        error.body !== null &&
-        "code" in error.body &&
-        error.body.code === "skill_in_use"
       toast({
-        title: isInUse ? "Skill in use" : "Delete failed",
-        description: isInUse
-          ? "This skill is referenced by an agent and cannot be deleted."
-          : (detail ?? "Failed to delete skill."),
+        title: "Delete failed",
+        description: detail ?? "Failed to delete skill.",
         variant: "destructive",
       })
     },
@@ -585,4 +578,16 @@ export function useDeleteSkill(workspaceId: string) {
     deleteSkillPending: mutation.isPending,
     deleteSkillError: mutation.error,
   }
+}
+
+function invalidateSkillCatalogQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  workspaceId: string
+) {
+  void Promise.all([
+    queryClient.invalidateQueries({ queryKey: ["skills", workspaceId] }),
+    queryClient.invalidateQueries({
+      queryKey: ["skill-directory-items", workspaceId],
+    }),
+  ])
 }

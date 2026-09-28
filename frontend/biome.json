@@ -52,6 +52,14 @@
       },
       "style": {
         "noNamespace": "error",
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "@tanstack/react-query": "Import React Query through @/lib/query so mutations use the shared error pipeline."
+            }
+          }
+        },
         "useArrayLiterals": "error",
         "useAsConstAssertion": "error",
         "useBlockStatements": "off",
@@ -127,6 +135,16 @@
             "noUnsafeNegation": "off",
             "noVar": "error",
             "useGetterReturn": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/lib/query.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": "off"
           }
         }
       }

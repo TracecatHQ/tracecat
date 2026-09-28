@@ -59,6 +59,10 @@ class MCPHttpServerConfig(TypedDict):
     resolved from. Set when produced by ``AgentPresetService`` resolvers so
     callers can re-resolve secrets per use without re-listing integrations."""
 
+    tools: NotRequired[list[MCPServerToolSummary]]
+    """Optional explicit tool subset. Absence preserves the existing
+    whole-integration behavior."""
+
 
 class MCPServerToolSummary(TypedDict):
     """Non-secret summary of a verified user MCP tool."""

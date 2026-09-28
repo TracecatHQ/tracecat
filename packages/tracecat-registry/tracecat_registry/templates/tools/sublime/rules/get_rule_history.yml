@@ -1,0 +1,44 @@
+type: action
+definition:
+  title: Get rule history
+  description: Retrieve history for a Sublime rule.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/getrulehistory
+  namespace: tools.sublime
+  name: get_rule_history
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Sublime rule ID.
+    classification_created_at_gte:
+      type: datetime | None
+      description: Filter by classifications made after this datetime. Results are limited to the most recent 180 days.
+      default: null
+    classification_created_at_lte:
+      type: datetime | None
+      description: Filter by classifications made before this datetime. Results are limited to the most recent 180 days.
+      default: null
+    use_rule_last_updated_as_created_at:
+      type: bool | None
+      description: Filter by classifications made since the rule has been updated. Results are limited to the most recent 180 days.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/rules/${{ FN.url_encode(inputs.id) }}/rule-history
+        method: GET
+        params:
+          "classification_created_at[gte]": ${{ inputs.classification_created_at_gte }}
+          "classification_created_at[lte]": ${{ inputs.classification_created_at_lte }}
+          use_rule_last_updated_as_created_at: ${{ inputs.use_rule_last_updated_as_created_at }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+  returns: ${{ steps.request.result.data }}

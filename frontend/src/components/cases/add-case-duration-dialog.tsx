@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   buildDurationFilters,
   CaseDurationDialog,
@@ -8,6 +7,7 @@ import {
 } from "@/components/cases/case-duration-dialog"
 import { toast } from "@/components/ui/use-toast"
 import { createCaseDurationDefinition } from "@/lib/case-durations"
+import { useMutation, useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 interface AddCaseDurationDialogProps {

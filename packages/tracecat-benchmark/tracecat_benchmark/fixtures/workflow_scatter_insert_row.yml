@@ -1,0 +1,49 @@
+# Static independent-action template for the PostgreSQL scatter load test.
+#
+# Fixture setup copies the checked-in action once per configured branch, assigns
+# each copy a unique action ref and literal branch sequence, and uploads the
+# resulting workflow definition. All generated actions are independent roots.
+# There is no runtime `for_each` multiplier or custom return-expression activity
+# inside the workflow.
+#
+# `retry_policy.max_attempts: 1` keeps the characterization pass honest — the
+# first failure boundary is not hidden behind retries. Run the retry pass as a
+# separate sub-scenario with a modified copy.
+#
+# External workflow definition format: POST as multipart/form-data to
+# `POST /workspaces/{workspace_id}/workflows`, then commit it.
+version: 1
+definition:
+  title: Scatter load - independent insert_row
+  description: >-
+    Statically materialized independent core.table.insert_row actions without
+    runtime for_each expansion.
+  entrypoint:
+    ref: insert_row
+    expects:
+      run_id:
+        type: str
+        description: Synthetic load-test run identifier.
+      workflow_seq:
+        type: int
+        description: Zero-based index of this workflow within the run.
+      payload:
+        type: str
+        description: Synthetic payload body written to the row.
+  config:
+    environment: default
+    timeout: 0
+  actions:
+    - ref: insert_row
+      action: core.table.insert_row
+      description: One database write for this workflow execution.
+      args:
+        table: scatter_load_rows
+        row_data:
+          run_id: ${{ TRIGGER.run_id }}
+          workflow_seq: ${{ TRIGGER.workflow_seq }}
+          branch_seq: 0
+          payload: ${{ TRIGGER.payload }}
+          dedupe_key: ${{ TRIGGER.run_id }}:${{ TRIGGER.workflow_seq }}:0
+      retry_policy:
+        max_attempts: 1

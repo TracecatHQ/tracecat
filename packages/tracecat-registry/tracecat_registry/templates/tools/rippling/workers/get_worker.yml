@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Get worker
+  description: >-
+    Get worker. Calls GET /workers/{id}/ directly. Fetches a single worker by Rippling worker id,
+    for when you already have that id from list_workers or an upstream event. Required scope:
+    workers.read.
+  display_group: Rippling
+  doc_url: https://developer.rippling.com/documentation/rest-api/reference/get-workers
+  namespace: tools.rippling
+  name: get_worker
+  secrets:
+    - name: rippling
+      keys: ["RIPPLING_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Rippling API path value for id.
+    expand:
+      type: str | None
+      description: >-
+        Fields in a response can represent objects themselves. Instead of making an additional API
+        call, you can expand field(s) in a response using the `expand` query parameter. Use commas
+        to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API
+        supports two levels of expansion and up to ten expanded fields per request. Expandable
+        fields: `user`, `manager`, `legal_entity`, `employment_type`, `compensation`, `department`,
+        `teams`, `level`, `job_function`, `custom_fields`, `business_partners`.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Rippling REST API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rippling.base_url || "https://rest.ripplingapis.com" }}/workers/${{ FN.url_encode(inputs.id) }}/
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
+          Accept: application/json
+          Rippling-Api-Version: '2024-08-01'
+        params:
+          expand: ${{ inputs.expand }}
+  returns: ${{ steps.request.result }}

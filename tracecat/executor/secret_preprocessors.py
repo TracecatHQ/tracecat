@@ -74,8 +74,11 @@ async def _assume_role_via_irsa(
                 ExternalId=external_id,
             )
     except ClientError as e:
+        # Constant detail: STS messages echo the role ARN, which masking
+        # cannot match once it has been stripped or escaped.
+        code = e.response.get("Error", {}).get("Code", "Unknown")
         raise TracecatCredentialsError(
-            f"Failed to assume AWS role '{role_arn}': {e}"
+            f"Failed to assume AWS role via STS (error code {code})"
         ) from e
 
     creds = response["Credentials"]
@@ -131,8 +134,10 @@ class AwsAssumeRoleSecretPreprocessor:
             secret_values.pop("AWS_ROLE_ARN", None)
             return None
         if not _AWS_ROLE_ARN_PATTERN.match(role_arn):
+            # Never echo the value: the stripped form escapes exact masking.
             raise TracecatCredentialsError(
-                f"Invalid AWS role ARN format in secret '{secret_name}': {role_arn}"
+                f"Invalid AWS role ARN format in secret '{secret_name}' "
+                "key 'AWS_ROLE_ARN'"
             )
         return role_arn
 
@@ -214,7 +219,7 @@ class AwsAssumeRoleSecretPreprocessor:
         return projected_secrets
 
 
-def _collect_mask_values(secret_sources: Sequence[Mapping[str, Any]]) -> set[str]:
+def collect_mask_values(secret_sources: Sequence[Mapping[str, Any]]) -> set[str]:
     """Collect all string-like secret values that should be masked in outputs."""
     mask_values: set[str] = set()
     for secret_source in secret_sources:
@@ -226,6 +231,9 @@ def _collect_mask_values(secret_sources: Sequence[Mapping[str, Any]]) -> set[str
                 mask_values.add(secret_str)
             if isinstance(secret_value, str) and len(secret_value) > 1:
                 mask_values.add(secret_value)
+            # Consumers commonly strip() before echoing; cover that form too.
+            if len(stripped := secret_str.strip()) > 1:
+                mask_values.add(stripped)
     return mask_values
 
 
@@ -255,4 +263,4 @@ async def project_secret_env(
     sources = (
         (secrets, projected_secrets) if projected_secrets is not secrets else (secrets,)
     )
-    return SecretEnvProjection(env=env, mask_values=_collect_mask_values(sources))
+    return SecretEnvProjection(env=env, mask_values=collect_mask_values(sources))

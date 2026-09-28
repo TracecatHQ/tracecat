@@ -4,7 +4,28 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-APPROVAL_CONTINUATION_PROMPT = "Continue."
+APPROVAL_CONTINUATION_PROMPT = (
+    "<tracecat-approval-continuation>\n"
+    "This is an automated system notice, not a message from the user. The user "
+    "has reviewed the tool calls that required approval; the results are "
+    "recorded in the tool_result blocks above.\n"
+    "- Approved tool calls were executed. Use their results.\n"
+    "- Denied tool calls (tool_result marked as denied by the user) were NOT "
+    "executed. Do not retry them, do not call the same tool with different "
+    "arguments, and do not treat the denial as an accident or a request to "
+    "continue. Acknowledge the denial and any reason the user gave, then stop "
+    "and wait for further instructions. Do not offer to retry or to re-run "
+    "the denied action with different parameters.\n"
+    'Any preceding message such as "Continue from where you left off." or '
+    '"No response requested." is a session-resume artifact, not from the '
+    "user; ignore it. The user has said nothing since their last visible "
+    "message except the approval decisions above.\n"
+    "Resume your response to the user's most recent actual message "
+    "accordingly.\n"
+    "</tracecat-approval-continuation>"
+)
+MODEL_CONTEXT_PROMPT_PREFIX = "<tracecat-model-context>\n"
+DISPLAY_ONLY_SESSION_LINE_FLAG = "isDisplayOnly"
 APPROVAL_INTERRUPT_CONTENT_EXACT = "interrupted"
 APPROVAL_INTERRUPT_CONTENT_MARKERS = (
     "doesn't want to take this action",
@@ -26,6 +47,25 @@ def session_line_uuid(line_data: Mapping[str, object]) -> str | None:
 def is_meta_session_line(line_data: Mapping[str, object]) -> bool:
     """Return True for Claude Code metadata rows."""
     return line_data.get("isMeta") is True
+
+
+def is_display_only_session_line(line_data: Mapping[str, object]) -> bool:
+    """Return True for UI-only rows that must not enter model history."""
+    return line_data.get(DISPLAY_ONLY_SESSION_LINE_FLAG) is True
+
+
+def is_model_context_session_line(line_data: Mapping[str, object]) -> bool:
+    """Return True for hidden user prompts that remain model-visible on resume."""
+    match line_data:
+        case {"type": "user", "message": {"content": str(text)}}:
+            return text.startswith(MODEL_CONTEXT_PROMPT_PREFIX)
+        case {
+            "type": "user",
+            "message": {"content": [{"type": "text", "text": str(text)}]},
+        }:
+            return text.startswith(MODEL_CONTEXT_PROMPT_PREFIX)
+        case _:
+            return False
 
 
 def is_synthetic_session_line(line_data: Mapping[str, object]) -> bool:

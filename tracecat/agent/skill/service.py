@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import mimetypes
 import uuid
-from collections.abc import Awaitable, Callable, Iterator, Sequence
+from collections import Counter
+from collections.abc import Awaitable, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import PurePosixPath
-from typing import Never
+from typing import Literal, Never
 
 import orjson
 import sqlalchemy as sa
@@ -18,16 +20,25 @@ import yaml
 from asyncpg import UniqueViolationError as AsyncpgUniqueViolationError
 from psycopg.errors import UniqueViolation as PsycopgUniqueViolation
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
-from tracecat.agent.preset.schemas import AgentPresetSkillBindingBase
+from tracecat.agent.skill.bindings import SkillBindingService
+from tracecat.agent.skill.dependencies import SkillToolDependencyService
+from tracecat.agent.skill.frontmatter import (
+    MAX_SKILL_TOOLS,
+    SkillFrontmatter,
+    normalize_skill_markdown,
+    parse_skill_markdown,
+    split_skill_markdown_frontmatter,
+)
 from tracecat.agent.skill.schemas import (
-    NewSkillName,
     SkillCreate,
+    SkillDownloadPreparedFile,
+    SkillDownloadPreparedResponse,
     SkillDraftAttachUploadedBlobOp,
     SkillDraftDeleteFileOp,
     SkillDraftFileRead,
@@ -41,6 +52,7 @@ from tracecat.agent.skill.schemas import (
     SkillReadMinimal,
     SkillUpload,
     SkillUploadFile,
+    SkillUploadSessionBatchRead,
     SkillUploadSessionCreate,
     SkillUploadSessionRead,
     SkillValidationErrorDetail,
@@ -50,52 +62,87 @@ from tracecat.agent.skill.schemas import (
     SkillVersionReadMinimal,
     SkillVersionSnapshotRead,
 )
-from tracecat.agent.skill.types import ResolvedSkillRef
+from tracecat.agent.skill.types import (
+    ResolvedSkillMcpTool,
+    ResolvedSkillRef,
+    SkillToolProjection,
+)
+from tracecat.agent.skill.validation import (
+    STDIO_MCP_TOOL_SUBSET_UNSUPPORTED,
+    get_mcp_grant_support_error,
+)
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
-    AgentPreset,
     AgentPresetSkill,
     AgentPresetVersionSkill,
+    MCPIntegration,
     Skill,
     SkillBlob,
     SkillDraftFile,
+    SkillTag,
+    SkillTagLink,
     SkillVersion,
     SkillVersionFile,
+    SkillVersionMcpTool,
+    SkillVersionTool,
 )
 from tracecat.db.models import (
     SkillUpload as SkillUploadModel,
 )
 from tracecat.db.soft_delete import with_deleted
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.integrations.schemas import MCPToolSummary
+from tracecat.integrations.service import IntegrationService
+from tracecat.logger import logger
 from tracecat.pagination import (
     BaseCursorPaginator,
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.service import BaseWorkspaceService, requires_entitlement
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.storage import blob
-from tracecat.tiers.enums import Entitlement
+from tracecat.tags.schemas import TagRead
 
 INLINE_TEXT_LIMIT_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TTL_SECONDS = 15 * 60
+DEFAULT_DOWNLOAD_TTL_SECONDS = 15 * 60
 MAX_CONTENT_TYPE_LENGTH = 255
 SKILL_SLUG_MAX_LENGTH = 64
 SKILL_SLUG_INSERT_ATTEMPTS = 3
 SKILL_SLUG_UNIQUE_CONSTRAINT = "uq_skill_workspace_slug_active"
+SKILL_TOOL_ERROR_CODES = frozenset(
+    {
+        "invalid_skill_tool_declaration",
+        "unknown_skill_tools",
+        "unavailable_skill_tools",
+        STDIO_MCP_TOOL_SUBSET_UNSUPPORTED,
+    }
+)
 POSTGRES_UNIQUE_VIOLATION_SQLSTATE = "23505"
-# Lenient adapter for slug lookups: accepts legacy reserved-prefix identifiers.
+EXPIRED_UPLOAD_REAP_BATCH_SIZE = 64
+# Skill origin is independent of its portable name or lookup slug.
 SKILL_SLUG_ADAPTER = TypeAdapter(SkillName)
-# Strict adapter for draft/publish manifest validation: rejects reserved names.
-NEW_SKILL_NAME_ADAPTER = TypeAdapter(NewSkillName)
 
 
 @dataclass(slots=True)
 class ManifestValidationResult:
     """Result of validating a skill draft or published manifest."""
 
-    name: str | None = None
-    description: str | None = None
+    frontmatter: SkillFrontmatter | None = None
+    tool_projection: SkillToolProjection | None = None
     errors: list[SkillValidationErrorDetail] = field(default_factory=list)
+
+    @property
+    def name(self) -> str | None:
+        """Return the validated skill name, if frontmatter was present."""
+
+        return self.frontmatter.name if self.frontmatter is not None else None
+
+    @property
+    def description(self) -> str | None:
+        """Return the validated skill description, if present."""
+
+        return self.frontmatter.description if self.frontmatter is not None else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +151,118 @@ class SkillFileBlobRef:
 
     blob: SkillBlob
     content_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class SkillFileSizeMetadata:
+    """Path and declared byte size used for skill-wide limit checks."""
+
+    path: str | None
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class SkillFileLimitViolation:
+    """One deterministic skill-tree limit violation."""
+
+    code: str
+    message: str
+    path: str | None
+    actual_field: str
+    actual_value: int
+    limit_field: str
+    limit_value: int
+
+    def exception_detail(self) -> dict[str, str | int]:
+        """Return structured API error details for this violation."""
+
+        detail: dict[str, str | int] = {
+            "code": self.code,
+            self.actual_field: self.actual_value,
+            self.limit_field: self.limit_value,
+        }
+        if self.path is not None:
+            detail["path"] = self.path
+        return detail
+
+
+@dataclass(frozen=True, slots=True)
+class SkillBlobPublicationClaim:
+    """Result of claiming one workspace-scoped blob identity for publication."""
+
+    blob: SkillBlob
+    is_owner: bool
+
+
+@dataclass(frozen=True, slots=True)
+class PublishedBlobObject:
+    """Object written for a blob row that has not been committed yet."""
+
+    bucket: str
+    key: str
+
+
+@dataclass(frozen=True, slots=True)
+class StagedUploadObject:
+    """Staged object whose owning database mutation has committed."""
+
+    upload_id: uuid.UUID
+    bucket: str
+    key: str
+    reason: Literal["reap_expired_upload", "upload_materialized"]
+
+
+_staged_upload_cleanup_tasks: set[asyncio.Task[None]] = set()
+
+
+async def _delete_staged_upload_objects(
+    staged_objects: Sequence[StagedUploadObject],
+) -> None:
+    """Delete committed staged objects without retaining a service session."""
+
+    for staged_object in staged_objects:
+        try:
+            await blob.delete_file(
+                key=staged_object.key,
+                bucket=staged_object.bucket,
+                redact_log_identifiers=True,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to delete staged skill upload object",
+                upload_id=str(staged_object.upload_id),
+                reason=staged_object.reason,
+                error_type=type(exc).__name__,
+            )
+
+
+def _finalize_staged_upload_cleanup(task: asyncio.Task[None]) -> None:
+    """Release a completed cleanup task and surface unexpected failures."""
+
+    _staged_upload_cleanup_tasks.discard(task)
+    if task.cancelled():
+        return
+    if (exc := task.exception()) is not None:
+        logger.error(
+            "Expired skill upload cleanup task failed",
+            error_type=type(exc).__name__,
+        )
+
+
+def _schedule_staged_upload_cleanup(
+    staged_objects: Sequence[StagedUploadObject],
+) -> None:
+    """Schedule best-effort object deletion outside the response path."""
+
+    if not staged_objects:
+        return
+    for stranded in [
+        task for task in _staged_upload_cleanup_tasks if task.get_loop().is_closed()
+    ]:
+        _staged_upload_cleanup_tasks.discard(stranded)
+    task = asyncio.create_task(_delete_staged_upload_objects(staged_objects))
+    _staged_upload_cleanup_tasks.add(task)
+    task.add_done_callback(_finalize_staged_upload_cleanup)
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,7 +320,10 @@ type PreparedDraftPatchOperation = (
     | PreparedDraftDeleteFileOp
     | PreparedDraftMoveFileOp
 )
-type SkillDraftBlobMapFactory = Callable[[], Awaitable[dict[str, SkillFileBlobRef]]]
+type SkillDraftBlobMapFactory = Callable[
+    [list[PublishedBlobObject]], Awaitable[dict[str, SkillFileBlobRef]]
+]
+type SkillBeforeCreateCommit = Callable[[Skill], Awaitable[None]]
 
 
 def _integrity_error_sources(error: IntegrityError) -> Iterator[object]:
@@ -217,7 +379,7 @@ def _is_skill_slug_unique_violation(error: IntegrityError) -> bool:
     return is_unique and constraint_name == SKILL_SLUG_UNIQUE_CONSTRAINT
 
 
-class SkillService(BaseWorkspaceService):
+class SkillService(SkillBindingService):
     """CRUD operations and execution helpers for workspace skills."""
 
     service_name = "skill"
@@ -256,6 +418,119 @@ class SkillService(BaseWorkspaceService):
             )
         return normalized
 
+    @staticmethod
+    def _validate_skill_file_limits(
+        files: Sequence[SkillFileSizeMetadata],
+    ) -> None:
+        """Enforce file-count and byte-size limits for a complete skill tree."""
+
+        if violation := SkillService._skill_file_limit_violation(files):
+            raise TracecatValidationError(
+                violation.message,
+                detail=violation.exception_detail(),
+            )
+
+    @staticmethod
+    def _validate_skill_transfer_file_count(file_count: int) -> None:
+        """Bound synchronous staged transfers before object-store work begins."""
+
+        if file_count <= config.TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT:
+            return
+        violation = SkillFileLimitViolation(
+            code="skill_transfer_file_count_limit_exceeded",
+            message="Skill staged transfer contains too many files",
+            path=None,
+            actual_field="file_count",
+            actual_value=file_count,
+            limit_field="max_file_count",
+            limit_value=config.TRACECAT__MAX_SKILL_TRANSFER_FILES_COUNT,
+        )
+        raise TracecatValidationError(
+            violation.message,
+            detail=violation.exception_detail(),
+        )
+
+    @staticmethod
+    def _skill_file_limit_violation(
+        files: Sequence[SkillFileSizeMetadata],
+    ) -> SkillFileLimitViolation | None:
+        """Return the first deterministic skill-tree limit violation."""
+
+        if len(files) > config.TRACECAT__MAX_SKILL_FILES_COUNT:
+            return SkillFileLimitViolation(
+                code="skill_file_count_limit_exceeded",
+                message="Skill draft contains too many files",
+                path=None,
+                actual_field="file_count",
+                actual_value=len(files),
+                limit_field="max_file_count",
+                limit_value=config.TRACECAT__MAX_SKILL_FILES_COUNT,
+            )
+
+        manifest = next((file for file in files if file.path == "SKILL.md"), None)
+        if (
+            manifest is not None
+            and manifest.size_bytes > config.TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES
+        ):
+            return SkillFileLimitViolation(
+                code="skill_manifest_size_limit_exceeded",
+                message="Root SKILL.md exceeds the size limit",
+                path="SKILL.md",
+                actual_field="size_bytes",
+                actual_value=manifest.size_bytes,
+                limit_field="max_size_bytes",
+                limit_value=config.TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES,
+            )
+
+        oversized_file = max(
+            (
+                file
+                for file in files
+                if file.size_bytes > config.TRACECAT__MAX_SKILL_FILE_SIZE_BYTES
+            ),
+            key=lambda file: (file.size_bytes, file.path or ""),
+            default=None,
+        )
+        if oversized_file is not None:
+            return SkillFileLimitViolation(
+                code="skill_file_size_limit_exceeded",
+                message="Skill file exceeds the size limit",
+                path=oversized_file.path,
+                actual_field="size_bytes",
+                actual_value=oversized_file.size_bytes,
+                limit_field="max_size_bytes",
+                limit_value=config.TRACECAT__MAX_SKILL_FILE_SIZE_BYTES,
+            )
+
+        total_size_bytes = sum(file.size_bytes for file in files)
+
+        if total_size_bytes > config.TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES:
+            return SkillFileLimitViolation(
+                code="skill_total_size_limit_exceeded",
+                message="Skill draft exceeds the aggregate size limit",
+                path=None,
+                actual_field="total_size_bytes",
+                actual_value=total_size_bytes,
+                limit_field="max_total_size_bytes",
+                limit_value=config.TRACECAT__MAX_SKILL_TOTAL_SIZE_BYTES,
+            )
+        return None
+
+    def _validate_skill_blob_map_limits(
+        self, path_to_blob: dict[str, SkillFileBlobRef]
+    ) -> None:
+        """Enforce skill limits against the materialized draft file map."""
+
+        self._validate_skill_file_limits(
+            [
+                SkillFileSizeMetadata(
+                    path=path,
+                    size_bytes=file_ref.blob.size_bytes,
+                )
+                for path, file_ref in path_to_blob.items()
+            ]
+        )
+
     def _storage_key_for(self, sha256: str) -> str:
         """Return the canonical storage key for a skill blob."""
 
@@ -266,10 +541,15 @@ class SkillService(BaseWorkspaceService):
         """Return the temporary storage key for a staged skill upload."""
 
         normalized_sha256 = self._normalize_sha256(sha256)
-        return f"skills/{self.workspace_id}/uploads/{upload_id}/{normalized_sha256}"
+        return f"skill-uploads/{self.workspace_id}/{upload_id}/{normalized_sha256}"
 
     def _staged_upload_prefix(self) -> str:
         """Return the storage-prefix used for staged upload objects."""
+
+        return f"skill-uploads/{self.workspace_id}/"
+
+    def _legacy_staged_upload_prefix(self) -> str:
+        """Return the pre-lifecycle staged prefix for cleanup compatibility."""
 
         return f"skills/{self.workspace_id}/uploads/"
 
@@ -279,7 +559,9 @@ class SkillService(BaseWorkspaceService):
         return (
             upload.completed_at is None
             and upload.blob_id is None
-            and upload.key.startswith(self._staged_upload_prefix())
+            and upload.key.startswith(
+                (self._staged_upload_prefix(), self._legacy_staged_upload_prefix())
+            )
         )
 
     @staticmethod
@@ -349,33 +631,6 @@ class SkillService(BaseWorkspaceService):
         }
 
     @staticmethod
-    def _normalize_skill_markdown_for_parsing(skill_markdown: str) -> str:
-        """Normalize markdown before delimiter-based parsing."""
-
-        return (
-            skill_markdown.removeprefix("\ufeff")
-            .replace("\r\n", "\n")
-            .replace("\r", "\n")
-        )
-
-    @staticmethod
-    def _split_skill_markdown_frontmatter(
-        skill_markdown: str,
-    ) -> tuple[str, str] | None:
-        """Split normalized root SKILL.md frontmatter from its body."""
-
-        if not skill_markdown.startswith("---\n"):
-            return None
-        _, _, remainder = skill_markdown.partition("---\n")
-        frontmatter, separator, body = remainder.partition("\n---\n")
-        if separator:
-            return frontmatter, body
-        closing_delimiter = "\n---"
-        if remainder.endswith(closing_delimiter):
-            return remainder[: -len(closing_delimiter)], ""
-        return None
-
-    @staticmethod
     def _build_default_skill_markdown(*, name: str, description: str | None) -> str:
         """Create the seeded root SKILL.md for a new skill."""
 
@@ -398,6 +653,30 @@ class SkillService(BaseWorkspaceService):
             ]
         )
 
+    async def _build_default_draft_blob_map(
+        self,
+        *,
+        name: str,
+        description: str | None,
+        published: list[PublishedBlobObject] | None = None,
+    ) -> dict[str, SkillFileBlobRef]:
+        """Materialize the seeded root manifest for a new skill."""
+
+        root_markdown = self._build_default_skill_markdown(
+            name=name,
+            description=description,
+        )
+        root_blob = await self._get_or_create_blob(
+            content=root_markdown.encode("utf-8"),
+            published=published,
+        )
+        return {
+            "SKILL.md": SkillFileBlobRef(
+                blob=root_blob,
+                content_type="text/markdown; charset=utf-8",
+            )
+        }
+
     @staticmethod
     def _merge_skill_markdown_metadata(
         skill_markdown: str,
@@ -407,15 +686,11 @@ class SkillService(BaseWorkspaceService):
     ) -> str:
         """Merge name/description frontmatter into an existing SKILL.md body."""
 
-        skill_markdown = SkillService._normalize_skill_markdown_for_parsing(
-            skill_markdown
-        )
+        skill_markdown = normalize_skill_markdown(skill_markdown)
         metadata: dict[str, object] = {}
         body = skill_markdown
 
-        if frontmatter_parts := SkillService._split_skill_markdown_frontmatter(
-            skill_markdown
-        ):
+        if frontmatter_parts := split_skill_markdown_frontmatter(skill_markdown):
             frontmatter, body = frontmatter_parts
             try:
                 loaded = yaml.safe_load(frontmatter) or {}
@@ -448,53 +723,6 @@ class SkillService(BaseWorkspaceService):
             detail={"code": "missing_skill_name", "operation": operation},
         )
 
-    @staticmethod
-    def _raise_missing_version_name(*, skill_version_id: uuid.UUID) -> Never:
-        """Raise a validation error when a published skill version is malformed."""
-
-        raise TracecatValidationError(
-            f"Skill version '{skill_version_id}' is missing a required name",
-            detail={
-                "code": "missing_skill_version_name",
-                "skill_version_id": str(skill_version_id),
-            },
-        )
-
-    @staticmethod
-    def _extract_frontmatter(skill_markdown: str) -> tuple[str | None, str | None]:
-        """Extract name and description from root SKILL.md frontmatter.
-
-        Raises:
-            TracecatValidationError: If the frontmatter contains invalid YAML.
-        """
-
-        skill_markdown = SkillService._normalize_skill_markdown_for_parsing(
-            skill_markdown
-        )
-        frontmatter_parts = SkillService._split_skill_markdown_frontmatter(
-            skill_markdown
-        )
-        if frontmatter_parts is None:
-            return None, None
-        frontmatter, _ = frontmatter_parts
-        try:
-            loaded = yaml.safe_load(frontmatter) or {}
-        except yaml.YAMLError as exc:
-            raise TracecatValidationError(
-                "Root SKILL.md frontmatter must be valid YAML",
-                detail={"code": "invalid_skill_md_frontmatter", "path": "SKILL.md"},
-            ) from exc
-        if not isinstance(loaded, dict):
-            return None, None
-        name = loaded.get("name")
-        description = loaded.get("description")
-        return (
-            name if isinstance(name, str) and name.strip() else None,
-            description
-            if isinstance(description, str) and description.strip()
-            else None,
-        )
-
     async def _get_blob_by_identity(self, *, sha256: str) -> SkillBlob | None:
         """Return the blob row for a workspace-scoped content identity."""
 
@@ -505,15 +733,20 @@ class SkillService(BaseWorkspaceService):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def _insert_blob_row(
+    async def _claim_blob_publication(
         self,
         *,
         sha256: str,
         bucket: str,
         key: str,
         size_bytes: int,
-    ) -> SkillBlob:
-        """Insert a blob row, reusing the canonical row if another writer won."""
+    ) -> SkillBlobPublicationClaim:
+        """Claim a digest for publication, or reuse the concurrent winner.
+
+        The existing workspace/digest uniqueness constraint arbitrates only
+        writers for the same content identity. The row stays uncommitted until
+        its owner finishes publishing and verifying the canonical object.
+        """
 
         normalized_sha256 = self._normalize_sha256(sha256)
         stmt = (
@@ -533,20 +766,28 @@ class SkillService(BaseWorkspaceService):
             blob_row = await self.get_blob(blob_id)
             if blob_row is None:
                 raise TracecatNotFoundError(f"Skill blob '{blob_id}' not found")
-            return blob_row
+            return SkillBlobPublicationClaim(blob=blob_row, is_owner=True)
 
         existing = await self._get_blob_by_identity(sha256=normalized_sha256)
         if existing is None:
             raise TracecatNotFoundError(
                 "Skill blob row was not found after a concurrent insert"
             )
-        return existing
+        return SkillBlobPublicationClaim(blob=existing, is_owner=False)
 
-    async def _get_or_create_blob(self, *, content: bytes) -> SkillBlob:
+    async def _get_or_create_blob(
+        self,
+        *,
+        content: bytes,
+        published: list[PublishedBlobObject] | None = None,
+    ) -> SkillBlob:
         """Create or reuse a content-addressed skill blob.
 
         Args:
             content: Blob payload.
+            published: Collector for objects this call writes for a new,
+                still-uncommitted blob row, so a caller that rolls back can
+                delete them. Reused rows are never recorded.
 
         Returns:
             The deduplicated blob row.
@@ -558,21 +799,137 @@ class SkillService(BaseWorkspaceService):
             return existing
 
         storage_key = self._storage_key_for(sha256)
-        await blob.upload_file(
-            content=content,
-            key=storage_key,
-            bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-            content_type="application/octet-stream",
-        )
-        return await self._insert_blob_row(
+        claim = await self._claim_blob_publication(
             sha256=sha256,
             bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
             key=storage_key,
             size_bytes=len(content),
         )
+        if not claim.is_owner:
+            return claim.blob
 
-    async def _materialize_uploaded_blob(self, upload: SkillUploadModel) -> SkillBlob:
-        """Finalize a staged upload into a reusable blob row."""
+        # Record the prospective key before the network call: a CancelledError
+        # can arrive after object storage accepts the upload but before the
+        # client receives its response. Rollback cleanup may therefore issue a
+        # harmless no-op delete when the upload did not create an object.
+        if published is not None:
+            published.append(
+                PublishedBlobObject(
+                    bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+                    key=storage_key,
+                )
+            )
+        try:
+            await blob.upload_file(
+                content=content,
+                key=storage_key,
+                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+                content_type="application/octet-stream",
+                redact_log_identifiers=True,
+            )
+        except Exception:
+            await self.session.delete(claim.blob)
+            raise
+        return claim.blob
+
+    async def _delete_published_blob_objects_best_effort(
+        self, published: Sequence[PublishedBlobObject]
+    ) -> None:
+        """Delete objects written for blob rows that are about to roll back.
+
+        Call this before the SQL rollback. The uncommitted rows still hold the
+        workspace/digest uniqueness claim, so no concurrent writer can have
+        published the same key yet and the delete cannot remove another
+        transaction's object. The deletes are shielded so a cancellation
+        arriving mid-cleanup cannot abort it partway.
+        """
+
+        if not published:
+            return
+        await asyncio.shield(self._delete_blob_objects(published))
+
+    async def _delete_blob_objects(
+        self, published: Sequence[PublishedBlobObject]
+    ) -> None:
+        """Delete each object, logging instead of raising on failure."""
+
+        for obj in published:
+            try:
+                await blob.delete_file(
+                    key=obj.key,
+                    bucket=obj.bucket,
+                    redact_log_identifiers=True,
+                )
+            except Exception as exc:
+                self.logger.warning(
+                    "Failed to delete rolled-back skill blob object",
+                    error_type=type(exc).__name__,
+                )
+
+    async def _stream_verify_object(
+        self,
+        *,
+        key: str,
+        bucket: str,
+        expected_sha256: str,
+        expected_size_bytes: int,
+        error_detail: dict[str, str],
+        redact_log_identifiers: bool = False,
+    ) -> None:
+        """Stream a stored object and require an exact size and SHA-256 match."""
+
+        actual_size_bytes = 0
+        hasher = hashlib.sha256()
+        async with blob.open_download_stream(
+            key=key,
+            bucket=bucket,
+            redact_log_identifiers=redact_log_identifiers,
+        ) as (
+            stream,
+            content_length,
+        ):
+            if content_length is not None and content_length > expected_size_bytes:
+                raise TracecatValidationError(
+                    "Uploaded blob size mismatch",
+                    detail=error_detail,
+                )
+            async for chunk in stream.iter_chunks(
+                chunk_size=blob.DEFAULT_DOWNLOAD_CHUNK_SIZE_BYTES
+            ):
+                if not chunk:
+                    continue
+                actual_size_bytes += len(chunk)
+                if actual_size_bytes > expected_size_bytes:
+                    raise TracecatValidationError(
+                        "Uploaded blob size mismatch",
+                        detail=error_detail,
+                    )
+                hasher.update(chunk)
+        if hasher.hexdigest() != expected_sha256:
+            raise TracecatValidationError(
+                "Uploaded blob SHA-256 mismatch",
+                detail=error_detail,
+            )
+        if actual_size_bytes != expected_size_bytes:
+            raise TracecatValidationError(
+                "Uploaded blob size mismatch",
+                detail=error_detail,
+            )
+
+    async def _materialize_uploaded_blob(
+        self,
+        upload: SkillUploadModel,
+        *,
+        published: list[PublishedBlobObject] | None = None,
+    ) -> SkillBlob:
+        """Finalize a staged upload into a reusable blob row.
+
+        Args:
+            upload: Staged upload session row.
+            published: Collector for the canonical object this call copies for
+                a new, still-uncommitted blob row. Reused rows and uploads that
+                already sit at their canonical key are never recorded.
+        """
 
         if upload.completed_at is not None and upload.blob_id is not None:
             blob_row = await self.get_blob(upload.blob_id)
@@ -590,68 +947,84 @@ class SkillService(BaseWorkspaceService):
                 "Skill upload session has expired",
                 detail={"code": "upload_expired", "upload_id": str(upload.id)},
             )
-        if not await blob.file_exists(key=upload.key, bucket=upload.bucket):
+        if not await blob.file_exists(
+            key=upload.key,
+            bucket=upload.bucket,
+            redact_log_identifiers=True,
+        ):
             raise TracecatValidationError(
                 "Uploaded blob was not found in object storage",
                 detail={"code": "upload_missing", "upload_id": str(upload.id)},
             )
 
-        actual_size_bytes = 0
-        hasher = hashlib.sha256()
         integrity_error_detail = {
             "code": "upload_integrity_error",
             "upload_id": str(upload.id),
         }
-        async with blob.open_download_stream(
+        normalized_upload_sha256 = self._normalize_sha256(upload.sha256)
+        await self._stream_verify_object(
             key=upload.key,
             bucket=upload.bucket,
-        ) as (stream, content_length):
-            if content_length is not None and content_length > upload.size_bytes:
-                raise TracecatValidationError(
-                    "Uploaded blob size mismatch",
-                    detail=integrity_error_detail,
-                )
-            async for chunk in stream.iter_chunks(
-                chunk_size=blob.DEFAULT_DOWNLOAD_CHUNK_SIZE_BYTES
-            ):
-                if not chunk:
-                    continue
-                actual_size_bytes += len(chunk)
-                if actual_size_bytes > upload.size_bytes:
-                    raise TracecatValidationError(
-                        "Uploaded blob size mismatch",
-                        detail=integrity_error_detail,
-                    )
-                hasher.update(chunk)
-        actual_sha256 = hasher.hexdigest()
-        normalized_upload_sha256 = self._normalize_sha256(upload.sha256)
-        if actual_sha256 != normalized_upload_sha256:
-            raise TracecatValidationError(
-                "Uploaded blob SHA-256 mismatch",
-                detail=integrity_error_detail,
-            )
-        if actual_size_bytes != upload.size_bytes:
-            raise TracecatValidationError(
-                "Uploaded blob size mismatch",
-                detail=integrity_error_detail,
-            )
+            expected_sha256=normalized_upload_sha256,
+            expected_size_bytes=upload.size_bytes,
+            error_detail=integrity_error_detail,
+            redact_log_identifiers=True,
+        )
 
         blob_row = await self._get_blob_by_identity(sha256=normalized_upload_sha256)
         if blob_row is None:
             canonical_key = self._storage_key_for(normalized_upload_sha256)
-            if upload.key != canonical_key:
-                await blob.copy_file(
-                    source_key=upload.key,
-                    destination_key=canonical_key,
-                    bucket=upload.bucket,
-                    content_type="application/octet-stream",
-                )
-            blob_row = await self._insert_blob_row(
+            claim = await self._claim_blob_publication(
                 sha256=normalized_upload_sha256,
                 bucket=upload.bucket,
                 key=canonical_key,
-                size_bytes=actual_size_bytes,
+                size_bytes=upload.size_bytes,
             )
+            blob_row = claim.blob
+            if claim.is_owner and upload.key != canonical_key:
+                # Record the prospective key before the network call: a
+                # CancelledError can arrive after object storage accepts the
+                # copy but before the client receives its response. Rollback
+                # cleanup may therefore issue a harmless no-op delete when the
+                # copy did not create an object.
+                if published is not None:
+                    published.append(
+                        PublishedBlobObject(bucket=upload.bucket, key=canonical_key)
+                    )
+                try:
+                    await blob.copy_file(
+                        source_key=upload.key,
+                        destination_key=canonical_key,
+                        bucket=upload.bucket,
+                        content_type="application/octet-stream",
+                        redact_log_identifiers=True,
+                    )
+                    # The staged PUT URL may still be valid here, so a concurrent
+                    # re-PUT between the verification above and the copy could
+                    # poison the content-addressed blob. Verify the canonical copy
+                    # itself before it becomes reusable.
+                    await self._stream_verify_object(
+                        key=canonical_key,
+                        bucket=upload.bucket,
+                        expected_sha256=normalized_upload_sha256,
+                        expected_size_bytes=upload.size_bytes,
+                        error_detail=integrity_error_detail,
+                        redact_log_identifiers=True,
+                    )
+                except Exception:
+                    await self.session.delete(claim.blob)
+                    try:
+                        await blob.delete_file(
+                            key=canonical_key,
+                            bucket=upload.bucket,
+                            redact_log_identifiers=True,
+                        )
+                    except Exception as exc:
+                        self.logger.warning(
+                            "Failed to delete unverified canonical blob object",
+                            error_type=type(exc).__name__,
+                        )
+                    raise
 
         upload.blob_id = blob_row.id
         upload.completed_at = datetime.now(UTC)
@@ -668,18 +1041,20 @@ class SkillService(BaseWorkspaceService):
         """Delete a temporary staged upload object without failing the caller."""
 
         try:
-            await blob.delete_file(key=upload.key, bucket=upload.bucket)
+            await blob.delete_file(
+                key=upload.key,
+                bucket=upload.bucket,
+                redact_log_identifiers=True,
+            )
         except Exception as exc:
             self.logger.warning(
                 "Failed to delete staged skill upload object",
                 upload_id=str(upload.id),
-                key=upload.key,
-                bucket=upload.bucket,
                 reason=reason,
-                error=str(exc),
+                error_type=type(exc).__name__,
             )
 
-    async def _reap_expired_incomplete_uploads(self) -> list[SkillUploadModel]:
+    async def _reap_expired_incomplete_uploads(self) -> list[StagedUploadObject]:
         """Delete expired incomplete upload rows and return staged objects to clean up."""
 
         expired_stmt = (
@@ -689,20 +1064,28 @@ class SkillService(BaseWorkspaceService):
                 SkillUploadModel.completed_at.is_(None),
                 SkillUploadModel.expires_at < datetime.now(UTC),
             )
+            .order_by(SkillUploadModel.expires_at.asc(), SkillUploadModel.id.asc())
+            .limit(EXPIRED_UPLOAD_REAP_BATCH_SIZE)
             .with_for_update(skip_locked=True)
         )
         expired_uploads = (await self.session.execute(expired_stmt)).scalars().all()
         if not expired_uploads:
             return []
 
-        for upload in expired_uploads:
-            await self.session.delete(upload)
-        await self.session.flush()
-        return [
-            upload
+        reaped_objects = [
+            StagedUploadObject(
+                upload_id=upload.id,
+                bucket=upload.bucket,
+                key=upload.key,
+                reason="reap_expired_upload",
+            )
             for upload in expired_uploads
             if self._is_staged_upload_object(upload)
         ]
+        for upload in expired_uploads:
+            await self.session.delete(upload)
+        await self.session.flush()
+        return reaped_objects
 
     async def _list_draft_rows(
         self, skill_id: uuid.UUID
@@ -738,6 +1121,162 @@ class SkillService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return list(result.tuples().all())
 
+    @staticmethod
+    def _parse_manifest_frontmatter(
+        markdown: str,
+        result: ManifestValidationResult,
+    ) -> None:
+        """Populate a manifest validation result from typed SKILL.md frontmatter."""
+
+        try:
+            parsed = parse_skill_markdown(markdown)
+        except yaml.YAMLError:
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="invalid_skill_md_frontmatter",
+                    message="Root SKILL.md frontmatter must be valid YAML",
+                    path="SKILL.md",
+                )
+            )
+            return
+        except ValidationError as exc:
+            tool_error = any(
+                tuple(error["loc"][:2]) == ("metadata", "tools")
+                for error in exc.errors()
+            )
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code=(
+                        "invalid_skill_tool_declaration"
+                        if tool_error
+                        else "invalid_skill_md_frontmatter"
+                    ),
+                    message=(
+                        "Root SKILL.md metadata.tools must contain at most "
+                        f"{MAX_SKILL_TOOLS} canonical registry or MCP tool IDs"
+                        if tool_error
+                        else "Root SKILL.md frontmatter does not match the skill schema"
+                    ),
+                    path="SKILL.md",
+                )
+            )
+            return
+
+        if parsed is None:
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="missing_skill_name",
+                    message="Root SKILL.md frontmatter must define a skill name",
+                    path="SKILL.md",
+                )
+            )
+            return
+        result.frontmatter = parsed
+
+    async def _validate_declared_tools(self, result: ManifestValidationResult) -> None:
+        """Resolve declared tool IDs through actor-scoped availability indexes."""
+
+        if result.frontmatter is None or result.errors:
+            return
+        tool_ids = result.frontmatter.metadata.tools
+        registry_tool_ids = [
+            tool_id for tool_id in tool_ids if not tool_id.startswith("mcp.")
+        ]
+        mcp_tool_ids = [tool_id for tool_id in tool_ids if tool_id.startswith("mcp.")]
+
+        missing_registry_tools: set[str] = set()
+        if registry_tool_ids:
+            registry_service = RegistryActionsService(self.session, role=self.role)
+            index_entries = await registry_service.list_actions_from_index(
+                include_keys=set(registry_tool_ids)
+            )
+            available_registry_tools = {
+                f"{entry.namespace}.{entry.name}" for entry, _ in index_entries
+            }
+            missing_registry_tools = set(registry_tool_ids) - available_registry_tools
+
+        integrations = (
+            await IntegrationService(
+                self.session, role=self.role
+            ).list_mcp_integrations()
+            if mcp_tool_ids
+            else []
+        )
+        integrations_by_slug = {
+            integration.slug: integration for integration in integrations
+        }
+        resolved_mcp_tools: list[ResolvedSkillMcpTool] = []
+        missing_mcp_tools: set[str] = set()
+        unavailable_mcp_tools: set[str] = set()
+        for tool_id in mcp_tool_ids:
+            _, slug, *tool_name_parts = tool_id.split(".", 2)
+            integration = integrations_by_slug.get(slug)
+            if integration is None:
+                missing_mcp_tools.add(tool_id)
+                continue
+            tool_name = tool_name_parts[0] if tool_name_parts else None
+            if support_error := get_mcp_grant_support_error(
+                server_type=integration.server_type,
+                tool_name=tool_name,
+                tool_id=tool_id,
+            ):
+                result.errors.append(support_error)
+                continue
+            if tool_name is not None:
+                stored_tools = MCPToolSummary.validate_stored(
+                    integration.tools,
+                    mcp_integration_id=integration.id,
+                )
+                stored_tool = next(
+                    (tool for tool in stored_tools or () if tool.name == tool_name),
+                    None,
+                )
+                if stored_tool is None:
+                    missing_mcp_tools.add(tool_id)
+                    continue
+                if not stored_tool.enabled or stored_tool.status != "available":
+                    unavailable_mcp_tools.add(tool_id)
+                    continue
+            resolved_mcp_tools.append(
+                ResolvedSkillMcpTool(
+                    tool_id=tool_id,
+                    mcp_integration_id=integration.id,
+                    tool_name=tool_name,
+                )
+            )
+
+        if missing_registry_tools or missing_mcp_tools:
+            missing = sorted(missing_registry_tools | missing_mcp_tools)
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="unknown_skill_tools",
+                    message=(
+                        f"Tools not found: {', '.join(missing)}. "
+                        "Check the tool names or remove them from this skill."
+                    ),
+                    path="SKILL.md",
+                )
+            )
+        if unavailable_mcp_tools:
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code="unavailable_skill_tools",
+                    message=(
+                        "Tools are disabled or unavailable: "
+                        f"{', '.join(sorted(unavailable_mcp_tools))}. "
+                        "Enable them in MCP server settings or remove them "
+                        "from this skill."
+                    ),
+                    path="SKILL.md",
+                )
+            )
+        if result.errors:
+            return
+        result.tool_projection = SkillToolProjection(
+            registry_tool_ids=tuple(registry_tool_ids),
+            mcp_tools=tuple(resolved_mcp_tools),
+        )
+
     async def _validate_manifest_rows(
         self, rows: Sequence[tuple[str, SkillBlob]]
     ) -> ManifestValidationResult:
@@ -746,6 +1285,7 @@ class SkillService(BaseWorkspaceService):
         result = ManifestValidationResult()
         seen_paths: set[str] = set()
         skill_md_blob: SkillBlob | None = None
+        file_sizes: list[SkillFileSizeMetadata] = []
 
         for path, blob_row in rows:
             try:
@@ -768,8 +1308,25 @@ class SkillService(BaseWorkspaceService):
                     )
                 )
             seen_paths.add(normalized)
+            file_sizes.append(
+                SkillFileSizeMetadata(path=normalized, size_bytes=blob_row.size_bytes)
+            )
             if normalized == "SKILL.md":
                 skill_md_blob = blob_row
+
+        if violation := self._skill_file_limit_violation(file_sizes):
+            result.errors.append(
+                SkillValidationErrorDetail(
+                    code=violation.code,
+                    message=violation.message,
+                    path=violation.path,
+                )
+            )
+            if skill_md_blob is not None and skill_md_blob.size_bytes > min(
+                config.TRACECAT__MAX_SKILL_MANIFEST_SIZE_BYTES,
+                config.TRACECAT__MAX_SKILL_FILE_SIZE_BYTES,
+            ):
+                return result
 
         for normalized in sorted(seen_paths):
             parts = normalized.split("/")
@@ -802,6 +1359,7 @@ class SkillService(BaseWorkspaceService):
             content = await blob.download_file(
                 key=skill_md_blob.key,
                 bucket=skill_md_blob.bucket,
+                redact_log_identifiers=True,
             )
             markdown = content.decode("utf-8")
         except UnicodeDecodeError:
@@ -814,43 +1372,11 @@ class SkillService(BaseWorkspaceService):
             )
             return result
 
-        try:
-            result.name, result.description = self._extract_frontmatter(markdown)
-        except TracecatValidationError as exc:
-            result.errors.append(
-                SkillValidationErrorDetail(
-                    code="invalid_skill_md_frontmatter",
-                    message=str(exc),
-                    path="SKILL.md",
-                )
-            )
-            return result
-        if result.name is None:
-            result.errors.append(
-                SkillValidationErrorDetail(
-                    code="missing_skill_name",
-                    message="Root SKILL.md frontmatter must define a skill name",
-                    path="SKILL.md",
-                )
-            )
-            return result
-        try:
-            result.name = NEW_SKILL_NAME_ADAPTER.validate_python(result.name)
-        except ValidationError:
-            result.errors.append(
-                SkillValidationErrorDetail(
-                    code="invalid_skill_name",
-                    message=(
-                        "Root SKILL.md frontmatter name must be 1-64 characters "
-                        "of lowercase letters, numbers, and single hyphens, and "
-                        "must not use the reserved 'tracecat-' prefix"
-                    ),
-                    path="SKILL.md",
-                )
-            )
+        self._parse_manifest_frontmatter(markdown, result)
+        await self._validate_declared_tools(result)
         return result
 
-    def _validate_prepared_upload_files(
+    async def _validate_prepared_upload_files(
         self, files: Sequence[PreparedSkillUploadFile]
     ) -> ManifestValidationResult:
         """Validate normalized one-shot upload files before blob writes."""
@@ -911,40 +1437,8 @@ class SkillService(BaseWorkspaceService):
             )
             return result
 
-        try:
-            result.name, result.description = self._extract_frontmatter(markdown)
-        except TracecatValidationError as exc:
-            result.errors.append(
-                SkillValidationErrorDetail(
-                    code="invalid_skill_md_frontmatter",
-                    message=str(exc),
-                    path="SKILL.md",
-                )
-            )
-            return result
-        if result.name is None:
-            result.errors.append(
-                SkillValidationErrorDetail(
-                    code="missing_skill_name",
-                    message="Root SKILL.md frontmatter must define a skill name",
-                    path="SKILL.md",
-                )
-            )
-            return result
-        try:
-            result.name = NEW_SKILL_NAME_ADAPTER.validate_python(result.name)
-        except ValidationError:
-            result.errors.append(
-                SkillValidationErrorDetail(
-                    code="invalid_skill_name",
-                    message=(
-                        "Root SKILL.md frontmatter name must be 1-64 characters "
-                        "of lowercase letters, numbers, and single hyphens, and "
-                        "must not use the reserved 'tracecat-' prefix"
-                    ),
-                    path="SKILL.md",
-                )
-            )
+        self._parse_manifest_frontmatter(markdown, result)
+        await self._validate_declared_tools(result)
         return result
 
     def _prepare_upload_files(
@@ -972,6 +1466,12 @@ class SkillService(BaseWorkspaceService):
                     content_type=content_type,
                 )
             )
+        self._validate_skill_file_limits(
+            [
+                SkillFileSizeMetadata(path=file.path, size_bytes=len(file.content))
+                for file in prepared_files
+            ]
+        )
         return prepared_files
 
     async def _prepare_validated_upload_draft(
@@ -979,19 +1479,19 @@ class SkillService(BaseWorkspaceService):
     ) -> PreparedSkillUploadDraft:
         """Validate and materialize a one-shot upload into draft blob refs."""
 
-        validation, prepared_files = self._validate_upload_draft(params)
+        validation, prepared_files = await self._validate_upload_draft(params)
         return await self._materialize_upload_draft(
             validation=validation,
             prepared_files=prepared_files,
         )
 
-    def _validate_upload_draft(
+    async def _validate_upload_draft(
         self, params: SkillUpload
     ) -> tuple[ManifestValidationResult, list[PreparedSkillUploadFile]]:
         """Validate a one-shot upload without writing blob rows."""
 
         prepared_files = self._prepare_upload_files(params.files)
-        validation = self._validate_prepared_upload_files(prepared_files)
+        validation = await self._validate_prepared_upload_files(prepared_files)
         if validation.errors:
             raise TracecatValidationError(
                 "Uploaded skill draft failed validation",
@@ -1018,32 +1518,171 @@ class SkillService(BaseWorkspaceService):
         *,
         validation: ManifestValidationResult,
         prepared_files: Sequence[PreparedSkillUploadFile],
+        published: list[PublishedBlobObject] | None = None,
     ) -> PreparedSkillUploadDraft:
         """Materialize validated upload files into draft blob refs."""
 
-        path_to_blob: dict[str, SkillFileBlobRef] = {}
-        for file in prepared_files:
-            path_to_blob[file.path] = SkillFileBlobRef(
-                blob=await self._get_or_create_blob(content=file.content),
-                content_type=file.content_type,
-            )
+        path_to_blob = await self._materialize_prepared_files(
+            prepared_files, published=published
+        )
         return PreparedSkillUploadDraft(
             validation=validation,
             path_to_blob=path_to_blob,
         )
 
-    async def _create_version_from_blob_refs(
+    async def _materialize_prepared_files(
+        self,
+        prepared_files: Sequence[PreparedSkillUploadFile],
+        *,
+        published: list[PublishedBlobObject] | None = None,
+    ) -> dict[str, SkillFileBlobRef]:
+        """Materialize file blobs in stable digest order to avoid lock cycles."""
+
+        path_to_blob: dict[str, SkillFileBlobRef] = {}
+        for file in sorted(
+            prepared_files,
+            key=lambda item: (self._compute_sha256(item.content), item.path),
+        ):
+            path_to_blob[file.path] = SkillFileBlobRef(
+                blob=await self._get_or_create_blob(
+                    content=file.content, published=published
+                ),
+                content_type=file.content_type,
+            )
+        return path_to_blob
+
+    async def lock_publications(self) -> None:
+        """Serialize workspace publications before acquiring Skill or blob locks.
+
+        Bulk import must acquire this lock before modifying any Skill rows.
+        """
+        await self.session.execute(
+            select(
+                sa.func.pg_advisory_xact_lock(
+                    sa.func.hashtextextended(
+                        f"skill-published-names:{self.workspace_id}", 0
+                    )
+                )
+            )
+        )
+
+    async def validate_publication_names(
+        self, names_by_skill_id: Mapping[uuid.UUID, str]
+    ) -> None:
+        """Validate final runtime names under the workspace publication lock.
+
+        Draft names do not reserve names. Batch imports validate their complete
+        desired state before releasing old names to support atomic name swaps.
+        """
+        names = Counter(names_by_skill_id.values())
+        conflict = next((name for name, count in names.items() if count > 1), None)
+        if conflict is None:
+            conflict = await self.session.scalar(
+                select(SkillVersion.name)
+                .join(Skill, Skill.current_version_id == SkillVersion.id)
+                .where(
+                    Skill.workspace_id == self.workspace_id,
+                    Skill.id.not_in(names_by_skill_id),
+                    Skill.deleted_at.is_(None),
+                    Skill.archived_at.is_(None),
+                    SkillVersion.name.in_(names),
+                )
+                .limit(1)
+            )
+        if conflict is not None:
+            raise TracecatValidationError(
+                f"Published Skill name '{conflict}' is already in use for this workspace",
+                detail={"code": "skill_name_conflict", "name": conflict},
+            )
+
+    def _add_tool_projection_rows(
+        self, *, skill_version_id: uuid.UUID, projection: SkillToolProjection
+    ) -> None:
+        """Stage immutable tool projection rows for one skill version."""
+
+        for tool_id in projection.registry_tool_ids:
+            self.session.add(
+                SkillVersionTool(
+                    workspace_id=self.workspace_id,
+                    skill_version_id=skill_version_id,
+                    tool_id=tool_id,
+                )
+            )
+        for mcp_tool in projection.mcp_tools:
+            self.session.add(
+                SkillVersionMcpTool(
+                    workspace_id=self.workspace_id,
+                    skill_version_id=skill_version_id,
+                    tool_id=mcp_tool.tool_id,
+                    mcp_integration_id=mcp_tool.mcp_integration_id,
+                    tool_name=mcp_tool.tool_name,
+                )
+            )
+
+    async def _lock_projected_mcp_integrations(
+        self, projection: SkillToolProjection
+    ) -> None:
+        """Keep resolved MCP rows alive until publication commits."""
+        integration_ids = {tool.mcp_integration_id for tool in projection.mcp_tools}
+        if not integration_ids:
+            return
+        # Validation may precede this transaction. Recheck UUIDs under key-share
+        # locks so deletion either wins here or waits for the published references.
+        locked_ids = set(
+            await self.session.scalars(
+                select(MCPIntegration.id)
+                .where(
+                    MCPIntegration.workspace_id == self.workspace_id,
+                    MCPIntegration.id.in_(integration_ids),
+                )
+                .order_by(MCPIntegration.id)
+                .with_for_update(read=True, key_share=True)
+            )
+        )
+        if integration_ids - locked_ids:
+            error = SkillValidationErrorDetail(
+                code="unknown_skill_tools",
+                message=(
+                    "MCP integrations were deleted before publication. "
+                    "Validate the skill again."
+                ),
+                path="SKILL.md",
+            )
+            raise TracecatValidationError(
+                "Skill draft failed validation",
+                detail={
+                    "code": "skill_publish_validation_failed",
+                    "errors": [error.model_dump(mode="json")],
+                },
+            )
+
+    async def publish_version_from_blob_refs(
         self,
         *,
         skill: Skill,
         file_refs: Sequence[tuple[str, SkillFileBlobRef]],
         validation: ManifestValidationResult,
-    ) -> SkillVersionRead:
-        """Create a new immutable version from validated skill files."""
+        skill_locked: bool = False,
+        head_name: str | None = None,
+    ) -> SkillVersion:
+        """Publish validated blobs without committing the caller's transaction."""
 
+        await self.lock_publications()
+        if not skill_locked:
+            locked_skill = await self._get_skill_for_update(skill.id)
+            if locked_skill is None:
+                raise TracecatNotFoundError(f"Skill '{skill.id}' not found")
+            skill = locked_skill
         if validation.name is None:
             self._raise_missing_draft_name(operation="publish")
+        if validation.tool_projection is None:
+            raise TracecatValidationError(
+                "Skill tool declarations were not projected",
+                detail={"code": "skill_tools_not_projected"},
+            )
+        await self._lock_projected_mcp_integrations(validation.tool_projection)
         manifest_name = validation.name
+        await self.validate_publication_names({skill.id: manifest_name})
         sorted_file_refs = sorted(file_refs, key=lambda item: item[0])
         manifest_payload = [
             {
@@ -1091,10 +1730,32 @@ class SkillService(BaseWorkspaceService):
                     content_type=file_ref.content_type,
                 )
             )
+        self._add_tool_projection_rows(
+            skill_version_id=version.id,
+            projection=validation.tool_projection,
+        )
         skill.current_version_id = version.id
-        skill.name = manifest_name
+        skill.name = head_name or manifest_name
         skill.description = validation.description
         self.session.add(skill)
+        await self.session.flush()
+        return version
+
+    async def _create_version_from_blob_refs(
+        self,
+        *,
+        skill: Skill,
+        file_refs: Sequence[tuple[str, SkillFileBlobRef]],
+        validation: ManifestValidationResult,
+    ) -> SkillVersionRead:
+        """Publish validated blobs and commit the service transaction."""
+
+        version = await self.publish_version_from_blob_refs(
+            skill=skill,
+            file_refs=file_refs,
+            validation=validation,
+            skill_locked=True,
+        )
         await self.session.commit()
         return await self.get_version_read(skill_id=skill.id, version_id=version.id)
 
@@ -1131,6 +1792,21 @@ class SkillService(BaseWorkspaceService):
         """Build the summary response for a skill."""
 
         draft = await self._build_draft_read(skill)
+        tags = (
+            (
+                await self.session.execute(
+                    select(SkillTag)
+                    .join(SkillTagLink, SkillTagLink.tag_id == SkillTag.id)
+                    .where(
+                        SkillTagLink.skill_id == skill.id,
+                        SkillTag.workspace_id == skill.workspace_id,
+                    )
+                    .order_by(SkillTag.name)
+                )
+            )
+            .scalars()
+            .all()
+        )
         current_version_summary = None
         current_version = None
         if skill.current_version_id is not None:
@@ -1159,6 +1835,8 @@ class SkillService(BaseWorkspaceService):
             slug=skill.slug or skill.name,
             description=skill.description,
             current_version_id=skill.current_version_id,
+            folder_id=skill.folder_id,
+            tags=[TagRead.model_validate(tag, from_attributes=True) for tag in tags],
             draft_revision=skill.draft_revision,
             created_at=skill.created_at,
             updated_at=skill.updated_at,
@@ -1182,6 +1860,10 @@ class SkillService(BaseWorkspaceService):
             slug=skill.slug or skill.name,
             description=skill.description,
             current_version_id=skill.current_version_id,
+            folder_id=skill.folder_id,
+            tags=[
+                TagRead.model_validate(tag, from_attributes=True) for tag in skill.tags
+            ],
             created_at=skill.created_at,
             updated_at=skill.updated_at,
             deleted_at=skill.deleted_at or skill.archived_at,
@@ -1257,8 +1939,9 @@ class SkillService(BaseWorkspaceService):
         name: str,
         description: str | None,
         path_to_blob_factory: SkillDraftBlobMapFactory,
+        before_commit: SkillBeforeCreateCommit | None = None,
     ) -> Skill:
-        """Create a skill row and draft, retrying slug races with reallocation."""
+        """Create a skill and draft, then atomically run optional preparation."""
 
         for _ in range(SKILL_SLUG_INSERT_ATTEMPTS):
             slug = await self._allocate_skill_slug(name)
@@ -1270,18 +1953,33 @@ class SkillService(BaseWorkspaceService):
                 description=description,
             )
             self.session.add(skill)
+            # Objects the factory writes for new blob rows live outside the
+            # SQL transaction, so a rollback has to delete them explicitly.
+            # A failed commit is ambiguous (the rows may have landed), so its
+            # objects are left in place rather than risk orphaning a row.
+            published: list[PublishedBlobObject] = []
+            committing = False
             try:
                 await self.session.flush()
                 await self._replace_draft_with_blob_map(
                     skill=skill,
-                    path_to_blob=await path_to_blob_factory(),
+                    path_to_blob=await path_to_blob_factory(published),
                 )
+                if before_commit is not None:
+                    await before_commit(skill)
+                committing = True
                 await self.session.commit()
             except IntegrityError as exc:
+                if not committing:
+                    await self._delete_published_blob_objects_best_effort(published)
                 await self.session.rollback()
                 if not _is_skill_slug_unique_violation(exc):
                     raise
-            except Exception:
+            except BaseException:
+                # BaseException so a CancelledError from the MCP tool timeout
+                # still deletes the published objects before rolling back.
+                if not committing:
+                    await self._delete_published_blob_objects_best_effort(published)
                 await self.session.rollback()
                 raise
             else:
@@ -1326,7 +2024,6 @@ class SkillService(BaseWorkspaceService):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_skill(
         self, skill_id: uuid.UUID, *, include_archived: bool = False
     ) -> Skill | None:
@@ -1342,14 +2039,13 @@ class SkillService(BaseWorkspaceService):
             predicates.extend((Skill.deleted_at.is_(None), Skill.archived_at.is_(None)))
         stmt = (
             select(Skill)
-            .options(selectinload(Skill.current_version))
+            .options(selectinload(Skill.current_version), selectinload(Skill.tags))
             .where(*predicates)
         )
         if include_archived:
             stmt = with_deleted(stmt)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_skill_by_identifier(
         self, identifier: str | uuid.UUID
     ) -> Skill | None:
@@ -1382,7 +2078,7 @@ class SkillService(BaseWorkspaceService):
         # wins; ties order like the backfill migration (created_at, id).
         stmt = (
             select(Skill)
-            .options(selectinload(Skill.current_version))
+            .options(selectinload(Skill.current_version), selectinload(Skill.tags))
             .where(
                 Skill.workspace_id == self.workspace_id,
                 sa.or_(
@@ -1453,57 +2149,17 @@ class SkillService(BaseWorkspaceService):
         ]
         if not include_archived:
             predicates.extend((Skill.deleted_at.is_(None), Skill.archived_at.is_(None)))
-        stmt = select(Skill).where(*predicates).with_for_update()
+        stmt = (
+            select(Skill)
+            .where(*predicates)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if include_archived:
             stmt = with_deleted(stmt)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def _get_bindable_skills(
-        self,
-        skill_ids: Sequence[uuid.UUID],
-        *,
-        for_update: bool = False,
-    ) -> dict[uuid.UUID, Skill]:
-        """Return active skills that can be bound onto a preset.
-
-        When ``for_update`` is true, rows are locked in a deterministic order so
-        skill archival and preset binding writes serialize on the same records.
-        """
-
-        normalized_ids = sorted(set(skill_ids), key=str)
-        if not normalized_ids:
-            return {}
-
-        if not for_update:
-            stmt = select(Skill).where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id.in_(normalized_ids),
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-            return {
-                skill.id: skill
-                for skill in (await self.session.execute(stmt)).scalars().all()
-            }
-
-        stmt = (
-            select(Skill)
-            .where(
-                Skill.workspace_id == self.workspace_id,
-                Skill.id.in_(normalized_ids),
-                Skill.deleted_at.is_(None),
-                Skill.archived_at.is_(None),
-            )
-            .order_by(Skill.id)
-            .with_for_update()
-        )
-        return {
-            skill.id: skill
-            for skill in (await self.session.execute(stmt)).scalars().all()
-        }
-
     @require_scope("agent:create")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_skill(self, params: SkillCreate) -> SkillRead:
         """Create a logical skill and seed its initial draft.
 
@@ -1514,20 +2170,14 @@ class SkillService(BaseWorkspaceService):
             The created skill summary.
         """
 
-        async def default_draft_blob_map() -> dict[str, SkillFileBlobRef]:
-            root_markdown = self._build_default_skill_markdown(
+        async def default_draft_blob_map(
+            published: list[PublishedBlobObject],
+        ) -> dict[str, SkillFileBlobRef]:
+            return await self._build_default_draft_blob_map(
                 name=params.name,
                 description=params.description,
+                published=published,
             )
-            root_blob = await self._get_or_create_blob(
-                content=root_markdown.encode("utf-8")
-            )
-            return {
-                "SKILL.md": SkillFileBlobRef(
-                    blob=root_blob,
-                    content_type="text/markdown; charset=utf-8",
-                )
-            }
 
         skill = await self._create_skill_with_slug_retry(
             name=params.name,
@@ -1537,7 +2187,6 @@ class SkillService(BaseWorkspaceService):
         return await self._build_skill_read(skill)
 
     @require_scope("agent:create")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def upload_skill(self, params: SkillUpload) -> SkillRead:
         """Import a full skill draft in one operation.
 
@@ -1548,12 +2197,15 @@ class SkillService(BaseWorkspaceService):
             The created skill summary.
         """
 
-        validation, prepared_files = self._validate_upload_draft(params)
+        validation, prepared_files = await self._validate_upload_draft(params)
 
-        async def uploaded_draft_blob_map() -> dict[str, SkillFileBlobRef]:
+        async def uploaded_draft_blob_map(
+            published: list[PublishedBlobObject],
+        ) -> dict[str, SkillFileBlobRef]:
             prepared_draft = await self._materialize_upload_draft(
                 validation=validation,
                 prepared_files=prepared_files,
+                published=published,
             )
             return prepared_draft.path_to_blob
 
@@ -1565,7 +2217,6 @@ class SkillService(BaseWorkspaceService):
         return await self._build_skill_read(skill)
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def replace_skill_draft(
         self, *, skill_id: uuid.UUID, params: SkillUpload
     ) -> SkillRead:
@@ -1588,17 +2239,20 @@ class SkillService(BaseWorkspaceService):
         await self.session.refresh(skill)
         return await self._build_skill_read(skill)
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_skills(
         self, params: CursorPaginationParams
     ) -> CursorPaginatedResponse[SkillReadMinimal]:
         """List workspace skills with cursor pagination."""
 
         paginator = BaseCursorPaginator(self.session)
-        stmt = select(Skill).where(
-            Skill.workspace_id == self.workspace_id,
-            Skill.deleted_at.is_(None),
-            Skill.archived_at.is_(None),
+        stmt = (
+            select(Skill)
+            .where(
+                Skill.workspace_id == self.workspace_id,
+                Skill.deleted_at.is_(None),
+                Skill.archived_at.is_(None),
+            )
+            .options(selectinload(Skill.tags))
         )
         if params.cursor:
             try:
@@ -1657,7 +2311,6 @@ class SkillService(BaseWorkspaceService):
             has_previous=params.cursor is not None,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_skill_read(self, skill_id: uuid.UUID) -> SkillRead | None:
         """Return a fully rendered skill summary."""
 
@@ -1665,7 +2318,6 @@ class SkillService(BaseWorkspaceService):
             return None
         return await self._build_skill_read(skill)
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_draft(self, skill_id: uuid.UUID) -> SkillDraftRead | None:
         """Return the current mutable draft for a skill."""
 
@@ -1673,9 +2325,62 @@ class SkillService(BaseWorkspaceService):
             return None
         return await self._build_draft_read(skill)
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def prepare_draft_download(
+        self,
+        *,
+        skill_id: uuid.UUID,
+        url_expiry_seconds: int = DEFAULT_DOWNLOAD_TTL_SECONDS,
+    ) -> SkillDownloadPreparedResponse | None:
+        """Prepare presigned downloads for every file in a skill draft."""
+
+        if (skill := await self.get_skill(skill_id)) is None:
+            return None
+
+        rows = await self._list_draft_rows(skill_id)
+        self._validate_skill_file_limits(
+            [
+                SkillFileSizeMetadata(
+                    path=draft_file.path,
+                    size_bytes=blob_row.size_bytes,
+                )
+                for draft_file, blob_row in rows
+            ]
+        )
+        # A bulk download is one synchronous transfer, so it is bounded by the
+        # same per-transfer file cap as uploads and completions.
+        self._validate_skill_transfer_file_count(len(rows))
+        expires_at = datetime.now(UTC) + timedelta(seconds=url_expiry_seconds)
+        files = [
+            SkillDownloadPreparedFile(
+                path=draft_file.path,
+                sha256=blob_row.sha256,
+                size_bytes=blob_row.size_bytes,
+                content_type=draft_file.content_type,
+                download_url=await blob.generate_presigned_download_url(
+                    key=blob_row.key,
+                    bucket=blob_row.bucket,
+                    override_content_type=draft_file.content_type,
+                    expiry=url_expiry_seconds,
+                    redact_log_identifiers=True,
+                ),
+                expires_at=expires_at,
+            )
+            for draft_file, blob_row in rows
+        ]
+        return SkillDownloadPreparedResponse(
+            workspace_id=self.workspace_id,
+            skill_id=skill.id,
+            skill_name=skill.name,
+            draft_revision=skill.draft_revision,
+            files=files,
+        )
+
     async def get_draft_file(
-        self, *, skill_id: uuid.UUID, path: str
+        self,
+        *,
+        skill_id: uuid.UUID,
+        path: str,
+        url_expiry_seconds: int = DEFAULT_DOWNLOAD_TTL_SECONDS,
     ) -> SkillDraftFileRead | None:
         """Return one draft file either inline or as a presigned download."""
 
@@ -1693,6 +2398,14 @@ class SkillService(BaseWorkspaceService):
         if row is None:
             return None
         draft_file, blob_row = row
+        self._validate_skill_file_limits(
+            [
+                SkillFileSizeMetadata(
+                    path=draft_file.path,
+                    size_bytes=blob_row.size_bytes,
+                )
+            ]
+        )
         if self._is_inline_text(
             draft_file.content_type, size_bytes=blob_row.size_bytes
         ):
@@ -1700,6 +2413,7 @@ class SkillService(BaseWorkspaceService):
                 content = await blob.download_file(
                     key=blob_row.key,
                     bucket=blob_row.bucket,
+                    redact_log_identifiers=True,
                 )
                 return SkillDraftFileRead(
                     kind="inline",
@@ -1722,10 +2436,11 @@ class SkillService(BaseWorkspaceService):
                 key=blob_row.key,
                 bucket=blob_row.bucket,
                 override_content_type=draft_file.content_type,
+                expiry=url_expiry_seconds,
+                redact_log_identifiers=True,
             ),
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_file(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID, path: str
     ) -> SkillDraftFileRead | None:
@@ -1759,6 +2474,7 @@ class SkillService(BaseWorkspaceService):
                 content = await blob.download_file(
                     key=blob_row.key,
                     bucket=blob_row.bucket,
+                    redact_log_identifiers=True,
                 )
                 return SkillDraftFileRead(
                     kind="inline",
@@ -1781,10 +2497,11 @@ class SkillService(BaseWorkspaceService):
                 key=blob_row.key,
                 bucket=blob_row.bucket,
                 override_content_type=version_file.content_type,
+                expiry=DEFAULT_DOWNLOAD_TTL_SECONDS,
+                redact_log_identifiers=True,
             ),
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_draft_text_file(
         self, *, skill_id: uuid.UUID, path: str
     ) -> str | None:
@@ -1808,6 +2525,7 @@ class SkillService(BaseWorkspaceService):
             content = await blob.download_file(
                 key=blob_row.key,
                 bucket=blob_row.bucket,
+                redact_log_identifiers=True,
             )
             return content.decode("utf-8")
         except UnicodeDecodeError:
@@ -1826,10 +2544,50 @@ class SkillService(BaseWorkspaceService):
     ) -> list[PreparedDraftPatchOperation]:
         """Validate draft operations before any blob writes begin."""
 
+        transfer_file_count = sum(
+            isinstance(operation, SkillDraftAttachUploadedBlobOp)
+            for operation in operations
+        )
+        self._validate_skill_transfer_file_count(transfer_file_count)
+        upload_ids = {
+            operation.upload_id
+            for operation in operations
+            if isinstance(operation, SkillDraftAttachUploadedBlobOp)
+        }
+        uploads_by_id: dict[uuid.UUID, SkillUploadModel] = {}
+        if upload_ids:
+            upload_stmt = select(SkillUploadModel).where(
+                SkillUploadModel.workspace_id == self.workspace_id,
+                SkillUploadModel.skill_id == skill.id,
+                SkillUploadModel.id.in_(upload_ids),
+            )
+            uploads = (await self.session.execute(upload_stmt)).scalars().all()
+            uploads_by_id = {upload.id: upload for upload in uploads}
+
         prepared_operations: list[PreparedDraftPatchOperation] = []
         for operation in operations:
             match operation:
                 case SkillDraftUpsertTextFileOp():
+                    if operation.path == "SKILL.md":
+                        validation = ManifestValidationResult()
+                        self._parse_manifest_frontmatter(operation.content, validation)
+                        await self._validate_declared_tools(validation)
+                        tool_errors = [
+                            error
+                            for error in validation.errors
+                            if error.code in SKILL_TOOL_ERROR_CODES
+                        ]
+                        if tool_errors:
+                            raise TracecatValidationError(
+                                "Skill draft tool declarations failed validation",
+                                detail={
+                                    "code": "skill_draft_tool_validation_failed",
+                                    "errors": [
+                                        error.model_dump(mode="json")
+                                        for error in tool_errors
+                                    ],
+                                },
+                            )
                     prepared_operations.append(
                         PreparedDraftTextFileOp(
                             path=self._normalize_path(operation.path),
@@ -1841,14 +2599,7 @@ class SkillService(BaseWorkspaceService):
                     )
                 case SkillDraftAttachUploadedBlobOp():
                     normalized_path = self._normalize_path(operation.path)
-                    upload_stmt = select(SkillUploadModel).where(
-                        SkillUploadModel.workspace_id == self.workspace_id,
-                        SkillUploadModel.skill_id == skill.id,
-                        SkillUploadModel.id == operation.upload_id,
-                    )
-                    upload = (
-                        await self.session.execute(upload_stmt)
-                    ).scalar_one_or_none()
+                    upload = uploads_by_id.get(operation.upload_id)
                     if upload is None:
                         raise TracecatValidationError(
                             f"Skill upload '{operation.upload_id}' not found",
@@ -1902,8 +2653,96 @@ class SkillService(BaseWorkspaceService):
                     )
         return prepared_operations
 
+    async def _materialize_patch_operation_blobs(
+        self,
+        operations: Sequence[PreparedDraftPatchOperation],
+        *,
+        published: list[PublishedBlobObject] | None = None,
+    ) -> dict[int, SkillBlob]:
+        """Materialize every new blob in deterministic digest order."""
+
+        pending: list[tuple[str, int, PreparedDraftPatchOperation]] = []
+        for index, operation in enumerate(operations):
+            match operation:
+                case PreparedDraftTextFileOp():
+                    pending.append(
+                        (self._compute_sha256(operation.content), index, operation)
+                    )
+                case PreparedDraftAttachUploadedBlobOp():
+                    pending.append(
+                        (
+                            self._normalize_sha256(operation.upload.sha256),
+                            index,
+                            operation,
+                        )
+                    )
+                case PreparedDraftDeleteFileOp() | PreparedDraftMoveFileOp():
+                    continue
+
+        materialized: dict[int, SkillBlob] = {}
+        for _, index, operation in sorted(pending, key=lambda item: (item[0], item[1])):
+            match operation:
+                case PreparedDraftTextFileOp():
+                    materialized[index] = await self._get_or_create_blob(
+                        content=operation.content, published=published
+                    )
+                case PreparedDraftAttachUploadedBlobOp():
+                    materialized[index] = await self._materialize_uploaded_blob(
+                        operation.upload, published=published
+                    )
+                case PreparedDraftDeleteFileOp() | PreparedDraftMoveFileOp():
+                    raise AssertionError("non-materialized operation was queued")
+        return materialized
+
+    def _validate_patch_tree_before_materialization(
+        self,
+        *,
+        current_rows: Sequence[tuple[SkillDraftFile, SkillBlob]],
+        operations: Sequence[PreparedDraftPatchOperation],
+    ) -> None:
+        """Validate final paths and declared sizes before touching object storage."""
+
+        path_to_size = {
+            draft_file.path: blob_row.size_bytes
+            for draft_file, blob_row in current_rows
+        }
+        for operation in operations:
+            match operation:
+                case PreparedDraftTextFileOp():
+                    path_to_size[operation.path] = len(operation.content)
+                case PreparedDraftAttachUploadedBlobOp():
+                    path_to_size[operation.path] = operation.upload.size_bytes
+                case PreparedDraftDeleteFileOp():
+                    path_to_size.pop(operation.path, None)
+                case PreparedDraftMoveFileOp():
+                    source_size = path_to_size.get(operation.from_path)
+                    if source_size is None:
+                        raise TracecatValidationError(
+                            f"Cannot move missing draft file '{operation.from_path}'",
+                            detail={
+                                "code": "move_source_not_found",
+                                "from_path": operation.from_path,
+                            },
+                        )
+                    if operation.to_path in path_to_size:
+                        raise TracecatValidationError(
+                            f"Move target '{operation.to_path}' already exists",
+                            detail={
+                                "code": "move_target_exists",
+                                "to_path": operation.to_path,
+                            },
+                        )
+                    path_to_size[operation.to_path] = source_size
+                    path_to_size.pop(operation.from_path)
+
+        self._validate_skill_file_limits(
+            [
+                SkillFileSizeMetadata(path=path, size_bytes=size_bytes)
+                for path, size_bytes in path_to_size.items()
+            ]
+        )
+
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def patch_draft(
         self, *, skill_id: uuid.UUID, params: SkillDraftPatch
     ) -> SkillDraftRead:
@@ -1926,6 +2765,10 @@ class SkillService(BaseWorkspaceService):
             operations=params.operations,
         )
         current_rows = await self._list_draft_rows(skill.id)
+        self._validate_patch_tree_before_materialization(
+            current_rows=current_rows,
+            operations=prepared_operations,
+        )
         path_to_blob = {
             draft_file.path: SkillFileBlobRef(
                 blob=blob_row,
@@ -1933,134 +2776,259 @@ class SkillService(BaseWorkspaceService):
             )
             for draft_file, blob_row in current_rows
         }
-        staged_upload_objects_to_delete: set[tuple[str, str]] = set()
-        for operation in prepared_operations:
-            match operation:
-                case PreparedDraftTextFileOp():
-                    blob_row = await self._get_or_create_blob(
-                        content=operation.content,
-                    )
-                    path_to_blob[operation.path] = SkillFileBlobRef(
-                        blob=blob_row,
-                        content_type=operation.content_type,
-                    )
-                case PreparedDraftAttachUploadedBlobOp():
-                    should_delete_staged_object = (
-                        operation.upload.completed_at is None
-                        and (
-                            operation.upload.key
-                            != self._storage_key_for(operation.upload.sha256)
+        staged_upload_objects_to_delete = {
+            StagedUploadObject(
+                upload_id=operation.upload.id,
+                key=operation.upload.key,
+                bucket=operation.upload.bucket,
+                reason="upload_materialized",
+            )
+            for operation in prepared_operations
+            if isinstance(operation, PreparedDraftAttachUploadedBlobOp)
+            and operation.upload.completed_at is None
+            and operation.upload.key != self._storage_key_for(operation.upload.sha256)
+        }
+        # Canonical objects materialized here live outside the SQL transaction,
+        # so a failure on a later operation has to delete the ones already
+        # written, before the rollback releases their digest claims. A failed
+        # commit is ambiguous (the rows may have landed), so its objects stay.
+        published: list[PublishedBlobObject] = []
+        committing = False
+        try:
+            materialized_blobs = await self._materialize_patch_operation_blobs(
+                prepared_operations, published=published
+            )
+            for index, operation in enumerate(prepared_operations):
+                match operation:
+                    case PreparedDraftTextFileOp():
+                        path_to_blob[operation.path] = SkillFileBlobRef(
+                            blob=materialized_blobs[index],
+                            content_type=operation.content_type,
                         )
-                    )
-                    path_to_blob[operation.path] = SkillFileBlobRef(
-                        blob=await self._materialize_uploaded_blob(operation.upload),
-                        content_type=operation.upload.content_type,
-                    )
-                    if should_delete_staged_object:
-                        staged_upload_objects_to_delete.add(
-                            (operation.upload.key, operation.upload.bucket)
+                    case PreparedDraftAttachUploadedBlobOp():
+                        path_to_blob[operation.path] = SkillFileBlobRef(
+                            blob=materialized_blobs[index],
+                            content_type=operation.upload.content_type,
                         )
-                case PreparedDraftDeleteFileOp():
-                    path_to_blob.pop(operation.path, None)
-                case PreparedDraftMoveFileOp():
-                    source = path_to_blob.get(operation.from_path)
-                    if source is None:
-                        raise TracecatValidationError(
-                            f"Cannot move missing draft file '{operation.from_path}'",
-                            detail={
-                                "code": "move_source_not_found",
-                                "from_path": operation.from_path,
-                            },
-                        )
-                    if operation.to_path in path_to_blob:
-                        raise TracecatValidationError(
-                            f"Move target '{operation.to_path}' already exists",
-                            detail={
-                                "code": "move_target_exists",
-                                "to_path": operation.to_path,
-                            },
-                        )
-                    path_to_blob[operation.to_path] = source
-                    path_to_blob.pop(operation.from_path, None)
+                    case PreparedDraftDeleteFileOp():
+                        path_to_blob.pop(operation.path, None)
+                    case PreparedDraftMoveFileOp():
+                        source = path_to_blob.pop(operation.from_path)
+                        path_to_blob[operation.to_path] = source
 
-        await self._replace_draft_with_blob_map(skill=skill, path_to_blob=path_to_blob)
-        validation = await self._validate_manifest_rows(
-            [(path, file_ref.blob) for path, file_ref in path_to_blob.items()]
-        )
-        if (
-            skill.current_version_id is None
-            and not validation.errors
-            and validation.name is not None
-        ):
-            skill.name = validation.name
-            skill.description = validation.description
-            self.session.add(skill)
-        await self.session.commit()
-        for staged_key, staged_bucket in staged_upload_objects_to_delete:
-            try:
-                await blob.delete_file(key=staged_key, bucket=staged_bucket)
-            except Exception as exc:
-                self.logger.warning(
-                    "Failed to delete staged skill upload after materialization",
-                    key=staged_key,
-                    bucket=staged_bucket,
-                    error=str(exc),
-                )
+            self._validate_skill_blob_map_limits(path_to_blob)
+            validation = await self._validate_manifest_rows(
+                [(path, file_ref.blob) for path, file_ref in path_to_blob.items()]
+            )
+            await self._replace_draft_with_blob_map(
+                skill=skill, path_to_blob=path_to_blob
+            )
+            if (
+                skill.current_version_id is None
+                and not validation.errors
+                and validation.name is not None
+            ):
+                skill.name = validation.name
+                skill.description = validation.description
+                self.session.add(skill)
+            committing = True
+            await self.session.commit()
+        except BaseException:
+            # BaseException so a CancelledError from the MCP tool timeout
+            # still deletes the published objects before rolling back.
+            if not committing:
+                await self._delete_published_blob_objects_best_effort(published)
+            await self.session.rollback()
+            raise
+        _schedule_staged_upload_cleanup(tuple(staged_upload_objects_to_delete))
         return await self._build_draft_read(skill)
 
-    @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def create_draft_upload(
-        self, *, skill_id: uuid.UUID, params: SkillUploadSessionCreate
-    ) -> SkillUploadSessionRead:
-        """Create a staged upload session for a draft blob."""
+    def _validate_upload_session_batch(
+        self, params: Sequence[SkillUploadSessionCreate]
+    ) -> None:
+        """Validate a complete upload-session batch before database writes."""
 
+        if not params:
+            raise TracecatValidationError(
+                "Skill upload must include at least one file",
+                detail={"code": "skill_upload_empty"},
+            )
+        self._validate_skill_transfer_file_count(len(params))
+        self._validate_skill_file_limits(
+            [
+                SkillFileSizeMetadata(path=None, size_bytes=upload.size_bytes)
+                for upload in params
+            ]
+        )
+
+    async def _prepare_draft_upload_rows(
+        self,
+        *,
+        skill: Skill,
+        params: Sequence[SkillUploadSessionCreate],
+        url_expiry_seconds: int,
+    ) -> list[SkillUploadSessionRead]:
+        """Create and sign upload rows without committing their transaction."""
+
+        if url_expiry_seconds <= 0:
+            raise TracecatValidationError(
+                "Skill upload URL expiry must be positive",
+                detail={"code": "invalid_upload_url_expiry"},
+            )
+        self._validate_upload_session_batch(params)
+
+        expires_at = datetime.now(UTC) + timedelta(seconds=url_expiry_seconds)
+        prepared_rows: list[tuple[SkillUploadModel, str]] = []
+        for upload_params in params:
+            upload_id = uuid.uuid4()
+            normalized_sha256 = self._normalize_sha256(upload_params.sha256)
+            storage_key = self._staged_upload_key_for(
+                upload_id=upload_id,
+                sha256=normalized_sha256,
+            )
+            normalized_content_type = self._normalize_content_type(
+                upload_params.content_type
+            )
+            upload_row = SkillUploadModel(
+                workspace_id=self.workspace_id,
+                skill_id=skill.id,
+                sha256=normalized_sha256,
+                size_bytes=upload_params.size_bytes,
+                content_type=normalized_content_type,
+                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
+                key=storage_key,
+                expires_at=expires_at,
+                created_by=self.role.user_id if self.role.type == "user" else None,
+            )
+            upload_row.id = upload_id
+            self.session.add(upload_row)
+            prepared_rows.append((upload_row, normalized_content_type))
+        await self.session.flush()
+
+        uploads: list[SkillUploadSessionRead] = []
+        for upload_row, content_type in prepared_rows:
+            checksum_sha256 = base64.b64encode(bytes.fromhex(upload_row.sha256)).decode(
+                "ascii"
+            )
+            uploads.append(
+                SkillUploadSessionRead(
+                    upload_id=upload_row.id,
+                    upload_url=await blob.generate_presigned_upload_url(
+                        key=upload_row.key,
+                        bucket=upload_row.bucket,
+                        content_type=content_type,
+                        checksum_sha256=checksum_sha256,
+                        expiry=url_expiry_seconds,
+                        redact_log_identifiers=True,
+                    ),
+                    headers={
+                        "Content-Type": content_type,
+                        "Content-Length": str(upload_row.size_bytes),
+                        "x-amz-checksum-sha256": checksum_sha256,
+                    },
+                    expires_at=expires_at,
+                    bucket=upload_row.bucket,
+                    key=upload_row.key,
+                )
+            )
+        return uploads
+
+    @require_scope("agent:update")
+    async def prepare_draft_uploads(
+        self,
+        *,
+        skill_id: uuid.UUID,
+        params: Sequence[SkillUploadSessionCreate],
+        url_expiry_seconds: int = DEFAULT_UPLOAD_TTL_SECONDS,
+    ) -> SkillUploadSessionBatchRead:
+        """Atomically prepare a complete upload batch for an existing skill."""
+
+        self._validate_upload_session_batch(params)
         skill = await self.get_skill(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
         expired_uploads = await self._reap_expired_incomplete_uploads()
-
-        upload_id = uuid.uuid4()
-        expires_at = datetime.now(UTC) + timedelta(seconds=DEFAULT_UPLOAD_TTL_SECONDS)
-        normalized_sha256 = self._normalize_sha256(params.sha256)
-        storage_key = self._staged_upload_key_for(
-            upload_id=upload_id, sha256=normalized_sha256
-        )
-        normalized_content_type = self._normalize_content_type(params.content_type)
-        upload_row = SkillUploadModel(
-            workspace_id=self.workspace_id,
-            skill_id=skill.id,
-            sha256=normalized_sha256,
-            size_bytes=params.size_bytes,
-            content_type=normalized_content_type,
-            bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-            key=storage_key,
-            expires_at=expires_at,
-            created_by=self.role.user_id if self.role.type == "user" else None,
-        )
-        upload_row.id = upload_id
-        self.session.add(upload_row)
-        await self.session.commit()
-        for expired_upload in expired_uploads:
-            await self._delete_staged_upload_object_best_effort(
-                expired_upload,
-                reason="reap_expired_upload",
+        try:
+            uploads = await self._prepare_draft_upload_rows(
+                skill=skill,
+                params=params,
+                url_expiry_seconds=url_expiry_seconds,
             )
-        return SkillUploadSessionRead(
-            upload_id=upload_id,
-            upload_url=await blob.generate_presigned_upload_url(
-                key=storage_key,
-                bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-                content_type=normalized_content_type,
-                expiry=DEFAULT_UPLOAD_TTL_SECONDS,
-            ),
-            headers={"Content-Type": normalized_content_type},
-            expires_at=expires_at,
-            bucket=config.TRACECAT__BLOB_STORAGE_BUCKET_SKILLS,
-            key=storage_key,
+            await self.session.commit()
+        except Exception:
+            await self.session.rollback()
+            raise
+        prepared = SkillUploadSessionBatchRead(
+            skill_id=skill.id,
+            draft_revision=skill.draft_revision,
+            created=False,
+            uploads=uploads,
         )
+        _schedule_staged_upload_cleanup(expired_uploads)
+        return prepared
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    @require_scope("agent:create", "agent:update")
+    async def prepare_new_skill_draft_uploads(
+        self,
+        *,
+        skill_params: SkillCreate,
+        params: Sequence[SkillUploadSessionCreate],
+        url_expiry_seconds: int = DEFAULT_UPLOAD_TTL_SECONDS,
+    ) -> SkillUploadSessionBatchRead:
+        """Atomically create a skill and prepare its complete upload batch."""
+
+        self._validate_upload_session_batch(params)
+        prepared_uploads: list[SkillUploadSessionRead] = []
+        expired_uploads: list[StagedUploadObject] = []
+
+        async def default_draft_blob_map(
+            published: list[PublishedBlobObject],
+        ) -> dict[str, SkillFileBlobRef]:
+            return await self._build_default_draft_blob_map(
+                name=skill_params.name,
+                description=skill_params.description,
+                published=published,
+            )
+
+        async def prepare_before_commit(skill: Skill) -> None:
+            nonlocal expired_uploads, prepared_uploads
+            expired_uploads = await self._reap_expired_incomplete_uploads()
+            prepared_uploads = await self._prepare_draft_upload_rows(
+                skill=skill,
+                params=params,
+                url_expiry_seconds=url_expiry_seconds,
+            )
+
+        skill = await self._create_skill_with_slug_retry(
+            name=skill_params.name,
+            description=skill_params.description,
+            path_to_blob_factory=default_draft_blob_map,
+            before_commit=prepare_before_commit,
+        )
+        prepared = SkillUploadSessionBatchRead(
+            skill_id=skill.id,
+            draft_revision=skill.draft_revision,
+            created=True,
+            uploads=prepared_uploads,
+        )
+        _schedule_staged_upload_cleanup(expired_uploads)
+        return prepared
+
+    @require_scope("agent:update")
+    async def create_draft_upload(
+        self,
+        *,
+        skill_id: uuid.UUID,
+        params: SkillUploadSessionCreate,
+    ) -> SkillUploadSessionRead:
+        """Create one staged upload session for the draft-upload REST API."""
+
+        prepared = await self.prepare_draft_uploads(
+            skill_id=skill_id,
+            params=[params],
+        )
+        return prepared.uploads[0]
+
     async def get_version(self, version_id: uuid.UUID) -> SkillVersion | None:
         """Return a skill version by ID."""
 
@@ -2071,14 +3039,23 @@ class SkillService(BaseWorkspaceService):
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def publish_skill(self, skill_id: uuid.UUID) -> SkillVersionRead:
         """Publish the current draft into a new immutable skill version."""
 
+        await self.lock_publications()
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
         rows = await self._list_draft_rows(skill.id)
+        self._validate_skill_file_limits(
+            [
+                SkillFileSizeMetadata(
+                    path=draft_file.path,
+                    size_bytes=blob_row.size_bytes,
+                )
+                for draft_file, blob_row in rows
+            ]
+        )
         validation = await self._validate_manifest_rows(
             [(draft_file.path, blob_row) for draft_file, blob_row in rows]
         )
@@ -2108,12 +3085,12 @@ class SkillService(BaseWorkspaceService):
         )
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def publish_skill_version(
         self, *, skill_id: uuid.UUID, params: SkillVersionPublish
     ) -> SkillVersionRead:
         """Atomically publish a new immutable skill version from a file set."""
 
+        await self.lock_publications()
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
@@ -2131,7 +3108,7 @@ class SkillService(BaseWorkspaceService):
             )
 
         prepared_files = self._prepare_upload_files(params.files)
-        validation = self._validate_prepared_upload_files(prepared_files)
+        validation = await self._validate_prepared_upload_files(prepared_files)
         if validation.errors:
             raise TracecatValidationError(
                 "Skill version failed validation",
@@ -2142,23 +3119,15 @@ class SkillService(BaseWorkspaceService):
                     ],
                 },
             )
-        file_refs = [
-            (
-                file.path,
-                SkillFileBlobRef(
-                    blob=await self._get_or_create_blob(content=file.content),
-                    content_type=file.content_type,
-                ),
-            )
-            for file in prepared_files
-        ]
+        file_refs = list(
+            (await self._materialize_prepared_files(prepared_files)).items()
+        )
         return await self._create_version_from_blob_refs(
             skill=skill,
             file_refs=file_refs,
             validation=validation,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_versions(
         self, *, skill_id: uuid.UUID, params: CursorPaginationParams
     ) -> CursorPaginatedResponse[SkillVersionReadMinimal]:
@@ -2246,7 +3215,6 @@ class SkillService(BaseWorkspaceService):
             has_previous=params.cursor is not None,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_read(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
     ) -> SkillVersionRead:
@@ -2282,7 +3250,6 @@ class SkillService(BaseWorkspaceService):
             ],
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_snapshot_read(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
     ) -> SkillVersionSnapshotRead:
@@ -2296,7 +3263,11 @@ class SkillService(BaseWorkspaceService):
         rows = await self._list_version_rows(version.id)
         files: list[SkillVersionFileContent] = []
         for version_file, blob_row in rows:
-            content = await blob.download_file(key=blob_row.key, bucket=blob_row.bucket)
+            content = await blob.download_file(
+                key=blob_row.key,
+                bucket=blob_row.bucket,
+                redact_log_identifiers=True,
+            )
             files.append(
                 SkillVersionFileContent(
                     path=version_file.path,
@@ -2323,12 +3294,12 @@ class SkillService(BaseWorkspaceService):
         )
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def restore_version(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
     ) -> SkillReadMinimal:
         """Restore a historical version as the current selected skill version."""
 
+        await self.lock_publications()
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
@@ -2337,43 +3308,80 @@ class SkillService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Skill version '{version_id}' not found")
         if version.name is None:
             self._raise_missing_version_name(skill_version_id=version.id)
-        skill.current_version_id = version.id
-        skill.name = version.name
-        skill.description = version.description
-        self.session.add(skill)
-        await self.session.commit()
-        await self.session.refresh(skill)
-        return self._build_skill_read_minimal(skill)
+        rows = await self._list_version_rows(version.id)
+        await self.session.refresh(version, attribute_names=["tools", "mcp_tools"])
+        dependencies = SkillToolDependencyService(self.session, role=self.role)
+        metadata = await dependencies.load_metadata([version.id])
+        await dependencies.validate_dependencies(
+            metadata=metadata,
+            resolved_skills=[
+                ResolvedSkillRef(
+                    skill_id=skill.id,
+                    skill_name=version.name,
+                    skill_version_id=version.id,
+                    manifest_sha256=version.manifest_sha256,
+                )
+            ],
+        )
+        # Restore the accepted snapshot, including its original projection UUIDs.
+        # Historical frontmatter may not satisfy today's authoring schema; these
+        # canonical fields have already been persisted by the original publisher.
+        validation = ManifestValidationResult(
+            frontmatter=SkillFrontmatter.model_construct(
+                name=version.name, description=version.description
+            ),
+            tool_projection=SkillToolProjection(
+                registry_tool_ids=tuple(tool.tool_id for tool in version.tools),
+                mcp_tools=tuple(
+                    ResolvedSkillMcpTool(
+                        tool_id=tool.tool_id,
+                        mcp_integration_id=tool.mcp_integration_id,
+                        tool_name=tool.tool_name,
+                    )
+                    for tool in version.mcp_tools
+                    if tool.mcp_integration_id is not None
+                ),
+            ),
+        )
+        restored = await self._create_version_from_blob_refs(
+            skill=skill,
+            file_refs=[
+                (
+                    version_file.path,
+                    SkillFileBlobRef(
+                        blob=blob_row,
+                        content_type=version_file.content_type,
+                    ),
+                )
+                for version_file, blob_row in rows
+            ],
+            validation=validation,
+        )
+        refreshed = await self.get_skill(skill.id)
+        if refreshed is None:
+            raise TracecatNotFoundError(f"Skill '{skill.id}' not found")
+        if restored.id != refreshed.current_version_id:
+            raise RuntimeError("Restored skill version was not selected as current")
+        return self._build_skill_read_minimal(refreshed)
 
     @require_scope("agent:delete")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def archive_skill(self, skill_id: uuid.UUID) -> None:
-        """Archive a skill unless any preset head still references it."""
+    async def archive_skill(
+        self,
+        skill_id: uuid.UUID,
+    ) -> None:
+        """Delete a skill and permanently unlink it from heads and history."""
 
         skill = await self._get_skill_for_update(skill_id)
         if skill is None:
             raise TracecatNotFoundError(f"Skill '{skill_id}' not found")
-        binding_stmt = (
-            select(func.count())
-            .select_from(AgentPresetSkill)
-            .join(
-                AgentPreset,
-                AgentPreset.id == AgentPresetSkill.preset_id,
-            )
-            .where(
-                AgentPresetSkill.workspace_id == self.workspace_id,
-                AgentPresetSkill.skill_id == skill.id,
-                AgentPreset.workspace_id == self.workspace_id,
-                AgentPreset.deleted_at.is_(None),
-            )
-        )
-        binding_count = int(
-            (await self.session.execute(binding_stmt)).scalar_one() or 0
-        )
-        if binding_count > 0:
-            raise TracecatValidationError(
-                "Cannot delete a skill that is still referenced by a preset",
-                detail={"code": "skill_in_use"},
+        # Binding writers lock the Skill first too, so no concurrent save can
+        # reattach it after this cleanup. Include soft-deleted parents/history.
+        for model in (AgentPresetSkill, AgentPresetVersionSkill):
+            await self.session.execute(
+                sa.delete(model).where(
+                    model.workspace_id == self.workspace_id,
+                    model.skill_id == skill_id,
+                )
             )
         archived_at = datetime.now(UTC)
         skill.archived_at = archived_at
@@ -2381,208 +3389,6 @@ class SkillService(BaseWorkspaceService):
         self.session.add(skill)
         await self.session.commit()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def validate_binding_inputs(
-        self,
-        bindings: Sequence[AgentPresetSkillBindingBase],
-        *,
-        for_update: bool = False,
-    ) -> None:
-        """Validate preset skill bindings before they are persisted."""
-
-        if not bindings:
-            return
-        if len({binding.skill_id for binding in bindings}) != len(bindings):
-            raise TracecatValidationError(
-                "Duplicate skills are not allowed on a preset",
-                detail={"code": "duplicate_skill_binding"},
-            )
-
-        skill_ids = [binding.skill_id for binding in bindings]
-        skills = await self._get_bindable_skills(
-            skill_ids,
-            for_update=for_update,
-        )
-        missing = [str(skill_id) for skill_id in skill_ids if skill_id not in skills]
-        if missing:
-            raise TracecatValidationError(
-                f"Some skills were not found in this workspace: {sorted(missing)}",
-                detail={"code": "skill_not_found", "missing_skill_ids": missing},
-            )
-
-        for binding in bindings:
-            skill = skills[binding.skill_id]
-            if skill.current_version_id is None:
-                raise TracecatValidationError(
-                    f"Skill '{skill.name}' has no published version",
-                    detail={"code": "skill_not_published", "skill_id": str(skill.id)},
-                )
-
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
-    async def get_resolved_skill_refs_for_preset_version(
-        self,
-        preset_version_id: uuid.UUID,
-        *,
-        use_latest_versions: bool = False,
-    ) -> list[ResolvedSkillRef]:
-        """Return skill refs for an immutable preset version."""
-
-        if use_latest_versions:
-            return await self._get_latest_skill_refs_for_preset_version(
-                preset_version_id
-            )
-
-        stmt = (
-            select(
-                AgentPresetVersionSkill.skill_id,
-                SkillVersion.name,
-                AgentPresetVersionSkill.skill_version_id,
-                SkillVersion.manifest_sha256,
-                Skill.deleted_at,
-                Skill.archived_at,
-            )
-            .join(
-                SkillVersion,
-                AgentPresetVersionSkill.skill_version_id == SkillVersion.id,
-            )
-            .join(
-                Skill,
-                sa.and_(
-                    AgentPresetVersionSkill.workspace_id == Skill.workspace_id,
-                    AgentPresetVersionSkill.skill_id == Skill.id,
-                ),
-            )
-            .where(
-                AgentPresetVersionSkill.workspace_id == self.workspace_id,
-                AgentPresetVersionSkill.preset_version_id == preset_version_id,
-            )
-            .order_by(SkillVersion.name.asc(), AgentPresetVersionSkill.skill_id.asc())
-        )
-        rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
-        resolved: list[ResolvedSkillRef] = []
-        archived_skills: list[str] = []
-        for (
-            skill_id,
-            skill_name,
-            skill_version_id,
-            manifest_sha256,
-            deleted_at,
-            archived_at,
-        ) in rows:
-            if skill_name is None:
-                continue
-            if deleted_at is not None or archived_at is not None:
-                archived_skills.append(f"{skill_name} ({skill_id})")
-                continue
-            resolved.append(
-                ResolvedSkillRef(
-                    skill_id=skill_id,
-                    skill_name=skill_name,
-                    skill_version_id=skill_version_id,
-                    manifest_sha256=manifest_sha256,
-                )
-            )
-        self._raise_if_archived_skills(archived_skills, preset_version_id)
-        return resolved
-
-    @staticmethod
-    def _raise_if_archived_skills(
-        archived_skills: list[str], preset_version_id: uuid.UUID
-    ) -> None:
-        """Reject resolution when any referenced skill is archived."""
-        if archived_skills:
-            raise TracecatValidationError(
-                "Some skills are archived and cannot be resolved",
-                detail={
-                    "code": "skill_archived",
-                    "skills": sorted(archived_skills),
-                    "preset_version_id": str(preset_version_id),
-                },
-            )
-
-    async def _get_latest_skill_refs_for_preset_version(
-        self, preset_version_id: uuid.UUID
-    ) -> list[ResolvedSkillRef]:
-        """Return current skill versions for a preset version's skill IDs."""
-
-        stmt = (
-            select(
-                AgentPresetVersionSkill.skill_id,
-                Skill.name,
-                Skill.current_version_id,
-                Skill.deleted_at,
-                Skill.archived_at,
-                SkillVersion.name,
-                SkillVersion.manifest_sha256,
-            )
-            .join(
-                Skill,
-                sa.and_(
-                    AgentPresetVersionSkill.workspace_id == Skill.workspace_id,
-                    AgentPresetVersionSkill.skill_id == Skill.id,
-                ),
-            )
-            .outerjoin(
-                SkillVersion,
-                sa.and_(
-                    SkillVersion.workspace_id == Skill.workspace_id,
-                    SkillVersion.skill_id == Skill.id,
-                    SkillVersion.id == Skill.current_version_id,
-                ),
-            )
-            .where(
-                AgentPresetVersionSkill.workspace_id == self.workspace_id,
-                AgentPresetVersionSkill.preset_version_id == preset_version_id,
-            )
-            .order_by(
-                SkillVersion.name.asc().nulls_last(),
-                Skill.name.asc(),
-                AgentPresetVersionSkill.skill_id.asc(),
-            )
-        )
-        rows = (await self.session.execute(with_deleted(stmt))).tuples().all()
-        resolved: list[ResolvedSkillRef] = []
-        archived_skills: list[str] = []
-        missing_current: list[str] = []
-        for (
-            skill_id,
-            skill_name,
-            current_version_id,
-            deleted_at,
-            archived_at,
-            current_version_name,
-            manifest_sha256,
-        ) in rows:
-            if deleted_at is not None or archived_at is not None:
-                archived_skills.append(f"{skill_name} ({skill_id})")
-                continue
-            if current_version_id is None:
-                missing_current.append(f"{skill_name} ({skill_id})")
-                continue
-            if current_version_name is None:
-                self._raise_missing_version_name(skill_version_id=current_version_id)
-            resolved.append(
-                ResolvedSkillRef(
-                    skill_id=skill_id,
-                    skill_name=current_version_name,
-                    skill_version_id=current_version_id,
-                    manifest_sha256=manifest_sha256,
-                )
-            )
-
-        self._raise_if_archived_skills(archived_skills, preset_version_id)
-        if missing_current:
-            raise TracecatValidationError(
-                "Some skills have no current published version",
-                detail={
-                    "code": "skill_not_published",
-                    "skills": sorted(missing_current),
-                    "preset_version_id": str(preset_version_id),
-                },
-            )
-        return resolved
-
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_resolved_skill_ref(
         self, *, skill_id: uuid.UUID, skill_version_id: uuid.UUID
     ) -> ResolvedSkillRef:
@@ -2615,7 +3421,6 @@ class SkillService(BaseWorkspaceService):
             manifest_sha256=manifest_sha256,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_file_materialization(
         self, skill_version_id: uuid.UUID
     ) -> list[tuple[str, SkillBlob]]:

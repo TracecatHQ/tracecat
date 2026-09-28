@@ -1,0 +1,36 @@
+# Static no-op control for the workflow orchestration load test.
+#
+# Fixture setup copies this action once per configured branch and assigns each
+# copy a unique ref. The literal null input contains no Tracecat expression, and
+# every generated action is an independent root. This preserves the normal
+# workflow, Temporal, executor, sandbox, and Action Gateway lifecycle without a
+# database write or meaningful action work.
+version: 1
+definition:
+  title: Orchestration load - independent no-op reshape
+  description: >-
+    Statically materialized independent core.transform.reshape actions with a
+    literal null input and no runtime for_each expansion.
+  entrypoint:
+    ref: noop
+    expects:
+      run_id:
+        type: str
+        description: Synthetic load-test run identifier.
+      workflow_seq:
+        type: int
+        description: Zero-based index of this workflow within the run.
+      payload:
+        type: str
+        description: Synthetic payload retained for matched submission overhead.
+  config:
+    environment: default
+    timeout: 0
+  actions:
+    - ref: noop
+      action: core.transform.reshape
+      description: Literal no-op used to measure fixed action lifecycle overhead.
+      args:
+        value: null
+      retry_policy:
+        max_attempts: 1

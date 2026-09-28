@@ -57,6 +57,7 @@ import {
   type WorkflowExecutionEventCompact,
   type WorkflowExecutionReadCompact,
 } from "@/lib/event-history"
+import { formatIntervalCompact } from "@/lib/time"
 import { cn, slugifyActionRef, undoSlugify } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
@@ -70,23 +71,16 @@ function formatRunDuration(
   if (!startISO || !closeISO) {
     return null
   }
-  const start = new Date(startISO).getTime()
-  const close = new Date(closeISO).getTime()
-  if (Number.isNaN(start) || Number.isNaN(close) || close < start) {
+  const start = new Date(startISO)
+  const close = new Date(closeISO)
+  if (
+    Number.isNaN(start.getTime()) ||
+    Number.isNaN(close.getTime()) ||
+    close < start
+  ) {
     return null
   }
-  const totalSeconds = Math.round((close - start) / 1000)
-  if (totalSeconds < 60) {
-    return `${totalSeconds}s`
-  }
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  if (minutes < 60) {
-    return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`
-  }
-  const hours = Math.floor(minutes / 60)
-  const remMinutes = minutes % 60
-  return remMinutes ? `${hours}h ${remMinutes}m` : `${hours}h`
+  return formatIntervalCompact(start, close)
 }
 
 /**

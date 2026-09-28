@@ -212,6 +212,41 @@ export function missingRequiredOAuthClientCredentials(
   return missing
 }
 
+/**
+ * Return the labels of credentials the spec marks required for the
+ * http_header target but that are empty (or missing) in the headers JSON.
+ * Header names are compared case-insensitively. Blank or unparseable input
+ * supplies no headers at all, so every required header is reported missing.
+ */
+export function missingRequiredHttpHeaderCredentials(
+  spec: MCPConnectionSpec,
+  value: string
+): string[] {
+  const required = (spec.credentials ?? []).filter(
+    (credential) => credential.target === "http_header" && credential.required
+  )
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    parsed = null
+  }
+  const valuesByKey = new Map<string, string>()
+  if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+    for (const [key, entryValue] of Object.entries(parsed)) {
+      valuesByKey.set(
+        key.trim().toLowerCase(),
+        typeof entryValue === "string" ? entryValue.trim() : ""
+      )
+    }
+  }
+  return required
+    .filter(
+      (credential) => !valuesByKey.get(credential.key.trim().toLowerCase())
+    )
+    .map((credential) => credential.label || credential.key)
+}
+
 const mcpIntegrationFormObjectSchema = z.object({
   name: z
     .string()
@@ -353,7 +388,11 @@ export function buildMcpIntegrationFormSchema(
             data.custom_credentials &&
             data.custom_credentials.trim() !== ""
           ) {
-            return isValidStringMap(data.custom_credentials)
+            // Catalog templates prefill required headers as "", which the
+            // missing-required check reports with a friendlier message.
+            return isValidStringMap(data.custom_credentials, {
+              allowEmpty: true,
+            })
           }
           return true
         },

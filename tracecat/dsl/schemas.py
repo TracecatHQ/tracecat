@@ -14,8 +14,13 @@ from pydantic import (
 )
 from pydantic_core import CoreSchema, core_schema
 
+from tracecat.agent.types import clamp_agent_timeout_seconds
 from tracecat.dsl.constants import DEFAULT_ACTION_TIMEOUT, MAX_DO_WHILE_ITERATIONS
-from tracecat.dsl.enums import JoinStrategy, StreamErrorHandlingStrategy
+from tracecat.dsl.enums import (
+    JoinStrategy,
+    PlatformAction,
+    StreamErrorHandlingStrategy,
+)
 from tracecat.exceptions import TracecatValidationError
 from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
 from tracecat.identifiers import WorkflowExecutionID, WorkflowRunID
@@ -30,6 +35,13 @@ ACTION_TYPE_PATTERN = r"^[a-z0-9_.]+$"
 
 TriggerInputs = Any
 """Trigger inputs JSON type."""
+
+
+class DSLDependencyPlan(BaseModel):
+    """Direct action refs read by each action and the workflow return value."""
+
+    actions: dict[str, list[str]]
+    returns: list[str]
 
 
 class ExecutionContext(TypedDict):
@@ -289,7 +301,11 @@ class ActionRetryPolicy(BaseModel):
         description="Total number of execution attempts. 0 means unlimited, 1 means no retries.",
     )
     timeout: int = Field(
-        default=DEFAULT_ACTION_TIMEOUT, description="Timeout for the action in seconds."
+        default=DEFAULT_ACTION_TIMEOUT,
+        description=(
+            "Timeout for the action in seconds. Agent-backed AI actions "
+            "clamp to the deployment's agent timeout bounds (see ActionStatement)."
+        ),
     )
     retry_until: RequiredExpressionStr | None = Field(
         default=None, description="Retry until a specific condition is met."
@@ -370,6 +386,13 @@ class ActionStatement(BaseModel):
             "while preserving internal workflow data flow between actions."
         ),
     )
+    unsafe_disable_secret_error_withholding: bool = Field(
+        default=False,
+        description=(
+            "Legacy field, ignored. Error diagnostics always mask known secrets "
+            "and observed secret-derived values."
+        ),
+    )
 
     @property
     def title(self) -> str:
@@ -381,6 +404,18 @@ class ActionStatement(BaseModel):
             raise TracecatValidationError(
                 "Interaction is not allowed when for_each is provided."
             )
+        return self
+
+    @model_validator(mode="after")
+    def apply_agent_timeout_policy(self) -> Self:
+        # Agent timeouts clamp to [default, deployment ceiling]; unset
+        # inherits the default. Never rejects.
+        if not PlatformAction.is_agent(self.action):
+            return self
+        explicit = "timeout" in self.retry_policy.model_fields_set
+        self.retry_policy.timeout = clamp_agent_timeout_seconds(
+            self.retry_policy.timeout if explicit else None
+        )
         return self
 
 
@@ -554,6 +589,8 @@ class RunActionInput(BaseModel):
     stream_id: StreamID = ROOT_STREAM
     session_id: uuid.UUID | None = None
     """ID for a streamable session, if any."""
+    agent_session_id: uuid.UUID | None = None
+    """Trusted agent session provenance supplied by the MCP execution boundary."""
     registry_lock: RegistryLock
     """Registry version lock from workflow definition. Required and must be non-empty."""
 

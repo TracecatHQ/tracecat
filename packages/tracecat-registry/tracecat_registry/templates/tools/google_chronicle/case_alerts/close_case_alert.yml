@@ -1,0 +1,64 @@
+type: action
+definition:
+  title: Close case alert
+  description: >-
+    Closes a CaseAlert. The vendor requires a valid closure reason and comment when
+    closing an alert.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.cases.caseAlerts/patch
+  namespace: tools.google_chronicle
+  name: close_case_alert
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        Chronicle instance this request is sent to. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    case:
+      type: str
+      description: The ID of the Case the alert belongs to.
+    caseAlert:
+      type: str
+      description: The ID of the CaseAlert to close.
+    reason:
+      type: str
+      description: >-
+        Alert closure reason. One of CLOSE_REASON_UNSPECIFIED, MALICIOUS,
+        NOT_MALICIOUS, MAINTENANCE, INCONCLUSIVE, UNKNOWN.
+    comment:
+      type: str
+      description: Alert closure comment.
+    rootCause:
+      type: str | None
+      description: Alert closure root cause.
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/cases/${{ FN.url_encode(inputs.case) }}/caseAlerts/${{ FN.url_encode(inputs.caseAlert) }}
+        method: PATCH
+        params:
+          updateMask: status,closureDetails
+        payload:
+          status: CLOSE
+          closureDetails:
+            reason: ${{ inputs.reason }}
+            comment: ${{ inputs.comment }}
+            rootCause: ${{ inputs.rootCause }}
+  returns: ${{ steps.call_api.result }}

@@ -2,13 +2,13 @@ import asyncio
 import functools
 import inspect
 import re
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterable
 from fnmatch import fnmatch
 from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import ScopeDeniedError
+from tracecat.exceptions import ScopeDeniedError, TracecatAuthorizationError
 from tracecat.logger import logger
 
 T = TypeVar("T", bound=Callable[..., Coroutine[Any, Any, Any] | Any])
@@ -144,6 +144,29 @@ def has_any_scope(user_scopes: frozenset[str], required_scopes: set[str]) -> boo
         True if at least one required scope is satisfied
     """
     return any(has_scope(user_scopes, scope) for scope in required_scopes)
+
+
+def ensure_can_grant_scopes(
+    caller_scopes: frozenset[str], scope_names: Iterable[str]
+) -> None:
+    """Reject grants containing scopes the caller does not hold.
+
+    Canonical scope-ceiling policy. Every role-grant producer must call this,
+    including invitations, so a grant can never exceed the granter's own scopes.
+
+    Takes resolved scopes rather than a Role so callers must decide explicitly
+    whether to pass live or cached state; grant decisions must pass live state.
+
+    Raises:
+        TracecatAuthorizationError: If any scope is outside the caller's ceiling.
+    """
+    denied = sorted(
+        {name for name in scope_names if not has_scope(caller_scopes, name)}
+    )
+    if denied:
+        raise TracecatAuthorizationError(
+            "Cannot grant scopes not held by the caller: " + ", ".join(denied)
+        )
 
 
 def get_missing_scopes(

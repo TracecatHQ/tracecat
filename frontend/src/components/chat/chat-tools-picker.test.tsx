@@ -69,12 +69,13 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
     const actual = DEFAULT_CAPABILITY_GROUPS.flatMap((group) => group.tools)
     expect([...actual].sort()).toEqual(
       [
-        // ai.agent.* (agent presets, add-on gated)
+        // ai.agent.* (agent presets)
         "ai.agent.create_preset",
         "ai.agent.get_preset",
         "ai.agent.list_presets",
         "ai.agent.update_preset",
         // core.cases.*
+        "core.cases.aggregate_cases",
         "core.cases.create_case",
         "core.cases.delete_case",
         "core.cases.get_case",
@@ -82,6 +83,7 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
         "core.cases.search_cases",
         "core.cases.update_case",
         // core.table.*
+        "core.table.aggregate_rows",
         "core.table.create_column",
         "core.table.create_table",
         "core.table.delete_column",
@@ -104,8 +106,10 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
         "core.workflow.execute",
         "core.workflow.get_authoring_context",
         "core.workflow.get_case_trigger",
+        "core.workflow.get_status",
         "core.workflow.get_webhook",
         "core.workflow.get_workflow",
+        "core.workflow.list_executions",
         "core.workflow.publish",
         "core.workflow.run",
         "core.workflow.update_case_trigger",
@@ -121,7 +125,9 @@ describe("DEFAULT_CAPABILITY_GROUPS", () => {
     expect(workflows?.tools).toContain("core.workflow.execute")
     expect(workflows?.tools).toContain("core.workflow.publish")
     expect(workflows?.tools).toContain("core.workflow.run")
-    expect(workflows?.tools.length).toBe(11)
+    expect(workflows?.tools).toContain("core.workflow.list_executions")
+    expect(workflows?.tools).toContain("core.workflow.get_status")
+    expect(workflows?.tools.length).toBe(13)
   })
 })
 
@@ -129,6 +135,32 @@ describe("ChatToolsPicker", () => {
   beforeEach(() => {
     mockToast.mockClear()
   })
+
+  it.each(["core.cases.aggregate_cases", "core.table.aggregate_rows"])(
+    "does not offer the default %s action as an extra",
+    (action) => {
+      render(
+        <ChatToolsPicker
+          registryActions={[
+            registryAction(action, { default_title: "Aggregate results" }),
+          ]}
+          selectedTools={[]}
+          onToolsChange={jest.fn()}
+          mcpIntegrations={[]}
+          selectedMcpIntegrations={[]}
+          onMcpChange={jest.fn()}
+          surface="workspace-chat"
+        />
+      )
+
+      fireEvent.change(
+        screen.getByPlaceholderText("Search capabilities & tools..."),
+        { target: { value: "Aggregate results" } }
+      )
+
+      expect(screen.queryByText("Aggregate results")).not.toBeInTheDocument()
+    }
+  )
 
   it("does not offer actions excluded from agent toolsets", () => {
     render(
@@ -434,7 +466,7 @@ describe("ChatToolsPicker", () => {
     expect(onToolsChange).toHaveBeenCalledWith([])
   })
 
-  it("hides add-on capabilities when agent add-ons are disabled", () => {
+  it("always offers the agent presets capability on workspace chat", () => {
     render(
       <ChatToolsPicker
         registryActions={[]}
@@ -443,12 +475,11 @@ describe("ChatToolsPicker", () => {
         mcpIntegrations={[]}
         selectedMcpIntegrations={[]}
         onMcpChange={jest.fn()}
-        agentAddonsEnabled={false}
         surface="workspace-chat"
       />
     )
 
     expect(screen.getByText("Cases")).toBeInTheDocument()
-    expect(screen.queryByText("Agent presets")).not.toBeInTheDocument()
+    expect(screen.getByText("Agent presets")).toBeInTheDocument()
   })
 })

@@ -19,12 +19,20 @@ from tracecat.agent.common.types import (
     MCPToolDefinition,
     is_http_mcp_server,
 )
+from tracecat.agent.error_policy import (
+    agent_preparation_failed,
+    invalid_agent_configuration,
+    registry_lock_action_ambiguous,
+    registry_lock_invalid_data,
+    tenant_entitlement_denied,
+)
 from tracecat.agent.mcp.internal_tools import (
     BUILDER_BUNDLED_ACTIONS,
     BUILDER_INTERNAL_TOOL_NAMES,
     get_builder_internal_tool_definitions,
 )
 from tracecat.agent.mcp.utils import (
+    MCP_TOOL_NAME_RE,
     REGISTRY_MCP_SERVER_NAME,
     normalize_mcp_tool_name,
 )
@@ -35,11 +43,23 @@ from tracecat.agent.tools import build_agent_tools
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
 from tracecat.contexts import ctx_role
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    EntitlementRequired,
+    RegistryLockAmbiguousActionError,
+    RegistryLockInvalidDataError,
+)
 from tracecat.logger import logger
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
-from tracecat.tiers.entitlements import Entitlement, EntitlementService
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+)
+from tracecat.temporal.errors import raise_application_error_from_classification
+from tracecat.tiers.entitlements import EntitlementService
+from tracecat.tiers.enums import Entitlement
 from tracecat.tiers.service import TierService
 
 if TYPE_CHECKING:
@@ -216,10 +236,16 @@ class AgentActivities:
     async def _check_tool_approval_entitlement(role: Role) -> None:
         if role.organization_id is None:
             raise ValueError("Role must have organization_id to validate entitlements")
-        async with TierService.with_session() as tier_service:
-            entitlement_service = EntitlementService(tier_service)
-            await entitlement_service.check_entitlement(
-                role.organization_id, Entitlement.AGENT_ADDONS
+        try:
+            async with TierService.with_session() as tier_service:
+                entitlement_service = EntitlementService(tier_service)
+                await entitlement_service.check_entitlement(
+                    role.organization_id, Entitlement.AGENT_ADDONS
+                )
+        except EntitlementRequired as exc:
+            raise_application_error_from_classification(
+                tenant_entitlement_denied(exc),
+                exc.detail,
             )
 
     async def _build_scope_tool_definitions(
@@ -228,6 +254,38 @@ class AgentActivities:
         *,
         role: Role,
     ) -> BuildToolDefsResult:
+        if any(is_http_mcp_server(server) for server in args.mcp_servers or ()):
+            # Authored approval rules may still use an HTTP integration's old
+            # display name. Reject unmatched server identities before the run
+            # can silently lose an approval after switching to slug routing.
+            approval_prefixes = tuple(
+                normalize_mcp_tool_name(
+                    f"mcp__{REGISTRY_MCP_SERVER_NAME}__mcp__{server['name']}__"
+                )
+                for server in args.mcp_servers or ()
+            )
+            stale_approval_keys = [
+                name
+                for name, required in (args.tool_approvals or {}).items()
+                if required
+                and name.startswith("mcp.")
+                and not name.startswith(approval_prefixes)
+            ]
+            if stale_approval_keys:
+                raise_application_error_from_classification(
+                    RuntimeErrorClassification.user(
+                        kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+                        message=(
+                            "MCP approval rules reference an unconfigured server name. "
+                            "Update the rules to use the selected integrations' slugs."
+                        ),
+                        retry_disposition=RetryDisposition.NON_RETRYABLE,
+                    ),
+                    {
+                        "code": "stale_mcp_approval_identity",
+                        "approval_keys": sorted(stale_approval_keys),
+                    },
+                )
         effective_tool_approvals = dict(args.tool_approvals or {})
 
         # Check if this is a builder assistant session
@@ -251,11 +309,7 @@ class AgentActivities:
                 tool_approvals=args.tool_approvals,
             )
         except ValueError as e:
-            raise ApplicationError(
-                str(e),
-                type="AgentToolDefinitionError",
-                non_retryable=True,
-            ) from e
+            raise_application_error_from_classification(invalid_agent_configuration(e))
         # Convert to dict[str, MCPToolDefinition] keyed by canonical action name
         # Tools already have canonical names (with dots, e.g., "core.cases.list_cases")
         defs: dict[str, MCPToolDefinition] = {}
@@ -293,6 +347,11 @@ class AgentActivities:
             if not http_servers:
                 logger.info("No HTTP MCP servers configured for discovery")
                 http_servers = []
+            explicit_tools_by_server = {
+                cfg["name"]: {tool["name"] for tool in tools}
+                for cfg in http_servers
+                if (tools := cfg.get("tools")) is not None
+            }
 
             # Hydrate headers from the DB for the duration of this activity.
             # Configs that arrive here carry ``id`` but no ``headers`` (the
@@ -351,24 +410,33 @@ class AgentActivities:
                 # Add user MCP tools to definitions, honoring stored policy:
                 # disabled or missing tools are dropped, approval-gated tools
                 # are recorded in the effective approval map.
+                rejected_approval_keys: set[str] = set()
+                retained_approval_keys: set[str] = set()
                 for tool_name, tool_def in user_mcp_tools.items():
                     parsed = UserMCPClient.parse_user_mcp_tool_name(tool_name)
-                    has_dotted_remote_name = parsed is not None and "." in parsed[1]
-                    # Unlike registry/internal tools, user MCP tool names are
-                    # registered with the trusted MCP server verbatim (see
-                    # ``build_token_scoped_tools``), so a dotted remote name
-                    # (e.g. ``issue.get``) reaches the model provider as
-                    # ``mcp__{server}__issue.get``. Provider tool-name
-                    # constraints reject dots, so an otherwise-valid tool would
-                    # make the agent fail to start. Drop these regardless of
-                    # approval status; approval-gated ones also can't round-trip
-                    # their ``mcp.{server}.{tool}`` approval key back to a
-                    # router name.
-                    if has_dotted_remote_name:
+                    server_name, remote_tool_name = parsed or (None, None)
+                    if (
+                        server_name is not None
+                        and remote_tool_name is not None
+                        and (allowed_names := explicit_tools_by_server.get(server_name))
+                        is not None
+                        and remote_tool_name not in allowed_names
+                    ):
+                        continue
+                    approval_key = normalize_mcp_tool_name(
+                        f"mcp__{REGISTRY_MCP_SERVER_NAME}__{tool_name}"
+                    )
+                    # Remote names are registered verbatim on the trusted MCP
+                    # server. Apply the same name constraints as stdio discovery
+                    # before recording definitions or approval entries.
+                    if remote_tool_name is not None and not MCP_TOOL_NAME_RE.fullmatch(
+                        remote_tool_name
+                    ):
+                        rejected_approval_keys.add(approval_key)
                         logger.warning(
-                            "Skipping user MCP tool with unsupported dotted name",
+                            "Skipping user MCP tool with unsupported name",
                             tool_name=tool_name,
-                            remote_tool_name=parsed[1] if parsed else None,
+                            remote_tool_name=remote_tool_name,
                         )
                         continue
                     policy = _stored_user_mcp_tool_policy(
@@ -383,11 +451,14 @@ class AgentActivities:
                             )
                             continue
                         if policy.requires_approval:
-                            approval_key = normalize_mcp_tool_name(
-                                f"mcp__{REGISTRY_MCP_SERVER_NAME}__{tool_name}"
-                            )
                             effective_tool_approvals[approval_key] = True
                     defs[tool_name] = tool_def
+                    retained_approval_keys.add(approval_key)
+
+                # Normalization can map rejected `a.b` and valid `a__b` to
+                # the same key. Only remove approvals with no surviving tool.
+                for approval_key in rejected_approval_keys - retained_approval_keys:
+                    effective_tool_approvals.pop(approval_key, None)
 
                 # JWT claims carry the source integration id when available so
                 # the trusted MCP server can re-resolve headers per call. For
@@ -431,12 +502,9 @@ class AgentActivities:
                     server_count=len(hydrated_servers),
                 )
                 if args.fail_on_mcp_discovery_error:
-                    raise ApplicationError(
-                        "Failed to discover configured MCP tools for agent scope",
-                        str(e),
-                        type="AgentToolDefinitionError",
-                        non_retryable=True,
-                    ) from e
+                    raise_application_error_from_classification(
+                        invalid_agent_configuration(e)
+                    )
                 # Continue without user MCP tools - don't fail the whole operation
             finally:
                 # Defensive: ensure hydrated configs (with headers) drop out
@@ -444,6 +512,8 @@ class AgentActivities:
                 # is documentation more than enforcement.
                 hydrated_servers = []
 
+        # Enforce entitlements on the final scope policy, after rejected HTTP
+        # tools and their precomputed approval entries have been removed.
         if any(effective_tool_approvals.values()):
             await self._check_tool_approval_entitlement(role)
 
@@ -466,6 +536,21 @@ class AgentActivities:
                 e.detail,
                 type=e.__class__.__name__,
             ) from e
+        except EntitlementRequired as e:
+            raise_application_error_from_classification(
+                tenant_entitlement_denied(e),
+                e.detail,
+            )
+        except RegistryLockAmbiguousActionError as e:
+            raise_application_error_from_classification(
+                registry_lock_action_ambiguous(e),
+                e.detail,
+            )
+        except RegistryLockInvalidDataError as e:
+            raise_application_error_from_classification(
+                registry_lock_invalid_data(e),
+                e.detail,
+            )
 
         return BuildToolDefsResult(
             tool_definitions=defs,
@@ -482,11 +567,6 @@ class AgentActivities:
     ) -> BuildToolDefsResult:
         # Set role context for services that require organization context
         ctx_role.set(args.role)
-
-        # Runtime guard for approval-gated agent flows. This ensures direct
-        # workflow execution paths still enforce entitlements.
-        if args.tool_approvals:
-            await self._check_tool_approval_entitlement(args.role)
 
         return await self._build_scope_tool_definitions(
             BuildAgentScopeToolDefsArgs(
@@ -508,15 +588,11 @@ class AgentActivities:
         # Compile all agent scopes in one activity while preserving partitioned
         # outputs for MCP tokens, approvals, user MCP claims, and registry locks.
         ctx_role.set(args.role)
-        if any(scope.tool_approvals for scope in args.scopes):
-            await self._check_tool_approval_entitlement(args.role)
-
         results: dict[str, BuildToolDefsResult] = {}
         for scope in args.scopes:
             if scope.scope in results:
-                raise ApplicationError(
-                    f"Duplicate agent compile scope '{scope.scope}'",
-                    non_retryable=True,
+                raise_application_error_from_classification(
+                    agent_preparation_failed(retryable=False)
                 )
             results[scope.scope] = await self._build_scope_tool_definitions(
                 scope,

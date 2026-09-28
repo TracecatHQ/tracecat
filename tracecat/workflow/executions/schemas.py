@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import (
@@ -1083,6 +1084,7 @@ class WorkflowExecutionCreateResponse(TypedDict):
     message: str
     wf_id: WorkflowID
     wf_exec_id: WorkflowExecutionID
+    trace_id: NotRequired[str]
     payload: NotRequired[Any]
     """The HTTP request body of the request that triggered the workflow."""
 
@@ -1179,3 +1181,59 @@ class WorkflowExecutionBulkResetResponse(BaseModel):
 
 class ReceiveInteractionResponse(BaseModel):
     message: str
+
+
+class WorkflowExecutionSummaryResponse(BaseModel):
+    """Canonical execution summary projection shared by MCP and internal surfaces."""
+
+    id: WorkflowExecutionID
+    run_id: uuid.UUID | str
+    status: str | None = None
+    start_time: str
+    close_time: str | None = None
+    trigger_type: str | None = None
+    execution_type: str | None = None
+
+
+class WorkflowExecutionEventError(BaseModel):
+    """Action-level workflow execution error payload."""
+
+    message: str
+    cause: Any | None = None
+
+
+class WorkflowExecutionEventResponse(BaseModel):
+    """Canonical compact execution event projection."""
+
+    action_ref: str | None = None
+    action_name: str | None = None
+    status: str
+    schedule_time: str
+    start_time: str | None = None
+    close_time: str | None = None
+    error: WorkflowExecutionEventError | None = None
+    result: Any | None = None
+    result_truncated: str | None = None
+
+
+class WorkflowExecutionDetailResponse(WorkflowExecutionSummaryResponse):
+    """Canonical execution detail projection: summary plus the event timeline."""
+
+    history_length: int
+    events: list[WorkflowExecutionEventResponse] = Field(default_factory=list)
+
+
+class WorkflowExecutionActionResultResponse(BaseModel):
+    """One byte window of a single action's full stored result, as JSON text."""
+
+    execution_id: WorkflowExecutionID
+    action_ref: str
+    stream_id: str
+    status: str
+    result: str
+    """JSON text of the result, sliced to ``[offset, offset + len(result))`` bytes."""
+    total_bytes: int
+    offset: int
+    truncated: bool
+    next_offset: int | None = None
+    """Byte offset to request next, or null when this window reaches the end."""

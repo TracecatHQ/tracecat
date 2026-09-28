@@ -5,7 +5,6 @@ import { Image } from "@tiptap/extension-image"
 import { TaskItem, TaskList } from "@tiptap/extension-list"
 import { Subscript } from "@tiptap/extension-subscript"
 import { Superscript } from "@tiptap/extension-superscript"
-import { Table } from "@tiptap/extension-table"
 import { TableCell } from "@tiptap/extension-table-cell"
 import { TableHeader } from "@tiptap/extension-table-header"
 import { TableRow } from "@tiptap/extension-table-row"
@@ -13,6 +12,7 @@ import { TextAlign } from "@tiptap/extension-text-align"
 import { Typography } from "@tiptap/extension-typography"
 import { Selection } from "@tiptap/extensions"
 import { Markdown } from "@tiptap/markdown"
+import type { Transaction } from "@tiptap/pm/state"
 import type { EditorView } from "@tiptap/pm/view"
 import {
   type Editor,
@@ -28,6 +28,11 @@ import { AttachmentImage } from "@/components/tiptap-node/image-node/attachment-
 // --- Tiptap Node ---
 import { ImageUploadNode } from "@/components/tiptap-node/image-upload-node/image-upload-node-extension"
 import { MermaidCodeBlock } from "@/components/tiptap-node/mermaid-code-block-node/mermaid-code-block-node"
+import {
+  canMoveTableColumnLeft,
+  canMoveTableColumnRight,
+  TracecatTable,
+} from "@/components/tiptap-node/table-node/table-node-extension"
 // --- UI Primitives ---
 import { Button, ButtonGroup } from "@/components/tiptap-ui-primitive/button"
 import { Spacer } from "@/components/tiptap-ui-primitive/spacer"
@@ -44,7 +49,14 @@ import "@/components/tiptap-node/image-node/image-node.scss"
 import "@/components/tiptap-node/heading-node/heading-node.scss"
 import "@/components/tiptap-node/paragraph-node/paragraph-node.scss"
 
+// Panel icons below are chosen for the direction their arrow points, not for
+// the panel edge in their name. In lucide, `PanelLeftOpen` draws a
+// right-pointing arrow, `PanelRightOpen` a left-pointing one, `PanelTopOpen`
+// points down and `PanelBottomOpen` points up. Users read the arrow, so the
+// name-to-command pairing looks inverted on purpose. Do not "fix" it.
 import {
+  ArrowLeftToLine,
+  ArrowRightToLine,
   BookmarkX,
   Delete as DeleteIcon,
   PanelBottomOpen,
@@ -90,31 +102,77 @@ import {
   createPastedImageFile,
   extractImageFiles,
 } from "@/lib/cases/use-case-image-upload"
-import { handleImageUpload, MAX_FILE_SIZE } from "@/lib/tiptap-utils"
+import {
+  AGENT_MENTION_URI_SCHEME,
+  type CommentMentionLinkRange,
+  findCommentMentionLinkRanges,
+  findEditedCommentMentionIndexes,
+  preventCommentMentionNavigation,
+  WORKFLOW_MENTION_URI_SCHEME,
+} from "@/lib/tiptap-comment-mentions"
+import {
+  mapImageUploadPosition,
+  sanitizeMarkdownImageAlt,
+  transactionTouchesImageReplacement,
+} from "@/lib/tiptap-image-upload-position"
+import { MarkdownHardBreak } from "@/lib/tiptap-markdown-hard-break"
+import {
+  handleImageUpload,
+  MAX_FILE_SIZE,
+  sanitizeUrl,
+} from "@/lib/tiptap-utils"
 import { cn } from "@/lib/utils"
 
 /** Upload images then insert image nodes at the drop position or selection. */
 async function uploadAndInsertImages(
+  editor: Editor,
   view: EditorView,
   files: File[],
   upload: (file: File) => Promise<string>,
-  startPos?: number
+  startPos: number,
+  endPos?: number
 ): Promise<void> {
   let insertPos = startPos
-  for (const file of files) {
-    try {
-      const src = await upload(file)
-      const imageType = view.state.schema.nodes.image
-      if (!imageType) {
-        continue
-      }
-      const node = imageType.create({ src, alt: file.name })
-      const pos = insertPos ?? view.state.selection.to
-      view.dispatch(view.state.tr.insert(pos, node))
-      insertPos = pos + node.nodeSize
-    } catch {
-      // Upload failures are surfaced by the upload function's own toast.
+  let replaceTo = endPos !== undefined && endPos > startPos ? endPos : null
+  const handleTransaction = ({ transaction }: { transaction: Transaction }) => {
+    if (
+      replaceTo !== null &&
+      transactionTouchesImageReplacement(insertPos, replaceTo, transaction)
+    ) {
+      replaceTo = null
     }
+    insertPos = mapImageUploadPosition(insertPos, transaction)
+    if (replaceTo !== null) {
+      replaceTo = mapImageUploadPosition(replaceTo, transaction, -1)
+    }
+  }
+  editor.on("transaction", handleTransaction)
+  try {
+    for (const file of files) {
+      try {
+        const src = await upload(file)
+        const imageType = view.state.schema.nodes.image
+        if (!imageType) {
+          continue
+        }
+        const node = imageType.create({
+          src,
+          alt: sanitizeMarkdownImageAlt(file.name),
+        })
+        const transaction = view.state.tr
+        if (replaceTo !== null && replaceTo > insertPos) {
+          transaction.replaceWith(insertPos, replaceTo, node)
+        } else {
+          transaction.insert(insertPos, node)
+        }
+        view.dispatch(transaction)
+        replaceTo = null
+      } catch {
+        // Upload failures are surfaced by the upload function's own toast.
+      }
+    }
+  } finally {
+    editor.off("transaction", handleTransaction)
   }
 }
 
@@ -140,6 +198,7 @@ type TableButton = {
 
 interface TableButtonGroups {
   insertButtons: TableButton[]
+  moveButtons: TableButton[]
   deleteButtons: TableButton[]
 }
 
@@ -148,7 +207,7 @@ const getTableButtonGroups = (
   isTableActive: boolean
 ): TableButtonGroups => {
   if (!editor.isEditable) {
-    return { insertButtons: [], deleteButtons: [] }
+    return { insertButtons: [], moveButtons: [], deleteButtons: [] }
   }
 
   const insertButtons: TableButton[] = []
@@ -160,31 +219,55 @@ const getTableButtonGroups = (
         tooltip: "Insert column to the left",
         disabled: !editor.can().addColumnBefore(),
         onClick: () => editor.chain().focus().addColumnBefore().run(),
-        icon: <PanelLeftOpen className="tiptap-button-icon" />,
+        icon: <PanelRightOpen className="tiptap-button-icon" />,
       },
       {
         key: "add-column-after",
         tooltip: "Insert column to the right",
         disabled: !editor.can().addColumnAfter(),
         onClick: () => editor.chain().focus().addColumnAfter().run(),
-        icon: <PanelRightOpen className="tiptap-button-icon" />,
+        icon: <PanelLeftOpen className="tiptap-button-icon" />,
       },
       {
         key: "add-row-before",
         tooltip: "Insert row above",
         disabled: !editor.can().addRowBefore(),
         onClick: () => editor.chain().focus().addRowBefore().run(),
-        icon: <PanelTopOpen className="tiptap-button-icon" />,
+        icon: <PanelBottomOpen className="tiptap-button-icon" />,
       },
       {
         key: "add-row-after",
         tooltip: "Insert row below",
         disabled: !editor.can().addRowAfter(),
         onClick: () => editor.chain().focus().addRowAfter().run(),
-        icon: <PanelBottomOpen className="tiptap-button-icon" />,
+        icon: <PanelTopOpen className="tiptap-button-icon" />,
       }
     )
   }
+
+  // The other buttons ask `editor.can()`, which runs their command for real
+  // against a throwaway state. That is cheap for every command here except the
+  // two moves: `moveTableColumn` transposes and rebuilds the whole table node,
+  // and this runs on every transaction while the cursor is in a table, so the
+  // two moves ask the shared boundary rule directly instead.
+  const moveButtons: TableButton[] = isTableActive
+    ? [
+        {
+          key: "move-column-left",
+          tooltip: "Move column left",
+          disabled: !canMoveTableColumnLeft(editor.state),
+          onClick: () => editor.chain().focus().moveTableColumnLeft().run(),
+          icon: <ArrowLeftToLine className="tiptap-button-icon" />,
+        },
+        {
+          key: "move-column-right",
+          tooltip: "Move column right",
+          disabled: !canMoveTableColumnRight(editor.state),
+          onClick: () => editor.chain().focus().moveTableColumnRight().run(),
+          icon: <ArrowRightToLine className="tiptap-button-icon" />,
+        },
+      ]
+    : []
 
   const deleteButtons: TableButton[] = isTableActive
     ? [
@@ -212,7 +295,7 @@ const getTableButtonGroups = (
       ]
     : []
 
-  return { insertButtons, deleteButtons }
+  return { insertButtons, moveButtons, deleteButtons }
 }
 
 const MainToolbarContent = ({
@@ -255,15 +338,17 @@ const MainToolbarContent = ({
 
     return can.insertTable({ rows: 3, cols: 2, withHeaderRow: true })
   }, [editor])
-  const tableButtonGroups = React.useMemo<TableButtonGroups>(() => {
-    if (!editor || !hasEditableEditor) {
-      return { insertButtons: [], deleteButtons: [] }
-    }
-    return getTableButtonGroups(editor, isTableActive)
-  }, [editor, hasEditableEditor, isTableActive])
-  const hasInsertButtons = tableButtonGroups.insertButtons.length > 0
-  const hasDeleteButtons = tableButtonGroups.deleteButtons.length > 0
-  const shouldShowThemeSeparator = darkMode && (isMobile || hasDeleteButtons)
+  // Deliberately computed during render rather than memoized. Every input a
+  // memo could key on is stable while the cursor stays inside one table —
+  // `editor` for its whole lifetime, `isTableActive` until the cursor leaves —
+  // so the disabled flags would freeze when the cursor entered the table and
+  // stop following the caret between columns. `useTiptapEditor` subscribes to
+  // `editorState`, which changes on every transaction and re-renders us.
+  const tableButtonGroups: TableButtonGroups =
+    editor && hasEditableEditor
+      ? getTableButtonGroups(editor, isTableActive)
+      : { insertButtons: [], moveButtons: [], deleteButtons: [] }
+  const shouldShowThemeSeparator = darkMode && (isMobile || isTableActive)
 
   const renderButtonGroup = (buttons: TableButton[]) => (
     <ButtonGroup orientation="horizontal">
@@ -303,26 +388,47 @@ const MainToolbarContent = ({
 
       <ToolbarSeparator />
 
-      <ToolbarGroup>
-        <HeadingDropdownMenu levels={[1, 2, 3, 4]} portal={isMobile} />
-        <ListDropdownMenu
-          types={["bulletList", "orderedList", "taskList"]}
-          portal={isMobile}
-        />
-        <BlockquoteButton />
-        <CodeBlockButton />
-        <Button
-          type="button"
-          data-style="ghost"
-          data-disabled={!canInsertTable}
-          disabled={!canInsertTable}
-          tooltip="Insert table"
-          aria-label="Insert table"
-          onClick={handleInsertTable}
-        >
-          <TableIcon className="tiptap-button-icon" />
-        </Button>
-      </ToolbarGroup>
+      {/* Inside a table this slot becomes the table controls. Headings, lists,
+          block quotes, code blocks and nested tables are all noise in a cell,
+          and the row/column controls are what the user actually reached for. */}
+      {isTableActive ? (
+        // Insert, move and delete are separated so nine icons read as three
+        // intents rather than one undifferentiated row.
+        <>
+          <ToolbarGroup className="simple-editor-table-controls">
+            {renderButtonGroup(tableButtonGroups.insertButtons)}
+          </ToolbarGroup>
+          <ToolbarSeparator />
+          <ToolbarGroup className="simple-editor-table-controls">
+            {renderButtonGroup(tableButtonGroups.moveButtons)}
+          </ToolbarGroup>
+          <ToolbarSeparator />
+          <ToolbarGroup className="simple-editor-table-controls">
+            {renderButtonGroup(tableButtonGroups.deleteButtons)}
+          </ToolbarGroup>
+        </>
+      ) : (
+        <ToolbarGroup>
+          <HeadingDropdownMenu levels={[1, 2, 3, 4]} portal={isMobile} />
+          <ListDropdownMenu
+            types={["bulletList", "orderedList", "taskList"]}
+            portal={isMobile}
+          />
+          <BlockquoteButton />
+          <CodeBlockButton />
+          <Button
+            type="button"
+            data-style="ghost"
+            data-disabled={!canInsertTable}
+            disabled={!canInsertTable}
+            tooltip="Insert table"
+            aria-label="Insert table"
+            onClick={handleInsertTable}
+          >
+            <TableIcon className="tiptap-button-icon" />
+          </Button>
+        </ToolbarGroup>
+      )}
 
       <ToolbarSeparator />
 
@@ -365,16 +471,6 @@ const MainToolbarContent = ({
         </>
       )}
 
-      {hasInsertButtons && (
-        <>
-          <ToolbarSeparator />
-
-          <ToolbarGroup className="simple-editor-table-controls">
-            {renderButtonGroup(tableButtonGroups.insertButtons)}
-          </ToolbarGroup>
-        </>
-      )}
-
       {images && (
         <>
           <ToolbarSeparator />
@@ -386,16 +482,6 @@ const MainToolbarContent = ({
       )}
 
       <Spacer />
-
-      {hasDeleteButtons && (
-        <>
-          <ToolbarSeparator />
-
-          <ToolbarGroup className="simple-editor-table-controls">
-            {renderButtonGroup(tableButtonGroups.deleteButtons)}
-          </ToolbarGroup>
-        </>
-      )}
 
       {shouldShowThemeSeparator && <ToolbarSeparator />}
 
@@ -523,6 +609,10 @@ export interface SimpleEditorProps {
    * `attachment://<caseId>/<attachmentId>`). Required to enable paste/drop.
    */
   onImageUpload?: (file: File) => Promise<string>
+  /** Called when the TipTap editor instance becomes available or is removed. */
+  onEditorReady?: (editor: Editor | null) => void
+  /** Allow the internal URI schemes used by case comment mentions. */
+  allowCommentMentionUris?: boolean
 }
 
 export function SimpleEditor({
@@ -544,6 +634,8 @@ export function SimpleEditor({
   enableImages = false,
   imageWorkspaceId = null,
   onImageUpload,
+  onEditorReady,
+  allowCommentMentionUris = false,
 }: SimpleEditorProps) {
   const isMobile = useIsMobile()
   const { height } = useWindowSize()
@@ -554,6 +646,8 @@ export function SimpleEditor({
   const markdownRef = React.useRef<string>(value ?? "")
   const previousEditableRef = React.useRef(editable)
   const imageUploadRef = React.useRef(onImageUpload)
+  const editorRef = React.useRef<Editor | null>(null)
+  const commentMentionLinksRef = React.useRef<CommentMentionLinkRange[]>([])
 
   React.useEffect(() => {
     imageUploadRef.current = onImageUpload
@@ -562,18 +656,25 @@ export function SimpleEditor({
   const extensions = React.useMemo(
     () => [
       StarterKit.configure({
+        hardBreak: false,
         horizontalRule: false,
         codeBlock: false,
         link: {
           openOnClick: false,
           enableClickSelection: true,
+          isAllowedUri: (url, { defaultValidate }) =>
+            (allowCommentMentionUris &&
+              (url.startsWith(AGENT_MENTION_URI_SCHEME) ||
+                url.startsWith(WORKFLOW_MENTION_URI_SCHEME))) ||
+            defaultValidate(url),
         },
       }),
+      MarkdownHardBreak,
       HorizontalRule,
       MermaidCodeBlock.configure({
         renderWhenBlurred: renderMermaidWhenBlurred,
       }),
-      Table.configure({
+      TracecatTable.configure({
         resizable: false,
       }),
       TableRow,
@@ -611,7 +712,12 @@ export function SimpleEditor({
         },
       }),
     ],
-    [renderMermaidWhenBlurred, enableImages, imageWorkspaceId]
+    [
+      allowCommentMentionUris,
+      renderMermaidWhenBlurred,
+      enableImages,
+      imageWorkspaceId,
+    ]
   )
 
   const editor = useEditor({
@@ -628,9 +734,25 @@ export function SimpleEditor({
         class: cn("simple-editor", !editable && "simple-editor--readonly"),
         ...(placeholder ? { "data-placeholder": placeholder } : {}),
       },
+      handleClick: (_view, _pos, event) => {
+        if (allowCommentMentionUris && preventCommentMentionNavigation(event)) {
+          return false
+        }
+        if (!event.metaKey && !event.ctrlKey) return false
+        const href = (event.target as HTMLElement | null)
+          ?.closest("a")
+          ?.getAttribute("href")
+        if (!href) return false
+        const safeUrl = sanitizeUrl(href, window.location.href)
+        if (safeUrl === "#") return false
+        event.preventDefault()
+        window.open(safeUrl, "_blank", "noopener,noreferrer")
+        return true
+      },
       handlePaste: (view, event) => {
         const upload = imageUploadRef.current
-        if (!upload) {
+        const currentEditor = editorRef.current
+        if (!upload || !currentEditor) {
           return false
         }
         const files = extractImageFiles(event.clipboardData)
@@ -638,16 +760,21 @@ export function SimpleEditor({
           return false
         }
         event.preventDefault()
+        const { from, to } = view.state.selection
         void uploadAndInsertImages(
+          currentEditor,
           view,
           files.map(createPastedImageFile),
-          upload
+          upload,
+          from,
+          to
         )
         return true
       },
       handleDrop: (view, event) => {
         const upload = imageUploadRef.current
-        if (!upload) {
+        const currentEditor = editorRef.current
+        if (!upload || !currentEditor) {
           return false
         }
         const files = extractImageFiles(event.dataTransfer)
@@ -659,7 +786,13 @@ export function SimpleEditor({
           left: event.clientX,
           top: event.clientY,
         })
-        void uploadAndInsertImages(view, files, upload, coords?.pos)
+        void uploadAndInsertImages(
+          currentEditor,
+          view,
+          files,
+          upload,
+          coords?.pos ?? view.state.selection.to
+        )
         return true
       },
     },
@@ -689,6 +822,60 @@ export function SimpleEditor({
 
   const shouldShowToolbar = showToolbar && editable
   const canRenderToolbar = editable && (showToolbar || preserveToolbarSpace)
+
+  React.useEffect(() => {
+    editorRef.current = editor
+    return () => {
+      editorRef.current = null
+    }
+  }, [editor])
+
+  React.useEffect(() => {
+    if (!editor || !editable || !allowCommentMentionUris) {
+      commentMentionLinksRef.current = []
+      return
+    }
+    commentMentionLinksRef.current = findCommentMentionLinkRanges(
+      editor.state.doc
+    )
+    const handleUpdate = ({
+      transaction: updateTransaction,
+    }: {
+      transaction: Transaction
+    }) => {
+      const ranges = findCommentMentionLinkRanges(editor.state.doc)
+      const editedIndexes = findEditedCommentMentionIndexes(
+        commentMentionLinksRef.current,
+        ranges,
+        (position, association) =>
+          updateTransaction.mapping.map(position, association)
+      )
+      commentMentionLinksRef.current = ranges
+      const linkMark = editor.state.schema.marks.link
+      if (!linkMark || editedIndexes.length === 0) {
+        return
+      }
+      let transaction = editor.state.tr
+      for (const index of editedIndexes) {
+        const range = ranges[index]
+        if (range) {
+          transaction = transaction.removeMark(range.from, range.to, linkMark)
+        }
+      }
+      // Undo the user's edit directly; never restore a hidden internal link first.
+      transaction = transaction.setMeta("addToHistory", false)
+      editor.view.dispatch(transaction)
+    }
+    editor.on("update", handleUpdate)
+    return () => {
+      editor.off("update", handleUpdate)
+    }
+  }, [allowCommentMentionUris, editable, editor])
+
+  React.useEffect(() => {
+    onEditorReady?.(editor)
+    return () => onEditorReady?.(null)
+  }, [editor, onEditorReady])
 
   const rect = useCursorVisibility({
     editor,
@@ -805,9 +992,11 @@ export function SimpleEditor({
   const toolbarStyle = React.useMemo<
     React.CSSProperties & Record<string, string | number>
   >(() => {
+    // Leave the toolbar surface to CSS: `.simple-editor-toolbar` already
+    // defaults it to transparent, and an inline value would outrank any
+    // consumer override.
     const next: React.CSSProperties & Record<string, string | number> = {
       paddingBottom: 0,
-      "--tt-toolbar-bg-color": "transparent",
     }
 
     if (isMobile) {

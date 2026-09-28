@@ -19,6 +19,11 @@ export function shortCommitSha(commitSha: string | null | undefined): string {
   return commitSha ? commitSha.slice(0, 7) : "-"
 }
 
+/** Shorten a version string if it looks like a full commit SHA. */
+export function shortVersion(version: string): string {
+  return /^[0-9a-f]{40}$/i.test(version) ? version.substring(0, 12) : version
+}
+
 export function getRegistryOriginLabel(params: {
   origin: string
   platformOrigins: ReadonlySet<string>

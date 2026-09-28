@@ -12,7 +12,7 @@ examples:
             Authorization: Bearer ${{ SECRETS.alerts.API_TOKEN }}
 
   http-poll-job:
-    title: Poll until complete
+    title: Poll until terminal status
     language: yaml
     code: |
       - ref: wait_for_export
@@ -24,7 +24,7 @@ examples:
             Authorization: Bearer ${{ SECRETS.exports.API_TOKEN }}
           poll_interval: 5
           poll_max_attempts: 24
-          poll_condition: "lambda response: response['data'].get('status') == 'completed'"
+          poll_condition: "lambda response: response['data'].get('status') in ['completed', 'failed', 'cancelled']"
 
   http-paginate-results:
     title: Follow next page links
@@ -318,6 +318,27 @@ examples:
             SELECT *
             FROM read_parquet('s3://my-bucket/findings/*.parquet')
 
+  sql-duckdb-s3-cross-account:
+    title: Read a bucket in another account and region
+    language: yaml
+    code: |
+      # role_arn chains from the amazon_s3 credentials into a role in the
+      # bucket's account. region_name is the bucket's region and overrides the
+      # secret's AWS_REGION, so one secret can read buckets in several regions.
+      - ref: read_audit_logs
+        action: core.duckdb.execute_sql
+        args:
+          role_arn: arn:aws:iam::123456789012:role/log-reader
+          region_name: us-west-2
+          sql: |
+            SELECT action, count(*) AS events
+            FROM read_json(
+              's3://my-audit-logs/2026/01/01/*/*.json.gz',
+              format = 'newline_delimited',
+              compression = 'gzip'
+            )
+            GROUP BY action
+
   ssh-command:
     title: Execute a remote command
     language: yaml
@@ -423,6 +444,36 @@ examples:
             - new
             - in_progress
           limit: 25
+
+  cases-aggregate:
+    title: Count open cases by priority and day
+    language: yaml
+    code: |
+      - ref: cases_by_priority_per_day
+        action: core.cases.aggregate_cases
+        args:
+          filters:
+            and:
+              - field: status
+                op: in
+                value: [new, in_progress]
+              - field: created_at
+                op: gte
+                value: "2026-08-01T00:00:00Z"
+              - or:
+                  - field: priority
+                    op: gte
+                    value: high
+                  - field: fields.region
+                    op: eq
+                    value: emea
+          group_by:
+            - priority
+            - field: created_at
+              bucket: day
+          aggs:
+            - function: count
+          limit: 100
 
   cases-list-events:
     title: List case events
@@ -701,6 +752,15 @@ examples:
             value: ${{ TRIGGER.indicator }}
             indicator_type: domain
 
+  cases-get-linked-rows:
+    title: Get linked table rows
+    language: yaml
+    code: |
+      - ref: linked_rows
+        action: core.cases.get_linked_case_rows
+        args:
+          case_id: ${{ TRIGGER.case_id }}
+
   cases-metrics:
     title: Read case metrics
     language: yaml
@@ -732,6 +792,98 @@ examples:
         action: core.table.get_table_metadata
         args:
           name: asset_inventory
+
+  tables-schema:
+    title: Manage table schema
+    language: yaml
+    code: |
+      - ref: rename_table
+        action: core.table.update_table
+        args:
+          name: asset_inventory
+          new_name: assets
+      - ref: add_owner_team
+        action: core.table.create_column
+        depends_on:
+          - rename_table
+        args:
+          table: assets
+          column:
+            name: owner_team
+            type: SELECT
+            options:
+              - secops
+              - platform
+      - ref: drop_owner_team
+        action: core.table.delete_column
+        depends_on:
+          - add_owner_team
+        args:
+          table: assets
+          column: owner_team
+
+  tables-rename:
+    title: Rename a table
+    language: yaml
+    code: |
+      - ref: rename_table
+        action: core.table.update_table
+        args:
+          name: asset_inventory
+          new_name: assets
+
+  tables-drop-column:
+    title: Delete a column
+    language: yaml
+    code: |
+      - ref: drop_owner_team
+        action: core.table.delete_column
+        args:
+          table: assets
+          column: owner_team
+
+  tables-unique-index:
+    title: Create a unique index and upsert
+    language: yaml
+    code: |
+      - ref: ensure_alerts_table
+        action: core.table.create_table
+        args:
+          name: alerts
+          columns:
+            - name: alert_id
+              type: TEXT
+            - name: status
+              type: TEXT
+          raise_on_duplicate: false
+      - ref: alerts_metadata
+        action: core.table.get_table_metadata
+        depends_on:
+          - ensure_alerts_table
+        args:
+          name: alerts
+      - ref: index_alert_id
+        action: core.table.update_column
+        depends_on:
+          - alerts_metadata
+        run_if: ${{ FN.length(ACTIONS.alerts_metadata.result.columns[?(@.is_index == true)]) == 0 }}
+        args:
+          table: alerts
+          column: alert_id
+          update:
+            is_index: true
+      - ref: upsert_alert
+        action: core.table.insert_row
+        depends_on:
+          - alerts_metadata
+          - index_alert_id
+        join_strategy: any
+        args:
+          table: alerts
+          upsert: true
+          row_data:
+            alert_id: ${{ TRIGGER.alert_id }}
+            status: ${{ TRIGGER.status }}
 
   tables-lookup:
     title: Look up rows
@@ -768,6 +920,35 @@ examples:
           search_term: database
           limit: 50
           paginate: true
+
+  tables-aggregate:
+    title: Sum bytes by source and hour
+    language: yaml
+    code: |
+      - ref: bytes_by_source_hourly
+        action: core.table.aggregate_rows
+        args:
+          table: alerts
+          filters:
+            and:
+              - field: disposition
+                op: ne
+                value: benign
+              - field: created_at
+                op: gte
+                value: "2026-08-31T00:00:00Z"
+          group_by:
+            - source
+            - field: created_at
+              bucket: hour
+          aggs:
+            - function: count
+            - function: sum
+              field: bytes_out
+              alias: total_bytes
+            - function: median
+              field: duration_ms
+          limit: 200
 
   tables-write:
     title: Insert, update, and delete rows

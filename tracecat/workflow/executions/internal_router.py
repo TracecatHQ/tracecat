@@ -52,6 +52,7 @@ from tracecat.mcp.schemas import (
     WorkflowEditDocument,
     WorkflowEditResponse,
 )
+from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.webhooks import service as webhook_service
 from tracecat.webhooks.schemas import WebhookRead, WebhookUpdate
@@ -61,7 +62,17 @@ from tracecat.workflow.case_triggers.schemas import (
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.enums import TriggerType
+from tracecat.workflow.executions.schemas import (
+    WorkflowExecutionEventResponse,
+    WorkflowExecutionSummaryResponse,
+)
 from tracecat.workflow.executions.service import WorkflowExecutionsService
+from tracecat.workflow.executions.shaping import (
+    build_execution_events,
+    build_execution_summary,
+    extract_execution_types,
+    format_temporal_status,
+)
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.draft import (
     WorkflowEditError,
@@ -161,7 +172,7 @@ class InternalWorkflowExecuteResponse(BaseModel):
 
 
 class InternalWorkflowStatusResponse(BaseModel):
-    """Response for workflow execution status."""
+    """SDK workflow execution status, optionally including the event timeline."""
 
     workflow_execution_id: WorkflowExecutionID = Field(
         ..., description="Workflow execution ID"
@@ -181,6 +192,23 @@ class InternalWorkflowStatusResponse(BaseModel):
     )
     error: str | None = Field(
         default=None, description="Error message (if workflow failed)"
+    )
+    trigger_type: str | None = Field(
+        default=None, description="How the execution was triggered"
+    )
+    execution_type: str | None = Field(
+        default=None, description="Execution type (e.g. workflow, subflow)"
+    )
+    history_length: int | None = Field(
+        default=None, description="Number of events in the Temporal history"
+    )
+    events: list[WorkflowExecutionEventResponse] | None = Field(
+        default=None,
+        description=(
+            "Compact per-action event timeline (status, timing, errors). "
+            "None when not requested with include_events; [] when the run "
+            "has no action events."
+        ),
     )
 
 
@@ -705,6 +733,41 @@ async def update_case_trigger(
         raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
+@router.get("/{workflow_id}/executions", status_code=HTTP_200_OK)
+@require_scope("workflow:read")
+async def list_workflow_executions(
+    *,
+    role: ExecutorWorkspaceRole,
+    workflow_id: AnyWorkflowIDPath,
+    limit: int = 20,
+    cursor: str | None = None,
+) -> CursorPaginatedResponse[WorkflowExecutionSummaryResponse]:
+    """List recent executions for a workflow, newest first.
+
+    Mirrors the MCP ``list_workflow_executions`` tool so the workflows SDK can
+    read run history and find execution IDs for ``get_status``. The 1-100 clamp
+    matches the MCP tool's LLM-friendly bounds, not the app's wider ones.
+    ``total_estimate`` is always null (not computed for this endpoint).
+    """
+    clamped_limit = max(1, min(limit, 100))
+    exec_service = await WorkflowExecutionsService.connect(role=role)
+    try:
+        page = await exec_service.list_executions_paginated(
+            pagination=CursorPaginationParams(limit=clamped_limit, cursor=cursor),
+            workflow_id=workflow_id,
+        )
+    except ValueError as e:
+        # Malformed cursor is a caller error, not a server fault.
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return CursorPaginatedResponse(
+        items=[build_execution_summary(execution) for execution in page.items],
+        next_cursor=page.next_cursor,
+        prev_cursor=page.prev_cursor,
+        has_more=page.has_more,
+        has_previous=page.has_previous,
+    )
+
+
 @router.post("/authoring-context", status_code=HTTP_200_OK)
 @require_scope("workflow:read")
 async def get_authoring_context(
@@ -903,10 +966,17 @@ async def get_execution_status(
     *,
     role: ExecutorWorkspaceRole,
     execution_id: WorkflowExecutionID,
+    include_events: bool = False,
 ) -> InternalWorkflowStatusResponse:
     """Get the status of a workflow execution.
 
     Returns the current status, timing information, and result (if completed).
+    With ``include_events=true``, also returns the trigger/execution type and a
+    compact per-action event timeline for debugging a run; without it those
+    fields are null (never silently dropped).
+
+    ``{execution_id:path}`` is greedy (execution IDs contain a ``/``), so new
+    behavior here must be a query param, not a sibling route.
     """
     try:
         exec_service = await WorkflowExecutionsService.connect(role=role)
@@ -918,21 +988,7 @@ async def get_execution_status(
                 detail=f"Workflow execution '{execution_id}' not found",
             )
 
-        # Map Temporal status to string
-        status_map = {
-            WorkflowExecutionStatus.RUNNING: "RUNNING",
-            WorkflowExecutionStatus.COMPLETED: "COMPLETED",
-            WorkflowExecutionStatus.FAILED: "FAILED",
-            WorkflowExecutionStatus.CANCELED: "CANCELED",
-            WorkflowExecutionStatus.TERMINATED: "TERMINATED",
-            WorkflowExecutionStatus.CONTINUED_AS_NEW: "CONTINUED_AS_NEW",
-            WorkflowExecutionStatus.TIMED_OUT: "TIMED_OUT",
-        }
-        status = (
-            status_map.get(execution.status, "UNKNOWN")
-            if execution.status
-            else "UNKNOWN"
-        )
+        status = format_temporal_status(execution.status) or "UNKNOWN"
 
         # Get result or error based on status
         result = None
@@ -954,6 +1010,20 @@ async def get_execution_status(
                     error=str(e),
                 )
 
+        if not include_events:
+            return InternalWorkflowStatusResponse(
+                workflow_execution_id=execution_id,
+                status=status,
+                start_time=execution.start_time,
+                close_time=execution.close_time,
+                result=result,
+                error=error,
+            )
+
+        trigger_type, execution_type = extract_execution_types(execution)
+        compact_events = await exec_service.list_workflow_execution_events_compact(
+            execution_id
+        )
         return InternalWorkflowStatusResponse(
             workflow_execution_id=execution_id,
             status=status,
@@ -961,6 +1031,10 @@ async def get_execution_status(
             close_time=execution.close_time,
             result=result,
             error=error,
+            trigger_type=trigger_type,
+            execution_type=execution_type,
+            history_length=execution.history_length,
+            events=build_execution_events(compact_events),
         )
 
     except RPCError as e:

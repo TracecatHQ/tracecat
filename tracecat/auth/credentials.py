@@ -25,7 +25,7 @@ from fastapi.security import (
     HTTPBearer,
     OAuth2PasswordBearer,
 )
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -37,6 +37,7 @@ from tracecat.auth.api_keys import (
     verify_api_key,
 )
 from tracecat.auth.executor_tokens import verify_executor_token
+from tracecat.auth.ip_allowlist_enforcement import enforce_org_ip_allowlist
 from tracecat.auth.secrets import get_service_key
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import (
@@ -46,24 +47,16 @@ from tracecat.auth.users import (
 from tracecat.authz.controls import has_scope
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.authz.service import MembershipService, MembershipWithOrg
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_agent_session_id, ctx_role
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.engine import get_async_session_bypass_rls_context_manager
+from tracecat.db.engine import AuthSession, get_async_session_auth_context_manager
 from tracecat.db.models import (
-    GroupMember,
-    GroupRoleAssignment,
     Organization,
     OrganizationMembership,
-    RoleScope,
-    Scope,
     ServiceAccount,
     ServiceAccountApiKey,
     User,
-    UserRoleAssignment,
     Workspace,
-)
-from tracecat.db.models import (
-    Role as DBRole,
 )
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 from tracecat.identifiers import InternalServiceID
@@ -89,16 +82,42 @@ MAX_CACHED_MEMBERSHIPS = 1000
 
 
 @alru_cache(maxsize=10000)
-async def _get_workspace_org_id(workspace_id: uuid.UUID) -> uuid.UUID | None:
-    """Get organization_id for a workspace (cached).
+async def _get_workspace_org_id_cached(
+    workspace_id: uuid.UUID,
+) -> uuid.UUID | None:
+    """Get organization_id for a workspace using a session-independent cache.
 
     The workspace→organization mapping is immutable, so this can be cached
     indefinitely without TTL.
     """
-    async with get_async_session_bypass_rls_context_manager() as session:
-        stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
-        result = await session.execute(stmt)
-        return result.scalar_one_or_none()
+    async with get_async_session_auth_context_manager() as session:
+        return await _query_workspace_org_id(session, workspace_id)
+
+
+async def _get_workspace_org_id(
+    workspace_id: uuid.UUID,
+    *,
+    session: AuthSession | None = None,
+) -> uuid.UUID | None:
+    """Resolve a workspace's organization without caching a session object.
+
+    Auth flows that already hold a bulkhead session pass it here so a cold cache
+    cannot trigger a second checkout. Other callers use the cached pure lookup,
+    whose key contains only the immutable workspace ID.
+    """
+    if session is not None:
+        return await _query_workspace_org_id(session, workspace_id)
+    return await _get_workspace_org_id_cached(workspace_id)
+
+
+async def _query_workspace_org_id(
+    session: AuthSession,
+    workspace_id: uuid.UUID,
+) -> uuid.UUID | None:
+    """Resolve a workspace's organization using an already-held session."""
+    stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
 
 
 UNAUTHORIZED_EXCEPTION = HTTPException(
@@ -197,55 +216,12 @@ async def _compute_effective_scopes_cached(
     organization_id: uuid.UUID,
     workspace_id: uuid.UUID | None,
 ) -> frozenset[str]:
-    async with get_async_session_bypass_rls_context_manager() as session:
-        user_workspace_condition = (
-            or_(
-                UserRoleAssignment.workspace_id.is_(None),
-                UserRoleAssignment.workspace_id == workspace_id,
-            )
-            if workspace_id is not None
-            else UserRoleAssignment.workspace_id.is_(None)
-        )
+    from tracecat.authz.service import query_effective_scopes
 
-        group_workspace_condition = (
-            or_(
-                GroupRoleAssignment.workspace_id.is_(None),
-                GroupRoleAssignment.workspace_id == workspace_id,
-            )
-            if workspace_id is not None
-            else GroupRoleAssignment.workspace_id.is_(None)
+    async with get_async_session_auth_context_manager() as session:
+        return await query_effective_scopes(
+            session, user_id, organization_id, workspace_id
         )
-        # Direct user role assignments → Role → RoleScope → Scope
-        user_scopes = (
-            select(Scope.name)
-            .join(RoleScope, RoleScope.scope_id == Scope.id)
-            .join(DBRole, DBRole.id == RoleScope.role_id)
-            .join(UserRoleAssignment, UserRoleAssignment.role_id == DBRole.id)
-            .where(
-                UserRoleAssignment.user_id == user_id,
-                UserRoleAssignment.organization_id == organization_id,
-                user_workspace_condition,
-            )
-        )
-
-        # Group role assignments → GroupMember → GroupRoleAssignment → Role → RoleScope → Scope
-        group_scopes = (
-            select(Scope.name)
-            .join(RoleScope, RoleScope.scope_id == Scope.id)
-            .join(DBRole, DBRole.id == RoleScope.role_id)
-            .join(GroupRoleAssignment, GroupRoleAssignment.role_id == DBRole.id)
-            .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
-            .where(
-                GroupMember.user_id == user_id,
-                GroupRoleAssignment.organization_id == organization_id,
-                group_workspace_condition,
-            )
-        )
-
-        # Single atomic query: union both assignment paths
-        combined = user_scopes.union(group_scopes)
-        result = await session.execute(combined)
-        return frozenset(result.scalars().all())
 
 
 def get_role_from_user(
@@ -387,7 +363,7 @@ async def _authenticate_api_key(
     if parsed is None:
         return None
 
-    async with get_async_session_bypass_rls_context_manager() as session:
+    async with get_async_session_auth_context_manager() as session:
         stmt = (
             select(ServiceAccountApiKey)
             .where(ServiceAccountApiKey.key_id == parsed.key_id)
@@ -420,7 +396,10 @@ async def _authenticate_api_key(
             if parsed.prefix != ORG_API_KEY_PREFIX:
                 raise UNAUTHORIZED_EXCEPTION
             if workspace_id is not None:
-                workspace_org_id = await _get_workspace_org_id(workspace_id)
+                workspace_org_id = await _get_workspace_org_id(
+                    workspace_id,
+                    session=session,
+                )
                 if workspace_org_id is None:
                     raise HTTPException(
                         status_code=status.HTTP_404_NOT_FOUND,
@@ -434,7 +413,10 @@ async def _authenticate_api_key(
         else:
             if parsed.prefix != WORKSPACE_API_KEY_PREFIX:
                 raise UNAUTHORIZED_EXCEPTION
-            workspace_org_id = await _get_workspace_org_id(bound_workspace_id)
+            workspace_org_id = await _get_workspace_org_id(
+                bound_workspace_id,
+                session=session,
+            )
             if workspace_org_id is None:
                 raise UNAUTHORIZED_EXCEPTION
             if workspace_org_id != service_account.organization_id:
@@ -842,6 +824,7 @@ async def _authenticate_executor(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
             )
 
+    ctx_agent_session_id.set(token_payload.agent_session_id)
     return role
 
 
@@ -893,6 +876,11 @@ async def _role_dependency(
     Delegates to the appropriate auth handler based on credentials and allowed
     auth types, then validates the resulting role.
     """
+    # Authentication dependencies may be called more than once in one async
+    # context in tests and internal callers. Only a verified executor token may
+    # repopulate this value below.
+    ctx_agent_session_id.set(None)
+
     # Dispatch to appropriate auth handler
     role: Role | None = None
     service_key = internal_service_key or api_key
@@ -944,6 +932,14 @@ async def _role_dependency(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized",
+        )
+    # Org IP allowlist applies to end-user and service-account traffic only.
+    # Internal services and executors are not org clients; platform superusers
+    # bypass so an org cannot lock out its operators.
+    if role.type in ("user", "service_account") and role.organization_id is not None:
+        await enforce_org_ip_allowlist(
+            role.organization_id,
+            bypass=user is not None and user.is_superuser,
         )
     # Validate structural requirements and compute scopes
     role = await _validate_role(
@@ -1554,6 +1550,7 @@ async def authenticated_user_only(
     This intentionally does not activate platform-superuser privileges; use
     SuperuserRole for routes that need platform admin access.
     """
+    ctx_agent_session_id.set(None)
     role = Role(
         type="user",
         user_id=user.id,

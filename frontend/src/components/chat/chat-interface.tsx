@@ -1,13 +1,12 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import type { ChatOnDataCallback, ChatStatus, UIMessage } from "ai"
 import { ArrowRight, ChevronDown, Plus } from "lucide-react"
 import Link from "next/link"
 import { type ReactNode, useEffect, useState } from "react"
 import type {
+  AgentBackendRead,
   AgentPresetRead,
-  AgentPresetReadMinimal,
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
 } from "@/client"
@@ -19,7 +18,9 @@ import {
   PromptInputTextarea,
   PromptInputTools,
 } from "@/components/ai-elements/prompt-input"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ChatEmptyHero } from "@/components/chat/chat-empty-hero"
+import type { ChatHistoryScope } from "@/components/chat/chat-history-dropdown"
 import { ChatHistoryDropdown } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { NoMessages } from "@/components/chat/messages"
@@ -36,7 +37,16 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Tooltip,
   TooltipContent,
@@ -44,17 +54,20 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
+import { useAuth } from "@/hooks/use-auth"
 import {
   parseChatError,
+  useAgentBackends,
   useCreateChat,
   useGetChatVercel,
   useListChats,
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useChatPresetManager } from "@/hooks/use-chat-preset-manager"
-import { useEntitlements } from "@/hooks/use-entitlements"
+import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { getApiErrorDetail } from "@/lib/errors"
 import { useChatReadiness } from "@/lib/hooks"
+import { useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 import type { ChatSurface } from "@/types/chat-surface"
@@ -93,6 +106,7 @@ type PresetConfigLike = Pick<
 >
 
 const NOOP = () => {}
+const SERVER_DEFAULT_BACKEND = "server-default"
 
 export function ChatInterface({
   chatId,
@@ -111,16 +125,40 @@ export function ChatInterface({
 }: ChatInterfaceProps) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
-  const { hasEntitlement } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const { user } = useAuth()
+  const { isFeatureEnabled, isLoading: featureFlagsLoading } = useFeatureFlag()
+  const backendSelectionEnabled = isFeatureEnabled("agent-runtime")
+  const {
+    backends,
+    backendsLoading,
+    backendsReady,
+    backendsError,
+    refetchBackends,
+  } = useAgentBackends(workspaceId, { enabled: backendSelectionEnabled })
+  const backendSelectionLoading =
+    featureFlagsLoading || (backendSelectionEnabled && backendsLoading)
+  const backendSelectionReady =
+    !featureFlagsLoading && (!backendSelectionEnabled || backendsReady)
+  const hasBackendChoice = backendSelectionEnabled && backends.length > 1
   const [selectedChatId, setSelectedChatId] = useState<string | undefined>(
     chatId
   )
+  const [newChatBackend, setNewChatBackend] = useState(SERVER_DEFAULT_BACKEND)
+  const selectedBackend = backends.some(
+    (backend) => backend.id === newChatBackend
+  )
+    ? newChatBackend
+    : SERVER_DEFAULT_BACKEND
+  const backendOverride =
+    backendSelectionEnabled && selectedBackend !== SERVER_DEFAULT_BACKEND
+      ? selectedBackend
+      : undefined
   const [newChatDialogOpen, setNewChatDialogOpen] = useState(false)
   const [autoCreateAttempted, setAutoCreateAttempted] = useState(false)
   const [isDraftChat, setIsDraftChat] = useState(false)
   const [pendingFirstMessage, setPendingFirstMessage] =
     useState<PendingFirstMessage | null>(null)
+  const [historyScope, setHistoryScope] = useState<ChatHistoryScope>("team")
 
   // Keep local selection aligned when a parent-driven chatId changes.
   useEffect(() => {
@@ -134,6 +172,7 @@ export function ChatInterface({
     workspaceId: workspaceId,
     entityType,
     entityId,
+    createdBy: historyScope === "mine" ? user?.id : undefined,
   })
 
   // Create chat mutation
@@ -143,19 +182,33 @@ export function ChatInterface({
     chatId: selectedChatId,
     workspaceId,
   })
+  const currentBackendId =
+    chat && "backend_id" in chat ? chat.backend_id : "oss"
+  const currentBackendName =
+    backends.find((backend) => backend.id === currentBackendId)?.name ??
+    (currentBackendId === "oss" ? "Open source" : "Unavailable")
   const { updateChat, isUpdating } = useUpdateChat(workspaceId)
 
   useEffect(() => {
     onChatChange?.(selectedChatId ? chat : undefined)
   }, [chat, onChatChange, selectedChatId])
 
-  const presetsEnabled =
-    agentAddonsEnabled && (entityType === "case" || entityType === "copilot")
-  const sessionMcpEnabled = agentAddonsEnabled && entityType === "copilot"
+  // Setting a session preset only means something where the session owns one;
+  // preset-builder, approval and workflow sessions get no `@` trigger at all.
+  const presetsSupported = entityType === "case" || entityType === "copilot"
+  const presetsEnabled = presetsSupported
+  // `integration:read` is folded in: the picker lists servers from the MCP
+  // integration endpoint, which is guarded by it. Without it the request 403s
+  // and the picker would offer to connect a server on a page the role cannot
+  // open.
+  const canReadIntegrations = useScopeCheck("integration:read")
+  const sessionMcpEnabled =
+    canReadIntegrations === true && entityType === "copilot"
   const inWorkspaceChat = surface === "workspace-chat"
   // Surfaces that defer server-side session creation until the first message,
   // showing a draft composer instead of an eagerly-created empty session.
-  const deferSessionCreation = entityType === "case" || inWorkspaceChat
+  const deferSessionCreation =
+    entityType === "case" || inWorkspaceChat || hasBackendChoice
 
   // Mirror the active workspace-chat session into the URL so sessions are
   // deep-linkable (/chat/:sessionId). Uses replaceState to avoid remounting the
@@ -173,9 +226,6 @@ export function ChatInterface({
   }, [inWorkspaceChat, workspaceId, selectedChatId])
 
   const {
-    presets: presetOptions,
-    presetsIsLoading,
-    presetsError,
     selectedPreset,
     selectedPresetConfig,
     selectedPresetConfigError,
@@ -183,6 +233,7 @@ export function ChatInterface({
     selectedPresetId: effectivePresetId,
     selectedPresetVersionId,
     handlePresetChange,
+    getPendingPresetSelection,
     presetMenuLabel,
     presetMenuDisabled,
     showPresetSpinner,
@@ -215,14 +266,17 @@ export function ChatInterface({
       chats.length > 0 &&
       !selectedChatId &&
       !inWorkspaceChat &&
-      !(entityType === "case" && isDraftChat)
+      !(deferSessionCreation && isDraftChat)
     ) {
-      // Select first existing chat
-      const firstChatId = chats[0].id
+      // Prefer the current user's latest writable chat before falling back to
+      // the newest teammate session.
+      const firstChatId =
+        chats.find((candidate) => !candidate.is_readonly)?.id ?? chats[0].id
       setSelectedChatId(firstChatId)
       onChatSelect?.(firstChatId)
     } else if (
       !deferSessionCreation &&
+      backendSelectionReady &&
       chats.length === 0 &&
       !selectedChatId &&
       !autoCreateAttempted
@@ -233,6 +287,7 @@ export function ChatInterface({
         title: "Chat 1",
         entity_type: entityType,
         entity_id: entityId,
+        backend_id: backendOverride,
       })
         .then((newChat) => {
           setSelectedChatId(newChat.id)
@@ -252,12 +307,15 @@ export function ChatInterface({
     entityType,
     entityId,
     autoCreateAttempted,
+    backendOverride,
+    backendSelectionReady,
     isDraftChat,
     inWorkspaceChat,
     deferSessionCreation,
   ])
 
   const handleCreateChat = async () => {
+    if (!backendSelectionReady || createChatPending) return
     setNewChatDialogOpen(false)
 
     if (deferSessionCreation) {
@@ -272,6 +330,7 @@ export function ChatInterface({
         title: `Chat ${(chats?.length || 0) + 1}`,
         entity_type: entityType,
         entity_id: entityId,
+        backend_id: backendOverride,
       })
       setSelectedChatId(newChat.id)
       onChatSelect?.(newChat.id)
@@ -285,19 +344,24 @@ export function ChatInterface({
     selectedTools?: string[],
     selectedMcpIntegrations?: string[]
   ) => {
-    if (!deferSessionCreation || createChatPending) {
+    if (!deferSessionCreation || !backendSelectionReady || createChatPending) {
       return null
     }
+
+    // Read the selection through the manager: an `@Agent` mention sets the
+    // preset moments before this runs, and render state is still behind.
+    const pendingPreset = getPendingPresetSelection()
 
     try {
       const newChat = await createChat({
         title: `Chat ${(chats?.length || 0) + 1}`,
         entity_type: entityType,
         entity_id: entityId,
+        backend_id: backendOverride,
         tools: selectedTools,
         mcp_integrations: selectedMcpIntegrations,
-        agent_preset_id: effectivePresetId,
-        agent_preset_version_id: selectedPresetVersionId,
+        agent_preset_id: pendingPreset.presetId,
+        agent_preset_version_id: pendingPreset.versionId,
       })
 
       // Prime the vercel chat cache with the freshly created (empty) session so
@@ -333,9 +397,17 @@ export function ChatInterface({
     onChatSelect?.(chatId)
   }
 
+  const handleHistoryScopeChange = (nextScope: ChatHistoryScope) => {
+    setHistoryScope(nextScope)
+    if (nextScope === "mine" && chat?.is_readonly) {
+      setSelectedChatId(undefined)
+    }
+  }
+
   // Show loading while chats are loading or being auto-created
   if (
     chatsLoading ||
+    (!selectedChatId && backendSelectionLoading) ||
     (!deferSessionCreation && chats && chats.length === 0 && createChatPending)
   ) {
     return (
@@ -362,15 +434,10 @@ export function ChatInterface({
   const presetSelector = presetsEnabled
     ? {
         label: presetMenuLabel,
-        presets: presetOptions,
-        presetsError,
-        presetsIsLoading,
         selectedPresetId: effectivePresetId,
         disabled: presetMenuDisabled,
         showSpinner: showPresetSpinner,
-        noPresetDescription: "Use workspace default case agent instructions.",
-        onSelect: (presetId: string | null) =>
-          void handlePresetChange(presetId),
+        onSelect: handlePresetChange,
       }
     : undefined
   const pendingMessageText =
@@ -398,12 +465,33 @@ export function ChatInterface({
               error={chatsError}
               selectedChatId={selectedChatId}
               onSelectChat={handleSelectChat}
+              workspaceId={workspaceId}
+              scope={historyScope}
+              onScopeChange={handleHistoryScopeChange}
             />
+            {chat?.is_readonly ? (
+              <Badge
+                variant="outline"
+                className="px-1.5 py-0 text-[10px] font-normal text-muted-foreground"
+              >
+                Read only
+              </Badge>
+            ) : null}
           </div>
 
           {/* Right-side actions */}
           <div className="flex items-center gap-1">
             {headerActions}
+            {backendSelectionEnabled && selectedChatId && chat ? (
+              <Badge variant="outline">{currentBackendName}</Badge>
+            ) : null}
+            {!selectedChatId && hasBackendChoice && (
+              <BackendSelect
+                backends={backends}
+                value={selectedBackend}
+                onChange={setNewChatBackend}
+              />
+            )}
             {/* New chat icon button with tooltip */}
             <AlertDialog
               open={newChatDialogOpen}
@@ -414,10 +502,11 @@ export function ChatInterface({
                   <AlertDialogTrigger asChild>
                     <TooltipTrigger asChild>
                       <Button
+                        aria-label="New chat"
                         size="sm"
                         variant="ghost"
                         className="size-6 p-0"
-                        disabled={createChatPending}
+                        disabled={createChatPending || !backendSelectionReady}
                       >
                         <Plus className="h-4 w-4" />
                       </Button>
@@ -435,9 +524,19 @@ export function ChatInterface({
                       : "This will create a new conversation. Your current chat will remain accessible from the conversations menu."}
                   </AlertDialogDescription>
                 </AlertDialogHeader>
+                {hasBackendChoice && (
+                  <BackendSelect
+                    backends={backends}
+                    value={selectedBackend}
+                    onChange={setNewChatBackend}
+                  />
+                )}
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => void handleCreateChat()}>
+                  <AlertDialogAction
+                    disabled={createChatPending || !backendSelectionReady}
+                    onClick={() => void handleCreateChat()}
+                  >
                     Start new chat
                   </AlertDialogAction>
                 </AlertDialogFooter>
@@ -446,6 +545,26 @@ export function ChatInterface({
           </div>
         </div>
       </div>
+
+      {backendSelectionEnabled && backendsError && (
+        <div className="px-4 pb-2">
+          <Alert>
+            <AlertTitle>Unable to load chat backends</AlertTitle>
+            <AlertDescription>
+              Retry before starting a new chat. Existing chats are still
+              accessible.
+            </AlertDescription>
+            <Button
+              className="mt-2"
+              size="sm"
+              variant="outline"
+              onClick={() => void refetchBackends()}
+            >
+              Retry
+            </Button>
+          </Alert>
+        </div>
+      )}
 
       {/* Chat Body */}
       <div className={cn("flex flex-1 min-h-0 flex-col", bodyClassName)}>
@@ -461,14 +580,14 @@ export function ChatInterface({
           selectedPreset={activePreset}
           selectedPresetConfigError={selectedPresetConfigError}
           toolsEnabled={toolsEnabled}
-          agentAddonsEnabled={agentAddonsEnabled}
+          agentMentionsSupported={presetsSupported}
           mcpEnabled={sessionMcpEnabled}
           draftMode={draftMode}
           presetSelector={presetSelector}
           onCreateSessionBeforeSend={
             deferSessionCreation ? handleCreateSessionOnFirstSend : undefined
           }
-          draftInputDisabled={createChatPending}
+          draftInputDisabled={createChatPending || !backendSelectionReady}
           pendingMessage={pendingMessageText}
           onPendingMessageSent={handlePendingMessageSent}
           surface={surface}
@@ -478,6 +597,44 @@ export function ChatInterface({
         />
       </div>
     </div>
+  )
+}
+
+function BackendSelect({
+  backends,
+  value,
+  onChange,
+}: {
+  backends: AgentBackendRead[]
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <Select
+      value={value}
+      onValueChange={(next) => {
+        if (
+          next === SERVER_DEFAULT_BACKEND ||
+          backends.some((backend) => backend.id === next)
+        ) {
+          onChange(next)
+        }
+      }}
+    >
+      <SelectTrigger aria-label="Backend (dev)" className="w-36">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          <SelectItem value={SERVER_DEFAULT_BACKEND}>Server default</SelectItem>
+          {backends.map((backend) => (
+            <SelectItem key={backend.id} value={backend.id}>
+              {backend.name}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   )
 }
 
@@ -493,19 +650,16 @@ interface ChatBodyProps {
   selectedPreset?: PresetConfigLike
   selectedPresetConfigError?: unknown
   toolsEnabled: boolean
-  agentAddonsEnabled: boolean
+  /** Whether `@` offers agent presets on this surface. */
+  agentMentionsSupported: boolean
   mcpEnabled: boolean
   draftMode: boolean
   presetSelector?: {
     label: string
-    presets?: AgentPresetReadMinimal[]
-    presetsIsLoading: boolean
-    presetsError: unknown
     selectedPresetId: string | null
-    onSelect: (presetId: string | null) => void | Promise<void>
+    onSelect: (presetId: string | null) => Promise<boolean>
     disabled?: boolean
     showSpinner?: boolean
-    noPresetDescription?: string
   }
   onCreateSessionBeforeSend?: (
     messageText: string,
@@ -533,7 +687,7 @@ function ChatBody({
   selectedPreset,
   selectedPresetConfigError,
   toolsEnabled,
-  agentAddonsEnabled,
+  agentMentionsSupported,
   mcpEnabled,
   draftMode,
   presetSelector,
@@ -595,7 +749,7 @@ function ChatBody({
   }
 
   // Render active chat session when ready
-  if (!chatReady || !modelInfo) {
+  if ((!chatReady || !modelInfo) && !chat?.is_readonly) {
     // Render configuration required state
     if (surface === "workspace-chat") {
       return (
@@ -644,9 +798,9 @@ function ChatBody({
         entityId={entityId}
         placeholder={placeholder}
         className="flex-1 min-h-0"
-        modelInfo={modelInfo}
+        modelInfo={modelInfo ?? undefined}
         toolsEnabled={toolsEnabled}
-        agentAddonsEnabled={agentAddonsEnabled}
+        agentMentionsSupported={agentMentionsSupported}
         mcpEnabled={mcpEnabled}
         presetSelector={presetSelector}
         onBeforeSend={onCreateSessionBeforeSend}
@@ -677,9 +831,9 @@ function ChatBody({
       entityId={entityId}
       placeholder={placeholder}
       className="flex-1 min-h-0"
-      modelInfo={modelInfo}
+      modelInfo={modelInfo ?? undefined}
       toolsEnabled={toolsEnabled}
-      agentAddonsEnabled={agentAddonsEnabled}
+      agentMentionsSupported={agentMentionsSupported}
       mcpEnabled={mcpEnabled}
       presetSelector={presetSelector}
       pendingMessage={pendingMessage ?? undefined}

@@ -13,7 +13,9 @@ from tracecat.git.utils import GitUrl
 from tracecat.ssh import (
     SshEnv,
     add_host_to_known_hosts_sync,
+    add_ssh_key_to_agent_sync,
     get_git_ssh_command,
+    temporary_ssh_agent,
 )
 
 
@@ -138,3 +140,83 @@ class TestAddHostToKnownHosts:
 
         assert host == expected_host
         assert port == expected_port
+
+
+@pytest.mark.anyio
+async def test_temporary_ssh_agent_uses_private_socket_and_exact_cleanup_env(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    socket_dir = tmp_path / "agent"
+    socket_path = socket_dir / "agent.sock"
+    run = mocker.patch(
+        "tracecat.ssh.subprocess.run",
+        side_effect=[
+            SimpleNamespace(
+                returncode=0,
+                stdout=(
+                    f"SSH_AUTH_SOCK={socket_path}; export SSH_AUTH_SOCK;\n"
+                    "SSH_AGENT_PID=4321; export SSH_AGENT_PID;\n"
+                ),
+                stderr="",
+            ),
+            SimpleNamespace(returncode=0, stdout="", stderr=""),
+        ],
+    )
+
+    async with temporary_ssh_agent(socket_dir=socket_dir) as env:
+        assert env == SshEnv(
+            ssh_auth_sock=str(socket_path),
+            ssh_agent_pid="4321",
+        )
+        assert socket_dir.stat().st_mode & 0o777 == 0o700
+
+    start_call, stop_call = run.call_args_list
+    assert start_call.args[0] == ["ssh-agent", "-s", "-a", str(socket_path)]
+    assert stop_call.args[0] == ["ssh-agent", "-k"]
+    assert stop_call.kwargs["env"] == {
+        "SSH_AUTH_SOCK": str(socket_path),
+        "SSH_AGENT_PID": "4321",
+    }
+
+
+def test_add_ssh_key_applies_lifetime_and_destination_constraint(
+    tmp_path: Path,
+    mocker,
+) -> None:
+    known_hosts = tmp_path / "known_hosts"
+    known_hosts.write_text("git.example.test ssh-ed25519 synthetic\n")
+    env = SshEnv(ssh_auth_sock="/tmp/agent.sock", ssh_agent_pid="123")
+    validate_key = mocker.patch("tracecat.ssh.paramiko.Ed25519Key.from_private_key")
+    run = mocker.patch(
+        "tracecat.ssh.subprocess.run",
+        return_value=SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    add_ssh_key_to_agent_sync(
+        "fake-private-key",
+        env,
+        lifetime_seconds=150,
+        destination="git@git.example.test",
+        known_hosts_path=known_hosts,
+    )
+
+    validate_key.assert_called_once()
+    run.assert_called_once_with(
+        [
+            "ssh-add",
+            "-t",
+            "150",
+            "-H",
+            str(known_hosts),
+            "-h",
+            "git@git.example.test",
+            "-",
+        ],
+        input="fake-private-key\n",
+        capture_output=True,
+        text=True,
+        env=env.to_dict(),
+        check=False,
+        timeout=30.0,
+    )

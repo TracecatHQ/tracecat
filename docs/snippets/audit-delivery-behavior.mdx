@@ -1,0 +1,9 @@
+Tracecat posts each event as a JSON `POST` request and does not block the audited action on the result.
+
+- Delivery runs in the background, so a failing or slow collector does not prevent the audited change from completing.
+- Each request times out after 10 seconds.
+- Tracecat makes up to three delivery attempts per event — the initial request plus two retries with exponential backoff — on `429`, `500`, `502`, `503`, `504`, and transport errors. Other `4xx` responses are terminal.
+- A retry after a lost response can deliver a duplicate. Events carry no event ID and a retried event is byte-identical, so deduplicate on the full event body if you need exact counts.
+- Under sustained backpressure Tracecat sheds events rather than buffering without bound.
+
+Delivery is best-effort, so do not treat the stream as a guaranteed-complete ledger.

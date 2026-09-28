@@ -1,0 +1,75 @@
+type: action
+definition:
+  title: List app users
+  description: >-
+    List app users. Calls GET /app-users/ directly. Links each worker to their external SaaS
+    account. A push_state of DELETE_FAILED or SUSPEND_FAILED means access was not actually
+    revoked, and a match_state of NOT_MATCHED surfaces orphaned accounts. Required scope:
+    app-users.read.
+  display_group: Rippling
+  doc_url: https://developer.rippling.com/documentation/rest-api/reference/list-app-users
+  namespace: tools.rippling
+  name: list_app_users
+  secrets:
+    - name: rippling
+      keys: ["RIPPLING_API_KEY"]
+  expects:
+    filter:
+      type: str | None
+      description: >-
+        The `filter` query parameter is used to filter the data returned from the API - similar to a
+        `where` clause. The following operators are supported: eq, ne, gt, gte, lt, lte, and, or,
+        in. Example: status eq 'ACTIVE'. Filterable fields: `worker_id`, `spoke_user_identifier`,
+        `app_handle`, `created_at`, `updated_at`.
+      default: null
+    expand:
+      type: str | None
+      description: >-
+        Fields in a response can represent objects themselves. Instead of making an additional API
+        call, you can expand field(s) in a response using the `expand` query parameter. Use commas
+        to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API
+        supports two levels of expansion and up to ten expanded fields per request. Expandable
+        fields: `worker`.
+      default: null
+    order_by:
+      type: str | None
+      description: >-
+        The `order_by` parameter is used to select field(s) to sort by and to define whether results
+        are sorted in ascending or descending order. Supported sort directions are `asc` for
+        ascending order and `desc` for descending order. Unless indicated, the default sort
+        direction is ascending order. Use commas to specify multiple fields to sort. Sortable
+        fields: `id`, `created_at`, `updated_at`.
+      default: null
+    limit:
+      type: int | None
+      description: >-
+        `limit` controls how many results are returned in a single page. Default page size is 50.
+        Most endpoints allow a maximum of 100.
+      default: null
+    cursor:
+      type: str | None
+      description: >-
+        `cursor` is used to fetch the next page of results. Start with a request without cursor,
+        read the `next_link` value from the response, and continue until `next_link` is `null`.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Rippling REST API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rippling.base_url || "https://rest.ripplingapis.com" }}/app-users/
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
+          Accept: application/json
+          Rippling-Api-Version: '2024-08-01'
+        params:
+          filter: ${{ inputs.filter }}
+          expand: ${{ inputs.expand }}
+          order_by: ${{ inputs.order_by }}
+          limit: ${{ inputs.limit }}
+          cursor: ${{ inputs.cursor }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Semantic code search
+  description: >-
+    Semantic code search. Calls GET /projects/{project_id}/search/semantic directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version. Requires GitLab Duo and a GitLab version that supports the REST semantic search endpoint.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: semantic_code_search
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    q:
+      type: str
+      description: Natural language search query.
+    directory_path:
+      type: str | None
+      description: Directory path to scope the search to.
+      default: null
+    knn:
+      type: int | None
+      description: Number of nearest neighbors to consider during the vector search (1-100). Default is `64`.
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of results to return (1-100). Default is `20`.
+      default: null
+    base_url:
+      type: str
+      description: GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
+      default: https://gitlab.com/api/v4
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/search/semantic
+        method: GET
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
+          Accept: application/json
+        params:
+          q: ${{ inputs.q }}
+          directory_path: ${{ inputs.directory_path }}
+          knn: ${{ inputs.knn }}
+          limit: ${{ inputs.limit }}
+  returns: ${{ steps.request.result }}

@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   type ApiError,
   type TriggerType,
@@ -23,6 +22,7 @@ import {
   type CursorPaginationParams,
   useCursorPagination,
 } from "@/hooks/pagination/use-cursor-pagination"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 const WORKFLOW_RUNS_PAGE_SIZE = 50

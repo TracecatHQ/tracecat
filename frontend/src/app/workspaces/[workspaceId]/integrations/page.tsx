@@ -44,11 +44,12 @@ import {
 } from "@/components/ui/tooltip"
 import {
   useConnectProvider,
+  useDeleteProvider,
   useDisconnectProvider,
   useTestProvider,
 } from "@/hooks/use-integration-actions"
 import { useIntegrations } from "@/lib/hooks"
-import { isMcpProvider } from "@/lib/integrations"
+import { isCustomOAuthProvider, isMcpProvider } from "@/lib/integrations"
 import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -90,7 +91,7 @@ function getIntegrationStatus(item: IntegrationItem): IntegrationStatus {
 function getIntegrationDisplayType(
   item: IntegrationItem
 ): IntegrationSectionType {
-  if (item.id.startsWith("custom_")) {
+  if (isCustomOAuthProvider(item.id)) {
     return "custom_oauth"
   }
   return item.type
@@ -101,6 +102,8 @@ export default function IntegrationsPage() {
   const canReadIntegrations = useScopeCheck("integration:read")
   const canUpdateIntegrations = useScopeCheck("integration:update")
   const canMutateIntegrations = canUpdateIntegrations === true
+  const canDeleteIntegrations = useScopeCheck("integration:delete")
+  const canDelete = canDeleteIntegrations === true
   const router = useRouter()
   const searchParams = useSearchParams()
   const [searchQuery, setSearchQuery] = useState("")
@@ -116,6 +119,11 @@ export default function IntegrationsPage() {
     grantType: OAuthGrantType
   } | null>(null)
   const [disconnectTarget, setDisconnectTarget] = useState<{
+    providerId: string
+    grantType: OAuthGrantType
+    name: string
+  } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{
     providerId: string
     grantType: OAuthGrantType
     name: string
@@ -141,6 +149,7 @@ export default function IntegrationsPage() {
 
   const connectProviderMutation = useConnectProvider(workspaceId)
   const disconnectProviderMutation = useDisconnectProvider(workspaceId)
+  const deleteProviderMutation = useDeleteProvider(workspaceId)
   const testConnectionMutation = useTestProvider(workspaceId)
 
   const allIntegrations = useMemo<IntegrationItem[]>(() => {
@@ -170,7 +179,7 @@ export default function IntegrationsPage() {
         typeFilters.length === 0 ||
         typeFilters.some((filter) => {
           if (filter === "custom_oauth") {
-            return item.id.startsWith("custom_")
+            return isCustomOAuthProvider(item.id)
           }
           return item.type === filter
         })
@@ -442,6 +451,12 @@ export default function IntegrationsPage() {
                           disconnectProviderMutation.variables?.providerId ===
                             item.id
                         const displayType = getIntegrationDisplayType(item)
+                        const isCustom = displayType === "custom_oauth"
+                        const showDelete = canDelete && isCustom
+                        const isDeleting =
+                          deleteProviderMutation.isPending &&
+                          deleteProviderMutation.variables?.providerId ===
+                            item.id
                         const typeLabel = integrationTypeLabels[displayType]
 
                         return (
@@ -606,6 +621,24 @@ export default function IntegrationsPage() {
                                   Disconnect
                                 </Button>
                               )}
+                              {showDelete && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    setDeleteTarget({
+                                      providerId: item.id,
+                                      grantType: item.grant_type,
+                                      name: item.name,
+                                    })
+                                  }}
+                                  disabled={isDeleting}
+                                >
+                                  Delete
+                                </Button>
+                              )}
                             </ItemActions>
                           </Item>
                         )
@@ -644,6 +677,7 @@ export default function IntegrationsPage() {
           providerId={detailsProvider.providerId}
           grantType={detailsProvider.grantType}
           canUpdate={canMutateIntegrations}
+          canDelete={canDelete}
         />
       )}
       <ConfirmDestructiveDialog
@@ -670,6 +704,34 @@ export default function IntegrationsPage() {
             grantType: disconnectTarget.grantType,
           })
           setDisconnectTarget(null)
+        }}
+      />
+      <ConfirmDestructiveDialog
+        open={deleteTarget !== null}
+        onOpenChange={(next) => {
+          if (!next) setDeleteTarget(null)
+        }}
+        confirmPhrase={deleteTarget?.name ?? ""}
+        title="Delete custom provider"
+        description={
+          deleteTarget ? (
+            <>
+              Are you sure you want to delete{" "}
+              <span className="font-medium">{deleteTarget.name}</span>? This
+              removes the provider definition and any stored credentials or
+              connections.
+            </>
+          ) : null
+        }
+        confirmLabel="Delete"
+        isPending={deleteProviderMutation.isPending}
+        onConfirm={async () => {
+          if (!deleteTarget) return
+          await deleteProviderMutation.mutateAsync({
+            providerId: deleteTarget.providerId,
+            grantType: deleteTarget.grantType,
+          })
+          setDeleteTarget(null)
         }}
       />
     </div>

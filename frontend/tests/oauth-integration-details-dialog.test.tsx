@@ -8,6 +8,7 @@ import type { IntegrationRead, OAuthGrantType, ProviderRead } from "@/client"
 import { OAuthIntegrationDetailsDialog } from "@/components/integrations/oauth-integration-details-dialog"
 import {
   useConnectProvider,
+  useDeleteProvider,
   useDisconnectProvider,
   useTestProvider,
 } from "@/hooks/use-integration-actions"
@@ -74,6 +75,7 @@ jest.mock("@/components/ui/scroll-area", () => ({
 
 jest.mock("@/hooks/use-integration-actions", () => ({
   useConnectProvider: jest.fn(),
+  useDeleteProvider: jest.fn(),
   useDisconnectProvider: jest.fn(),
   useTestProvider: jest.fn(),
 }))
@@ -96,6 +98,9 @@ const mockUseDisconnectProvider = useDisconnectProvider as jest.MockedFunction<
 >
 const mockUseTestProvider = useTestProvider as jest.MockedFunction<
   typeof useTestProvider
+>
+const mockUseDeleteProvider = useDeleteProvider as jest.MockedFunction<
+  typeof useDeleteProvider
 >
 
 const provider: ProviderRead = {
@@ -157,21 +162,29 @@ function setupMocks(
   mockUseTestProvider.mockReturnValue(
     mutation as unknown as ReturnType<typeof useTestProvider>
   )
+  mockUseDeleteProvider.mockReturnValue(
+    mutation as unknown as ReturnType<typeof useDeleteProvider>
+  )
 }
 
 function renderDialog(
   grantType: OAuthGrantType,
-  integrationOverrides: Partial<IntegrationRead> = {}
+  integrationOverrides: Partial<IntegrationRead> = {},
+  {
+    providerId = "slack",
+    canDelete = false,
+  }: { providerId?: string; canDelete?: boolean } = {}
 ) {
   setupMocks(grantType, integrationOverrides)
 
   render(
     <OAuthIntegrationDetailsDialog
-      providerId="slack"
+      providerId={providerId}
       grantType={grantType}
       open={true}
       onOpenChange={() => {}}
       canUpdate={true}
+      canDelete={canDelete}
     />
   )
 }
@@ -217,4 +230,40 @@ describe("OAuthIntegrationDetailsDialog", () => {
       ).not.toBeInTheDocument()
     }
   )
+
+  it("shows the delete action for custom providers when allowed", () => {
+    renderDialog(
+      "authorization_code",
+      {},
+      { providerId: "custom_acme", canDelete: true }
+    )
+
+    expect(
+      screen.getByRole("button", { name: /delete provider/i })
+    ).toBeInTheDocument()
+  })
+
+  it("hides the delete action for custom providers without the scope", () => {
+    renderDialog(
+      "authorization_code",
+      {},
+      { providerId: "custom_acme", canDelete: false }
+    )
+
+    expect(
+      screen.queryByRole("button", { name: /delete provider/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it("hides the delete action for built-in providers", () => {
+    renderDialog(
+      "authorization_code",
+      {},
+      { providerId: "slack", canDelete: true }
+    )
+
+    expect(
+      screen.queryByRole("button", { name: /delete provider/i })
+    ).not.toBeInTheDocument()
+  })
 })

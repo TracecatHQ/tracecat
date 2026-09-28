@@ -15,6 +15,7 @@ import time
 import uuid
 from collections.abc import AsyncIterable, Callable
 from dataclasses import dataclass, field, replace
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 from uuid import uuid4
@@ -24,16 +25,46 @@ import orjson
 from fastapi import HTTPException
 
 from tracecat import config as app_config
+from tracecat.agent.common.exceptions import AgentSandboxValidationError
+from tracecat.agent.diagnostics import (
+    LLMErrorDiagnostics,
+    parse_bounded_error_body,
+    provider_configuration_for,
+)
+from tracecat.agent.error_policy import (
+    agent_executor_protocol_failed,
+    agent_executor_timed_out,
+    agent_executor_unavailable,
+    agent_llm_budget_exceeded,
+    agent_llm_gateway_auth_failed,
+    agent_llm_provider_auth_failed,
+    agent_llm_rate_limited,
+    agent_llm_read_timeout,
+    invalid_agent_configuration,
+    user_agent_execution_failed,
+)
+from tracecat.agent.gateway_providers import (
+    CUSTOM_MODEL_PROVIDER_SLUG,
+    resolve_gateway_provider_config,
+)
 from tracecat.agent.observability import get_load_tracker
+from tracecat.agent.sandbox.shim_entrypoint import HTTPRequestError, read_http_request
 from tracecat.agent.service import AgentManagementService
+from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
+from tracecat.network import DisallowedUrlError
+from tracecat.observability.sentry import capture_activity_failure
+from tracecat.observability.types import PlatformErrorCapture, ProxyFailureContext
+from tracecat.outbound import create_outbound_http_client
+from tracecat.runtime.errors import RuntimeErrorClassification
 
 # Strip a trailing "/vN" segment (with optional trailing slash) from a
 # passthrough upstream URL. The contract for stored ``base_url`` is the
 # OpenAI-compatible "/v1" form (so catalog discovery can hit
 # ``{base_url}/models`` → ``/v1/models``). In passthrough mode the SDK
-# clients (Claude Code SDK, pydantic-ai) emit fully-qualified paths like
+# clients such as the Claude Code SDK emit fully-qualified paths like
 # ``/v1/messages``, so we strip the version suffix from direct route ``base_url``
 # to avoid producing ``/v1/v1/messages``, which the upstream rejects with
 # a 404 "model not found".
@@ -54,11 +85,44 @@ _NON_CRITICAL_PATHS = frozenset(
 )
 
 # User-friendly error messages by status code
+_ALLOWED_HTTP_METHODS = frozenset({"GET", "POST"})
+"""Methods the jailed runtime may use through the LLM socket proxy.
+
+Inference is POST and provider/catalog discovery is GET. Rejecting
+DELETE/PUT/PATCH/CONNECT/etc. prevents in-jail code from exercising gateway
+administration or destructive endpoints with the host-attached credentials.
+"""
+
+_POST_PATH_ALLOWLIST = frozenset(
+    {
+        "/v1/messages",
+        "/v1/messages/count_tokens",
+        "/v1/responses",
+        "/v1/chat/completions",
+        "/v1/completions",
+        "/v1/embeddings",
+        "/api/event_logging/batch",
+    }
+)
+"""POST paths the jailed Claude runtime may send through the proxy.
+
+Covers inference, token counting, OpenAI-compatible passthrough routes, and
+the CLI's event-log batching. Every other POST path is rejected before the
+gateway so jailed code cannot reach administrative or billing endpoints
+with the host-attached credentials.
+"""
+
+_GET_PATH_ALLOWLIST = frozenset({"/v1/models", "/models"})
+"""GET paths the jailed runtime may use: provider/model discovery only."""
+
 _ERROR_MESSAGES = {
     400: "Invalid request to LLM provider",
     401: "Authentication failed - check your API credentials",
     403: "Access denied - check your API permissions",
     404: "Model not found - check your model configuration",
+    405: "HTTP method not allowed by the LLM socket proxy",
+    413: "Content Too Large",
+    431: "Request Header Fields Too Large",
     429: "Rate limit exceeded - please try again later",
     500: "LLM provider internal error",
     502: "LLM provider unavailable",
@@ -66,7 +130,6 @@ _ERROR_MESSAGES = {
     504: "LLM provider request timed out",
     529: "LLM provider is overloaded - please try again shortly",
 }
-_ERROR_BODY_PREVIEW_BYTES = 2048
 _proxy_load_tracker = get_load_tracker("llm_socket_proxy")
 _TRACE_REQUEST_ID_HEADER = "x-request-id"
 _ANTHROPIC_ONLY_FIELDS = (
@@ -75,6 +138,19 @@ _ANTHROPIC_ONLY_FIELDS = (
     "output_config",
     "output_format",
 )
+
+
+# Beta headers are opt-ins the model never sees; headerless requests are the
+# vanilla-client default, so the header is dropped for non-Anthropic upstreams.
+# Bodies are forwarded untouched apart from the Anthropic-only top-level fields
+# above (tool_search wire artifacts like defer_loading/tool_reference are
+# tolerated by Anthropic-compatible gateways — verified against LiteLLM and
+# Ollama).
+def _drop_anthropic_beta_header(headers: dict[str, str]) -> dict[str, str]:
+    """Remove the anthropic-beta header for non-Anthropic upstreams."""
+    return {
+        key: value for key, value in headers.items() if key.lower() != "anthropic-beta"
+    }
 
 
 def _format_timeout_duration(seconds: float) -> str:
@@ -86,11 +162,162 @@ def _format_timeout_duration(seconds: float) -> str:
     return f"{seconds:g} {unit}"
 
 
+def _log_read_timeout(
+    *,
+    route_is_direct: bool,
+    phase: Literal["response_headers", "response_body", "error_body"],
+    started_at: float | None,
+    first_chunk_at: float | None = None,
+    last_chunk_at: float | None = None,
+) -> None:
+    """Record timing evidence without upstream URLs or request/response content."""
+    now = time.monotonic()
+    logger.warning(
+        "LLM upstream read timed out",
+        route="direct" if route_is_direct else "managed",
+        phase=phase,
+        read_timeout_seconds=app_config.TRACECAT__LLM_PROXY_READ_TIMEOUT,
+        # aread() buffers error bodies internally; partial progress is unknown.
+        response_body_started=(
+            None if phase == "error_body" else first_chunk_at is not None
+        ),
+        first_body_chunk_ms=(
+            (first_chunk_at - started_at) * 1000
+            if first_chunk_at is not None and started_at is not None
+            else None
+        ),
+        time_since_last_chunk_ms=(
+            (now - last_chunk_at) * 1000 if last_chunk_at is not None else None
+        ),
+        elapsed_ms=(now - started_at) * 1000 if started_at is not None else None,
+    )
+
+
 class ParsedRequest(TypedDict):
     method: str
     path: str
     headers: dict[str, str]
     body: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class LLMProxyError:
+    """One terminal proxy error with source-owned runtime attribution."""
+
+    message: str
+    classification: RuntimeErrorClassification
+    diagnostic: LLMErrorDiagnostics | None = None
+    sentry_capture: PlatformErrorCapture | None = None
+
+
+def _error_object_strings(body: bytes) -> tuple[str | None, str | None]:
+    """Read the machine-readable ``error.type`` and ``error.code`` of a body.
+
+    Args:
+        body: Raw upstream error body.
+
+    Returns:
+        The ``type`` and ``code`` strings, each None when absent or when the
+        body does not carry a JSON object ``error`` member.
+    """
+    payload = parse_bounded_error_body(body)
+    if not isinstance(payload, dict):
+        return None, None
+    error = payload.get("error")
+    if not isinstance(error, dict):
+        return None, None
+    error_type = error.get("type")
+    error_code = error.get("code")
+    return (
+        error_type if isinstance(error_type, str) else None,
+        error_code if isinstance(error_code, str) else None,
+    )
+
+
+def _http_error_classification(
+    status_code: int,
+    *,
+    route_is_direct: bool,
+    body: bytes = b"",
+) -> RuntimeErrorClassification:
+    # Only machine-readable fields participate in classification. Never infer
+    # budget or auth origin from provider messages (which can contain secrets).
+    error_type, error_code = _error_object_strings(body)
+    is_auth_status = status_code in {401, 403}
+    if not route_is_direct and is_auth_status:
+        if error_type == "tracecat_llm_token_invalid":
+            return agent_llm_gateway_auth_failed()
+        if error_type == "tracecat_llm_provider_auth_failed":
+            return agent_llm_provider_auth_failed()
+    if status_code in {400, 429} and error_type in {
+        "budget_exceeded",
+        "insufficient_quota",
+    }:
+        return agent_llm_budget_exceeded()
+    if status_code == 429 and error_code == "insufficient_quota":
+        return agent_llm_budget_exceeded()
+    if is_auth_status:
+        if route_is_direct:
+            return agent_llm_provider_auth_failed()
+        return agent_executor_unavailable()
+    if status_code == 429:
+        return agent_llm_rate_limited(route_is_direct=route_is_direct)
+    if route_is_direct:
+        return user_agent_execution_failed(retryable=status_code in {408, 504})
+    if status_code in {408, 504}:
+        return agent_executor_timed_out()
+    if status_code >= 500:
+        return agent_executor_unavailable()
+    return user_agent_execution_failed()
+
+
+def _transport_error_classification(
+    error: httpx.TransportError,
+    *,
+    route_is_direct: bool,
+) -> RuntimeErrorClassification:
+    if isinstance(error, httpx.ReadTimeout):
+        return agent_llm_read_timeout(error)
+    if route_is_direct:
+        return user_agent_execution_failed(error, retryable=True)
+    if isinstance(error, httpx.TimeoutException):
+        return agent_executor_timed_out(error)
+    return agent_executor_unavailable(error)
+
+
+def _transport_proxy_error(
+    error: httpx.TransportError,
+    *,
+    route_is_direct: bool,
+    fallback_message: str,
+    diagnostic: LLMErrorDiagnostics | None,
+) -> LLMProxyError:
+    """Build the terminal proxy error for one upstream transport failure.
+
+    Read timeouts carry their own source-owned message; every other transport
+    failure surfaces the caller's site-specific text.
+
+    Args:
+        error: Transport failure raised while talking to the upstream.
+        route_is_direct: Whether the request bypassed the managed gateway.
+        fallback_message: Message to surface for non-read-timeout failures.
+        diagnostic: Safe route context for the selected request route.
+
+    Returns:
+        Terminal proxy error with message, classification, and diagnostic.
+    """
+    classification = _transport_error_classification(
+        error, route_is_direct=route_is_direct
+    )
+    return LLMProxyError(
+        message=(
+            classification.message
+            if isinstance(error, httpx.ReadTimeout)
+            else fallback_message
+        ),
+        classification=classification,
+        diagnostic=diagnostic,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,14 +351,14 @@ class LLMRoute:
             upstream when the local route key is synthetic.
         mode: `managed` preserves managed gateway auth; `direct` applies
             passthrough auth behavior.
-        catalog_id: Optional custom-provider catalog row used to resolve direct
+        catalog_id: Optional provider catalog row used to resolve direct
             route credentials.
         authorization: Optional materialized Authorization header value. Hidden
             from repr so credentials are not logged through dataclass rendering.
         local_provider_cleanup: Whether this route can safely apply
-            provider-specific body cleanup before forwarding. Managed fallback
-            routes that may represent synthetic subagent models should defer
-            that cleanup to LiteLLM.
+            provider-specific body cleanup before forwarding. Shared managed
+            routes defer that cleanup to the gateway, which selects the
+            request's provider from the signed token.
     """
 
     base_url: str
@@ -143,11 +370,19 @@ class LLMRoute:
     local_provider_cleanup: bool = True
 
     @property
+    def error_diagnostics(self) -> LLMErrorDiagnostics:
+        """Return safe configuration context for this selected request route."""
+        return LLMErrorDiagnostics(
+            route=self.mode,
+            provider_configuration=provider_configuration_for(self.model_provider),
+        )
+
+    @property
     def is_direct(self) -> bool:
         """Return whether this route bypasses the managed gateway.
 
         Returns:
-            True when the route forwards directly to a custom provider.
+            True when the route forwards directly to a provider endpoint.
         """
         return self.mode == "direct"
 
@@ -156,7 +391,7 @@ class LLMRoute:
 
         Managed routes use the sandbox's existing managed gateway token and do
         not resolve a route-level credential. Direct routes resolve the
-        custom-provider API key from their catalog entry or the legacy workspace
+        provider API key from their catalog entry or the legacy workspace
         secret.
 
         Args:
@@ -168,19 +403,24 @@ class LLMRoute:
         """
         if not self.is_direct:
             return None
+        provider = self.model_provider or CUSTOM_MODEL_PROVIDER_SLUG
         if self.catalog_id is not None:
-            creds = await svc.get_catalog_credentials(self.catalog_id)
+            try:
+                creds = await svc.get_catalog_credentials(self.catalog_id)
+            except TracecatAuthorizationError as exc:
+                raise AgentSandboxValidationError(
+                    f"Model provider {provider} is not available for this workspace."
+                ) from exc
         else:
-            creds = await svc.get_runtime_provider_credentials(
-                "custom-model-provider",
-            )
+            creds = await svc.get_runtime_provider_credentials(provider)
             if creds is None:
-                creds = await svc.get_workspace_provider_credentials(
-                    "custom-model-provider",
-                )
+                creds = await svc.get_workspace_provider_credentials(provider)
         if creds is None:
             return None
-        return creds.get("CUSTOM_MODEL_PROVIDER_API_KEY") or None
+        runtime = resolve_gateway_provider_config(provider, creds)
+        if runtime is None:
+            return None
+        return runtime.api_key
 
     def forward_url(self, path: str) -> str:
         """Build the upstream URL for a sandbox request path.
@@ -198,7 +438,7 @@ class LLMRoute:
 
         Managed routes preserve the sandbox's managed gateway Authorization
         header. Direct routes remove that managed token; materialized direct
-        routes add their resolved custom-provider Authorization header.
+        routes add their resolved provider Authorization header.
 
         Args:
             headers: Parsed inbound request headers from the sandbox.
@@ -209,11 +449,14 @@ class LLMRoute:
         excluded_headers = {"host", "connection", "transfer-encoding"}
         if self.is_direct:
             excluded_headers.add("authorization")
-        return {
+        forwarded = {
             key: value
             for key, value in headers.items()
             if key.lower() not in excluded_headers
         }
+        if self._applies_provider_cleanup:
+            forwarded = _drop_anthropic_beta_header(forwarded)
+        return forwarded
 
     def forward_body_and_headers(
         self,
@@ -254,12 +497,17 @@ class LLMRoute:
         headers["Content-Length"] = str(len(body))
         return body, headers
 
+    @property
+    def _applies_provider_cleanup(self) -> bool:
+        """Whether this route rewrites requests down to the whitelisted surface."""
+        return self.local_provider_cleanup and self.model_provider != "anthropic"
+
     def _forward_data(self, data: dict[str, Any]) -> dict[str, Any] | None:
         """Return rewritten request JSON, or None when the original can pass through."""
         forward_data = dict(data)
         if self.upstream_model_name is not None:
             forward_data["model"] = self.upstream_model_name
-        if self.local_provider_cleanup and self.model_provider != "anthropic":
+        if self._applies_provider_cleanup:
             for field_name in _ANTHROPIC_ONLY_FIELDS:
                 forward_data.pop(field_name, None)
         return forward_data if forward_data != data else None
@@ -303,15 +551,20 @@ class LLMRoute:
 
 @dataclass(frozen=True, slots=True)
 class LLMRoutingPlan:
-    """Route requests by exact model key, falling back to managed LiteLLM.
+    """Choose managed-gateway or direct-passthrough transport for each request.
 
     The proxy does not know whether a model belongs to a root agent or a
     subagent. The executor converts agent configs into this table before the
     sandbox starts.
 
+    Managed requests go through LiteLLM, where the signed token supplies the
+    provider, model, and credential configuration. Passthrough requests go
+    directly to their configured endpoint. The destination is chosen before
+    sending the request; a failed direct request is not retried through LiteLLM.
+
     Attributes:
-        managed_route: Fallback route for every request model that does not
-            have an exact direct route match.
+        managed_route: Shared LiteLLM destination for non-passthrough requests.
+            Model selection happens in the gateway.
         direct_routes: Direct passthrough routes keyed by exact request model.
     """
 
@@ -336,7 +589,7 @@ class LLMRoutingPlan:
         """Return a copy of this plan with direct-route credentials bound.
 
         Args:
-            role: Role used to fetch custom provider API keys for direct routes.
+            role: Role used to fetch provider API keys for direct routes.
 
         Returns:
             Routing plan containing routes ready for request forwarding.
@@ -403,6 +656,33 @@ class LLMRoutingPlan:
             return route
         return self.managed_route
 
+    def error_diagnostics(
+        self, request_model: object, headers: dict[str, str]
+    ) -> LLMErrorDiagnostics:
+        """Derive provider context using the gateway's token selection rules."""
+        route = self.resolve(request_model)
+        if route.is_direct:
+            return route.error_diagnostics
+        authorization = next(
+            (value for key, value in headers.items() if key.lower() == "authorization"),
+            "",
+        )
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer":
+            return LLMErrorDiagnostics(route="managed")
+        try:
+            claims = verify_llm_token(token)
+        except ValueError:
+            # Optional diagnostics must not replace the gateway's auth error.
+            return LLMErrorDiagnostics(route="managed")
+        selected = (
+            claims.routes.get(request_model) if isinstance(request_model, str) else None
+        )
+        provider = selected.provider if selected else claims.provider
+        return LLMErrorDiagnostics(
+            route="managed", provider_configuration=provider_configuration_for(provider)
+        )
+
 
 def _normalize_passthrough_base_url(base_url: str) -> str:
     trimmed = base_url.rstrip("/")
@@ -412,7 +692,7 @@ def _normalize_passthrough_base_url(base_url: str) -> str:
 def _normalize_direct_route(route: LLMRoute) -> LLMRoute:
     """Normalize direct passthrough routes to host roots.
 
-    Stored custom-provider URLs use OpenAI-compatible `/v1` form for catalog
+    Stored provider URLs use OpenAI-compatible `/v1` form for catalog
     discovery. Runtime SDK requests already include `/v1/...` paths, so direct
     passthrough routes must strip the trailing version segment.
 
@@ -451,78 +731,26 @@ def _get_or_create_trace_request_id(headers: dict[str, str]) -> str:
     return str(uuid4())
 
 
-def _is_non_critical_path(path: str) -> bool:
-    return path.split("?", 1)[0] in _NON_CRITICAL_PATHS
-
-
-def _coerce_error_detail(value: object) -> str | None:
-    if isinstance(value, str):
-        detail = value.strip()
-        return detail or None
-    if isinstance(value, dict):
-        for key in ("message", "detail", "error"):
-            if detail := _coerce_error_detail(value.get(key)):
-                return detail
-        return orjson.dumps(value).decode("utf-8")
-    if isinstance(value, list):
-        return orjson.dumps(value).decode("utf-8")
-    return None
-
-
-def _extract_error_detail(body: bytes) -> str | None:
-    if not body:
-        return None
-
-    if len(body) <= _ERROR_BODY_PREVIEW_BYTES:
-        try:
-            parsed = orjson.loads(body)
-        except orjson.JSONDecodeError:
-            parsed = None
-        if isinstance(parsed, dict):
-            for key in ("error", "detail", "message"):
-                if detail := _coerce_error_detail(parsed.get(key)):
-                    return detail
-
-    preview = body[:_ERROR_BODY_PREVIEW_BYTES].decode("utf-8", errors="replace")
-    detail = preview.strip()
-    if not detail:
-        return None
-    if len(body) > _ERROR_BODY_PREVIEW_BYTES:
-        return f"{detail}..."
-    return detail
-
-
-def _format_litellm_http_error(
-    *,
-    status_code: int,
-    reason_phrase: str,
-    body: bytes,
-    trace_request_id: str,
-) -> str:
-    reason = reason_phrase or "Unknown"
-    message = _ERROR_MESSAGES.get(status_code)
-    detail = _extract_error_detail(body)
-    parts = [f"LiteLLM request failed ({status_code} {reason})"]
-    if message:
-        parts.append(message)
-    if detail and detail != message:
-        parts.append(detail)
-    parts.append(f"request_id={trace_request_id}")
-    return ": ".join(parts)
+def _is_non_critical_request(method: str | None, path: str) -> bool:
+    path_without_query = path.split("?", 1)[0]
+    return path_without_query in _NON_CRITICAL_PATHS or (
+        method == "GET" and path_without_query in _GET_PATH_ALLOWLIST
+    )
 
 
 class LLMSocketProxy:
     """Unix socket proxy that forwards HTTP traffic to the LLM gateway.
 
     Runs on the host side as part of the agent executor. The socket is
-    mounted into the NSJail sandbox where the LLMBridge connects to it.
+    mounted into the NSJail sandbox where the SandboxSocketBridge connects
+    to it.
     """
 
     def __init__(
         self,
         socket_path: Path,
         routing_plan: LLMRoutingPlan,
-        on_error: Callable[[str], None] | None = None,
+        on_error: Callable[[LLMProxyError], None] | None = None,
     ):
         """Initialize the LLM socket proxy.
 
@@ -536,6 +764,9 @@ class LLMSocketProxy:
         self.routing_plan = routing_plan
         self._server: asyncio.Server | None = None
         self._client: httpx.AsyncClient | None = None
+        self._direct_client: httpx.AsyncClient | None = None
+        self._connection_tasks: set[asyncio.Task[None]] = set()
+        self._stopping = False
         self._on_error = on_error
         self._error_emitted = False  # Only call callback once
 
@@ -560,10 +791,14 @@ class LLMSocketProxy:
                 pool=app_config.TRACECAT__LLM_GATEWAY_POOL_TIMEOUT_SECONDS,
             )
         )
+        self._direct_client = create_outbound_http_client(timeout=self._client.timeout)
+
+        self._stopping = False
+        self._error_emitted = False
 
         # Start Unix socket server
         self._server = await asyncio.start_unix_server(
-            self._handle_connection,
+            self._accept_connection,
             path=str(self.socket_path),
         )
 
@@ -578,14 +813,27 @@ class LLMSocketProxy:
 
     async def stop(self) -> None:
         """Stop the Unix socket server and clean up."""
+        self._stopping = True
         if self._server:
             self._server.close()
+
+        # Stop readers before closing their shared upstream client. Closing the
+        # client first can turn normal teardown into a fatal transport error.
+        tasks = tuple(self._connection_tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        if self._server:
             await self._server.wait_closed()
             self._server = None
 
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+        if self._direct_client is not None:
+            await self._direct_client.aclose()
+            self._direct_client = None
 
         # Remove socket file
         if self.socket_path.exists():
@@ -607,13 +855,55 @@ class LLMSocketProxy:
         async for chunk in chunks:
             yield chunk
 
-    def _emit_error(self, message: str) -> None:
+    def _emit_error(
+        self,
+        message: str,
+        classification: RuntimeErrorClassification,
+        *,
+        diagnostic: LLMErrorDiagnostics | None = None,
+        error: Exception | None = None,
+        context: ProxyFailureContext | None = None,
+    ) -> None:
         """Emit error via callback (only once)."""
-        if not self._error_emitted:
+        self._emit_proxy_error(
+            LLMProxyError(
+                message=message,
+                classification=classification,
+                diagnostic=diagnostic,
+            ),
+            source_error=error,
+            context=context,
+        )
+
+    def _emit_proxy_error(
+        self,
+        error: LLMProxyError,
+        *,
+        source_error: Exception | None = None,
+        context: ProxyFailureContext | None = None,
+    ) -> None:
+        """Emit one terminal proxy error via callback (only once)."""
+        if not self._stopping and not self._error_emitted:
             self._error_emitted = True
-            logger.error("LLM proxy error", error=message, **_load_fields())
+            if source_error is not None:
+                classification = error.classification.model_copy(
+                    update={"cause_type": type(source_error).__name__}
+                )
+                error = replace(error, classification=classification)
+                if self._on_error:
+                    error = replace(
+                        error,
+                        sentry_capture=capture_activity_failure(
+                            source_error,
+                            classification,
+                            existing_capture=error.sentry_capture,
+                            proxy_context=context,
+                            diagnostics=(error.diagnostic,) if error.diagnostic else (),
+                        ),
+                    )
+            logger.error("LLM proxy error", error=error.message, **_load_fields())
             if self._on_error:
-                self._on_error(message)
+                self._on_error(error)
 
     @staticmethod
     def _is_client_disconnect_error(exc: Exception) -> bool:
@@ -624,6 +914,25 @@ class LLMSocketProxy:
             message = str(exc).lower()
             return "handler is closed" in message or "transport closed" in message
         return False
+
+    def _accept_connection(
+        self,
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+    ) -> None:
+        # Register synchronously so stop also owns handlers not yet scheduled.
+        if self._stopping:
+            writer.close()
+            return
+        task = asyncio.create_task(self._handle_connection(reader, writer))
+        self._connection_tasks.add(task)
+
+        def connection_done(task: asyncio.Task[None]) -> None:
+            self._connection_tasks.discard(task)
+            # A task canceled before its first step never reaches its finally.
+            writer.close()
+
+        task.add_done_callback(connection_done)
 
     async def _handle_connection(
         self,
@@ -646,6 +955,14 @@ class LLMSocketProxy:
             # Forward to the selected backend and stream response back
             await self._forward_request(request, writer)
 
+        except HTTPRequestError as exc:
+            await self._write_error_response(
+                writer,
+                status_code=exc.status_code,
+                detail=str(exc),
+                request_counter=0,
+                trace_request_id=str(uuid4()),
+            )
         except asyncio.IncompleteReadError:
             logger.debug("Client disconnected during request")
         except ConnectionError:
@@ -656,11 +973,15 @@ class LLMSocketProxy:
                 logger.debug("Client disconnected during proxy request")
                 return
             # Don't emit fatal error if server is already shutting down
-            if self._server is None:
+            if self._stopping:
                 logger.debug("Proxy error during shutdown (ignored)", error=str(e))
             else:
                 logger.exception("LLM proxy error", error=str(e))
-                self._emit_error(f"Proxy error: {e}")
+                self._emit_error(
+                    f"Proxy error: {e}",
+                    agent_executor_protocol_failed(e),
+                    error=e,
+                )
         finally:
             _proxy_load_tracker.end_connection()
             try:
@@ -678,56 +999,22 @@ class LLMSocketProxy:
         Returns:
             Dict with method, path, headers, and body, or None if connection closed.
         """
-        # Read request line
-        request_line = await reader.readline()
-        if not request_line:
+        raw_request = await read_http_request(reader, max_body_size=MAX_BODY_SIZE)
+        if raw_request is None:
             return None
-
+        header_block, body = raw_request
+        request_line, *header_lines = header_block.split(b"\r\n")
         try:
-            request_line_str = request_line.decode("utf-8").strip()
-            parts = request_line_str.split(" ", 2)
-            if len(parts) < 2:
-                self._emit_error("Malformed request line")
-                return None
-            method = parts[0]
-            path = parts[1]
-        except (UnicodeDecodeError, ValueError):
-            self._emit_error("Invalid request encoding")
-            return None
-
-        # Read headers
+            method, path, version = request_line.decode("ascii").split(" ")
+        except ValueError:
+            raise HTTPRequestError("Malformed request line") from None
+        if version not in {"HTTP/1.0", "HTTP/1.1"}:
+            raise HTTPRequestError("Unsupported HTTP version")
         headers: dict[str, str] = {}
-        content_length = 0
-        while True:
-            line = await reader.readline()
-            if not line or line == b"\r\n":
-                break
-            try:
-                header_str = line.decode("utf-8").strip()
-                if ":" in header_str:
-                    key, value = header_str.split(":", 1)
-                    key = key.strip()
-                    value = value.strip()
-                    headers[key] = value
-                    if key.lower() == "content-length":
-                        content_length = int(value)
-            except (UnicodeDecodeError, ValueError):
-                continue
-
-        # Validate content length to prevent memory exhaustion DoS
-        if content_length > MAX_BODY_SIZE:
-            logger.warning(
-                "Request body too large",
-                content_length=content_length,
-                max_size=MAX_BODY_SIZE,
-            )
-            self._emit_error("Request body too large")
-            return None
-
-        # Read body if present
-        body = b""
-        if content_length > 0:
-            body = await reader.readexactly(content_length)
+        for line in header_lines:
+            if line:
+                key, value = line.decode("latin-1").split(":", 1)
+                headers[key] = value.strip()
 
         return {
             "method": method,
@@ -750,7 +1037,36 @@ class LLMSocketProxy:
         trace_request_id = _get_or_create_trace_request_id(headers)
 
         try:
+            # Method allowlist: the socket is reachable by untrusted in-jail
+            # code, so it must not be able to reach host gateway credentials
+            # for destructive or administrative operations. LLM inference is
+            # POST (streaming + completions) and provider/catalog discovery is
+            # GET; anything else (DELETE/PUT/PATCH/CONNECT/...) is rejected
+            # before it ever reaches the gateway.
+            if method not in _ALLOWED_HTTP_METHODS:
+                await self._write_error_response(
+                    writer,
+                    status_code=405,
+                    detail="HTTP method not allowed by the LLM socket proxy",
+                    request_counter=request_counter,
+                    trace_request_id=trace_request_id,
+                )
+                return
+
             path_without_query = request["path"].split("?", 1)[0]
+            allowed_paths = (
+                _GET_PATH_ALLOWLIST if method == "GET" else _POST_PATH_ALLOWLIST
+            )
+            if path_without_query not in allowed_paths:
+                await self._write_error_response(
+                    writer,
+                    status_code=404,
+                    detail="Path not allowed by the LLM socket proxy",
+                    request_counter=request_counter,
+                    trace_request_id=trace_request_id,
+                )
+                return
+
             if path_without_query == "/api/event_logging/batch":
                 await self._write_response(
                     writer,
@@ -798,11 +1114,15 @@ class LLMSocketProxy:
             await self._write_error_response(
                 writer,
                 status_code=503,
-                detail="LiteLLM proxy not initialized",
+                detail="LLM proxy not initialized",
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
-            self._emit_error("LiteLLM proxy not initialized")
+            if not _is_non_critical_request(request["method"], request["path"]):
+                self._emit_error(
+                    "LLM proxy not initialized",
+                    agent_executor_unavailable(),
+                )
             return
 
         path = request["path"]
@@ -819,9 +1139,8 @@ class LLMSocketProxy:
             if isinstance(parsed, dict):
                 data = parsed
 
-        route = self.routing_plan.resolve(
-            data.get("model") if data is not None else None
-        )
+        request_model = data.get("model") if data is not None else None
+        route = self.routing_plan.resolve(request_model)
         upstream_request = route.prepare_forward_request(
             path=path,
             headers=headers,
@@ -829,24 +1148,54 @@ class LLMSocketProxy:
             data=data,
         )
 
+        diagnostic = partial(
+            self.routing_plan.error_diagnostics, request_model, upstream_request.headers
+        )
+
+        response_phase: Literal["response_headers", "error_body"] = "response_headers"
         try:
-            async with self._client.stream(
+            client = self._direct_client if route.is_direct else self._client
+            if client is None:
+                raise RuntimeError("LLM proxy client is not initialized")
+            async with client.stream(
                 method=method,
                 url=upstream_request.url,
                 headers=upstream_request.headers,
                 content=upstream_request.body if upstream_request.body else None,
             ) as response:
                 body_chunks: AsyncIterable[bytes] | list[bytes]
-                if response.status_code >= 400 and not _is_non_critical_path(path):
+                if response.status_code >= 400 and not _is_non_critical_request(
+                    method, path
+                ):
+                    response_phase = "error_body"
                     error_body = await response.aread()
-                    self._emit_error(
-                        _format_litellm_http_error(
-                            status_code=response.status_code,
-                            reason_phrase=response.reason_phrase,
-                            body=error_body,
-                            trace_request_id=trace_request_id,
-                        )
+                    logger.warning(
+                        "LLM upstream returned an error",
+                        status_code=response.status_code,
+                        request_body_bytes=len(upstream_request.body),
+                        trace_request_id=trace_request_id,
                     )
+                    classification = _http_error_classification(
+                        response.status_code,
+                        route_is_direct=route.is_direct,
+                        body=error_body,
+                    )
+                    # Error bodies may echo credentials, budgets or request data.
+                    # Keep durable failure text source-owned and privacy-safe.
+                    # This stack is the local response check, not the remote provider.
+                    try:
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError as exc:
+                        self._emit_error(
+                            classification.message,
+                            classification,
+                            diagnostic=diagnostic(),
+                            error=exc,
+                            context=ProxyFailureContext(
+                                route="direct" if route.is_direct else "managed",
+                                status_code=response.status_code,
+                            ),
+                        )
                     body_chunks = [error_body]
                 else:
                     body_chunks = response.aiter_bytes()
@@ -862,27 +1211,53 @@ class LLMSocketProxy:
                     request_counter=request_counter,
                     method=method,
                     path=path,
+                    route_is_direct=route.is_direct,
+                    diagnostic_factory=diagnostic,
                 )
-        except httpx.ConnectError as exc:
+        except DisallowedUrlError:
+            message = "LLM provider destination is not allowed"
             await self._write_error_response(
                 writer,
-                status_code=502,
-                detail="LiteLLM unavailable",
+                status_code=403,
+                detail=message,
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
-            if not _is_non_critical_path(path):
-                self._emit_error(f"LiteLLM unavailable: {exc}")
-        except httpx.TimeoutException as exc:
+            self._emit_error(message, invalid_agent_configuration())
+        except httpx.TransportError as exc:
+            if self._stopping:
+                return
+            if isinstance(exc, httpx.ReadTimeout):
+                _log_read_timeout(
+                    route_is_direct=route.is_direct,
+                    phase=response_phase,
+                    started_at=started_at,
+                )
+            timed_out = isinstance(exc, httpx.TimeoutException)
             await self._write_error_response(
                 writer,
-                status_code=504,
-                detail="Gateway timeout",
+                status_code=504 if timed_out else 502,
+                detail="Gateway timeout" if timed_out else "LLM upstream unavailable",
                 request_counter=request_counter,
                 trace_request_id=trace_request_id,
             )
-            if not _is_non_critical_path(path):
-                self._emit_error(f"Gateway timeout ({type(exc).__name__}): {exc}")
+            if not _is_non_critical_request(method, path):
+                self._emit_proxy_error(
+                    _transport_proxy_error(
+                        exc,
+                        route_is_direct=route.is_direct,
+                        fallback_message=(
+                            f"Gateway timeout ({type(exc).__name__}): {exc}"
+                            if timed_out
+                            else f"LLM upstream unavailable: {exc}"
+                        ),
+                        diagnostic=diagnostic(),
+                    ),
+                    source_error=exc,
+                    context=ProxyFailureContext(
+                        route="direct" if route.is_direct else "managed"
+                    ),
+                )
 
     async def _write_response(
         self,
@@ -897,6 +1272,8 @@ class LLMSocketProxy:
         request_counter: int | None = None,
         method: str | None = None,
         path: str | None = None,
+        route_is_direct: bool = False,
+        diagnostic_factory: Callable[[], LLMErrorDiagnostics] | None = None,
     ) -> None:
         """Write an HTTP response head and stream the response body."""
         content_type = next(
@@ -907,6 +1284,8 @@ class LLMSocketProxy:
             content_type is not None and "text/event-stream" in content_type.lower()
         )
         ttft_logged = False
+        first_chunk_at: float | None = None
+        last_chunk_at: float | None = None
         response_line = f"HTTP/1.1 {status_code} {reason_phrase}\r\n"
         try:
             writer.write(response_line.encode())
@@ -926,11 +1305,15 @@ class LLMSocketProxy:
 
         try:
             async for chunk in self._iter_body_chunks(body_chunks):
+                if chunk:
+                    last_chunk_at = time.monotonic()
+                    if first_chunk_at is None:
+                        first_chunk_at = last_chunk_at
                 try:
                     if (
                         is_streaming_response
                         and not ttft_logged
-                        and chunk
+                        and first_chunk_at is not None
                         and started_at is not None
                     ):
                         ttft_logged = True
@@ -940,7 +1323,7 @@ class LLMSocketProxy:
                             method=method,
                             path=path,
                             trace_request_id=trace_request_id,
-                            ttft_ms=(time.monotonic() - started_at) * 1000,
+                            ttft_ms=(first_chunk_at - started_at) * 1000,
                         )
                     writer.write(chunk)
                     await writer.drain()
@@ -953,12 +1336,26 @@ class LLMSocketProxy:
                     logger.debug("Client disconnected during response streaming")
                     return
         except Exception as exc:
+            if self._stopping:
+                logger.debug("Response stream closed during proxy shutdown")
+                return
             # Headers (200 OK) are already flushed — we cannot write a
             # second HTTP error response.  Emit the error as an SSE event
             # so the client can surface it.  This covers HTTPException from
             # the proxy layer and RuntimeError from upstream provider errors
             # (e.g. _raise_stream_http_error on 4xx/5xx).
-            if is_streaming_response and not writer.is_closing():
+            if writer.is_closing():
+                logger.debug("Client disconnected while reading response body")
+                return
+            if isinstance(exc, httpx.ReadTimeout):
+                _log_read_timeout(
+                    route_is_direct=route_is_direct,
+                    phase="response_body",
+                    started_at=started_at,
+                    first_chunk_at=first_chunk_at,
+                    last_chunk_at=last_chunk_at,
+                )
+            if is_streaming_response:
                 if isinstance(exc, httpx.ReadTimeout):
                     status_code = 504
                     timeout_duration = _format_timeout_duration(
@@ -976,7 +1373,7 @@ class LLMSocketProxy:
                         if isinstance(exc, HTTPException)
                         else str(exc)[:512]
                     )
-                    surfaced_error = f"LiteLLM stream failed: {detail}"
+                    surfaced_error = f"LLM stream failed: {detail}"
                 logger.warning(
                     "Stream error after headers sent, emitting SSE error event",
                     status_code=status_code,
@@ -984,8 +1381,29 @@ class LLMSocketProxy:
                     error_type=type(exc).__name__,
                     trace_request_id=trace_request_id,
                 )
-                if path is not None and not _is_non_critical_path(path):
-                    self._emit_error(surfaced_error)
+                if path is not None and not _is_non_critical_request(method, path):
+                    classification = (
+                        _transport_error_classification(
+                            exc, route_is_direct=route_is_direct
+                        )
+                        if isinstance(exc, httpx.TransportError)
+                        else _http_error_classification(
+                            status_code,
+                            route_is_direct=route_is_direct,
+                        )
+                    )
+                    # The streaming site surfaces the SSE detail it already
+                    # sent the client, not the classification's own message.
+                    self._emit_error(
+                        surfaced_error,
+                        classification,
+                        diagnostic=diagnostic_factory() if diagnostic_factory else None,
+                        error=exc,
+                        context=ProxyFailureContext(
+                            route="direct" if route_is_direct else "managed",
+                            status_code=status_code,
+                        ),
+                    )
                 error_payload = orjson.dumps(
                     {
                         "type": "error",
@@ -1001,6 +1419,30 @@ class LLMSocketProxy:
                 except Exception:
                     logger.debug(
                         "Failed to send SSE error event, client likely disconnected"
+                    )
+            elif isinstance(exc, httpx.TransportError):
+                status_code = 504 if isinstance(exc, httpx.TimeoutException) else 502
+                logger.warning(
+                    "Response body transport error after headers sent",
+                    status_code=status_code,
+                    error_type=type(exc).__name__,
+                    trace_request_id=trace_request_id,
+                )
+                if path is not None and not _is_non_critical_request(method, path):
+                    self._emit_proxy_error(
+                        _transport_proxy_error(
+                            exc,
+                            route_is_direct=route_is_direct,
+                            fallback_message=f"LLM response failed: {str(exc)[:512]}",
+                            diagnostic=diagnostic_factory()
+                            if diagnostic_factory
+                            else None,
+                        ),
+                        source_error=exc,
+                        context=ProxyFailureContext(
+                            route="direct" if route_is_direct else "managed",
+                            status_code=status_code,
+                        ),
                     )
             else:
                 raise
@@ -1026,13 +1468,14 @@ class LLMSocketProxy:
             }
         )
         reason = _ERROR_MESSAGES.get(status_code, detail)
+        # RFC 9110: 405 responses must advertise the accepted methods.
+        allow_header = "Allow: GET, POST\r\n" if status_code == 405 else ""
         response_head = (
             f"HTTP/1.1 {status_code} {reason}\r\n"
             "Content-Type: application/json\r\n"
             f"Content-Length: {len(body)}\r\n"
             f"X-Request-ID: {trace_request_id}\r\n"
-            "Connection: close\r\n"
-            "\r\n"
+            "Connection: close\r\n" + allow_header + "\r\n"
         )
         writer.write(response_head.encode("utf-8") + body)
         await writer.drain()

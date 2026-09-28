@@ -8,6 +8,16 @@ import { cn } from "@/lib/utils"
 
 const Dialog = DialogPrimitive.Root
 
+/**
+ * Props that make a Dialog dismissable only through its top-right close button.
+ * Blocks backdrop clicks, outside focus, and Escape.
+ */
+export const nonDismissableDialogProps = {
+  onPointerDownOutside: (event: Event) => event.preventDefault(),
+  onInteractOutside: (event: Event) => event.preventDefault(),
+  onEscapeKeyDown: (event: KeyboardEvent) => event.preventDefault(),
+} as const
+
 const DialogTrigger = DialogPrimitive.Trigger
 
 const DialogPortal = DialogPrimitive.Portal

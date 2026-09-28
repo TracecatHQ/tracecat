@@ -13,7 +13,6 @@ from pydantic import ValidationError
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import selectinload
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.audit.logger import AuditEventDetails, audit_log
@@ -44,6 +43,7 @@ from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     TracecatNotFoundError,
     TracecatValidationError,
+    WorkflowAliasResolutionError,
 )
 from tracecat.expressions.eval import eval_templated_object
 from tracecat.identifiers import WorkflowID
@@ -59,7 +59,13 @@ from tracecat.pagination import (
 )
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+)
 from tracecat.service import BaseWorkspaceService
+from tracecat.temporal.errors import raise_application_error_from_classification
 from tracecat.validation.schemas import (
     DSLValidationResult,
     ValidationDetail,
@@ -845,7 +851,7 @@ class WorkflowsManagementService(BaseWorkspaceService):
         await self.session.commit()
 
     @require_scope("workflow:create")
-    @audit_log(resource_type="workflow", action="create")
+    @audit_log(resource_type="workflow", action="create", resource_id_attr="id")
     async def create_workflow(self, params: WorkflowCreate) -> Workflow:
         """Create a new workflow."""
         now = datetime.now().strftime("%b %d, %Y, %H:%M:%S")
@@ -1487,6 +1493,8 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 commit=False,
             )
             await self.session.commit()
+            # Keep server-generated fields loaded for response serialization.
+            await self.session.refresh(workflow)
         return workflow
 
     @require_scope("workflow:create")
@@ -1588,7 +1596,9 @@ class WorkflowsManagementService(BaseWorkspaceService):
                 start_delay=act_stmt.start_delay,
                 wait_until=act_stmt.wait_until,
                 join_strategy=act_stmt.join_strategy,
+                environment=act_stmt.environment,
                 mask_output=act_stmt.mask_output,
+                unsafe_disable_secret_error_withholding=act_stmt.unsafe_disable_secret_error_withholding,
             )
             pos = (action_positions or {}).get(act_stmt.ref)
             new_action = Action(
@@ -1708,9 +1718,14 @@ class WorkflowsManagementService(BaseWorkspaceService):
                     id_or_alias, use_committed=use_committed
                 )
             if not handler_wf_id:
-                raise ApplicationError(
-                    f"Couldn't find matching workflow for alias {id_or_alias!r}",
-                    non_retryable=True,
-                    type="WorkflowAliasResolutionError",
+                error = WorkflowAliasResolutionError(
+                    "The configured workflow alias does not resolve"
                 )
+                classification = RuntimeErrorClassification.user(
+                    kind=RuntimeErrorKind.WORKFLOW_DEFINITION_NOT_FOUND,
+                    message="The configured error handler workflow could not be found",
+                    retry_disposition=RetryDisposition.NON_RETRYABLE,
+                    cause=error,
+                )
+                raise_application_error_from_classification(classification)
         return handler_wf_id

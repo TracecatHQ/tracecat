@@ -1,5 +1,11 @@
 import { compressActionsInString } from "@/lib/expressions"
-import { isServer, slugify, slugifyActionRef, undoSlugify } from "@/lib/utils"
+import {
+  isServer,
+  shortTimeAgo,
+  slugify,
+  slugifyActionRef,
+  undoSlugify,
+} from "@/lib/utils"
 
 describe("slugify", () => {
   it("should convert a string to a slug", () => {
@@ -124,5 +130,60 @@ describe("compressActionsInString", () => {
     expect(() => compressActionsInString(123)).toThrow(TypeError)
     // @ts-expect-error Testing invalid input
     expect(() => compressActionsInString(null)).toThrow(TypeError)
+  })
+})
+
+describe("shortTimeAgo", () => {
+  const NOW = new Date("2026-06-15T12:00:00.000Z")
+  const DAY_MS = 24 * 60 * 60 * 1000
+
+  beforeEach(() => {
+    jest.useFakeTimers().setSystemTime(NOW)
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  function daysAgo(days: number) {
+    return new Date(NOW.getTime() - days * DAY_MS)
+  }
+
+  it("formats each unit", () => {
+    expect(shortTimeAgo(new Date(NOW.getTime() - 30 * 1000))).toBe("just now")
+    expect(shortTimeAgo(new Date(NOW.getTime() - 5 * 60 * 1000))).toBe("5m ago")
+    expect(shortTimeAgo(new Date(NOW.getTime() - 3 * 60 * 60 * 1000))).toBe(
+      "3h ago"
+    )
+    expect(shortTimeAgo(daysAgo(3))).toBe("3d ago")
+    expect(shortTimeAgo(daysAgo(14))).toBe("2w ago")
+    expect(shortTimeAgo(daysAgo(90))).toBe("3mo ago")
+    expect(shortTimeAgo(daysAgo(400))).toBe("1y ago")
+  })
+
+  it("clamps future dates to just now", () => {
+    expect(shortTimeAgo(new Date(NOW.getTime() + DAY_MS))).toBe("just now")
+  })
+
+  // Handing over on the smaller unit's own count (4 weeks, 12 months) left the
+  // larger unit flooring to zero for the days in between.
+  it("never renders a zero-valued unit at a handover", () => {
+    for (let days = 0; days <= 800; days++) {
+      expect(shortTimeAgo(daysAgo(days))).not.toMatch(/\b0(w|mo|y) ago$/)
+    }
+  })
+
+  it("keeps weeks through the last day before a month", () => {
+    expect(shortTimeAgo(daysAgo(27))).toBe("3w ago")
+    expect(shortTimeAgo(daysAgo(28))).toBe("4w ago")
+    expect(shortTimeAgo(daysAgo(29))).toBe("4w ago")
+    expect(shortTimeAgo(daysAgo(30))).toBe("1mo ago")
+  })
+
+  it("keeps months through the last day before a year", () => {
+    expect(shortTimeAgo(daysAgo(359))).toBe("11mo ago")
+    expect(shortTimeAgo(daysAgo(360))).toBe("12mo ago")
+    expect(shortTimeAgo(daysAgo(364))).toBe("12mo ago")
+    expect(shortTimeAgo(daysAgo(365))).toBe("1y ago")
   })
 })

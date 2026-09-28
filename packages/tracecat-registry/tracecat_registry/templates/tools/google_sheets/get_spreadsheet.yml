@@ -9,7 +9,15 @@ definition:
   secrets:
     - type: oauth
       provider_id: google_sheets
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_sheets
       grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
       optional: true
   expects:
     spreadsheet_id:
@@ -28,22 +36,25 @@ definition:
       action: core.script.run_python
       args:
         inputs:
+          spreadsheet_id: ${{ inputs.spreadsheet_id }}
           ranges: ${{ inputs.ranges }}
           include_grid_data: ${{ inputs.include_grid_data }}
         script: |
-          def main(ranges, include_grid_data):
-              params = {}
+          def main(spreadsheet_id, ranges, include_grid_data):
+              params = {"spreadsheetId": spreadsheet_id}
               if ranges:
                   params["ranges"] = ranges
               if include_grid_data:
                   params["includeGridData"] = True
               return params
     - ref: get_spreadsheet
-      action: core.http_request
+      action: tools.google_api.call_api
       args:
-        url: https://sheets.googleapis.com/v4/spreadsheets/${{ FN.url_encode(inputs.spreadsheet_id) }}
-        method: GET
-        headers:
-          Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        service_name: sheets
+        version: v4
+        resource: spreadsheets
+        method_name: get
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"]
         params: ${{ steps.build_params.result }}
-  returns: ${{ steps.get_spreadsheet.result.data }}
+  returns: ${{ steps.get_spreadsheet.result }}

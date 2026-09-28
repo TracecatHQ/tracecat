@@ -19,6 +19,24 @@ import { cn, shortTimeAgo } from "@/lib/utils"
 
 export const CASE_WORKFLOW_TRIGGER_EVENT = "tracecat:open-case-workflow-trigger"
 
+/**
+ * Class for the "Properties" / "Fields" section labels in the case details
+ * rail. The sidebar default (`text-sidebar-foreground/70`) renders the header
+ * brighter than the `text-muted-foreground` row labels beneath it, inverting
+ * the visual hierarchy. These values put the header below the row labels in
+ * both themes so the sections recede and the content leads, matching Linear.
+ *
+ * Composited: ~rgb(150) on the light rail (`bg-muted/20` over white) and
+ * ~rgb(134) on the dark rail, against row labels of rgb(115) and rgb(163).
+ *
+ * Deliberate tradeoff: light mode's `muted-foreground` already sits at the
+ * WCAG AA floor (~4.6:1 on the rail), so dimming below it drops these two
+ * labels to ~3.5:1, under the 4.5:1 bar for 12px text. Accepted deliberately
+ * in favour of the Linear hierarchy; dark mode stays at ~5.2:1.
+ */
+export const CASE_PANEL_GROUP_LABEL_CLASS =
+  "text-muted-foreground/75 dark:text-muted-foreground/80"
+
 export function UserHoverCard({
   user,
   children,

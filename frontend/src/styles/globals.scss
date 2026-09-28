@@ -53,6 +53,16 @@
     --syntax-local-variable: 0 84.2% 60.2%;
     --syntax-template: 225.9 70.7% 40.2%;
     --syntax-trigger: 328.6 85.5% 70.2%;
+    --diff-added: 145 60% 90%;
+    --diff-added-emphasis: 145 62% 78%;
+    --diff-added-foreground: 145 65% 18%;
+    --diff-removed: 0 70% 94%;
+    --diff-removed-emphasis: 0 78% 87%;
+    --diff-removed-foreground: 0 0% 32%;
+    --diff-marker-added: 145 63% 26%;
+    --diff-marker-removed: 0 65% 40%;
+    --diff-gutter: 0 0% 97%;
+    --diff-gutter-foreground: 0 0% 43%;
     --tooltip: 222 47% 11%;
     --tooltip-foreground: 0 0% 100%;
   }
@@ -101,6 +111,16 @@
     --syntax-local-variable: 3.8 100% 72.4%;
     --syntax-template: 207.3 100% 82.4%;
     --syntax-trigger: 328.8 88.8% 72%;
+    --diff-added: 145 45% 16%;
+    --diff-added-emphasis: 145 50% 24%;
+    --diff-added-foreground: 145 55% 78%;
+    --diff-removed: 0 40% 18%;
+    --diff-removed-emphasis: 0 45% 26%;
+    --diff-removed-foreground: 0 0% 70%;
+    --diff-marker-added: 145 55% 65%;
+    --diff-marker-removed: 0 70% 72%;
+    --diff-gutter: 0 0% 12%;
+    --diff-gutter-foreground: 0 0% 63.9%;
     --tooltip: 222 47% 16%;
     --tooltip-foreground: 0 0% 100%;
   }

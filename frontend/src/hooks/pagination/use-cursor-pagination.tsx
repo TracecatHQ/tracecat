@@ -1,8 +1,8 @@
 "use client"
 
-import { type Query, useQuery } from "@tanstack/react-query"
 import { useCallback, useState } from "react"
 import type { ApiError } from "@/client"
+import { type Query, useQuery } from "@/lib/query"
 
 export interface CursorPaginationResponse<T> {
   items: T[]

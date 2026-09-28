@@ -1,0 +1,122 @@
+type: action
+definition:
+  title: List organization dependabot alerts
+  description: 'List organization dependabot alerts. Calls GET /orgs/{org}/dependabot/alerts directly. Accepted OAuth scopes: security_events plus repo for private repository access.'
+  display_group: GitHub
+  doc_url: https://docs.github.com/en/rest
+  namespace: tools.github
+  name: list_org_dependabot_alerts
+  secrets:
+  - type: oauth
+    provider_id: github
+    grant_type: authorization_code
+  expects:
+    org:
+      type: str
+      description: GitHub API path value for org.
+    classification:
+      type: str | None
+      description: "A comma-separated list of vulnerability classifications. If specified, only alerts for vulnerabilities with these classifications will be returned. Can be: `malware`, `general`"
+      default: null
+    state:
+      type: str | None
+      description: "A comma-separated list of states. If specified, only alerts with these states will be returned. Can be: `auto_dismissed`, `dismissed`, `fixed`, `open`"
+      default: null
+    severity:
+      type: str | None
+      description: "A comma-separated list of severities. If specified, only alerts with these severities will be returned. Can be: `low`, `medium`, `high`, `critical`"
+      default: null
+    ecosystem:
+      type: str | None
+      description: "A comma-separated list of ecosystems. If specified, only alerts for these ecosystems will be returned. Can be: `composer`, `go`, `maven`, `npm`, `nuget`, `pip`, `pub`, `rubygems`, `rust`"
+      default: null
+    package:
+      type: str | None
+      description: A comma-separated list of package names. If specified, only alerts for these packages will be returned.
+      default: null
+    epss_percentage:
+      type: str | None
+      description: "CVE Exploit Prediction Scoring System (EPSS) percentage. Can be specified as: - An exact number (`n`) - Comparators such as `>n`, `<n`, `>=n`, `<=n` - A range like `n..n`, where `n` is a number from 0.0 to 1.0 Filters the list of alerts based on EPSS percentages. If specified, only alerts with the provided EPSS percentages will be returned."
+      default: null
+    artifact_registry_url:
+      type: str | None
+      description: A comma-separated list of artifact registry URLs. If specified, only alerts for repositories with storage records matching these URLs will be returned.
+      default: null
+    artifact_registry:
+      type: str | None
+      description: "A comma-separated list of Artifact Registry name strings. If specified, only alerts for repositories with storage records matching these registries will be returned. Can be: `jfrog-artifactory`"
+      default: null
+    has:
+      type: list[str] | None
+      description: Filters the list of alerts based on whether the alert has the given value. If specified, only alerts meeting this criterion will be returned. Multiple `has` filters can be passed to filter for alerts that have all of the values.
+      default: null
+    assignee:
+      type: str | None
+      description: Filter alerts by assignees. Provide a comma-separated list of user handles (e.g., `octocat` or `octocat,hubot`) to return alerts assigned to any of the specified users. Use `*` to list alerts with at least one assignee or `none` to list alerts with no assignees.
+      default: null
+    runtime_risk:
+      type: str | None
+      description: "A comma-separated list of runtime risk strings. If specified, only alerts for repositories with deployment records matching these risks will be returned. Can be: `critical-resource`, `internet-exposed`, `sensitive-data`, `lateral-movement`"
+      default: null
+    scope:
+      type: str | None
+      description: "The scope of the vulnerable dependency. If specified, only alerts with this scope will be returned. Can be one of: `development`, `runtime`."
+      default: null
+    relationship:
+      type: str | None
+      description: A comma-separated list of relationships of the vulnerable dependency to your project. If specified, only alerts with these relationships will be returned. We are rolling out support for dependency relationship across ecosystems. This value will be "unknown" for all dependencies in unsupported ecosystems.
+      default: null
+    sort:
+      type: str | None
+      description: "The property by which to sort the results. `created` means when the alert was created. `updated` means when the alert's state last changed. `epss_percentage` sorts alerts by the Exploit Prediction Scoring System (EPSS) percentage. Default: `created`."
+      default: null
+    direction:
+      type: str | None
+      description: "The direction to sort the results by. Default: `desc`. Can be one of: `asc`, `desc`."
+      default: null
+    before:
+      type: str | None
+      description: A cursor, as given in the Link header. If specified, the query only searches for results before this cursor.
+      default: null
+    after:
+      type: str | None
+      description: A cursor, as given in the Link header. If specified, the query only searches for results after this cursor.
+      default: null
+    per_page:
+      type: int | None
+      description: "The number of results per page (max 100). Default: `30`."
+      default: null
+    base_url:
+      type: str
+      description: GitHub.com REST API base URL.
+      default: https://api.github.com
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url }}/orgs/${{ FN.url_encode(inputs.org) }}/dependabot/alerts
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Accept: application/vnd.github+json
+        X-GitHub-Api-Version: '2022-11-28'
+      params:
+        classification: ${{ inputs.classification }}
+        state: ${{ inputs.state }}
+        severity: ${{ inputs.severity }}
+        ecosystem: ${{ inputs.ecosystem }}
+        package: ${{ inputs.package }}
+        epss_percentage: ${{ inputs.epss_percentage }}
+        artifact_registry_url: ${{ inputs.artifact_registry_url }}
+        artifact_registry: ${{ inputs.artifact_registry }}
+        has: ${{ inputs.has }}
+        assignee: ${{ inputs.assignee }}
+        runtime_risk: ${{ inputs.runtime_risk }}
+        scope: ${{ inputs.scope }}
+        relationship: ${{ inputs.relationship }}
+        sort: ${{ inputs.sort }}
+        direction: ${{ inputs.direction }}
+        before: ${{ inputs.before }}
+        after: ${{ inputs.after }}
+        per_page: ${{ inputs.per_page }}
+  returns: ${{ steps.request.result }}

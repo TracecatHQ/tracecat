@@ -1,0 +1,69 @@
+type: action
+definition:
+  title: Get pull request
+  description: "Get a pull request by ID."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/git/pull-requests/get-pull-request?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: get_pull_request
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    repository_id:
+      type: str
+      description: "Repository ID or name."
+    pull_request_id:
+      type: int
+      description: "Pull request ID."
+    include_commits:
+      type: bool | None
+      description: "Include commits associated with the pull request."
+      default: null
+    include_work_item_refs:
+      type: bool | None
+      description: "Include linked work item references."
+      default: null
+    max_comment_length:
+      type: int | None
+      description: "Not used."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            includeCommits: ${{ inputs.include_commits }}
+            includeWorkItemRefs: ${{ inputs.include_work_item_refs }}
+            maxCommentLength: ${{ inputs.max_comment_length }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.2"
+              return query
+    - ref: get_pull_request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/${{ FN.url_encode(inputs.project) }}/_apis/git/repositories/${{ FN.url_encode(inputs.repository_id) }}/pullrequests/${{ FN.url_encode(inputs.pull_request_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.get_pull_request.result }}

@@ -268,6 +268,40 @@ Reference: [https://docs.slack.dev/reference/methods/assistant.search.info/](htt
 
 This action does not take input fields.
 
+## Create canvas
+
+Action ID: `tools.slack.create_canvas`
+
+Create a standalone Slack canvas.
+
+Reference: [https://docs.slack.dev/reference/methods/canvases.create/](https://docs.slack.dev/reference/methods/canvases.create/)
+
+### Input fields
+
+<ParamField path="channel_id" type="string | null">
+
+ID of the channel where the canvas should be tabbed.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="document_content" type="object | null">
+
+Structure describing the type and value of the content to create.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="title" type="string | null">
+
+Title of the newly created canvas.
+
+Default: `null`.
+
+</ParamField>
+
 ## Create channel
 
 Action ID: `tools.slack.create_channel`
@@ -292,6 +326,86 @@ Default: `false`.
 
 </ParamField>
 
+## Create channel canvas
+
+Action ID: `tools.slack.create_channel_canvas`
+
+Create a Slack channel canvas for a channel.
+
+Reference: [https://docs.slack.dev/reference/methods/conversations.canvases.create/](https://docs.slack.dev/reference/methods/conversations.canvases.create/)
+
+### Input fields
+
+<ParamField path="channel_id" type="string" required>
+
+ID of the channel where the canvas will be tabbed.
+
+</ParamField>
+
+<ParamField path="document_content" type="object | null">
+
+Structure describing the type and value of the content to create.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="title" type="string | null">
+
+Title of the newly created canvas.
+
+Default: `null`.
+
+</ParamField>
+
+## Delete canvas
+
+Action ID: `tools.slack.delete_canvas`
+
+Delete a Slack canvas.
+
+Reference: [https://docs.slack.dev/reference/methods/canvases.delete/](https://docs.slack.dev/reference/methods/canvases.delete/)
+
+### Input fields
+
+<ParamField path="canvas_id" type="string" required>
+
+Encoded ID of the canvas to delete.
+
+</ParamField>
+
+## Delete canvas access
+
+Action ID: `tools.slack.delete_canvas_access`
+
+Remove access to a Slack canvas for specified channels or users.
+
+Reference: [https://docs.slack.dev/reference/methods/canvases.access.delete/](https://docs.slack.dev/reference/methods/canvases.access.delete/)
+
+### Input fields
+
+<ParamField path="canvas_id" type="string" required>
+
+Encoded ID of the canvas to remove access from.
+
+</ParamField>
+
+<ParamField path="channel_ids" type="array[string] | null">
+
+List of channels to remove access for.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="user_ids" type="array[string] | null">
+
+List of users to remove access for.
+
+Default: `null`.
+
+</ParamField>
+
 ## Delete message
 
 Action ID: `tools.slack.delete_message`
@@ -311,6 +425,28 @@ ID of the channel to delete the message from.
 <ParamField path="ts" type="string" required>
 
 Timestamp of the message to delete.
+
+</ParamField>
+
+## Edit canvas
+
+Action ID: `tools.slack.edit_canvas`
+
+Update an existing Slack canvas.
+
+Reference: [https://docs.slack.dev/reference/methods/canvases.edit/](https://docs.slack.dev/reference/methods/canvases.edit/)
+
+### Input fields
+
+<ParamField path="canvas_id" type="string" required>
+
+Encoded ID of the canvas to update.
+
+</ParamField>
+
+<ParamField path="changes" type="array[object]" required>
+
+List of changes to apply to the canvas.
 
 </ParamField>
 
@@ -495,6 +631,14 @@ ID of the channel to list messages from.
 
 </ParamField>
 
+<ParamField path="inclusive" type="boolean">
+
+Include messages with `latest` or `oldest` timestamps in results. Ignored unless either timestamp is specified.
+
+Default: `false`.
+
+</ParamField>
+
 <ParamField path="latest" type="string | null">
 
 Unix timestamp of the latest message to return.
@@ -542,6 +686,28 @@ Default: `false`.
 The maximum number of users to return.
 
 Default: `100`.
+
+</ParamField>
+
+## Lookup canvas sections
+
+Action ID: `tools.slack.lookup_canvas_sections`
+
+Find Slack canvas sections matching the provided criteria.
+
+Reference: [https://docs.slack.dev/reference/methods/canvases.sections.lookup/](https://docs.slack.dev/reference/methods/canvases.sections.lookup/)
+
+### Input fields
+
+<ParamField path="canvas_id" type="string" required>
+
+Encoded ID of the canvas to search.
+
+</ParamField>
+
+<ParamField path="criteria" type="object" required>
+
+Filtering criteria used to find matching sections.
 
 </ParamField>
 
@@ -995,6 +1161,44 @@ Title to use for the assistant thread.
 
 </ParamField>
 
+## Set canvas access
+
+Action ID: `tools.slack.set_canvas_access`
+
+Set access to a Slack canvas for specified channels or users.
+
+Reference: [https://docs.slack.dev/reference/methods/canvases.access.set/](https://docs.slack.dev/reference/methods/canvases.access.set/)
+
+### Input fields
+
+<ParamField path="access_level" type="string" required>
+
+Desired access level. Valid values are read, write, or owner.
+
+</ParamField>
+
+<ParamField path="canvas_id" type="string" required>
+
+Encoded ID of the canvas to update access for.
+
+</ParamField>
+
+<ParamField path="channel_ids" type="array[string] | null">
+
+List of channels to update access for. Do not provide with user_ids.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="user_ids" type="array[string] | null">
+
+List of users to update access for. Do not provide with channel_ids.
+
+Default: `null`.
+
+</ParamField>
+
 ## Set channel description
 
 Action ID: `tools.slack.set_channel_description`
@@ -1244,5 +1448,13 @@ Updated view payload for the modal. See: https://docs.slack.dev/reference/views/
 <ParamField path="view_id" type="string" required>
 
 ID of the view to update.
+
+</ParamField>
+
+<ParamField path="hash" type="string | null">
+
+Optional view state hash for optimistic concurrency control. Obtained from the response of views.open or a previous views.update. If provided, the update fails with hash_conflict when the view has been modified since. Omit to update unconditionally.
+
+Default: `null`.
 
 </ParamField>

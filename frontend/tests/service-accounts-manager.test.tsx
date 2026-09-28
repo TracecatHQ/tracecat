@@ -2,7 +2,6 @@
  * @jest-environment jsdom
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import type {
@@ -13,6 +12,7 @@ import type {
   UserReadMinimal,
 } from "@/client"
 import { ServiceAccountsManager } from "@/components/organization/service-accounts-manager"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/components/cases/case-panel-section", () => ({
   CasePanelSection: ({

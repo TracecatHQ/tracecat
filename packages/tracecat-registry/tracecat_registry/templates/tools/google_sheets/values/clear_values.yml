@@ -1,0 +1,47 @@
+type: action
+definition:
+  title: Clear values
+  description: >-
+    Clears values from a spreadsheet. The caller must specify the spreadsheet ID and range. Only
+    values are cleared -- all other properties of the cell (such as formatting, data validation,
+    etc.) are kept.
+  display_group: Google Sheets
+  doc_url: https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets.values/clear
+  namespace: tools.google_sheets
+  name: clear_values
+  secrets:
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_sheets
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    spreadsheet_id:
+      type: str
+      description: The ID of the spreadsheet to update.
+    range:
+      type: str
+      description: The A1 notation or R1C1 notation of the values to clear.
+  steps:
+    - ref: clear_values
+      action: tools.google_api.call_api
+      args:
+        service_name: sheets
+        version: v4
+        resource: spreadsheets.values
+        method_name: clear
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+        params:
+          spreadsheetId: ${{ inputs.spreadsheet_id }}
+          range: ${{ inputs.range }}
+          # The vendor documents this request body as empty.
+          body: {}
+  returns: ${{ steps.clear_values.result }}

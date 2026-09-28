@@ -31,6 +31,8 @@ from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
+    CaseAggregateRequest,
+    CaseAggregateResponse,
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentThreadRead,
@@ -68,6 +70,7 @@ from tracecat.exceptions import (
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
+from tracecat.query.errors import TracecatQueryOverflowError
 from tracecat.tiers.enums import Entitlement
 
 router = APIRouter(
@@ -114,6 +117,34 @@ async def _list_case_rows(
         include_row_data=True,
     )
     return rows_by_case.get(case_id, [])
+
+
+@router.post(
+    "/aggregate",
+    response_model=CaseAggregateResponse,
+    description=(
+        "Filter and aggregate workspace cases in PostgreSQL. BIGINT/NUMERIC sums, "
+        "means, medians, and NUMERIC min/max are widened to float8 JSON numbers. "
+        "NUMERIC group keys remain exact decimal strings. TEXT/SELECT group keys "
+        "use their first 256 characters, so values sharing that prefix collapse "
+        "into one group. Missing values form a null group."
+    ),
+)
+@require_scope("case:read")
+async def aggregate_cases(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    params: CaseAggregateRequest,
+) -> CaseAggregateResponse:
+    """Filter, group, and aggregate cases in the authenticated workspace."""
+    service = CasesService(session, role=role)
+    try:
+        return await service.aggregate_cases(params)
+    except TracecatQueryOverflowError:
+        raise
+    except (ValueError, TracecatValidationError) as exc:
+        raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 @router.get("")
@@ -648,7 +679,7 @@ async def create_comment(
         comment = await comments_svc.create_comment(case, params)
     except (TracecatAuthorizationError, TracecatValidationError) as exc:
         _raise_comment_http_error(exc)
-    return comments_svc.serialize_comment(comment)
+    return await comments_svc.serialize_comment_with_mentions(comment)
 
 
 @router.patch(
@@ -682,7 +713,7 @@ async def update_comment(
         updated_comment = await comments_svc.update_comment(comment, params)
     except (TracecatAuthorizationError, TracecatValidationError) as exc:
         _raise_comment_http_error(exc)
-    return comments_svc.serialize_comment(updated_comment)
+    return await comments_svc.serialize_comment_with_mentions(updated_comment)
 
 
 # Separate router for comment operations that don't require case_id in path
@@ -715,7 +746,7 @@ async def update_comment_by_id(
         updated_comment = await comments_svc.update_comment(comment, params)
     except (TracecatAuthorizationError, TracecatValidationError) as exc:
         _raise_comment_http_error(exc)
-    return comments_svc.serialize_comment(updated_comment)
+    return await comments_svc.serialize_comment_with_mentions(updated_comment)
 
 
 @comments_router.get(
@@ -1303,7 +1334,7 @@ async def update_case_simple(
                 )
             await session.refresh(updated_case)
 
-    except NoResultFound as e:
+    except (NoResultFound, TracecatNotFoundError) as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),

@@ -7,6 +7,7 @@ import type { ReactNode } from "react"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 
 const mockUseScopeCheck = jest.fn<boolean | undefined, [string]>()
+let mockPathname = "/workspaces/workspace-1/workflows"
 let mockScopes: Record<string, boolean | undefined> = {}
 let mockEntitlements: Record<string, boolean> = {}
 let mockEntitlementsIsLoading = false
@@ -14,7 +15,7 @@ let mockHasEntitlementData = true
 
 jest.mock("next/navigation", () => ({
   useParams: () => ({}),
-  usePathname: () => "/workspaces/workspace-1/workflows",
+  usePathname: () => mockPathname,
 }))
 
 jest.mock("@/components/auth/scope-guard", () => ({
@@ -31,7 +32,27 @@ jest.mock("@/components/sidebar/app-menu", () => ({
 }))
 
 jest.mock("@/components/sidebar/sidebar-user-nav", () => ({
-  SidebarUserNav: () => <div>User nav</div>,
+  SidebarUserNav: ({
+    manageItems,
+  }: {
+    manageItems: {
+      title: string
+      href: string
+      isActive?: boolean
+    }[]
+  }) => (
+    <nav>
+      {manageItems.map((item) => (
+        <a
+          href={item.href}
+          data-active={item.isActive ? "true" : "false"}
+          key={item.href}
+        >
+          {item.title}
+        </a>
+      ))}
+    </nav>
+  ),
 }))
 
 jest.mock("@/components/ui/collapsible", () => ({
@@ -72,15 +93,17 @@ jest.mock("@/components/ui/sidebar", () => ({
     asChild,
     children,
     disabled,
+    isActive,
     type,
   }: {
     asChild?: boolean
     children: ReactNode
     disabled?: boolean
+    isActive?: boolean
     type?: "button" | "submit" | "reset"
   }) =>
     asChild ? (
-      <>{children}</>
+      <div data-active={isActive ? "true" : "false"}>{children}</div>
     ) : (
       <button type={type ?? "button"} disabled={disabled}>
         {children}
@@ -122,6 +145,7 @@ jest.mock("@/providers/workspace-id", () => ({
 describe("AppSidebar", () => {
   beforeEach(() => {
     mockUseScopeCheck.mockReset()
+    mockPathname = "/workspaces/workspace-1/workflows"
     mockScopes = {}
     mockEntitlements = {
       agent_addons: true,
@@ -189,5 +213,23 @@ describe("AppSidebar", () => {
 
     expect(screen.getByText("Chat")).toBeInTheDocument()
     expect(screen.getAllByText("Locked")).toHaveLength(1)
+  })
+
+  it("only highlights MCP servers on the MCP servers page", () => {
+    mockPathname = "/workspaces/workspace-1/mcp-servers"
+    mockScopes = {
+      "integration:read": true,
+      "workspace:read": true,
+    }
+
+    render(<AppSidebar />)
+
+    expect(
+      screen.getByRole("link", { name: "MCP servers" }).closest("[data-active]")
+    ).toHaveAttribute("data-active", "true")
+    expect(screen.getByRole("link", { name: "MCP access" })).toHaveAttribute(
+      "data-active",
+      "false"
+    )
   })
 })

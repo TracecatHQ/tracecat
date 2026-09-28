@@ -167,7 +167,7 @@ export function ActionMultiselect<T extends FieldValues>({
                         field.onChange(nextSelections)
                       }}
                       onClick={(e) => e.stopPropagation()}
-                      className="mt-1 border-input"
+                      className="mt-1"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center space-x-2 mb-1">

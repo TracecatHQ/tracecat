@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import uuid
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from tracecat.auth import credentials
 from tracecat.auth.api_keys import generate_managed_api_key
 from tracecat.auth.credentials import _authenticate_api_key
 from tracecat.authz.seeding import seed_system_scopes
@@ -77,7 +80,7 @@ async def test_authenticate_org_service_account_key_for_workspace_route(
         yield session
 
     monkeypatch.setattr(
-        "tracecat.auth.credentials.get_async_session_bypass_rls_context_manager",
+        "tracecat.auth.credentials.get_async_session_auth_context_manager",
         _session_cm,
     )
     monkeypatch.setattr(
@@ -97,6 +100,79 @@ async def test_authenticate_org_service_account_key_for_workspace_route(
     assert role.workspace_id == workspace.id
     assert role.bound_workspace_id is None
     assert role.scopes == frozenset({"org:read", "workflow:read"})
+
+
+@pytest.mark.anyio
+async def test_authenticate_api_key_cold_workspace_cache_uses_one_auth_checkout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organization_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    service_account_id = uuid.uuid4()
+    generated = generate_managed_api_key(prefix="tc_org_sk_")
+
+    service_account = SimpleNamespace(
+        id=service_account_id,
+        organization_id=organization_id,
+        workspace_id=None,
+        disabled_at=None,
+        scopes=[SimpleNamespace(name="workflow:read")],
+    )
+    record = SimpleNamespace(
+        revoked_at=None,
+        salt=generated.salt_b64,
+        hashed=generated.hashed,
+        service_account=service_account,
+        last_used_at=None,
+    )
+
+    api_key_result = MagicMock()
+    api_key_result.scalar_one_or_none.return_value = record
+    workspace_result = MagicMock()
+    workspace_result.scalar_one_or_none.return_value = organization_id
+    auth_session = AsyncMock()
+    auth_session.add = MagicMock()
+    auth_session.execute.side_effect = [api_key_result, workspace_result]
+
+    checkout_count = 0
+    active_checkouts = 0
+    max_active_checkouts = 0
+
+    @asynccontextmanager
+    async def _counted_auth_session_cm():
+        nonlocal active_checkouts, checkout_count, max_active_checkouts
+        checkout_count += 1
+        active_checkouts += 1
+        max_active_checkouts = max(max_active_checkouts, active_checkouts)
+        try:
+            yield auth_session
+        finally:
+            active_checkouts -= 1
+
+    credentials._get_workspace_org_id_cached.cache_clear()
+    monkeypatch.setattr(
+        credentials,
+        "get_async_session_auth_context_manager",
+        _counted_auth_session_cm,
+    )
+    monkeypatch.setattr(
+        credentials,
+        "is_org_entitled",
+        AsyncMock(return_value=True),
+    )
+
+    role = await _authenticate_api_key(
+        api_key=generated.raw,
+        workspace_id=workspace_id,
+    )
+
+    assert role is not None
+    assert role.workspace_id == workspace_id
+    assert role.service_account_id == service_account_id
+    assert checkout_count == 1
+    assert max_active_checkouts == 1
+    assert active_checkouts == 0
+    assert auth_session.execute.await_count == 2
 
 
 @pytest.mark.anyio
@@ -142,7 +218,7 @@ async def test_authenticate_org_service_account_key_rejects_workspace_outside_or
         yield session
 
     monkeypatch.setattr(
-        "tracecat.auth.credentials.get_async_session_bypass_rls_context_manager",
+        "tracecat.auth.credentials.get_async_session_auth_context_manager",
         _session_cm,
     )
     monkeypatch.setattr(
@@ -206,7 +282,7 @@ async def test_authenticate_api_key_checks_entitlement_before_workspace_resoluti
 
     get_workspace_org_id = AsyncMock(return_value=organization.id)
     monkeypatch.setattr(
-        "tracecat.auth.credentials.get_async_session_bypass_rls_context_manager",
+        "tracecat.auth.credentials.get_async_session_auth_context_manager",
         _session_cm,
     )
     monkeypatch.setattr(
@@ -275,7 +351,7 @@ async def test_workspace_service_account_key_resolves_bound_workspace_for_org_ro
         yield session
 
     monkeypatch.setattr(
-        "tracecat.auth.credentials.get_async_session_bypass_rls_context_manager",
+        "tracecat.auth.credentials.get_async_session_auth_context_manager",
         _session_cm,
     )
 
@@ -340,7 +416,7 @@ async def test_workspace_service_account_key_for_workspace_route_tracks_target_a
         yield session
 
     monkeypatch.setattr(
-        "tracecat.auth.credentials.get_async_session_bypass_rls_context_manager",
+        "tracecat.auth.credentials.get_async_session_auth_context_manager",
         _session_cm,
     )
 
@@ -405,7 +481,7 @@ async def test_workspace_service_account_key_rejects_mismatched_workspace_target
         yield session
 
     monkeypatch.setattr(
-        "tracecat.auth.credentials.get_async_session_bypass_rls_context_manager",
+        "tracecat.auth.credentials.get_async_session_auth_context_manager",
         _session_cm,
     )
 
@@ -468,7 +544,7 @@ async def test_workspace_service_account_key_rejects_bound_workspace_outside_org
         yield session
 
     monkeypatch.setattr(
-        "tracecat.auth.credentials.get_async_session_bypass_rls_context_manager",
+        "tracecat.auth.credentials.get_async_session_auth_context_manager",
         _session_cm,
     )
 
@@ -528,7 +604,7 @@ async def test_workspace_service_account_key_can_bind_workspace_for_actor_org_ro
         yield session
 
     monkeypatch.setattr(
-        "tracecat.auth.credentials.get_async_session_bypass_rls_context_manager",
+        "tracecat.auth.credentials.get_async_session_auth_context_manager",
         _session_cm,
     )
 

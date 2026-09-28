@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Search tags
+  description: Search MISP tags by exact or partial tag name.
+  display_group: MISP
+  doc_url: https://www.misp-project.org/openapi/#tag/Tags/operation/searchTag
+  namespace: tools.misp
+  name: search_tags
+  secrets:
+    - name: misp
+      keys: ["MISP_API_KEY"]
+  expects:
+    tagname:
+      type: str
+      description: Exact or partial tag name, such as tlp:amber or a galaxy tag.
+    strict:
+      type: bool
+      description: Match the tag name exactly instead of matching synonyms and galaxy values.
+      default: false
+    base_url:
+      type: str | None
+      description: MISP base URL. Falls back to VARS.misp.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.misp.base_url }}/tags/search
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ${{ SECRETS.misp.MISP_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          tagname: ${{ inputs.tagname }}
+          strict_tagname: ${{ inputs.strict }}
+  returns: ${{ steps.request.result.data }}

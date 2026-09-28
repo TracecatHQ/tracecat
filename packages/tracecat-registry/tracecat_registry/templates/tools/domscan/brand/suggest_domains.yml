@@ -1,0 +1,60 @@
+type: action
+definition:
+  title: Suggest domains
+  description: Suggest domains. Calls GET /v1/suggest directly.
+  display_group: DomScan
+  doc_url: https://domscan.net/docs/suggestions
+  namespace: tools.domscan
+  name: suggest_domains
+  secrets:
+    - name: domscan
+      keys: ["DOMSCAN_API_KEY"]
+  expects:
+    keywords:
+      type: str
+      description: Comma-separated keywords (max 10).
+    tlds:
+      type: str | None
+      description: "Target TLDs. DomScan defaults to com,io,ai,co,app."
+      default: null
+    style:
+      type: str | None
+      description: Suggestion style preference, one of brandable, keyword-rich, short, pronounceable, techy, playful, professional, or minimal. DomScan defaults to brandable.
+      default: null
+    industry:
+      type: str | None
+      description: Industry for targeted suggestions, one of tech, finance, health, ecommerce, education, media, saas, crypto, ai, or gaming.
+      default: null
+    language:
+      type: str | None
+      description: Language for prefixes/suffixes (romanized for non-Latin scripts). 30 languages supported. DomScan defaults to en.
+      default: null
+    limit:
+      type: int | None
+      description: Max suggestions (1-100). DomScan defaults to 20.
+      default: null
+    check:
+      type: bool | None
+      description: Check availability of suggestions. DomScan defaults to true.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the DomScan API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.domscan.base_url || "https://domscan.net" }}/v1/suggest
+        method: GET
+        headers:
+          x-api-key: ${{ SECRETS.domscan.DOMSCAN_API_KEY }}
+        params:
+          keywords: ${{ inputs.keywords }}
+          tlds: ${{ inputs.tlds }}
+          style: ${{ inputs.style }}
+          industry: ${{ inputs.industry }}
+          language: ${{ inputs.language }}
+          limit: ${{ inputs.limit }}
+          check: ${{ inputs.check }}
+  returns: ${{ steps.request.result }}

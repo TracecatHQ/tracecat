@@ -7,6 +7,28 @@ import { slugify } from "@/lib/utils"
 
 export type AgentPresetFormMode = "create" | "edit"
 
+/**
+ * Backend preset fields whose change makes the API cut a new preset version.
+ * Mirrors `AgentPresetService.EXECUTION_FIELDS` in
+ * `tracecat/agent/preset/service.py`. Keep both sides in sync.
+ */
+export const AGENT_PRESET_PUBLISHING_FIELDS: ReadonlySet<string> = new Set([
+  "instructions",
+  "model_name",
+  "model_provider",
+  "catalog_id",
+  "base_url",
+  "output_type",
+  "actions",
+  "namespaces",
+  "tool_approvals",
+  "mcp_integrations",
+  "agents",
+  "retries",
+  "enable_thinking",
+  "enable_internet_access",
+])
+
 export function buildSkillCommandItemValue({
   id,
   name,

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-import traceback
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -13,6 +11,18 @@ from tracecat import config
 from tracecat.config import TRACECAT__APP_ENV
 from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.logger import logger
+from tracecat.secrets.common import CapturedFailure, MaskedSecretError
+
+
+def _failure_site(e: Exception) -> CapturedFailure:
+    """Original failure type and location.
+
+    A masked exception's own traceback points at the masking boundary; prefer
+    the site captured before the original traceback was dropped.
+    """
+    if isinstance(e, MaskedSecretError) and e.captured is not None:
+        return e.captured
+    return CapturedFailure.from_exc(e)
 
 
 class ExecutorResultSuccess(BaseModel):
@@ -40,17 +50,12 @@ class ExecutorBackendType(StrEnum):
 
     All sandbox backends use untrusted mode - DB credentials are never passed.
 
-    - POOL: Warm nsjail workers (high throughput, single-tenant, untrusted).
-      EXPERIMENTAL: not production ready. Warm workers import from registry
-      cache paths that in-process leases cannot see, so tarball cache entries
-      are exempt from eviction and the cache can grow without bound.
     - EPHEMERAL: Cold nsjail subprocess per action (full isolation, multi-tenant, untrusted)
     - DIRECT: Direct subprocess execution (no warm workers)
     - TEST: In-process execution for tests only
     - AUTO: Auto-select based on environment (never selects experimental backends)
     """
 
-    POOL = "pool"
     EPHEMERAL = "ephemeral"
     DIRECT = "direct"
     TEST = "test"
@@ -96,13 +101,6 @@ def resolve_backend_type() -> ExecutorBackendType:
                 "Auto-selecting 'direct' backend (nsjail not available)",
             )
             backend_type = ExecutorBackendType.DIRECT
-    elif backend_type == ExecutorBackendType.POOL:
-        logger.warning(
-            "The 'pool' executor backend is experimental and not production "
-            "ready: its registry cache is exempt from eviction and can grow "
-            "without bound. Use 'ephemeral' for production nsjail isolation.",
-        )
-
     return backend_type
 
 
@@ -208,7 +206,10 @@ class ExecutorActionErrorInfo(BaseModel):
     """Iteration number of the loop that caused the error."""
 
     loop_vars: dict[str, Any] | None = None
-    """Variables of the loop that caused the error."""
+    """Deprecated. Never populated: loop values are withheld like `var.*`.
+
+    Retained because the generated API client still declares the field.
+    """
 
     def __str__(self) -> str:
         parts = []
@@ -216,8 +217,7 @@ class ExecutorActionErrorInfo(BaseModel):
         if self.loop_iteration is not None:
             parts.append(
                 f"\n[for_each] (Iteration {self.loop_iteration})"
-                f"\n\nLoop variables:\n```\n{json.dumps(self.loop_vars or {}, indent=2)}\n```"
-                f"\n\n{msg}"
+                f"\n{msg}"
                 "\n\nPlease ensure that the loop is iterable and that the loop variable has the correct type."
             )
         else:
@@ -234,12 +234,12 @@ class ExecutorActionErrorInfo(BaseModel):
     @staticmethod
     def from_exc(e: Exception, action_name: str) -> ExecutorActionErrorInfo:
         """Create an error info from an exception."""
-        tb = traceback.extract_tb(e.__traceback__)[-1]  # Get the last frame
+        site = _failure_site(e)
         return ExecutorActionErrorInfo(
             action_name=action_name,
-            type=e.__class__.__name__,
+            type=site.original_type,
             message=str(e),
-            filename=tb.filename,
-            function=tb.name,
-            lineno=tb.lineno,
+            filename=site.filename,
+            function=site.function,
+            lineno=site.lineno,
         )

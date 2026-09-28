@@ -2,8 +2,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import tracecat_registry.integrations.amazon_s3 as amazon_s3
 import tracecat_registry.integrations.aws_boto3 as aws_boto3
+from botocore.exceptions import ClientError
 from tracecat_registry import SecretNotFoundError
 
 
@@ -295,77 +295,236 @@ async def test_get_session_region_override_takes_precedence() -> None:
     )
 
 
-class _AsyncAwsClient:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, object]]] = []
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        return None
-
-    async def list_buckets(self) -> dict[str, object]:
-        self.calls.append(("list_buckets", {}))
-        return {"Buckets": []}
-
-    async def list_objects_v2(self, **kwargs: object) -> dict[str, object]:
-        self.calls.append(("list_objects_v2", kwargs))
-        return {"Contents": []}
+def _chained_sts_session() -> tuple[MagicMock, MagicMock]:
+    sts_client = MagicMock()
+    sts_client.assume_role.return_value = {
+        "Credentials": {
+            "AccessKeyId": "chained-access",
+            "SecretAccessKey": "chained-secret",
+            "SessionToken": "chained-token",
+        }
+    }
+    base_session = MagicMock()
+    base_session.client.return_value = sts_client
+    return base_session, sts_client
 
 
-class _AsyncAwsSession:
-    def __init__(self, client: _AsyncAwsClient) -> None:
-        self.client_instance = client
-        self.client_calls: list[tuple[str, str | None]] = []
+def test_get_sync_session_role_arn_chains_from_base_credentials() -> None:
+    """A per-call role_arn is assumed with the secret's credentials, not ambient ones."""
+    base_session, sts_client = _chained_sts_session()
+    chained_session = MagicMock()
 
-    def client(self, service_name: str, endpoint_url: str | None = None):
-        self.client_calls.append((service_name, endpoint_url))
-        return self.client_instance
+    with (
+        patch.object(
+            aws_boto3.secrets,
+            "get_or_default",
+            side_effect=lambda key, default=None: {
+                "AWS_ACCESS_KEY_ID": "AKIA_TEST",
+                "AWS_SECRET_ACCESS_KEY": "secret_test",
+                "AWS_SESSION_TOKEN": "token_test",
+                "AWS_REGION": "us-east-1",
+            }.get(key, default),
+        ),
+        patch.object(
+            aws_boto3.boto3, "Session", side_effect=[base_session, chained_session]
+        ) as session_cls,
+    ):
+        result = aws_boto3.get_sync_session(
+            role_arn="arn:aws:iam::210987654321:role/target-role",
+            external_id="partner-id",
+            duration_seconds=1800,
+        )
+
+    assert result is chained_session
+    base_session.client.assert_called_once_with("sts")
+    call_kwargs = sts_client.assume_role.call_args.kwargs
+    assert call_kwargs["RoleArn"] == "arn:aws:iam::210987654321:role/target-role"
+    assert call_kwargs["ExternalId"] == "partner-id"
+    assert call_kwargs["DurationSeconds"] == 1800
+    assert call_kwargs["RoleSessionName"].startswith("tracecat")
+    session_cls.assert_any_call(
+        aws_access_key_id="chained-access",
+        aws_secret_access_key="chained-secret",
+        aws_session_token="chained-token",
+        region_name="us-east-1",
+    )
+
+
+def test_get_sync_session_role_arn_custom_session_name_and_no_external_id() -> None:
+    base_session, sts_client = _chained_sts_session()
+
+    with (
+        patch.object(
+            aws_boto3.secrets,
+            "get_or_default",
+            side_effect=lambda key, default=None: {
+                "AWS_ACCESS_KEY_ID": "AKIA_TEST",
+                "AWS_SECRET_ACCESS_KEY": "secret_test",
+            }.get(key, default),
+        ),
+        patch.object(
+            aws_boto3.boto3, "Session", side_effect=[base_session, MagicMock()]
+        ),
+    ):
+        aws_boto3.get_sync_session(
+            role_arn=" arn:aws:iam::210987654321:role/target-role ",
+            role_session_name="  audit-run  ",
+        )
+
+    sts_client.assume_role.assert_called_once_with(
+        RoleArn="arn:aws:iam::210987654321:role/target-role",
+        RoleSessionName="audit-run",
+    )
+
+
+@pytest.mark.parametrize(
+    "role_arn",
+    [
+        "not-an-arn",
+        "arn:aws:iam::123:role/short-account",
+        "arn:aws:iam::123456789012:user/not-a-role",
+        "arn:aws:iam::123456789012:role/bad chars; DROP",
+    ],
+)
+def test_get_sync_session_rejects_invalid_role_arn(role_arn: str) -> None:
+    with (
+        patch.object(
+            aws_boto3.secrets,
+            "get_or_default",
+            side_effect=lambda key, default=None: {
+                "AWS_ACCESS_KEY_ID": "AKIA_TEST",
+                "AWS_SECRET_ACCESS_KEY": "secret_test",
+            }.get(key, default),
+        ),
+        patch.object(aws_boto3.boto3, "Session") as session_cls,
+        pytest.raises(ValueError, match="Invalid role_arn"),
+    ):
+        aws_boto3.get_sync_session(role_arn=role_arn)
+
+    session_cls.return_value.client.assert_not_called()
+
+
+@pytest.mark.parametrize("duration_seconds", [899, 3601, 0, -1])
+def test_get_sync_session_rejects_out_of_range_duration(duration_seconds: int) -> None:
+    with (
+        patch.object(
+            aws_boto3.secrets,
+            "get_or_default",
+            side_effect=lambda key, default=None: {
+                "AWS_ACCESS_KEY_ID": "AKIA_TEST",
+                "AWS_SECRET_ACCESS_KEY": "secret_test",
+            }.get(key, default),
+        ),
+        patch.object(aws_boto3.boto3, "Session"),
+        pytest.raises(ValueError, match="duration_seconds must be between"),
+    ):
+        aws_boto3.get_sync_session(
+            role_arn="arn:aws:iam::210987654321:role/target-role",
+            duration_seconds=duration_seconds,
+        )
+
+
+def test_get_sync_session_redacts_sts_errors() -> None:
+    base_session, sts_client = _chained_sts_session()
+    sts_client.assume_role.side_effect = ClientError(
+        {
+            "Error": {
+                "Code": "AccessDenied",
+                "Message": "User arn:aws:sts::111122223333:assumed-role/x is not authorized",
+            }
+        },
+        "AssumeRole",
+    )
+
+    with (
+        patch.object(
+            aws_boto3.secrets,
+            "get_or_default",
+            side_effect=lambda key, default=None: {
+                "AWS_ACCESS_KEY_ID": "AKIA_TEST",
+                "AWS_SECRET_ACCESS_KEY": "secret_test",
+            }.get(key, default),
+        ),
+        patch.object(aws_boto3.boto3, "Session", return_value=base_session),
+        pytest.raises(RuntimeError) as exc_info,
+    ):
+        aws_boto3.get_sync_session(
+            role_arn="arn:aws:iam::210987654321:role/target-role"
+        )
+
+    assert str(exc_info.value) == (
+        "Failed to assume chained AWS role (error code AccessDenied)"
+    )
+    assert "111122223333" not in str(exc_info.value)
+    assert exc_info.value.__cause__ is None
+
+
+def test_get_sync_session_without_role_arn_does_not_call_sts() -> None:
+    with (
+        patch.object(
+            aws_boto3.secrets,
+            "get_or_default",
+            side_effect=lambda key, default=None: {
+                "AWS_ACCESS_KEY_ID": "AKIA_TEST",
+                "AWS_SECRET_ACCESS_KEY": "secret_test",
+            }.get(key, default),
+        ),
+        patch.object(aws_boto3.boto3, "Session") as session_cls,
+    ):
+        aws_boto3.get_sync_session()
+
+    session_cls.return_value.client.assert_not_called()
 
 
 @pytest.mark.anyio
-async def test_call_api_accepts_region_override() -> None:
-    client = _AsyncAwsClient()
-    session = _AsyncAwsSession(client)
+async def test_get_session_role_arn_chains_from_base_credentials() -> None:
+    sts_client = MagicMock()
+    sts_client.assume_role = AsyncMock(
+        return_value={
+            "Credentials": {
+                "AccessKeyId": "chained-access",
+                "SecretAccessKey": "chained-secret",
+                "SessionToken": "chained-token",
+            }
+        }
+    )
+    sts_cm = MagicMock()
+    sts_cm.__aenter__ = AsyncMock(return_value=sts_client)
+    sts_cm.__aexit__ = AsyncMock(return_value=False)
+    base_session = MagicMock()
+    base_session.client.return_value = sts_cm
+    chained_session = MagicMock()
 
-    with patch.object(
-        aws_boto3, "get_session", AsyncMock(return_value=session)
-    ) as get_session:
-        result = await aws_boto3.call_api(
-            service_name="s3",
-            method_name="list_buckets",
-            endpoint_url="https://s3.example.test",
-            region_name="custom-region-1",
+    with (
+        patch.object(
+            aws_boto3.secrets,
+            "get_or_default",
+            side_effect=lambda key, default=None: {
+                "AWS_ACCESS_KEY_ID": "AKIA_TEST",
+                "AWS_SECRET_ACCESS_KEY": "secret_test",
+                "AWS_REGION": "eu-west-1",
+            }.get(key, default),
+        ),
+        patch.object(
+            aws_boto3.aioboto3,
+            "Session",
+            side_effect=[base_session, chained_session],
+        ) as session_cls,
+    ):
+        result = await aws_boto3.get_session(
+            role_arn="arn:aws:iam::210987654321:role/target-role",
+            role_session_name="audit-run",
         )
 
-    get_session.assert_awaited_once_with(region_name="custom-region-1")
-    assert session.client_calls == [("s3", "https://s3.example.test")]
-    assert client.calls == [("list_buckets", {})]
-    assert result == {"Buckets": []}
-
-
-@pytest.mark.anyio
-async def test_s3_list_objects_accepts_region_override() -> None:
-    client = _AsyncAwsClient()
-    session = _AsyncAwsSession(client)
-
-    with patch.object(
-        aws_boto3, "get_session", AsyncMock(return_value=session)
-    ) as get_session:
-        result = await amazon_s3.list_objects(
-            bucket="example-bucket",
-            prefix="logs/",
-            endpoint_url="https://s3.example.test",
-            region_name="custom-region-1",
-        )
-
-    get_session.assert_awaited_once_with(region_name="custom-region-1")
-    assert session.client_calls == [("s3", "https://s3.example.test")]
-    assert client.calls == [
-        (
-            "list_objects_v2",
-            {"Bucket": "example-bucket", "Prefix": "logs/", "MaxKeys": 1000},
-        )
-    ]
-    assert result == {"Contents": []}
+    assert result is chained_session
+    base_session.client.assert_called_once_with("sts")
+    sts_client.assume_role.assert_awaited_once_with(
+        RoleArn="arn:aws:iam::210987654321:role/target-role",
+        RoleSessionName="audit-run",
+    )
+    session_cls.assert_any_call(
+        aws_access_key_id="chained-access",
+        aws_secret_access_key="chained-secret",
+        aws_session_token="chained-token",
+        region_name="eu-west-1",
+    )

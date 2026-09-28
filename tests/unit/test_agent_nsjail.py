@@ -17,6 +17,7 @@ async def test_spawned_claude_shim_uses_explicit_stdio_limit(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    """The stdio-limit test uses a fixture-owned job directory and leaks no temp state."""
     monkeypatch.setattr(nsjail_module, "TRACECAT__DISABLE_NSJAIL", True)
     captured: dict[str, Any] = {}
 
@@ -39,6 +40,7 @@ async def test_spawned_claude_shim_uses_explicit_stdio_limit(
         socket_dir=socket_dir,
         init_payload_path=tmp_path / "init.json",
         pipe_stdin=True,
+        job_dir=tmp_path / "job",
     )
 
     assert captured["kwargs"]["limit"] == nsjail_module.CLAUDE_SHIM_STDIO_LIMIT_BYTES

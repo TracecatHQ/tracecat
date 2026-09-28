@@ -1,10 +1,3 @@
-import {
-  type Query,
-  type QueryClient,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
 import Cookies from "js-cookie"
 import { AlertTriangleIcon, CircleCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
@@ -24,6 +17,7 @@ import {
   ApiError,
   type AppSettingsRead,
   type AuditSettingsRead,
+  type AuditWebhookTestResult,
   type AwsAssumeRoleAccessRead,
   actionsDeleteAction,
   actionsGetAction,
@@ -65,7 +59,6 @@ import {
   type CasesListTagsData,
   type CasesListTasksData,
   type CasesSearchCasesData,
-  type CaseTableRowRead,
   type CaseTagCreate,
   type CaseTagRead,
   type CaseTagsCreateCaseTagData,
@@ -95,7 +88,6 @@ import {
   casesDeleteCase,
   casesDeleteComment,
   casesDeleteTask,
-  casesListCaseRows,
   casesListComments,
   casesListCommentThreads,
   casesListEventsWithUsers,
@@ -174,6 +166,7 @@ import {
   organizationDeleteSession,
   organizationListOrgMembers,
   organizationListSessions,
+  organizationResendInvitation,
   organizationRevokeInvitation,
   organizationSecretsCreateOrgSecret,
   organizationSecretsDeleteOrgSecretById,
@@ -237,6 +230,7 @@ import {
   type SecretReadMinimal,
   type SecretUpdate,
   type SessionRead,
+  type SettingsTestAuditWebhookData,
   type SettingsUpdateAgentSettingsData,
   type SettingsUpdateAppSettingsData,
   type SettingsUpdateAuditSettingsData,
@@ -257,6 +251,7 @@ import {
   settingsGetAuditSettings,
   settingsGetGitSettings,
   settingsGetSamlSettings,
+  settingsTestAuditWebhook,
   settingsUpdateAgentSettings,
   settingsUpdateAppSettings,
   settingsUpdateAuditSettings,
@@ -354,6 +349,7 @@ import {
   type WorkflowsListWorkflowRepositoriesResponse,
   type WorkflowsMoveWorkflowToFolderData,
   type WorkflowsRemoveTagData,
+  type WorkflowsUpdateWorkflowData,
   type WorkspaceCreate,
   type WorkspaceReadMinimal,
   type WorkspaceUpdate,
@@ -369,12 +365,12 @@ import {
   workflowsListWorkflows,
   workflowsMoveWorkflowToFolder,
   workflowsRemoveTag,
+  workflowsUpdateWorkflow,
   workspacesCreateWorkspace,
   workspacesDeleteWorkspace,
   workspacesListWorkspaces,
   workspacesUpdateWorkspace,
 } from "@/client"
-
 import { toast } from "@/components/ui/use-toast"
 import {
   markStdioMcpVerificationStarted,
@@ -383,9 +379,20 @@ import {
 import { type AgentSessionWithStatus, enrichAgentSession } from "@/lib/agents"
 import { client as apiClient, getBaseUrl } from "@/lib/api"
 import {
+  getAuditWebhookTestDescription,
+  getAuditWebhookTestTitle,
+} from "@/lib/audit-webhook-test"
+import {
   listCaseDurationDefinitions,
   listCaseDurations,
 } from "@/lib/case-durations"
+import {
+  CASE_COMMENT_ACTIVE_POLL_INTERVAL_MS,
+  caseCommentQueryKeys,
+  hasActiveCaseCommentInvocations,
+  hasActiveCaseCommentThreadInvocations,
+  invalidateCaseCommentQueries,
+} from "@/lib/cases/comment-queries"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import type { ModelInfo } from "@/lib/chat"
 import {
@@ -397,6 +404,13 @@ import {
 } from "@/lib/errors"
 import type { WorkflowExecutionReadCompact } from "@/lib/event-history"
 import { getPendingStdioMcpVerificationIds } from "@/lib/integrations"
+import {
+  type Query,
+  type QueryClient,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 /**
@@ -485,6 +499,7 @@ export function useAction(
         requestBody: values,
       })
     },
+    meta: { suppressErrorToast: false },
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["action"],
@@ -630,9 +645,14 @@ export function useUpdateWebhook(workspaceId: string, workflowId: string) {
   return mutation
 }
 
-export function useCaseTrigger(workspaceId: string, workflowId: string) {
+export function useCaseTrigger(
+  workspaceId: string,
+  workflowId: string,
+  options?: { enabled?: boolean }
+) {
   return useQuery<CaseTriggerRead | null, ApiError>({
     queryKey: ["case-trigger", workspaceId, workflowId],
+    enabled: options?.enabled ?? true,
     queryFn: async () => {
       try {
         return await triggersGetCaseTrigger({ workspaceId, workflowId })
@@ -829,7 +849,7 @@ export function useWorkflowManager(
           console.error("Failed to create workflow:", error)
           toast({
             title: "Error creating workflow",
-            description: error.body.detail + ". Please try again.",
+            description: getApiErrorDetail(error) ?? "Please try again.",
             variant: "destructive",
           })
       }
@@ -856,14 +876,14 @@ export function useWorkflowManager(
         case 400:
           toast({
             title: "Cannot delete workflow",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         default:
           console.error("Failed to delete workflow:", error)
           toast({
             title: "Error deleting workflow",
-            description: error.body.detail + ". Please try again.",
+            description: getApiErrorDetail(error) ?? "Please try again.",
             variant: "destructive",
           })
       }
@@ -881,7 +901,7 @@ export function useWorkflowManager(
       console.error("Failed to add tag to workflow:", error)
       toast({
         title: "Couldn't add tag to workflow",
-        description: error.body.detail + ". Please try again.",
+        description: getApiErrorDetail(error) ?? "Please try again.",
       })
     },
   })
@@ -897,7 +917,7 @@ export function useWorkflowManager(
       console.error("Failed to remove tag from workflow:", error)
       toast({
         title: "Couldn't remove tag from workflow",
-        description: error.body.detail + ". Please try again.",
+        description: getApiErrorDetail(error) ?? "Please try again.",
       })
     },
   })
@@ -914,10 +934,49 @@ export function useWorkflowManager(
       console.error("Failed to move workflow:", error)
       toast({
         title: "Error moving workflow",
-        description: error.body.detail + ". Please try again.",
+        description: getApiErrorDetail(error) ?? "Please try again.",
       })
     },
   })
+
+  // Update workflow
+  const { mutateAsync: updateWorkflow, isPending: updateWorkflowIsPending } =
+    useMutation({
+      mutationFn: async (params: WorkflowsUpdateWorkflowData) =>
+        await workflowsUpdateWorkflow(params),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ["workflows"] })
+        queryClient.invalidateQueries({ queryKey: ["directory-items"] })
+        // Keep an already-loaded builder view in step with a dashboard rename.
+        queryClient.invalidateQueries({ queryKey: ["workflow"] })
+      },
+      onError: (error: TracecatApiError) => {
+        // Transport failures rethrow a raw error with no `body`, so read the
+        // detail defensively; dereferencing it here would throw before the
+        // toast renders and leave the user with no feedback at all.
+        const detail = getApiErrorDetail(error)
+        switch (error.status) {
+          case 409:
+            // The API returns a specific conflict reason (alias collision vs.
+            // a duplicate workflow), so surface it rather than assuming one.
+            toast({
+              title: "Cannot update workflow",
+              description: detail ?? "The workflow was modified elsewhere.",
+              variant: "destructive",
+            })
+            break
+          default:
+            console.error("Failed to update workflow:", error)
+            toast({
+              title: "Error updating workflow",
+              description: detail
+                ? `${detail}. Please try again.`
+                : "Could not reach the server. Please try again.",
+              variant: "destructive",
+            })
+        }
+      },
+    })
 
   return {
     workflows,
@@ -928,6 +987,8 @@ export function useWorkflowManager(
     addWorkflowTag,
     removeWorkflowTag,
     moveWorkflow,
+    updateWorkflow,
+    updateWorkflowIsPending,
   }
 }
 
@@ -978,7 +1039,7 @@ export function useWorkspaceManager() {
           console.error("Failed to create workspace:", error)
           toast({
             title: "Error creating workspace",
-            description: error.body.detail + ". Please try again.",
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
       }
     },
@@ -1003,14 +1064,14 @@ export function useWorkspaceManager() {
         case 400:
           toast({
             title: "Cannot delete workspace",
-            description: JSON.stringify(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         default:
           console.error("Failed to delete workspace:", error)
           toast({
             title: "Error deleting workspace",
-            description: error.body.detail + ". Please try again.",
+            description: getApiErrorDetail(error) ?? "Please try again.",
             variant: "destructive",
           })
       }
@@ -2006,12 +2067,20 @@ export function useRegistryRepositories() {
     mutationFn: async (
       params: RegistryRepositoriesSyncRegistryRepositoryData
     ) => await registryRepositoriesSyncRegistryRepository(params),
-    onSuccess: () => {
+    onSuccess: (_, { repositoryId }) => {
       queryClient.invalidateQueries({
         queryKey: ["registry_repositories"],
       })
       queryClient.invalidateQueries({
         queryKey: ["registry_actions"],
+      })
+      queryClient.invalidateQueries({
+        queryKey: ["registry_versions", repositoryId],
+      })
+      // Scoped to this repository so workspace-sync commit queries, which
+      // share the prefix, are left alone.
+      queryClient.invalidateQueries({
+        queryKey: ["repository_commits", repositoryId],
       })
     },
     onError: (error: TracecatApiError) => {
@@ -2022,7 +2091,7 @@ export function useRegistryRepositories() {
             description: (
               <div className="flex items-start gap-2">
                 <AlertTriangleIcon className="size-4 fill-rose-600 stroke-white" />
-                <span>{String(error.body.detail)}</span>
+                <span>{getApiErrorDetail(error) ?? "Please try again."}</span>
               </div>
             ),
           })
@@ -2050,7 +2119,7 @@ export function useRegistryRepositories() {
               <div className="flex items-start gap-2">
                 <AlertTriangleIcon className="size-4 fill-rose-600 stroke-white" />
                 <span>{error.message}</span>
-                <span>{String(error.body.detail)}</span>
+                <span>{getApiErrorDetail(error) ?? "Please try again."}</span>
               </div>
             ),
           })
@@ -2079,13 +2148,13 @@ export function useRegistryRepositories() {
         case 403:
           toast({
             title: "You cannot perform this action",
-            description: `${apiError.message}: ${apiError.body.detail}`,
+            description: `${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
           break
         default:
           toast({
             title: "Failed to delete registry repository",
-            description: `An unexpected error occurred while deleting the registry repository. ${apiError.message}: ${apiError.body.detail}`,
+            description: `An unexpected error occurred while deleting the registry repository. ${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
       }
     },
@@ -2134,6 +2203,9 @@ export function useRepositoryCommits(
       })
     },
     enabled: options?.enabled !== false && !!repositoryId,
+    // Listing commits shells out to git; callers render the failure inline.
+    retry: false,
+    meta: { suppressErrorToast: true },
   })
 
   return {
@@ -2170,13 +2242,13 @@ export function useOrgMembers() {
         case 403:
           toast({
             title: "You cannot perform this action",
-            description: `${apiError.message}: ${apiError.body.detail}`,
+            description: `${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
           break
         default:
           toast({
             title: "Failed to update organization member",
-            description: `An unexpected error occurred while updating the organization member. ${apiError.message}: ${apiError.body.detail}`,
+            description: `An unexpected error occurred while updating the organization member. ${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
       }
     },
@@ -2203,13 +2275,13 @@ export function useOrgMembers() {
         case 403:
           toast({
             title: "You cannot perform this action",
-            description: `${apiError.message}: ${apiError.body.detail}`,
+            description: `${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
           break
         default:
           toast({
             title: "Failed to delete organization member",
-            description: `An unexpected error occurred while deleting the organization member. ${apiError.message}: ${apiError.body.detail}`,
+            description: `An unexpected error occurred while deleting the organization member. ${apiError.message}: ${getApiErrorDetail(apiError) ?? "Please try again."}`,
           })
       }
     },
@@ -2260,6 +2332,19 @@ export function useOrgMembers() {
     },
   })
 
+  const {
+    mutateAsync: resendInvitation,
+    isPending: resendInvitationIsPending,
+  } = useMutation({
+    mutationFn: async (invitationId: string) =>
+      await organizationResendInvitation({ invitationId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
+    },
+    // Callers toast on the awaited result, including the 409 cooldown.
+    meta: { suppressErrorToast: true },
+  })
+
   return {
     orgMembers,
     updateOrgMember,
@@ -2271,6 +2356,8 @@ export function useOrgMembers() {
     createInvitation,
     createInvitationIsPending,
     revokeInvitation,
+    resendInvitation,
+    resendInvitationIsPending,
   }
 }
 
@@ -2359,7 +2446,7 @@ export function useWorkflowTags(
           console.error("Error creating tag", error)
           toast({
             title: "Error creating tag",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:
@@ -2372,7 +2459,7 @@ export function useWorkflowTags(
           console.error("Failed to create tag", error)
           toast({
             title: "Failed to create tag",
-            description: `An error occurred while creating the tag: ${error.body.detail}`,
+            description: `An error occurred while creating the tag: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -2400,7 +2487,7 @@ export function useWorkflowTags(
           console.error("Error updating tag", error)
           toast({
             title: "Error updating tag",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
       }
@@ -2500,7 +2587,7 @@ export function useCaseTagCatalog(
         case 400:
           toast({
             title: "Error creating case tag",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:
@@ -2513,7 +2600,7 @@ export function useCaseTagCatalog(
           console.error("Failed to create case tag", error)
           toast({
             title: "Failed to create case tag",
-            description: `An error occurred while creating the case tag: ${error.body.detail}`,
+            description: `An error occurred while creating the case tag: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -2542,7 +2629,7 @@ export function useCaseTagCatalog(
         case 400:
           toast({
             title: "Error updating case tag",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:
@@ -2623,6 +2710,7 @@ export function useOrgGitSettings() {
       await settingsUpdateGitSettings(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-git-settings"] })
+      queryClient.invalidateQueries({ queryKey: ["registry_repositories"] })
       toast({
         title: "Updated Git settings",
         description: "Git settings updated successfully.",
@@ -2640,7 +2728,7 @@ export function useOrgGitSettings() {
           console.error("Failed to update Git settings", error)
           toast({
             title: "Failed to update Git settings",
-            description: `An error occurred while updating the Git settings: ${typeof error.body.detail === "object" ? JSON.stringify(error.body.detail) : error.body.detail}`,
+            description: `An error occurred while updating the Git settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -2743,6 +2831,7 @@ export function useGitHubAppCredentials() {
     mutationFn: async (data) => {
       return await vcsSaveGithubAppCredentials({ requestBody: data })
     },
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       clearGitHubAppRepositoryQueries(queryClient)
       // Invalidate and refetch credentials status
@@ -2814,6 +2903,7 @@ export function useGitLabTokenCredentials() {
     mutationFn: async (data) => {
       return await vcsSaveGitlabTokenCredentials({ requestBody: data })
     },
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       invalidateGitLabTokenCredentialQueries(queryClient)
     },
@@ -2893,7 +2983,7 @@ export function useOrgAgentSettings() {
           console.error("Failed to update agent settings", error)
           toast({
             title: "Failed to update agent settings",
-            description: `An error occurred while updating the agent settings: ${error.body.detail}`,
+            description: `An error occurred while updating the agent settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -2951,7 +3041,7 @@ export function useOrgSamlSettings() {
           console.error("Failed to update SAML settings", error)
           toast({
             title: "Failed to update SAML settings",
-            description: `An error occurred while updating the SAML settings: ${error.body.detail}`,
+            description: `An error occurred while updating the SAML settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -2994,6 +3084,7 @@ export function useOrgAppSettings() {
       await settingsUpdateAppSettings(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-app-settings"] })
+      queryClient.invalidateQueries({ queryKey: ["workspace"] })
       toast({
         title: "Updated application settings",
         description: "Application settings updated successfully.",
@@ -3011,7 +3102,7 @@ export function useOrgAppSettings() {
           console.error("Failed to update application settings", error)
           toast({
             title: "Failed to update application settings",
-            description: `An error occurred while updating the application settings: ${error.body.detail}`,
+            description: `An error occurred while updating the application settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -3069,11 +3160,43 @@ export function useOrgAuditSettings() {
           console.error("Failed to update audit settings", error)
           toast({
             title: "Failed to update audit settings",
-            description: `An error occurred while updating the audit settings: ${error.body.detail}`,
+            description: `An error occurred while updating the audit settings: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
   })
+
+  const { mutate: testAuditWebhook, isPending: testAuditWebhookIsPending } =
+    useMutation<
+      AuditWebhookTestResult,
+      TracecatApiError,
+      SettingsTestAuditWebhookData
+    >({
+      mutationFn: settingsTestAuditWebhook,
+      onSuccess: (result) => {
+        toast({
+          title: getAuditWebhookTestTitle(result),
+          description: getAuditWebhookTestDescription(result),
+          variant: result.ok ? "default" : "destructive",
+        })
+      },
+      onError: (error: TracecatApiError) => {
+        switch (error.status) {
+          case 403:
+            toast({
+              title: "Forbidden",
+              description: "You cannot perform this action",
+            })
+            break
+          default:
+            console.error("Failed to test audit webhook", error)
+            toast({
+              title: "Failed to test audit webhook",
+              description: getApiErrorDetail(error) ?? "Unknown error",
+            })
+        }
+      },
+    })
 
   return {
     // Get
@@ -3084,6 +3207,9 @@ export function useOrgAuditSettings() {
     updateAuditSettings,
     updateAuditSettingsIsPending,
     updateAuditSettingsError,
+    // Test
+    testAuditWebhook,
+    testAuditWebhookIsPending,
   }
 }
 
@@ -3144,6 +3270,9 @@ function invalidateTableDetailQuery(
 ) {
   queryClient.invalidateQueries({
     queryKey: ["table", workspaceId, tableId],
+  })
+  queryClient.invalidateQueries({
+    queryKey: ["table-search", workspaceId, tableId],
   })
 }
 
@@ -3234,13 +3363,13 @@ export function useDeleteTable() {
         case 400:
           return toast({
             title: "Bad Request",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
         default:
           console.error("Error deleting table", error)
           return toast({
             title: "Error deleting table",
-            description: `An error occurred while deleting the table: ${error.body.detail}`,
+            description: `An error occurred while deleting the table: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -3335,7 +3464,7 @@ export function useUpdateColumn() {
         } else if (error.status === 400) {
           toast({
             title: indexErrorTitle,
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
         } else {
           toast({
@@ -3411,6 +3540,9 @@ export function useBatchInsertRows() {
       await tablesBatchInsertRows(params),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
+        queryKey: ["table-search", variables.workspaceId, variables.tableId],
+      })
+      queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
       queryClient.invalidateQueries({
@@ -3454,6 +3586,9 @@ export function useInsertRow() {
     mutationFn: async (params: TablesInsertRowData) =>
       await tablesInsertRow(params),
     onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["table-search", variables.workspaceId, variables.tableId],
+      })
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
@@ -3502,6 +3637,9 @@ export function useUpdateRow() {
     mutationFn: async (params: TablesUpdateRowData) =>
       await tablesUpdateRow(params),
     onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["table-search", variables.workspaceId, variables.tableId],
+      })
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
@@ -3651,6 +3789,9 @@ export function useImportCsv() {
       await tablesImportCsv(params),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
+        queryKey: ["table-search", variables.workspaceId, variables.tableId],
+      })
+      queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
       queryClient.invalidateQueries({
@@ -3760,42 +3901,6 @@ export function useGetCase(
   }
 }
 
-const CASE_ROWS_PAGE_SIZE = 200
-
-/** Fetch all linked rows for a case, including hydrated row data. */
-export function useListCaseRows(caseId: string, workspaceId: string) {
-  const {
-    data: caseRows = [],
-    isLoading: caseRowsIsLoading,
-    error: caseRowsError,
-  } = useQuery<CaseTableRowRead[], TracecatApiError>({
-    queryKey: ["case-rows", caseId],
-    queryFn: async () => {
-      const rows: CaseTableRowRead[] = []
-      let cursor: string | undefined
-
-      do {
-        const response = await casesListCaseRows({
-          caseId,
-          workspaceId,
-          limit: CASE_ROWS_PAGE_SIZE,
-          cursor,
-        })
-        rows.push(...response.items)
-        cursor = response.next_cursor ?? undefined
-      } while (cursor)
-
-      return rows
-    },
-  })
-
-  return {
-    caseRows,
-    caseRowsIsLoading,
-    caseRowsError,
-  }
-}
-
 export function useCreateCase(workspaceId: string) {
   const queryClient = useQueryClient()
   const {
@@ -3821,7 +3926,7 @@ export function useCreateCase(workspaceId: string) {
     onError: (error: TracecatApiError) => {
       toast({
         title: "Error creating case",
-        description: `An error occurred while creating the case: ${error.body.detail}`,
+        description: `An error occurred while creating the case: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -3849,7 +3954,7 @@ export function useUpdateCase({
     mutationFn: async (params: CaseUpdate) =>
       await casesUpdateCase({ caseId, workspaceId, requestBody: params }),
 
-    onSuccess: () => {
+    onSuccess: (_, params) => {
       queryClient.invalidateQueries({
         queryKey: ["cases", workspaceId],
       })
@@ -3859,6 +3964,11 @@ export function useUpdateCase({
         exact: false,
       })
       invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
+      if (params.summary !== undefined || params.description !== undefined) {
+        queryClient.invalidateQueries({
+          queryKey: ["case-versions", workspaceId, caseId],
+        })
+      }
     },
     onError: (error: TracecatApiError) => {
       switch (error.status) {
@@ -3871,7 +3981,7 @@ export function useUpdateCase({
           console.error("Error updating case", error)
           return toast({
             title: "Error updating case",
-            description: `An error occurred while updating the case: ${error.body.detail}`,
+            description: `An error occurred while updating the case: ${getApiErrorDetail(error) ?? "Please try again."}`,
             variant: "destructive",
           })
       }
@@ -3916,7 +4026,7 @@ export function useDeleteCase({ workspaceId }: { workspaceId: string }) {
           console.error("Error deleting case", error)
           return toast({
             title: "Error deleting case",
-            description: `An error occurred while deleting the case: ${error.body.detail}`,
+            description: `An error occurred while deleting the case: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -4053,9 +4163,13 @@ export function useCaseComments({
     isLoading: caseCommentsIsLoading,
     error: caseCommentsError,
   } = useQuery<CaseCommentRead[], TracecatApiError>({
-    queryKey: ["case-comments", caseId, workspaceId],
+    queryKey: caseCommentQueryKeys.comments(caseId, workspaceId),
     queryFn: async () => await casesListComments({ caseId, workspaceId }),
     enabled,
+    refetchInterval: (query) =>
+      hasActiveCaseCommentInvocations(query.state.data)
+        ? CASE_COMMENT_ACTIVE_POLL_INTERVAL_MS
+        : false,
   })
 
   return {
@@ -4075,9 +4189,13 @@ export function useCaseCommentThreads({
     isLoading: caseCommentThreadsIsLoading,
     error: caseCommentThreadsError,
   } = useQuery<CaseCommentThreadRead[], TracecatApiError>({
-    queryKey: ["case-comment-threads", caseId, workspaceId],
+    queryKey: caseCommentQueryKeys.threads(caseId, workspaceId),
     queryFn: async () => await casesListCommentThreads({ caseId, workspaceId }),
     enabled,
+    refetchInterval: (query) =>
+      hasActiveCaseCommentThreadInvocations(query.state.data)
+        ? CASE_COMMENT_ACTIVE_POLL_INTERVAL_MS
+        : false,
   })
 
   return {
@@ -4085,19 +4203,6 @@ export function useCaseCommentThreads({
     caseCommentThreadsIsLoading,
     caseCommentThreadsError,
   }
-}
-
-function invalidateCaseCommentQueries(
-  queryClient: ReturnType<typeof useQueryClient>,
-  caseId: string,
-  workspaceId: string
-) {
-  queryClient.invalidateQueries({
-    queryKey: ["case-comments", caseId, workspaceId],
-  })
-  queryClient.invalidateQueries({
-    queryKey: ["case-comment-threads", caseId, workspaceId],
-  })
 }
 
 export function useCreateCaseComment({
@@ -4124,7 +4229,7 @@ export function useCreateCaseComment({
       console.error("Error creating comment", error)
       toast({
         title: "Error creating comment",
-        description: `An error occurred while creating the comment: ${error.body.detail}`,
+        description: `An error occurred while creating the comment: ${getApiErrorDetail(error) ?? "Please try again."}`,
         variant: "destructive",
       })
     },
@@ -4167,7 +4272,7 @@ export function useUpdateCaseComment({
       console.error("Error updating comment", error)
       toast({
         title: "Error updating comment",
-        description: `An error occurred while updating the comment: ${error.body.detail}`,
+        description: `An error occurred while updating the comment: ${getApiErrorDetail(error) ?? "Please try again."}`,
         variant: "destructive",
       })
     },
@@ -4209,7 +4314,7 @@ export function useDeleteCaseComment({
       console.error("Error deleting comment", error)
       toast({
         title: "Error deleting comment",
-        description: `An error occurred while deleting the comment: ${error.body.detail}`,
+        description: `An error occurred while deleting the comment: ${getApiErrorDetail(error) ?? "Please try again."}`,
         variant: "destructive",
       })
     },
@@ -4222,7 +4327,11 @@ export function useDeleteCaseComment({
   }
 }
 
-export function useCaseTasks({ caseId, workspaceId }: CasesListTasksData) {
+export function useCaseTasks({
+  caseId,
+  workspaceId,
+  enabled = true,
+}: CasesListTasksData & { enabled?: boolean }) {
   const {
     data: caseTasks,
     isLoading: caseTasksIsLoading,
@@ -4231,6 +4340,10 @@ export function useCaseTasks({ caseId, workspaceId }: CasesListTasksData) {
   } = useQuery<CaseTaskRead[], TracecatApiError>({
     queryKey: ["case-tasks", caseId, workspaceId],
     queryFn: async () => await casesListTasks({ caseId, workspaceId }),
+    // Tasks are gated behind the `case_addons` entitlement; callers outside
+    // the gate (the switcher's progress ring) must pass `enabled` so
+    // non-entitled orgs never fire the request.
+    enabled: Boolean(caseId && workspaceId) && enabled,
   })
 
   return {
@@ -4265,7 +4378,7 @@ export function useCreateCaseTask({ caseId, workspaceId }: CasesListTasksData) {
       console.error("Error creating task", error)
       toast({
         title: "Error creating task",
-        description: `An error occurred while creating the task: ${error.body.detail}`,
+        description: `An error occurred while creating the task: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -4310,7 +4423,7 @@ export function useUpdateCaseTask({
       console.error("Error updating task", error)
       toast({
         title: "Error updating task",
-        description: `An error occurred while updating the task: ${error.body.detail}`,
+        description: `An error occurred while updating the task: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -4354,7 +4467,7 @@ export function useDeleteCaseTask({
       console.error("Error deleting task", error)
       toast({
         title: "Error deleting task",
-        description: `An error occurred while deleting the task: ${error.body.detail}`,
+        description: `An error occurred while deleting the task: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -4440,7 +4553,7 @@ export function useFolders(
           console.error("Failed to create folder", error)
           return toast({
             title: "Failed to create folder",
-            description: `An error occurred while creating the folder: ${error.body.detail}`,
+            description: `An error occurred while creating the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
       }
     },
@@ -4486,7 +4599,7 @@ export function useFolders(
           console.error("Error updating folder", error)
           toast({
             title: "Error updating folder",
-            description: `An error occurred while updating the folder: ${error.body.detail}`,
+            description: `An error occurred while updating the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
           break
       }
@@ -4523,7 +4636,7 @@ export function useFolders(
       console.error("Error moving folder", error)
       toast({
         title: "Error moving folder",
-        description: `An error occurred while moving the folder: ${error.body.detail}`,
+        description: `An error occurred while moving the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
       })
     },
   })
@@ -4559,7 +4672,7 @@ export function useFolders(
         case 400:
           toast({
             title: "Cannot delete folder",
-            description: String(error.body.detail),
+            description: getApiErrorDetail(error) ?? "Please try again.",
           })
           break
         case 403:
@@ -4572,7 +4685,7 @@ export function useFolders(
           console.error("Error deleting folder", error)
           toast({
             title: "Failed to delete folder",
-            description: `An error occurred while deleting the folder: ${error.body.detail}`,
+            description: `An error occurred while deleting the folder: ${getApiErrorDetail(error) ?? "Please try again."}`,
           })
           break
       }
@@ -5751,6 +5864,10 @@ export function useWorkspaceAgentModels(
   return {
     models,
     providers,
+    catalogLoading: modelsLoading,
+    catalogError: modelsError,
+    providersLoading,
+    providersError,
     modelsLoading: modelsLoading || providersLoading,
     modelsError: modelsError ?? providersError,
   }
@@ -5844,6 +5961,7 @@ export function useAgentDefaultModel() {
   const {
     data: defaultModelSelection,
     isLoading: defaultModelSelectionLoading,
+    error: defaultModelSelectionError,
   } = useQuery<DefaultModelSelection | null>({
     queryKey: ["agent-default-model-selection"],
     queryFn: async () => await agentGetDefaultModelSelection(),
@@ -5858,6 +5976,7 @@ export function useAgentDefaultModel() {
       await agentSetDefaultModel({
         requestBody: { catalog_id: catalogId },
       }),
+    meta: { suppressErrorToast: true },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["agent-default-model"] })
       queryClient.invalidateQueries({
@@ -5869,8 +5988,10 @@ export function useAgentDefaultModel() {
   return {
     defaultModel,
     defaultModelSelection,
+    defaultModelSelectionLoading,
+    defaultModelSelectionError,
     defaultModelLoading: defaultModelLoading || defaultModelSelectionLoading,
-    defaultModelError,
+    defaultModelError: defaultModelError ?? defaultModelSelectionError,
     updateDefaultModel,
     isUpdating,
     updateError,

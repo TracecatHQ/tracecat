@@ -1,0 +1,108 @@
+---
+title: "Platform audit logs"
+description: "Stream platform administrator actions to an HTTPS webhook and separate them from organization audit events."
+keywords: ["platform audit", "superuser", "audit webhook", "SIEM"]
+---
+
+import AuditDeliveryBehavior from "/snippets/audit-delivery-behavior.mdx";
+import AuditEventFields from "/snippets/audit-event-fields.mdx";
+import AuditRequestOptions from "/snippets/audit-request-options.mdx";
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+Platform audit logs record what platform administrators do above the organization boundary.
+They cover changes that no organization audit stream can see, such as a new organization, a promoted superuser, or a rewritten platform setting.
+
+You must be a platform superuser to configure the endpoint. These events go to their own sink, separate from every organization webhook, and organization administrators cannot read, change, or receive them.
+
+## Configure audit logs
+
+<Steps>
+  <Step title="Open platform administration">
+    Open **Admin**, then select **Audit Logs** under **Platform**.
+  </Step>
+  <Step title="Connect the endpoint">
+    Click **Connect** and enter the HTTPS URL that accepts your audit events.
+  </Step>
+  <Step title="Configure the request">
+    Set the request options your collector needs, then click **Save changes**.
+  </Step>
+</Steps>
+
+Events can continue to reach the old endpoint for up to 30 seconds after an endpoint change while cached settings expire.
+
+## Request options
+
+<AuditRequestOptions />
+
+## Logged events
+
+| Resource type | Action | Description |
+| --- | --- | --- |
+| `auth` | `sign_in` | A user signed in. |
+| `organization` | `create` | An organization was provisioned. |
+| `organization` | `delete` | An organization was deleted. |
+| `organization` | `update` | An organization was reconfigured. |
+| `organization_domain` | `create` | A domain was assigned to an organization. |
+| `organization_domain` | `delete` | A domain was removed from an organization. |
+| `organization_domain` | `update` | An organization domain was updated. |
+| `organization_invitation` | `create` | An organization invitation was sent from platform administration. |
+| `organization_invitation` | `revoke` | An organization invitation was revoked from platform administration. |
+| `organization_tier` | `update` | An organization's tier assignment or per-organization overrides changed. |
+| `platform_registry` | `sync` | Every platform registry repository was synchronized. |
+| `platform_registry_repository` | `sync` | One platform registry repository was synchronized. |
+| `platform_registry_version` | `delete` | A non-current platform registry version was deleted. |
+| `platform_registry_version` | `promote` | A platform registry version became the current version for its repository. |
+| `platform_setting` | `update` | A platform-wide setting changed, including this audit sink. |
+| `tier` | `create` | A tier definition was created. |
+| `tier` | `delete` | A tier definition was deleted. |
+| `tier` | `update` | A tier definition changed, altering limits for every organization on it. |
+| `user` | `create` | A platform user account was created. |
+| `user` | `delete` | A platform user account was deleted. |
+| `user` | `demote` | Superuser access was withdrawn from a user. |
+| `user` | `promote` | A user was granted superuser access. |
+
+An organization-scoped sign-in emits `auth` `sign_in` to this sink and to that organization's sink.
+A superuser login that carries no organization context reaches this sink only.
+
+## Event payload
+
+A platform event uses the same schema as an organization event, with platform-scope identifiers left null.
+
+```json
+{
+  "organization_id": null,
+  "workspace_id": null,
+  "actor_type": "USER",
+  "actor_id": "00000000-0000-4000-8000-000000000003",
+  "actor_label": "admin@example.com",
+  "ip_address": "192.0.2.10",
+  "user_agent": "Mozilla/5.0",
+  "resource_type": "platform_setting",
+  "resource_id": null,
+  "action": "update",
+  "status": "SUCCESS",
+  "data": null,
+  "created_at": "2026-01-15T14:03:12.123456Z"
+}
+```
+
+For platform settings updates, `data` is `null`, so the event tells you who made the change and whether it succeeded, but not which setting changed.
+
+<AuditEventFields />
+
+Platform events normally carry `null` `organization_id` and `workspace_id` because Tracecat emits them with a platform role.
+Organization-scoped sign-in is the exception: its `auth` `sign_in` event reaches both sinks, and the platform copy carries the organization's ID.
+
+Do not filter strictly on null scope to separate platform administration from tenant activity — that drops those sign-in events.
+Tag each stream with a custom payload instead when both reach the same index.
+
+## Delivery behavior
+
+<AuditDeliveryBehavior />
+
+## Related pages
+
+- See [Organization audit logs](/audit-logs/organization) to stream user and service-account activity inside an organization.
+- See [Architecture](/security/architecture) for the boundaries that platform audit events record.
+- See [Self-hosted security](/self-hosting/security) for deployment hardening guidance.

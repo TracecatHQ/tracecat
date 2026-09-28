@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Search leak
+  description: >-
+    Search leaks. Calls GET /api/v2/query/{query} directly.
+  display_group: LeakCheck
+  doc_url: https://wiki.leakcheck.io/en/api/api-v2-pro
+  namespace: tools.leakcheck
+  name: search_leak
+  secrets:
+    - name: leakcheck
+      keys: ["LEAKCHECK_API_KEY"]
+  expects:
+    query:
+      type: str
+      description: Search value used as the API path value.
+    type:
+      type: str | None
+      description: Search type. When omitted, the type is detected automatically (works for email, username, phone number and hash).
+      default: null
+    limit:
+      type: int | None
+      description: Maximum number of rows to return. Defaults to 100 and cannot exceed 1000.
+      default: null
+    offset:
+      type: int | None
+      description: Number of rows to skip, for pagination. Defaults to 0 and cannot exceed 2500.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the LeakCheck API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.leakcheck.base_url || "https://leakcheck.io" }}/api/v2/query/${{ FN.url_encode(inputs.query) }}
+        method: GET
+        headers:
+          Accept: application/json
+          X-API-Key: ${{ SECRETS.leakcheck.LEAKCHECK_API_KEY }}
+        params:
+          type: ${{ inputs.type }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+  returns: ${{ steps.request.result }}

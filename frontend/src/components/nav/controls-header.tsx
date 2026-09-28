@@ -1,6 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import { formatDistanceToNow } from "date-fns"
 import {
   AlertTriangle,
@@ -36,6 +35,7 @@ import {
   casesGetCase,
   casesUpdateCase,
 } from "@/client"
+import { AgentPresetDetailHeaderActions } from "@/components/agents/agent-preset-detail-actions"
 import {
   AgentsCatalogViewMode,
   AgentsCatalogViewToggle,
@@ -47,6 +47,7 @@ import { AddCaseDropdown } from "@/components/cases/add-case-dropdown"
 import { AddCaseDuration } from "@/components/cases/add-case-duration"
 import { AddCaseTag } from "@/components/cases/add-case-tag"
 import { AddCustomField } from "@/components/cases/add-custom-field"
+import { CaseAgentRunsAction } from "@/components/cases/case-agent-runs-action"
 import {
   PRIORITIES,
   SEVERITIES,
@@ -57,6 +58,7 @@ import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { CaseDurationMetrics } from "@/components/cases/case-duration-metrics"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
+import { CaseVersionHistory } from "@/components/cases/case-version-history"
 import {
   CasesViewMode,
   CasesViewToggle,
@@ -77,15 +79,19 @@ import {
 import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
 import { CreateGroupButton } from "@/components/rbac/create-group-button"
 import { CreateRoleButton } from "@/components/rbac/create-role-button"
-import { RegistryActionsControls } from "@/components/registry/workspace-actions-controls"
 import { CreateSkillButton } from "@/components/skills/create-skill-button"
+import {
+  SkillsCatalogViewMode,
+  SkillsCatalogViewToggle,
+} from "@/components/skills/skills-catalog-view-toggle"
+import { SkillFolderCreateDialog } from "@/components/skills/skills-dashboard"
 import { SkillsDetailActions } from "@/components/skills/skills-detail-actions"
 import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
-import { TableLinkRowsToCaseCommand } from "@/components/tables/table-link-rows-to-case-command"
 import { CreateTagDialog } from "@/components/tags/create-tag-dialog"
+import { useQueryClient } from "@/lib/query"
 
 const SimpleEditor = dynamic(
   () =>
@@ -156,6 +162,7 @@ import {
   useAgentTagCatalog,
 } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useSkillTagCatalog } from "@/hooks/use-skill-tags"
 import { useSkill } from "@/hooks/use-skills"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
@@ -178,16 +185,6 @@ interface PageConfig {
 interface ControlsHeaderProps {
   /** Callback to toggle the chat sidebar */
   onToggleChat?: () => void
-}
-
-const CASE_STATUS_TINTS: Record<CaseStatus, string> = {
-  new: "bg-yellow-500/[0.03] dark:bg-yellow-500/[0.08]",
-  in_progress: "bg-blue-500/[0.03] dark:bg-blue-500/[0.08]",
-  on_hold: "bg-orange-500/[0.03] dark:bg-orange-500/[0.08]",
-  resolved: "bg-green-500/[0.03] dark:bg-green-500/[0.08]",
-  closed: "bg-violet-500/[0.03] dark:bg-violet-500/[0.08]",
-  other: "bg-muted/5 dark:bg-muted/[0.12]",
-  unknown: "bg-muted/5 dark:bg-muted/[0.12]",
 }
 
 const CHAT_TOGGLE_KEY = "c"
@@ -366,14 +363,109 @@ function IntegrationsActions() {
 }
 
 function SkillsActions() {
+  const pathname = usePathname()
+  const workspaceId = useWorkspaceId()
+  const searchParams = useSearchParams()
+  const canCreateSkill = useScopeCheck("agent:create")
+  const { hasEntitlement } = useEntitlements()
+  const organizationEnabled = hasEntitlement("agent_addons")
+  const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false)
+  const catalogView = pathname?.includes("/skills/tags")
+    ? SkillsCatalogViewMode.Tags
+    : SkillsCatalogViewMode.Skills
+  const skillsHref = `/workspaces/${workspaceId}/skills`
+  const tagsHref = `/workspaces/${workspaceId}/skills/tags`
+  const isFoldersView =
+    organizationEnabled && searchParams?.get("view") !== "list"
+  const currentPath = normalizeAgentActionPath(
+    searchParams?.get("path") ?? null
+  )
+  const canUseSkillActions = canCreateSkill === true
+
+  let skillActionControls: ReactNode = null
+  if (canUseSkillActions) {
+    if (catalogView === SkillsCatalogViewMode.Tags) {
+      if (organizationEnabled) {
+        skillActionControls = (
+          <AddSkillTag
+            open={createTagDialogOpen}
+            onOpenChange={setCreateTagDialogOpen}
+          />
+        )
+      }
+    } else {
+      skillActionControls = (
+        <>
+          <CreateSkillButton
+            currentPath={isFoldersView ? currentPath : null}
+            showFolder={isFoldersView}
+            onCreateFolder={() => setFolderDialogOpen(true)}
+          />
+          {organizationEnabled ? (
+            <SkillFolderCreateDialog
+              open={folderDialogOpen}
+              onOpenChange={setFolderDialogOpen}
+              currentPath={currentPath}
+            />
+          ) : null}
+        </>
+      )
+    }
+  }
+
   return (
     <>
+      {organizationEnabled ? (
+        <SkillsCatalogViewToggle
+          view={catalogView}
+          skillsHref={skillsHref}
+          tagsHref={tagsHref}
+        />
+      ) : null}
       <WorkspaceResourceSyncActions
         label="skills"
         branchSlug="skills"
         resources={["skill"]}
       />
-      <CreateSkillButton />
+      {skillActionControls}
+    </>
+  )
+}
+
+function AddSkillTag({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const workspaceId = useWorkspaceId()
+  const { skillTags, createSkillTag } = useSkillTagCatalog(workspaceId, {
+    enabled: open,
+  })
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 bg-background"
+        onClick={() => onOpenChange(true)}
+      >
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        Create tag
+      </Button>
+      <CreateTagDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        existingTags={skillTags}
+        onCreateTag={async (params) => {
+          await createSkillTag(params)
+        }}
+        title="Create new skill tag"
+        description="Enter a name for your new skill tag."
+      />
     </>
   )
 }
@@ -440,11 +532,31 @@ function AgentFoldersBreadcrumb({
   workspaceId: string
   path: string | null
 }) {
+  const { hasEntitlement } = useEntitlements()
+  const organizationEnabled = hasEntitlement("agent_addons")
   return (
     <FolderPathBreadcrumb
       rootLabel="Agents"
       rootHref={`/workspaces/${workspaceId}/agents`}
-      folderPath={path}
+      folderPath={organizationEnabled ? path : "/"}
+    />
+  )
+}
+
+function SkillsFoldersBreadcrumb({
+  workspaceId,
+  path,
+}: {
+  workspaceId: string
+  path: string | null
+}) {
+  const { hasEntitlement } = useEntitlements()
+  const organizationEnabled = hasEntitlement("agent_addons")
+  return (
+    <FolderPathBreadcrumb
+      rootLabel="Skills"
+      rootHref={`/workspaces/${workspaceId}/skills`}
+      folderPath={organizationEnabled ? path : "/"}
     />
   )
 }
@@ -453,8 +565,10 @@ function AgentsActions() {
   const pathname = usePathname()
   const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
-  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const canCreateAgent = useScopeCheck("agent:create")
+  const { hasEntitlement } = useEntitlements()
+  // Folders and tags are agent add-ons; core preset creation is not.
+  const organizationEnabled = hasEntitlement("agent_addons")
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
@@ -464,23 +578,24 @@ function AgentsActions() {
     : AgentsCatalogViewMode.Agents
   const agentsHref = `/workspaces/${workspaceId}/agents`
   const tagsHref = `/workspaces/${workspaceId}/agents/tags`
-  const isFoldersView = searchParams?.get("view") !== "list"
+  const isFoldersView =
+    organizationEnabled && searchParams?.get("view") !== "list"
   const currentPath = normalizeAgentActionPath(
     searchParams?.get("path") ?? null
   )
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
-  const canUseAgentActions =
-    !entitlementsLoading && agentAddonsEnabled && canCreateAgent === true
+  const canUseAgentActions = canCreateAgent === true
   let agentActionControls: ReactNode = null
 
   if (canUseAgentActions) {
     if (catalogView === AgentsCatalogViewMode.Tags) {
-      agentActionControls = (
-        <AddAgentTag
-          open={createTagDialogOpen}
-          onOpenChange={setCreateTagDialogOpen}
-        />
-      )
+      if (organizationEnabled) {
+        agentActionControls = (
+          <AddAgentTag
+            open={createTagDialogOpen}
+            onOpenChange={setCreateTagDialogOpen}
+          />
+        )
+      }
     } else {
       agentActionControls = (
         <>
@@ -527,11 +642,13 @@ function AgentsActions() {
             onOpenChange={setCreateDialogOpen}
             currentPath={isFoldersView ? currentPath : null}
           />
-          <AgentFolderCreateDialog
-            open={folderDialogOpen}
-            onOpenChange={setFolderDialogOpen}
-            currentPath={currentPath}
-          />
+          {organizationEnabled ? (
+            <AgentFolderCreateDialog
+              open={folderDialogOpen}
+              onOpenChange={setFolderDialogOpen}
+              currentPath={currentPath}
+            />
+          ) : null}
         </>
       )
     }
@@ -539,11 +656,13 @@ function AgentsActions() {
 
   return (
     <>
-      <AgentsCatalogViewToggle
-        view={catalogView}
-        agentsHref={agentsHref}
-        tagsHref={tagsHref}
-      />
+      {organizationEnabled ? (
+        <AgentsCatalogViewToggle
+          view={catalogView}
+          agentsHref={agentsHref}
+          tagsHref={tagsHref}
+        />
+      ) : null}
       <WorkspaceResourceSyncActions
         label="agents"
         branchSlug="agents"
@@ -1815,9 +1934,9 @@ function CaseStatusControl({
     useCaseDurationDefinitions(workspaceId, caseAddonsEnabled)
 
   return (
-    <div className="min-w-0">
+    <div className="flex min-w-0 items-center">
       {caseAddonsEnabled ? (
-        <div className="max-w-[min(48vw,36rem)] overflow-x-auto">
+        <div className="no-scrollbar max-w-[min(48vw,36rem)] overflow-x-auto">
           <CaseDurationMetrics
             durations={caseDurations}
             definitions={caseDurationDefinitions}
@@ -1829,6 +1948,30 @@ function CaseStatusControl({
         </div>
       ) : null}
     </div>
+  )
+}
+
+function CaseDetailActions({
+  caseId,
+  workspaceId,
+}: {
+  caseId: string
+  workspaceId: string
+}) {
+  const { caseData } = useGetCase({ caseId, workspaceId })
+
+  return (
+    <>
+      <CaseStatusControl caseId={caseId} workspaceId={workspaceId} />
+      <CaseAgentRunsAction caseId={caseId} workspaceId={workspaceId} />
+      {caseData ? (
+        <CaseVersionHistory
+          workspaceId={workspaceId}
+          caseId={caseId}
+          caseLabel={caseData.short_id}
+        />
+      ) : null}
+    </>
   )
 }
 
@@ -1872,7 +2015,6 @@ function TableDetailsActions() {
         resources={["table"]}
       />
       <TableSelectionActionsBar />
-      <TableLinkRowsToCaseCommand />
       <TableInsertButton />
     </>
   )
@@ -1887,12 +2029,15 @@ function AgentPresetBreadcrumb({
 }) {
   const { workspace } = useWorkspaceDetails()
   const { preset } = useAgentPreset(workspaceId, presetId)
+  const { hasEntitlement } = useEntitlements()
+  const organizationEnabled = hasEntitlement("agent_addons")
   const { folders } = useAgentFolders(workspaceId, {
-    enabled: Boolean(preset?.folder_id),
+    enabled: organizationEnabled && Boolean(preset?.folder_id),
   })
-  const folderPath = preset?.folder_id
-    ? folders?.find((folder) => folder.id === preset.folder_id)?.path
-    : null
+  const folderPath =
+    organizationEnabled && preset?.folder_id
+      ? folders?.find((folder) => folder.id === preset.folder_id)?.path
+      : null
 
   return (
     <FolderPathBreadcrumb
@@ -1967,11 +2112,14 @@ function getPageConfig(
           />
         ),
         actions: (
-          <WorkspaceResourceSyncActions
-            label="agents"
-            branchSlug="agents"
-            resources={["agent_preset"]}
-          />
+          <>
+            <WorkspaceResourceSyncActions
+              label="agents"
+              branchSlug="agents"
+              resources={["agent_preset"]}
+            />
+            <AgentPresetDetailHeaderActions />
+          </>
         ),
       }
     }
@@ -2047,11 +2195,17 @@ function getPageConfig(
   if (pagePath.startsWith("/actions")) {
     return {
       title: "Actions",
-      actions: <RegistryActionsControls />,
     }
   }
 
   if (pagePath.startsWith("/skills")) {
+    if (pagePath === "/skills/tags") {
+      return {
+        title: "Skills",
+        actions: <SkillsActions />,
+      }
+    }
+
     const skillMatch = pagePath.match(/^\/skills\/([^/]+)$/)
     if (skillMatch) {
       return {
@@ -2070,8 +2224,16 @@ function getPageConfig(
         ),
       }
     }
+    const skillsView = searchParams?.get("view") === "list" ? "list" : "folders"
     return {
-      title: "Skills",
+      title: (
+        <SkillsFoldersBreadcrumb
+          workspaceId={workspaceId}
+          path={
+            skillsView === "folders" ? (searchParams?.get("path") ?? "/") : "/"
+          }
+        />
+      ),
       actions: <SkillsActions />,
     }
   }
@@ -2157,10 +2319,6 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
   const pageConfig = pathname
     ? getPageConfig(pathname, workspaceId, searchParams ?? null)
     : null
-  const { caseData } = useGetCase(
-    { caseId: caseId ?? "", workspaceId },
-    { enabled: Boolean(caseId) }
-  )
 
   useEffect(() => {
     if (!onToggleChat) {
@@ -2222,15 +2380,6 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
     return null
   }
 
-  // Check if this is a case detail page to show timestamp
-  // Only apply background for case detail pages with status tints.
-  // Non-case pages should be transparent to avoid painting over SidebarInset's rounded corners.
-  const headerBackgroundClass = caseId
-    ? caseData?.status
-      ? CASE_STATUS_TINTS[caseData.status]
-      : "bg-muted/5 dark:bg-muted/[0.12]"
-    : ""
-
   const titleContent =
     typeof pageConfig.title === "string" ? (
       <h1 className="text-sm font-semibold">{pageConfig.title}</h1>
@@ -2239,12 +2388,11 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
     )
 
   return (
-    <header
-      className={cn(
-        "flex h-10 items-center border-b px-3 overflow-hidden transition-colors",
-        headerBackgroundClass
-      )}
-    >
+    // Transparent at every route, cases included: a status-tinted band read as
+    // a colour wash across the top of the app and fought the duration pills
+    // sitting in it. The status already has three homes — the pill in this
+    // header, the Properties rail, and the case list.
+    <header className="flex h-10 items-center overflow-hidden border-b px-3">
       {/* Left section: sidebar toggle + title */}
       <div className="flex items-center gap-3 min-w-0">
         <SidebarTrigger className="h-7 w-7 flex-shrink-0" />
@@ -2272,7 +2420,7 @@ export function ControlsHeader({ onToggleChat }: ControlsHeaderProps = {}) {
         {pageConfig.actions
           ? pageConfig.actions
           : caseId && (
-              <CaseStatusControl caseId={caseId} workspaceId={workspaceId} />
+              <CaseDetailActions caseId={caseId} workspaceId={workspaceId} />
             )}
 
         {onToggleChat && (

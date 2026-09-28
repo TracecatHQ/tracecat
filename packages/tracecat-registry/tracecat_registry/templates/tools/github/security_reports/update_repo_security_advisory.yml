@@ -1,0 +1,45 @@
+type: action
+definition:
+  title: Update repository security advisory
+  description: 'Update repository security advisory. Calls PATCH /repos/{owner}/{repo}/security-advisories/{ghsa_id} directly. Accepted OAuth scope: repo (default).'
+  display_group: GitHub
+  doc_url: https://docs.github.com/en/rest
+  namespace: tools.github
+  name: update_repo_security_advisory
+  secrets:
+  - type: oauth
+    provider_id: github
+    grant_type: authorization_code
+  expects:
+    owner:
+      type: str
+      description: GitHub API path value for owner.
+    repo:
+      type: str
+      description: GitHub API path value for repo.
+    ghsa_id:
+      type: str
+      description: GitHub API path value for ghsa_id.
+    payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields,
+      # and a literal payload map cannot omit an unset optional.
+      type: dict[str, Any] | None
+      description: >-
+        API-native request body. Documented fields: collaborating_teams, collaborating_users, credits, cve_id, cvss_vector_string, cwe_ids, description, severity, state, summary, vulnerabilities.
+      default: null
+    base_url:
+      type: str
+      description: GitHub.com REST API base URL.
+      default: https://api.github.com
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url }}/repos/${{ FN.url_encode(inputs.owner) }}/${{ FN.url_encode(inputs.repo) }}/security-advisories/${{ FN.url_encode(inputs.ghsa_id) }}
+      method: PATCH
+      headers:
+        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Accept: application/vnd.github+json
+        X-GitHub-Api-Version: '2022-11-28'
+      payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

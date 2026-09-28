@@ -1,0 +1,23 @@
+---
+title: "Overview"
+description: "Connect third-party tools to Tracecat: how integrations work, how to authenticate them, and where to find the full catalog."
+---
+
+## What is an integration?
+
+Third-party integrations are actions under the `tools.*` namespace that call a vendor API.
+Each integration is either a YAML template built from core action steps or a Python UDF.
+
+## Authenticate an integration
+
+Most integrations require a secret before their actions run.
+Store API keys and tokens as [prebuilt credentials](/automations/integrations/prebuilt-credentials), or connect a provider through [OAuth](/automations/integrations/oauth-integrations).
+
+## Browse the catalog
+
+Every available integration has its own page in this tab's sidebar, listing each action and its inputs.
+
+## Build your own
+
+When the catalog does not cover a vendor, build the integration yourself as a YAML template or Python UDF.
+See [Custom actions](/custom-actions/custom-registry) to get started.

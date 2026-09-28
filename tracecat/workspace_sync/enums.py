@@ -11,10 +11,15 @@ class VcsProvider(StrEnum):
     GITHUB = "github"
     GITLAB = "gitlab"
     BITBUCKET = "bitbucket"
+    BITBUCKET_DATA_CENTER = "bitbucket_data_center"
 
 
 class SyncResourceType(StrEnum):
-    """Kind of workspace resource that can be synced to and from Git."""
+    """Kind of workspace resource that can be synced to and from Git.
+
+    Every member is adapter-backed: it can be projected to and imported from
+    repository files.
+    """
 
     WORKFLOW = "workflow"
     AGENT_PRESET = "agent_preset"

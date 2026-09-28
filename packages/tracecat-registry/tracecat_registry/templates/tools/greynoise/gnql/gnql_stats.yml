@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: GNQL stats
+  description: >-
+    Get GNQL statistics. Calls GET /v3/gnql/stats directly.
+  display_group: GreyNoise
+  doc_url: https://docs.greynoise.io/reference/gnqlv3stats
+  namespace: tools.greynoise
+  name: gnql_stats
+  secrets:
+    - name: greynoise
+      keys: ["GREYNOISE_API_KEY"]
+  expects:
+    query:
+      type: str
+      description: GNQL query string.
+    count:
+      type: int | None
+      description: >-
+        Number of top aggregates to grab. Minimum 1, maximum 10000. GreyNoise defaults to 1000.
+      default: null
+    base_url:
+      type: str | None
+      description: GreyNoise API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.greynoise.base_url || "https://api.greynoise.io" }}/v3/gnql/stats
+        method: GET
+        headers:
+          key: ${{ SECRETS.greynoise.GREYNOISE_API_KEY }}
+          Accept: application/json
+        params:
+          query: ${{ inputs.query }}
+          count: ${{ inputs.count }}
+  returns: ${{ steps.request.result }}

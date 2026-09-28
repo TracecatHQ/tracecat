@@ -75,6 +75,7 @@ class CaseFieldAdapter(FlatManifestAdapter):
             specs[source_id] = CaseFieldResourceSpec(
                 id=source_id,
                 name=str(field_def.get("name") or ref),
+                display_name=str(field_def.get("display_name") or ref),
                 field_type=field_def.get("type"),
                 kind=field_def.get("kind"),
                 options=field_def.get("options"),
@@ -124,6 +125,7 @@ class CaseFieldAdapter(FlatManifestAdapter):
             if field_id not in current_schema:
                 field_params = CaseFieldCreate(
                     name=spec.name,
+                    display_name=spec.display_name,
                     type=field_type,
                     kind=_case_field_kind(field_kind),
                     options=field_options,
@@ -134,7 +136,10 @@ class CaseFieldAdapter(FlatManifestAdapter):
                 await field_service.editor.create_column(field_params)
                 # Mirror the new column into the schema map, copying only the
                 # parts that are present so the entry stays minimal.
-                field_def: dict[str, Any] = {"type": field_params.type.value}
+                field_def: dict[str, Any] = {
+                    "type": field_params.type.value,
+                    "display_name": field_params.display_name or field_params.name,
+                }
                 if field_params.options:
                     field_def["options"] = field_params.options
                 if field_params.kind is not None:
@@ -149,6 +154,7 @@ class CaseFieldAdapter(FlatManifestAdapter):
                     field_id,
                     CaseFieldUpdate(
                         name=spec.name if spec.name != field_id else None,
+                        display_name=spec.display_name,
                         type=field_type,
                         options=field_options,
                         required_on_closure=spec.required_on_closure,

@@ -1,0 +1,61 @@
+type: action
+definition:
+  title: Update rule
+  description: Updates a Rule.
+  display_group: Google Chronicle
+  doc_url: https://docs.cloud.google.com/chronicle/docs/reference/rest/v1/projects.locations.instances.rules/patch
+  namespace: tools.google_chronicle
+  name: update_rule
+  secrets:
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_chronicle
+      grant_type: client_credentials
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Chronicle API base URL. If omitted, uses the workspace variable
+        `google_chronicle.base_url`, for example https://us-chronicle.googleapis.com.
+      default: null
+    instance:
+      type: str
+      description: >-
+        Chronicle instance this request is sent to. Format:
+        projects/{project}/locations/{location}/instances/{instance}
+    rule:
+      type: str
+      description: The rule ID of the rule to update.
+    text:
+      type: str | None
+      description: The YARA-L content of the rule.
+      default: null
+    scope:
+      type: str | None
+      description: >-
+        Resource name of the DataAccessScope bound to this rule. Format:
+        projects/{project}/locations/{location}/instances/{instance}/dataAccessScopes/{scope}
+      default: null
+    updateMask:
+      type: str | None
+      description: >-
+        The list of fields to update. If not included, all fields with a non-empty
+        value will be overwritten. This is a comma-separated list of fully qualified
+        names of fields, e.g. "text".
+      default: null
+  steps:
+    - ref: call_api
+      action: tools.google_chronicle.call_api
+      args:
+        url: ${{ inputs.base_url || VARS.google_chronicle.base_url }}/v1/${{ inputs.instance }}/rules/${{ FN.url_encode(inputs.rule) }}
+        method: PATCH
+        params:
+          updateMask: ${{ inputs.updateMask }}
+        payload:
+          text: ${{ inputs.text }}
+          scope: ${{ inputs.scope }}
+  returns: ${{ steps.call_api.result }}

@@ -204,7 +204,11 @@ function SettingsModalContent() {
         <DialogDescription className="sr-only">
           Manage your account and workspace settings
         </DialogDescription>
-        <div className="flex h-full">
+        {/* `min-w-0` keeps this grid item from flooring the dialog's implicit
+            grid track at its own min-content width. Without it, unbreakable
+            tokens in the git-sync diff preview widen the track past the
+            dialog's max-width and get clipped by `overflow-hidden`. */}
+        <div className="flex h-full min-w-0">
           {/* Left nav panel */}
           <div className="flex w-[200px] shrink-0 flex-col border-r">
             <div className="flex flex-col gap-1 p-3">

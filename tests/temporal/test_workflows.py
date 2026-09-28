@@ -62,6 +62,7 @@ from tracecat.dsl.enums import (
     StreamErrorHandlingStrategy,
     WaitStrategy,
 )
+from tracecat.dsl.error_transport import parse_classified_action_error_payload
 from tracecat.dsl.schemas import (
     ActionStatement,
     DSLConfig,
@@ -71,7 +72,7 @@ from tracecat.dsl.schemas import (
     ScatterArgs,
     TaskResult,
 )
-from tracecat.dsl.types import ActionErrorInfoAdapter
+from tracecat.dsl.types import ActionErrorInfo
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import ScheduleUUID
@@ -86,6 +87,7 @@ from tracecat.pagination import CursorPaginationParams
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
 from tracecat.secrets.schemas import SecretCreate, SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.storage.object import (
@@ -100,6 +102,7 @@ from tracecat.storage.utils import (
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
 from tracecat.tables.service import TablesService
+from tracecat.temporal.errors import ErrorTransportDetail, extract_error_classification
 from tracecat.variables.schemas import VariableCreate
 from tracecat.variables.service import VariablesService
 from tracecat.workflow.executions.enums import (
@@ -1397,7 +1400,6 @@ async def test_child_workflow_alias_not_found_surfaces_detail(
     test_role: Role,
     temporal_client: Client,
     test_worker_factory: WorkerFactory,
-    test_executor_worker_factory: WorkerFactory,
 ):
     test_name = test_child_workflow_alias_not_found_surfaces_detail.__name__
     wf_exec_id = generate_test_exec_id(test_name)
@@ -1434,9 +1436,8 @@ async def test_child_workflow_alias_not_found_surfaces_detail(
     )
 
     worker = test_worker_factory(temporal_client)
-    executor_worker = test_executor_worker_factory(temporal_client)
     with pytest.raises(WorkflowFailureError) as exc_info:
-        _ = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
+        _ = await _run_workflow(wf_exec_id, run_args, worker)
 
     assert str(exc_info.value) == "Workflow execution failed"
     cause = exc_info.value.cause
@@ -2621,34 +2622,40 @@ async def test_scheduled_workflow_legacy_role_auto_heals_organization_id(
     assert "get_schedule_trigger_inputs_activity" in activity_names
 
 
-# Get the line number dynamically
+DIVISION_BY_ZERO_MESSAGE = (
+    "There was an error in the executor when calling action 'core.transform.reshape'.\n"
+    "\n"
+    "\n"
+    "TracecatExpressionError: Error evaluating expression `1/0`\n"
+    "\n"
+    "[evaluator] Evaluation failed at node:\n"
+    "```\n"
+    "div_op\n"
+    "  literal\t1\n"
+    "  literal\t0\n"
+    "\n"
+    "```\n"
+    "Reason: Cannot divide by zero"
+)
 PARTIAL_DIVISION_BY_ZERO_ERROR = {
-    "ref": "start",
-    "message": (
-        "There was an error in the executor when calling action 'core.transform.reshape'.\n"
-        "\n"
-        "\n"
-        "TracecatExpressionError: Error evaluating expression `1/0`\n"
-        "\n"
-        "[evaluator] Evaluation failed at node:\n"
-        "```\n"
-        "div_op\n"
-        "  literal\t1\n"
-        "  literal\t0\n"
-        "\n"
-        "```\n"
-        'Reason: Error trying to process rule "div_op":\n'
-        "\n"
-        "Cannot divide by zero\n"
-        "\n"
-        "\n"
-        "------------------------------\n"
-    ),
-    "type": "ExecutionError",
-    "expr_context": "ACTIONS",
-    "attempt": 1,
-    "stream_id": "<root>:0",
-    "children": None,
+    "classification": {
+        "cause_type": "ExecutionError",
+        "kind": "action.execution.failed",
+        "message": DIVISION_BY_ZERO_MESSAGE,
+        "owner": "user",
+        "retry_disposition": "retryable",
+        "schema": "tracecat.error.v1",
+    },
+    "diagnostic": {
+        "ref": "start",
+        "message": DIVISION_BY_ZERO_MESSAGE,
+        "type": "ExecutionError",
+        "expr_context": "ACTIONS",
+        "attempt": 1,
+        "stream_id": "<root>:0",
+        "children": None,
+    },
+    "schema": "tracecat.temporal_error.v1",
 }
 
 
@@ -3655,24 +3662,7 @@ def assert_error_handler_initiated_correctly(
                 {
                     "attempt": 1,
                     "expr_context": "ACTIONS",
-                    "message": (
-                        "There was an error in the executor when calling action 'core.transform.reshape'.\n\n"
-                        "\n"
-                        "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
-                        "[evaluator] Evaluation failed at node:\n"
-                        "```\n"
-                        "div_op\n"
-                        "  literal\t1\n"
-                        "  literal\t0\n\n"
-                        "```\n"
-                        'Reason: Error trying to process rule "div_op":\n\n'
-                        "Cannot divide by zero\n\n"
-                        "\n"
-                        "------------------------------\n"
-                        "File: /app/tracecat/expressions/core.py\n"
-                        "Function: result\n"
-                        "Line: 77"
-                    ),
+                    "message": DIVISION_BY_ZERO_MESSAGE,
                     "ref": "failing_action",
                     "type": "ExecutionError",
                     "stream_id": "<root>:0",
@@ -3680,27 +3670,7 @@ def assert_error_handler_initiated_correctly(
                 }
             ],
             "handler_wf_id": str(WorkflowUUID.new(handler_wf.id)),
-            "message": (
-                "Workflow failed with 1 error(s)\n\n"
-                f"{'=' * 10} (1/1) ACTIONS.failing_action {'=' * 10}\n\n"
-                "ExecutionError: [ACTIONS.failing_action -> execute_action] (Attempt 1)\n\n"
-                "There was an error in the executor when calling action 'core.transform.reshape'.\n\n"
-                "\n"
-                "TracecatExpressionError: Error evaluating expression `1/0`\n\n"
-                "[evaluator] Evaluation failed at node:\n"
-                "```\n"
-                "div_op\n"
-                "  literal\t1\n"
-                "  literal\t0\n\n"
-                "```\n"
-                'Reason: Error trying to process rule "div_op":\n\n'
-                "Cannot divide by zero\n\n"
-                "\n"
-                "------------------------------\n"
-                "File: /app/tracecat/expressions/core.py\n"
-                "Function: result\n"
-                "Line: 77"
-            ),
+            "message": DIVISION_BY_ZERO_MESSAGE,
             "orig_wf_exec_id": failing_wf_exec_id,
             "orig_wf_exec_url": wf_exec_url,
             "orig_wf_title": "Division by zero",
@@ -3848,16 +3818,14 @@ async def test_workflow_error_handler_success(
 
 
 @pytest.mark.parametrize(
-    "id_or_alias,expected_err_msg",
+    "id_or_alias",
     [
         pytest.param(
             "wf-00000000000000000000000000000000",
-            "Workflow definition not found for wf_0000000000000000000000, version=None",
             id="id-no-match",
         ),
         pytest.param(
             "invalid_error_handler",
-            "WorkflowAliasResolutionError: Couldn't find matching workflow for alias 'invalid_error_handler'",
             id="alias-no-match",
         ),
     ],
@@ -3870,7 +3838,6 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
     temporal_client: Client,
     failing_dsl: DSLInput,
     id_or_alias: str,
-    expected_err_msg: str,
     test_worker_factory,
     test_executor_worker_factory,
 ):
@@ -3899,15 +3866,10 @@ async def test_workflow_error_handler_invalid_handler_fail_no_match(
         executor_worker = test_executor_worker_factory(temporal_client)
         _ = await _run_workflow(wf_exec_id, run_args, worker, executor_worker)
     assert str(exc_info.value) == "Workflow execution failed"
-    cause0 = exc_info.value.cause
-    assert isinstance(cause0, ActivityError)
-    cause1 = cause0.cause
-    assert isinstance(cause1, ApplicationError)
-    assert str(cause1) == expected_err_msg
-    if id_or_alias == "invalid_error_handler":
-        err = str(cause1)
-        assert "Activity task failed" not in err
-        assert "timed out" not in err.lower()
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.ACTION_EXECUTION_FAILED
 
 
 @pytest.mark.anyio
@@ -5819,7 +5781,7 @@ async def test_scatter_with_child_workflow(
                             "error": [
                                 {
                                     "ref": "throw",
-                                    "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
+                                    "message": DIVISION_BY_ZERO_MESSAGE,
                                     "type": "ExecutionError",
                                     "expr_context": "ACTIONS",
                                     "attempt": 1,
@@ -5828,7 +5790,7 @@ async def test_scatter_with_child_workflow(
                                 },
                                 {
                                     "ref": "throw",
-                                    "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
+                                    "message": DIVISION_BY_ZERO_MESSAGE,
                                     "type": "ExecutionError",
                                     "expr_context": "ACTIONS",
                                     "attempt": 1,
@@ -5932,7 +5894,7 @@ async def test_scatter_with_child_workflow(
                             "result": [
                                 {
                                     "ref": "throw",
-                                    "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
+                                    "message": DIVISION_BY_ZERO_MESSAGE,
                                     "type": "ExecutionError",
                                     "expr_context": "ACTIONS",
                                     "attempt": 1,
@@ -5941,7 +5903,7 @@ async def test_scatter_with_child_workflow(
                                 },
                                 {
                                     "ref": "throw",
-                                    "message": "There was an error in the executor when calling action 'core.transform.reshape'.\n\n\nTracecatExpressionError: Error evaluating expression `1/0`\n\n[evaluator] Evaluation failed at node:\n```\ndiv_op\n  literal\t1\n  literal\t0\n\n```\nReason: Error trying to process rule \"div_op\":\n\nCannot divide by zero\n\n\n------------------------------\nFile: /app/tracecat/expressions/core.py\nFunction: result\nLine: 77",
+                                    "message": DIVISION_BY_ZERO_MESSAGE,
                                     "type": "ExecutionError",
                                     "expr_context": "ACTIONS",
                                     "attempt": 1,
@@ -6205,14 +6167,15 @@ async def test_workflow_gather_error_strategy_raise(
     assert "Gather 'gather1' encountered" in str(cause)
     assert cause.details, "ApplicationError should include gather error details"
 
-    # The details[0] is a dict mapping gather_ref to ActionErrorInfo
+    # The details[0] is a dict mapping gather_ref to ErrorTransportDetail
     detail = cause.details[0]
     assert isinstance(detail, Mapping)
     assert "gather1" in detail, "Details should contain gather1 error"
 
     # Validate the gather error structure (stream-aware)
-    gather_error = detail["gather1"]
-    validated_error = ActionErrorInfoAdapter.validate_python(gather_error)
+    gather_error = parse_classified_action_error_payload(detail["gather1"])
+    assert isinstance(gather_error, ErrorTransportDetail)
+    validated_error = ActionErrorInfo.model_validate(gather_error.diagnostic)
     assert validated_error.ref == "gather1", "Gather error ref should be gather1"
     assert validated_error.stream_id == "<root>:0", (
         "Gather error should have parent stream_id"

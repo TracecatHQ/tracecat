@@ -1,0 +1,85 @@
+type: action
+definition:
+  title: List secure score control profiles
+  description: >-
+    Retrieve the properties and relationships of a secureScoreControlProfiles
+    object. Returns the single Microsoft Graph page, including
+    `@odata.nextLink`. Least privileged permission: SecurityEvents.Read.All for
+    both delegated (work or school account) and application; higher privileged:
+    SecurityEvents.ReadWrite.All. Delegated access is not supported for personal
+    Microsoft accounts. Available in the global service, US Government L4 and US
+    Government L5 (DOD); not available in China operated by 21Vianet.
+    Microsoft's endpoint reference does not state a separate licensing requirement.
+  display_group: Microsoft Graph Security
+  doc_url: https://learn.microsoft.com/en-us/graph/api/security-list-securescorecontrolprofiles?view=graph-rest-1.0
+  namespace: tools.microsoft_graph_security
+  name: list_secure_score_control_profiles
+  secrets:
+    - type: oauth
+      provider_id: microsoft_graph_security
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph_security
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: authorization_code
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Microsoft Graph v1.0 API root. If omitted, uses the workspace variable
+        `microsoft_graph_security.base_url`, then
+        `microsoft_graph.base_url`, then https://graph.microsoft.com/v1.0.
+        National clouds: https://graph.microsoft.us/v1.0 (US Government L4) and
+        https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD).
+      default: null
+    auth_mode:
+      type: enum["application", "delegated", "auto"]
+      description: >-
+        Credential to use. `application` requires
+        MICROSOFT_GRAPH_SECURITY_SERVICE_TOKEN, then MICROSOFT_GRAPH_SERVICE_TOKEN;
+        `delegated` requires MICROSOFT_GRAPH_SECURITY_USER_TOKEN, then
+        MICROSOFT_GRAPH_USER_TOKEN; `auto` tries all four in that order.
+      default: application
+    count:
+      type: bool | None
+      description: OData `$count`. Include a count of the matching resources.
+      default: null
+    filter:
+      type: str | None
+      description: >-
+        OData `$filter`, for example "controlCategory eq 'Identity'".
+      default: null
+    skip:
+      type: int | None
+      description: OData `$skip`. Number of control profiles to skip.
+      default: null
+    top:
+      type: int | None
+      description: >-
+        OData `$top`. Returns the aggregated top results from each security API
+        provider.
+      default: null
+  steps:
+    - ref: call_graph
+      action: tools.microsoft_graph_sdk.call_method
+      args:
+        oauth_provider: microsoft_graph_security
+        path: /security/secureScoreControlProfiles
+        method: GET
+        base_url: ${{ inputs.base_url || VARS.microsoft_graph_security.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
+        auth_mode: ${{ inputs.auth_mode }}
+        params:
+          $count: ${{ inputs.count }}
+          $filter: ${{ inputs.filter }}
+          $skip: ${{ inputs.skip }}
+          $top: ${{ inputs.top }}
+  returns: ${{ steps.call_graph.result }}

@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: Attack score for message
+  description: Evaluate the attack score of an existing Sublime message.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/attackscoreformessage
+  namespace: tools.sublime
+  name: attack_score_for_message
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: Sublime message ID.
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/messages/${{ FN.url_encode(inputs.id) }}/attack_score
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+  returns: ${{ steps.request.result.data }}

@@ -51,6 +51,7 @@ from tracecat.authz.scopes import (
 )
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import (
+    get_async_auth_engine,
     get_async_engine,
     get_async_session_context_manager,
     reset_async_engine,
@@ -62,8 +63,9 @@ from tracecat.db.models import (
     PlatformRegistryVersion,
     Workspace,
 )
+from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.client import get_temporal_client
-from tracecat.dsl.plugins import TracecatPydanticAIPlugin
+from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.executor.backends import ExecutorBackend
@@ -128,21 +130,76 @@ def _install_case_number_allocator(conn: Any) -> None:
                     SET last_case_number = last_case_number + 1
                     WHERE id = NEW.workspace_id
                     RETURNING last_case_number INTO NEW.case_number;
-                ELSE
+                    IF NOT FOUND THEN
+                        RAISE EXCEPTION
+                            'Workspace % not found while allocating case number',
+                            NEW.workspace_id;
+                    END IF;
+                ELSIF NEW.case_number > 0 THEN
                     UPDATE workspace
-                    SET last_case_number = GREATEST(last_case_number, NEW.case_number)
-                    WHERE id = NEW.workspace_id;
-                END IF;
+                    SET last_case_number = NEW.case_number
+                    WHERE id = NEW.workspace_id
+                      AND last_case_number < NEW.case_number;
 
-                IF NOT FOUND THEN
-                    RAISE EXCEPTION
-                        'Workspace % not found while allocating case number',
-                        NEW.workspace_id;
+                    IF NOT FOUND THEN
+                        PERFORM 1 FROM workspace WHERE id = NEW.workspace_id;
+                        IF NOT FOUND THEN
+                            RAISE EXCEPTION
+                                'Workspace % not found while allocating case number',
+                                NEW.workspace_id;
+                        END IF;
+                    END IF;
+                ELSE
+                    PERFORM 1 FROM workspace WHERE id = NEW.workspace_id;
+                    IF NOT FOUND THEN
+                        RAISE EXCEPTION
+                            'Workspace % not found while deferring case number allocation',
+                            NEW.workspace_id;
+                    END IF;
                 END IF;
 
                 RETURN NEW;
             END;
             $$;
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE OR REPLACE FUNCTION require_assigned_workspace_case_number()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM "case"
+                    WHERE id = NEW.id
+                      AND case_number <= 0
+                ) THEN
+                    RAISE EXCEPTION 'Case number must be assigned before commit'
+                        USING ERRCODE = '23514';
+                END IF;
+
+                RETURN NULL;
+            END;
+            $$;
+            """
+        )
+    )
+    conn.execute(
+        text('DROP TRIGGER IF EXISTS trg_case_require_assigned_number ON "case"')
+    )
+    conn.execute(
+        text(
+            """
+            CREATE CONSTRAINT TRIGGER trg_case_require_assigned_number
+            AFTER INSERT OR UPDATE OF case_number ON "case"
+            DEFERRABLE INITIALLY DEFERRED
+            FOR EACH ROW
+            WHEN (NEW.case_number <= 0)
+            EXECUTE FUNCTION require_assigned_workspace_case_number()
             """
         )
     )
@@ -317,16 +374,17 @@ async def test_db_engine():
     and don't hold references to closed event loops when using pytest-xdist.
     """
     engine = get_async_engine()
+    auth_engine = get_async_auth_engine()
     try:
         yield engine
     finally:
-        try:
-            await engine.dispose()
-        except Exception as e:
-            logger.warning(f"Error disposing engine: {e}")
-        finally:
-            # Reset the global so next test gets a fresh engine
-            reset_async_engine()
+        for eng in (engine, auth_engine):
+            try:
+                await eng.dispose()
+            except Exception as e:
+                logger.warning(f"Error disposing engine: {e}")
+        # Reset the globals so next test gets fresh engines
+        reset_async_engine()
 
 
 @pytest.fixture(scope="session")
@@ -359,6 +417,10 @@ def db() -> Iterator[None]:
         test_engine = create_engine(TEST_DB_CONFIG.test_url_sync)
         with test_engine.begin() as conn:
             logger.info("Creating all tables")
+            # Each isolated test database needs its own extension registration.
+            conn.execute(
+                text("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
+            )
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
         yield
@@ -695,7 +757,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "options": {"required_entitlements": ["case_addons"]},
             }
 
-            # ai.agent preset CRUD actions (agent add-on gated)
+            # ai.agent preset CRUD actions
             agent_preset_actions = {
                 "create_preset": {
                     "description": "Create an agent preset",
@@ -734,7 +796,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     "display_group": "Agent Presets",
                     "interface": {"expects": {}, "returns": None},
                     "implementation": preset_impl,
-                    "options": {"required_entitlements": ["agent_addons"]},
+                    "options": {},
                 }
 
             # core.table.lookup
@@ -1170,6 +1232,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
                 "git_sync": True,
                 "agent_addons": True,
                 "case_addons": True,
+                "multi_workspace": True,
             }
         ),
     )
@@ -1515,9 +1578,7 @@ def temporal_client():
         policy = asyncio.get_event_loop_policy()
         loop = policy.new_event_loop()
 
-    client = loop.run_until_complete(
-        get_temporal_client(plugins=[TracecatPydanticAIPlugin()])
-    )
+    client = loop.run_until_complete(get_temporal_client())
     return client
 
 
@@ -1896,16 +1957,22 @@ async def test_worker_factory(
         *,
         activities: list[Callable] | None = None,
         task_queue: str | None = None,
+        workflows: list[type] | None = None,
     ) -> Worker:
         """Create a worker with the same configuration as production."""
 
-        activities = activities or get_activities()
+        activities = get_activities() if activities is None else activities
+        # DSL workers always need the dependency compilation bootstrap activity.
+        compile_activity = DSLActivities.compile_dsl_dependencies_activity
+        if compile_activity not in activities:
+            activities = [*activities, compile_activity]
         return Worker(
             client=client,
             task_queue=task_queue or os.environ["TEMPORAL__CLUSTER_QUEUE"],
             activities=activities,
-            workflows=[DSLWorkflow],
+            workflows=workflows or [DSLWorkflow],
             workflow_runner=new_sandbox_runner(),
+            interceptors=[RuntimeErrorAttributionInterceptor()],
             activity_executor=threadpool,
         )
 

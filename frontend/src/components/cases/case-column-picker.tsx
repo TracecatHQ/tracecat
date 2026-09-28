@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  Check,
   ChevronDown,
   ListIcon,
   SlidersHorizontalIcon,
@@ -15,6 +14,7 @@ import type {
   CaseFieldReadMinimal,
 } from "@/client"
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
+import { CheckIndicator } from "@/components/ui/check-indicator"
 import {
   Command,
   CommandEmpty,
@@ -31,28 +31,6 @@ import {
 import { cn } from "@/lib/utils"
 
 const MAX_VISIBLE_COLUMNS = 4
-
-function ColumnCheckbox({
-  checked,
-  disabled,
-}: {
-  checked: boolean
-  disabled: boolean
-}) {
-  return (
-    <div
-      className={cn(
-        "mr-2 flex size-4 shrink-0 items-center justify-center rounded-sm border",
-        checked
-          ? "border-primary bg-primary text-primary-foreground"
-          : "border-muted-foreground/40 bg-transparent",
-        disabled && "opacity-40"
-      )}
-    >
-      {checked && <Check className="size-3" />}
-    </div>
-  )
-}
 
 function ColumnOption({
   columnId,
@@ -77,9 +55,9 @@ function ColumnOption({
       value={searchValue}
       onSelect={() => !isDisabled && onToggle(columnId)}
       disabled={isDisabled}
-      className="text-xs"
+      className="group text-xs"
     >
-      <ColumnCheckbox checked={isSelected} disabled={isDisabled} />
+      <CheckIndicator checked={isSelected} disabled={isDisabled} />
       {icon}
       <span className="truncate">{label}</span>
     </CommandItem>
@@ -211,8 +189,8 @@ export function CaseColumnPicker({
                     <ColumnOption
                       key={columnId}
                       columnId={columnId}
-                      searchValue={`field ${field.id}`}
-                      label={field.id}
+                      searchValue={`field ${field.display_name} ${field.id}`}
+                      label={field.display_name}
                       icon={
                         <TextIcon className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
                       }

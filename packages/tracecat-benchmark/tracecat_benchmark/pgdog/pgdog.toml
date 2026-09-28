@@ -1,0 +1,25 @@
+[general]
+# Match PgDog's recommendation of two Tokio workers per allocated virtual CPU.
+workers = 2
+pooler_mode = "transaction"
+
+# Tracecat uses asyncpg's extended protocol and named prepared statements.
+prepared_statements = "extended"
+prepared_statements_limit = 500
+
+# Queue at the proxy for the same bounded interval used by the candidate
+# SQLAlchemy pools instead of failing at PgDog's shorter default timeout.
+checkout_timeout = 60_000
+
+# Keep proxy health and pool/client/server counters available for diagnostics.
+healthcheck_port = 8080
+openmetrics_port = 9090
+openmetrics_namespace = "pgdog_"
+
+# Connection churn is unhelpful noise during a benchmark.
+log_connections = false
+log_disconnections = false
+
+[admin]
+user = "loadtest-admin"
+password = "loadtest-admin"

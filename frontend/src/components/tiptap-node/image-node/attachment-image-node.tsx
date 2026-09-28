@@ -1,6 +1,5 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import { Image, type ImageOptions } from "@tiptap/extension-image"
 import {
   mergeAttributes,
@@ -9,75 +8,14 @@ import {
   ReactNodeViewRenderer,
 } from "@tiptap/react"
 import { ImageOff } from "lucide-react"
-import * as React from "react"
-import { caseAttachmentsDownloadAttachment } from "@/client"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useAttachmentObjectUrl } from "@/lib/cases/use-attachment-object-url"
 import { parseAttachmentSrc } from "@/lib/cases/use-case-image-upload"
 import { cn } from "@/lib/utils"
 
 export interface AttachmentImageOptions extends ImageOptions {
   /** Workspace that owns the attachments referenced by `attachment://` srcs. */
   workspaceId: string | null
-}
-
-/**
- * Resolve a case attachment image to a short-lived object URL.
- *
- * The presigned URL returned by the API expires quickly, so we fetch the blob
- * once (cached by React Query) and expose an object URL for the lifetime of the
- * node view, revoking it on unmount.
- */
-function useAttachmentObjectUrl(
-  workspaceId: string | null,
-  caseId: string | undefined,
-  attachmentId: string | undefined
-): { objectUrl: string | null; isLoading: boolean; isError: boolean } {
-  const enabled = Boolean(workspaceId && caseId && attachmentId)
-
-  const {
-    data: blob,
-    isLoading,
-    isError,
-  } = useQuery({
-    queryKey: ["case-attachment-image", workspaceId, caseId, attachmentId],
-    enabled,
-    staleTime: Number.POSITIVE_INFINITY,
-    gcTime: 5 * 60 * 1000,
-    retry: false,
-    queryFn: async () => {
-      const response = await caseAttachmentsDownloadAttachment({
-        caseId: caseId as string,
-        workspaceId: workspaceId as string,
-        attachmentId: attachmentId as string,
-        preview: true,
-      })
-      const fetched = await fetch(response.download_url)
-      if (!fetched.ok) {
-        throw new Error(`Failed to load image (${fetched.status})`)
-      }
-      return await fetched.blob()
-    },
-  })
-
-  const [objectUrl, setObjectUrl] = React.useState<string | null>(null)
-
-  React.useEffect(() => {
-    if (!blob) {
-      return
-    }
-    const url = URL.createObjectURL(blob)
-    setObjectUrl(url)
-    return () => {
-      URL.revokeObjectURL(url)
-      setObjectUrl(null)
-    }
-  }, [blob])
-
-  return {
-    objectUrl,
-    isLoading: enabled && isLoading,
-    isError: enabled && isError,
-  }
 }
 
 function AttachmentImagePlaceholder({ label }: { label: string }) {

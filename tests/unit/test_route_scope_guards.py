@@ -10,6 +10,10 @@ from fastapi import HTTPException
 from tracecat.agent.catalog import router as agent_catalog_router
 from tracecat.agent.folders import router as agent_folder_router
 from tracecat.agent.preset import router as agent_preset_router
+from tracecat.agent.skill import router as skill_router
+from tracecat.agent.skill.folders import router as skill_folder_router
+from tracecat.agent.skill.tags import definitions_router as skill_tag_definitions_router
+from tracecat.agent.skill.tags import router as skill_tags_router
 from tracecat.agent.tags import definitions_router as agent_tag_definitions_router
 from tracecat.auth.types import Role
 from tracecat.cases.dropdowns import router as case_dropdowns_router
@@ -18,6 +22,7 @@ from tracecat.cases.rows import router as case_rows_router
 from tracecat.cases.tag_definitions import router as case_tag_definitions_router
 from tracecat.cases.tags import internal_router as internal_case_tags_router
 from tracecat.cases.tags import router as case_tags_router
+from tracecat.cases.versions import router as case_versions_router
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.inbox import router as inbox_router
@@ -218,6 +223,22 @@ async def test_agent_folder_scope_guards(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (skill_folder_router.get_directory, "agent:read"),
+        (skill_router.list_skills, "agent:read"),
+        (skill_router.move_skill, "agent:update"),
+        (skill_tags_router.list_skill_tags, "agent:read"),
+        (skill_tags_router.add_skill_tag, "agent:update"),
+        (skill_tags_router.remove_skill_tag, "agent:update"),
+    ],
+)
+async def test_skill_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     "endpoint",
     [
         agent_catalog_router.list_catalog,
@@ -309,6 +330,23 @@ async def test_agent_tag_definition_scope_guards(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (skill_tag_definitions_router.list_skill_tags, "agent:read"),
+        (skill_tag_definitions_router.get_skill_tag, "agent:read"),
+        (skill_tag_definitions_router.create_skill_tag, "agent:create"),
+        (skill_tag_definitions_router.update_skill_tag, "agent:update"),
+        (skill_tag_definitions_router.delete_skill_tag, "agent:delete"),
+    ],
+)
+async def test_skill_tag_definition_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
 async def test_table_update_row_requires_table_update_scope() -> None:
     await _assert_endpoint_requires_scope(tables_router.update_row, "table:update")
 
@@ -361,6 +399,21 @@ async def test_workspace_collection_scope_guards(endpoint: AsyncEndpoint) -> Non
     ],
 )
 async def test_case_duration_scope_guards(
+    endpoint: AsyncEndpoint, required_scope: str
+) -> None:
+    await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("endpoint", "required_scope"),
+    [
+        (case_versions_router.list_case_versions, "case:read"),
+        (case_versions_router.compare_case_version, "case:read"),
+        (case_versions_router.restore_case_version, "case:update"),
+    ],
+)
+async def test_case_version_scope_guards(
     endpoint: AsyncEndpoint, required_scope: str
 ) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
@@ -532,6 +585,12 @@ async def test_workflow_execution_stop_scope_guards(
         (case_dropdowns_router.reorder_dropdown_options, "case:update"),
         (case_dropdowns_router.list_case_dropdown_values, "case:read"),
         (case_dropdowns_router.set_case_dropdown_value, "case:update"),
+        (case_rows_router.list_case_rows, "case:read"),
+        (case_rows_router.list_case_linked_tables, "case:read"),
+        (case_rows_router.link_case_row, "case:update"),
+        (case_rows_router.batch_link_case_rows, "case:update"),
+        (case_rows_router.batch_unlink_case_rows, "case:update"),
+        (case_rows_router.unlink_case_row, "case:update"),
     ],
 )
 async def test_case_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:

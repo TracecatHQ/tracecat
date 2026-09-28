@@ -1,0 +1,97 @@
+type: action
+definition:
+  title: Publish analyst note
+  description: Publish an Analyst Note from a JSON object. Calls POST /analyst-note/publish directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/analyst-note-publish
+  namespace: tools.recorded_future
+  name: publish_analyst_note
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    title:
+      type: str
+      description: Note title. Sent as attributes.title.
+    text:
+      type: str
+      description: Note text. Sent as attributes.text.
+    note_entities:
+      type: list[str] | None
+      description: Entity ids. Either note entities or context entities must be specified. Each entity must exist as a note entity. Sent as attributes.note_entities.
+      default: null
+    context_entities:
+      type: list[str] | None
+      description: Entity ids. Context entities or note entities must be specified. Each entity must exist as a note entity. Sent as attributes.context_entities.
+      default: null
+    topic:
+      type: list[str] | None
+      description: Array of entity ids for the topics, see https://docs.recordedfuture.com/reference/analyst-note-available-topics for available ones. Sent as attributes.topic.
+      default: null
+    labels:
+      type: list[str] | None
+      description: Entity ids for the note labels. Sent as attributes.labels.
+      default: null
+    validated_on:
+      type: datetime | None
+      description: Date when analyst note was validated. Sent as attributes.validated_on.
+      default: null
+    detection_rules:
+      type: list[str] | None
+      description: Entity ids for detection rules. Sent as attributes.detection_rules.
+      default: null
+    source:
+      type: str | None
+      description: Entity id for note source.
+      default: null
+    note_id:
+      type: str | None
+      description: The id of an existing note to edit.
+      default: null
+    resolve_entities:
+      type: bool | None
+      description: Determines if the entity resolver should be used on the note title and text for automated tagging of entities. Recorded Future defaults to true.
+      default: null
+    tagged_text:
+      type: bool | None
+      description: Determines if the <entity></entity> tags should be inline with entities in the note title and text.
+      default: null
+    escape_html:
+      type: bool | None
+      description: Determines if HTML tags are escaped, applied only when tagged_text is true.
+      default: null
+    serialization:
+      type: str | None
+      description: Entity serialization level. When set to id, only the entity id will be included. Setting it to min leads to the id and name being included and setting it to full means that each entity will have the id, name, type, isThreatActor flag and possibly a description included in the response. Allowed values are id, min and full.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/analyst-note/publish
+        method: POST
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+          Content-Type: application/json
+        payload:
+          attributes:
+            title: ${{ inputs.title }}
+            text: ${{ inputs.text }}
+            note_entities: ${{ inputs.note_entities }}
+            context_entities: ${{ inputs.context_entities }}
+            topic: ${{ inputs.topic }}
+            labels: ${{ inputs.labels }}
+            validated_on: ${{ inputs.validated_on }}
+            detection_rules: ${{ inputs.detection_rules }}
+          source: ${{ inputs.source }}
+          note_id: ${{ inputs.note_id }}
+          resolve_entities: ${{ inputs.resolve_entities }}
+          tagged_text: ${{ inputs.tagged_text }}
+          escape_html: ${{ inputs.escape_html }}
+          serialization: ${{ inputs.serialization }}
+  returns: ${{ steps.request.result }}

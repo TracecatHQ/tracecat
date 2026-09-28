@@ -8,7 +8,7 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 from fastapi.responses import ORJSONResponse
-from pydantic import BaseModel, Field, computed_field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseEventType
@@ -19,6 +19,7 @@ from tracecat.dsl.schemas import ActionStatement, DSLConfig
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import WorkspaceID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort, WorkflowUUID
+from tracecat.mcp.schemas import WorkflowEditDocument
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.tags.schemas import TagRead
 from tracecat.validation.schemas import ValidationResult
@@ -479,7 +480,33 @@ class WorkflowEntrypointValidationResponse(BaseModel):
 
 
 class WorkflowMoveToFolder(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     folder_path: str | None = None
+
+
+class WorkflowDraftRead(BaseModel):
+    """Canonical editable draft document plus its content-hash revision."""
+
+    workflow_id: WorkflowIDShort
+    draft_revision: str
+    document: WorkflowEditDocument
+
+
+class WorkflowDraftUpdate(BaseModel):
+    """Wholesale replacement of a workflow draft.
+
+    ``document`` is the full desired draft state (metadata, definition, layout,
+    schedules, case trigger). ``schedules`` is optional: when omitted, the
+    workflow's existing schedules are left untouched so they can be owned by
+    the standalone ``/schedules`` resource; when present, they are replaced.
+    Other omitted sections fall back to their defaults and are treated as
+    changed. When ``base_revision`` is set, the update is rejected with 409 if
+    the current draft revision differs.
+    """
+
+    document: WorkflowEditDocument
+    base_revision: str | None = None
 
 
 # =============================================================================

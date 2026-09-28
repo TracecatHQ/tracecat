@@ -10,6 +10,7 @@ import sqlalchemy as sa
 
 from tracecat.db.models import MCPIntegration, OAuthIntegration
 from tracecat.integrations.catalog.loader import get_platform_mcp_catalog_entries
+from tracecat.integrations.catalog.resolver import catalog_binding_is_current
 from tracecat.integrations.catalog.types import PlatformMCPCatalogEntry
 from tracecat.integrations.enums import MCPAuthType, OAuthGrantType
 from tracecat.integrations.schemas import (
@@ -52,7 +53,6 @@ class PlatformMCPCatalogService(BaseService):
         self,
         *,
         workspace_id: uuid.UUID,
-        agent_addons_entitled: bool,
         q: str | None = None,
         category: str | None = None,
         status: PlatformMCPCatalogStatus | None = None,
@@ -60,13 +60,7 @@ class PlatformMCPCatalogService(BaseService):
     ) -> tuple[list[PlatformMCPCatalogRead], str | None]:
         """List runtime catalog entries joined with workspace MCP state."""
         params = cursor_params or CursorPaginationParams(limit=50)
-        entries = get_platform_mcp_catalog_entries(
-            include_private=agent_addons_entitled
-        )
-        state_entries_by_id = {
-            entry.id: entry
-            for entry in get_platform_mcp_catalog_entries(include_private=True)
-        }
+        entries = get_platform_mcp_catalog_entries(include_private=True)
         entries = self._filter_entries(
             entries,
             q=q,
@@ -91,19 +85,15 @@ class PlatformMCPCatalogService(BaseService):
         if has_more:
             page_entries = page_entries[: params.limit]
 
-        state_entries = [
-            state_entries_by_id.get(entry.id, entry) for entry in page_entries
-        ]
         state_by_catalog_id = await self._get_catalog_workspace_states(
             workspace_id=workspace_id,
-            catalog_entries=state_entries,
+            catalog_entries=page_entries,
         )
         now = datetime.now(UTC)
         items = [
             self._catalog_read_from_entry(
                 entry=entry,
                 state=state_by_catalog_id.get(entry.id),
-                agent_addons_entitled=agent_addons_entitled,
                 now=now,
             )
             for entry in page_entries
@@ -224,6 +214,12 @@ class PlatformMCPCatalogService(BaseService):
                 encrypted_refresh_token=encrypted_refresh_token,
                 expires_at=token_expires_at,
             )
+            # A stale binding (retired or re-transported recipe) makes the row
+            # a custom server; it must not attach to the card.
+            if isinstance(catalog_slug, str) and not catalog_binding_is_current(
+                catalog_slug=catalog_slug, server_type=mcp_integration.server_type
+            ):
+                continue
             if isinstance(catalog_slug, str) and (
                 slug_catalog_id := catalog_slug_to_id.get(catalog_slug)
             ):
@@ -325,17 +321,11 @@ class PlatformMCPCatalogService(BaseService):
         *,
         entry: PlatformMCPCatalogEntry,
         state: CatalogWorkspaceState | None,
-        agent_addons_entitled: bool,
         now: datetime,
     ) -> PlatformMCPCatalogRead:
         mcp_integration = state.mcp_integration if state else None
         token_state = state.token_state if state else None
         oauth_grant_type = state.oauth_grant_type if state else None
-        locked = not agent_addons_entitled and mcp_integration is None
-        connection_spec = entry.connection_spec if agent_addons_entitled else None
-        connection_options = (
-            (entry.connection_options or []) if agent_addons_entitled else []
-        )
         return PlatformMCPCatalogRead(
             id=entry.id,
             slug=entry.slug,
@@ -344,11 +334,10 @@ class PlatformMCPCatalogService(BaseService):
             category=entry.category,
             status=cls._catalog_status(entry.status),
             icon_url=entry.icon_url,
-            docs_url=entry.docs_url if agent_addons_entitled else None,
-            provider_id=entry.provider_id if agent_addons_entitled else None,
-            connection_spec=connection_spec,
-            connection_options=connection_options,
-            locked=locked,
+            docs_url=entry.docs_url,
+            provider_id=entry.provider_id,
+            connection_spec=entry.connection_spec,
+            connection_options=entry.connection_options or [],
             state=cls._catalog_state(
                 mcp_integration=mcp_integration,
                 token_state=token_state,

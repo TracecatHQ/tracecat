@@ -23,6 +23,7 @@ import type {
 import {
   Children,
   createContext,
+  forwardRef,
   useCallback,
   useContext,
   useEffect,
@@ -827,13 +828,23 @@ export const PromptInputBody = ({
 
 export type PromptInputTextareaProps = ComponentProps<typeof InputGroupTextarea>
 
-export const PromptInputTextarea = ({
-  onChange,
-  onKeyDown,
-  className,
-  placeholder = "What would you like to know?",
-  ...props
-}: PromptInputTextareaProps) => {
+/**
+ * Prompt textarea. Forwards its ref to the underlying `<textarea>` so callers
+ * that need the real element - caret measurement, for one - can reach it.
+ */
+export const PromptInputTextarea = forwardRef<
+  HTMLTextAreaElement,
+  PromptInputTextareaProps
+>(function PromptInputTextarea(
+  {
+    onChange,
+    onKeyDown,
+    className,
+    placeholder = "What would you like to know?",
+    ...props
+  },
+  ref
+) {
   const controller = useOptionalPromptInputController()
   const attachments = usePromptInputAttachments()
   const submitPrompt = useOptionalPromptInputSubmit()
@@ -939,11 +950,12 @@ export const PromptInputTextarea = ({
       onKeyDown={handleKeyDown}
       onPaste={handlePaste}
       placeholder={placeholder}
+      ref={ref}
       {...props}
       {...controlledProps}
     />
   )
-}
+})
 
 export type PromptInputHeaderProps = Omit<
   ComponentProps<typeof InputGroupAddon>,

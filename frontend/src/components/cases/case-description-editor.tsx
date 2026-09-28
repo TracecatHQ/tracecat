@@ -121,6 +121,7 @@ export function CaseCommentViewer({
         className="case-comment-viewer"
         enableImages={Boolean(workspaceId)}
         imageWorkspaceId={workspaceId ?? null}
+        allowCommentMentionUris
       />
     </div>
   )

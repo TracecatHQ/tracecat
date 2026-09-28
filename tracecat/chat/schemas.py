@@ -6,8 +6,8 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from pydantic import UUID4, BaseModel, Discriminator, Field
-from pydantic_ai.tools import ToolApproved, ToolDenied
+from claude_agent_sdk.types import Message as ClaudeSDKMessage
+from pydantic import UUID4, BaseModel, Discriminator, Field, ValidationError
 
 from tracecat.agent.adapter import vercel
 from tracecat.agent.approvals.enums import ApprovalStatus
@@ -15,7 +15,7 @@ from tracecat.agent.approvals.types import PersistedApprovalDecision
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.mcp.metadata import sanitize_message_tool_inputs
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.types import ClaudeSDKMessageTA, ModelMessageTA, UnifiedMessage
+from tracecat.agent.types import ClaudeSDKMessageTA, ToolApproved, ToolDenied
 from tracecat.chat.enums import MessageKind
 
 if TYPE_CHECKING:
@@ -233,7 +233,7 @@ class ChatMessage(BaseModel):
         default=MessageKind.CHAT_MESSAGE,
         description="Message kind for rendering",
     )
-    message: UnifiedMessage | None = Field(
+    message: ClaudeSDKMessage | None = Field(
         default=None,
         description="The deserialized message (for kind=CHAT_MESSAGE)",
     )
@@ -251,13 +251,16 @@ class ChatMessage(BaseModel):
     )
 
     @classmethod
-    def from_db(cls, db_msg: models.ChatMessage) -> ChatMessage:
-        """Deserialize a database message into a typed ChatMessage."""
+    def from_db(cls, db_msg: models.ChatMessage) -> ChatMessage | None:
+        """Deserialize a supported database message."""
         sanitized_data = sanitize_message_tool_inputs(db_msg.data)
-        if db_msg.harness == HarnessType.CLAUDE_CODE.value:
+        try:
             message = ClaudeSDKMessageTA.validate_python(sanitized_data)
-        else:
-            message = ModelMessageTA.validate_python(sanitized_data)
+        except ValidationError:
+            # Legacy harness rows are unsupported; a bad Claude row is corruption.
+            if db_msg.harness == HarnessType.CLAUDE_CODE.value:
+                raise
+            return None
         return cls(id=str(db_msg.id), message=message)
 
 

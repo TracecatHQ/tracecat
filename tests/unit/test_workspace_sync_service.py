@@ -32,6 +32,7 @@ from tracecat.sync import CommitInfo, PullOptions, PushStatus
 from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.store.schemas import RemoteCaseTrigger, RemoteWorkflowSchedule
 from tracecat.workspace_sync.adapters import (
+    AGENT_PRESET_RESOURCE_ADAPTER,
     SECRET_METADATA_RESOURCE_ADAPTER,
     VARIABLE_RESOURCE_ADAPTER,
 )
@@ -40,7 +41,6 @@ from tracecat.workspace_sync.schemas import (
     MANIFEST_FILENAME,
     AgentPresetResourceSpec,
     AgentPresetSkillBinding,
-    AgentPresetVersionResourceSpec,
     CaseDropdownResourceSpec,
     ResourceRef,
     SecretMetadataResourceSpec,
@@ -55,13 +55,15 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceSyncExportRequest,
 )
 from tracecat.workspace_sync.serialization import canonical_json_text
-from tracecat.workspace_sync.service import WorkspaceSyncService, _table_names
+from tracecat.workspace_sync.service import (
+    WorkspaceSyncService,
+    _table_names,
+)
 from tracecat.workspace_sync.transport import (
     _GITHUB_TREE_CHUNK_SIZE,
     GitHubWorkspaceSyncTransport,
     VcsTreeSnapshot,
     _git_blob_sha,
-    unsupported_transport,
 )
 from tracecat.workspace_sync.workflow import (
     serialize_workflow_spec,
@@ -370,7 +372,7 @@ async def test_pull_dry_run_ignores_schedule_diff_when_schedule_sync_is_disabled
 
 
 @pytest.mark.anyio
-async def test_parse_files_accepts_legacy_workflow_tree_without_manifest(
+async def test_parse_files_rejects_legacy_workflow_tree_without_manifest(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
     source_id = WorkflowUUID.new_uuid4().short()
@@ -384,13 +386,14 @@ async def test_parse_files_accepts_legacy_workflow_tree_without_manifest(
         }
     )
 
-    assert diagnostics == []
-    assert list(snapshot.spec.workflows) == [source_id]
-    assert snapshot.spec.workflows[source_id].alias == "legacy-workflow"
+    assert snapshot.spec == WorkspaceSpec()
+    assert len(diagnostics) == 1
+    assert diagnostics[0].details == {"code": "workspace_format_outdated"}
+    assert "new Push" in diagnostics[0].message
 
 
 @pytest.mark.anyio
-async def test_parse_files_accepts_legacy_string_version_manifest(
+async def test_parse_files_rejects_legacy_string_version_manifest(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
     source_id = WorkflowUUID.new_uuid4().short()
@@ -405,8 +408,11 @@ async def test_parse_files_accepts_legacy_string_version_manifest(
         }
     )
 
-    assert diagnostics == []
-    assert list(snapshot.spec.workflows) == [source_id]
+    assert snapshot.spec == WorkspaceSpec()
+    assert len(diagnostics) == 1
+    assert diagnostics[0].details is not None
+    assert "outdated workspace format" in diagnostics[0].details["error"]
+    assert "new Push" in diagnostics[0].details["error"]
 
 
 @pytest.mark.anyio
@@ -713,6 +719,31 @@ async def test_preview_export_requires_scopes_for_projected_sensitive_metadata()
     assert set(exc_info.value.missing_scopes) == {"secret:read", "variable:read"}
 
 
+@pytest.mark.anyio
+async def test_mcp_metadata_queries_require_integration_read_before_sql() -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workspace_sync:sync", "agent:read"}),
+    )
+    session = AsyncMock()
+    service = WorkspaceSyncService(session=session, role=role)
+
+    with pytest.raises(ScopeDeniedError) as export_error:
+        await AGENT_PRESET_RESOURCE_ADAPTER._mcp_integration_hints(
+            service,
+            {str(uuid.uuid4())},
+        )
+    with pytest.raises(ScopeDeniedError) as pull_error:
+        await AGENT_PRESET_RESOURCE_ADAPTER._local_mcp_integrations(service)
+
+    assert export_error.value.missing_scopes == ["integration:read"]
+    assert pull_error.value.missing_scopes == ["integration:read"]
+    session.execute.assert_not_awaited()
+
+
 def test_workflow_export_scope_accepts_legacy_or_workspace_sync_grant() -> None:
     base_role = Role(
         type="service",
@@ -871,7 +902,7 @@ def test_sync_operation_scope_accepts_legacy_or_workspace_sync_grant() -> None:
 
 
 @pytest.mark.anyio
-async def test_preview_export_rejects_missing_pinned_skill_version(
+async def test_preview_export_rejects_missing_skill_head(
     workspace_sync_service: WorkspaceSyncService,
 ) -> None:
     workspace_sync_service.project_workspace = AsyncMock(
@@ -883,35 +914,16 @@ async def test_preview_export_rejects_missing_pinned_skill_version(
                         id="qa-triage",
                         slug="qa-triage",
                         name="QA triage",
-                        current_version=1,
-                        versions={
-                            1: AgentPresetVersionResourceSpec(
-                                version_number=1,
-                                name="QA triage",
-                                skills=[
-                                    AgentPresetSkillBinding(
-                                        slug="qa-enrichment-skill",
-                                        version=1,
-                                    )
-                                ],
-                            )
-                        },
+                        skills=[AgentPresetSkillBinding(slug="qa-enrichment-skill")],
                     )
                 },
-                skills={
-                    "qa-enrichment-skill": SkillResourceSpec(
-                        id="qa-enrichment-skill",
-                        slug="qa-enrichment-skill",
-                        name="QA enrichment skill",
-                        current_version=2,
-                    )
-                },
+                skills={},
             ),
             files={},
         )
     )
 
-    with pytest.raises(TracecatValidationError, match="missing skill version"):
+    with pytest.raises(TracecatValidationError, match="missing skill slug"):
         await workspace_sync_service.preview_export_workspace(
             WorkspaceSyncExportPreviewRequest()
         )
@@ -2201,13 +2213,6 @@ async def test_github_read_files_uses_commit_tree_sha(
     assert snapshot.commit_sha == "c" * 40
     assert snapshot.tree_sha == "t" * 40
     assert MANIFEST_FILENAME in snapshot.files
-
-
-def test_bitbucket_transport_is_explicitly_unsupported() -> None:
-    error = unsupported_transport(VcsProvider.BITBUCKET)
-
-    assert isinstance(error, TracecatValidationError)
-    assert VcsProvider.BITBUCKET.value in str(error)
 
 
 def _legacy_workflow_yaml(source_id: str, *, title: str) -> str:

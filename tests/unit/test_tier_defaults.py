@@ -14,7 +14,8 @@ def test_resolve_oss_default_entitlements_fresh_install() -> None:
     assert entitlements.agent_addons is False
     assert entitlements.case_addons is False
     assert entitlements.service_accounts is False
-    assert entitlements.workspace_chat is False
+    assert entitlements.workspace_chat is True
+    assert entitlements.multi_workspace is False
     assert entitlements.watchtower is False
 
 
@@ -29,6 +30,7 @@ def test_resolve_oss_default_entitlements_maps_legacy_feature_flags() -> None:
     assert entitlements.case_addons is True
     assert entitlements.service_accounts is False
     assert entitlements.workspace_chat is True
+    assert entitlements.multi_workspace is False
     assert entitlements.watchtower is False
 
 
@@ -42,7 +44,8 @@ def test_resolve_oss_default_entitlements_normalizes_and_ignores_unknown() -> No
     assert entitlements.agent_addons is False
     assert entitlements.case_addons is True
     assert entitlements.service_accounts is False
-    assert entitlements.workspace_chat is False
+    assert entitlements.workspace_chat is True
+    assert entitlements.multi_workspace is False
     assert entitlements.watchtower is False
 
 

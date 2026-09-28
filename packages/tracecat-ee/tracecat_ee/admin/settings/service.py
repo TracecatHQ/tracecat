@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.audit.logger import audit_log
+from tracecat.audit.service import clear_audit_setting_cache
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import PlatformRole
 from tracecat.db.models import PlatformSetting
@@ -146,6 +147,7 @@ class AdminSettingsService(BasePlatformService):
         for key, value in params.model_dump(exclude_unset=True).items():
             await self._upsert_setting(key, value)
         await self.session.commit()
+        clear_audit_setting_cache()
         return await self.get_audit_settings()
 
     async def get_registry_settings(self) -> PlatformRegistrySettingsRead:

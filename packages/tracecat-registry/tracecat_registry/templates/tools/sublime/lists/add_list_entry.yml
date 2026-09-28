@@ -1,0 +1,33 @@
+type: action
+definition:
+  title: Add list entry
+  description: Add an entry to a Sublime list.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/addlistentry-1
+  namespace: tools.sublime
+  name: add_list_entry
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: List ID.
+    string:
+      type: str
+      description: String list entry
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/lists/${{ FN.url_encode(inputs.id) }}/entries/entry
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+        payload:
+          string: ${{ inputs.string }}
+  returns: ${{ steps.request.result.data }}

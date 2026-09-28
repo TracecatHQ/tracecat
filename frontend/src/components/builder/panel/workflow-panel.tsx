@@ -13,7 +13,7 @@ import {
   LayoutListIcon,
   RotateCcw,
 } from "lucide-react"
-import { useForm } from "react-hook-form"
+import { type DefaultValues, useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   ApiError,
@@ -465,6 +465,24 @@ function formatRegistryLockSummary(
   return `${label} +${entries.length - 1}`
 }
 
+function getWorkflowFormValues(
+  workflow: WorkflowRead
+): DefaultValues<WorkflowUpdateForm> {
+  return {
+    title: workflow.title,
+    alias: workflow.alias,
+    environment: workflow.config?.environment || "default",
+    timeout: workflow.config?.timeout || 0,
+    // Use undefined for empty objects so the YAML editor shows empty instead of {}
+    expects:
+      workflow.expects && Object.keys(workflow.expects).length > 0
+        ? workflow.expects
+        : undefined,
+    returns: workflow.returns,
+    error_handler: workflow.error_handler || "",
+  }
+}
+
 function WorkflowSettingsPanel({
   workflow,
 }: {
@@ -479,20 +497,18 @@ function WorkflowSettingsPanel({
     resolver: zodResolver(workflowUpdateFormSchema, undefined, {
       mode: "async",
     }),
-    defaultValues: {
-      title: workflow.title,
-      alias: workflow.alias,
-      environment: workflow.config?.environment || "default",
-      timeout: workflow.config?.timeout || 0,
-      // Use undefined for empty objects so the YAML editor shows empty instead of {}
-      expects:
-        workflow.expects && Object.keys(workflow.expects).length > 0
-          ? workflow.expects
-          : undefined,
-      returns: workflow.returns,
-      error_handler: workflow.error_handler || "",
-    },
+    defaultValues: getWorkflowFormValues(workflow),
   })
+
+  useEffect(() => {
+    // Resync when the workflow changes outside this form (e.g. a breadcrumb
+    // rename) so a later blur-save doesn't submit stale cached values.
+    // keepDirtyValues preserves edits the user is still making here.
+    methods.reset(getWorkflowFormValues(workflow), {
+      keepDirtyValues: true,
+      keepErrors: true,
+    })
+  }, [methods, workflow])
 
   const onSubmit = useCallback(
     async (values: WorkflowUpdateForm) => {

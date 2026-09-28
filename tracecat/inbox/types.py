@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal, Protocol
 
@@ -61,6 +62,7 @@ class InboxProvider(Protocol):
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
         search: str | None = None,
+        case_id: uuid.UUID | None = None,
         group: InboxGroup | None = None,
         entity_type: AgentSessionEntity | None = None,
         created_after: datetime | None = None,

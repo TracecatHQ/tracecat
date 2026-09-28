@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: Start SQL warehouse
+  description: Start a SQL warehouse.
+  display_group: Databricks
+  doc_url: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/sql/warehouses.html#databricks.sdk.service.sql.WarehousesAPI.start
+  namespace: tools.databricks
+  name: start_warehouse
+  expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
+    id:
+      type: str
+      description: Identifier of the SQL warehouse to start.
+  steps:
+    - ref: start_warehouse
+      action: tools.databricks_sdk.call_method
+      args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
+        service: warehouses
+        method_name: start
+        params:
+          id: ${{ inputs.id }}
+  returns: ${{ steps.start_warehouse.result }}

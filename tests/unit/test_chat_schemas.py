@@ -7,7 +7,8 @@ import pytest
 from pydantic import ValidationError
 
 from tracecat.agent.approvals.enums import ApprovalStatus
-from tracecat.chat.schemas import ApprovalRead
+from tracecat.chat.schemas import ApprovalRead, ChatMessage
+from tracecat.db import models
 
 
 def approval_read_data(decision: object) -> dict[str, object]:
@@ -52,3 +53,33 @@ def test_approval_read_rejects_unstructured_decision() -> None:
         ApprovalRead.model_validate(
             approval_read_data({"unexpected": "decision shape"})
         )
+
+
+def test_chat_message_from_db_skips_unsupported_legacy_message() -> None:
+    db_message = models.ChatMessage(
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        chat_id=uuid.uuid4(),
+        kind="chat_message",
+        harness="pydantic-ai",
+        data={
+            "kind": "request",
+            "parts": [{"part_kind": "user-prompt", "content": "Legacy prompt"}],
+        },
+    )
+
+    assert ChatMessage.from_db(db_message) is None
+
+
+def test_chat_message_from_db_raises_on_malformed_claude_message() -> None:
+    db_message = models.ChatMessage(
+        id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        chat_id=uuid.uuid4(),
+        kind="chat_message",
+        harness="claude_code",
+        data={"type": "not-a-claude-message"},
+    )
+
+    with pytest.raises(ValidationError):
+        ChatMessage.from_db(db_message)

@@ -1,9 +1,9 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderHook } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { casesBatchDeleteCases, casesBatchUpdateCases } from "@/client"
 import { chunkCaseIds } from "@/components/cases/cases-layout"
 import { useBatchDeleteCases, useBatchUpdateCases } from "@/lib/hooks"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => {
   const actual = jest.requireActual("@/client")

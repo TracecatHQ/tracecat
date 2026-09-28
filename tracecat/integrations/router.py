@@ -5,6 +5,7 @@ from typing import Annotated, NoReturn, cast
 from urllib.parse import urlencode
 
 import httpx
+from authlib.integrations.base_client.errors import OAuthError
 from fastapi import APIRouter, Body, HTTPException, Query, status
 from pydantic import SecretStr
 
@@ -42,6 +43,7 @@ from tracecat.integrations.schemas import (
     IntegrationReadMinimal,
     IntegrationTestConnectionResponse,
     IntegrationUpdate,
+    MCPCatalogConnectRequest,
     MCPCatalogConnectResponse,
     MCPCatalogConnectStatus,
     MCPHttpIntegrationCreate,
@@ -68,11 +70,9 @@ from tracecat.integrations.service import (
     PlatformMCPCatalogConnectResult,
     ProviderConfigurationRequiredError,
 )
-from tracecat.integrations.types import MCPServerType
+from tracecat.integrations.types import MCPServerType, TokenResponse
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
-from tracecat.tiers.access import is_org_entitled
-from tracecat.tiers.enums import Entitlement
 
 integrations_router = APIRouter(prefix="/integrations", tags=["integrations"])
 """Routes for managing dynamic integration states."""
@@ -220,6 +220,39 @@ def _oauth_callback_redirect_url(
         "mcp-servers" if issubclass(provider_impl, MCPAuthProvider) else "integrations"
     )
     return f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{workspace_id}/{target_page}"
+
+
+async def _exchange_oauth_code_for_token(
+    provider: AuthorizationCodeOAuthProvider,
+    code: str,
+    state: str,
+    code_verifier: str | None,
+) -> TokenResponse:
+    """Translate expected token exchange failures without exposing provider details."""
+    try:
+        return await provider.exchange_code_for_token(code, state, code_verifier)
+    except OAuthError:
+        logger.warning(
+            "OAuth provider rejected token exchange",
+            provider=provider.id,
+            grant_type=provider.grant_type,
+        )
+        error = HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OAuth provider rejected authorization. Check the integration credentials and reconnect.",
+        )
+    except httpx.HTTPError:
+        logger.warning(
+            "OAuth token endpoint request failed",
+            provider=provider.id,
+            grant_type=provider.grant_type,
+        )
+        error = HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not complete token exchange with the OAuth provider. Try connecting again.",
+        )
+    # Raise outside the handler so provider errors cannot leak via __context__.
+    raise error
 
 
 @oauth_router.get("/callback")
@@ -430,8 +463,8 @@ async def oauth_callback(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Provider configuration or credentials are not available",
         ) from exc
-    token_result = await provider.exchange_code_for_token(
-        code, str(state), code_verifier
+    token_result = await _exchange_oauth_code_for_token(
+        provider, code, str(state), code_verifier
     )
 
     # Store integration tokens for this user
@@ -497,6 +530,7 @@ async def list_integrations(
         IntegrationReadMinimal(
             id=integration.id,
             provider_id=integration.provider_id,
+            grant_type=integration.grant_type,
             status=integration.status,
             is_expired=integration.is_expired,
         )
@@ -1062,13 +1096,9 @@ async def list_platform_mcp_catalog(
             detail="Organization ID is required",
         )
 
-    agent_addons_entitled = await is_org_entitled(
-        session, role.organization_id, Entitlement.AGENT_ADDONS
-    )
     svc = PlatformMCPCatalogService(session)
     items, next_cursor = await svc.list_catalog(
         workspace_id=role.workspace_id,
-        agent_addons_entitled=agent_addons_entitled,
         q=q,
         category=category,
         status=catalog_status,
@@ -1083,6 +1113,7 @@ async def connect_platform_mcp_catalog(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     catalog_slug: str,
+    params: Annotated[MCPCatalogConnectRequest | None, Body()] = None,
 ) -> MCPCatalogConnectResponse:
     """Create or return a workspace MCP integration from catalog defaults."""
     if role.workspace_id is None:
@@ -1094,7 +1125,8 @@ async def connect_platform_mcp_catalog(
     svc = IntegrationService(session, role=role)
     try:
         connect_result = await svc.connect_platform_mcp_catalog(
-            catalog_slug=catalog_slug
+            catalog_slug=catalog_slug,
+            connection_option_id=params.connection_option_id if params else None,
         )
     except Exception as exc:
         _raise_mcp_connect_http_error(exc)

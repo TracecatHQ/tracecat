@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: List email bombs
+  description: List Sublime email-bomb incidents using API-native filters.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/listemailbombs
+  namespace: tools.sublime
+  name: list_email_bombs
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    active:
+      type: bool | None
+      description: Filter by active status. true = only active, false = only inactive, null = all
+      default: null
+    dismissed:
+      type: bool | None
+      description: Filter by dismissed status. true = only dismissed, false = only not dismissed, null = all
+      default: null
+    limit:
+      type: int | None
+      description: The maximum number of email bombs to return
+      default: null
+    offset:
+      type: int | None
+      description: The (zero-based) offset of the email bombs to return
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/messages/bombs
+        method: GET
+        params:
+          active: ${{ inputs.active }}
+          dismissed: ${{ inputs.dismissed }}
+          limit: ${{ inputs.limit }}
+          offset: ${{ inputs.offset }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+  returns: ${{ steps.request.result.data }}

@@ -1,12 +1,5 @@
 import * as aiSdk from "@ai-sdk/react"
 import {
-  type QueryClient,
-  type UseQueryResult,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query"
-import {
   type ChatOnDataCallback,
   type ChatStatus,
   DefaultChatTransport,
@@ -14,6 +7,7 @@ import {
 } from "ai"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  type AgentBackendRead,
   type AgentSessionCreate,
   type AgentSessionEntity,
   type AgentSessionRead,
@@ -30,6 +24,7 @@ import {
   agentSessionsDeleteSession,
   agentSessionsGetSession,
   agentSessionsGetSessionVercel,
+  agentSessionsListAgentBackends,
   agentSessionsListSessions,
   agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
@@ -39,6 +34,13 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { getBaseUrl } from "@/lib/api"
 import { type ModelInfo, toServerUIMessage } from "@/lib/chat"
+import {
+  type QueryClient,
+  type UseQueryResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@/lib/query"
 
 const DEFAULT_CHAT_ERROR_MESSAGE =
   "The assistant couldn't complete that request. Please try again."
@@ -224,11 +226,13 @@ export function useListChats(
     workspaceId,
     entityType,
     entityId,
+    createdBy,
     limit = 50,
   }: {
     workspaceId: string
     entityType?: AgentSessionEntity
     entityId?: string
+    createdBy?: string
     limit?: number
   },
   options?: { enabled?: boolean }
@@ -247,12 +251,13 @@ export function useListChats(
     error: chatsError,
     refetch,
   } = useQuery<AgentSessionsListSessionsResponse, ApiError>({
-    queryKey: ["chats", workspaceId, entityType, entityId, limit],
+    queryKey: ["chats", workspaceId, entityType, entityId, createdBy, limit],
     queryFn: () =>
       agentSessionsListSessions({
         workspaceId,
         entityType: entityType || null,
         entityId: entityId || null,
+        createdBy: createdBy || null,
         limit,
       }),
     enabled: options?.enabled ?? true,
@@ -300,6 +305,7 @@ export function useUpdateChat(workspaceId: string) {
         workspaceId,
         requestBody: update,
       }),
+    meta: { suppressErrorToast: false },
     onMutate: async ({ chatId, update }) => {
       await Promise.all([
         queryClient.cancelQueries({
@@ -573,7 +579,7 @@ export function useVercelChat({
   chatId?: string
   workspaceId: string
   messages: UIMessage[]
-  modelInfo: ModelInfo
+  modelInfo?: ModelInfo
   onData?: ChatOnDataCallback<UIMessage>
   /**
    * Reconnect to the live event stream on mount. Defaults to true. Set to
@@ -584,7 +590,10 @@ export function useVercelChat({
   resume?: boolean
 }) {
   const queryClient = useQueryClient()
-  const [lastError, setLastError] = useState<string | null>(null)
+  const [lastError, setLastError] = useState<{
+    chatId: string | undefined
+    message: string
+  } | null>(null)
 
   // Build the Vercel streaming endpoint URL
   const apiEndpoint = useMemo(() => {
@@ -643,7 +652,7 @@ export function useVercelChat({
     }),
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
-      setLastError(friendlyMessage)
+      setLastError({ chatId, message: friendlyMessage })
       console.error("Error in Vercel chat:", error)
       toast({
         title: "Chat error",
@@ -669,7 +678,8 @@ export function useVercelChat({
 
   return {
     ...chat,
-    lastError,
+    lastError:
+      lastError && lastError.chatId === chatId ? lastError.message : null,
     clearError: useCallback(() => setLastError(null), []),
   }
 }
@@ -763,5 +773,28 @@ export function makeContinueMessage(
         data: { kind: "continue", source, decisions },
       } as UIMessage["parts"][number],
     ],
+  }
+}
+
+const EMPTY_BACKENDS: AgentBackendRead[] = []
+
+/** Discover enabled backend providers without coupling the UI to their names. */
+export function useAgentBackends(
+  workspaceId?: string,
+  options?: { enabled?: boolean }
+) {
+  const { data, isLoading, isSuccess, error, refetch } = useQuery({
+    queryKey: ["agent-backends", workspaceId],
+    queryFn: () =>
+      agentSessionsListAgentBackends({ workspaceId: workspaceId! }),
+    enabled: Boolean(workspaceId) && (options?.enabled ?? true),
+    staleTime: 60_000,
+  })
+  return {
+    backends: data ?? EMPTY_BACKENDS,
+    backendsLoading: isLoading,
+    backendsReady: isSuccess,
+    backendsError: error,
+    refetchBackends: refetch,
   }
 }

@@ -1,0 +1,53 @@
+type: action
+definition:
+  title: Insert user
+  description: Creates a user.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/users/insert
+  namespace: tools.google_directory
+  name: insert_user
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    body:
+      # Generic: the vendor rejects `null` on optional body fields and the User resource is a
+      # deeply nested free-form object (`name`, `emails`, `phones`, `customSchemas`), so a
+      # literal map cannot omit an unset optional.
+      type: dict[str, Any]
+      description: >-
+        User resource to create. See
+        https://developers.google.com/workspace/admin/directory/reference/rest/v1/users for the
+        full field list. Most-used fields: `primaryEmail` (required), `name.givenName`
+        (required), `name.familyName` (required), `password` (required),
+        `changePasswordAtNextLogin`, `orgUnitPath`, `suspended`.
+    resolve_conflict_account:
+      type: bool | None
+      description: >-
+        Optional. If set to `true`, the option selected for handling unmanaged user accounts will
+        apply. Default: `false`
+      default: null
+  steps:
+    - ref: insert_user
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: users
+        method_name: insert
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.user"]
+        params:
+          resolveConflictAccount: ${{ inputs.resolve_conflict_account }}
+          body: ${{ inputs.body }}
+  returns: ${{ steps.insert_user.result }}

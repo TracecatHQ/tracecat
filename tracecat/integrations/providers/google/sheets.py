@@ -1,32 +1,50 @@
-"""Google Sheets OAuth provider. Inherits from GoogleServiceAccountOAuthProvider."""
+"""Google Sheets OAuth providers."""
 
 from typing import ClassVar
 
+from tracecat.integrations.providers.google.common import (
+    GoogleAuthorizationCodeOAuthProvider,
+    get_google_ac_metadata,
+    get_google_cc_metadata,
+)
 from tracecat.integrations.providers.google.service_account import (
     GoogleServiceAccountOAuthProvider,
 )
 from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 
+SHEETS_API_DOCS_URL = (
+    "https://developers.google.com/workspace/sheets/api/reference/rest"
+)
+SHEETS_TROUBLESHOOT_URL = "https://developers.google.com/sheets/api/troubleshooting"
+
+GOOGLE_SHEETS_AC_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 GOOGLE_SHEETS_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/spreadsheets.readonly",
 ]
 
 
-class GoogleSheetsOAuthProvider(GoogleServiceAccountOAuthProvider):
-    """Google Sheets OAuth provider using service account credentials."""
+class GoogleSheetsACProvider(GoogleAuthorizationCodeOAuthProvider):
+    """Google Sheets provider using the authorization code flow for user access."""
+
+    id: ClassVar[str] = "google_sheets"
+    scopes: ClassVar[ProviderScopes] = ProviderScopes(default=GOOGLE_SHEETS_AC_SCOPES)
+    metadata: ClassVar[ProviderMetadata] = get_google_ac_metadata(
+        id="google_sheets",
+        name="Google Sheets",
+        api_docs_url=SHEETS_API_DOCS_URL,
+        troubleshooting_url=SHEETS_TROUBLESHOOT_URL,
+    )
+
+
+class GoogleSheetsCCProvider(GoogleServiceAccountOAuthProvider):
+    """Google Sheets provider using service account credentials."""
 
     id: ClassVar[str] = "google_sheets"
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=GOOGLE_SHEETS_SCOPES)
-    metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
+    metadata: ClassVar[ProviderMetadata] = get_google_cc_metadata(
         id="google_sheets",
-        name="Google Sheets (Service account)",
-        description=(
-            "Authenticate to Google Sheets API using a service account JSON key."
-        ),
-        requires_config=True,
-        enabled=True,
-        api_docs_url="https://developers.google.com/workspace/sheets/api/reference/rest",
-        setup_guide_url="https://developers.google.com/identity/protocols/oauth2/service-account",
-        troubleshooting_url="https://developers.google.com/sheets/api/troubleshooting",
+        name="Google Sheets",
+        api_docs_url=SHEETS_API_DOCS_URL,
+        troubleshooting_url=SHEETS_TROUBLESHOOT_URL,
     )

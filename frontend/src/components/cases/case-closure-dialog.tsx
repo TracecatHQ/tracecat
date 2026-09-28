@@ -7,7 +7,7 @@ import { bracketMatching } from "@codemirror/language"
 import { linter, lintGutter } from "@codemirror/lint"
 import { EditorView } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
-import { AlertTriangle, Check } from "lucide-react"
+import { AlertTriangle } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type {
@@ -19,6 +19,7 @@ import { CaseDescriptionEditor } from "@/components/cases/case-description-edito
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { CheckIndicator } from "@/components/ui/check-indicator"
 import {
   Command,
   CommandEmpty,
@@ -34,6 +35,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  nonDismissableDialogProps,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -53,7 +55,6 @@ import {
   isValidSqlIntegerInput,
   isValidSqlNumericInput,
 } from "@/lib/sql-value-validation"
-import { cn } from "@/lib/utils"
 
 interface CaseClosureDialogProps {
   open: boolean
@@ -180,7 +181,7 @@ export function CaseClosureDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg" {...nonDismissableDialogProps}>
         <DialogHeader>
           <DialogTitle>{statusLabel} case</DialogTitle>
           <DialogDescription>
@@ -254,9 +255,6 @@ export function CaseClosureDialog({
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancel
-          </Button>
           <Button
             variant="outline"
             disabled={!isValid || isSubmitting}
@@ -289,21 +287,29 @@ function ClosureFieldInput({
 }: ClosureFieldInputProps) {
   // Resolve effective type from kind
   if (field.kind === "LONG_TEXT") {
-    return <LongTextField label={field.id} value={value} onChange={onChange} />
+    return (
+      <LongTextField
+        label={field.display_name}
+        value={value}
+        onChange={onChange}
+      />
+    )
   }
   if (field.kind === "URL") {
-    return <UrlField label={field.id} value={value} onChange={onChange} />
+    return (
+      <UrlField label={field.display_name} value={value} onChange={onChange} />
+    )
   }
 
   switch (field.type) {
     case "TEXT":
       return (
         <div className="space-y-1.5">
-          <Label className="text-sm">{field.id}</Label>
+          <Label className="text-sm">{field.display_name}</Label>
           <Input
             value={typeof value === "string" ? value : ""}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={`Enter ${field.id}...`}
+            placeholder={`Enter ${field.display_name}...`}
           />
         </div>
       )
@@ -311,7 +317,7 @@ function ClosureFieldInput({
     case "NUMERIC":
       return (
         <div className="space-y-1.5">
-          <Label className="text-sm">{field.id}</Label>
+          <Label className="text-sm">{field.display_name}</Label>
           <Input
             type="text"
             inputMode={field.type === "INTEGER" ? "numeric" : "decimal"}
@@ -336,14 +342,14 @@ function ClosureFieldInput({
               onValidationChange?.(!isValid)
               onChange(trimmed)
             }}
-            placeholder={`Enter ${field.id}...`}
+            placeholder={`Enter ${field.display_name}...`}
           />
         </div>
       )
     case "BOOLEAN":
       return (
         <div className="space-y-1.5">
-          <Label className="text-sm">{field.id}</Label>
+          <Label className="text-sm">{field.display_name}</Label>
           <Select
             value={value != null ? String(value) : ""}
             onValueChange={(val) => onChange(val === "true")}
@@ -361,7 +367,7 @@ function ClosureFieldInput({
     case "DATE":
       return (
         <div className="space-y-1.5">
-          <Label className="text-sm">{field.id}</Label>
+          <Label className="text-sm">{field.display_name}</Label>
           <Input
             type="text"
             placeholder="YYYY-MM-DD"
@@ -383,7 +389,7 @@ function ClosureFieldInput({
     case "TIMESTAMPTZ":
       return (
         <div className="space-y-1.5">
-          <Label className="text-sm">{field.id}</Label>
+          <Label className="text-sm">{field.display_name}</Label>
           <Input
             type="text"
             placeholder="YYYY-MM-DDTHH:mm:ss.Z"
@@ -411,7 +417,7 @@ function ClosureFieldInput({
     case "JSONB":
       return (
         <JsonField
-          label={field.id}
+          label={field.display_name}
           value={value}
           onChange={onChange}
           onValidationChange={onValidationChange}
@@ -420,11 +426,11 @@ function ClosureFieldInput({
     default:
       return (
         <div className="space-y-1.5">
-          <Label className="text-sm">{field.id}</Label>
+          <Label className="text-sm">{field.display_name}</Label>
           <Input
             value={typeof value === "string" ? value : ""}
             onChange={(e) => onChange(e.target.value)}
-            placeholder={`Enter ${field.id}...`}
+            placeholder={`Enter ${field.display_name}...`}
           />
         </div>
       )
@@ -447,6 +453,7 @@ function LongTextField({
       <Label className="text-sm">{label}</Label>
       <div className="min-h-[100px] rounded-md border">
         <CaseDescriptionEditor
+          className="case-description-editor--boxed"
           initialContent={typeof value === "string" ? value : ""}
           onChange={onChange}
         />
@@ -499,7 +506,7 @@ function SelectField({
 }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-sm">{field.id}</Label>
+      <Label className="text-sm">{field.display_name}</Label>
       <Select
         value={typeof value === "string" ? value : ""}
         onValueChange={onChange}
@@ -541,7 +548,7 @@ function MultiSelectField({
 
   return (
     <div className="space-y-1.5">
-      <Label className="text-sm">{field.id}</Label>
+      <Label className="text-sm">{field.display_name}</Label>
       <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -568,13 +575,12 @@ function MultiSelectField({
               <CommandEmpty>No options.</CommandEmpty>
               <CommandGroup>
                 {field.options?.map((opt) => (
-                  <CommandItem key={opt} onSelect={() => toggleOption(opt)}>
-                    <Check
-                      className={cn(
-                        "mr-2 size-4",
-                        selected.includes(opt) ? "opacity-100" : "opacity-0"
-                      )}
-                    />
+                  <CommandItem
+                    key={opt}
+                    className="group"
+                    onSelect={() => toggleOption(opt)}
+                  >
+                    <CheckIndicator checked={selected.includes(opt)} />
                     {opt}
                   </CommandItem>
                 ))}

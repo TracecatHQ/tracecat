@@ -206,6 +206,7 @@ async def test_template_step_token_preserves_root_execution_claims(
     )
     root_action = "testing.template"
     step_action = "core.script.run_python"
+    agent_session_id = uuid.uuid4()
     action_impl = ActionImplementation(
         type="udf",
         action_name=step_action,
@@ -225,6 +226,7 @@ async def test_template_step_token_preserves_root_execution_claims(
         task=ActionStatement(ref="template", action=root_action, args={}),
         exec_context=create_default_execution_context(),
         run_context=mock_run_context,
+        agent_session_id=agent_session_id,
         registry_lock=make_registry_lock(step_action),
     )
     parent_resolved = executor_service.ResolvedContext(
@@ -251,6 +253,37 @@ async def test_template_step_token_preserves_root_execution_claims(
     claims = verify_executor_token(step_resolved.executor_token)
     assert claims.execution_origin == "agent"
     assert claims.root_action == root_action
+    assert claims.agent_session_id == agent_session_id
+
+
+def test_workflow_token_omits_untrusted_agent_session_id(
+    mock_run_context: RunContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
+    role = Role(
+        type="service",
+        service_id="tracecat-executor",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+    )
+    input = RunActionInput(
+        task=ActionStatement(
+            ref="action",
+            action="core.http_request",
+            args={"agent_session_id": str(uuid.uuid4())},
+        ),
+        exec_context=create_default_execution_context(),
+        run_context=mock_run_context,
+        agent_session_id=uuid.uuid4(),
+        registry_lock=make_registry_lock("core.http_request"),
+    )
+
+    token = executor_service._mint_action_executor_token(input, role)
+
+    claims = verify_executor_token(token)
+    assert claims.execution_origin == "workflow"
+    assert claims.agent_session_id is None
 
 
 @pytest.fixture(scope="function")
@@ -914,7 +947,7 @@ async def test_dispatcher(
             await dispatch_action(backend, input)
         assert len(e.value.loop_errors) == 1
         assert e.value.loop_errors[0].info.loop_iteration == 2
-        assert e.value.loop_errors[0].info.loop_vars == {"x": None}
+        assert e.value.loop_errors[0].info.loop_vars is None
 
         # Try another dispatch with a different error
 
@@ -935,7 +968,7 @@ async def test_dispatcher(
             await dispatch_action(backend, input)
         assert len(e.value.loop_errors) == 1
         assert e.value.loop_errors[0].info.loop_iteration == 1
-        assert e.value.loop_errors[0].info.loop_vars == {"x": None}
+        assert e.value.loop_errors[0].info.loop_vars is None
     finally:
         ctx_role.reset(token)
 
@@ -1021,7 +1054,6 @@ async def test_dispatch_action_for_each_finishes_after_iteration_error(
                     filename=__file__,
                     function="fake_invoke_once",
                     loop_iteration=iteration,
-                    loop_vars=local_vars,
                 )
             )
         return value
@@ -1047,7 +1079,7 @@ async def test_dispatch_action_for_each_finishes_after_iteration_error(
     assert seen == [1, 2, 3]
     assert len(e.value.loop_errors) == 1
     assert e.value.loop_errors[0].info.loop_iteration == 1
-    assert e.value.loop_errors[0].info.loop_vars == {"x": 2}
+    assert e.value.loop_errors[0].info.loop_vars is None
 
 
 @pytest.fixture

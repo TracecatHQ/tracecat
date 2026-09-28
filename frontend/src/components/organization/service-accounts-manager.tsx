@@ -1,6 +1,5 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
 import { format, formatDistanceToNow } from "date-fns"
 import {
   BotIcon,
@@ -76,6 +75,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { getDisplayName } from "@/lib/auth"
 import type { TracecatApiError } from "@/lib/errors"
+import { useQuery } from "@/lib/query"
 import {
   getCategoryScopes,
   type PermissionLevel,

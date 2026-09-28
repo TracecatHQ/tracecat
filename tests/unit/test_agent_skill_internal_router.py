@@ -14,6 +14,7 @@ from tracecat.agent.skill.internal_router import (
     get_skill_version,
     list_skill_versions,
     list_skills,
+    publish_skill_draft,
     publish_skill_version,
     router,
 )
@@ -31,7 +32,7 @@ def _executor_role() -> Role:
     )
 
 
-def test_internal_router_does_not_expose_draft_publish() -> None:
+def test_internal_router_exposes_draft_and_version_publish() -> None:
     routes = {
         (route.path, method)
         for route in router.routes
@@ -39,7 +40,7 @@ def test_internal_router_does_not_expose_draft_publish() -> None:
         for method in route.methods or ()
     }
 
-    assert ("/internal/agent/skills/{skill_id}/publish", "POST") not in routes
+    assert ("/internal/agent/skills/{skill_id}/publish", "POST") in routes
     assert ("/internal/agent/skills/{skill_id}/versions", "POST") in routes
 
 
@@ -199,6 +200,35 @@ async def test_publish_skill_version_converts_version_conflict_to_http_409() -> 
             await raw_publish_skill_version(
                 skill_id=uuid.uuid4(),
                 params=cast(Any, object()),
+                role=_executor_role(),
+                session=AsyncMock(),
+            )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == detail
+
+
+@pytest.mark.anyio
+async def test_publish_skill_draft_converts_revision_conflict_to_http_409() -> None:
+    detail = {
+        "code": "draft_revision_conflict",
+        "current_revision": 3,
+    }
+    mock_service = AsyncMock()
+    mock_service.get_skill_by_identifier.return_value = SimpleNamespace(id=uuid.uuid4())
+    mock_service.publish_skill.side_effect = TracecatValidationError(
+        "Draft revision conflict",
+        detail=detail,
+    )
+
+    with patch(
+        "tracecat.agent.skill.internal_router.SkillService",
+        return_value=mock_service,
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            raw_publish_skill_draft = cast(Any, publish_skill_draft).__wrapped__
+            await raw_publish_skill_draft(
+                skill_id=uuid.uuid4(),
                 role=_executor_role(),
                 session=AsyncMock(),
             )

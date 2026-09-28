@@ -27,7 +27,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionReadWithMessages,
 )
 from tracecat.agent.session.types import AgentSessionEntity
-from tracecat.agent.subagents import ResolvedAgentsConfig
+from tracecat.agent.session.views import build_session_read
 from tracecat.agent.tokens import InternalToolContext, MCPTokenClaims
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -171,7 +171,7 @@ async def _load_secret_inventory(
     role: Role,
 ) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
     """Load workspace/org secret key inventories from default environment."""
-    from tracecat.secrets.service import SecretsService
+    from tracecat.secrets.service import SecretsService, secret_key_names
 
     async with SecretsService.with_session(role=role) as svc:
         workspace_inventory: dict[str, set[str]] = {}
@@ -181,17 +181,13 @@ async def _load_secret_inventory(
         for secret in workspace_secrets:
             if secret.environment != DEFAULT_SECRETS_ENVIRONMENT:
                 continue
-            workspace_inventory[secret.name] = {
-                kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)
-            }
+            workspace_inventory[secret.name] = set(secret_key_names(svc, secret))
 
         org_secrets = await svc.list_org_secrets()
         for secret in org_secrets:
             if secret.environment != DEFAULT_SECRETS_ENVIRONMENT:
                 continue
-            org_inventory[secret.name] = {
-                kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)
-            }
+            org_inventory[secret.name] = set(secret_key_names(svc, secret))
 
     return workspace_inventory, org_inventory
 
@@ -397,7 +393,7 @@ async def update_preset(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
 
 
 async def list_sessions(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str, Any]:
-    """List agent sessions where this agent preset is being used by end users."""
+    """List workspace sessions where this agent preset is used."""
     from tracecat.agent.session.service import AgentSessionService
 
     preset_id = _get_preset_id(claims.internal_tool_context)
@@ -408,14 +404,24 @@ async def list_sessions(args: dict[str, Any], claims: MCPTokenClaims) -> dict[st
     if not isinstance(limit, int) or limit < 1 or limit > 100:
         limit = 50
 
+    created_by: uuid.UUID | None = None
+    if created_by_value := args.get("created_by"):
+        if isinstance(created_by_value, uuid.UUID):
+            created_by = created_by_value
+        elif isinstance(created_by_value, str):
+            try:
+                created_by = uuid.UUID(created_by_value)
+            except ValueError as e:
+                raise InternalToolError(
+                    f"Invalid created_by format: {created_by_value}"
+                ) from e
+        else:
+            raise InternalToolError(f"Invalid created_by format: {created_by_value}")
+
     try:
         async with AgentSessionService.with_session(role=role) as service:
-            if service.role.user_id is None:
-                raise InternalToolError(
-                    "Unable to list sessions: authentication required."
-                )
             sessions = await service.list_sessions(
-                created_by=service.role.user_id,
+                created_by=created_by,
                 entity_type=AgentSessionEntity.AGENT_PRESET,
                 entity_id=preset_id,
                 limit=limit,
@@ -455,33 +461,17 @@ async def get_session(args: dict[str, Any], claims: MCPTokenClaims) -> dict[str,
     try:
         async with AgentSessionService.with_session(role=role) as service:
             session = await service.get_session(session_id)
-            if not session or str(session.entity_id) != str(preset_id):
+            if (
+                not session
+                or AgentSessionEntity(session.entity_type)
+                is not AgentSessionEntity.AGENT_PRESET
+                or session.entity_id != preset_id
+            ):
                 raise InternalToolError(f"Session {session_id} not found.")
 
             messages = await service.list_messages(session.id)
-            agents_binding = (
-                ResolvedAgentsConfig.model_validate(session.agents_binding)
-                if session.agents_binding is not None
-                else None
-            )
-
             return AgentSessionReadWithMessages(
-                id=session.id,
-                workspace_id=session.workspace_id,
-                title=session.title,
-                created_by=session.created_by,
-                entity_type=AgentSessionEntity(session.entity_type),
-                entity_id=session.entity_id,
-                channel_context=session.channel_context,
-                tools=session.tools,
-                mcp_integrations=session.mcp_integrations,
-                agent_preset_id=session.agent_preset_id,
-                agent_preset_version_id=session.agent_preset_version_id,
-                agents_binding=agents_binding,
-                harness_type=session.harness_type,
-                created_at=session.created_at,
-                updated_at=session.updated_at,
-                last_stream_id=session.last_stream_id,
+                **build_session_read(session, role).model_dump(),
                 messages=messages,
             ).model_dump(mode="json")
     except InternalToolError:
@@ -528,6 +518,10 @@ class _ListSessionsParams(BaseModel):
         description="Maximum number of sessions to return.",
         ge=config.TRACECAT__LIMIT_MIN,
         le=config.TRACECAT__LIMIT_CURSOR_MAX,
+    )
+    created_by: uuid.UUID | None = Field(
+        default=None,
+        description="Filter by session creator. Omit to list the entire workspace.",
     )
 
 
@@ -576,7 +570,10 @@ def get_builder_internal_tool_definitions() -> dict[str, MCPToolDefinition]:
         ),
         "internal.builder.list_sessions": MCPToolDefinition(
             name="internal.builder.list_sessions",
-            description="List agent sessions where this agent preset is being used by end users.",
+            description=(
+                "List workspace agent sessions where this preset is being used. "
+                "Returns all teammates by default; optionally filter by creator."
+            ),
             parameters_json_schema=_ListSessionsParams.model_json_schema(),
         ),
         "internal.builder.get_session": MCPToolDefinition(

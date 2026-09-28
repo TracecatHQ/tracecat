@@ -1,0 +1,68 @@
+type: action
+definition:
+  title: Batch modify messages
+  description: Modifies the labels on the specified messages.
+  display_group: Gmail
+  doc_url: https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/batchModify
+  namespace: tools.gmail
+  name: batch_modify_messages
+  secrets:
+    - type: oauth
+      provider_id: google_gmail
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_gmail
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    ids:
+      type: list[str]
+      description: The IDs of the messages to modify. There is a limit of 1000 ids per request.
+    add_label_ids:
+      type: list[str] | None
+      description: A list of label IDs to add to messages.
+      default: null
+    remove_label_ids:
+      type: list[str] | None
+      description: A list of label IDs to remove from messages.
+      default: null
+    user_id:
+      type: str
+      description: >-
+        The user's email address. The special value `me` can be used to indicate the
+        authenticated user.
+      default: me
+  steps:
+    - ref: build_body
+      action: core.script.run_python
+      args:
+        inputs:
+          ids: ${{ inputs.ids }}
+          add_label_ids: ${{ inputs.add_label_ids }}
+          remove_label_ids: ${{ inputs.remove_label_ids }}
+        script: |
+          def main(ids, add_label_ids=None, remove_label_ids=None):
+              body = {"ids": ids}
+              if add_label_ids is not None:
+                  body["addLabelIds"] = add_label_ids
+              if remove_label_ids is not None:
+                  body["removeLabelIds"] = remove_label_ids
+              return body
+    - ref: batch_modify_messages
+      action: tools.google_api.call_api
+      args:
+        service_name: gmail
+        version: v1
+        resource: users.messages
+        method_name: batchModify
+        access_token: ${{ SECRETS.google_gmail_oauth.GOOGLE_GMAIL_USER_TOKEN || SECRETS.google_gmail_oauth.GOOGLE_GMAIL_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/gmail.modify"]
+        params:
+          userId: ${{ inputs.user_id }}
+          body: ${{ steps.build_body.result }}
+  returns: ${{ steps.batch_modify_messages.result }}

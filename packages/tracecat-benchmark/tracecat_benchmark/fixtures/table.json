@@ -1,0 +1,32 @@
+{
+  "name": "scatter_load_rows",
+  "columns": [
+    {
+      "name": "run_id",
+      "type": "TEXT",
+      "nullable": false
+    },
+    {
+      "name": "workflow_seq",
+      "type": "INTEGER",
+      "nullable": false
+    },
+    {
+      "name": "branch_seq",
+      "type": "INTEGER",
+      "nullable": false
+    },
+    {
+      "name": "payload",
+      "type": "TEXT",
+      "nullable": true
+    },
+    {
+      "name": "dedupe_key",
+      "type": "TEXT",
+      "nullable": false
+    }
+  ],
+  "unique_index_column": "dedupe_key",
+  "unique_index_note": "The plan asks for a unique index on (run_id, workflow_seq, branch_seq). The public tables API can only create a SINGLE-column unique index, and at most one per table (see TablesService.create_unique_index). The `dedupe_key` column carries the composite key as '<run_id>:<workflow_seq>:<branch_seq>' so missing and duplicate writes stay measurable through supported endpoints."
+}

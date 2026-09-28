@@ -861,7 +861,6 @@ class TestPyPIConfiguration:
     async def test_executor_passes_index_urls_to_install_env(self) -> None:
         """Test that executor passes PyPI index URLs to install environment."""
         sandbox_config = SandboxConfig(
-            network_enabled=False,
             env_vars={},
         )
         executor = NsjailExecutor()

@@ -13,22 +13,73 @@ import pytest
 
 import tracecat.config as tracecat_config
 from tracecat.agent.common.config import _env_bool as agent_env_bool
-from tracecat.config import bound_env, env_bool
+from tracecat.config import bound_env, env_bool, env_networks, env_ports
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPO_ROOT / "tracecat" / "config.py"
 SANDBOX_COMPOSE_PATH = REPO_ROOT / "docker-compose.sandbox.yml"
-AGENT_EXECUTOR_BASE_COMPOSE_FILES = (
+SANDBOX_POLICY_COMPOSE_ENV_FILES = (
     REPO_ROOT / "docker-compose.yml",
     REPO_ROOT / "docker-compose.dev.yml",
     REPO_ROOT / "docker-compose.local.yml",
 )
+AGENT_EXECUTOR_BASE_COMPOSE_FILES = SANDBOX_POLICY_COMPOSE_ENV_FILES
+# The sandbox Compose file is an override and inherits policy variables from a base.
 COMPOSE_ENV_FILES = (
-    *AGENT_EXECUTOR_BASE_COMPOSE_FILES,
-    SANDBOX_COMPOSE_PATH,
+    *SANDBOX_POLICY_COMPOSE_ENV_FILES,
+    REPO_ROOT / "docker-compose.sandbox.yml",
 )
 ENV_EXAMPLE_FILES = (REPO_ROOT / ".env.example",)
 DEPLOYMENT_ENV_FILES = (*COMPOSE_ENV_FILES, *ENV_EXAMPLE_FILES)
+TRACED_COMPOSE_ENV_FILES = SANDBOX_POLICY_COMPOSE_ENV_FILES
+TRACED_COMPOSE_SERVICES = (
+    "api",
+    "worker",
+    "executor",
+    "agent-worker",
+    "agent-executor",
+)
+PLATFORM_OTEL_COMPOSE_ENV = (
+    "TRACECAT__PLATFORM_OTEL_ENABLED: ${TRACECAT__PLATFORM_OTEL_ENABLED:-false}",
+    "OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://localhost:4318}",
+    "OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}",
+    "OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1.0}",
+)
+PLATFORM_OTEL_HEADERS_COMPOSE_ENV = (
+    "OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}"
+)
+SANDBOX_POLICY_ENV_VARS = {
+    "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_INSTALL_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_SCRIPT_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_ACTION_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_AGENT_ALLOWED_EGRESS_TCP_PORTS",
+    "TRACECAT__SANDBOX_BLOCKED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS",
+}
+REGISTRY_POLICY_ENV_VARS = {
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_CIDRS",
+    "TRACECAT__SANDBOX_REGISTRY_ALLOWED_EGRESS_TCP_PORTS",
+}
+SENTRY_PLATFORM_COMPOSE_SERVICES = (
+    "api",
+    "worker",
+    "agent-worker",
+    "executor",
+    "agent-executor",
+)
+SMTP_COMPOSE_ENV = (
+    "TRACECAT__SMTP_HOST: ${TRACECAT__SMTP_HOST:-}",
+    "TRACECAT__SMTP_PORT: ${TRACECAT__SMTP_PORT:-587}",
+    "TRACECAT__SMTP_USER: ${TRACECAT__SMTP_USER:-}",
+    "TRACECAT__SMTP_PASSWORD: ${TRACECAT__SMTP_PASSWORD:-}",
+    "TRACECAT__EMAIL_FROM: ${TRACECAT__EMAIL_FROM:-}",
+)
 
 
 class _AgentExecutorComposeService(TypedDict):
@@ -149,6 +200,197 @@ def test_agent_env_bool_rejects_invalid_value(
 
     with pytest.raises(ValueError, match="TEST_AGENT_BOOL_ENV must be a boolean"):
         agent_env_bool("TEST_AGENT_BOOL_ENV", default=True)
+
+
+def test_env_networks_parses_ipv4_and_ipv6_cidrs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "TEST_NETWORKS_ENV",
+        "10.42.0.0/16, 203.0.113.10, 2001:db8::/48",
+    )
+
+    networks = env_networks("TEST_NETWORKS_ENV")
+
+    assert tuple(str(network) for network in networks) == (
+        "10.42.0.0/16",
+        "203.0.113.10/32",
+        "2001:db8::/48",
+    )
+
+
+def test_env_networks_rejects_invalid_cidr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_NETWORKS_ENV", "10.42.0.0/16,not-a-cidr")
+
+    with pytest.raises(ValueError, match="TEST_NETWORKS_ENV contains an invalid CIDR"):
+        env_networks("TEST_NETWORKS_ENV")
+
+
+def test_env_ports_parses_and_deduplicates_ports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TEST_PORTS_ENV", "443, 8443,443")
+
+    assert env_ports("TEST_PORTS_ENV", default=(80,)) == (443, 8443)
+
+
+@pytest.mark.parametrize("raw_value", ["not-a-port", "0", "65536"])
+def test_env_ports_rejects_invalid_ports(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_value: str,
+) -> None:
+    monkeypatch.setenv("TEST_PORTS_ENV", raw_value)
+
+    with pytest.raises(ValueError, match="TEST_PORTS_ENV contains an invalid port"):
+        env_ports("TEST_PORTS_ENV", default=(443,))
+
+
+@pytest.mark.parametrize("raw_value", [None, "", "   "])
+def test_env_ports_uses_default_when_unset_or_blank(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_value: str | None,
+) -> None:
+    if raw_value is None:
+        monkeypatch.delenv("TEST_PORTS_ENV", raising=False)
+    else:
+        monkeypatch.setenv("TEST_PORTS_ENV", raw_value)
+
+    assert env_ports("TEST_PORTS_ENV", default=(80, 443)) == (80, 443)
+
+
+@pytest.mark.parametrize("raw_value", [None, "", "  "])
+def test_env_networks_uses_default_when_unset_or_blank(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_value: str | None,
+) -> None:
+    if raw_value is None:
+        monkeypatch.delenv("TEST_NETWORKS_ENV", raising=False)
+    else:
+        monkeypatch.setenv("TEST_NETWORKS_ENV", raw_value)
+    default = env_networks(
+        "TEST_NETWORKS_ENV", default=tracecat_config.TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS
+    )
+
+    assert default == tracecat_config.TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS
+
+
+def test_audit_trusted_proxy_env_is_wired_to_deployments() -> None:
+    """Both audit consumers (api, mcp) must receive the override in every target."""
+    name = "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS"
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        source = path.read_text()
+        for service in ("api", "mcp"):
+            match = re.search(
+                rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+                source,
+            )
+            assert match is not None, f"{path.name}: no {service} service block"
+            assert name in match.group("body"), f"{path.name}: {service}"
+    fargate = REPO_ROOT / "deployments/fargate"
+    assert name in (fargate / "modules/ecs/locals.tf").read_text()
+    for tf in ("variables.tf", "main.tf", "modules/ecs/variables.tf"):
+        assert "audit_trusted_proxy_cidrs" in (fargate / tf).read_text(), tf
+
+
+def test_outbound_private_cidrs_are_wired_to_deployments() -> None:
+    """Validation, gateway, and agent processes share the operator's policy."""
+    name = "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS"
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        for service in ("api", "litellm", "agent-executor", "agent-worker"):
+            match = re.search(
+                rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+                path.read_text(),
+            )
+            assert match is not None, f"{path.name}: no {service} service block"
+            assert f"{name}: ${{{name}:-}}" in match.group("body"), (
+                f"{path.name}: {service} must forward the override and default to empty"
+            )
+    fargate = REPO_ROOT / "deployments/fargate"
+    assert (
+        f"{name} = var.outbound_allowed_private_cidrs"
+        in (fargate / "modules/ecs/locals.tf").read_text()
+    )
+    assert re.search(
+        r"outbound_allowed_private_cidrs\s*=\s*var.outbound_allowed_private_cidrs",
+        (fargate / "main.tf").read_text(),
+    )
+    for tf in ("variables.tf", "modules/ecs/variables.tf"):
+        assert re.search(
+            r'variable "outbound_allowed_private_cidrs" \{[^}]*default\s*=\s*""',
+            (fargate / tf).read_text(),
+        ), tf
+
+
+def test_smtp_env_is_wired_to_api_deployments() -> None:
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        source = path.read_text().replace(" # Sensitive", "")
+        api_match = re.search(
+            r"(?ms)^  api:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+            source,
+        )
+        assert api_match is not None
+        for env_line in SMTP_COMPOSE_ENV:
+            assert env_line in api_match.group("body"), f"{path.name}: {env_line}"
+
+    fargate = REPO_ROOT / "deployments/fargate"
+    for name in (
+        "smtp_host",
+        "smtp_port",
+        "smtp_user",
+        "smtp_password",
+        "email_from",
+    ):
+        assert (
+            name in (fargate / "modules/ecs/locals.tf").read_text()
+            or name in (fargate / "modules/ecs/secrets.tf").read_text()
+        )
+    for tf in ("variables.tf", "main.tf", "modules/ecs/variables.tf"):
+        source = (fargate / tf).read_text()
+        for name in (
+            "smtp_password_arn",
+            "smtp_host",
+            "smtp_port",
+            "smtp_user",
+            "email_from",
+        ):
+            assert name in source, f"{tf}: {name}"
+
+
+def test_sandbox_policy_env_vars_are_wired_to_compose_files() -> None:
+    missing_by_file = {
+        str(path.relative_to(REPO_ROOT)): sorted(
+            name for name in SANDBOX_POLICY_ENV_VARS if name not in path.read_text()
+        )
+        for path in SANDBOX_POLICY_COMPOSE_ENV_FILES
+    }
+    missing_by_file = {
+        path: missing for path, missing in missing_by_file.items() if missing
+    }
+
+    assert not missing_by_file
+
+
+def test_registry_policy_env_vars_are_regular_executor_only() -> None:
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        source = path.read_text()
+        executor_match = re.search(
+            r"(?ms)^  executor:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+            source,
+        )
+        agent_executor_match = re.search(
+            r"(?ms)^  agent-executor:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+            source,
+        )
+        assert executor_match is not None
+        assert agent_executor_match is not None
+
+        executor_source = executor_match.group("body")
+        agent_executor_source = agent_executor_match.group("body")
+        for name in REGISTRY_POLICY_ENV_VARS:
+            assert name in executor_source
+            assert name not in agent_executor_source
 
 
 def test_config_boolean_env_values_use_env_bool() -> None:
@@ -279,6 +521,44 @@ def test_agent_executor_sandbox_overlay_delegates_cgroups(
     ) in service["environment"]
 
 
+@pytest.mark.parametrize("path", TRACED_COMPOSE_ENV_FILES, ids=lambda path: path.name)
+@pytest.mark.parametrize("service", TRACED_COMPOSE_SERVICES)
+def test_platform_otel_env_is_forwarded_to_traced_compose_services(
+    path: Path, service: str
+) -> None:
+    source = path.read_text()
+    service_match = re.search(
+        rf"^  {re.escape(service)}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)",
+        source,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert service_match is not None
+
+    service_body = service_match.group("body")
+    for env_line in PLATFORM_OTEL_COMPOSE_ENV:
+        assert env_line in service_body
+    if service in {"executor", "agent-executor"}:
+        assert PLATFORM_OTEL_HEADERS_COMPOSE_ENV not in service_body
+    else:
+        assert PLATFORM_OTEL_HEADERS_COMPOSE_ENV in service_body
+
+
+@pytest.mark.parametrize("path", TRACED_COMPOSE_ENV_FILES, ids=lambda path: path.name)
+@pytest.mark.parametrize("service", SENTRY_PLATFORM_COMPOSE_SERVICES)
+def test_sentry_dsn_is_forwarded_to_platform_compose_services(
+    path: Path, service: str
+) -> None:
+    source = path.read_text()
+    service_match = re.search(
+        rf"^  {re.escape(service)}:\n(?P<body>.*?)(?=^  [a-zA-Z0-9_-]+:\n|\Z)",
+        source,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert service_match is not None
+
+    assert "SENTRY_DSN: ${SENTRY_DSN:-}" in service_match.group("body")
+
+
 def test_bound_env_clamps_below_lower(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TEST_BOUND_ENV", "4")
 
@@ -311,6 +591,18 @@ def test_bound_env_uses_default_for_empty_string(
     result = bound_env("TEST_BOUND_ENV", 10, lower=8)
 
     assert result == 10
+
+
+def test_agent_runtime_feature_flag_is_loaded_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__FEATURE_FLAGS", "agent-runtime")
+            reloaded_config = importlib.reload(tracecat_config)
+            assert reloaded_config.TRACECAT__FEATURE_FLAGS == {"agent-runtime"}
+    finally:
+        importlib.reload(tracecat_config)
 
 
 def test_action_gateway_socket_uses_default_for_empty_string(
@@ -368,6 +660,161 @@ def test_agent_memory_config_rejects_values_below_minimum(
         importlib.reload(tracecat_config)
 
 
+@pytest.mark.parametrize("port", ["0", "65536", "-1"])
+def test_smtp_port_rejects_out_of_range(
+    monkeypatch: pytest.MonkeyPatch, port: str
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__SMTP_PORT", port)
+
+            with pytest.raises(ValueError, match="TRACECAT__SMTP_PORT"):
+                importlib.reload(tracecat_config)
+    finally:
+        importlib.reload(tracecat_config)
+
+
+def test_smtp_password_preserves_whitespace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__SMTP_PASSWORD", " secret ")
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__SMTP_PASSWORD == " secret "
+
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__SMTP_PASSWORD", "   ")
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__SMTP_PASSWORD is None
+    finally:
+        importlib.reload(tracecat_config)
+
+
+def test_copilot_skills_dir_uses_default_for_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__COPILOT_SKILLS_DIR", "")
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert (
+                reloaded_config.TRACECAT__COPILOT_SKILLS_DIR
+                == "/var/lib/tracecat/copilot-skills"
+            )
+    finally:
+        importlib.reload(tracecat_config)
+
+
+@pytest.mark.parametrize(
+    ("sandbox_timeout", "expected_drain_timeout"),
+    [(None, 3660), (900, 960), (7200, 7260)],
+)
+def test_agent_executor_drain_default_covers_all_supported_timeouts(
+    monkeypatch: pytest.MonkeyPatch,
+    sandbox_timeout: int | None,
+    expected_drain_timeout: int,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            if sandbox_timeout is None:
+                env.delenv("TRACECAT__AGENT_SANDBOX_TIMEOUT", raising=False)
+            else:
+                env.setenv("TRACECAT__AGENT_SANDBOX_TIMEOUT", str(sandbox_timeout))
+            env.delenv(
+                "TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT",
+                raising=False,
+            )
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__AGENT_SANDBOX_TIMEOUT == (
+                expected_drain_timeout - 60
+            )
+            assert (
+                reloaded_config.TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT
+                == expected_drain_timeout
+            )
+    finally:
+        importlib.reload(tracecat_config)
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        pytest.param(
+            {},
+            (100, 1000, 30_000),
+            id="defaults",
+        ),
+        pytest.param(
+            {
+                "TRACECAT__LIMIT_AGG_GROUPS_DEFAULT": "250",
+                "TRACECAT__LIMIT_AGG_GROUPS_MAX": "2000",
+                "TRACECAT__AGG_STATEMENT_TIMEOUT_MS": "15000",
+            },
+            (250, 2000, 15_000),
+            id="operator-overrides",
+        ),
+        pytest.param(
+            {
+                "TRACECAT__AGG_STATEMENT_TIMEOUT_MS": "2147483648",
+            },
+            (100, 1000, 2_147_483_647),
+            id="timeout-clamped-to-postgres-maximum",
+        ),
+    ],
+)
+def test_aggregation_query_config(
+    monkeypatch: pytest.MonkeyPatch,
+    values: dict[str, str],
+    expected: tuple[int, int, int],
+) -> None:
+    names = (
+        "TRACECAT__LIMIT_AGG_GROUPS_DEFAULT",
+        "TRACECAT__LIMIT_AGG_GROUPS_MAX",
+        "TRACECAT__AGG_STATEMENT_TIMEOUT_MS",
+    )
+    try:
+        with monkeypatch.context() as env:
+            for name in names:
+                env.delenv(name, raising=False)
+            for name, value in values.items():
+                env.setenv(name, value)
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert (
+                reloaded_config.TRACECAT__LIMIT_AGG_GROUPS_DEFAULT,
+                reloaded_config.TRACECAT__LIMIT_AGG_GROUPS_MAX,
+                reloaded_config.TRACECAT__AGG_STATEMENT_TIMEOUT_MS,
+            ) == expected
+    finally:
+        importlib.reload(tracecat_config)
+
+
+def test_executor_concurrency_uses_bounded_defaults(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.delenv("TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES", raising=False)
+            env.delenv("TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS", raising=False)
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES == 16
+            assert reloaded_config.TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS == 16
+    finally:
+        importlib.reload(tracecat_config)
+
+
 def test_bound_env_rejects_invalid_numeric_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -382,3 +829,10 @@ def test_bound_env_rejects_invalid_bounds() -> None:
         ValueError, match="lower \\(10\\) cannot be greater than upper \\(8\\)"
     ):
         bound_env("TEST_BOUND_ENV", 16, lower=10, upper=8)
+
+
+def test_platform_otel_operator_settings_are_not_advertised_in_env_example() -> None:
+    source = (REPO_ROOT / ".env.example").read_text()
+    assert "TRACECAT__PLATFORM_OTEL_ENABLED" not in source
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in source
+    assert "OTEL_EXPORTER_OTLP_HEADERS" not in source

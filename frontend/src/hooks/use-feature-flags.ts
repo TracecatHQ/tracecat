@@ -1,6 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
-
 import { type FeatureFlag, featureFlagsGetFeatureFlags } from "@/client"
+import { useQuery } from "@/lib/query"
 
 // Hook for components to check feature flags
 export function useFeatureFlag(): {

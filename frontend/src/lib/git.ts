@@ -24,6 +24,17 @@ export function getRepoDisplayName(
   return path.replace(/\.git$/, "")
 }
 
+/**
+ * Extract the `@ref` suffix from a Git SSH URL.
+ *
+ * @param url - A `git+ssh://` repository URL.
+ * @returns The branch, tag, or commit after `@`, or `null` when the URL has
+ *   no ref or cannot be parsed.
+ */
+export function getRepoRef(url: string): string | null {
+  return GIT_SSH_URL_REGEX.exec(url)?.groups?.ref ?? null
+}
+
 export function validateGitSshUrl(
   url: string | null | undefined,
   ctx: z.RefinementCtx

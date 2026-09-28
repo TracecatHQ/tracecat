@@ -15,7 +15,12 @@ from tracecat_ee.workspace_chat.policy import (
 
 from tracecat import config
 from tracecat.agent.adapter import vercel
+from tracecat.agent.backends.registry import (
+    get_agent_backends,
+)
+from tracecat.agent.backends.types import SessionDispatchUncertain
 from tracecat.agent.session.schemas import (
+    AgentBackendRead,
     AgentSessionArtifactsRead,
     AgentSessionCancelRequest,
     AgentSessionCancelResponse,
@@ -27,11 +32,15 @@ from tracecat.agent.session.schemas import (
     AgentSessionUpdate,
 )
 from tracecat.agent.session.service import AgentSessionService
-from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
+from tracecat.agent.session.types import (
+    AgentSessionEntity,
+    TurnLifecycle,
+    is_session_readonly,
+)
+from tracecat.agent.session.views import build_session_read
 from tracecat.agent.stream.artifacts import artifact_stream_event
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamFormat
-from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.bindings import ArtifactSideEffect
 from tracecat.artifacts.schemas import ArtifactType
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
@@ -44,12 +53,15 @@ from tracecat.chat.schemas import (
     ContinueRunRequest,
 )
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import AgentSession
 from tracecat.exceptions import (
     EntitlementRequired,
     TracecatConflictError,
     TracecatNotFoundError,
+    TracecatValidationError,
 )
 from tracecat.logger import logger
+from tracecat.observability.otel import set_current_span_attributes
 
 router = APIRouter(prefix="/agent/sessions", tags=["agent-sessions"])
 
@@ -84,6 +96,22 @@ def _bubble_id(session_id: uuid.UUID, curr_run_id: uuid.UUID | None) -> str | No
     return f"{session_id}:{curr_run_id}" if curr_run_id else None
 
 
+def _require_session_write_access(
+    role: WorkspaceActorRouteRole,
+    agent_session: AgentSession,
+) -> None:
+    """Reject writes to sessions owned by another workspace actor."""
+    if not is_session_readonly(role, agent_session.created_by):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "code": "session_read_only",
+            "message": "Teammate sessions are read-only.",
+        },
+    )
+
+
 async def _require_workspace_chat_entitlement_for_session_tree(
     *,
     svc: AgentSessionService,
@@ -111,6 +139,19 @@ async def _require_workspace_chat_entitlement_for_session_tree(
         current = await svc.get_session(parent_session_id)
 
 
+@router.get("/backends")
+@require_scope("agent:read")
+async def list_agent_backends(
+    role: WorkspaceActorRouteRole,
+) -> list[AgentBackendRead]:
+    """List enabled installed backends available to new sessions."""
+    return [
+        AgentBackendRead(id=key, name=backend.name)
+        for key, backend in get_agent_backends().items()
+        if backend.is_enabled()
+    ]
+
+
 @router.post("")
 @require_scope("agent:execute")
 async def create_session(
@@ -125,8 +166,13 @@ async def create_session(
         entity_type=request.entity_type,
     )
     svc = AgentSessionService(session, role)
-    agent_session = await svc.create_session(request)
-    return AgentSessionRead.model_validate(agent_session, from_attributes=True)
+    try:
+        agent_session = await svc.create_session(request)
+    except TracecatValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return build_session_read(agent_session, role)
 
 
 @router.get("")
@@ -138,6 +184,10 @@ async def list_sessions(
         None, description="Filter by entity type"
     ),
     entity_id: uuid.UUID | None = Query(None, description="Filter by entity ID"),
+    created_by: uuid.UUID | None = Query(
+        None,
+        description="Filter by session creator. Omit to list the entire workspace.",
+    ),
     exclude_entity_types: list[AgentSessionEntity] | None = Query(
         None, description="Entity types to exclude from results"
     ),
@@ -169,8 +219,7 @@ async def list_sessions(
         ]
     svc = AgentSessionService(session, role)
     return await svc.list_sessions(
-        created_by=role.user_id,
-        filter_created_by_none=role.type == "service_account",
+        created_by=created_by,
         entity_type=entity_type,
         entity_id=entity_id,
         exclude_entity_types=exclude_entity_types,
@@ -204,28 +253,7 @@ async def get_session(
         messages = await svc.list_messages(session_id)
         logger.info("Session read", session_id=agent_session.id, messages=len(messages))
         return AgentSessionReadWithMessages(
-            id=agent_session.id,
-            workspace_id=agent_session.workspace_id,
-            title=agent_session.title,
-            created_by=agent_session.created_by,
-            entity_type=AgentSessionEntity(agent_session.entity_type),
-            entity_id=agent_session.entity_id,
-            channel_context=agent_session.channel_context,
-            tools=agent_session.tools,
-            mcp_integrations=agent_session.mcp_integrations,
-            agent_preset_id=agent_session.agent_preset_id,
-            agent_preset_version_id=agent_session.agent_preset_version_id,
-            agents_binding=(
-                ResolvedAgentsConfig.model_validate(agent_session.agents_binding)
-                if agent_session.agents_binding is not None
-                else None
-            ),
-            harness_type=agent_session.harness_type,
-            last_error=agent_session.last_error,
-            created_at=agent_session.created_at,
-            updated_at=agent_session.updated_at,
-            last_stream_id=agent_session.last_stream_id,
-            artifacts=svc.list_artifacts(agent_session),
+            **build_session_read(agent_session, role).model_dump(),
             messages=messages,
         )
 
@@ -287,28 +315,7 @@ async def get_session_vercel(
         messages = await svc.list_messages(session_id)
         ui_messages = vercel.convert_chat_messages_to_ui(messages)
         return AgentSessionReadVercel(
-            id=agent_session.id,
-            workspace_id=agent_session.workspace_id,
-            title=agent_session.title,
-            created_by=agent_session.created_by,
-            entity_type=AgentSessionEntity(agent_session.entity_type),
-            entity_id=agent_session.entity_id,
-            channel_context=agent_session.channel_context,
-            tools=agent_session.tools,
-            mcp_integrations=agent_session.mcp_integrations,
-            agent_preset_id=agent_session.agent_preset_id,
-            agent_preset_version_id=agent_session.agent_preset_version_id,
-            agents_binding=(
-                ResolvedAgentsConfig.model_validate(agent_session.agents_binding)
-                if agent_session.agents_binding is not None
-                else None
-            ),
-            harness_type=agent_session.harness_type,
-            last_error=agent_session.last_error,
-            created_at=agent_session.created_at,
-            updated_at=agent_session.updated_at,
-            last_stream_id=agent_session.last_stream_id,
-            artifacts=svc.list_artifacts(agent_session),
+            **build_session_read(agent_session, role).model_dump(),
             messages=ui_messages,
         )
 
@@ -368,14 +375,21 @@ async def update_session(
             detail="Session not found",
         )
 
+    _require_session_write_access(role, agent_session)
+
     await require_workspace_chat_entitlement_for_entity(
         session=session,
         role=role,
         entity_type=agent_session.entity_type,
     )
 
-    updated = await svc.update_session(agent_session, params=params)
-    return AgentSessionRead.model_validate(updated, from_attributes=True)
+    try:
+        updated = await svc.update_session(agent_session, params=params)
+    except TracecatValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return build_session_read(updated, role)
 
 
 @router.delete("/{session_id}/artifacts/{artifact_type}/{artifact_id}")
@@ -400,6 +414,7 @@ async def remove_session_artifact(
         agent_session = await svc.get_session(session_id)
         if agent_session is None:
             raise TracecatNotFoundError(f"Session {session_id} not found")
+        _require_session_write_access(role, agent_session)
         await require_workspace_chat_entitlement_for_entity(
             session=session,
             role=role,
@@ -443,6 +458,8 @@ async def delete_session(
             detail="Session not found",
         )
 
+    _require_session_write_access(role, agent_session)
+
     await require_workspace_chat_entitlement_for_entity(
         session=session,
         role=role,
@@ -475,6 +492,13 @@ async def send_message(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Workspace access required",
             )
+        set_current_span_attributes(
+            {
+                "tracecat.organization.id": role.organization_id,
+                "tracecat.workspace.id": workspace_id,
+                "tracecat.agent.session.id": session_id,
+            }
+        )
 
         message_id: str | None = None
         async with AgentSessionService.with_session(role=role) as svc:
@@ -489,6 +513,7 @@ async def send_message(
                 session_id=session_id,
                 request=request,
             )
+            _require_session_write_access(role, agent_session)
             await _require_workspace_chat_entitlement_for_session_tree(
                 svc=svc,
                 session=svc.session,
@@ -514,6 +539,7 @@ async def send_message(
                     if turn_response is not None
                     else agent_session.curr_run_id
                 )
+                set_current_span_attributes({"tracecat.agent.run.id": run_id})
                 message_id = _bubble_id(session_id, run_id)
 
                 if rotated_stream_id is None:
@@ -558,6 +584,10 @@ async def send_message(
                         active_stream_id=stream_id,
                         is_first_prompt=is_first_prompt,
                     )
+                except SessionDispatchUncertain:
+                    # The workflow may already be producing a reply. Preserve
+                    # both its reservation and stream so reconnect can resume it.
+                    raise
                 except Exception as turn_exc:
                     logger.warning(
                         "Failed to start agent turn",
@@ -584,6 +614,9 @@ async def send_message(
                     raise RuntimeError(
                         "New agent turn completed without a stream response"
                     )
+                set_current_span_attributes(
+                    {"tracecat.agent.run.id": turn_response.curr_run_id}
+                )
                 message_id = _bubble_id(session_id, turn_response.curr_run_id)
 
         logger.info(
@@ -621,6 +654,8 @@ async def send_message(
             detail=str(e),
         ) from e
     except EntitlementRequired:
+        raise
+    except HTTPException:
         raise
     except Exception as e:
         logger.error(
@@ -772,6 +807,7 @@ async def fork_session(
             raise TracecatNotFoundError(
                 f"Parent session with ID {session_id} not found"
             )
+        _require_session_write_access(role, parent_session)
         await _require_workspace_chat_entitlement_for_session_tree(
             svc=svc,
             session=session,
@@ -787,7 +823,7 @@ async def fork_session(
             entity_type=entity_type,
         )
         forked = await svc.fork_session(session_id, entity_type=entity_type)
-        return AgentSessionRead.model_validate(forked, from_attributes=True)
+        return build_session_read(forked, role)
     except TracecatNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -810,6 +846,7 @@ async def cancel_session(
         agent_session = await svc.get_session(session_id)
         if agent_session is None:
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
+        _require_session_write_access(role, agent_session)
         await _require_workspace_chat_entitlement_for_session_tree(
             svc=svc,
             session=session,

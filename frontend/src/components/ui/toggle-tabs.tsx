@@ -57,6 +57,7 @@ interface TabButtonProps<T> {
   currentValue: T
   onValueChange: (value: T) => void
   showTooltips: boolean
+  disabled: boolean
   size: VariantProps<typeof toggleTabVariants>["size"]
 }
 
@@ -68,6 +69,7 @@ function TabButton<T>({
   onValueChange,
   size,
   showTooltips,
+  disabled,
 }: TabButtonProps<T>) {
   const isActive = currentValue === option.value
   const isFirst = index === 0
@@ -85,6 +87,7 @@ function TabButton<T>({
   const button = (
     <button
       type="button"
+      disabled={disabled}
       onClick={() => onValueChange(option.value)}
       className={cn(toggleTabVariants({ size, active: isActive, position }))}
       aria-pressed={isActive}
@@ -129,6 +132,8 @@ export interface ToggleTabsProps<T = string>
   onValueChange?: (value: T) => void
   /** Whether to show tooltips */
   showTooltips?: boolean
+  /** Whether all tab options are disabled */
+  disabled?: boolean
 }
 
 export function ToggleTabs<T = string>({
@@ -139,6 +144,7 @@ export function ToggleTabs<T = string>({
   className,
   size = "md",
   showTooltips = true,
+  disabled = false,
   ...props
 }: ToggleTabsProps<T>) {
   const [internalValue, setInternalValue] = React.useState<T>(
@@ -180,6 +186,7 @@ export function ToggleTabs<T = string>({
           onValueChange={handleValueChange}
           size={size}
           showTooltips={showTooltips}
+          disabled={disabled}
         />
       ))}
     </div>

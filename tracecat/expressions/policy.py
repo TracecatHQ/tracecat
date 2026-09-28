@@ -1,0 +1,949 @@
+"""Field policy and secret provenance for expression resolution.
+
+Provenance is built once per template invocation as a plain mapping from input
+names to authored source and a secret-dependency trie mirroring the value's
+shape.
+The mapping is then threaded into the existing expression traversal through
+resolution-policy hooks that run immediately before each expression is
+evaluated.
+"""
+
+from __future__ import annotations
+
+import ast
+import re
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, field, replace
+from enum import StrEnum
+from typing import Any, cast
+
+from lark import Token, Tree
+
+from tracecat.exceptions import TracecatExpressionError
+from tracecat.expressions import patterns
+from tracecat.expressions.common import eval_jsonpath
+from tracecat.expressions.eval import eval_templated_object
+from tracecat.expressions.parser.core import parser
+from tracecat.secrets.constants import MASK_VALUE
+from tracecat.secrets.masking import SecretMaskCollector
+
+__all__ = (
+    "ActionArgumentPlan",
+    "ExpressionPolicy",
+    "ProvenanceMap",
+    "build_provenance",
+    "expression_policy",
+    "resolve_action_args",
+)
+
+type PathSegment = str | int
+type DataPath = tuple[PathSegment, ...]
+
+_PATH_SEGMENT = re.compile(
+    r"""
+    (?:
+        \.(?:
+            (?P<field>[A-Za-z_][A-Za-z0-9_]*)
+            |(?P<dot_quoted>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')
+        )
+        |\[(?P<index>-?\d+)\]
+        |\[(?P<quoted>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\]
+    )
+    """,
+    re.VERBOSE,
+)
+
+
+class ExpressionPolicy(StrEnum):
+    """Controls expression resolution for one action parameter."""
+
+    RESOLVE = "resolve"
+    """Evaluate expressions normally in the current runtime context."""
+
+    PRESERVE = "preserve"
+    """Retain caller-authored source.
+
+    Template-local ``inputs.*`` references are replaced with the source that
+    was originally passed in.
+    """
+
+    REDACT_SECRETS = "redact_secrets"
+    """Resolve non-secret expressions and mask secret-dependent expressions."""
+
+
+PRESERVE_PARAMETERS = frozenset(
+    {
+        ("core.workflow.edit_workflow", "patch_ops"),
+        ("core.workflow.create_workflow", "definition_yaml"),
+    }
+)
+
+REDACT_PARAMETERS: Mapping[str, frozenset[str]] = {
+    "core.workflow.create_workflow": frozenset({"title", "description"}),
+    "core.cases.create_case": frozenset(
+        {"summary", "description", "fields", "payload", "tags", "dropdown_values"}
+    ),
+    "core.cases.update_case": frozenset(
+        {"summary", "description", "fields", "payload", "tags", "dropdown_values"}
+    ),
+    "core.cases.create_comment": frozenset({"content"}),
+    "core.cases.reply_to_comment": frozenset({"content"}),
+    "core.cases.update_comment": frozenset({"content"}),
+    "core.cases.create_task": frozenset(
+        {"title", "description", "default_trigger_values"}
+    ),
+    "core.cases.update_task": frozenset(
+        {"title", "description", "default_trigger_values"}
+    ),
+    "core.cases.add_case_tag": frozenset({"tag"}),
+    "core.cases.upload_attachment": frozenset(
+        {"file_name", "content_base64", "content_type"}
+    ),
+    "core.cases.upload_attachment_from_url": frozenset({"file_name"}),
+    "core.table.create_table": frozenset({"name", "columns"}),
+    "core.table.update_table": frozenset({"new_name"}),
+    "core.table.create_column": frozenset({"column"}),
+    "core.table.update_column": frozenset({"update"}),
+    "core.table.insert_row": frozenset({"row_data"}),
+    "core.table.insert_rows": frozenset({"rows_data"}),
+    "core.table.update_row": frozenset({"row_data"}),
+    "core.cases.insert_row": frozenset({"row"}),
+    "ai.agent.create_preset": frozenset(
+        {
+            "instructions",
+            "name",
+            "description",
+            "slug",
+            "model_name",
+            "model_provider",
+            "catalog_id",
+            "base_url",
+            "output_type",
+            "actions",
+            "namespaces",
+            "tool_approvals",
+            "mcp_integrations",
+            "agents",
+            "skills",
+        }
+    ),
+    "ai.agent.update_preset": frozenset(
+        {
+            "instructions",
+            "name",
+            "description",
+            "new_slug",
+            "model_name",
+            "model_provider",
+            "catalog_id",
+            "base_url",
+            "output_type",
+            "actions",
+            "namespaces",
+            "tool_approvals",
+            "mcp_integrations",
+            "agents",
+            "skills",
+        }
+    ),
+    "ai.skill.create_skill": frozenset({"name", "description"}),
+    "ai.skill.update_skill": frozenset({"files"}),
+    "ai.skill.update_skill_draft": frozenset({"operations"}),
+    "ai.skill.publish_skill_version": frozenset({"files"}),
+}
+
+
+def expression_policy(action: str, parameter: str) -> ExpressionPolicy:
+    """Return the policy for an exact action-parameter pair."""
+    if (action, parameter) in PRESERVE_PARAMETERS:
+        return ExpressionPolicy.PRESERVE
+    if parameter in REDACT_PARAMETERS.get(action, frozenset()):
+        return ExpressionPolicy.REDACT_SECRETS
+    return ExpressionPolicy.RESOLVE
+
+
+@dataclass(frozen=True, slots=True)
+class _SecretDependencies:
+    """Secret dependencies of one value, as a trie mirroring the value's shape.
+
+    Empty subtrees are never stored: a child is present only if a secret
+    dependency exists somewhere below it.
+    """
+
+    value: bool = False
+    """Whether the value at this node depends on a secret."""
+
+    keys: bool = False
+    """Whether the mapping at this node contains secret-dependent keys."""
+
+    children: Mapping[PathSegment, _SecretDependencies] = field(default_factory=dict)
+    """Dependencies of nested container entries, keyed by field, index, or key."""
+
+    @property
+    def secret(self) -> bool:
+        """Whether any value or key in this subtree depends on a secret."""
+        return (
+            self.value
+            or self.keys
+            or any(child.secret for child in self.children.values())
+        )
+
+    @property
+    def secret_values(self) -> bool:
+        """Whether any value in this subtree depends on a secret."""
+        return self.value or any(
+            child.secret_values for child in self.children.values()
+        )
+
+    @property
+    def secret_keys(self) -> bool:
+        """Whether any mapping in this subtree has secret-dependent keys."""
+        return self.keys or any(child.secret_keys for child in self.children.values())
+
+    def nested(self, segment: PathSegment) -> _SecretDependencies:
+        """Wrap these dependencies one container level down, under ``segment``."""
+        return (
+            _SecretDependencies(children={segment: self})
+            if self.secret
+            else _NO_DEPENDENCIES
+        )
+
+    def select(
+        self, path: DataPath, *, include_parent_keys: bool = True
+    ) -> _SecretDependencies:
+        """Select dependencies, optionally retaining ancestor mapping-key policy.
+
+        Authored-field policy includes ancestor keys. Runtime value selection
+        excludes them because reading a value does not consume sibling keys.
+        Whole-value sensitivity is always inherited.
+        """
+        node = self
+        value = False
+        keys = False
+        for segment in path:
+            value = value or node.value
+            keys = keys or (include_parent_keys and node.keys)
+            node = node.children.get(segment, _NO_DEPENDENCIES)
+        if not (value or keys):
+            return node
+        return _SecretDependencies(
+            value=node.value or value,
+            keys=node.keys or keys,
+            children=node.children,
+        )
+
+    def collapsed(self) -> _SecretDependencies:
+        """Collapse all dependencies onto the root, discarding path precision."""
+        return _SecretDependencies(value=self.secret_values, keys=self.secret_keys)
+
+    def without_values(self) -> _SecretDependencies:
+        """Drop value dependencies everywhere, keeping key-dependency structure."""
+        children = {
+            segment: stripped
+            for segment, child in self.children.items()
+            if (stripped := child.without_values()).secret
+        }
+        return _SecretDependencies(keys=self.keys, children=children)
+
+    @classmethod
+    def merged(cls, items: Iterable[_SecretDependencies]) -> _SecretDependencies:
+        """Union of several dependency tries, merged segment by segment."""
+        value = False
+        keys = False
+        grouped: dict[PathSegment, list[_SecretDependencies]] = {}
+        for item in items:
+            value = value or item.value
+            keys = keys or item.keys
+            for segment, child in item.children.items():
+                grouped.setdefault(segment, []).append(child)
+        return cls(
+            value=value,
+            keys=keys,
+            children={
+                segment: cls.merged(children) for segment, children in grouped.items()
+            },
+        )
+
+
+_NO_DEPENDENCIES = _SecretDependencies()
+
+
+@dataclass(frozen=True, slots=True)
+class _InputProvenance:
+    """Authored source and secret dependencies for one template input."""
+
+    source: Any
+    """Caller-authored value before expression evaluation."""
+
+    dependencies: _SecretDependencies
+    """Secret dependencies that directly or transitively apply to the value."""
+
+    runtime_dependencies: _SecretDependencies
+    """Value dependencies without ancestor-key policy from source projections.
+
+    Keep this precision when a public projection is passed to a child template;
+    field policy still uses the conservative dependencies above.
+    """
+
+
+type ProvenanceMap = Mapping[str, _InputProvenance]
+
+
+@dataclass(slots=True, repr=False)
+class SecretValueObserver:
+    """Observe executed AST nodes using the existing input dependency trie.
+
+    Credential access alone does not mark an entire action response secret.
+    Runtime carriers are matched against values actually known to this
+    invocation. Skipped branches are never observed.
+    """
+
+    masks: SecretMaskCollector
+    provenance: ProvenanceMap | None = None
+    _dependencies: dict[int, _SecretDependencies] = field(default_factory=dict)
+    # AST values have heterogeneous runtime types; they are kept only while
+    # evaluating this expression, to resolve container keys and indexes.
+    _values: dict[int, Any] = field(default_factory=dict)
+
+    def observe(self, tree: Tree[Token], value: Any) -> None:
+        """Record a successful node before evaluation can fail at its parent."""
+        children = [child for child in tree.children if isinstance(child, Tree)]
+        dependencies = self._node_dependencies(tree, children, value)
+        self._dependencies[id(tree)] = dependencies
+        self._values[id(tree)] = value
+        if tree.data == "secrets":
+            # Secret namespace/key names are metadata, not credential material.
+            self.masks.observe(value)
+        elif tree.data not in {"arg_list", "kvpair", "list", "dict", "indexer"}:
+            self._observe_paths(value, dependencies)
+
+    def format_error(self, tree: Tree[Token], error: Exception) -> str:
+        """Render sensitive failures without copying partial operand diagnostics.
+
+        Successful children identify the inputs to the failing operation. An
+        exception can expose arbitrary fragments of those inputs, so preserve
+        the error type and authored operation rather than its untrusted prose.
+        """
+        sensitive = tree.data == "secrets" or any(
+            self._dependencies.get(id(child), _NO_DEPENDENCIES).secret
+            for child in tree.children
+            if isinstance(child, Tree)
+        )
+        if not sensitive:
+            return self.masks.redact(str(error))
+        match tree.data:
+            case "function":
+                operation = f"FN.{tree.children[0]}"
+            case "typecast":
+                operation = str(tree.children[0])
+            case "trailing_typecast_expression":
+                operation = str(tree.children[-1])
+            case _:
+                operation = str(tree.data)
+        return f"{type(error).__name__} in {operation}(***)"
+
+    def _node_dependencies(
+        self, tree: Tree[Token], children: list[Tree[Token]], value: Any
+    ) -> _SecretDependencies:
+        def dependency(child: Tree[Token]) -> _SecretDependencies:
+            return self._dependencies.get(id(child), _NO_DEPENDENCIES)
+
+        match tree.data:
+            case "secrets":
+                return _SecretDependencies(value=True)
+            case "template_action_inputs":
+                return _SecretDependencies.merged(
+                    (
+                        _tree_dependencies(
+                            tree, self.provenance, include_parent_keys=False
+                        ),
+                        self._known_dependencies(value),
+                    )
+                )
+            case (
+                "actions"
+                | "local_vars"
+                | "template_action_steps"
+                | "trigger"
+                | "vars"
+                | "env"
+            ):
+                return self._known_dependencies(value)
+            case "arg_list":
+                return _SecretDependencies(
+                    children={
+                        index: dependency(child) for index, child in enumerate(children)
+                    }
+                )
+            case "list" | "indexer":
+                return dependency(children[0]) if children else _NO_DEPENDENCIES
+            case "kvpair":
+                return dependency(children[0]) if children else _NO_DEPENDENCIES
+            case "dict":
+                return _SecretDependencies(
+                    children={
+                        self._values[id(child)][0]: dependency(child)
+                        for child in children
+                    }
+                )
+            case "primary_expr":
+                selected = dependency(children[0])
+                base = self._values[id(children[0])]
+                for indexer in children[1:]:
+                    index = self._values[id(indexer)]
+                    if dependency(indexer).secret:
+                        return _SecretDependencies(value=True)
+                    if (
+                        isinstance(base, (list, tuple))
+                        and isinstance(index, int)
+                        and index < 0
+                    ):
+                        index += len(base)
+                    if isinstance(index, (str, int)):
+                        selected = selected.select((index,), include_parent_keys=False)
+                    else:
+                        selected = selected.collapsed()
+                    # Do not invoke arbitrary __getitem__ implementations a
+                    # second time while observing an already evaluated node.
+                    if type(base) not in (dict, list, tuple, str):
+                        return selected.collapsed()
+                    base = cast(Any, base)[index]
+                return selected
+            case "ternary":
+                condition = children[1]
+                if dependency(condition).secret:
+                    return _SecretDependencies(value=True)
+                selected = children[0] if self._values[id(condition)] else children[2]
+                return dependency(selected)
+            case _:
+                # Functions/operators can turn mapping keys into values.
+                return _SecretDependencies(
+                    value=any(dependency(child).secret for child in children)
+                )
+
+    def _known_dependencies(self, value: Any) -> _SecretDependencies:
+        if not self.masks.values:
+            return _NO_DEPENDENCIES
+        if isinstance(value, Mapping):
+            return _SecretDependencies(
+                keys=any(self.masks.contains(key) for key in value),
+                children={
+                    key: self._known_dependencies(item) for key, item in value.items()
+                },
+            )
+        if isinstance(value, (list, tuple)):
+            return _SecretDependencies(
+                children={
+                    index: self._known_dependencies(item)
+                    for index, item in enumerate(value)
+                }
+            )
+        return _SecretDependencies(value=self.masks.contains(value))
+
+    def _observe_paths(self, value: Any, dependencies: _SecretDependencies) -> None:
+        if dependencies.value:
+            self.masks.observe(value, include_keys=True)
+        elif isinstance(value, Mapping):
+            for key, item in value.items():
+                if dependencies.keys and self.masks.contains(key):
+                    self.masks.observe(key)
+                self._observe_paths(
+                    item, dependencies.select((key,), include_parent_keys=False)
+                )
+        elif isinstance(value, (list, tuple)):
+            for index, item in enumerate(value):
+                self._observe_paths(
+                    item, dependencies.select((index,), include_parent_keys=False)
+                )
+
+
+@dataclass(frozen=True, slots=True)
+class _InputSelection:
+    source_found: bool
+    """Whether the selected path exists in the authored source."""
+
+    source: Any
+    """Authored value selected by the input expression."""
+
+    dependencies: _SecretDependencies
+    """Secret dependencies scoped to the selected input path."""
+
+
+def build_provenance(
+    arguments: Mapping[str, Any],
+    parent: ProvenanceMap | None = None,
+) -> dict[str, _InputProvenance]:
+    """Build field-policy and runtime provenance for template inputs."""
+    provenance: dict[str, _InputProvenance] = {}
+    for parameter, value in arguments.items():
+        dependencies = _derive_dependencies(value, parent)
+        source = (
+            eval_templated_object(
+                value,
+                policy=_PreservePolicy(parent),
+            )
+            if parent is not None
+            else value
+        )
+        provenance[parameter] = _InputProvenance(
+            source=source,
+            dependencies=dependencies,
+            runtime_dependencies=(
+                dependencies
+                if parent is None
+                else _derive_dependencies(value, parent, include_parent_keys=False)
+            ),
+        )
+    return provenance
+
+
+@dataclass(frozen=True, slots=True)
+class _CollectionPolicy:
+    """Mask secret expressions while leaving safe source unevaluated.
+
+    Used before runtime context exists, so masking falls back to direct
+    ``secrets.*`` detection without provenance.
+    """
+
+    reject: bool = False
+    """Whether a secret dependency raises instead of returning a mask."""
+
+    def resolve(
+        self,
+        source: str,
+        tree: Tree[Token],
+        default: Callable[[], Any],
+        *,
+        standalone: bool,
+    ) -> Any:
+        """Mask secret expressions and return everything else as source."""
+        del standalone, default
+        if _tree_dependencies(tree, None).secret:
+            if self.reject:
+                _raise_secret_key_error()
+            return MASK_VALUE
+        return source
+
+
+@dataclass(frozen=True, slots=True)
+class _RedactionPolicy:
+    """Mask secret-dependent ASTs before ordinary expression evaluation."""
+
+    provenance: ProvenanceMap
+    """Input provenance used to detect transitive secret dependencies."""
+
+    reject: bool = False
+    """Whether a secret dependency raises instead of returning a mask."""
+
+    def resolve(
+        self,
+        source: str,
+        tree: Tree[Token],
+        default: Callable[[], Any],
+        *,
+        standalone: bool,
+    ) -> Any:
+        """Mask secret dependencies or delegate to ordinary evaluation."""
+        del source, standalone
+        if (ref := _direct_input_ref(tree)) is not None:
+            selection = _select_input(ref, self.provenance)
+            if not selection.dependencies.secret:
+                return default()
+            if self.reject or selection.dependencies.secret_keys:
+                _raise_secret_key_error()
+            return _mask_runtime_value(default())
+
+        if _tree_dependencies(tree, self.provenance).secret:
+            if self.reject:
+                _raise_secret_key_error()
+            return MASK_VALUE
+
+        return default()
+
+
+@dataclass(frozen=True, slots=True)
+class _PreservePolicy:
+    """Resolve template inputs to authored source without evaluating that source."""
+
+    provenance: ProvenanceMap
+    """Input provenance used to recover caller-authored source."""
+
+    materialize_carrier: bool = False
+    """Whether a safe standalone field expression may resolve to runtime data."""
+
+    def resolve(
+        self,
+        source: str,
+        tree: Tree[Token],
+        default: Callable[[], Any],
+        *,
+        standalone: bool,
+    ) -> Any:
+        """Substitute input source and materialize only a safe field carrier."""
+        if (ref := _direct_input_ref(tree)) is not None:
+            selection = _select_input(ref, self.provenance)
+            if not selection.source_found:
+                return source
+            authored = selection.source
+            if (
+                self.materialize_carrier
+                and standalone
+                and not selection.dependencies.secret
+                and isinstance(authored, str)
+                and _standalone_expression(authored) is not None
+            ):
+                return default()
+            return authored
+
+        if (
+            self.materialize_carrier
+            and standalone
+            and not _tree_dependencies(tree, self.provenance).secret
+        ):
+            return default()
+        return source
+
+
+@dataclass(frozen=True, slots=True)
+class ActionArgumentPlan:
+    """Root arguments after policy is applied but before secret collection."""
+
+    action: str
+    """Fully qualified action name used for parameter-policy lookup."""
+
+    original: Mapping[str, Any]
+    """Original caller-authored action arguments."""
+
+    evaluable: Mapping[str, Any]
+    """Policy-filtered arguments safe for expression dependency collection."""
+
+    @classmethod
+    def build(
+        cls,
+        action: str,
+        arguments: Mapping[str, Any],
+    ) -> ActionArgumentPlan:
+        redaction_policy = _CollectionPolicy()
+        key_policy = _CollectionPolicy(reject=True)
+        evaluable: dict[str, Any] = {}
+        for parameter, value in arguments.items():
+            match expression_policy(action, parameter):
+                case ExpressionPolicy.RESOLVE:
+                    evaluable[parameter] = value
+                case ExpressionPolicy.REDACT_SECRETS:
+                    evaluable[parameter] = eval_templated_object(
+                        value,
+                        policy=redaction_policy,
+                        key_policy=key_policy,
+                    )
+                case ExpressionPolicy.PRESERVE:
+                    if _is_safe_carrier(value, None):
+                        evaluable[parameter] = value
+        return cls(action=action, original=arguments, evaluable=evaluable)
+
+    def evaluate(self, context: Mapping[str, Any]) -> dict[str, Any]:
+        """Evaluate the planned subset and restore preserved parameters."""
+        return resolve_action_args(
+            self.action,
+            self.original,
+            context,
+            {},
+        )
+
+
+def resolve_action_args(
+    action: str,
+    arguments: Mapping[str, Any],
+    context: Mapping[str, Any],
+    provenance: ProvenanceMap,
+) -> dict[str, Any]:
+    """Resolve one template step at the target action's policy boundary."""
+    redaction_policy = _RedactionPolicy(provenance)
+    key_policy = _RedactionPolicy(provenance, reject=True)
+    resolved: dict[str, Any] = {}
+
+    for parameter, value in arguments.items():
+        match expression_policy(action, parameter):
+            case ExpressionPolicy.RESOLVE:
+                resolved[parameter] = eval_templated_object(
+                    value, operand=context, provenance=provenance
+                )
+            case ExpressionPolicy.REDACT_SECRETS:
+                resolved[parameter] = eval_templated_object(
+                    value,
+                    operand=context,
+                    policy=redaction_policy,
+                    key_policy=key_policy,
+                    provenance=provenance,
+                )
+            case ExpressionPolicy.PRESERVE:
+                preserve_policy = _PreservePolicy(
+                    provenance,
+                    materialize_carrier=_is_safe_carrier(value, provenance),
+                )
+                resolved[parameter] = eval_templated_object(
+                    value,
+                    operand=context,
+                    policy=preserve_policy,
+                )
+    return resolved
+
+
+def _derive_dependencies(
+    value: Any,
+    parent: ProvenanceMap | None,
+    *,
+    include_parent_keys: bool = True,
+) -> _SecretDependencies:
+    match value:
+        case str():
+            if parent is not None and (ref := _template_input_ref(value)) is not None:
+                return _select_input(
+                    ref, parent, include_parent_keys=include_parent_keys
+                ).dependencies
+
+            secret = False
+            secret_keys = False
+            for match in patterns.TEMPLATE_STRING.finditer(value):
+                expression = match.group("expr")
+                if not expression:
+                    continue
+                tree_dependencies = _tree_dependencies(
+                    _parse_expression(expression),
+                    parent,
+                    include_parent_keys=include_parent_keys,
+                )
+                secret = secret or tree_dependencies.secret
+                secret_keys = secret_keys or tree_dependencies.secret_keys
+            return _SecretDependencies(value=secret, keys=secret_keys)
+        case list():
+            return _SecretDependencies.merged(
+                _derive_dependencies(
+                    item, parent, include_parent_keys=include_parent_keys
+                ).nested(index)
+                for index, item in enumerate(value)
+            )
+        case dict():
+            collected: list[_SecretDependencies] = []
+            dynamic_key = False
+            secret_key = False
+            for key, item in value.items():
+                if isinstance(key, str):
+                    secret_key = (
+                        secret_key
+                        or _derive_dependencies(
+                            key, parent, include_parent_keys=include_parent_keys
+                        ).secret
+                    )
+                    dynamic_key = dynamic_key or bool(
+                        patterns.TEMPLATE_STRING.search(key)
+                    )
+                collected.append(
+                    _derive_dependencies(
+                        item, parent, include_parent_keys=include_parent_keys
+                    ).nested(key)
+                )
+            merged = _SecretDependencies.merged(collected)
+            if secret_key:
+                merged = replace(merged, keys=True)
+            if dynamic_key and merged.secret_values:
+                merged = replace(merged.without_values(), value=True)
+            return merged
+        case _:
+            return _NO_DEPENDENCIES
+
+
+def _select_input(
+    ref: _InputRef,
+    provenance: ProvenanceMap,
+    *,
+    include_parent_keys: bool = True,
+) -> _InputSelection:
+    sources = {parameter: binding.source for parameter, binding in provenance.items()}
+    root_dependencies = _SecretDependencies(
+        children={
+            parameter: (
+                binding.dependencies
+                if include_parent_keys
+                else binding.runtime_dependencies
+            )
+            for parameter, binding in provenance.items()
+            if binding.dependencies.secret
+        }
+    )
+
+    if ref.path is None:
+        dependencies = root_dependencies.select(
+            ref.concrete_prefix, include_parent_keys=include_parent_keys
+        ).collapsed()
+    elif (dependency_path := _normalize_negative_indices(ref.path, sources)) is None:
+        dependencies = root_dependencies.collapsed()
+    else:
+        dependencies = root_dependencies.select(
+            dependency_path, include_parent_keys=include_parent_keys
+        )
+
+    try:
+        source = eval_jsonpath(
+            f"source{ref.selector}",
+            {"source": sources},
+            strict=True,
+        )
+    except TracecatExpressionError:
+        return _InputSelection(False, None, root_dependencies.collapsed())
+    return _InputSelection(True, source, dependencies)
+
+
+def _normalize_negative_indices(path: DataPath, source: Any) -> DataPath | None:
+    """Normalize negative list indices using the authored source shape.
+
+    Return ``None`` when a negative index cannot be normalized so callers can
+    conservatively collapse the dependency lookup instead of treating it as
+    untainted.
+    """
+    if not any(isinstance(segment, int) and segment < 0 for segment in path):
+        return path
+
+    normalized: list[PathSegment] = []
+    current = source
+    for segment in path:
+        if isinstance(current, list) and isinstance(segment, int):
+            index = segment if segment >= 0 else len(current) + segment
+            if not 0 <= index < len(current):
+                return None
+            normalized.append(index)
+            current = current[index]
+        elif isinstance(current, Mapping) and segment in current:
+            normalized.append(segment)
+            current = current[segment]
+        else:
+            return None
+    return tuple(normalized)
+
+
+def _tree_dependencies(
+    tree: Tree[Token],
+    provenance: ProvenanceMap | None,
+    *,
+    include_parent_keys: bool = True,
+) -> _SecretDependencies:
+    collected = [_SecretDependencies(value=True) for _ in tree.find_data("secrets")]
+    if provenance is not None:
+        for node in tree.find_data("template_action_inputs"):
+            if (ref := _direct_input_ref(node)) is None:
+                continue
+            collected.append(
+                _select_input(
+                    ref, provenance, include_parent_keys=include_parent_keys
+                ).dependencies
+            )
+    return _SecretDependencies.merged(collected)
+
+
+def _mask_runtime_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _mask_runtime_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_mask_runtime_value(item) for item in value]
+    return MASK_VALUE
+
+
+def _is_safe_carrier(
+    value: Any,
+    provenance: ProvenanceMap | None,
+) -> bool:
+    if not isinstance(value, str):
+        return False
+    if (expression := _standalone_expression(value)) is None:
+        return False
+    try:
+        tree = _parse_expression(expression)
+    except TracecatExpressionError:
+        return False
+    return not _tree_dependencies(tree, provenance).secret
+
+
+def _parse_expression(expression: str) -> Tree[Token]:
+    tree = parser.parse(expression)
+    if tree is None:
+        raise TracecatExpressionError(
+            f"Parser returned None for expression {expression!r}"
+        )
+    return tree
+
+
+@dataclass(frozen=True, slots=True)
+class _InputRef:
+    """One parsed ``inputs<selector>`` reference."""
+
+    selector: str
+    """Raw JSONPath selector applied to the authored input mapping."""
+
+    path: DataPath | None
+    """Concrete path segments, or None for non-concrete JSONPath selectors."""
+
+    concrete_prefix: DataPath
+    """Concrete segments before the first wildcard, filter, or recursive lookup."""
+
+
+def _parse_input_ref(path: str) -> _InputRef:
+    parsed_path, concrete_prefix = _parse_path_segments(path)
+    return _InputRef(
+        selector=path,
+        path=parsed_path,
+        concrete_prefix=concrete_prefix,
+    )
+
+
+def _parse_path_segments(suffix: str) -> tuple[DataPath | None, DataPath]:
+    segments: list[PathSegment] = []
+    position = 0
+    while position < len(suffix):
+        match = _PATH_SEGMENT.match(suffix, position)
+        if match is None:
+            return None, tuple(segments)
+        if (attribute := match.group("field")) is not None:
+            segments.append(attribute)
+        elif (index := match.group("index")) is not None:
+            segments.append(int(index))
+        elif (quoted := match.group("dot_quoted") or match.group("quoted")) is not None:
+            value = ast.literal_eval(quoted)
+            if not isinstance(value, str) or value == "*":
+                return None, tuple(segments)
+            segments.append(value)
+        position = match.end()
+    path = tuple(segments)
+    return path, path
+
+
+def _direct_input_ref(tree: Tree[Token]) -> _InputRef | None:
+    """Reference for an expression that is exactly one ``inputs.*`` lookup."""
+    if tree.data != "template_action_inputs":
+        return None
+    token = tree.children[0]
+    if not isinstance(token, Token):
+        raise TracecatExpressionError("Expected template input path token")
+    return _parse_input_ref(str(token))
+
+
+def _template_input_ref(template: str) -> _InputRef | None:
+    """Reference for a template string that is exactly one ``inputs.*`` lookup."""
+    if (expression := _standalone_expression(template)) is None:
+        return None
+    return _direct_input_ref(_parse_expression(expression))
+
+
+def _standalone_expression(value: str) -> str | None:
+    if patterns.STANDALONE_TEMPLATE.match(value) is None:
+        return None
+    match = patterns.TEMPLATE_STRING.fullmatch(value)
+    if match is None or not (expression := match.group("expr")):
+        return None
+    return expression
+
+
+def _raise_secret_key_error() -> None:
+    raise TracecatExpressionError(
+        "Secret expressions are not allowed in dictionary keys",
+        detail={"code": "secret_expression_in_key"},
+    )

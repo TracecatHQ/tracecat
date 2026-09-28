@@ -1,4 +1,5 @@
 import {
+  AGENT_PRESET_PUBLISHING_FIELDS,
   buildAgentPresetUpdatePayload,
   buildDuplicateAgentPresetPayload,
   buildDuplicateAgentSlug,
@@ -12,6 +13,33 @@ const presetPayload = {
   model_provider: "openai",
   skills: [{ skill_id: "784dd826-072e-46f1-95a4-08d3417c784f" }],
 }
+
+// Mirrors `AgentPresetService.EXECUTION_FIELDS` in
+// `tracecat/agent/preset/service.py`. Update both sides together.
+const BACKEND_EXECUTION_FIELDS = [
+  "instructions",
+  "model_name",
+  "model_provider",
+  "catalog_id",
+  "base_url",
+  "output_type",
+  "actions",
+  "namespaces",
+  "tool_approvals",
+  "mcp_integrations",
+  "agents",
+  "retries",
+  "enable_thinking",
+  "enable_internet_access",
+]
+
+describe("AGENT_PRESET_PUBLISHING_FIELDS", () => {
+  it("matches the backend execution fields that cut a new preset version", () => {
+    expect([...AGENT_PRESET_PUBLISHING_FIELDS].sort()).toEqual(
+      [...BACKEND_EXECUTION_FIELDS].sort()
+    )
+  })
+})
 
 describe("buildAgentPresetUpdatePayload", () => {
   it("omits unchanged skill bindings from preset updates", () => {

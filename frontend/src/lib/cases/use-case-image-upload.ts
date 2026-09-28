@@ -1,11 +1,11 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import { useCallback } from "react"
 import { caseAttachmentsCreateAttachment } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import { describeAttachmentUploadError } from "@/lib/cases/attachment-errors"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
+import { useQueryClient } from "@/lib/query"
 
 /** Stable URI persisted in markdown for case attachment images. */
 export const ATTACHMENT_URI_SCHEME = "attachment://"
@@ -106,10 +106,10 @@ export function createPastedImageFile(blob: Blob): File {
 /**
  * Upload case images as attachments and produce stable markdown references.
  *
- * Used by both the description editor (TipTap) and the comment composers
- * (plain textareas) so paste/drop behaviour stays consistent. On success the
- * case attachments list and activity queries are invalidated; on failure a
- * descriptive toast is shown and the error is rethrown for the caller.
+ * Used by both the description and comment TipTap editors so paste/drop
+ * behaviour stays consistent. On success the case attachments list and
+ * activity queries are invalidated; on failure a descriptive toast is shown
+ * and the error is rethrown for the caller.
  *
  * @param caseId - The case to attach images to.
  * @param workspaceId - The workspace that owns the case.

@@ -27,7 +27,10 @@ def _run_mcp_server() -> None:
     else:
         module = importlib.import_module(server_module_name)
     module.mcp.run(
-        transport="streamable-http", host=TRACECAT_MCP__HOST, port=TRACECAT_MCP__PORT
+        transport="streamable-http",
+        host=TRACECAT_MCP__HOST,
+        port=TRACECAT_MCP__PORT,
+        stateless_http=True,
     )
 
 

@@ -111,6 +111,12 @@ def test_standalone_template(expression, expect_match):
     assert matched == expect_match
 
 
+def test_standalone_template_rejects_long_nested_prefix() -> None:
+    expression = "${{{{" + (" " * 100_000)
+
+    assert STANDALONE_TEMPLATE.match(expression) is None
+
+
 def test_eval_jsonpath():
     operand = {"webhook": {"result": 42, "data": {"name": "John", "age": 30}}}
     assert eval_jsonpath("$.webhook.result", operand) == 42
@@ -498,6 +504,7 @@ def test_eval_templated_object_inline_fails_if_not_str():
         ("FN.length([1, 2, 3])", 3),
         ("FN.join(['A', 'B', 'C'], ',')", "A,B,C"),
         ("FN.join(['A', 'B', 'C'], '@')", "A@B@C"),
+        ("FN.url_encode('dir/file name', '/')", "dir/file%20name"),
         ("FN.contains('A', ['A', 'B', 'C'])", True),
         ("FN.format('Formatted: {} !', 'yay')", "Formatted: yay !"),
         (

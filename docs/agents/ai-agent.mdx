@@ -10,8 +10,8 @@ Use `ai.agent` when the model needs tool calls. You give the agent a prompt, ins
 ## Capabilities
 
 - `ai.agent`: Prompt plus tool calls. Use `actions` for Tracecat actions and `mcp_integrations` for saved MCP servers.
-- <Badge icon="lock" color="blue" size="sm" shape="pill">EE</Badge> `ai.preset_agent`: Prompt plus a saved agent configuration. Use this when you want reusable instructions, tools, and MCP integrations across workflows.
-- `tool_approvals`: Require approval before selected tools run. This is an enterprise feature.
+- `ai.preset_agent`: Prompt plus a saved agent configuration. Use this when you want reusable instructions, tools, skills, and MCP integrations across workflows.
+- <Badge icon="lock" color="blue" size="sm" shape="pill">EE</Badge> `tool_approvals`: Require approval before selected tools run.
 - `max_tool_calls` and `max_requests`: Bound how much work the agent can do in a single run.
 
 ## Structured outputs
@@ -25,15 +25,23 @@ Use `ai.agent` when the model needs tool calls. You give the agent a prompt, ins
 
 <Badge icon="github" color="gray" size="lg" shape="pill">Open source</Badge>
 
-`ai.agent` can call tools from saved custom remote or `stdio` MCP integrations. In open-source deployments, bring your own MCP server and select it in the action's `mcp_integrations` input.
+`ai.agent` can call tools from saved MCP integrations. Bring your own remote or `stdio` MCP server, or connect one from the catalog of 50+ preconfigured MCP servers with guided connection setup, including Splunk, SentinelOne Purple AI, CrowdStrike Falcon, Microsoft Sentinel, Elastic, Wiz, GreyNoise, and PagerDuty. Select the saved integration in the action's `mcp_integrations` input, or save it on an agent preset with reusable instructions and tools and run it with `ai.preset_agent`.
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
-Enterprise includes a catalog of 50+ preconfigured MCP servers with guided connection setup, including Splunk, SentinelOne Purple AI, CrowdStrike Falcon, Microsoft Sentinel, Elastic, Wiz, GreyNoise, and PagerDuty. Enterprise also adds `ai.preset_agent`, so you can save MCP integrations with reusable instructions and tools.
+Enterprise adds tool approvals for MCP tools and the agent inbox for reviewing them.
 
 Internet access is controlled by the root preset for the shared sandbox process. Subagent presets can define their own tools and MCP integrations, but their internet setting does not grant network access unless the root preset also enables it.
 
 See [MCP integrations](/automations/integrations/mcp-integrations) to learn more.
+
+## Timeouts
+
+The action's `timeout` caps the agent's active runtime in seconds. Unset means 1800 seconds, and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds. A ceiling below 1800 seconds lowers both the default and the floor to the ceiling.
+
+A pause for a tool approval does not count toward the timeout, and the resumed run gets the full timeout again. With the default timeout, a run that reaches it fails with `Agent execution timed out after 1800s`.
+
+See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape, and [Environment variables](/self-hosting/environment-variables) for the ceiling.
 
 ## Reference
 
@@ -215,19 +223,21 @@ Default: `null`.
     user_prompt: |
       Review the latest evidence for case ${{ TRIGGER.case_id }} and decide what to do next.
     actions:
-      - core.cases.get
+      - core.cases.get_case
       - core.cases.create_comment
-      - core.cases.update
+      - core.cases.update_case
     tool_approvals:
-      core.cases.update: true
+      core.cases.update_case: true
     max_tool_calls: 4
 ```
 
 ### `ai.preset_agent`
 
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+Run an AI agent using a saved agent preset. Tools come from the preset and its skills.
 
-Run an AI agent using a saved agent preset.
+<Note>
+The `actions` input replaces the preset's registry actions for a single run rather than adding to them. See [AI preset agent](/agents/ai-preset-agent#where-tools-come-from).
+</Note>
 
 #### Inputs
 
@@ -245,7 +255,7 @@ User prompt to the agent.
 
 <ParamField path="actions" type="array[string] | null">
 
-Optional override for the actions (e.g. 'tools.slack.post_message') that the agent should be allowed to call.
+Optional. Swaps the preset's registry actions for this run (MCP tools stay; an empty list is ignored). Handy for tests and evals; tools the agent normally needs fit better on the preset or a skill.
 
 Default: `null`.
 
@@ -253,7 +263,7 @@ Default: `null`.
 
 <ParamField path="instructions" type="string | null">
 
-Additional instructions to append to the preset instructions for this run.
+Appended to the preset instructions for this run; durable instructions fit better on the preset.
 
 Default: `null`.
 
@@ -277,7 +287,7 @@ Default: `15`.
 
 <ParamField path="preset_version" type="integer | null">
 
-Optional preset version number to pin for this run.
+Deprecated compatibility input. Preset agents always resolve the current head.
 
 Default: `null`.
 
@@ -300,7 +310,6 @@ Default: `null`.
   action: ai.preset_agent
   args:
     preset: security-analyst
-    preset_version: 3
     user_prompt: |
       Review the incident below and decide whether to escalate it:
 
@@ -314,7 +323,7 @@ Default: `null`.
   <Accordion title="When should I use ai.action, ai.agent, or ai.preset_agent?">
     - Use `ai.action` when you only need one model response and no tools.
     - Use `ai.agent` when the model must call Tracecat actions or saved MCP integrations during the run.
-    - Use `ai.preset_agent` when you want a reusable Enterprise configuration with shared instructions, approvals, tools, or MCP integrations.
+    - Use `ai.preset_agent` when you want a reusable configuration with shared instructions, skills, tools, or MCP integrations.
 
     <CodeGroup>
     ```yaml Use ai.agent for tool calls
@@ -350,8 +359,6 @@ Default: `null`.
   </Accordion>
 
   <Accordion title="How do I use MCP servers with ai.agent?">
-    Create a custom remote or `stdio` MCP server, then select the saved integration in the `mcp_integrations` input. This bring-your-own MCP path is available in open source.
-
-    Enterprise adds the catalog of 50+ preconfigured MCP servers and reusable agent presets.
+    Connect a server from the MCP catalog or add a custom remote or `stdio` MCP server, then select the saved integration in the `mcp_integrations` input. Both paths are available in open source.
   </Accordion>
 </AccordionGroup>

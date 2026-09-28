@@ -23,6 +23,7 @@ WORKSPACE_CHAT_BASE_DEFAULT_TOOLS = [
     "core.table.lookup_many",
     "core.table.is_in",
     "core.table.search_rows",
+    "core.table.aggregate_rows",
     "core.table.insert_row",
     "core.table.insert_rows",
     "core.table.update_row",
@@ -34,6 +35,7 @@ WORKSPACE_CHAT_BASE_DEFAULT_TOOLS = [
     "core.cases.list_cases",
     "core.cases.get_case",
     "core.cases.search_cases",
+    "core.cases.aggregate_cases",
     "core.workflow.create_workflow",
     "core.workflow.get_workflow",
     "core.workflow.edit_workflow",
@@ -45,6 +47,8 @@ WORKSPACE_CHAT_BASE_DEFAULT_TOOLS = [
     "core.workflow.publish",
     "core.workflow.run",
     "core.workflow.execute",
+    "core.workflow.list_executions",
+    "core.workflow.get_status",
 ]
 
 WORKSPACE_CHAT_DEFAULT_TOOLS = [
@@ -64,19 +68,6 @@ TOOL_DEFAULTS = {
     AgentSessionEntity.AGENT_PRESET_BUILDER: BUILDER_INTERNAL_TOOL_NAMES,
     AgentSessionEntity.WORKSPACE_CHAT: WORKSPACE_CHAT_DEFAULT_TOOLS,
 }
-
-
-def filter_workspace_chat_tools_for_entitlements(
-    tools: list[str],
-    *,
-    agent_addons_enabled: bool,
-) -> list[str]:
-    """Filter Workspace chat default tools by enabled entitlements."""
-    if agent_addons_enabled:
-        return list(tools)
-
-    blocked_defaults = set(WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS)
-    return [tool for tool in tools if tool not in blocked_defaults]
 
 
 def filter_workspace_chat_tools_for_scopes(
@@ -106,17 +97,7 @@ def filter_workspace_chat_tools_for_scopes(
     return [tool for tool in tools if has_scope(granted, f"action:{tool}:execute")]
 
 
-def get_default_tools(
-    entity_type: str,
-    *,
-    agent_addons_enabled: bool = True,
-) -> list[str]:
+def get_default_tools(entity_type: str) -> list[str]:
     """Get default tools for an entity type."""
     entity = AgentSessionEntity(entity_type)
-    tools = TOOL_DEFAULTS.get(entity, [])
-    if entity is AgentSessionEntity.WORKSPACE_CHAT:
-        return filter_workspace_chat_tools_for_entitlements(
-            tools,
-            agent_addons_enabled=agent_addons_enabled,
-        )
-    return list(tools)
+    return list(TOOL_DEFAULTS.get(entity, []))

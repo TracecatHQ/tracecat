@@ -1,0 +1,65 @@
+type: action
+definition:
+  title: List repository security advisories
+  description: 'List repository security advisories. Calls GET /repos/{owner}/{repo}/security-advisories directly. Accepted OAuth scope: repo (default).'
+  display_group: GitHub
+  doc_url: https://docs.github.com/en/rest
+  namespace: tools.github
+  name: list_repo_security_advisories
+  secrets:
+  - type: oauth
+    provider_id: github
+    grant_type: authorization_code
+  expects:
+    owner:
+      type: str
+      description: GitHub API path value for owner.
+    repo:
+      type: str
+      description: GitHub API path value for repo.
+    direction:
+      type: str | None
+      description: "The direction to sort the results by. Default: `desc`. Can be one of: `asc`, `desc`."
+      default: null
+    sort:
+      type: str | None
+      description: "The property to sort the results by. Default: `created`. Can be one of: `created`, `updated`, `published`."
+      default: null
+    before:
+      type: str | None
+      description: A cursor, as given in the Link header. If specified, the query only searches for results before this cursor.
+      default: null
+    after:
+      type: str | None
+      description: A cursor, as given in the Link header. If specified, the query only searches for results after this cursor.
+      default: null
+    per_page:
+      type: int | None
+      description: "The number of advisories to return per page. Default: `30`."
+      default: null
+    state:
+      type: str | None
+      description: "Filter by state of the repository advisories. Only advisories of this state will be returned. Can be one of: `triage`, `draft`, `published`, `closed`."
+      default: null
+    base_url:
+      type: str
+      description: GitHub.com REST API base URL.
+      default: https://api.github.com
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url }}/repos/${{ FN.url_encode(inputs.owner) }}/${{ FN.url_encode(inputs.repo) }}/security-advisories
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Accept: application/vnd.github+json
+        X-GitHub-Api-Version: '2022-11-28'
+      params:
+        direction: ${{ inputs.direction }}
+        sort: ${{ inputs.sort }}
+        before: ${{ inputs.before }}
+        after: ${{ inputs.after }}
+        per_page: ${{ inputs.per_page }}
+        state: ${{ inputs.state }}
+  returns: ${{ steps.request.result }}

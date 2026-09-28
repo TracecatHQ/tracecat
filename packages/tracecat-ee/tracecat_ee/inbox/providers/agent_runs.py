@@ -1,4 +1,4 @@
-"""Agent runs inbox provider for Claude Code agent sessions."""
+"""Agent runs inbox provider for inbox-eligible agent sessions."""
 
 from __future__ import annotations
 
@@ -15,16 +15,22 @@ from sqlalchemy.sql import Select
 from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.backends.registry import find_agent_backend
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import AgentSession, Approval, User, Workflow
+from tracecat.db.models import (
+    AgentSession,
+    Approval,
+    CaseAgentSessionInteraction,
+    User,
+    Workflow,
+)
 from tracecat.dsl.client import get_temporal_client
 from tracecat.inbox.schemas import InboxItemRead, UserSummary, WorkflowSummary
 from tracecat.inbox.types import InboxGroup, InboxItemStatus, InboxItemType
 from tracecat.logger import logger
 from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse
-from tracecat_ee.agent.types import AgentWorkflowID
 
 # The error signal is fully persisted (AgentSession.last_error), so Temporal is
 # only consulted to tell a genuinely-running run from one whose worker died.
@@ -118,12 +124,12 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             return {}
 
         statuses: dict[uuid.UUID, RunStatus] = {}
-        to_describe: list[tuple[uuid.UUID, uuid.UUID]] = []
+        to_describe: list[AgentSession] = []
         for session in sessions:
             if session.last_error is not None:
                 statuses[session.id] = RunStatus.ERROR
             elif session.curr_run_id is not None:
-                to_describe.append((session.id, session.curr_run_id))
+                to_describe.append(session)
             # No error and no current run: legacy/clean session. Leave unset so
             # callers fall back to approval signals (rejected -> error, else
             # completed).
@@ -131,19 +137,17 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         if not to_describe:
             return statuses
 
-        from tracecat_ee.agent.workflows.durable import DurableAgentWorkflow
-
         client = await get_temporal_client()
 
-        async def describe(
-            session_id: uuid.UUID, run_id: uuid.UUID
-        ) -> tuple[uuid.UUID, RunStatus]:
+        async def describe(session: AgentSession) -> tuple[uuid.UUID, RunStatus]:
+            session_id = session.id
+            run_id = session.curr_run_id
+            assert run_id is not None
             try:
-                workflow_id = AgentWorkflowID(run_id)
-                handle = client.get_workflow_handle_for(
-                    DurableAgentWorkflow.run,
-                    str(workflow_id),
-                )
+                backend = find_agent_backend(session.backend_id)
+                if backend is None:
+                    return session_id, RunStatus.COMPLETED
+                handle = await backend.handle(run_id, client=client)
                 description = await handle.describe()
             except Exception as exc:
                 # No longer observable (history gone / not found). The run is not
@@ -164,9 +168,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 return session_id, RunStatus.ERROR
             return session_id, RunStatus.COMPLETED
 
-        results = await asyncio.gather(
-            *(describe(session_id, run_id) for session_id, run_id in to_describe)
-        )
+        results = await asyncio.gather(*(describe(session) for session in to_describe))
         for session_id, status in results:
             statuses[session_id] = status
         return statuses
@@ -175,6 +177,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         self,
         search: str | None,
         *,
+        case_id: uuid.UUID | None = None,
         entity_type: AgentSessionEntity | None = None,
         created_after: datetime | None = None,
         updated_after: datetime | None = None,
@@ -202,6 +205,18 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
             ),
         )
 
+        if case_id is not None:
+            has_case_interaction = (
+                select(CaseAgentSessionInteraction.id)
+                .where(
+                    CaseAgentSessionInteraction.workspace_id == self.workspace_id,
+                    CaseAgentSessionInteraction.case_id == case_id,
+                    CaseAgentSessionInteraction.agent_session_id == AgentSession.id,
+                )
+                .exists()
+            )
+            base_stmt = base_stmt.where(has_case_interaction)
+
         if entity_type is not None:
             base_stmt = base_stmt.where(AgentSession.entity_type == entity_type)
         if created_after is not None:
@@ -223,6 +238,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 AgentSession.entity_type,
                 AgentSession.entity_id,
                 AgentSession.curr_run_id,
+                AgentSession.backend_id,
                 AgentSession.last_error,
                 AgentSession.created_at,
                 AgentSession.updated_at,
@@ -264,6 +280,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
         search: str | None = None,
+        case_id: uuid.UUID | None = None,
         group: InboxGroup | None = None,
         entity_type: AgentSessionEntity | None = None,
         created_after: datetime | None = None,
@@ -278,6 +295,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 order_by=order_by,
                 sort=sort,
                 search=search,
+                case_id=case_id,
                 group=group,
                 entity_type=entity_type,
                 created_after=created_after,
@@ -286,6 +304,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
 
         base_stmt = self._base_query(
             search,
+            case_id=case_id,
             entity_type=entity_type,
             created_after=created_after,
             updated_after=updated_after,
@@ -535,6 +554,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         sort: Literal["asc", "desc"] | None,
         search: str | None,
         group: InboxGroup,
+        case_id: uuid.UUID | None = None,
         entity_type: AgentSessionEntity | None = None,
         created_after: datetime | None = None,
         updated_after: datetime | None = None,
@@ -563,6 +583,7 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
 
         base_stmt = self._base_query(
             search,
+            case_id=case_id,
             entity_type=entity_type,
             created_after=created_after,
             updated_after=updated_after,

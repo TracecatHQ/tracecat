@@ -1,6 +1,5 @@
 "use client"
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useMemo, useState } from "react"
 import {
   type AdminCreateOrganizationDomainResponse,
@@ -16,10 +15,13 @@ import {
   type AdminOrgInvitationCreate,
   type AdminRegistryGetRegistryStatusResponse,
   type AdminRegistryListRegistryVersionsResponse,
+  type AdminResendOrganizationInvitationResponse,
+  type AdminTestAuditWebhookData,
   type AdminUserCreate,
   type AdminUserRead,
   type AgentCatalogListResponse,
   type AgentCatalogRead,
+  type AuditWebhookTestResult,
   adminCreateOrganization,
   adminCreateOrganizationDomain,
   adminCreateOrganizationInvitation,
@@ -53,8 +55,10 @@ import {
   adminRegistryStartRegistryArtifactsBackfill,
   adminRegistrySyncAllRepositories,
   adminRegistrySyncRepository,
+  adminResendOrganizationInvitation,
   adminRevokeOrganizationInvitation,
   adminSyncOrgRepository,
+  adminTestAuditWebhook,
   adminUpdateAuditSettings,
   adminUpdateOrganization,
   adminUpdateOrganizationDomain,
@@ -80,7 +84,17 @@ import {
   type TierUpdate,
 } from "@/client"
 import { request as apiRequest } from "@/client/core/request"
-import { retryHandler, type TracecatApiError } from "@/lib/errors"
+import { toast } from "@/components/ui/use-toast"
+import {
+  getAuditWebhookTestDescription,
+  getAuditWebhookTestTitle,
+} from "@/lib/audit-webhook-test"
+import {
+  getApiErrorDetail,
+  retryHandler,
+  type TracecatApiError,
+} from "@/lib/errors"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 export interface AdminPlatformCatalogEntry {
   id: string
@@ -291,7 +305,8 @@ export function useAdminOrgDomains(orgId: string) {
 }
 
 /** Fetch and mutate platform-created organization invitations. */
-export function useAdminOrgInvitations(orgId: string) {
+export function useAdminOrgInvitations(orgId: string, enabled = true) {
+  const [pollUntil, setPollUntil] = useState(0)
   const queryClient = useQueryClient()
   const [pagination, setPagination] =
     useState<AdminOrgInvitationsPaginationState>(
@@ -301,6 +316,7 @@ export function useAdminOrgInvitations(orgId: string) {
 
   useEffect(() => {
     setPagination(DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION)
+    setPollUntil(0)
   }, [orgId])
 
   const {
@@ -316,7 +332,9 @@ export function useAdminOrgInvitations(orgId: string) {
         cursor: pagination.cursor,
         reverse: pagination.reverse,
       }),
-    enabled: !!orgId,
+    enabled: enabled && !!orgId,
+    // Delivery is asynchronous; stop after 60 seconds, the resend cooldown, even if SMTP never succeeds.
+    refetchInterval: () => (enabled && Date.now() < pollUntil ? 2_000 : false),
   })
 
   const { mutateAsync: createInvitation, isPending: createPending } =
@@ -329,6 +347,7 @@ export function useAdminOrgInvitations(orgId: string) {
         adminCreateOrganizationInvitation({ orgId, requestBody: data }),
       onSuccess: () => {
         setPagination(DEFAULT_ADMIN_ORG_INVITATIONS_PAGINATION)
+        setPollUntil(Date.now() + 60_000)
         queryClient.invalidateQueries({ queryKey })
       },
     })
@@ -349,6 +368,18 @@ export function useAdminOrgInvitations(orgId: string) {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey })
       },
+    })
+
+  const { mutateAsync: resendInvitation, isPending: resendPending } =
+    useMutation<AdminResendOrganizationInvitationResponse, Error, string>({
+      mutationFn: (invitationId) =>
+        adminResendOrganizationInvitation({ orgId, invitationId }),
+      onSuccess: () => {
+        setPollUntil(Date.now() + 60_000)
+        queryClient.invalidateQueries({ queryKey })
+      },
+      // Callers toast on the awaited result, including the 409 cooldown.
+      meta: { suppressErrorToast: true },
     })
 
   function goToNextPage() {
@@ -378,6 +409,8 @@ export function useAdminOrgInvitations(orgId: string) {
     getInvitationToken,
     revokeInvitation,
     revokePending,
+    resendInvitation,
+    resendPending,
     goToNextPage,
     goToPreviousPage,
     hasNextPage: invitationsPage?.has_more ?? false,
@@ -888,6 +921,29 @@ export function useAdminAuditSettings() {
     },
   })
 
+  const { mutate: testAuditWebhook, isPending: testAuditWebhookIsPending } =
+    useMutation<
+      AuditWebhookTestResult,
+      TracecatApiError,
+      AdminTestAuditWebhookData
+    >({
+      mutationFn: adminTestAuditWebhook,
+      onSuccess: (result) => {
+        toast({
+          title: getAuditWebhookTestTitle(result),
+          description: getAuditWebhookTestDescription(result),
+          variant: result.ok ? "default" : "destructive",
+        })
+      },
+      onError: (error) => {
+        console.error("Failed to test platform audit webhook", error)
+        toast({
+          title: "Failed to test audit webhook",
+          description: getApiErrorDetail(error) ?? "Unknown error",
+        })
+      },
+    })
+
   return {
     auditSettings,
     auditSettingsIsLoading,
@@ -895,6 +951,8 @@ export function useAdminAuditSettings() {
     updateAuditSettings,
     updateAuditSettingsIsPending,
     updateAuditSettingsError,
+    testAuditWebhook,
+    testAuditWebhookIsPending,
   }
 }
 

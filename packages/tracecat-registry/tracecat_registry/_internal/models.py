@@ -57,6 +57,13 @@ SecretName = Annotated[str, StringConstraints(pattern=r"[a-z0-9_]+")]
 SecretKey = Annotated[str, StringConstraints(pattern=r"[a-zA-Z0-9_]+")]
 """Validator for a secret key. e.g. 'access_key_id'"""
 
+# Keep in sync with tracecat.identifiers.workflow.WF_EXEC_ID_SCHEMA_PATTERN
+# (parity pinned by tests/registry/test_workflow_sdk.py).
+WF_EXEC_ID_PATTERN = r"(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))"
+
+WorkflowExecutionID = Annotated[str, StringConstraints(pattern=WF_EXEC_ID_PATTERN)]
+"""Validator for a workflow execution ID. e.g. 'wf_.../exec_...'"""
+
 
 class RegistrySecret(BaseModel):
     type: Literal["custom"] = Field(default="custom", frozen=True)

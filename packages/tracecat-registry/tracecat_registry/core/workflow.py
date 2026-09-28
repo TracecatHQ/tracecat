@@ -10,12 +10,18 @@ from typing import Annotated, Any, Literal
 
 from typing_extensions import Doc
 
-from tracecat_registry import ActionIsInterfaceError, ctx, registry
+from tracecat_registry import ActionIsInterfaceError, ctx, registry, types
+from tracecat_registry._internal.models import WorkflowExecutionID
 from tracecat_registry.context import get_context
 from tracecat_registry.sdk.workflows import (
     JsonPatchOperation,
     WorkflowExecutionError,
     WorkflowExecutionTimeout,
+)
+
+_WORKSPACE_CHAT_SKILL_GUIDANCE = (
+    " In Workspace Chat, follow `tracecat:workspace-chat` for tool routing and "
+    "`tracecat:automation-best-practices` for workflow authoring."
 )
 
 
@@ -24,7 +30,7 @@ from tracecat_registry.sdk.workflows import (
     description=(
         "Execute a published workflow by alias as a subflow. For testing "
         "unpublished draft edits during authoring, use `core.workflow.run` "
-        "instead."
+        "instead." + _WORKSPACE_CHAT_SKILL_GUIDANCE
     ),
     default_title="Execute subflow",
     display_group="Workflows",
@@ -138,8 +144,8 @@ async def execute(
 @registry.register(
     namespace="core.workflow",
     description=(
-        "Create a new workflow, optionally pre-filled from `definition_yaml`. "
-        "Read the `tracecat-manage-workflows` skill first."
+        "Create a new workflow, optionally pre-filled from `definition_yaml`."
+        + _WORKSPACE_CHAT_SKILL_GUIDANCE
     ),
     default_title="Create workflow",
     display_group="Workflows",
@@ -179,7 +185,7 @@ async def create_workflow(
     namespace="core.workflow",
     description=(
         "Read a workflow's editable draft (`draft_revision` + `draft_document`). "
-        "Call before `edit_workflow`. See the `tracecat-manage-workflows` skill."
+        "Call before `edit_workflow`." + _WORKSPACE_CHAT_SKILL_GUIDANCE
     ),
     default_title="Get workflow",
     display_group="Workflows",
@@ -199,7 +205,7 @@ async def get_workflow(
     namespace="core.workflow",
     description=(
         "Edit a workflow's draft with RFC 6902 JSON Patch ops (get_workflow → "
-        "patch → edit_workflow). Read the `tracecat-manage-workflows` skill first."
+        "patch → edit_workflow)." + _WORKSPACE_CHAT_SKILL_GUIDANCE
     ),
     default_title="Edit workflow",
     display_group="Workflows",
@@ -248,8 +254,8 @@ async def edit_workflow(
         "enabled for this workspace before writing an action's `args:`. When "
         "configuring an AI action (`ai.action`, `ai.agent`) or agent preset, "
         "select a `catalog_id` from `enabled_models` instead of guessing a "
-        "model name. Resolve by `action_names` or `query`. See the "
-        "`tracecat-manage-workflows` skill."
+        "model name. Resolve by `action_names` or `query`."
+        + _WORKSPACE_CHAT_SKILL_GUIDANCE
     ),
     default_title="Get workflow authoring context",
     display_group="Workflows",
@@ -281,8 +287,8 @@ async def get_authoring_context(
 @registry.register(
     namespace="core.workflow",
     description=(
-        "Read a workflow's webhook trigger config (status, public URL, methods). "
-        "See the `tracecat-manage-workflows` skill for configuring triggers."
+        "Read a workflow's webhook trigger config (status, public URL, methods)."
+        + _WORKSPACE_CHAT_SKILL_GUIDANCE
     ),
     default_title="Get workflow webhook",
     display_group="Workflows",
@@ -303,7 +309,7 @@ async def get_webhook(
     description=(
         "Enable (`online`) or disable (`offline`) a workflow's webhook trigger. "
         "Returns the updated webhook config (no need to call `get_webhook` "
-        "afterwards). See the `tracecat-manage-workflows` skill."
+        "afterwards)." + _WORKSPACE_CHAT_SKILL_GUIDANCE
     ),
     default_title="Update workflow webhook",
     display_group="Workflows",
@@ -331,8 +337,8 @@ async def update_webhook(
 @registry.register(
     namespace="core.workflow",
     description=(
-        "Read a workflow's case-trigger config (status, event_types, tag_filters). "
-        "See the `tracecat-manage-workflows` skill."
+        "Read a workflow's case-trigger config (status, event_types, tag_filters)."
+        + _WORKSPACE_CHAT_SKILL_GUIDANCE
     ),
     default_title="Get workflow case trigger",
     display_group="Workflows",
@@ -354,8 +360,7 @@ async def get_case_trigger(
         "Configure a workflow's case trigger (status, event_types, tag_filters). "
         "This is the ONLY way to set a case trigger — it is NOT editable via "
         "`edit_workflow` JSON patches. Returns the full merged config (no need "
-        "to call `get_case_trigger` afterwards). See the "
-        "`tracecat-manage-workflows` skill."
+        "to call `get_case_trigger` afterwards)." + _WORKSPACE_CHAT_SKILL_GUIDANCE
     ),
     default_title="Update workflow case trigger",
     display_group="Workflows",
@@ -402,7 +407,7 @@ async def update_case_trigger(
     description=(
         "Publish (commit) a workflow's current draft as a new version so it can "
         "be run with `execute`. Validates the draft first; returns the new "
-        "version. Read the `tracecat-manage-workflows` skill."
+        "version." + _WORKSPACE_CHAT_SKILL_GUIDANCE
     ),
     default_title="Publish workflow",
     display_group="Workflows",
@@ -426,7 +431,7 @@ async def publish(
         "publishing; set `use_draft=False` to run a published version instead. "
         "A broken draft returns a fixable validation error. Use this while "
         "authoring; use `core.workflow.execute` to invoke a published workflow "
-        "by alias as a subflow. Read the `tracecat-manage-workflows` skill."
+        "by alias as a subflow." + _WORKSPACE_CHAT_SKILL_GUIDANCE
     ),
     default_title="Run workflow",
     display_group="Workflows",
@@ -472,28 +477,75 @@ async def run(
 
 @registry.register(
     namespace="core.workflow",
-    description="Get the status of a workflow execution.",
+    description=(
+        "Get the status of a workflow execution. With `include_events=true`, "
+        "also returns a per-action event timeline (status, timing, results, "
+        "and errors) for debugging a run. Find execution IDs with "
+        "`list_executions`." + _WORKSPACE_CHAT_SKILL_GUIDANCE
+    ),
     default_title="Get workflow status",
     display_group="Workflows",
 )
 async def get_status(
     *,
     wf_exec_id: Annotated[
-        str,
-        Doc("The workflow execution ID to check."),
+        WorkflowExecutionID,
+        Doc(
+            "The workflow execution ID to check (`wf_.../exec_...`), as "
+            "returned by `run` or `list_executions`."
+        ),
     ],
-) -> dict[str, Any]:
+    include_events: Annotated[
+        bool,
+        Doc("When true, also return the per-action event timeline."),
+    ] = False,
+) -> types.WorkflowExecutionStatusRead:
     """Get the status of a workflow execution.
 
     Returns:
         dict containing:
-            - wf_exec_id: Execution ID
+            - workflow_execution_id: Execution ID
             - status: RUNNING, COMPLETED, FAILED, CANCELED, TERMINATED, TIMED_OUT
             - start_time: When execution started (ISO format or None)
             - close_time: When execution completed (ISO format or None)
             - result: Workflow result (if completed successfully)
+            - with ``include_events=true``: ``trigger_type``, ``execution_type``,
+              ``history_length``, and ``events``
 
     Raises:
         RuntimeError: If no context is available.
     """
-    return await ctx.workflows.aio.get_status(wf_exec_id)
+    return await ctx.workflows.aio.get_status(wf_exec_id, include_events=include_events)
+
+
+@registry.register(
+    namespace="core.workflow",
+    description=(
+        "List a workflow's recent executions (run history), newest first. Use "
+        "this to see which runs succeeded or failed and to find execution IDs "
+        "for `get_status`." + _WORKSPACE_CHAT_SKILL_GUIDANCE
+    ),
+    default_title="List workflow executions",
+    display_group="Workflows",
+)
+async def list_executions(
+    *,
+    workflow_id: Annotated[
+        str,
+        Doc("The workflow ID to list executions for (short `wf_...` or full)."),
+    ],
+    limit: Annotated[
+        int,
+        Doc("Maximum number of executions to return (clamped to 1-100)."),
+    ] = 20,
+    cursor: Annotated[
+        str | None,
+        Doc("The `next_cursor` from a previous page. Omit for the first page."),
+    ] = None,
+) -> types.WorkflowExecutionPageRead:
+    """List recent executions for a workflow with cursor pagination."""
+    return await ctx.workflows.aio.list_executions(
+        workflow_id=workflow_id,
+        limit=limit,
+        cursor=cursor,
+    )

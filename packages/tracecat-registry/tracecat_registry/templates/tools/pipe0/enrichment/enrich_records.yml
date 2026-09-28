@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Enrich records
+  description: Enrich records. Calls POST /v1/pipes/run/sync directly.
+  display_group: Pipe0
+  doc_url: https://www.pipe0.com/docs/api/pipes/run-sync
+  namespace: tools.pipe0
+  name: enrich_records
+  secrets:
+    - name: pipe0
+      keys: ["PIPE0_API_KEY"]
+  expects:
+    pipes:
+      type: list[dict[str, Any]]
+      description: Pipe configurations to run. Each item takes a pipe_id and a config object.
+    input:
+      type: list[dict[str, Any]]
+      description: Input records to enrich. Pipe0 accepts at most 100 items.
+    config:
+      type: dict[str, Any] | None
+      description: Pipe0 run configuration object, covering environment, transform, widgets, and field_definitions.
+      default: null
+    field_annotations:
+      type: dict[str, Any] | None
+      description: Pipe0 field annotations object applied to the input records.
+      default: null
+    scopes:
+      type: list[str] | None
+      description: Pipe0 scopes to apply to the run.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Pipe0 API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pipe0.base_url || "https://api.pipe0.com" }}/v1/pipes/run/sync
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.pipe0.PIPE0_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          pipes: ${{ inputs.pipes }}
+          input: ${{ inputs.input }}
+          config: ${{ inputs.config }}
+          field_annotations: ${{ inputs.field_annotations }}
+          scopes: ${{ inputs.scopes }}
+  returns: ${{ steps.request.result }}

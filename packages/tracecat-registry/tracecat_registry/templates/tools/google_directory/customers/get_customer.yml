@@ -1,0 +1,41 @@
+type: action
+definition:
+  title: Get customer
+  description: Retrieves a customer.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/customers/get
+  namespace: tools.google_directory
+  name: get_customer
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    customer_key:
+      type: str
+      description: >-
+        Id of the customer to be retrieved. You can also use the `my_customer`
+        alias to represent your account's `customerId`.
+      default: my_customer
+  steps:
+    - ref: get_customer
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: customers
+        method_name: get
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.customer.readonly"]
+        params:
+          customerKey: ${{ inputs.customer_key }}
+  returns: ${{ steps.get_customer.result }}

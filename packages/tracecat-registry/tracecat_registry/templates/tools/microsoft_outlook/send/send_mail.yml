@@ -1,0 +1,98 @@
+type: action
+definition:
+  title: Send mail
+  description: >-
+    Send a JSON message from the specified mailbox and save it in Sent Items.
+    Returns `202 Accepted`; acceptance does not mean delivery finished. Least
+    privileged permission: Mail.Send for delegated work or school, delegated
+    personal Microsoft accounts and application; no higher permission is available.
+    Delegated send-from-another-user also requires Mail.Send.Shared and Exchange
+    Send As or Send on Behalf permission; using `/users/{id}` requires Full Access.
+    Application Mail.Send can send as any organization user, so restrict it with
+    RBAC for Applications in Exchange Online. Supply an API-native JSON `message`,
+    which can include attachments. This action and the generic dispatcher do not
+    support Graph's MIME request form. Available in the global service, US
+    Government L4, US Government L5 (DOD) and China operated by 21Vianet. No
+    separate licensing requirement is documented; the mailbox needs Exchange
+    Online or Outlook.com.
+  display_group: Microsoft Outlook Mail
+  doc_url: https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0
+  namespace: tools.microsoft_outlook
+  name: send_mail
+  secrets:
+    - type: oauth
+      provider_id: microsoft_outlook
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_outlook
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: client_credentials
+      optional: true
+    - type: oauth
+      provider_id: microsoft_graph
+      grant_type: authorization_code
+      optional: true
+  expects:
+    base_url:
+      type: str | None
+      description: >-
+        Microsoft Graph v1.0 API root. If omitted, uses the workspace variable
+        `microsoft_outlook.base_url`, then
+        `microsoft_graph.base_url`, then https://graph.microsoft.com/v1.0.
+        National clouds: https://graph.microsoft.us/v1.0 (US Government L4),
+        https://dod-graph.microsoft.us/v1.0 (US Government L5 DOD) and
+        https://microsoftgraph.chinacloudapi.cn/v1.0 (China operated by 21Vianet).
+      default: null
+    auth_mode:
+      type: enum["application", "delegated", "auto"]
+      description: >-
+        Credential to use. `application` requires MICROSOFT_OUTLOOK_SERVICE_TOKEN,
+        then MICROSOFT_GRAPH_SERVICE_TOKEN; `delegated` requires
+        MICROSOFT_OUTLOOK_USER_TOKEN, then MICROSOFT_GRAPH_USER_TOKEN; `auto` tries
+        all four in that order.
+      default: application
+    mailbox_user_id:
+      type: str
+      description: >-
+        Sending mailbox, given as a user ID or userPrincipalName and used in the
+        `/users/{id | userPrincipalName}` path. Delegated callers may pass their own
+        userPrincipalName; application callers must always name the mailbox to send
+        from, because an application token has no signed-in user.
+    message:
+      # Generic: Microsoft defines `message` as the extensible Message resource,
+      # including nested recipients, attachments and extension properties. This is
+      # the endpoint's named parameter, not an opaque replacement for its body.
+      type: dict[str, Any]
+      description: >-
+        The API-native Microsoft Graph message object to send. Required. Common
+        writable properties include subject (String), body (itemBody), toRecipients,
+        ccRecipients and bccRecipients (recipient collections), replyTo (recipient
+        collection), from and sender (recipient), importance (String),
+        isReadReceiptRequested and isDeliveryReceiptRequested (Boolean), and
+        attachments (attachment collection). For send-from-another-user, set the
+        message `from` property to that mailbox and use the required Exchange
+        delegation described above.
+    saveToSentItems:
+      type: bool | None
+      description: >-
+        Indicates whether to save the message in Sent Items. Specify it only if the
+        parameter is false; the default is true.
+      default: null
+  steps:
+    - ref: call_graph
+      action: tools.microsoft_graph_sdk.call_method
+      args:
+        oauth_provider: microsoft_outlook
+        path: /users/${{ FN.url_encode(inputs.mailbox_user_id) }}/sendMail
+        method: POST
+        base_url: ${{ inputs.base_url || VARS.microsoft_outlook.base_url || VARS.microsoft_graph.base_url || "https://graph.microsoft.com/v1.0" }}
+        auth_mode: ${{ inputs.auth_mode }}
+        payload:
+          message: ${{ inputs.message }}
+          saveToSentItems: ${{ inputs.saveToSentItems }}
+        omit_none_payload_fields: true
+  returns: ${{ steps.call_graph.result }}

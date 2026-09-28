@@ -1,0 +1,35 @@
+type: action
+definition:
+  title: Search Security Analytics detectors
+  description: Search OpenSearch Security Analytics detector metadata for alert provenance and triage.
+  display_group: OpenSearch
+  doc_url: https://docs.opensearch.org/latest/security-analytics/api-tools/detector-api/
+  namespace: tools.opensearch
+  name: search_detectors
+  secrets:
+    - name: opensearch
+      keys: ["OPENSEARCH_USERNAME", "OPENSEARCH_PASSWORD"]
+  expects:
+    payload:
+      type: dict[str, Any]
+      description: API-native detector search request body.
+    base_url:
+      type: str | None
+      description: OpenSearch base URL (e.g. https://localhost:9200).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.opensearch.base_url }}/_plugins/_security_analytics/detectors/_search
+        method: POST
+        payload: ${{ inputs.payload }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.opensearch.OPENSEARCH_USERNAME + ":" + SECRETS.opensearch.OPENSEARCH_PASSWORD) }}
+          Content-Type: application/json
+  returns: ${{ steps.request.result.data }}

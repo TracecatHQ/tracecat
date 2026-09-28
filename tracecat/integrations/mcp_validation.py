@@ -7,11 +7,13 @@ command injection and other security vulnerabilities.
 import re
 import uuid
 
+from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
+
 # Allowlist of commands that can be used for MCP servers
 ALLOWED_MCP_COMMANDS = frozenset({"npx", "uvx", "python", "python3", "node"})
 
 # Environment variables that cannot be overridden
-PROTECTED_ENV_VARS = frozenset(
+PROTECTED_ENV_VARS = AGENT_RUNTIME_PROTECTED_ENV_VARS | frozenset(
     {
         "PATH",
         "LD_PRELOAD",
@@ -40,6 +42,48 @@ MAX_ARGS_COUNT = 50
 MAX_ENV_KEY_LENGTH = 64
 MAX_ENV_VALUE_LENGTH = 4096
 MAX_SERVER_NAME_LENGTH = 64
+
+_PROTECTED_UVX_OPTIONS = frozenset({"--cache-dir", "--link-mode"})
+# Keep known no-value options aligned with the supported uvx versions. Unknown
+# split options are treated as value-taking so a new global option cannot hide a
+# protected option before the actual command.
+_UVX_OPTIONS_WITHOUT_VALUES = frozenset(
+    {
+        "--compile-bytecode",
+        "--help",
+        "--isolated",
+        "--lfs",
+        "--managed-python",
+        "--native-tls",
+        "--no-binary",
+        "--no-build",
+        "--no-build-isolation",
+        "--no-cache",
+        "--no-config",
+        "--no-env-file",
+        "--no-index",
+        "--no-managed-python",
+        "--no-progress",
+        "--no-python-downloads",
+        "--no-sources",
+        "--offline",
+        "--quiet",
+        "--refresh",
+        "--reinstall",
+        "--system-certs",
+        "--upgrade",
+        "--verbose",
+        "--version",
+        "-U",
+        "-V",
+        "-h",
+        "-n",
+        "-q",
+        "-v",
+    }
+)
+_UVX_SHORT_VALUE_OPTION_CHARS = frozenset("CPbcfipw")
+_UVX_SHORT_FLAG_CHARS = frozenset("UVhnqv")
 
 
 class MCPValidationError(ValueError):
@@ -157,6 +201,76 @@ def validate_mcp_args(args: list[str] | None) -> None:
             raise MCPValidationError(f"Invalid argument at index {i}: {e}") from e
 
 
+def _uvx_option_consumes_next_arg(arg: str) -> bool:
+    """Return whether a pre-command uvx option consumes the next argument."""
+    option, separator, _value = arg.partition("=")
+    if separator or option in _UVX_OPTIONS_WITHOUT_VALUES:
+        return False
+
+    if option.startswith("-") and not option.startswith("--"):
+        short_options = option[1:]
+        for index, short_option in enumerate(short_options):
+            if short_option in _UVX_SHORT_FLAG_CHARS:
+                continue
+            if short_option in _UVX_SHORT_VALUE_OPTION_CHARS:
+                return index == len(short_options) - 1
+            return True
+        return False
+
+    return True
+
+
+def sanitize_mcp_command_args(
+    *,
+    command: str,
+    args: list[str] | None,
+) -> tuple[list[str], frozenset[str]]:
+    """Remove command options reserved for Tracecat's runtime isolation.
+
+    The returned option names are safe to log because option values are never
+    included. Parsing stops at the uvx command or an explicit ``--`` separator,
+    so options belonging to the MCP command remain untouched. New configurations
+    reject protected options, while the runtime uses this helper to contain legacy
+    persisted configs.
+
+    Args:
+        command: The executable used by the stdio MCP server.
+        args: Optional command arguments.
+
+    Returns:
+        The sanitized arguments and protected option names that were removed.
+    """
+    if command != "uvx" or not args:
+        return list(args or ()), frozenset()
+
+    sanitized_args: list[str] = []
+    protected_options: set[str] = set()
+    arg_index = 0
+    while arg_index < len(args):
+        arg = args[arg_index]
+        if arg == "--":
+            sanitized_args.extend(args[arg_index:])
+            break
+
+        if not arg.startswith("-"):
+            sanitized_args.extend(args[arg_index:])
+            break
+
+        option, separator, _value = arg.partition("=")
+        if option not in _PROTECTED_UVX_OPTIONS:
+            sanitized_args.append(arg)
+            arg_index += 1
+            if _uvx_option_consumes_next_arg(arg) and arg_index < len(args):
+                sanitized_args.append(args[arg_index])
+                arg_index += 1
+            continue
+
+        protected_options.add(option)
+        arg_index += 1 if separator else 2
+
+    return sanitized_args, frozenset(protected_options)
+
+
 def validate_mcp_env_key(key: str) -> None:
     """Validate an environment variable key.
 
@@ -174,13 +288,16 @@ def validate_mcp_env_key(key: str) -> None:
             f"Env key too long: {len(key)} > {MAX_ENV_KEY_LENGTH} characters"
         )
 
-    # Must be valid POSIX env var name
+    # Must be valid POSIX env var name. The key is not echoed: a resolved secret
+    # expression lands here precisely because its plaintext is not a valid name.
+    #
     if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
         raise MCPValidationError(
-            f"Invalid env var name '{key}': must match [A-Za-z_][A-Za-z0-9_]*"
+            "Invalid env var name: must match [A-Za-z_][A-Za-z0-9_]*"
         )
 
-    # Cannot override protected variables
+    # Cannot override protected variables. Safe to name: this key matched the
+    # POSIX pattern above and equals a known constant.
     if key in PROTECTED_ENV_VARS:
         raise MCPValidationError(f"Cannot override protected env var: {key}")
 
@@ -231,16 +348,21 @@ def validate_mcp_env(env: dict[str, str] | None) -> None:
     if not isinstance(env, dict):
         raise MCPValidationError(f"Env must be a dict, got {type(env).__name__}")
 
-    for key, value in env.items():
+    for position, (key, value) in enumerate(env.items(), start=1):
+        # An env key may be a resolved secret expression, so its text is
+        # potentially plaintext. Locate the entry by position rather than by
+        # content: this error reaches probe results and the API.
+        #
+        locator = f"entry {position}"
         try:
             validate_mcp_env_key(key)
         except MCPValidationError as e:
-            raise MCPValidationError(f"Invalid env key '{key}': {e}") from e
+            raise MCPValidationError(f"Invalid env key ({locator}): {e}") from e
 
         try:
             validate_mcp_env_value(value)
         except MCPValidationError as e:
-            raise MCPValidationError(f"Invalid env value for '{key}': {e}") from e
+            raise MCPValidationError(f"Invalid env value for {locator}: {e}") from e
 
 
 def validate_mcp_server_name(name: str) -> None:
@@ -291,6 +413,12 @@ def validate_mcp_command_config(
     """
     validate_mcp_command(command)
     validate_mcp_args(args)
+    _, protected_options = sanitize_mcp_command_args(command=command, args=args)
+    if protected_options:
+        options = ", ".join(sorted(protected_options))
+        raise MCPValidationError(
+            f"Cannot override protected {command} option(s): {options}"
+        )
     validate_mcp_env(env)
     if name is not None:
         validate_mcp_server_name(name)

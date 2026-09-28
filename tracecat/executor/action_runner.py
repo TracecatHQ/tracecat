@@ -22,6 +22,7 @@ import shutil
 import sys
 import tempfile
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +30,7 @@ import orjson
 from pydantic_core import to_json
 
 from tracecat import config
+from tracecat.contexts import ctx_secret_masks
 from tracecat.executor.action_gateway.config import (
     ACTION_GATEWAY_SANDBOX_SOCKET,
     action_gateway_socket_path,
@@ -43,9 +45,23 @@ from tracecat.executor.secret_preprocessors import (
     project_secret_env,
 )
 from tracecat.logger import logger
-from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
-from tracecat.sandbox.types import ResourceLimits
-from tracecat.secrets.common import apply_masks, apply_masks_object
+from tracecat.sandbox.exceptions import (
+    raise_for_sandbox_error_code,
+    sandbox_resource_limit_message,
+)
+from tracecat.sandbox.executor import (
+    ActionSandboxConfig,
+    NsjailExecutor,
+    workload_stderr_tail,
+)
+from tracecat.sandbox.types import ResourceLimits, SandboxErrorCode
+from tracecat.sandbox.utils import (
+    communicate_process_group,
+    terminate_supervised_process,
+)
+from tracecat.secrets.common import (
+    apply_masks_object,
+)
 
 if TYPE_CHECKING:
     from tracecat.auth.types import Role
@@ -107,21 +123,58 @@ def _is_sandbox_available() -> bool:
     return True
 
 
-def _direct_subprocess_command(minimal_runner_path: Path) -> list[str]:
-    """Build the direct action subprocess command with new privileges disabled."""
-    runner_command = [sys.executable, str(minimal_runner_path)]
-    if sys.platform != "linux":
-        return runner_command
+# Keeps the whole message under the 2048-char cap that
+# EventFailure.sanitize_error_text applies before the UI sees it.
+_WORKLOAD_STDERR_MESSAGE_CHARS = 1900
 
+
+def _sandbox_failure_message(
+    error_code: SandboxErrorCode | None,
+    *,
+    stderr: str = "",
+    mask_values: Iterable[str] = (),
+) -> str:
+    """Return the message carried by the typed exception a sandbox code selects.
+
+    Infrastructure and resource-limit failures never quote sandbox output.
+    Other workload failures append the masked tail of the workload's stderr so
+    the action author sees the traceback that ended the run.
+    """
+    match error_code:
+        case SandboxErrorCode.INFRASTRUCTURE_FAILURE:
+            return "Action sandbox infrastructure failed before producing a result"
+        case SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED:
+            return sandbox_resource_limit_message(
+                memory_mb=config.TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
+                memory_env_var="TRACECAT__SANDBOX_DEFAULT_MEMORY_MB",
+            )
+        case _:
+            message = "Action sandbox workload stopped before producing a result"
+            tail = workload_stderr_tail(stderr, limit=_WORKLOAD_STDERR_MESSAGE_CHARS)
+            if not tail:
+                return message
+            masked_tail = apply_masks_object(tail, masks=mask_values)
+            return f"{message}. Workload stderr (tail):\n{masked_tail}"
+
+
+def _direct_subprocess_command(minimal_runner_path: Path) -> list[str]:
+    """Build a contained direct-action command with privileges disabled."""
+    runner_command = [sys.executable, str(minimal_runner_path)]
     setpriv = shutil.which("setpriv")
     if setpriv is None:
         raise RuntimeError("setpriv is required for direct action subprocess isolation")
 
+    supervisor_path = Path(__file__).with_name("process_supervisor.py")
     return [
         setpriv,
         "--no-new-privs",
         "--inh-caps=-all",
         "--ambient-caps=-all",
+        sys.executable,
+        # Keep registry-controlled PYTHONPATH out of the supervisor interpreter.
+        # Isolated mode leaves the environment intact for the nested action.
+        "-I",
+        str(supervisor_path),
         *runner_command,
     ]
 
@@ -140,40 +193,6 @@ class ActionRunner:
         self.cache_dir = cache_dir or Path(config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR)
         self.registry_artifacts = RegistryArtifactCache(self.cache_dir)
         logger.info("ActionRunner initialized", cache_dir=str(self.cache_dir))
-
-    async def ensure_registry_environment(self, artifact_uri: str | None) -> list[Path]:
-        """Ensure the registry environment is set up and return PYTHONPATH entries.
-
-        This is the public API for pool workers to get the paths to add to PYTHONPATH.
-
-        Args:
-            artifact_uri: S3 URI to the registry execution artifact.
-
-        Returns:
-            Paths to add to PYTHONPATH (empty if no artifact is available).
-        """
-        return await self.registry_artifacts.ensure_environment(artifact_uri)
-
-    async def resolve_registry_paths(
-        self, artifact_uris: list[str] | None = None
-    ) -> list[Path]:
-        """Materialize registry artifacts and return importable Python paths."""
-        registry_paths: list[Path] = []
-        if artifact_uris:
-            for artifact_uri in artifact_uris:
-                registry_paths.extend(
-                    await self.ensure_registry_environment(artifact_uri)
-                )
-            logger.info(
-                "Using registry artifact environments",
-                count=len(registry_paths),
-            )
-            return registry_paths
-
-        base_dir = self.cache_dir / "base"
-        base_dir.mkdir(parents=True, exist_ok=True)
-        logger.info("No registry artifact URIs provided, using base PYTHONPATH")
-        return [base_dir]
 
     async def execute_action(
         self,
@@ -205,39 +224,39 @@ class ActionRunner:
         """
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
-        # Materialize each registry artifact, collect paths in deterministic order.
-        registry_paths = await self.resolve_registry_paths(artifact_uris)
-
-        # Check if sandbox execution is enabled and available
-        # force_sandbox=True overrides config (used by ephemeral backend)
+        # Both execution modes treat registry artifacts as shared import inputs.
         use_sandbox = force_sandbox or (
             config.TRACECAT__EXECUTOR_SANDBOX_ENABLED and _is_sandbox_available()
         )
-        logger.debug(
-            "Using sandbox execution",
-            use_sandbox=use_sandbox,
-            force_sandbox=force_sandbox,
-        )
 
-        secret_projection = resolved_context.secret_projection
-        if secret_projection is None:
-            secret_projection = await project_secret_env(
-                secrets=resolved_context.secrets,
-                role=role,
-                run_context=input.run_context,
+        # Materialize each registry artifact, collect paths in deterministic order.
+        # The lease is held for the whole subprocess execution so cache eviction
+        # cannot delete a directory the subprocess is still importing from.
+        async with self.registry_artifacts.lease(artifact_uris) as registry_paths:
+            logger.debug(
+                "Using sandbox execution",
+                use_sandbox=use_sandbox,
+                force_sandbox=force_sandbox,
             )
 
-        if use_sandbox:
-            return await self._execute_sandboxed(
-                input=input,
-                role=role,
-                registry_paths=registry_paths,
-                secret_projection=secret_projection,
-                env_vars=env_vars,
-                timeout=timeout,
-                resolved_context=resolved_context,
-            )
-        else:
+            secret_projection = resolved_context.secret_projection
+            if secret_projection is None:
+                secret_projection = await project_secret_env(
+                    secrets=resolved_context.secrets,
+                    role=role,
+                    run_context=input.run_context,
+                )
+
+            if use_sandbox:
+                return await self._execute_sandboxed(
+                    input=input,
+                    role=role,
+                    registry_paths=registry_paths,
+                    secret_projection=secret_projection,
+                    env_vars=env_vars,
+                    timeout=timeout,
+                    resolved_context=resolved_context,
+                )
             return await self._execute_direct(
                 input=input,
                 role=role,
@@ -283,6 +302,9 @@ class ActionRunner:
                 "role": role,
                 "resolved_context": resolved_context,
                 "secret_env": secret_projection.env,
+                "secret_mask_values": sorted(masks.values)
+                if (masks := ctx_secret_masks.get())
+                else [],
             }
 
             # Write input JSON to job directory
@@ -364,6 +386,15 @@ class ActionRunner:
             if result.success:
                 return result.output
 
+            raise_for_sandbox_error_code(
+                result.error_code,
+                _sandbox_failure_message(
+                    result.error_code,
+                    stderr=result.stderr,
+                    mask_values=secret_projection.mask_values,
+                ),
+            )
+
             # Handle error from sandbox
             if result.error:
                 masked_error = apply_masks_object(
@@ -402,7 +433,11 @@ class ActionRunner:
         timeout: float | None = None,
         resolved_context: ResolvedContext | None = None,
     ) -> ExecutionResult:
-        """Execute an action in a direct subprocess (no sandbox)."""
+        """Execute an action in a direct subprocess (no sandbox).
+
+        Every exit kills lingering descendants before the registry-path lease
+        protecting their imports can unwind.
+        """
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
         # Prepare input JSON for subprocess
@@ -410,10 +445,14 @@ class ActionRunner:
         if resolved_context is not None:
             payload["resolved_context"] = resolved_context
             payload["secret_env"] = secret_projection.env
+            masks = ctx_secret_masks.get()
+            payload["secret_mask_values"] = sorted(masks.values) if masks else []
         input_json = to_json(payload)
 
         # Build environment with registry paths in PYTHONPATH
         env = os.environ.copy()
+        # Platform ingestion credentials belong to the worker, not action code.
+        env.pop("SENTRY_DSN", None)
         if env_vars:
             env.update(env_vars)
 
@@ -434,6 +473,7 @@ class ActionRunner:
         if existing_pythonpath:
             pythonpath_parts.append(existing_pythonpath)
         env["PYTHONPATH"] = ":".join(pythonpath_parts) if pythonpath_parts else ""
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
 
         # Get path to minimal_runner.py for subprocess execution
         from tracecat.executor import minimal_runner as minimal_runner_module
@@ -464,12 +504,15 @@ class ActionRunner:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            start_new_session=True,
         )
 
         try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(input=input_json),
+            stdout, stderr = await communicate_process_group(
+                proc,
+                input=input_json,
                 timeout=timeout,
+                terminate=terminate_supervised_process,
             )
             elapsed_ms = (time.monotonic() - start_time) * 1000
             logger.info(
@@ -484,8 +527,6 @@ class ActionRunner:
                 action=input.task.action,
                 timeout=timeout,
             )
-            proc.kill()
-            await proc.wait()
             return ExecutorActionErrorInfo(
                 type="TimeoutError",
                 message=f"Action execution timed out after {timeout}s",
@@ -493,40 +534,35 @@ class ActionRunner:
                 filename="<subprocess>",
                 function="execute_action",
             )
-
         # Check for subprocess crash
         if proc.returncode != 0:
-            stderr_text = apply_masks(
-                stderr.decode(errors="replace"),
-                masks=secret_projection.mask_values,
-            )
             logger.error(
                 "Subprocess failed",
                 action=input.task.action,
                 returncode=proc.returncode,
-                stderr=stderr_text,
+                stderr_bytes=len(stderr),
             )
             return ExecutorActionErrorInfo(
                 type="SubprocessError",
-                message=f"Subprocess exited with code {proc.returncode}: {stderr_text[:500]}",
+                message=f"Subprocess exited with code {proc.returncode}",
                 action_name=input.task.action,
                 filename="<subprocess>",
                 function="execute_action",
             )
 
-        # Parse result from stdout
+        # Parse result from stdout. Child-controlled bytes are never logged.
         try:
             result_data = orjson.loads(stdout)
         except orjson.JSONDecodeError as e:
             logger.error(
                 "Failed to parse subprocess output",
                 action=input.task.action,
-                stdout=stdout.decode()[:500],
-                error=str(e),
+                stdout_bytes=len(stdout),
+                parser_position=e.pos,
             )
             return ExecutorActionErrorInfo(
                 type="ProtocolError",
-                message=f"Failed to parse subprocess output: {e}",
+                message=f"Failed to parse subprocess output at byte {e.pos}",
                 action_name=input.task.action,
                 filename="<subprocess>",
                 function="execute_action",

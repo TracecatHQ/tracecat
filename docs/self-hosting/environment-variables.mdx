@@ -11,8 +11,8 @@ import EnvironmentVariables from "/snippets/environment-variables.mdx";
 | :----- | :------ |
 | `TRACECAT__DB_ENCRYPTION_KEY` | Fernet key for at-rest encryption in PostgreSQL. Losing it makes encrypted credentials unrecoverable. |
 | `TRACECAT__SERVICE_KEY` | HMAC key for service-to-service JWT signing. |
-| `TRACECAT__SIGNING_SECRET` | Signs webhook URLs and HMAC operations. Changing it invalidates existing webhook URLs. |
-| `USER_AUTH_SECRET` | Signs OAuth state parameters and password-reset tokens. |
+| `TRACECAT__SIGNING_SECRET` | Signs webhook URLs and HMAC operations. Changing it invalidates existing webhook URLs and agent channel endpoint URLs. |
+| `USER_AUTH_SECRET` | Secures password reset tokens, email verification tokens, and OAuth state. Derives the MCP OIDC issuer keypair and the internal OIDC client secret. |
 
 Generate all four with `openssl`:
 

@@ -1,0 +1,75 @@
+type: action
+definition:
+  title: List worker changes
+  description: >-
+    List worker changes. Calls GET /worker-changes/ directly. Audit trail of changes to worker
+    fields. Requires the Worker Changes API entitlement. Required scope: worker-changes.read.
+  display_group: Rippling
+  doc_url: https://developer.rippling.com/documentation/rest-api/reference/list-worker-changes
+  namespace: tools.rippling
+  name: list_worker_changes
+  secrets:
+    - name: rippling
+      keys: ["RIPPLING_API_KEY"]
+  expects:
+    filter:
+      type: str | None
+      description: >-
+        The `filter` query parameter is used to filter the data returned from the API - similar to a
+        `where` clause. The following operators are supported: eq, ne, gt, gte, lt, lte, and, or,
+        in. Example: status eq 'ACTIVE'. Filterable fields: `worker_id`, `applied_on`,
+        `effective_on`, `changed_by_id`, `reason_code`, `field_key`, `event_type`. Allowed values
+        for `event_type`: HIRE, CHANGE, SCHEDULED_CHANGE, OFFBOARD, SCHEDULED_OFFBOARD, IMPORT,
+        UNDO, EFFECTIVE_DATE_AMENDMENT.
+      default: null
+    expand:
+      type: str | None
+      description: >-
+        Fields in a response can represent objects themselves. Instead of making an additional API
+        call, you can expand field(s) in a response using the `expand` query parameter. Use commas
+        to specify multiple fields to expand. Use dot notation (.) to recursively expand. The API
+        supports two levels of expansion and up to ten expanded fields per request. Expandable
+        fields: `worker`, `changed_by`.
+      default: null
+    order_by:
+      type: str | None
+      description: >-
+        The `order_by` parameter is used to select field(s) to sort by and to define whether results
+        are sorted in ascending or descending order. Supported sort directions are `asc` for
+        ascending order and `desc` for descending order. Unless indicated, the default sort
+        direction is ascending order. Use commas to specify multiple fields to sort. Sortable
+        fields: `id`, `created_at`, `updated_at`, `applied_on`, `effective_on`.
+      default: null
+    limit:
+      type: int | None
+      description: >-
+        `limit` controls how many results are returned in a single page. Default page size is 50.
+        Most endpoints allow a maximum of 100.
+      default: null
+    cursor:
+      type: str | None
+      description: >-
+        `cursor` is used to fetch the next page of results. Start with a request without cursor,
+        read the `next_link` value from the response, and continue until `next_link` is `null`.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Rippling REST API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.rippling.base_url || "https://rest.ripplingapis.com" }}/worker-changes/
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.rippling.RIPPLING_API_KEY }}
+          Accept: application/json
+          Rippling-Api-Version: '2024-08-01'
+        params:
+          filter: ${{ inputs.filter }}
+          expand: ${{ inputs.expand }}
+          order_by: ${{ inputs.order_by }}
+          limit: ${{ inputs.limit }}
+          cursor: ${{ inputs.cursor }}
+  returns: ${{ steps.request.result }}

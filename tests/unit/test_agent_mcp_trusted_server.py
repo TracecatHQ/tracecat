@@ -1,9 +1,11 @@
+import asyncio
 import uuid
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
 from fastmcp.exceptions import ToolError
+from temporalio.exceptions import CancelledError as TemporalCancelledError
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.agent.mcp import trusted_server
@@ -252,6 +254,28 @@ async def test_execute_action_tool_uses_registry_lock_from_token(
     assert call is not None
     assert call.args[3] == registry_lock
     assert result == '{"ok": true}'
+
+
+@pytest.mark.anyio
+async def test_execute_action_tool_translates_remote_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        trusted_server,
+        "execute_action",
+        AsyncMock(side_effect=TemporalCancelledError("tool cancelled")),
+    )
+    registry_lock = RegistryLock(
+        origins={"tracecat_registry": "pinned-version"},
+        actions={"core.http_request": "tracecat_registry"},
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await trusted_server._execute_registry_action(
+            "core.http_request",
+            {"url": "https://example.com"},
+            _build_claims(registry_lock=registry_lock),
+        )
 
 
 @pytest.mark.anyio

@@ -1,16 +1,20 @@
 "use client"
 
 import {
-  BotIcon,
   ChevronLeftIcon,
   GitBranchIcon,
   GlobeIcon,
+  HistoryIcon,
   KeyRoundIcon,
   LockIcon,
   LogInIcon,
   LogsIcon,
+  MousePointerClickIcon,
+  RadioTowerIcon,
   Settings2,
+  ShieldCheckIcon,
   UsersIcon,
+  VaultIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -39,21 +43,45 @@ export function OrganizationSidebar({
   const customRegistryEnabled = hasEntitlement("custom_registry")
   const gitSyncEnabled = hasEntitlement("git_sync")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
+  const externalSecretStoresEnabled = hasEntitlement("external_secret_stores")
 
   // Scope checks for org sidebar items
+  const canViewSecretStores = useScopeCheck("org:secret:read")
   const canViewSettings = useScopeCheck("org:settings:read")
   const canViewServiceAccounts = useScopeCheck("org:service_account:read")
   const canViewMembers = useScopeCheck("org:member:read")
 
-  const navSettings = [
+  const navCustomRegistry = [
     {
-      title: "Custom registry",
+      title: "Repository",
       url: "/organization/settings/custom-registry",
       icon: GitBranchIcon,
-      isActive: pathname?.includes("/organization/settings/custom-registry"),
+      isActive: pathname === "/organization/settings/custom-registry",
       visible: canViewSettings === true,
       locked: !customRegistryEnabled,
     },
+    {
+      title: "Versions",
+      url: "/organization/settings/custom-registry/versions",
+      icon: HistoryIcon,
+      isActive: pathname?.startsWith(
+        "/organization/settings/custom-registry/versions"
+      ),
+      visible: canViewSettings === true,
+      locked: !customRegistryEnabled,
+    },
+  ]
+
+  interface OrgSettingsNavItem {
+    title: string
+    url: string
+    icon: React.ComponentType<{ className?: string }>
+    isActive: boolean | undefined
+    visible: boolean
+    locked: boolean
+  }
+
+  const navSettings: OrgSettingsNavItem[] = [
     {
       title: "SAML (SSO)",
       url: "/organization/settings/sso",
@@ -69,6 +97,14 @@ export function OrganizationSidebar({
       isActive: pathname?.includes("/organization/settings/domains"),
       visible: canViewSettings === true,
       locked: false,
+    },
+    {
+      title: "Secret stores",
+      url: "/organization/settings/secret-stores",
+      icon: VaultIcon,
+      isActive: pathname?.includes("/organization/settings/secret-stores"),
+      visible: canViewSecretStores === true,
+      locked: !externalSecretStoresEnabled,
     },
     {
       title: "Application",
@@ -87,10 +123,10 @@ export function OrganizationSidebar({
       locked: false,
     },
     {
-      title: "Agent",
-      url: "/organization/settings/agent",
-      icon: BotIcon,
-      isActive: pathname?.includes("/organization/settings/agent"),
+      title: "IP allowlist",
+      url: "/organization/settings/security",
+      icon: ShieldCheckIcon,
+      isActive: pathname?.includes("/organization/settings/security"),
       visible: canViewSettings === true,
       locked: false,
     },
@@ -111,13 +147,22 @@ export function OrganizationSidebar({
     // },
   ]
 
-  const navSecrets = [
+  const navAgent = [
     {
-      title: "SSH keys",
-      url: "/organization/ssh-keys",
-      icon: KeyRoundIcon,
-      isActive: pathname?.includes("/organization/ssh-keys"),
+      title: "Configuration",
+      url: "/organization/settings/agent",
+      icon: MousePointerClickIcon,
+      isActive: pathname === "/organization/settings/agent",
       visible: canViewSettings === true,
+      locked: false,
+    },
+    {
+      title: "Telemetry",
+      url: "/organization/settings/agent/telemetry",
+      icon: RadioTowerIcon,
+      isActive: pathname?.startsWith("/organization/settings/agent/telemetry"),
+      visible: canViewSettings === true,
+      locked: false,
     },
   ]
 
@@ -188,12 +233,12 @@ export function OrganizationSidebar({
           </SidebarGroup>
         )}
 
-        {navSecrets.some((item) => item.visible === true) && (
+        {navAgent.some((item) => item.visible === true) && (
           <SidebarGroup>
-            <SidebarGroupLabel>Secrets</SidebarGroupLabel>
+            <SidebarGroupLabel>Agent</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {navSecrets
+                {navAgent
                   .filter((item) => item.visible === true)
                   .map((item) => (
                     <SidebarMenuItem key={item.title}>
@@ -203,6 +248,34 @@ export function OrganizationSidebar({
                           <span>{item.title}</span>
                         </Link>
                       </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {navCustomRegistry.some((item) => item.visible === true) && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Custom registry</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {navCustomRegistry
+                  .filter((item) => item.visible === true)
+                  .map((item) => (
+                    <SidebarMenuItem key={item.title}>
+                      <SidebarMenuButton asChild isActive={item.isActive}>
+                        <Link href={item.url}>
+                          <item.icon />
+                          <span>{item.title}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                      {item.locked ? (
+                        <SidebarMenuBadge>
+                          <LockIcon aria-hidden="true" className="size-3.5" />
+                          <span className="sr-only">Requires upgrade</span>
+                        </SidebarMenuBadge>
+                      ) : null}
                     </SidebarMenuItem>
                   ))}
               </SidebarMenu>

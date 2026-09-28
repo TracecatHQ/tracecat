@@ -7,7 +7,18 @@ import { ControlsHeader } from "@/components/nav/controls-header"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { ResizableSidebar } from "@/components/ui/resizable-sidebar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { useAutoCollapseSidebar } from "@/hooks/use-auto-collapse-sidebar"
 import { useWorkspaceChatOpen } from "@/hooks/use-workspace-chat-open"
+
+/**
+ * Collapses the left nav on narrow viewports. A component rather than a
+ * direct hook call because it needs the sidebar context, which only exists
+ * inside `SidebarProvider`.
+ */
+function AutoCollapseSidebar() {
+  useAutoCollapseSidebar()
+  return null
+}
 
 export default function CaseDetailLayout({
   children,
@@ -25,6 +36,7 @@ export default function CaseDetailLayout({
 
   return (
     <SidebarProvider>
+      <AutoCollapseSidebar />
       <AppSidebar />
       {/* Case content inset */}
       <SidebarInset className="flex-1 min-w-0 mr-px">

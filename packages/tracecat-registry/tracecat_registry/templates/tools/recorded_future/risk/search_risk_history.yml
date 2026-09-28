@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Search risk history
+  description: Search for risk history of score, criticality and risk rules for entities for a specific date range. The response includes actual risks (when removed date is absent) and historical risks (when removed date is in requested date range). Calls POST /risk/history directly.
+  display_group: Recorded Future
+  doc_url: https://docs.recordedfuture.com/reference/risk-search-risk-history
+  namespace: tools.recorded_future
+  name: search_risk_history
+  secrets:
+    - name: recorded_future
+      keys: ["RECORDED_FUTURE_API_KEY"]
+  expects:
+    entities:
+      type: list[str]
+      description: Entity ids to return risk history for.
+    from:
+      type: datetime | None
+      description: Default value is minus 30 days from the to date or current date if the to date is missing.
+      default: null
+    to:
+      type: datetime | None
+      description: Default value is plus 30 days from the from date or current date if the from date is missing.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Recorded Future API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.recorded_future.base_url || "https://api.recordedfuture.com" }}/risk/history
+        method: POST
+        headers:
+          Accept: application/json
+          X-RFToken: ${{ SECRETS.recorded_future.RECORDED_FUTURE_API_KEY }}
+          Content-Type: application/json
+        payload:
+          entities: ${{ inputs.entities }}
+          from: ${{ inputs.from }}
+          to: ${{ inputs.to }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,59 @@
+type: action
+definition:
+  title: List rule history
+  description: List history across Sublime rules using API-native filters.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/listrulehistory
+  namespace: tools.sublime
+  name: list_rule_history
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    classification_created_at_gte:
+      type: datetime
+      description: Filter by classifications made after this datetime. Results are limited to the most recent 180 days.
+    classification_created_at_lte:
+      type: datetime
+      description: Filter by classifications made before this datetime. Results are limited to the most recent 180 days.
+    active:
+      type: bool | None
+      description: Restrict to rules that are active
+      default: null
+    count:
+      type: int | None
+      description: Number of results to return
+      default: null
+    in_feed:
+      type: bool | None
+      description: Restrict to rules that are in a feed
+      default: null
+    offset:
+      type: int | None
+      description: Offset from the first result
+      default: null
+    type:
+      type: list[str] | None
+      description: Restrict to rules that have one of the given types. One of 'detection', 'triage', 'dlp'.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/rules/rule-history
+        method: GET
+        params:
+          "classification_created_at[gte]": ${{ inputs.classification_created_at_gte }}
+          "classification_created_at[lte]": ${{ inputs.classification_created_at_lte }}
+          active: ${{ inputs.active }}
+          count: ${{ inputs.count }}
+          in_feed: ${{ inputs.in_feed }}
+          offset: ${{ inputs.offset }}
+          type: ${{ inputs.type }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+  returns: ${{ steps.request.result.data }}

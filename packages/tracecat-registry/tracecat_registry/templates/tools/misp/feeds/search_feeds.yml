@@ -1,0 +1,54 @@
+type: action
+definition:
+  title: Search feeds
+  description: List configured MISP feeds or search their cached threat intelligence for an indicator.
+  display_group: MISP
+  doc_url: https://www.misp-project.org/openapi/#tag/Feeds
+  namespace: tools.misp
+  name: search_feeds
+  secrets:
+    - name: misp
+      keys: ["MISP_API_KEY"]
+  expects:
+    value:
+      type: str | None
+      description: Indicator to search in cached feeds. Omit to list configured feeds.
+      default: null
+    base_url:
+      type: str | None
+      description: MISP base URL. Falls back to VARS.misp.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: build_request
+      action: core.script.run_python
+      args:
+        inputs:
+          value: ${{ inputs.value }}
+        script: |
+          def main(value):
+              if value:
+                  return {
+                      "method": "POST",
+                      "path": "/feeds/searchCaches",
+                      "payload": {"value": value},
+                  }
+              return {
+                  "method": "GET",
+                  "path": "/feeds/index",
+                  "payload": None,
+              }
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.misp.base_url }}${{ steps.build_request.result.path }}
+        method: ${{ steps.build_request.result.method }}
+        payload: ${{ steps.build_request.result.payload }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ${{ SECRETS.misp.MISP_API_KEY }}
+          Accept: application/json
+  returns: ${{ steps.request.result.data }}

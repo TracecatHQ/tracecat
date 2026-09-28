@@ -12,22 +12,152 @@ import contextlib
 import json
 import logging
 import os
+import re
+import resource
 import socket
 import sys
 from pathlib import Path
-from typing import BinaryIO, NotRequired, TypedDict
+from typing import BinaryIO, Literal, NotRequired, TypedDict
 
 LOGGER = logging.getLogger(__name__)
 
 INIT_PAYLOAD_ENV_VAR = "TRACECAT__AGENT_INIT_PAYLOAD_PATH"
 LLM_SOCKET_ENV_VAR = "TRACECAT__AGENT_LLM_SOCKET_PATH"
 MCP_SOCKET_ENV_VAR = "TRACECAT__AGENT_MCP_SOCKET_PATH"
+OTEL_SOCKET_ENV_VAR = "TRACECAT__AGENT_OTEL_SOCKET_PATH"
 DEFAULT_AGENT_RUNTIME_DIR = Path("/run/tracecat")
 DEFAULT_LLM_SOCKET_PATH = str(DEFAULT_AGENT_RUNTIME_DIR / "llm.sock")
 DEFAULT_MCP_SOCKET_PATH = str(DEFAULT_AGENT_RUNTIME_DIR / "mcp.sock")
-LLM_BRIDGE_HOST = "127.0.0.1"
+DEFAULT_OTEL_SOCKET_PATH = str(DEFAULT_AGENT_RUNTIME_DIR / "otel.sock")
+BRIDGE_HOST = "127.0.0.1"
 TRUSTED_MCP_BRIDGE_PATH = "/mcp"
-MAX_BODY_SIZE = 10 * 1024 * 1024
+LLM_MAX_BODY_SIZE = 10 * 1024 * 1024
+OTEL_MAX_BODY_SIZE = 16 * 1024 * 1024
+
+
+# Shared with the host proxy. Keep this reader here so the copied, standalone
+# shim and the host use identical framing rules without extra jailed imports.
+HTTP_HEADER_LIMIT = 64 * 1024
+
+
+class HTTPRequestError(ValueError):
+    """A request framing error with a safe, client-facing message."""
+
+    def __init__(self, message: str, status_code: int = 400) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+async def _read_http_line(reader: asyncio.StreamReader) -> bytes:
+    try:
+        line = await reader.readline()
+    except ValueError:
+        raise HTTPRequestError("HTTP line too long", 431) from None
+    if not line.endswith(b"\r\n"):
+        raise HTTPRequestError("Incomplete HTTP request")
+    return line
+
+
+def _http_header_name(line: bytes) -> bytes:
+    name, sep, value = line[:-2].partition(b":")
+    if not sep or re.fullmatch(rb"[!#$%&'*+.^_`|~0-9A-Za-z-]+", name) is None:
+        raise HTTPRequestError("Invalid HTTP header")
+    if any(byte < 32 and byte != 9 or byte == 127 for byte in value):
+        raise HTTPRequestError("Invalid HTTP header")
+    return name.lower()
+
+
+async def _read_chunked_body(reader: asyncio.StreamReader, max_body_size: int) -> bytes:
+    body = bytearray()
+    while True:
+        line = await _read_http_line(reader)
+        size_text = line[:-2].split(b";", 1)[0]
+        if re.fullmatch(rb"[0-9a-fA-F]+", size_text) is None:
+            raise HTTPRequestError("Invalid HTTP chunk size")
+        size = int(size_text, 16)
+        if size > max_body_size - len(body):
+            raise HTTPRequestError("Request body too large", 413)
+        if size == 0:
+            break
+        body.extend(await reader.readexactly(size))
+        if await reader.readexactly(2) != b"\r\n":
+            raise HTTPRequestError("Invalid HTTP chunk terminator")
+
+    # Trailers are consumed but never promoted into trusted request headers.
+    trailer_size = 0
+    while True:
+        line = await _read_http_line(reader)
+        trailer_size += len(line)
+        if trailer_size > HTTP_HEADER_LIMIT:
+            raise HTTPRequestError("HTTP trailers too large", 431)
+        if line == b"\r\n":
+            return bytes(body)
+        if _http_header_name(line) in {b"content-length", b"transfer-encoding"}:
+            raise HTTPRequestError("Invalid HTTP framing trailer")
+
+
+async def read_http_request(
+    reader: asyncio.StreamReader, *, max_body_size: int
+) -> tuple[bytes, bytes] | None:
+    """Read one bounded HTTP request, normalizing chunked bodies to Content-Length.
+
+    Returns the header block and decoded body, or None for a clean EOF. Rejects
+    ambiguous framing before forwarding anything to the upstream socket.
+    """
+    # A clean EOF is normal; EOF anywhere after the request starts is truncated.
+    try:
+        request_line = await reader.readline()
+    except ValueError:
+        raise HTTPRequestError("HTTP line too long", 431) from None
+    if not request_line:
+        return None
+    if not request_line.endswith(b"\r\n"):
+        raise HTTPRequestError("Incomplete HTTP request")
+    header_size = len(request_line)
+    headers: list[tuple[bytes, bytes]] = []
+    framing: dict[bytes, bytes] = {}
+    while True:
+        line = await _read_http_line(reader)
+        header_size += len(line)
+        if header_size > HTTP_HEADER_LIMIT:
+            raise HTTPRequestError("HTTP headers too large", 431)
+        if line == b"\r\n":
+            break
+        name = _http_header_name(line)
+        headers.append((name, line))
+        if name in {b"content-length", b"transfer-encoding"}:
+            if name in framing:
+                raise HTTPRequestError("Duplicate HTTP framing header")
+            framing[name] = line[:-2].split(b":", 1)[1].strip()
+
+    length = framing.get(b"content-length")
+    encoding = framing.get(b"transfer-encoding")
+    if encoding is not None:
+        if length is not None:
+            raise HTTPRequestError("Ambiguous HTTP request framing")
+        if encoding.lower() != b"chunked":
+            raise HTTPRequestError("Unsupported HTTP transfer encoding")
+        body = await _read_chunked_body(reader, max_body_size)
+        header_block = request_line + b"".join(
+            line
+            for name, line in headers
+            if name not in {b"transfer-encoding", b"trailer"}
+        )
+        header_block += f"Content-Length: {len(body)}\r\n\r\n".encode()
+        LOGGER.debug("Decoded chunked HTTP request (%d body bytes)", len(body))
+        return header_block, body
+
+    if length is not None and re.fullmatch(rb"[0-9]+", length) is None:
+        raise HTTPRequestError("Invalid HTTP content length")
+    # Bound the conversion too: oversized decimal values need no allocation.
+    significant_length = (length or b"0").lstrip(b"0") or b"0"
+    if len(significant_length) > len(str(max_body_size)):
+        raise HTTPRequestError("Request body too large", 413)
+    content_length = int(significant_length)
+    if content_length > max_body_size:
+        raise HTTPRequestError("Request body too large", 413)
+    body = await reader.readexactly(content_length)
+    return request_line + b"".join(line for _, line in headers) + b"\r\n", body
 
 
 class ClaudeShimInitPayload(TypedDict):
@@ -40,18 +170,28 @@ class ClaudeShimInitPayload(TypedDict):
     mcp_bridge_fd: NotRequired[int | None]
 
 
-class LLMBridge:
-    """HTTP bridge that forwards localhost traffic to a Unix socket."""
+class SandboxSocketBridge:
+    """HTTP bridge: 127.0.0.1:<port> -> UDS at ``socket_path``.
+
+    Holds no credentials. Normalizes request framing and enforces the body cap
+    and UDS-failure mode passed at construction.
+    """
 
     def __init__(
         self,
         *,
         socket_path: Path,
         port: int = 0,
+        max_body_size: int,
+        on_uds_failure: Literal["error", "drop"],
+        log_label: str,
         listener_fd: int | None = None,
     ) -> None:
         self.socket_path = socket_path
         self._requested_port = port
+        self._max_body_size = max_body_size
+        self._on_uds_failure = on_uds_failure
+        self._log_label = log_label
         self._listener_fd = listener_fd
         self._actual_port: int | None = None
         self._server: asyncio.Server | None = None
@@ -62,7 +202,7 @@ class LLMBridge:
         if self._listener_fd is None:
             self._server = await asyncio.start_server(
                 self._handle_connection,
-                host=LLM_BRIDGE_HOST,
+                host=BRIDGE_HOST,
                 port=self._requested_port,
             )
         else:
@@ -73,13 +213,14 @@ class LLMBridge:
                 sock=listener,
             )
         if not self._server.sockets:
-            raise RuntimeError("LLM bridge did not expose a listening socket")
+            raise RuntimeError(f"{self._log_label} did not expose a listening socket")
         actual_port = int(self._server.sockets[0].getsockname()[1])
         self._actual_port = actual_port
         self._serve_task = asyncio.create_task(self._server.serve_forever())
         self._serve_task.add_done_callback(self._on_serve_done)
         LOGGER.info(
-            "LLM bridge started",
+            "%s started",
+            self._log_label,
             extra={
                 "requested_port": self._requested_port,
                 "actual_port": actual_port,
@@ -100,7 +241,7 @@ class LLMBridge:
             self._server.close()
             await self._server.wait_closed()
             self._server = None
-            LOGGER.info("LLM bridge stopped")
+            LOGGER.info("%s stopped", self._log_label)
 
     def _on_serve_done(self, task: asyncio.Task[None]) -> None:
         """Log unexpected bridge task failures."""
@@ -113,14 +254,14 @@ class LLMBridge:
         if isinstance(exc, RuntimeError) and str(exc) == "server is closed":
             return
         if exc:
-            LOGGER.error("LLM bridge server failed: %s", exc)
+            LOGGER.error("%s server failed: %s", self._log_label, exc)
 
     async def _handle_connection(
         self,
         client_reader: asyncio.StreamReader,
         client_writer: asyncio.StreamWriter,
     ) -> None:
-        """Forward one HTTP client connection to the Unix socket proxy."""
+        """Forward one HTTP client connection to the Unix socket."""
         try:
             request_data = await self._read_http_request(client_reader)
             if not request_data:
@@ -131,80 +272,64 @@ class LLMBridge:
                     str(self.socket_path)
                 )
             except (OSError, ConnectionRefusedError) as exc:
-                LOGGER.error("Failed to connect to LLM socket: %s", exc)
-                await self._send_error_response(
-                    client_writer,
-                    status_code=502,
-                    message="LLM proxy unavailable",
-                )
+                await self._handle_uds_failure(client_writer, exc)
                 return
 
             try:
                 sock_writer.write(request_data)
                 await sock_writer.drain()
-                await self._stream_response(sock_reader, client_writer)
+                while chunk := await sock_reader.read(8192):
+                    client_writer.write(chunk)
+                    await client_writer.drain()
             finally:
                 sock_writer.close()
-                await sock_writer.wait_closed()
+                with contextlib.suppress(Exception):
+                    await sock_writer.wait_closed()
 
-        except asyncio.IncompleteReadError:
-            LOGGER.debug("Client disconnected during request")
-        except Exception as exc:
-            LOGGER.exception("LLM bridge error: %s", exc)
-            with contextlib.suppress(Exception):
+        except HTTPRequestError as exc:
+            LOGGER.warning("%s rejected HTTP framing: %s", self._log_label, exc)
+            with contextlib.suppress(ConnectionError):
                 await self._send_error_response(
-                    client_writer,
-                    status_code=500,
-                    message="Internal bridge error",
+                    client_writer, status_code=exc.status_code, message=str(exc)
                 )
+        except asyncio.IncompleteReadError:
+            LOGGER.debug("%s client disconnected during request", self._log_label)
+        except Exception as exc:
+            LOGGER.warning("%s error: %s", self._log_label, exc)
+            if self._on_uds_failure == "error":
+                with contextlib.suppress(Exception):
+                    await self._send_error_response(
+                        client_writer,
+                        status_code=500,
+                        message="Internal bridge error",
+                    )
         finally:
             with contextlib.suppress(Exception):
                 client_writer.close()
                 await client_writer.wait_closed()
 
+    async def _handle_uds_failure(
+        self,
+        client_writer: asyncio.StreamWriter,
+        exc: Exception,
+    ) -> None:
+        if self._on_uds_failure == "error":
+            LOGGER.error("%s failed to connect to UDS: %s", self._log_label, exc)
+            await self._send_error_response(
+                client_writer,
+                status_code=502,
+                message="Upstream socket unavailable",
+            )
+        else:
+            LOGGER.warning("%s failed to connect to UDS: %s", self._log_label, exc)
+
     async def _read_http_request(self, reader: asyncio.StreamReader) -> bytes | None:
         """Read a full HTTP request including headers and optional body."""
-        headers_data = b""
-        while True:
-            line = await reader.readline()
-            if not line:
-                return None
-            headers_data += line
-            if line == b"\r\n":
-                break
-
-        content_length = 0
-        for line in headers_data.split(b"\r\n"):
-            lower_line = line.lower()
-            if lower_line.startswith(b"content-length:"):
-                with contextlib.suppress(ValueError, IndexError):
-                    content_length = int(line.split(b":", 1)[1].strip())
-                break
-
-        if content_length > MAX_BODY_SIZE:
-            LOGGER.warning(
-                "Request body too large",
-                extra={
-                    "content_length": content_length,
-                    "max_size": MAX_BODY_SIZE,
-                },
-            )
+        request = await read_http_request(reader, max_body_size=self._max_body_size)
+        if request is None:
             return None
-
-        body = b""
-        if content_length > 0:
-            body = await reader.readexactly(content_length)
-        return headers_data + body
-
-    async def _stream_response(
-        self,
-        sock_reader: asyncio.StreamReader,
-        client_writer: asyncio.StreamWriter,
-    ) -> None:
-        """Stream the Unix-socket response back to the HTTP client."""
-        while chunk := await sock_reader.read(8192):
-            client_writer.write(chunk)
-            await client_writer.drain()
+        headers, body = request
+        return headers + body
 
     async def _send_error_response(
         self,
@@ -215,6 +340,9 @@ class LLMBridge:
     ) -> None:
         """Send a minimal JSON HTTP error response."""
         status_messages = {
+            400: "Bad Request",
+            413: "Content Too Large",
+            431: "Request Header Fields Too Large",
             500: "Internal Server Error",
             502: "Bad Gateway",
             503: "Service Unavailable",
@@ -234,7 +362,7 @@ class LLMBridge:
 
 
 def _trusted_mcp_bridge_url(port: int) -> str:
-    return f"http://{LLM_BRIDGE_HOST}:{port}{TRUSTED_MCP_BRIDGE_PATH}"
+    return f"http://{BRIDGE_HOST}:{port}{TRUSTED_MCP_BRIDGE_PATH}"
 
 
 def _rewrite_mcp_bridge_command_port(
@@ -252,26 +380,52 @@ def _rewrite_mcp_bridge_command_port(
     return [arg.replace(requested_url, actual_url) for arg in command]
 
 
-async def run_sandboxed_claude_shim() -> None:
-    """Read shim config, start the LLM bridge, and proxy Claude stdio."""
-    llm_bridge: LLMBridge | None = None
-    mcp_bridge: LLMBridge | None = None
+def _forward_exit_code(return_code: int) -> int:
+    """Map the Claude child's termination onto the shim's own exit code.
+
+    asyncio reports a signal death as a negative return code. Forward it as
+    ``128 + signal`` so the host observes the same exit-code contract nsjail
+    applies to its direct child; a normal exit code passes through unchanged.
+    """
+    if return_code < 0:
+        return 128 - return_code
+    return return_code
+
+
+async def run_sandboxed_claude_shim() -> int:
+    """Read shim config, start the LLM bridge, and proxy Claude stdio.
+
+    Returns:
+        The exit code the shim must exit with, forwarding the Claude child's
+        termination so the host can attribute a signal death.
+    """
+    llm_bridge: SandboxSocketBridge | None = None
+    mcp_bridge: SandboxSocketBridge | None = None
+    otel_bridge: SandboxSocketBridge | None = None
     process: asyncio.subprocess.Process | None = None
     stdout_task: asyncio.Task[None] | None = None
     stderr_task: asyncio.Task[None] | None = None
 
     try:
         init_payload = await _read_init_payload(_resolve_init_payload_path())
-        llm_bridge = LLMBridge(socket_path=_resolve_llm_socket_path(), port=0)
+        llm_socket = Path(os.environ.get(LLM_SOCKET_ENV_VAR) or DEFAULT_LLM_SOCKET_PATH)
+        llm_bridge = SandboxSocketBridge(
+            socket_path=llm_socket,
+            port=0,
+            max_body_size=LLM_MAX_BODY_SIZE,
+            on_uds_failure="error",
+            log_label="LLM bridge",
+        )
         bridge_port = await llm_bridge.start()
-        LOGGER.info("LLM bridge started for shim on port %s", bridge_port)
-        mcp_bridge = LLMBridge(
+        mcp_bridge = SandboxSocketBridge(
             socket_path=_resolve_mcp_socket_path(),
             port=init_payload["mcp_bridge_port"],
+            max_body_size=LLM_MAX_BODY_SIZE,
+            on_uds_failure="error",
+            log_label="MCP bridge",
             listener_fd=init_payload.get("mcp_bridge_fd"),
         )
         mcp_bridge_port = await mcp_bridge.start()
-        LOGGER.info("MCP bridge started for shim on port %s", mcp_bridge_port)
         command = _rewrite_mcp_bridge_command_port(
             init_payload["command"],
             requested_port=init_payload["mcp_bridge_port"],
@@ -284,7 +438,37 @@ async def run_sandboxed_claude_shim() -> None:
         }
         child_env["TRACECAT__LLM_BRIDGE_PORT"] = str(bridge_port)
         child_env["TRACECAT__MCP_BRIDGE_PORT"] = str(mcp_bridge_port)
-        child_env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{bridge_port}"
+        child_env["ANTHROPIC_BASE_URL"] = f"http://{BRIDGE_HOST}:{bridge_port}"
+
+        # Telemetry path: start the OTel bridge before spawning Claude so the
+        # SDK's exporters connect to the bridge instead of leaving the sandbox.
+        # The host-side relay holds tenant headers and the real collector URL.
+        if child_env.get("CLAUDE_CODE_ENABLE_TELEMETRY") == "1":
+            otel_socket = Path(
+                os.environ.get(OTEL_SOCKET_ENV_VAR) or DEFAULT_OTEL_SOCKET_PATH
+            )
+            otel_bridge = SandboxSocketBridge(
+                socket_path=otel_socket,
+                port=0,
+                max_body_size=OTEL_MAX_BODY_SIZE,
+                on_uds_failure="drop",
+                log_label="OTel bridge",
+            )
+            try:
+                otel_port = await otel_bridge.start()
+            except Exception as exc:
+                LOGGER.warning(
+                    "Failed to start OTel bridge; telemetry disabled: %s", exc
+                )
+                with contextlib.suppress(Exception):
+                    await otel_bridge.stop()
+                otel_bridge = None
+                child_env.pop("CLAUDE_CODE_ENABLE_TELEMETRY", None)
+            else:
+                child_env["OTEL_EXPORTER_OTLP_ENDPOINT"] = (
+                    f"http://{BRIDGE_HOST}:{otel_port}"
+                )
+
         process = await asyncio.create_subprocess_exec(
             *command,
             stdin=asyncio.subprocess.PIPE,
@@ -310,7 +494,8 @@ async def run_sandboxed_claude_shim() -> None:
         await stdout_task
         await stderr_task
         if return_code != 0:
-            raise RuntimeError(f"Claude subprocess exited with code {return_code}")
+            LOGGER.error("Claude subprocess exited with code %s", return_code)
+        return _forward_exit_code(return_code)
 
     finally:
         if stdout_task is not None and not stdout_task.done():
@@ -329,6 +514,8 @@ async def run_sandboxed_claude_shim() -> None:
             await llm_bridge.stop()
         if mcp_bridge is not None:
             await mcp_bridge.stop()
+        if otel_bridge is not None:
+            await otel_bridge.stop()
 
 
 async def _read_init_payload(init_path: Path) -> ClaudeShimInitPayload:
@@ -377,11 +564,6 @@ def _resolve_init_payload_path() -> Path:
     if init_payload_path := os.environ.get(INIT_PAYLOAD_ENV_VAR):
         return Path(init_payload_path)
     raise RuntimeError(f"{INIT_PAYLOAD_ENV_VAR} is not set")
-
-
-def _resolve_llm_socket_path() -> Path:
-    """Resolve the mounted LLM socket path."""
-    return Path(os.environ.get(LLM_SOCKET_ENV_VAR) or DEFAULT_LLM_SOCKET_PATH)
 
 
 def _resolve_mcp_socket_path() -> Path:
@@ -462,13 +644,50 @@ async def _pump_stream(
         await loop.run_in_executor(None, dst.flush)
 
 
+def _enforce_nproc_limit() -> None:
+    """Cap the jail's process count via RLIMIT_NPROC.
+
+    nsjail cannot enforce rlimit_nproc when it creates a user namespace
+    (clone_newuser), so the host injects the configured limit via
+    TRACECAT__SANDBOX_RLIMIT_NPROC and this trusted shim applies it before
+    starting the Claude runtime. Lowering a hard rlimit is permitted for
+    unprivileged processes, and the limit is enforced per real UID, which
+    covers every process in the jail.
+    """
+    raw = os.environ.get("TRACECAT__SANDBOX_RLIMIT_NPROC")
+    if not raw:
+        return
+    try:
+        limit = int(raw)
+        if limit <= 0:
+            raise ValueError(f"non-positive cap: {limit}")
+        _soft, current_hard = resource.getrlimit(resource.RLIMIT_NPROC)
+        finite = current_hard != resource.RLIM_INFINITY
+        # Already capped when the inherited hard cap is at or below the
+        # requested limit (including 0 = no child processes), or when a
+        # stricter finite soft limit is in force: raising either would only
+        # relax enforcement.
+        already_capped = 0 <= current_hard <= limit if finite else 0 < _soft <= limit
+        if not already_capped:
+            resource.setrlimit(resource.RLIMIT_NPROC, (limit, limit))
+    except (ValueError, OSError, OverflowError) as exc:
+        # Values are host-injected; a malformed value or an unenforceable
+        # rlimit means the process cap is not in place. Exit instead of
+        # running untrusted code without the enforced cap.
+        raise SystemExit(
+            f"_enforce_nproc_limit: could not enforce RLIMIT_NPROC={raw!r}: "
+            f"{type(exc).__name__}"
+        ) from exc
+
+
 def main() -> None:
     """CLI entry point for the sandbox shim."""
+    _enforce_nproc_limit()
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "INFO").upper(),
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    asyncio.run(run_sandboxed_claude_shim())
+    sys.exit(asyncio.run(run_sandboxed_claude_shim()))
 
 
 if __name__ == "__main__":

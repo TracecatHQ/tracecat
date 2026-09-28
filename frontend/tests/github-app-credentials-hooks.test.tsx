@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { renderHook } from "@testing-library/react"
 import type { ReactNode } from "react"
 import type { GitHubAppRepository } from "@/client"
@@ -14,6 +13,7 @@ import {
   useGitHubAppCredentials,
   useGitLabTokenCredentials,
 } from "@/lib/hooks"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => {
   const actual = jest.requireActual("@/client")

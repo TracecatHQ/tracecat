@@ -1,0 +1,53 @@
+type: action
+definition:
+  title: Run EQL query
+  description: Run an API-native Event Query Language query for event correlation and threat hunting.
+  display_group: Elasticsearch
+  doc_url: https://www.elastic.co/docs/api/doc/elasticsearch/operation/operation-eql-search
+  namespace: tools.elasticsearch
+  name: eql
+  secrets:
+    - name: elasticsearch
+      keys: ["ELASTIC_API_KEY"]
+  expects:
+    index:
+      type: str
+      description: Index, data stream, alias, or comma-separated target pattern to search.
+    payload:
+      type: dict[str, Any]
+      description: API-native EQL JSON request body, including the query string.
+    params:
+      type: dict[str, Any] | None
+      description: Optional native EQL query parameters.
+      default: null
+    base_url:
+      type: str | None
+      description: Elasticsearch base URL (e.g. https://localhost:9200).
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: build_path
+      action: core.script.run_python
+      args:
+        inputs:
+          index: ${{ inputs.index }}
+        script: |
+          from urllib.parse import quote
+
+          def main(index):
+              return f"/{quote(index, safe='*,-_')}/_eql/search"
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.elasticsearch.base_url }}${{ steps.build_path.result }}
+        method: POST
+        params: ${{ inputs.params }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ApiKey ${{ SECRETS.elasticsearch.ELASTIC_API_KEY }}
+          Content-Type: application/json
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result.data }}

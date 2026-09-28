@@ -1,5 +1,6 @@
 """Unit tests for registry resolver module."""
 
+import asyncio
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -102,6 +103,113 @@ class TestBuildImplIndex:
         assert impl.origin == "custom_registry"
 
 
+class TestManifestCache:
+    """Tests for cache scoping, coalescing, and retry behavior."""
+
+    @pytest.mark.anyio
+    async def test_platform_manifest_is_shared_across_organizations(self):
+        manifest = _make_manifest({})
+        entry = registry_resolver.ManifestCacheEntry(manifest=manifest, impl_index={})
+
+        with patch.object(
+            registry_resolver,
+            "_load_manifest_entry",
+            new_callable=AsyncMock,
+            return_value=entry,
+        ) as mock_load:
+            first = await registry_resolver._get_manifest_entry(
+                "tracecat_registry", "v1", uuid.uuid4()
+            )
+            second = await registry_resolver._get_manifest_entry(
+                "tracecat_registry", "v1", uuid.uuid4()
+            )
+
+        assert first is second
+        mock_load.assert_awaited_once_with("tracecat_registry", "v1", None)
+
+    @pytest.mark.anyio
+    async def test_org_manifest_remains_scoped_to_organization(self):
+        manifest = _make_manifest({})
+        entry = registry_resolver.ManifestCacheEntry(manifest=manifest, impl_index={})
+        first_org = uuid.uuid4()
+        second_org = uuid.uuid4()
+
+        with patch.object(
+            registry_resolver,
+            "_load_manifest_entry",
+            new_callable=AsyncMock,
+            return_value=entry,
+        ) as mock_load:
+            await registry_resolver._get_manifest_entry(
+                "custom_registry", "v1", first_org
+            )
+            await registry_resolver._get_manifest_entry(
+                "custom_registry", "v1", second_org
+            )
+
+        assert mock_load.await_count == 2
+        mock_load.assert_any_await("custom_registry", "v1", first_org)
+        mock_load.assert_any_await("custom_registry", "v1", second_org)
+
+    @pytest.mark.anyio
+    async def test_concurrent_platform_misses_are_coalesced(self):
+        manifest = _make_manifest({})
+        entry = registry_resolver.ManifestCacheEntry(manifest=manifest, impl_index={})
+        load_started = asyncio.Event()
+        release_load = asyncio.Event()
+        load_count = 0
+
+        async def load_once(*_args: object) -> registry_resolver.ManifestCacheEntry:
+            nonlocal load_count
+            load_count += 1
+            load_started.set()
+            await release_load.wait()
+            return entry
+
+        organization_ids = [uuid.uuid4() for _ in range(20)]
+        with patch.object(
+            registry_resolver,
+            "_load_manifest_entry",
+            side_effect=load_once,
+        ):
+            tasks = [
+                asyncio.create_task(
+                    registry_resolver._get_manifest_entry(
+                        "tracecat_registry", "v1", organization_id
+                    )
+                )
+                for organization_id in organization_ids
+            ]
+            await load_started.wait()
+            release_load.set()
+            results = await asyncio.gather(*tasks)
+
+        assert load_count == 1
+        assert all(result is entry for result in results)
+
+    @pytest.mark.anyio
+    async def test_failed_manifest_load_can_retry(self):
+        manifest = _make_manifest({})
+        entry = registry_resolver.ManifestCacheEntry(manifest=manifest, impl_index={})
+
+        with patch.object(
+            registry_resolver,
+            "_load_manifest_entry",
+            new_callable=AsyncMock,
+            side_effect=[RegistryError("temporary failure"), entry],
+        ) as mock_load:
+            with pytest.raises(RegistryError, match="temporary failure"):
+                await registry_resolver._get_manifest_entry(
+                    "tracecat_registry", "v1", uuid.uuid4()
+                )
+            result = await registry_resolver._get_manifest_entry(
+                "tracecat_registry", "v1", uuid.uuid4()
+            )
+
+        assert result is entry
+        assert mock_load.await_count == 2
+
+
 class TestResolveAction:
     """Tests for resolve_action function."""
 
@@ -130,7 +238,10 @@ class TestResolveAction:
             registry_resolver,
             "_get_manifest_entry",
             new_callable=AsyncMock,
-            return_value=(manifest, impl_index),
+            return_value=registry_resolver.ManifestCacheEntry(
+                manifest=manifest,
+                impl_index=impl_index,
+            ),
         ):
             action_impl = await registry_resolver.resolve_action(
                 "core.transform.reshape",
@@ -232,7 +343,10 @@ class TestPrefetchLock:
                 registry_resolver,
                 "_get_manifest_entry",
                 new_callable=AsyncMock,
-                return_value=(manifest, {}),
+                return_value=registry_resolver.ManifestCacheEntry(
+                    manifest=manifest,
+                    impl_index={},
+                ),
             ) as mock_get_manifest_entry,
         ):
             await registry_resolver.prefetch_lock(lock, organization_id=uuid.uuid4())
@@ -264,7 +378,10 @@ class TestPrefetchLock:
                 registry_resolver,
                 "_get_manifest_entry",
                 new_callable=AsyncMock,
-                return_value=(manifest, {}),
+                return_value=registry_resolver.ManifestCacheEntry(
+                    manifest=manifest,
+                    impl_index={},
+                ),
             ) as mock_get_manifest_entry,
         ):
             await registry_resolver.prefetch_lock(lock, organization_id=organization_id)
@@ -341,7 +458,10 @@ class TestPrefetchLock:
                 registry_resolver,
                 "_get_manifest_entry",
                 new_callable=AsyncMock,
-                return_value=(manifest, {}),
+                return_value=registry_resolver.ManifestCacheEntry(
+                    manifest=manifest,
+                    impl_index={},
+                ),
             ) as mock_get_manifest_entry,
         ):
             await registry_resolver.prefetch_lock(lock, organization_id=uuid.uuid4())
@@ -385,7 +505,10 @@ class TestCollectActionSecretsFromManifest:
             registry_resolver,
             "_get_manifest_entry",
             new_callable=AsyncMock,
-            return_value=(manifest, impl_index),
+            return_value=registry_resolver.ManifestCacheEntry(
+                manifest=manifest,
+                impl_index=impl_index,
+            ),
         ):
             secrets = await registry_resolver.collect_action_secrets_from_manifest(
                 "tools.api.call",

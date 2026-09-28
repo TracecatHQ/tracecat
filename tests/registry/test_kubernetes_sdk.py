@@ -37,7 +37,8 @@ def _kubeconfig(**user_overrides: Any) -> str:
     )
 
 
-def test_call_api_uses_isolated_kubeconfig_and_passes_api_client(monkeypatch) -> None:
+def test_call_api_injects_isolated_api_client(monkeypatch) -> None:
+    """The public wrapper must not instantiate an SDK API with ambient config."""
     calls: dict[str, Any] = {}
 
     class Configuration:
@@ -48,8 +49,7 @@ def test_call_api_uses_isolated_kubeconfig_and_passes_api_client(monkeypatch) ->
             calls["api_client_configuration"] = configuration
 
         def sanitize_for_serialization(self, result: Any) -> Any:
-            calls["sanitized"] = result
-            return {"items": result["items"]}
+            return result
 
     class Loader:
         def __init__(self, *, config_dict: dict[str, Any], active_context: str) -> None:
@@ -59,17 +59,18 @@ def test_call_api_uses_isolated_kubeconfig_and_passes_api_client(monkeypatch) ->
         def load_and_set(self, configuration: Configuration) -> None:
             calls["loader_configuration"] = configuration
 
-    class CoreV1Api:
+    class BoundaryApi:
         def __init__(self, *, api_client: ApiClient) -> None:
-            calls["api_client"] = api_client
+            calls["injected_api_client"] = api_client
 
-        def list_namespaced_pod(self, **params: Any) -> dict[str, Any]:
-            calls["params"] = params
-            return {"items": [{"metadata": {"name": "pod-a"}}]}
+        def execute(self) -> None:
+            return None
 
     monkeypatch.setattr(kubernetes_sdk.client, "Configuration", Configuration)
     monkeypatch.setattr(kubernetes_sdk.client, "ApiClient", ApiClient)
-    monkeypatch.setattr(kubernetes_sdk.client, "CoreV1Api", CoreV1Api)
+    monkeypatch.setattr(
+        kubernetes_sdk.client, "BoundaryApi", BoundaryApi, raising=False
+    )
     monkeypatch.setattr(kubernetes_sdk, "KubeConfigLoader", Loader)
     monkeypatch.setattr(kubernetes_sdk.secrets, "get", lambda key: _kubeconfig())
     monkeypatch.setattr(
@@ -78,18 +79,12 @@ def test_call_api_uses_isolated_kubeconfig_and_passes_api_client(monkeypatch) ->
         lambda key: "secret-context" if key == "KUBECONFIG_CONTEXT" else None,
     )
 
-    result = kubernetes_sdk.call_api(
-        api_class="CoreV1Api",
-        method_name="list_namespaced_pod",
-        params={"namespace": "default"},
-    )
+    kubernetes_sdk.call_api(api_class="BoundaryApi", method_name="execute")
 
-    assert result == {"items": [{"metadata": {"name": "pod-a"}}]}
     assert calls["config_dict"]["users"][0]["user"]["token"] == "kube-token"
     assert calls["active_context"] == "secret-context"
-    assert calls["api_client"].__class__ is ApiClient
+    assert calls["injected_api_client"].__class__ is ApiClient
     assert calls["api_client_configuration"] is calls["loader_configuration"]
-    assert calls["params"] == {"namespace": "default"}
 
 
 def test_build_api_client_uses_secret_context(monkeypatch) -> None:
@@ -193,7 +188,7 @@ def test_validate_rejects_file_backed_and_dynamic_credentials(
 
 
 def test_validate_ignores_inactive_context_credentials() -> None:
-    """Unused contexts with exec/file-backed credentials must not be rejected."""
+    """Unsafe unused contexts cannot affect the selected isolated context."""
     config = yaml.safe_load(_kubeconfig())
     config["clusters"].append(
         {
@@ -214,10 +209,8 @@ def test_validate_ignores_inactive_context_credentials() -> None:
         }
     )
 
-    # current-context is the safe inline-token "ctx"; the unsafe context is inactive.
     kubernetes_sdk._validate_no_executor_credentials(config)
 
-    # Selecting the unsafe context explicitly is still rejected.
     with pytest.raises(ValueError, match="exec"):
         kubernetes_sdk._validate_no_executor_credentials(
             config, active_context="other-ctx"

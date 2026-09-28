@@ -5,6 +5,7 @@ import {
   POST_AUTH_RETURN_URL_COOKIE_NAME,
   serializeClearPostAuthReturnUrlCookie,
 } from "@/lib/auth-return-url"
+import { forwardClientAttributionHeaders } from "@/lib/forwarded-request-headers"
 import { buildUrl } from "@/lib/ss-utils"
 
 /**
@@ -43,12 +44,12 @@ export async function POST(request: NextRequest) {
   }
 
   // Forward the request to the FastAPI backend
-  const headers = {
+  const headers = new Headers({
     "x-tracecat-service-key": process.env.TRACECAT__SERVICE_KEY!,
     "x-tracecat-role-type": "service",
     "x-tracecat-role-service-id": "tracecat-ui",
-  }
-  console.log("Headers", headers)
+  })
+  forwardClientAttributionHeaders(request.headers, headers)
   const backendResponse = await fetch(backendUrl.toString(), {
     method: "POST",
     body: backendFormData,

@@ -311,6 +311,7 @@ export async function uploadFileToSession(
   method: string,
   headers: Record<string, string>
 ): Promise<void> {
+  // Cross-origin presigned host: must be listed in TRACECAT__CSP_CONNECT_SRC_ORIGINS.
   const response = await fetch(uploadUrl, {
     method,
     headers,

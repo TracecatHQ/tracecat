@@ -1,0 +1,28 @@
+type: action
+definition:
+  title: Delete list
+  description: Delete a Sublime list.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/deletelist-1
+  namespace: tools.sublime
+  name: delete_list
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    id:
+      type: str
+      description: List ID.
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/lists/${{ FN.url_encode(inputs.id) }}
+        method: DELETE
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+  returns: ${{ steps.request.result.data }}

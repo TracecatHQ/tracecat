@@ -1,4 +1,4 @@
-import { GIT_SSH_URL_REGEX } from "@/lib/git"
+import { GIT_SSH_URL_REGEX, getRepoRef } from "@/lib/git"
 
 describe("GIT_SSH_URL_REGEX", () => {
   const validUrls = [
@@ -29,5 +29,27 @@ describe("GIT_SSH_URL_REGEX", () => {
 
   it.each(invalidUrls)("rejects invalid git SSH URL %s", (url) => {
     expect(GIT_SSH_URL_REGEX.test(url)).toBe(false)
+  })
+})
+
+describe("getRepoRef", () => {
+  it("returns a ref that contains a slash", () => {
+    expect(
+      getRepoRef("git+ssh://git@github.com/org/repo.git@feature/foo")
+    ).toBe("feature/foo")
+  })
+
+  it("returns a plain branch ref", () => {
+    expect(getRepoRef("git+ssh://git@github.com/org/repo.git@main")).toBe(
+      "main"
+    )
+  })
+
+  it("returns null when the URL has no ref", () => {
+    expect(getRepoRef("git+ssh://git@github.com/org/repo.git")).toBeNull()
+  })
+
+  it("returns null for an unparseable URL", () => {
+    expect(getRepoRef("https://github.com/org/repo.git@main")).toBeNull()
   })
 })

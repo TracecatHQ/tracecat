@@ -1,6 +1,5 @@
 "use client"
 
-import { useQueryClient } from "@tanstack/react-query"
 import type { ChatOnDataCallback, ChatStatus, UIMessage } from "ai"
 import { PanelLeftIcon } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -26,6 +25,7 @@ import { invalidateArtifactQueries } from "@/components/workspace-chat/artifacts
 import { useRemoveSessionArtifact } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceChatArtifacts } from "@/hooks/use-workspace-chat-artifacts"
+import { useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
 import {
   ARTIFACT_DATA_PART_TYPE,

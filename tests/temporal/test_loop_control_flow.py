@@ -15,6 +15,12 @@ from tracecat.dsl.common import RETRY_POLICIES, DSLEntrypoint, DSLInput, DSLRunA
 from tracecat.dsl.enums import JoinStrategy
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.temporal.errors import extract_error_classification
 
 pytestmark = [
     pytest.mark.temporal,
@@ -25,6 +31,15 @@ pytestmark = [
 async def action_result(result: dict[str, Any], ref: str) -> Any:
     """Unwrap StoredObject action result from workflow context."""
     return await to_data(result["ACTIONS"][ref]["result"])
+
+
+def _assert_loop_limit_classification(error: WorkflowFailureError) -> None:
+    classification = extract_error_classification(error)
+
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.WORKFLOW_LOOP_LIMIT_EXCEEDED
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
 
 
 @pytest.mark.anyio
@@ -211,6 +226,7 @@ async def test_loop_respects_max_iterations_guard(
     cause = exc_info.value.cause
     assert isinstance(cause, ApplicationError)
     assert "exceeded max_iterations=3" in str(cause)
+    _assert_loop_limit_classification(exc_info.value)
 
 
 @pytest.mark.anyio
@@ -278,6 +294,7 @@ async def test_loop_rejects_max_iterations_over_platform_cap(
     assert isinstance(cause, ApplicationError)
     assert "exceeds platform cap" in str(cause)
     assert str(low_platform_cap) in str(cause)
+    _assert_loop_limit_classification(exc_info.value)
 
 
 @pytest.mark.anyio

@@ -1,0 +1,88 @@
+type: action
+definition:
+  title: Search objects
+  description: Search MISP objects that group related indicators such as files, network connections, and emails.
+  display_group: MISP
+  doc_url: https://www.misp-project.org/openapi/#tag/Objects/operation/restSearchObjects
+  namespace: tools.misp
+  name: search_objects
+  secrets:
+    - name: misp
+      keys: ["MISP_API_KEY"]
+  expects:
+    value:
+      type: str | None
+      description: Value of an attribute contained in an object.
+      default: null
+    type_attribute:
+      type: str | None
+      description: Type of an attribute contained in an object.
+      default: null
+    category:
+      type: str | None
+      description: MISP attribute category.
+      default: null
+    org:
+      type: str | None
+      description: Creator organisation name or ID.
+      default: null
+    tags:
+      type: list[str] | None
+      description: Tags to include or exclude.
+      default: null
+    date_from:
+      type: str | None
+      description: Earliest event date in YYYY-MM-DD format.
+      default: null
+    date_to:
+      type: str | None
+      description: Latest event date in YYYY-MM-DD format.
+      default: null
+    eventid:
+      type: int | list[int] | None
+      description: Parent event ID or list of event IDs.
+      default: null
+    object_name:
+      type: str | None
+      description: Object template name such as file, ip-port, domain-ip, or email.
+      default: null
+    limit:
+      type: int
+      description: Maximum number of objects to return.
+      default: 25
+    page:
+      type: int
+      description: Result page number.
+      default: 1
+    base_url:
+      type: str | None
+      description: MISP base URL. Falls back to VARS.misp.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.misp.base_url }}/objects/restSearch
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ${{ SECRETS.misp.MISP_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          value: ${{ inputs.value }}
+          type: ${{ inputs.type_attribute }}
+          category: ${{ inputs.category }}
+          org: ${{ inputs.org }}
+          tags: ${{ inputs.tags }}
+          from: ${{ inputs.date_from }}
+          to: ${{ inputs.date_to }}
+          eventid: ${{ inputs.eventid }}
+          object_name: ${{ inputs.object_name }}
+          limit: ${{ inputs.limit }}
+          page: ${{ inputs.page }}
+  returns: ${{ steps.request.result.data }}

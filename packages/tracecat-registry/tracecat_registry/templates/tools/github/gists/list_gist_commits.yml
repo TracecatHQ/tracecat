@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: List gist commits
+  description: 'List gist commits. Calls GET /gists/{gist_id}/commits directly. Accepted OAuth scopes: gist (required only for secret or authenticated-user gists; omit for public gists).'
+  display_group: GitHub
+  doc_url: https://docs.github.com/en/rest
+  namespace: tools.github
+  name: list_gist_commits
+  secrets:
+  - type: oauth
+    provider_id: github
+    grant_type: authorization_code
+  expects:
+    gist_id:
+      type: str
+      description: GitHub API path value for gist_id.
+    per_page:
+      type: int | None
+      description: The number of results per page (max 100).
+      default: null
+    page:
+      type: int | None
+      description: The page number of the results to fetch.
+      default: null
+    base_url:
+      type: str
+      description: GitHub.com REST API base URL.
+      default: https://api.github.com
+  steps:
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url }}/gists/${{ FN.url_encode(inputs.gist_id) }}/commits
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Accept: application/vnd.github+json
+        X-GitHub-Api-Version: '2022-11-28'
+      params:
+        per_page: ${{ inputs.per_page }}
+        page: ${{ inputs.page }}
+  returns: ${{ steps.request.result }}

@@ -1,0 +1,46 @@
+type: action
+definition:
+  title: Search galaxy clusters
+  description: Search threat actors, malware families, techniques, and other clusters within a MISP galaxy.
+  display_group: MISP
+  doc_url: https://www.misp-project.org/openapi/#tag/Galaxy-Clusters/operation/searchGalaxyClusters
+  namespace: tools.misp
+  name: search_galaxy_clusters
+  secrets:
+    - name: misp
+      keys: ["MISP_API_KEY"]
+  expects:
+    galaxy_id:
+      type: int
+      description: Numeric ID of the galaxy to search.
+    search_term:
+      type: str | None
+      description: Text to match in cluster names, descriptions, and synonyms.
+      default: null
+    context:
+      type: str | None
+      description: Optional MISP galaxy cluster context filter.
+      default: null
+    base_url:
+      type: str | None
+      description: MISP base URL. Falls back to VARS.misp.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.misp.base_url }}/galaxy_clusters/index/${{ FN.url_encode(str(inputs.galaxy_id)) }}
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ${{ SECRETS.misp.MISP_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          searchall: ${{ inputs.search_term }}
+          context: ${{ inputs.context || "all" }}
+  returns: ${{ steps.request.result.data }}

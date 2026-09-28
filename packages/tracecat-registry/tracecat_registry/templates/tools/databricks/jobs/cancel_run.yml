@@ -1,0 +1,26 @@
+type: action
+definition:
+  title: Cancel job run
+  description: Cancel a job run asynchronously.
+  display_group: Databricks
+  doc_url: https://databricks-sdk-py.readthedocs.io/en/latest/workspace/jobs/jobs.html#databricks.sdk.service.jobs.JobsExt.cancel_run
+  namespace: tools.databricks
+  name: cancel_run
+  expects:
+    base_url:
+      type: str | None
+      description: Databricks workspace URL.
+      default: null
+    run_id:
+      type: int
+      description: Canonical identifier of the run to cancel.
+  steps:
+    - ref: cancel_run
+      action: tools.databricks_sdk.call_method
+      args:
+        base_url: ${{ inputs.base_url || VARS.databricks.base_url }}
+        service: jobs
+        method_name: cancel_run
+        params:
+          run_id: ${{ inputs.run_id }}
+  returns: ${{ steps.cancel_run.result }}

@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Get web property
+  description: >-
+    Get a web property. Calls GET /v3/global/asset/webproperty/{webproperty_id} directly.
+  display_group: Censys
+  doc_url: https://docs.censys.com/reference/v3-globaldata-asset-webproperty
+  namespace: tools.censys
+  name: get_web_property
+  secrets:
+    - name: censys
+      keys: ["CENSYS_API_TOKEN"]
+  expects:
+    webproperty_id:
+      type: str
+      description: A web property identifier. Web properties are identified using a combination of a hostname and port joined with a colon, such as platform.censys.io:80.
+    at_time:
+      type: str | None
+      description: RFC3339 Timestamp to view a webproperty at a specific point in time. Must be a valid RFC3339 string. Ensure that you suffix the date with T00:00:00Z or a specific time.
+      default: null
+    organization_id:
+      type: str | None
+      description: The ID of a Censys organization to associate the request with. If omitted, the request will be processed using the authenticated user's free wallet where applicable.
+      default: null
+    base_url:
+      type: str | None
+      description: Base URL of the Censys Platform API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.censys.base_url || "https://api.platform.censys.io" }}/v3/global/asset/webproperty/${{ FN.url_encode(inputs.webproperty_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.censys.CENSYS_API_TOKEN }}
+        params:
+          at_time: ${{ inputs.at_time }}
+          organization_id: ${{ inputs.organization_id }}
+  returns: ${{ steps.request.result }}

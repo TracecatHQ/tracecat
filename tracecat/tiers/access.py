@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from tracecat import config
+from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import OrganizationTier, Tier
 from tracecat.exceptions import EntitlementRequired
 from tracecat.identifiers import OrganizationID
@@ -16,7 +17,7 @@ from tracecat.tiers.exceptions import DefaultTierNotConfiguredError
 
 
 async def get_org_tier_and_resolved_tier(
-    session: AsyncSession,
+    session: SupportsExecute,
     org_id: OrganizationID,
 ) -> tuple[OrganizationTier | None, Tier]:
     """Resolve the org tier row (if any) and the effective base tier.
@@ -49,7 +50,7 @@ async def get_org_tier_and_resolved_tier(
 
 
 async def is_org_entitled(
-    session: AsyncSession,
+    session: SupportsExecute,
     org_id: OrganizationID,
     entitlement: Entitlement,
 ) -> bool:

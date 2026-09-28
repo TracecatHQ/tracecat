@@ -3,6 +3,7 @@
 import { useMemo } from "react"
 import type { CaseRead } from "@/client"
 import { useLocalStorage } from "@/hooks/use-local-storage"
+import { createCaseFieldDisplayNameMap } from "@/lib/case-field-display"
 
 export function useWorkflowTriggerInputs(caseData: CaseRead, taskId?: string) {
   const [groupCaseFields, setGroupCaseFields] = useLocalStorage(
@@ -17,6 +18,10 @@ export function useWorkflowTriggerInputs(caseData: CaseRead, taskId?: string) {
           .filter((field) => !field.reserved)
           .map((field) => [field.id, field.value])
       ),
+    [caseData.fields]
+  )
+  const caseFieldDisplayNameById = useMemo(
+    () => createCaseFieldDisplayNameMap(caseData.fields),
     [caseData.fields]
   )
 
@@ -36,6 +41,7 @@ export function useWorkflowTriggerInputs(caseData: CaseRead, taskId?: string) {
   }, [caseData.id, caseFieldsRecord, groupCaseFields, taskId])
 
   return {
+    caseFieldDisplayNameById,
     caseFieldsRecord,
     fallbackInputs,
     groupCaseFields,

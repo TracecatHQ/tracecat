@@ -1,173 +1,704 @@
-exclude-labels:
-  - skip changelog
-  - release
+# Release Drafter configuration.
+#
+# GENERATED SHAPE: the autolabeler and replacer regexes below are derived from
+# .github/commit-conventions.toml. Edit that file, not these patterns, and let
+# tests/unit/test_commit_conventions.py catch the two drifting apart.
+#
+# The pipeline in one line:
+#   type -> type label, scope -> area label, first matching category -> section.
+#
+# - Every category label below must exist in the repo (`gh label list`).
+#   A missing label silently drops its category, and the PRs it would have
+#   held render at the top of the notes with no heading.
+# - The autolabeler guarantees each PR receives at least one category label
+#   derived from its conventional-commit type, so nothing renders headerless.
+# - Categories are ranked, not merely listed. Release Drafter itself puts a PR
+#   under EVERY category its labels match -- its source calls that intentional
+#   -- and offers no first-match option and no per-category exclude. The
+#   `Keep each pull request in one section` step in the release-drafter
+#   workflow applies the ranking afterwards, keeping the first occurrence,
+#   which is the highest-ranked one because sections are emitted in the order
+#   declared here. Reordering this list therefore changes which section a
+#   change lands in.
+#
+# The autolabeler is deliberately more forgiving than
+# scripts/check_pr_title.py. The checker only accepts canonical types and
+# scopes so new titles converge; the autolabeler also understands every
+# historical spelling so the already-merged backlog still categorizes.
 
 name-template: Tracecat $RESOLVED_VERSION
 tag-template: $RESOLVED_VERSION
 
 change-template: "- $TITLE (#$NUMBER)"
 change-title-escapes: '\<*_&'
-replacers:
-  # Remove conventional commits from titles
-  - search: '/- (build|chore|ci|depr|deps|docs|feat|fix|helm|infra|perf|refactor|release|revert|security|style|test)(\(.*\))?(\!)?\: /g'
-    replace: "- "
 
-autolabeler:
-  - label: playbook
-    title:
-      - "/^playbook/"
+exclude-labels:
+  - release
+  - skip changelog
 
-  - label: integrations
-    title:
-      - "/^integrations/"
-      # Example: feat(registry): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*registry.*\)\!?\: /'
-
-  - label: agents
-    title:
-      # Example: feat(agent): ... or feat(agents): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*agents?.*\)\!?\: /'
-
-  - label: frontend
-    title:
-      # Example: feat(ui): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*ui.*\)\!?\: /'
-
-  - label: engine
-    title:
-      # Example: feat(engine): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*engine.*\)\!?\: /'
-
-  - label: app
-    title:
-      # Example: feat(app): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*app.*\)\!?\: /'
-
-  - label: breaking
-    title:
-      # Example: feat!: ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)(\(.*\))?\!\: /'
-
-  - label: breaking frontend
-    title:
-      # Example: feat(ui!): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*ui\!.*\)\: /'
-
-  - label: breaking engine
-    title:
-      # Example: feat(engine!): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*engine\!.*\)\: /'
-
-  - label: breaking app
-    title:
-      # Example: feat(app!): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*app\!.*\)\: /'
-
-  - label: breaking infra
-    title:
-      # Example: feat(infra!): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*infra\!.*\)\: /'
-
-  - label: build
-    title:
-      - "/^build/"
-
-  - label: internal
-    title:
-      - "/^(chore|ci|refactor|test|style|revert)/"
-
-  - label: deprecation
-    title:
-      - "/^depr/"
-
-  - label: documentation
-    title:
-      - "/^docs/"
-
-  - label: enhancement
-    title:
-      - "/^feat/"
-
-  - label: fix
-    title:
-      - "/^fix/"
-
-  - label: performance
-    title:
-      - "/^perf/"
-
-  - label: release
-    title:
-      - "/^release/"
-
-  - label: security
-    title:
-      - "/^security/"
-
-  - label: dependencies
-    title:
-      - "/^deps/"
-      # Example: chore(deps): ... or fix(deps): ...
-      - '/^(build|chore|ci|depr|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*deps.*\)\!?\: /'
-
-  - label: infra
-    title:
-      - "/^infra/"
-      - "/^helm/"
-      # Example: feat(infra): ...
-      - '/^(build|chore|ci|depr|deps|docs|feat|fix|perf|refactor|release|revert|security|style|test)\(.*infra.*\)\!?\: /'
-
+# Category order is three tiers:
+#   1-3   act on this: a breaking change, a security fix, a deprecation.
+#   4-16  product areas, so a reader can find the part of Tracecat they use.
+#   17-22 by kind, for everything no area claimed.
+#
+# Inside tier 2, features come before catalogs. A compound scope matches the
+# first category it hits, so `feat(cases+actions)` lands in Case management
+# rather than Core actions: the reader cares that case management gained
+# something, not which package it was built from.
+#
+# Dependencies sits above Features and Fixes on purpose: `fix(deps)` carries
+# both `deps` and `fix`, and first-match would otherwise file a dependency
+# bump under Fixes.
 categories:
+  # 1
   - title: Breaking changes
     labels:
       - breaking
-      - breaking ui
-      - breaking frontend
-      - breaking engine
-      - breaking app
-      - breaking infra
 
-  - title: Deprecations
-    labels: deprecation
-
+  # 2
   - title: Security
-    labels: security
+    labels:
+      - security
+      - audit
 
-  - title: Playbooks
-    labels: playbook
+  # 3
+  - title: Deprecations
+    labels:
+      - deprecation
 
-  - title: Integrations
-    labels: integrations
+  # 4
+  - title: Case management
+    labels:
+      - cases
 
+  # 5
+  - title: Tables
+    labels:
+      - tables
+
+  # 6
   - title: Agents
-    labels: agents
+    labels:
+      - agents
+      - skills
 
-  - title: Performance improvements
-    labels: performance
+  # 7
+  - title: Tracecat MCP
+    labels:
+      - mcp
 
-  - title: Enhancements
-    labels: enhancement
+  # 8
+  - title: Core actions
+    labels:
+      - actions
 
-  - title: Bug fixes
-    labels: fix
+  # 9
+  - title: Functions
+    labels:
+      - functions
 
+  # 10
+  - title: Integrations
+    labels:
+      - integrations
+
+  # 11
+  - title: Engine
+    labels:
+      - engine
+
+  # 12
+  # `enterprise` is deliberately absent. It says who can use a change, not what
+  # the change is, so it must not claim a section: `feat(enterprise+cases)`
+  # belongs under Case management, and a bare `feat(enterprise)` under Features.
+  # See `[labels] no_section` in commit-conventions.toml.
+  - title: API
+    labels:
+      - api
+      - rbac
+
+  # 13
+  - title: User interface
+    labels:
+      - ui
+
+  # 14
   - title: Infrastructure
-    labels: infra
+    labels:
+      - infra
+      - self-hosted
+      - migration
+      - cicd
 
+  # 15
+  - title: Observability
+    labels:
+      - logging
+
+  # 16
   - title: Documentation
-    labels: documentation
+    labels:
+      - docs
 
+  # 17
+  - title: Performance
+    labels:
+      - perf
+
+  # 18
   - title: Dependencies
-    labels: dependencies
+    labels:
+      - deps
 
+  # 19
+  - title: Features
+    labels:
+      - feat
+
+  # 20
+  - title: Fixes
+    labels:
+      - fix
+
+  # 21
   - title: Build system
-    labels: build
+    labels:
+      - build
 
-  - title: Other improvements
-    labels: internal
+  # 22
+  - title: Other changes
+    labels:
+      - chore
+      - refactor
+      - tests
+      - revert
+
+autolabeler:
+  # Two tiers:
+  # - Tier A maps the conventional-commit type to a category label. Every
+  #   well-formed title matches exactly one type rule, which is what
+  #   guarantees no PR renders uncategorized.
+  # - Tier B maps the (scope) to an area label so the PR lands in the most
+  #   specific section, e.g. Integrations instead of Features.
+  # All rules tolerate an optional bracketed bot prefix such as "[codex] "
+  # and a compound scope such as (ui+api).
+
+  # Tier A: type -> label
+
+  # Example: build(deps): bump base images
+  - label: build
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:build)(\([^)]*\))?!?: /'
+
+  # Example: chore: update release drafter configuration
+  - label: chore
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:chore)(\([^)]*\))?!?: /'
+
+  # Example: ci: pin actions to immutable SHAs
+  - label: cicd
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:ci)(\([^)]*\))?!?: /'
+
+  # Example: deprecation(integrations): tools.x.list_signals in favour of tools.x.search_alerts
+  - label: deprecation
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:deprecation|depr)(\([^)]*\))?!?: /'
+
+  # Example: chore(deps): bump orjson
+  - label: deps
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:deps)(\([^)]*\))?!?: /'
+
+  # Example: docs: clarify secret environment use cases
+  - label: docs
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:docs|doc)(\([^)]*\))?!?: /'
+
+  # Example: feat(integrations): add 1Password SDK and Events API
+  - label: feat
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:feat)(\([^)]*\))?!?: /'
+
+  # Example: fix(agents): preserve runtime error attribution
+  - label: fix
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:fix)(\([^)]*\))?!?: /'
+
+  # Example: infra(fargate): raise executor memory limits
+  - label: infra
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:infra|helm)(\([^)]*\))?!?: /'
+
+  # Example: perf(engine): batch workflow event writes
+  - label: perf
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:perf)(\([^)]*\))?!?: /'
+
+  # Example: refactor(api): split the workspace router
+  - label: refactor
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:refactor)(\([^)]*\))?!?: /'
+
+  # Example: release: 1.0.0-beta.49
+  - label: release
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:release)(\([^)]*\))?!?: /'
+
+  # Example: revert(ui): restore the preset button
+  - label: revert
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:revert)(\([^)]*\))?!?: /'
+
+  # Example: security(deps): patch an unauthenticated RCE
+  - label: security
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:security)(\([^)]*\))?!?: /'
+
+  # Example: test(engine): cover retry backoff
+  - label: tests
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?(?:tests|test)(\([^)]*\))?!?: /'
+
+  # Example: feat(api)!: drop the v1 webhook payload
+  - label: breaking
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+(\([^)]*\))?!: /'
+
+  # GitHub's own revert titles carry no conventional-commit prefix.
+  # Example: Revert "feat(mcp): add internal OIDC issuer"
+  - label: chore
+    title:
+      - '/^Revert "/'
+
+  # Tier B: scope -> area label
+
+  # Example: fix(agents): preserve runtime error attribution
+  - label: agents
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:agent-harness|artifacts|prompts|agents|claude|agent|inbox|tools|chat)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: fix(api): return 404 for missing workspaces
+  - label: api
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:organization|invitations|pagination|workspaces|workspace|settings|webhooks|secrets|admin|auth|saml|api|cli|org)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: build(admin-cli): ship the operator CLI wheel
+  - label: build
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:admin-cli|build)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(cases): add case duplication
+  - label: cases
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:case-triggers|cases|case)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(actions): add a table lookup action
+  - label: actions
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:core-actions|actions|core|udfs|udf)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: fix(functions): regex_extract corner case
+  - label: functions
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*functions(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: build(deps): patch dependabot alerts
+  - label: deps
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:deps)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: fix(docs): repair broken anchors
+  - label: docs
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:playbooks|playbook|docs)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: fix(engine): retry transient action failures
+  - label: engine
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:expressions|approvals|scheduler|executor|temporal|workflow|runtime|sandbox|workers|engine|worker|dsl)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(enterprise): gate SAML behind a tier
+  - label: enterprise
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:enterprise|tiers|ee)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: fix(infra): wire LiteLLM URL into managed AI runtimes
+  - label: infra
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:deployments|migration|terraform|cluster|fargate|storage|deploy|docker|chart|infra|helm|aws|cdk|eks|k8s|db)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(integrations): add Jira issue search
+  - label: integrations
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:integrations|integration|registry|sync|git|vcs)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(audit): stream audit logs via webhook
+  - label: audit
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:audit)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: fix(logging): redact secrets in executor logs
+  - label: logging
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:observability|logging)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(mcp): add server health checks
+  - label: mcp
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:mcp)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(rbac): add workspace-scoped roles
+  - label: rbac
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:authz|rbac)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(skills): add a triage skill
+  - label: skills
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:skills)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(tables): add unique indexes
+  - label: tables
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:tables|table)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # Example: feat(ui): replace preset button with @ mentions
+  - label: ui
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*(?:frontend|canvas|ui|ux)(?:\+[a-z0-9_-]+)*\)!?: /'
+
+  # `workflows` has no rule of its own. It named GitHub Actions under `ci` and
+  # the product engine under every other type, which is what put it in
+  # [ambiguous_scopes]; like `app`, it now gets the type label and no area. It
+  # stays in the vendor-absorption lookahead below because it is still a known
+  # word: dropping it there would file `feat(workflows)` under Integrations.
+
+  # Vendor absorption. Any scope that is neither canonical, an alias, nor on
+  # the ambiguous list is read as a vendor name and filed under Integrations,
+  # which is where the 69 long-tail scopes in history (jira, splunk, scc,
+  # elastic_security, ...) belong. scripts/check_pr_title.py rejects these
+  # instead: going forward the vendor goes in the description, not the scope.
+  # Example: feat(splunk): add saved search export
+  - label: integrations
+    title:
+      - '/^(\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?!(?:agent-harness|case-triggers|observability|core-actions|integrations|organization|deployments|expressions|integration|invitations|enterprise|pagination|workspaces|admin-cli|approvals|artifacts|functions|migration|playbooks|scheduler|terraform|workflows|workspace|executor|frontend|playbook|registry|settings|temporal|tracecat|webhooks|workflow|actions|cluster|fargate|logging|prompts|runtime|sandbox|secrets|service|storage|workers|agents|canvas|claude|config|deploy|docker|engine|skills|tables|worker|admin|agent|audit|authz|build|cases|chart|inbox|infra|table|tiers|tools|auth|case|chat|core|deps|docs|helm|rbac|saml|sync|udfs|api|app|aws|cdk|cli|dev|dsl|eks|git|k8s|mcp|org|udf|vcs|ai|db|ee|ui|ux)\))[a-z0-9_-]+\)!?: /'
+
+# Presentation. Two passes: rewrite historical scope spellings to canonical
+# ones so a release reads with one vocabulary, then capitalize each
+# description. The type prefix stays visible and stays lowercase: it is the
+# fastest signal a reader has for what kind of change a line is.
+# A scope alias is rewritten wherever it appears in a compound scope.
+replacers:
+  # Normalise the prefix before anything else reads it.
+  #
+  # These sit at the top of the block on purpose. Every rule below matches a
+  # lowercase type, so a title that never presented one -- `feat+fix(ui)`,
+  # `Feat!(engine)`, `fix(mcp) ` with no colon -- slips past the scope aliases,
+  # past `chore(deps)`, and reaches the capitalizer with nothing it recognises
+  # as a prefix. The capitalizer then capitalizes the type instead of the
+  # description, which is where `Feat+fix(ui): ...` in the published notes comes
+  # from. Fixing the prefix first makes all three behave.
+
+  # Trailing whitespace on a change line. Everything here is anchored on `$`,
+  # and one stray space at the end of a pull request title silently defeats all
+  # of it -- including `- $TITLE (#$NUMBER)`, which is how the line got here.
+  - search: '/^(- .*?)[ \t]+$/gm'
+    replace: '$1'
+  # Leading whitespace, same cause: a title that opens on a space pushes the
+  # description out of the capitalizer's reach.
+  - search: '/^- [ \t]+(?=\S)/gm'
+    replace: '- '
+  # The doubled space a trailing space in the title leaves in front of `(#N)`.
+  - search: '/^(- .*\S)[ \t]{2,}(\(#\d+\))$/gm'
+    replace: '$1 $2'
+
+  # GitHub's own revert title. `check_pr_title.py` rejects it now, so this is
+  # for the 373 releases of history behind that cutoff and for anything that
+  # slips through. The wrapper carries no type of its own; the one it quotes is
+  # discarded and replaced by `revert`, which is why the type here is
+  # `[A-Za-z]+` and the rule survives `Revert "Fix(ui): ..."`. The reverted
+  # `!` is dropped with it: the autolabeler files these under `chore`, so a
+  # bang would show a Breaking marker on a line no Breaking label put there.
+  # Both rules run ahead of the scope aliases and the capitalizer on purpose,
+  # so `Revert "feat(registry): add x"` reaches them as an ordinary
+  # `revert(registry): add x` line and lands on `revert(integrations): Add x`.
+  # Scoped first: the unscoped rule cannot match a `(scope)` title, but the
+  # order makes that independent of the regex.
+  # Example: Revert "fix(agents): stopgap resolution of the registry alias"
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Revert "[A-Za-z]+\(([a-z0-9_+-]+)\)!?: (.+)"([ \t]*\(#\d+\))?$/gm'
+    replace: '- $1revert($2): $3$4'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Revert "[A-Za-z]+!?: (.+)"([ \t]*\(#\d+\))?$/gm'
+    replace: '- $1revert: $2$3'
+
+  # A compound type. Only the first component survives: `feat+fix(ui)` is a
+  # feature that also fixed something, and the section it belongs in is
+  # Features.
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+)(?:\+[a-z]+)+(\([^)\n]*\))?(!?): /gm'
+    replace: '- $1$2$3$4: '
+
+  # The same, capitalised, plus a bare `Feat:`. JavaScript has no case-folding
+  # escape in a replacement string, so this is one rule per type, as with the
+  # capitalizer below. The lookahead is `[(!:]` and deliberately not `\s`: a
+  # prose bullet that opens on `Fix mouse scrolling ...` must be left alone.
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Build(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1build'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Chore(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1chore'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Ci(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1ci'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Deprecation(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1deprecation'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Docs(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1docs'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Feat(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1feat'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Fix(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1fix'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Infra(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1infra'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Perf(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1perf'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Refactor(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1refactor'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Release(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1release'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Revert(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1revert'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Security(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1security'
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?Test(?:\+[A-Za-z]+)*(?=[(!:])/gm'
+    replace: '- $1test'
+
+  # A bang in front of the scope. `feat!(engine)` is what a writer reaches for
+  # when the type feels like the breaking part; the legal position is after the
+  # closing paren.
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+)!(\([^)\n]*\)): /gm'
+    replace: '- $1$2$3!: '
+
+  # A Linear ticket id in front of the type. It names the issue, not the
+  # change, and the pull request number is already at the other end of the line.
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?[A-Z]{2,}-\d+[ \t]+(?=[a-z]+(?:\([^)\n]*\))?!?: )/gm'
+    replace: '- $1'
+  # The same id wedged between the scope and the colon. This is the shape
+  # check_pr_title.py names in its own error text: with no colon after the
+  # scope, nothing downstream sees a prefix at all.
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+(?:\([^)\n]*\))?!?)[ \t]+[A-Z]{2,}-\d+: /gm'
+    replace: '- $1$2: '
+  # A missing colon after the scope. Must stay below the two ticket rules:
+  # without them `feat(cases) ENG-1597: x` would gain a second colon rather
+  # than lose the ticket.
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+\([^)\n]*\)!?)[ \t]+(?=[A-Za-z0-9`\[])/gm'
+    replace: '- $1$2: '
+  # A doubled colon.
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+(?:\([^)\n]*\))?!?):{2,}[ \t]/gm'
+    replace: '- $1$2: '
+  # More than one space after the colon, which hides the description from the
+  # capitalizer entirely.
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+(?:\([^)\n]*\))?!?:)[ \t]{2,}/gm'
+    replace: '- $1$2 '
+
+  # Retired type spellings. `[legacy_types]` in commit-conventions.toml already
+  # declares what each one should have been, and the checker names that
+  # replacement in its error text; these rules make the rendered line agree.
+  # `deps(ui)` keeps the scope by folding it into a compound rather than
+  # dropping it, so no information is lost.
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?deps\(([a-z0-9_+-]+)\)(!?): /gm'
+    replace: '- $1build(deps+$2)$3: '
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?deps(!?): /gm'
+    replace: '- $1build(deps)$2: '
+  # `tests` must not match `test`, and `doc` must not match `docs`: both need
+  # the character after the type to be `(`, `!` or `:`, which the trailing
+  # groups already require.
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?tests(\([^)\n]*\))?(!?): /gm'
+    replace: '- $1test$2$3: '
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?doc(\([^)\n]*\))?(!?): /gm'
+    replace: '- $1docs$2$3: '
+
+  # Scope aliases. The alias must be a whole `+`-delimited component, so
+  # `feat(ui+ee)` becomes `feat(ui+enterprise)` and `feat(github)` is left
+  # alone. Same shape as the Tier B autolabeler rules above: complete
+  # components before the alias, complete components after it, and the closing
+  # paren. Two things that shape buys, both of which a bare `\b` would get
+  # wrong: `integration` does not fire inside `integrations`, and `admin` does
+  # not fire inside `admin-cli`, which is a `build` scope and would otherwise
+  # be half-rewritten to `api-cli` before the `build` rule ever sees it.
+  #
+  # Known limitation: every rule here is `^`-anchored, so with the `g` flag it
+  # can match at most once per line. A scope carrying two aliases from the SAME
+  # group -- `feat(registry+git)`, both of them `integrations` -- gets only the
+  # last one rewritten, leaving `feat(registry+integrations)`. Zero occurrences
+  # in history, and the regex that fixed it would be worse than the defect.
+  # Aliases from different groups are unaffected: each rule is its own pass,
+  # so `feat(ux+ee)` still lands on `feat(ui+enterprise)`.
+  # -> (actions)
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:core-actions|core|udfs|udf)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1actions$2'
+  # -> (agents)
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:agent-harness|artifacts|prompts|claude|agent|inbox|tools|chat)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1agents$2'
+  # -> (api)
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:organization|invitations|pagination|workspaces|workspace|settings|webhooks|secrets|admin|auth|saml|cli|org)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1api$2'
+  # -> (build)
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:admin-cli)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1build$2'
+  # -> (cases)
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:case-triggers|case)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1cases$2'
+  # -> (docs)
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:playbooks|playbook)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1docs$2'
+  # -> (engine)
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:expressions|approvals|scheduler|executor|temporal|workflow|runtime|sandbox|workers|worker|dsl)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1engine$2'
+  # -> (enterprise)
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:tiers|ee)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1enterprise$2'
+  # -> (infra)
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:deployments|migration|terraform|cluster|fargate|storage|deploy|docker|chart|helm|aws|cdk|eks|k8s|db)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1infra$2'
+  # -> (integrations)
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:integration|registry|sync|git|vcs)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1integrations$2'
+  # -> (logging)
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:observability)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1logging$2'
+  # -> (rbac)
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:authz)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1rbac$2'
+  # -> (tables)
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:table)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1tables$2'
+  # -> (ui)
+  - search: '/^(- (?:\[[A-Za-z0-9._-]+\]\s+)?[a-z]+\((?:[a-z0-9_-]+\+)*)(?:frontend|canvas|ux)((?:\+[a-z0-9_-]+)*\)!?: )/gm'
+    replace: '$1ui$2'
+
+  # Drop a scope that is a type name rather than an area. `ci(fix)`,
+  # `feat(security)`, `fix(tests)`: the parenthesis is where the area goes, and
+  # a type in it names nothing a reader can navigate by. 45 such lines were
+  # published.
+  #
+  # `build`, `deps`, `docs`, `infra` and `helm` are excluded and must stay:
+  # each is a real scope or scope alias as well as a type, so `ci(docs)` and
+  # `ci(helm)` mean something. The list is every remaining type name, and the
+  # drift test asserts it stays in step with the TOML.
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+)\((?:deprecation|refactor|security|release|revert|chore|tests|depr|feat|perf|test|doc|fix|ci)\)(!?): /gm'
+    replace: '- $1$2$3: '
+
+  # Drop a scope that only repeats its type. `infra(fargate)` is a fine title,
+  # but the alias rules above rewrite it to `infra(infra)`, which reads as a
+  # stutter. Must stay below those rules; it exists to clean up after them.
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?([a-z]+)\(\2\)(!?): /gm'
+    replace: '- $1$2$3: '
+
+  # A dependency bump is packaging work, whatever prompted it. History spells
+  # it four ways -- chore(deps) 21, fix(deps) 9, build(deps) 9 -- and all three
+  # of those land in the same Dependencies section, so the type is noise the
+  # reader has to look past. `security(deps)` is left alone: it is reserved for
+  # a critical unauthenticated RCE, and that distinction is the point.
+  # The alternation runs ahead of history on purpose: `feat(deps)` and
+  # `refactor(deps)` have never been written here, and the un-normalised line
+  # is only ever noticed once it has shipped.
+  #
+  # `docs(deps)` is deliberately NOT in the list. Replacers run after
+  # categorization, and `docs` is matched before `deps`, so that line renders
+  # under Documentation whatever its prefix says. Rewriting only the prefix
+  # would leave a `build(deps)` line under a Documentation heading, which reads
+  # worse than the author's own prefix. See the test case in
+  # tests/unit/test_commit_conventions.py.
+  - search: '/^- (\[[A-Za-z0-9._-]+\]\s+)?(?:chore|fix|feat|refactor)\(deps\)(!?): /gm'
+    replace: '- $1build(deps)$2: '
+
+  # Capitalize the description. Replacers are plain JavaScript
+  # `String.replace`, and JS has no case-folding escape in a replacement
+  # string, so this is 26 rules rather than one. The prefix group is captured
+  # in a lookahead and replayed with `\1` to make it atomic: left optional it
+  # backtracks to empty and capitalizes the type instead of the description.
+  # Both the bot prefix and the conventional-commit prefix stay lowercase;
+  # only the description's first letter moves. The scope is `[^)\n]` and not
+  # `[^)]` because a character class matches newlines and a scope never spans
+  # one.
+  #
+  # The guard in front of the letter spares a first word whose casing the
+  # author already chose. Three shapes, each of which reads as a typo once
+  # capitalized:
+  #
+  #   `_` or `.`       a code identifier: regex_extract, tools.x, next.js
+  #   an inner capital the author cased it themselves: gRPC, iOS
+  #   the list below   a name that is lowercase or all-caps, never Title case
+  #
+  # Shape alone cannot tell `mcp` (wants MCP) from `add` (wants Add), so the
+  # third one is an explicit list. It is closed and evidence-backed: every
+  # entry is either a scope or label name from `.github/commit-conventions.toml`
+  # or a tool or protocol that has actually opened a description in `git log`.
+  # A trailing `(?![A-Za-z0-9_])` keeps it to whole words, so `pnpm-workspace` is spared
+  # and `patch` is not.
+  #
+  #   aioboto3 api authz aws cdk chmod cli db dsl dtype ee eks kubectl
+  #   litellm llm mcp nsjail oidc otel pat pipx pnpm pymongo rbac saml
+  #   sqlalchemy stdio tf udf udfs ui uv ux vcs vt
+  #
+  # `k8s`, `docker` and `okta` are deliberately absent. Title case is their
+  # correct spelling, so the capitalizer should keep running on them.
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))a/gm'
+    replace: '- $1A'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))b/gm'
+    replace: '- $1B'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))c/gm'
+    replace: '- $1C'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))d/gm'
+    replace: '- $1D'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))e/gm'
+    replace: '- $1E'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))f/gm'
+    replace: '- $1F'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))g/gm'
+    replace: '- $1G'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))h/gm'
+    replace: '- $1H'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))i/gm'
+    replace: '- $1I'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))j/gm'
+    replace: '- $1J'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))k/gm'
+    replace: '- $1K'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))l/gm'
+    replace: '- $1L'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))m/gm'
+    replace: '- $1M'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))n/gm'
+    replace: '- $1N'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))o/gm'
+    replace: '- $1O'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))p/gm'
+    replace: '- $1P'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))q/gm'
+    replace: '- $1Q'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))r/gm'
+    replace: '- $1R'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))s/gm'
+    replace: '- $1S'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))t/gm'
+    replace: '- $1T'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))u/gm'
+    replace: '- $1U'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))v/gm'
+    replace: '- $1V'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))w/gm'
+    replace: '- $1W'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))x/gm'
+    replace: '- $1X'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))y/gm'
+    replace: '- $1Y'
+  - search: '/^- (?=((?:\[[A-Za-z0-9._-]+\]\s+)?(?:[a-z]+(?:\([^)\n]*\))?!?: )?))\1(?![A-Za-z0-9_]*[_.]|[A-Za-z0-9_]*[A-Z]|(?:aioboto3|api|authz|aws|cdk|chmod|cli|db|dsl|dtype|ee|eks|kubectl|litellm|llm|mcp|nsjail|oidc|otel|pat|pipx|pnpm|pymongo|rbac|saml|sqlalchemy|stdio|tf|udf|udfs|ui|uv|ux|vcs|vt)(?![A-Za-z0-9_]))z/gm'
+    replace: '- $1Z'
 
 template: |
   $CHANGES
 
-  Thank you to all our contributors for making this release possible!
+  ## Contributors
+
   $CONTRIBUTORS
+
+  **Full changelog**: https://github.com/TracecatHQ/tracecat/compare/$PREVIOUS_TAG...$RESOLVED_VERSION

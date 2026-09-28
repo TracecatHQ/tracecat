@@ -11,13 +11,19 @@ from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Schedule, Workflow
 from tracecat.db.session_events import AfterCommitQueue
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.identifiers import ScheduleUUID, WorkflowID
 from tracecat.identifiers.schedules import AnyScheduleID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorClassification,
+    RuntimeErrorKind,
+)
 from tracecat.service import BaseWorkspaceService
 from tracecat.storage.object import InlineObject
+from tracecat.temporal.errors import raise_application_error_from_classification
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.schemas import (
     GetScheduleActivityInputs,
@@ -64,6 +70,25 @@ class WorkflowSchedulesService(BaseWorkspaceService):
         )
         if await self.session.scalar(stmt) is None:
             raise TracecatNotFoundError(f"Workflow {workflow_id} not found")
+
+    async def _require_published_workflow(
+        self, workflow_id: AnyWorkflowID | uuid.UUID
+    ) -> None:
+        """Validate the external create precondition inside the audit boundary."""
+        workflow_uuid = WorkflowUUID.new(workflow_id)
+        stmt = select(Workflow).where(
+            Workflow.workspace_id == self.workspace_id,
+            Workflow.id == workflow_uuid,
+        )
+        workflow = await self.session.scalar(stmt)
+        if workflow is None:
+            raise TracecatNotFoundError(
+                "Workflow not found. Please check the workflow ID and try again."
+            )
+        if workflow.version is None:
+            raise TracecatConflictError(
+                "Workflow must be saved before creating a schedule."
+            )
 
     async def list_schedules(
         self, workflow_id: WorkflowID | None = None
@@ -117,6 +142,8 @@ class WorkflowSchedulesService(BaseWorkspaceService):
             If there is an error creating the schedule.
 
         """
+        if commit:
+            await self._require_published_workflow(params.workflow_id)
         return await self._create_schedule_impl(params, commit=commit)
 
     async def _create_schedule_impl(
@@ -430,14 +457,30 @@ class WorkflowSchedulesService(BaseWorkspaceService):
 
         Raises
         ------
-        TracecatNotFoundError
-            If the schedule is not found.
+        ApplicationError
+            If the schedule cannot be loaded, with a classified Temporal failure.
         """
-        async with WorkflowSchedulesService.with_session(role=input.role) as service:
-            try:
+        try:
+            async with WorkflowSchedulesService.with_session(
+                role=input.role
+            ) as service:
                 schedule = await service.get_schedule(input.schedule_id)
                 if schedule.inputs is None:
                     return None
                 return InlineObject(data=schedule.inputs)
-            except TracecatNotFoundError:
-                raise
+        except TracecatNotFoundError as e:
+            classification = RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
+                message="Tracecat could not load the scheduled workflow trigger",
+                retry_disposition=RetryDisposition.NON_RETRYABLE,
+                cause=e,
+            )
+            raise_application_error_from_classification(classification)
+        except Exception as e:
+            classification = RuntimeErrorClassification.platform(
+                kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE,
+                message="Tracecat could not load the scheduled workflow trigger",
+                retry_disposition=RetryDisposition.RETRYABLE,
+                cause=e,
+            )
+            raise_application_error_from_classification(classification)

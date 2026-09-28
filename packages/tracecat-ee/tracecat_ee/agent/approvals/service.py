@@ -8,15 +8,6 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
-from pydantic_ai.messages import (
-    ToolCallPart,
-)
-from pydantic_ai.tools import (
-    DeferredToolApprovalResult,
-    DeferredToolResults,
-    ToolApproved,
-    ToolDenied,
-)
 from sqlalchemy import func, null, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from temporalio import activity, workflow
@@ -24,11 +15,18 @@ from temporalio.client import WorkflowExecution, WorkflowExecutionStatus, Workfl
 
 from tracecat.agent.aliases import build_agent_alias
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.common.stream_types import ToolCallContent
 from tracecat.agent.mcp.metadata import strip_proxy_tool_metadata
 from tracecat.agent.schemas import AgentOutput
+from tracecat.agent.types import (
+    DeferredToolApprovalResult,
+    DeferredToolResults,
+    ToolApproved,
+    ToolDenied,
+)
 from tracecat.auth.types import Role
 from tracecat.common import all_activities
-from tracecat.db.models import Approval, User, Workflow
+from tracecat.db.models import AgentSession, Approval, User, Workflow
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import AgentActionMemo
 from tracecat.identifiers import WorkflowID
@@ -286,6 +284,17 @@ class ApprovalService(BaseWorkspaceService):
     async def get_session(self, session_id: uuid.UUID) -> SessionDescription | None:
         """Get a session by ID."""
 
+        # This legacy view parses durable-workflow metadata. Other backends use
+        # the shared session approval API and must never be looked up as oss.
+        backend_id = await self.session.scalar(
+            select(AgentSession.backend_id).where(
+                AgentSession.id == session_id,
+                AgentSession.workspace_id == self.workspace_id,
+            )
+        )
+        if backend_id is not None and backend_id != "oss":
+            return None
+
         # Query workflow executions using the agent session key
         agent_wf_id = AgentWorkflowID(session_id)
 
@@ -442,7 +451,7 @@ class ApprovalManager:
         if agent_ctx is None:
             raise RuntimeError("Agent context is not set")
         self.session_id = agent_ctx.session_id
-        self._expected_tool_calls: dict[str, ToolCallPart] = {}
+        self._expected_tool_calls: dict[str, ToolCallContent] = {}
 
     @classmethod
     def get_activities(cls) -> list[Callable[..., Any]]:
@@ -492,26 +501,24 @@ class ApprovalManager:
 
     async def prepare(
         self,
-        approvals: list[ToolCallPart],
+        approvals: list[ToolCallContent],
         *,
         request_metadata: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         self._approvals.clear()
         self._decision_metadata_by_tool_call_id.clear()
         self._status = ApprovalManagerStatus.IDLE
-        self._expected_tool_calls = {
-            approval.tool_call_id: approval for approval in approvals
-        }
+        self._expected_tool_calls = {approval.id: approval for approval in approvals}
         self._approved_by_by_tool_call_id.clear()
 
         # Preserve per-tool proxy metadata on approval rows for display and
         # decision reconciliation.
         approval_payloads = [
             ToolApprovalPayload(
-                tool_call_id=approval.tool_call_id,
-                tool_name=approval.tool_name,
-                args=approval.args,
-                metadata=(request_metadata or {}).get(approval.tool_call_id),
+                tool_call_id=approval.id,
+                tool_name=approval.name,
+                args=approval.input,
+                metadata=(request_metadata or {}).get(approval.id),
             )
             for approval in approvals
         ]
@@ -569,7 +576,7 @@ class ApprovalManager:
 
         for tool_call_id in provided_ids:
             if approvals[tool_call_id] is None:
-                tool_name = self._expected_tool_calls[tool_call_id].tool_name
+                tool_name = self._expected_tool_calls[tool_call_id].name
                 logger.warning(
                     "Approval response is None",
                     tool_call_id=tool_call_id,

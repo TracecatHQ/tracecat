@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 from tracecat_registry import ActionIsInterfaceError
-from tracecat_registry.core.agent import action, agent, bedrock_secret
+from tracecat_registry.core.agent import action, agent, preset_agent
 from tracecat_registry.fields import ModelSelection
 
 from tracecat.auth.types import Role
@@ -60,6 +60,30 @@ def test_agent_schema_marks_legacy_model_fields_deprecated() -> None:
     assert (
         properties["model_provider"]["x-tracecat-deprecation-message"]
         == "Use `model` instead."
+    )
+
+
+def test_preset_agent_accepts_deprecated_preset_version() -> None:
+    kwargs = RegisterKwargs.model_validate(
+        getattr(preset_agent, "__tracecat_udf_kwargs")
+    )
+    args_cls, _, _ = generate_model_from_function(preset_agent, kwargs)
+
+    args = args_cls.model_validate(
+        {
+            "preset": "security-analyst",
+            "user_prompt": "Investigate the alert",
+            "preset_version": 2,
+        }
+    )
+    schema = args_cls.model_json_schema()
+
+    assert args.model_dump()["preset_version"] == 2
+    assert "preset_version" not in schema.get("required", [])
+    assert schema["properties"]["preset_version"]["deprecated"] is True
+    assert (
+        schema["properties"]["preset_version"]["x-tracecat-deprecation-message"]
+        == "Preset agents always resolve the current head."
     )
 
 
@@ -165,8 +189,3 @@ async def test_action_json_schema(output_type: Any) -> None:
             output_type=output_type,
             max_requests=3,
         )
-
-
-def test_bedrock_secret_does_not_advertise_aws_profile() -> None:
-    assert bedrock_secret.optional_keys is not None
-    assert "AWS_PROFILE" not in bedrock_secret.optional_keys

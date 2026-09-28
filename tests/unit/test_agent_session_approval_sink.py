@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import uuid
 from collections.abc import Iterator
@@ -8,20 +9,23 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import orjson
 import pytest
-from pydantic_ai.tools import ToolApproved
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.api.workflowservice.v1 import StartWorkflowExecutionRequest
 from temporalio.client import (
+    Client,
     WorkflowUpdateFailedError,
     WorkflowUpdateRPCTimeoutOrCancelledError,
 )
 from temporalio.exceptions import ApplicationError
 
 from tracecat.agent.approvals.enums import ApprovalStatus
+from tracecat.agent.backends.schemas import AgentWorkflowArgs
+from tracecat.agent.backends.types import AgentControlRejected, AgentControlUncertain
 from tracecat.agent.executor.schemas import ToolExecutionResult
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
-from tracecat.agent.types import AgentConfig
+from tracecat.agent.types import AgentConfig, ToolApproved
 from tracecat.auth.types import Role
 from tracecat.chat import tokens
 from tracecat.chat.enums import MessageKind
@@ -111,7 +115,7 @@ def _mock_approval_continuation_dependencies(
     )
     with (
         patch(
-            "tracecat.agent.session.service.get_temporal_client",
+            "tracecat.agent.backends.base.get_temporal_client",
             AsyncMock(return_value=temporal_client),
         ),
         patch(
@@ -422,7 +426,7 @@ async def test_list_messages_sql_owns_active_run_visibility(
 
 
 @pytest.mark.anyio
-async def test_replace_interrupt_with_tool_results_replaces_legacy_interrupted_row(
+async def test_replace_interrupt_with_tool_results_preserves_nul_result(
     session: AsyncSession,
     svc_role: Role,
 ) -> None:
@@ -498,7 +502,7 @@ async def test_replace_interrupt_with_tool_results_replaces_legacy_interrupted_r
             ToolExecutionResult(
                 tool_call_id="call_123",
                 tool_name="core.http_request",
-                result={"status": "success"},
+                result="left\x00right",
                 is_error=False,
             )
         ],
@@ -516,7 +520,20 @@ async def test_replace_interrupt_with_tool_results_replaces_legacy_interrupted_r
     [tool_result] = tool_result_blocks
     assert tool_result["tool_use_id"] == "call_123"
     assert tool_result["is_error"] is False
-    assert orjson.loads(tool_result["content"]) == {"status": "success"}
+    assert tool_result["content"] == r"left\u0000right"
+
+    tool_result_entry = next(
+        entry
+        for entry in history
+        if any(
+            isinstance(block, dict) and block.get("type") == "tool_result"
+            for block in entry.content.get("message", {}).get("content", [])
+        )
+    )
+    assert tool_result_entry.raw_session_line is not None
+    raw_entry = orjson.loads(tool_result_entry.raw_session_line)
+    [raw_tool_result] = raw_entry["message"]["content"]
+    assert raw_tool_result["content"] == "left\x00right"
 
 
 @pytest.mark.anyio
@@ -1799,7 +1816,17 @@ async def test_run_turn_continue_override_maps_to_tool_approved(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failure,expected",
+    [
+        (WorkflowUpdateRPCTimeoutOrCancelledError(), AgentControlUncertain),
+        (ValueError("result decoding failed after submission"), AgentControlUncertain),
+        (asyncio.CancelledError(), asyncio.CancelledError),
+    ],
+)
 async def test_approval_continuation_retry_reuses_stream_after_ambiguous_failure(
+    failure: BaseException,
+    expected: type[BaseException],
     session: AsyncSession,
     svc_role: Role,
     pending_approval_session: tuple[AgentSession, ContinueRunRequest, uuid.UUID],
@@ -1807,12 +1834,10 @@ async def test_approval_continuation_retry_reuses_stream_after_ambiguous_failure
     agent_session, continuation, previous_stream_id = pending_approval_session
     service = AgentSessionService(session=session, role=svc_role)
     fake_redis = _ApprovalContinuationRedis()
-    execute_update = AsyncMock(
-        side_effect=[WorkflowUpdateRPCTimeoutOrCancelledError(), None]
-    )
+    execute_update = AsyncMock(side_effect=[failure, None])
 
     with _mock_approval_continuation_dependencies(fake_redis, execute_update):
-        with pytest.raises(WorkflowUpdateRPCTimeoutOrCancelledError):
+        with pytest.raises(expected):
             await service.run_turn(agent_session.id, continuation)
 
         await session.refresh(agent_session)
@@ -1885,7 +1910,7 @@ async def test_approval_continuation_rejection_restores_and_retries_fresh_stream
     )
 
     with _mock_approval_continuation_dependencies(fake_redis, execute_update):
-        with pytest.raises(WorkflowUpdateFailedError):
+        with pytest.raises(AgentControlRejected):
             await service.run_turn(agent_session.id, continuation)
 
         rejected_stream_id = execute_update.await_args_list[0].args[1].new_stream_id
@@ -2050,7 +2075,7 @@ async def test_run_turn_rejects_invalid_approval_ids_before_stream_rotation(
 
     with (
         patch(
-            "tracecat.agent.session.service.get_temporal_client",
+            "tracecat.agent.backends.base.get_temporal_client",
             get_temporal_client,
         ),
         patch(
@@ -2123,7 +2148,7 @@ async def test_run_turn_continue_without_pending_approvals(
     get_workflow_handle_for = Mock(return_value=fake_handle)
     fake_client = SimpleNamespace(get_workflow_handle_for=get_workflow_handle_for)
     with patch(
-        "tracecat.agent.session.service.get_temporal_client",
+        "tracecat.agent.backends.base.get_temporal_client",
         AsyncMock(return_value=fake_client),
     ):
         with expectation:
@@ -2221,9 +2246,10 @@ async def test_run_turn_merges_basic_chat_request_instructions(
     session: AsyncSession,
     svc_role: Role,
     external_agent_session: AgentSession,
+    temporal_start_client: tuple[Client, AsyncMock],
 ) -> None:
     service = AgentSessionService(session=session, role=svc_role)
-    fake_client = SimpleNamespace(start_workflow=AsyncMock(return_value=None))
+    temporal_client, start_rpc = temporal_start_client
 
     @contextlib.asynccontextmanager
     async def _fake_build_agent_config(_session: AgentSession):
@@ -2247,8 +2273,8 @@ async def test_run_turn_merges_basic_chat_request_instructions(
             AsyncMock(return_value=None),
         ),
         patch(
-            "tracecat.agent.session.service.get_temporal_client",
-            AsyncMock(return_value=fake_client),
+            "tracecat.agent.backends.base.get_temporal_client",
+            AsyncMock(return_value=temporal_client),
         ),
     ):
         response = await service.run_turn(
@@ -2260,9 +2286,13 @@ async def test_run_turn_merges_basic_chat_request_instructions(
         )
 
     assert response is not None
-    await_args = fake_client.start_workflow.await_args
-    assert await_args is not None
-    workflow_args = await_args.args[1]
+    start_rpc.assert_awaited_once()
+    assert start_rpc.await_args is not None
+    start_request = start_rpc.await_args.args[1]
+    assert isinstance(start_request, StartWorkflowExecutionRequest)
+    (workflow_args,) = await temporal_client.data_converter.decode(
+        list(start_request.input.payloads), [AgentWorkflowArgs]
+    )
     assert (
         workflow_args.agent_args.config.instructions
         == "Base preset instructions\n\nSlack actor context for this turn:\n- Slack email: jordan@example.com"
@@ -2456,3 +2486,31 @@ async def test_apply_decisions_visible_to_later_read_in_same_session(
     # `updated_at` cannot be asserted to advance here: the test fixture runs one
     # outer transaction, and `func.now()` is transaction-start time.
     assert reread.approved_at is not None
+
+
+@pytest.mark.anyio
+async def test_approval_connection_failure_rolls_back_and_allows_retry(
+    session: AsyncSession,
+    svc_role: Role,
+    pending_approval_session: tuple[AgentSession, ContinueRunRequest, uuid.UUID],
+) -> None:
+    agent_session, continuation, previous_stream_id = pending_approval_session
+    service = AgentSessionService(session=session, role=svc_role)
+    execute_update = AsyncMock(return_value=True)
+    fake_redis = _ApprovalContinuationRedis()
+    with _mock_approval_continuation_dependencies(fake_redis, execute_update):
+        with (
+            patch(
+                "tracecat.agent.backends.base.get_temporal_client",
+                side_effect=RuntimeError("connect failed"),
+            ),
+            pytest.raises(AgentControlRejected),
+        ):
+            await service.run_turn(agent_session.id, continuation)
+        execute_update.assert_not_awaited()
+        await session.refresh(agent_session)
+        assert agent_session.active_stream_id == previous_stream_id
+        result = await service.run_turn(agent_session.id, continuation)
+    assert result is not None
+    assert result.active_stream_id != previous_stream_id
+    execute_update.assert_awaited_once()

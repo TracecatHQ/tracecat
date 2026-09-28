@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, NoResultFound
 from sqlalchemy.orm import selectinload
 
+from tracecat import config
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
@@ -30,6 +31,7 @@ from tracecat.db.models import (
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import reset_invitation_email
 from tracecat.organization.domains import normalize_domain
 from tracecat.organization.management import (
     create_organization_with_defaults,
@@ -354,6 +356,22 @@ class AdminOrgService(BasePlatformService):
         invitation.status = InvitationStatus.REVOKED
         await self.session.commit()
 
+    @audit_log(
+        resource_type="organization_invitation",
+        action="resend",
+        resource_id_attr="invitation_id",
+    )
+    async def resend_organization_invitation(
+        self,
+        org_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+    ) -> AdminOrgInvitationRead:
+        """Re-enter a pending platform-created invitation into the email outbox."""
+        invitation = await self._get_platform_invitation(org_id, invitation_id)
+        await reset_invitation_email(self.session, invitation)
+        await self.session.commit()
+        return self._serialize_invitation(invitation)
+
     async def _get_org_invitation_role(
         self,
         org_id: uuid.UUID,
@@ -413,6 +431,7 @@ class AdminOrgService(BasePlatformService):
             created_at=invitation.created_at,
             accepted_at=invitation.accepted_at,
             created_by_platform_admin=invitation.created_by_platform_admin,
+            last_emailed_at=invitation.email_sent_at,
         )
 
     def _serialize_invitation_create(
@@ -831,37 +850,39 @@ class AdminOrgService(BasePlatformService):
 
         is_git_ssh = repo.origin.startswith("git+ssh://")
 
-        version: str | None = None
-        commit_sha: str | None = None
-
         if is_git_ssh:
+            git_repo_package_name = await get_setting(
+                "git_repo_package_name", role=org_role
+            )
             allowed_domains_setting = await get_setting(
                 "git_allowed_domains", role=org_role
             )
             allowed_domains = allowed_domains_setting or {"github.com"}
             git_url = parse_git_url(repo.origin, allowed_domains=allowed_domains)
 
-            async with ssh_context(
-                role=org_role, git_url=git_url, session=self.session
-            ) as ssh_env:
-                (
-                    commit_sha,
-                    version,
-                ) = await actions_service.sync_actions_from_repository(
-                    repo, ssh_env=ssh_env
+            if config.TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED:
+                sync_outcome = await actions_service.sync_actions_from_repository(
+                    repo,
+                    git_repo_package_name=git_repo_package_name,
                 )
+            else:
+                async with ssh_context(
+                    role=org_role, git_url=git_url, session=self.session
+                ) as ssh_env:
+                    sync_outcome = await actions_service.sync_actions_from_repository(
+                        repo,
+                        git_repo_package_name=git_repo_package_name,
+                        ssh_env=ssh_env,
+                    )
         else:
-            (
-                commit_sha,
-                version,
-            ) = await actions_service.sync_actions_from_repository(repo)
+            sync_outcome = await actions_service.sync_actions_from_repository(repo)
 
         # Update repository
         self.session.expire(repo)
         await repos_service.update_repository(
             repo,
             RegistryRepositoryUpdate(
-                last_synced_at=last_synced_at, commit_sha=commit_sha
+                last_synced_at=last_synced_at, commit_sha=sync_outcome.commit_sha
             ),
         )
 
@@ -879,8 +900,8 @@ class AdminOrgService(BasePlatformService):
             success=True,
             repository_id=repo.id,
             origin=repo.origin,
-            version=version,
-            commit_sha=commit_sha,
+            version=sync_outcome.version,
+            commit_sha=sync_outcome.commit_sha,
             actions_count=actions_count,
             forced=force,
         )

@@ -1,0 +1,61 @@
+type: action
+definition:
+  title: Get user
+  description: Retrieves a user.
+  display_group: Google Workspace Directory
+  doc_url: https://developers.google.com/workspace/admin/directory/reference/rest/v1/users/get
+  namespace: tools.google_directory
+  name: get_user
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    user_key:
+      type: str
+      description: >-
+        Identifies the user in the API request. The value can be the user's primary email
+        address, alias email address, or unique user ID.
+    projection:
+      type: str | None
+      description: >-
+        What subset of fields to fetch for this user. Allowed values are `basic`, `custom`, and
+        `full`.
+      default: null
+    custom_field_mask:
+      type: str | None
+      description: >-
+        A comma-separated list of schema names. All fields from these schemas are fetched. This
+        should only be set when `projection=custom`.
+      default: null
+    view_type:
+      type: str | None
+      description: >-
+        Whether to fetch the administrator-only or domain-wide public view of the user. Allowed
+        values are `admin_view` and `domain_public`.
+      default: null
+  steps:
+    - ref: get_user
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: directory_v1
+        resource: users
+        method_name: get
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.directory.user.readonly"]
+        params:
+          userKey: ${{ inputs.user_key }}
+          projection: ${{ inputs.projection }}
+          customFieldMask: ${{ inputs.custom_field_mask }}
+          viewType: ${{ inputs.view_type }}
+  returns: ${{ steps.get_user.result }}

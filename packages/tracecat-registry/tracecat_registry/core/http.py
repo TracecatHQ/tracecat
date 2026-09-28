@@ -123,7 +123,7 @@ Method = Annotated[
     Doc("HTTP request method"),
 ]
 Headers = Annotated[
-    dict[str, str] | None,
+    dict[str, str | None] | None,
     Doc("HTTP request headers"),
 ]
 Params = Annotated[
@@ -624,6 +624,15 @@ async def http_request(
             "Raw content cannot be combined with payload, form_data, or files."
         )
 
+    # Unset optional params and headers must be omitted, not sent as empty values.
+    # Bound to new names so the pruned header type narrows to dict[str, str].
+    request_params = (
+        {k: v for k, v in params.items() if v is not None} if params else None
+    )
+    request_headers = (
+        {k: v for k, v in headers.items() if v is not None} if headers else None
+    )
+
     ignore_status_codes = ignore_status_codes or []
     basic_auth = httpx.BasicAuth(**auth) if auth else None
 
@@ -659,8 +668,8 @@ async def http_request(
                 response = await client.request(
                     method=method,
                     url=url,
-                    headers=headers,
-                    params=params,
+                    headers=request_headers,
+                    params=request_params,
                     content=content,
                     json=payload,
                     data=form_data,
@@ -740,6 +749,15 @@ async def http_poll(
 ) -> HTTPResponse:
     """Perform a HTTP request to a given URL with optional polling."""
 
+    # Unset optional params and headers must be omitted, not sent as empty values.
+    # Bound to new names so the pruned header type narrows to dict[str, str].
+    request_params = (
+        {k: v for k, v in params.items() if v is not None} if params else None
+    )
+    request_headers = (
+        {k: v for k, v in headers.items() if v is not None} if headers else None
+    )
+
     basic_auth = httpx.BasicAuth(**auth) if auth else None
 
     retry_codes = poll_retry_codes
@@ -818,8 +836,8 @@ async def http_poll(
                     response = await client.request(
                         method=method,
                         url=url,
-                        headers=headers,
-                        params=params,
+                        headers=request_headers,
+                        params=request_params,
                         json=payload,
                         data=form_data,
                     )

@@ -57,6 +57,7 @@ interface WorkflowTriggerFormProps {
   schema: TracecatJsonSchema
   caseId: string
   caseFields: Record<string, unknown>
+  caseFieldDisplayNameById: ReadonlyMap<string, string>
   groupCaseFields: boolean
   defaultTriggerValues?: Record<string, unknown> | null
   taskId?: string
@@ -179,6 +180,7 @@ export function WorkflowTriggerForm({
   schema,
   caseId,
   caseFields,
+  caseFieldDisplayNameById,
   groupCaseFields,
   defaultTriggerValues,
   taskId,
@@ -454,6 +456,7 @@ export function WorkflowTriggerForm({
                           fieldName={fieldName}
                           fieldSchema={fieldSchema}
                           caseFields={caseFields}
+                          caseFieldDisplayNameById={caseFieldDisplayNameById}
                           caseId={caseId}
                           enumOptions={enumOptions}
                           fieldType={fieldType}
@@ -624,6 +627,7 @@ interface CaseValueSelectorProps {
   fieldName: string
   fieldSchema: TracecatJsonSchema
   caseFields: Record<string, unknown>
+  caseFieldDisplayNameById: ReadonlyMap<string, string>
   caseId: string
   enumOptions?: unknown[]
   fieldType?: string | null
@@ -634,6 +638,7 @@ function CaseValueSelector({
   fieldName,
   fieldSchema,
   caseFields,
+  caseFieldDisplayNameById,
   caseId,
   enumOptions,
   fieldType,
@@ -682,7 +687,7 @@ function CaseValueSelector({
     if (directMatch) {
       addSuggestion(
         `case-field-${directMatch[0]}`,
-        `Use case field • ${formatLabel(directMatch[0])}`,
+        `Use case field • ${caseFieldDisplayNameById.get(directMatch[0]) ?? formatLabel(directMatch[0])}`,
         directMatch[1]
       )
     }
@@ -696,13 +701,21 @@ function CaseValueSelector({
       .forEach(([key, value]) => {
         addSuggestion(
           `case-field-${key}`,
-          `Case field • ${formatLabel(key)}`,
+          `Case field • ${caseFieldDisplayNameById.get(key) ?? formatLabel(key)}`,
           value
         )
       })
 
     return results
-  }, [caseFields, caseId, enumOptions, fieldName, fieldSchema, fieldType])
+  }, [
+    caseFieldDisplayNameById,
+    caseFields,
+    caseId,
+    enumOptions,
+    fieldName,
+    fieldSchema,
+    fieldType,
+  ])
 
   if (suggestions.length === 0) {
     return null
@@ -730,6 +743,7 @@ function CaseValueSelector({
                 <CommandItem
                   key={suggestion.id}
                   value={suggestion.id}
+                  keywords={[suggestion.label]}
                   onSelect={() => {
                     onApply(suggestion.value)
                     setOpen(false)

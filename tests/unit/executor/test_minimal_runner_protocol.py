@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import io
+import re
 import sys
 import types
 from dataclasses import dataclass
@@ -13,7 +15,7 @@ from uuid import UUID
 import httpx
 import orjson
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 
 from tracecat.executor import minimal_runner
 
@@ -452,6 +454,83 @@ def test_main_minimal_masks_secrets_in_suppressed_output(monkeypatch) -> None:
     assert "***" in warnings_emitted[0]
 
 
+@pytest.mark.parametrize("outcome", ["quiet", "noisy", "error"])
+def test_main_minimal_compiles_masks_only_for_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, outcome: str
+) -> None:
+    original = re.compile
+    compiled: list[str] = []
+    notices: list[str] = []
+
+    def counted(pattern: str) -> re.Pattern[str]:
+        compiled.append(pattern)
+        return original(pattern)
+
+    def action(*_args: object) -> str:
+        if outcome == "error":
+            raise ValueError("rejected synthetic-secret")
+        if outcome == "noisy":
+            print("stdout synthetic-secret")
+            print("stderr synthetic-secret", file=sys.stderr)
+        return "ok"
+
+    monkeypatch.setattr(minimal_runner, "run_action_minimal", action)
+    # Isolate the spy from regex use elsewhere in the process.
+    monkeypatch.setattr(
+        minimal_runner, "re", types.SimpleNamespace(compile=counted, escape=re.escape)
+    )
+    monkeypatch.setattr(
+        minimal_runner.warnings,
+        "warn",
+        lambda message, *_args, **_kwargs: notices.append(message),
+    )
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {"type": "udf", "module": "synthetic", "name": "run"},
+                "evaluated_args": {},
+            },
+            "secret_mask_values": ["synthetic-secret"],
+        }
+    )
+    assert len(compiled) == (0 if outcome == "quiet" else 1)
+    if outcome == "error":
+        assert result["error"]["message"] == "rejected ***"
+    else:
+        assert result == {"success": True, "result": "ok"}
+    assert len(notices) == (2 if outcome == "noisy" else 0)
+    assert all(
+        "synthetic-secret" not in notice and "***" in notice for notice in notices
+    )
+
+
+def test_lazy_mask_compilation_preserves_resource_limit_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def action(*_args: object) -> None:
+        raise ValueError("rejected synthetic-secret")
+
+    def exhausted(pattern: str) -> re.Pattern[str]:
+        raise MemoryError
+
+    monkeypatch.setattr(minimal_runner, "run_action_minimal", action)
+    monkeypatch.setattr(
+        minimal_runner, "re", types.SimpleNamespace(compile=exhausted, escape=re.escape)
+    )
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {"type": "udf", "module": "synthetic", "name": "run"},
+                "evaluated_args": {},
+            },
+            "secret_mask_values": ["synthetic-secret"],
+        }
+    )
+    assert result["success"] is False
+    assert result["error_code"] == "resource_limit_exceeded"
+    assert "synthetic-secret" not in result["error"]["message"]
+
+
 def test_main_minimal_masks_non_string_secret_env_values(monkeypatch) -> None:
     test_module: Any = types.ModuleType("test_module")
 
@@ -573,9 +652,46 @@ def test_main_minimal_errors_when_secret_value_stringify_fails(monkeypatch) -> N
     )
 
     assert result["success"] is False
+    # The error reports the invalid env entry without invoking its repr.
     assert result["error"]["type"] == "TypeError"
+    assert "Failed to stringify secret env value" in result["error"]["message"]
     assert "BROKEN" in result["error"]["message"]
-    assert "BrokenSecret" in result["error"]["message"]
+
+
+def test_main_minimal_keeps_error_message_when_withholding_disabled(
+    monkeypatch,
+) -> None:
+    test_module: Any = types.ModuleType("test_module")
+
+    def failing_action() -> None:
+        raise ValueError("upstream rejected the request")
+
+    test_module.failing_action = failing_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "failing_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {"API_KEY": "sk-test"},
+            "unsafe_disable_secret_error_withholding": True,
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"]["type"] == "ValueError"
+    assert result["error"]["message"] == "upstream rejected the request"
 
 
 def test_main_minimal_still_succeeds_when_warnings_raise(monkeypatch) -> None:
@@ -685,3 +801,259 @@ def test_json_dumps_rejects_broken_model_dump():
     result = {"success": True, "result": _FakeModel()}
     with pytest.raises(TypeError, match="Type is not JSON serializable"):
         minimal_runner.json_dumps(result)
+
+
+def test_main_minimal_reports_memory_error_as_resource_limit(
+    monkeypatch,
+) -> None:
+    """Invariant: an action's MemoryError carries the resource-limit envelope code.
+
+    The action path raises the typed sandbox exception from this code before
+    it ever parses the structured error, so the code is what the host reads.
+    """
+    test_module: Any = types.ModuleType("test_module")
+
+    def hungry_action() -> None:
+        raise MemoryError()
+
+    test_module.hungry_action = hungry_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "hungry_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {},
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "resource_limit_exceeded"
+    assert result["error"]["type"] == "MemoryError"
+    assert result["error"]["action_name"] == "test_module.hungry_action"
+
+
+def test_main_minimal_reports_enomem_oserror_as_resource_limit(
+    monkeypatch,
+) -> None:
+    """Invariant: an ENOMEM syscall failure is the same cap as MemoryError.
+
+    Exhausting ``rlimit_as`` through ``mmap`` and friends raises ``OSError``
+    with ``errno.ENOMEM``, not ``MemoryError``. Matching on the errno rather
+    than on message text keeps that failure inside the resource-limit
+    guarantee instead of degrading it to a generic action failure.
+    """
+    test_module: Any = types.ModuleType("test_module")
+
+    def mapping_action() -> None:
+        raise OSError(errno.ENOMEM, "Cannot allocate memory")
+
+    test_module.mapping_action = mapping_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "mapping_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {},
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "resource_limit_exceeded"
+    assert result["error"]["action_name"] == "test_module.mapping_action"
+
+
+def test_resource_limit_from_error_ignores_other_oserrors() -> None:
+    """Unrelated syscall failures must retain their ordinary classification."""
+    assert minimal_runner.resource_limit_from_error(MemoryError()) == "memory"
+    assert (
+        minimal_runner.resource_limit_from_error(OSError(errno.ENOMEM, "no memory"))
+        == "memory"
+    )
+    assert (
+        minimal_runner.resource_limit_from_error(OSError(errno.EFBIG, "too large"))
+        == "file_size"
+    )
+    assert not minimal_runner.resource_limit_from_error(
+        OSError(errno.EAGAIN, "would block")
+    )
+    assert not minimal_runner.resource_limit_from_error(
+        OSError(errno.ENOENT, "missing")
+    )
+    assert not minimal_runner.resource_limit_from_error(ValueError("nope"))
+
+
+def test_serialize_result_reports_limit_when_model_dump_exhausts_memory() -> None:
+    """Invariant: the orjson default hook must not swallow memory exhaustion.
+
+    ``_orjson_default`` treats a failing ``model_dump()`` as an unserializable
+    type and raises ``TypeError``. A ``MemoryError`` raised in there is the
+    address-space cap, not a type problem, so swallowing it would strip the
+    resource-limit code off a failure that really did hit the cap.
+    """
+
+    class _HungryModel:
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            raise MemoryError()
+
+    encoded = minimal_runner.serialize_result(
+        {"success": True, "result": _HungryModel()},
+        {"resolved_context": {"action_impl": {"module": "m", "name": "n"}}},
+    )
+    decoded = orjson.loads(encoded)
+
+    assert decoded["success"] is False
+    assert decoded["error_code"] == "resource_limit_exceeded"
+
+
+@pytest.mark.parametrize("error", [MemoryError(), OSError(errno.ENOMEM, "no memory")])
+def test_serialize_result_preserves_pydantic_serializer_memory_cause(
+    error: Exception,
+) -> None:
+    class HungryModel(BaseModel):
+        value: int = 1
+
+        @field_serializer("value")
+        def serialize_value(self, value: int) -> int:
+            raise error
+
+    encoded = minimal_runner.serialize_result(
+        {"success": True, "result": HungryModel()}, {}
+    )
+    decoded = orjson.loads(encoded)
+
+    assert decoded["success"] is False
+    assert decoded["error_code"] == "resource_limit_exceeded"
+
+
+def test_serialize_result_degrades_to_resource_limit_envelope_on_memory_error(
+    monkeypatch,
+) -> None:
+    """Invariant: a MemoryError while serializing still reports the limit code.
+
+    The allocation that dies can be the serialization itself, long after the
+    action returned. Without this fallback the process exits before writing
+    result.json and the host sees only a generic workload failure.
+    """
+    calls: list[dict[str, Any]] = []
+    real_json_dumps = minimal_runner.json_dumps
+
+    def flaky_json_dumps(obj: dict[str, Any]) -> bytes:
+        calls.append(obj)
+        if len(calls) == 1:
+            raise MemoryError()
+        return real_json_dumps(obj)
+
+    monkeypatch.setattr(minimal_runner, "json_dumps", flaky_json_dumps)
+
+    payload = minimal_runner.serialize_result(
+        {"success": True, "result": "an oversized value"},
+        {
+            "resolved_context": {
+                "action_impl": {"module": "test_module", "name": "hungry_action"}
+            }
+        },
+    )
+
+    decoded = orjson.loads(payload)
+    assert decoded["success"] is False
+    assert decoded["error_code"] == "resource_limit_exceeded"
+    assert decoded["error"]["type"] == "MemoryError"
+    assert decoded["error"]["action_name"] == "test_module.hungry_action"
+
+
+def test_serialize_result_passes_through_when_serialization_succeeds() -> None:
+    """Invariant: the fallback never fires on the ordinary path."""
+    payload = minimal_runner.serialize_result({"success": True, "result": 1}, {})
+
+    assert orjson.loads(payload) == {"success": True, "result": 1}
+
+
+def test_main_minimal_masks_error_when_secrets_in_scope(monkeypatch) -> None:
+    """Known secrets are masked without discarding the diagnostic."""
+    test_module: Any = types.ModuleType("test_module")
+
+    def boom_action() -> None:
+        raise ValueError("invalid literal: 'sk_live_CANARY\nMULTILINE'")
+
+    test_module.boom_action = boom_action
+
+    monkeypatch.setattr(
+        minimal_runner.importlib,
+        "import_module",
+        lambda _p, *args, **kwargs: test_module,
+    )
+
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {
+                    "type": "udf",
+                    "module": "test_module",
+                    "name": "boom_action",
+                },
+                "evaluated_args": {},
+            },
+            "secret_env": {"API_KEY": "sk_live_CANARY\nMULTILINE"},
+        }
+    )
+
+    assert result["success"] is False
+    assert result["error"]["type"] == "ValueError"
+    assert "CANARY" not in result["error"]["message"]
+    assert result["error"]["message"] == "invalid literal: '***'"
+
+
+@pytest.mark.parametrize("escaped", [False, True])
+def test_main_minimal_masks_observed_derived_values_without_env_secrets(
+    monkeypatch, escaped: bool
+) -> None:
+    """Host-observed values cross the subprocess protocol even without env secrets."""
+    derived = "encoded-derived-value\nsecond-line"
+    test_module = types.ModuleType("test_module")
+
+    def fail() -> None:
+        value = repr(derived) if escaped else derived
+        raise ValueError(f"upstream rejected {value}")
+
+    monkeypatch.setattr(test_module, "fail", fail, raising=False)
+    monkeypatch.setattr(
+        minimal_runner.importlib, "import_module", lambda *_args: test_module
+    )
+    result = minimal_runner.main_minimal(
+        {
+            "resolved_context": {
+                "action_impl": {"type": "udf", "module": "test_module", "name": "fail"},
+                "evaluated_args": {},
+            },
+            "secret_env": {},
+            "secret_mask_values": [derived, repr(derived)[1:-1]],
+        }
+    )
+    assert result["success"] is False
+    assert "upstream rejected" in result["error"]["message"]
+    assert "encoded-derived-value" not in result["error"]["message"]
+    assert "***" in result["error"]["message"]

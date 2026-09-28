@@ -1,7 +1,6 @@
 "use client"
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
-import { useQueries } from "@tanstack/react-query"
 import { format } from "date-fns"
 import {
   ChevronRight,
@@ -67,6 +66,7 @@ import { toast } from "@/components/ui/use-toast"
 import { useAdminRegistryStatus } from "@/hooks/use-admin"
 import { useAuth } from "@/hooks/use-auth"
 import { useRegistryActions, useRegistryRepositories } from "@/lib/hooks"
+import { useQueries } from "@/lib/query"
 import { cn, copyToClipboard } from "@/lib/utils"
 
 type ActionTypeFilter = RegistryActionReadMinimal["type"] | "all"

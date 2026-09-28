@@ -1,0 +1,129 @@
+type: action
+definition:
+  title: Update issue
+  description: >-
+    Update issue. Calls PUT /projects/{project_id}/issues/{issue_iid} directly with an api-scoped GitLab project access token. Required project role, tier, and GitLab version are enforced by GitLab; GitLab Self-Managed availability depends on the installed version.
+  display_group: GitLab
+  doc_url: https://docs.gitlab.com/api/api_resources/
+  namespace: tools.gitlab
+  name: update_issue
+  secrets:
+    - name: gitlab
+      keys:
+        - GITLAB_API_TOKEN
+  expects:
+    project_id:
+      type: str
+      description: GitLab API path value for project_id.
+    issue_iid:
+      type: int
+      description: GitLab API path value for issue_iid.
+    add_labels:
+      type: str | None
+      description: Comma-separated label names to add to an issue. If a label does not already exist, this creates a new project label and assigns it to the issue.
+      default: null
+    assignee_ids:
+      type: str | None
+      description: The ID of the users to assign the issue to, as a comma-separated list. Set to `0` to unassign all assignees.
+      default: null
+    confidential:
+      type: bool | None
+      description: Updates an issue to be confidential.
+      default: null
+    description:
+      type: str | None
+      description: The description of an issue. Limited to 1,048,576 characters.
+      default: null
+    discussion_locked:
+      type: bool | None
+      description: Flag indicating if the issue's discussion is locked. If the discussion is locked only project members can add or edit comments.
+      default: null
+    due_date:
+      type: str | None
+      description: The due date. Date time string in the format `YYYY-MM-DD`, for example `2016-03-11`.
+      default: null
+    epic_id:
+      type: int | None
+      description: ID of the epic to add the issue to. Valid values are greater than or equal to 0. Premium and Ultimate only.
+      default: null
+    issue_type:
+      type: str | None
+      description: Updates the type of issue. One of `issue`, `incident`, or `test_case`.
+      default: null
+    labels:
+      type: str | None
+      description: Comma-separated label names for an issue. If a label does not already exist, this creates a new project label and assigns it to the issue.
+      default: null
+    milestone_id:
+      type: int | None
+      description: The global ID of a milestone to assign the issue to. Set to `0` to unassign a milestone. Mutually exclusive with `milestone`.
+      default: null
+    milestone:
+      type: str | None
+      description: The title of a project or ancestor-group milestone to assign the issue to. Matched exactly (case-sensitive). Mutually exclusive with `milestone_id`.
+      default: null
+    remove_labels:
+      type: str | None
+      description: Comma-separated label names to remove from an issue.
+      default: null
+    severity:
+      type: str | None
+      description: The severity of the issue. Only applies to incidents. One of `unknown`, `low`, `medium`, `high`, or `critical`.
+      default: null
+    start_date:
+      type: str | None
+      description: The start date. Date time string in the format `YYYY-MM-DD`, for example `2016-03-11`.
+      default: null
+    state_event:
+      type: str | None
+      description: The state event of an issue. To close the issue, use `close`, and to reopen it, use `reopen`.
+      default: null
+    title:
+      type: str | None
+      description: The title of an issue.
+      default: null
+    updated_at:
+      type: str | None
+      description: When the issue was updated. Date time string, ISO 8601 formatted, for example `2016-03-11T03:45:40Z` (requires administrator or project owner rights).
+      default: null
+    payload:
+      # Generic: GitLab accepts these attributes in the query string (its own curl
+      # examples do) or a JSON body, but a null body field violates NOT NULL on
+      # `confidential` and Grape reads a null array as "unassign". Named inputs above
+      # go on the query string; this stays for callers sending a body.
+      type: dict[str, Any] | None
+      description: API-native request body passed through without validation.
+      default: null
+    base_url:
+      type: str
+      description: GitLab API v4 base URL. Set this input to a workspace variable for a reusable self-managed host.
+      default: https://gitlab.com/api/v4
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url }}/projects/${{ FN.url_encode(inputs.project_id) }}/issues/${{ FN.url_encode(inputs.issue_iid) }}
+        method: PUT
+        headers:
+          PRIVATE-TOKEN: ${{ SECRETS.gitlab.GITLAB_API_TOKEN }}
+          Accept: application/json
+        params:
+          add_labels: ${{ inputs.add_labels }}
+          assignee_ids: ${{ inputs.assignee_ids }}
+          confidential: ${{ inputs.confidential }}
+          description: ${{ inputs.description }}
+          discussion_locked: ${{ inputs.discussion_locked }}
+          due_date: ${{ inputs.due_date }}
+          epic_id: ${{ inputs.epic_id }}
+          issue_type: ${{ inputs.issue_type }}
+          labels: ${{ inputs.labels }}
+          milestone_id: ${{ inputs.milestone_id }}
+          milestone: ${{ inputs.milestone }}
+          remove_labels: ${{ inputs.remove_labels }}
+          severity: ${{ inputs.severity }}
+          start_date: ${{ inputs.start_date }}
+          state_event: ${{ inputs.state_event }}
+          title: ${{ inputs.title }}
+          updated_at: ${{ inputs.updated_at }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

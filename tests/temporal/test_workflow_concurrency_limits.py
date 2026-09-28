@@ -16,6 +16,8 @@ from datetime import timedelta
 import pytest
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from temporalio import activity
+from temporalio.api.enums.v1 import IndexedValueType
+from temporalio.api.operatorservice.v1 import AddSearchAttributesRequest
 from temporalio.client import WorkflowFailureError, WorkflowHandle
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
@@ -41,8 +43,15 @@ from tracecat.executor.activities import ExecutorActivities
 from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.redis import client as redis_client_module
 from tracecat.redis.client import get_redis_client
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
 from tracecat.storage.object import InlineObject, StoredObject
+from tracecat.temporal.errors import extract_error_classification
 from tracecat.tiers.limits_cache import invalidate_effective_limits_cache
+from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 pytestmark = [
     pytest.mark.temporal,
@@ -55,6 +64,15 @@ async def env() -> AsyncGenerator[WorkflowEnvironment, None]:
     async with await WorkflowEnvironment.start_time_skipping(
         data_converter=get_data_converter(compression_enabled=False)
     ) as workflow_env:
+        await workflow_env.client.operator_service.add_search_attributes(
+            AddSearchAttributesRequest(
+                search_attributes={
+                    TemporalSearchAttr.ERROR_OWNER.value: (
+                        IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD
+                    )
+                }
+            )
+        )
         yield workflow_env
 
 
@@ -869,7 +887,11 @@ async def test_retry_until_iterations_count_toward_action_execution_limit_e2e(
                 task_queue=config.TEMPORAL__CLUSTER_QUEUE,
             )
         assert isinstance(exc_info.value.cause, ApplicationError)
-        assert "Action execution limit exceeded" in str(exc_info.value.cause)
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.TENANT_QUOTA_EXHAUSTED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
 
     assert num_activity_executions == 2
 

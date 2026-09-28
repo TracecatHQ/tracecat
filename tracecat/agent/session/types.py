@@ -1,8 +1,29 @@
 """Domain types for agent session management."""
 
+from __future__ import annotations
+
 import uuid
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import NamedTuple
+
+from tracecat.agent.types import AgentConfig
+from tracecat.auth.types import Role
+from tracecat.identifiers import UserID
+
+
+def is_session_readonly(role: Role, created_by: UserID | None) -> bool:
+    """Return whether an actor may modify a session with this creator.
+
+    User-backed actors can only modify sessions they created. Service accounts
+    own sessions without a user creator. Unbound internal services remain
+    writable so background execution is not blocked.
+    """
+    if role.type == "service_account":
+        return created_by is not None
+    if role.user_id is not None:
+        return created_by != role.user_id
+    return False
 
 
 class TurnLifecycle(StrEnum):
@@ -11,6 +32,7 @@ class TurnLifecycle(StrEnum):
     Never persisted to the DB - Temporal owns turn lifecycle. Computed from
     ``describe_workflow(curr_run_id)`` on the (cold) reconnect path.
 
+    - UNAVAILABLE: the backend is not installed; the live outcome is unknown.
     - NONE: no current run; nothing to attach to (-> 204).
     - RUNNING: workflow live; join the Redis stream from the client cursor.
     - COMPLETED: turn done; canonical history is in the DB (-> 204).
@@ -25,6 +47,7 @@ class TurnLifecycle(StrEnum):
       the `data-cancelled` stream event emitted mid-turn, not this value.
     """
 
+    UNAVAILABLE = "unavailable"
     NONE = "none"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -64,3 +87,20 @@ class AgentSessionEntity(StrEnum):
     WORKFLOW = "workflow"
     APPROVAL = "approval"
     EXTERNAL_CHANNEL = "external_channel"
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedAgentTurn:
+    """Persisted turn state for a caller that owns Temporal dispatch."""
+
+    prompt: str
+    session_id: uuid.UUID
+    run_id: uuid.UUID
+    active_stream_id: uuid.UUID
+    config: AgentConfig
+    title: str
+    entity_type: AgentSessionEntity
+    entity_id: uuid.UUID
+    tools: list[str] | None
+    agent_preset_id: uuid.UUID | None
+    agent_preset_version_id: uuid.UUID | None

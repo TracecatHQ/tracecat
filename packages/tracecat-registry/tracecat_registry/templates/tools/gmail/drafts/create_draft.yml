@@ -1,0 +1,133 @@
+type: action
+definition:
+  title: Create draft
+  description: >-
+    Creates a new draft with the DRAFT label. The RFC 2822 message is assembled from the
+    inputs and base64url-encoded before it is sent.
+  display_group: Gmail
+  doc_url: https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.drafts/create
+  namespace: tools.gmail
+  name: create_draft
+  secrets:
+    - type: oauth
+      provider_id: google_gmail
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_gmail
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    to:
+      type: str
+      description: Comma-separated list of recipient email addresses for the `To` header.
+    subject:
+      type: str
+      description: Subject line of the message.
+    body_text:
+      type: str | None
+      description: Plain text body of the message.
+      default: null
+    body_html:
+      type: str | None
+      description: >-
+        HTML body of the message. Added as an alternative part alongside the plain text
+        body.
+      default: null
+    cc:
+      type: str | None
+      description: Comma-separated list of recipient email addresses for the `Cc` header.
+      default: null
+    bcc:
+      type: str | None
+      description: Comma-separated list of recipient email addresses for the `Bcc` header.
+      default: null
+    reply_to:
+      type: str | None
+      description: Email address for the `Reply-To` header.
+      default: null
+    thread_id:
+      type: str | None
+      description: >-
+        The ID of the thread the message belongs to. To add a message to a thread the
+        `References` and `In-Reply-To` headers must be set in compliance with the RFC
+        2822 standard, and the `Subject` headers must match.
+      default: null
+    in_reply_to:
+      type: str | None
+      description: >-
+        The `Message-ID` header value of the message being replied to. Sets the
+        `In-Reply-To` and `References` headers.
+      default: null
+    user_id:
+      type: str
+      description: >-
+        The user's email address. The special value `me` can be used to indicate the
+        authenticated user.
+      default: me
+  steps:
+    - ref: build_draft
+      action: core.script.run_python
+      args:
+        inputs:
+          to: ${{ inputs.to }}
+          subject: ${{ inputs.subject }}
+          body_text: ${{ inputs.body_text }}
+          body_html: ${{ inputs.body_html }}
+          cc: ${{ inputs.cc }}
+          bcc: ${{ inputs.bcc }}
+          reply_to: ${{ inputs.reply_to }}
+          thread_id: ${{ inputs.thread_id }}
+          in_reply_to: ${{ inputs.in_reply_to }}
+        script: |
+          import base64
+          from email.message import EmailMessage
+
+
+          def main(
+              to,
+              subject,
+              body_text=None,
+              body_html=None,
+              cc=None,
+              bcc=None,
+              reply_to=None,
+              thread_id=None,
+              in_reply_to=None,
+          ):
+              msg = EmailMessage()
+              msg["To"] = to
+              msg["Subject"] = subject
+              if cc:
+                  msg["Cc"] = cc
+              if bcc:
+                  msg["Bcc"] = bcc
+              if reply_to:
+                  msg["Reply-To"] = reply_to
+              if in_reply_to:
+                  msg["In-Reply-To"] = in_reply_to
+                  msg["References"] = in_reply_to
+              msg.set_content(body_text or "")
+              if body_html:
+                  msg.add_alternative(body_html, subtype="html")
+              message = {"raw": base64.urlsafe_b64encode(msg.as_bytes()).decode()}
+              if thread_id:
+                  message["threadId"] = thread_id
+              return {"message": message}
+    - ref: create_draft
+      action: tools.google_api.call_api
+      args:
+        service_name: gmail
+        version: v1
+        resource: users.drafts
+        method_name: create
+        access_token: ${{ SECRETS.google_gmail_oauth.GOOGLE_GMAIL_USER_TOKEN || SECRETS.google_gmail_oauth.GOOGLE_GMAIL_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/gmail.compose"]
+        params:
+          userId: ${{ inputs.user_id }}
+          body: ${{ steps.build_draft.result }}
+  returns: ${{ steps.create_draft.result }}

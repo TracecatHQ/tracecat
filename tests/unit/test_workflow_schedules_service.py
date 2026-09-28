@@ -2,22 +2,87 @@ from __future__ import annotations
 
 from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.exceptions import ApplicationError
 
+from tracecat.audit.enums import AuditEventStatus
+from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import EDITOR_SCOPES
 from tracecat.db.models import Schedule, Workflow
-from tracecat.exceptions import ScopeDeniedError
-from tracecat.identifiers import WorkspaceID
+from tracecat.exceptions import (
+    ScopeDeniedError,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
+from tracecat.identifiers import ScheduleUUID, WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.temporal.errors import extract_error_classification
 from tracecat.workflow.schedules import bridge
-from tracecat.workflow.schedules.schemas import ScheduleCreate, ScheduleUpdate
+from tracecat.workflow.schedules.schemas import (
+    GetScheduleActivityInputs,
+    ScheduleCreate,
+    ScheduleUpdate,
+)
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
 pytestmark = pytest.mark.usefixtures("db")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "kind", "retry_disposition"),
+    [
+        (
+            TracecatNotFoundError("missing schedule"),
+            RuntimeErrorKind.WORKFLOW_BOOTSTRAP_INVALID_DATA,
+            RetryDisposition.NON_RETRYABLE,
+        ),
+        (
+            RuntimeError("schedule diagnostic must not enter history"),
+            RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE,
+            RetryDisposition.RETRYABLE,
+        ),
+    ],
+)
+async def test_get_schedule_trigger_inputs_activity_classifies_failures(
+    svc_role: Role,
+    error: Exception,
+    kind: RuntimeErrorKind,
+    retry_disposition: RetryDisposition,
+) -> None:
+    mock_service = AsyncMock()
+    mock_service.get_schedule.side_effect = error
+    mock_ctx = AsyncMock()
+    mock_ctx.__aenter__.return_value = mock_service
+    inputs = GetScheduleActivityInputs(
+        role=svc_role,
+        schedule_id=ScheduleUUID.new_uuid4(),
+        workflow_id=WorkflowUUID.new_uuid4(),
+    )
+
+    with patch(
+        "tracecat.workflow.schedules.service.WorkflowSchedulesService.with_session",
+        return_value=mock_ctx,
+    ):
+        with pytest.raises(ApplicationError) as exc_info:
+            await WorkflowSchedulesService.get_schedule_trigger_inputs_activity(inputs)
+
+    classification = extract_error_classification(exc_info.value)
+    assert classification is not None
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is kind
+    assert classification.retry_disposition is retry_disposition
+    assert str(error) not in str(exc_info.value)
 
 
 async def _create_workflow_with_schedule(
@@ -79,6 +144,43 @@ async def test_create_schedule_acquires_workflow_lock(
     assert schedule.workflow_id == workflow.id
     assert schedule.status == "offline"
     assert locked_workflow_ids == [WorkflowUUID.new(workflow.id)]
+
+
+@pytest.mark.anyio
+async def test_create_schedule_unpublished_workflow_emits_failure(
+    session: AsyncSession, svc_role, monkeypatch
+):
+    workflow = Workflow(
+        title="Unpublished Schedule",
+        description="Test workflow",
+        status="offline",
+        workspace_id=svc_role.workspace_id,
+    )
+    session.add(workflow)
+    await session.commit()
+
+    create_event = AsyncMock()
+    monkeypatch.setattr(AuditService, "create_event", create_event)
+    service = WorkflowSchedulesService(session, role=svc_role)
+
+    with pytest.raises(
+        TracecatConflictError,
+        match="Workflow must be saved before creating a schedule",
+    ):
+        await service.create_schedule(
+            ScheduleCreate(
+                workflow_id=WorkflowUUID.new(workflow.id),
+                every=timedelta(hours=1),
+                inputs={},
+                status="offline",
+                timeout=0,
+            )
+        )
+
+    assert [call.kwargs["status"] for call in create_event.await_args_list] == [
+        AuditEventStatus.ATTEMPT,
+        AuditEventStatus.FAILURE,
+    ]
 
 
 @pytest.mark.anyio

@@ -1,4 +1,12 @@
 import type { ApiError } from "@/client"
+import { toast } from "@/components/ui/use-toast"
+
+type ErrorHandler<TError, TArguments extends unknown[]> = (
+  error: TError,
+  ...args: TArguments
+) => unknown
+
+type GlobalErrorHandler = (error: unknown) => boolean
 
 export interface TracecatApiError<T = unknown> extends ApiError {
   readonly body: {
@@ -42,6 +50,24 @@ export function isRequestValidationErrorArray(
   return Array.isArray(obj) && obj.every((o) => isRequestValidationError(o))
 }
 
+function getValidationMessage(error: unknown): string | null {
+  if (typeof error !== "object" || error === null) {
+    return null
+  }
+  if ("message" in error && typeof error.message === "string") {
+    if (!error.message.trim()) {
+      return null
+    }
+    const path = "path" in error && typeof error.path === "string" && error.path
+    return path ? `${path}: ${error.message}` : error.message
+  }
+  if ("msg" in error && typeof error.msg === "string" && error.msg.trim()) {
+    return error.msg
+  }
+  return null
+}
+
+/** Extract readable API messages, including structured validation errors. */
 export function getApiErrorDetail(error: unknown): string | null {
   if (!(error instanceof Error)) {
     return null
@@ -51,6 +77,19 @@ export function getApiErrorDetail(error: unknown): string | null {
   const detail = maybeApiError.body?.detail
   if (typeof detail === "string") {
     return detail
+  }
+  if (typeof detail === "object" && detail !== null) {
+    const errors = "errors" in detail ? detail.errors : detail
+    if (Array.isArray(errors)) {
+      const messages = errors.map(getValidationMessage).filter(Boolean)
+      if (messages.length > 0) {
+        return messages.join("\n")
+      }
+    }
+    const message = getValidationMessage(detail)
+    if (message) {
+      return message
+    }
   }
   if (detail != null) {
     try {
@@ -64,6 +103,61 @@ export function getApiErrorDetail(error: unknown): string | null {
     return message
   }
   return error.message
+}
+
+function getErrorStatus(error: unknown): number | null {
+  if (typeof error !== "object" || error === null || !("status" in error)) {
+    return null
+  }
+  return typeof error.status === "number" ? error.status : null
+}
+
+const GLOBAL_ERROR_HANDLERS: GlobalErrorHandler[] = [
+  // Forbidden responses signal missing scopes or entitlements. The UI gates
+  // those surfaces inline, so they are swallowed rather than toasted.
+  (error) => getErrorStatus(error) === 403,
+]
+
+/**
+ * Run application-wide error handlers in priority order.
+ *
+ * @returns Whether a handler consumed the error, suppressing fallback feedback.
+ */
+export function handleGlobalError(error: unknown): boolean {
+  return GLOBAL_ERROR_HANDLERS.some((handler) => handler(error))
+}
+
+/** Display a safe destructive toast when no more specific handler exists. */
+export function showFallbackErrorToast(
+  error: unknown,
+  description?: string
+): void {
+  toast({
+    description: description ?? getApiErrorDetail(error) ?? "Please try again.",
+    variant: "destructive",
+  })
+}
+
+/**
+ * Compose the mutation error pipeline used by the React Query facade.
+ *
+ * Global handlers run first, followed by the hook-local handler when present.
+ * Mutations without either form of handling receive the shared fallback toast.
+ * The variadic argument tuple preserves React Query's complete callback
+ * signature without coupling this module to a particular library version.
+ */
+export function chainError<TError, TArguments extends unknown[]>(
+  local?: ErrorHandler<TError, TArguments>
+): ErrorHandler<TError, TArguments> {
+  return (error, ...args) => {
+    const isGloballyHandled = handleGlobalError(error)
+    if (local) {
+      return local(error, ...args)
+    }
+    if (!isGloballyHandled) {
+      showFallbackErrorToast(error)
+    }
+  }
 }
 
 /**

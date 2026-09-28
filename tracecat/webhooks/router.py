@@ -14,6 +14,7 @@ from fastapi import (
 )
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
+from temporalio.client import WorkflowFailureError
 from temporalio.service import RPCError
 
 from tracecat import config
@@ -25,9 +26,19 @@ from tracecat.dsl.schemas import TriggerInputs
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.ee.interactions.enums import InteractionCategory
 from tracecat.ee.interactions.schemas import InteractionInput
-from tracecat.identifiers.workflow import AnyWorkflowIDPath, generate_exec_id
+from tracecat.identifiers.workflow import (
+    AnyWorkflowIDPath,
+    WorkflowExecutionID,
+    WorkflowID,
+    generate_exec_id,
+)
 from tracecat.logger import logger
+from tracecat.observability.otel import (
+    current_trace_id,
+    set_current_span_attributes,
+)
 from tracecat.registry.lock.types import RegistryLock
+from tracecat.runtime.errors import RuntimeErrorOwner, select_error_classification
 from tracecat.storage import blob
 from tracecat.storage.collection import get_collection_page
 from tracecat.storage.object import (
@@ -43,6 +54,7 @@ from tracecat.storage.utils import (
     deserialize_object,
     serialize_object,
 )
+from tracecat.temporal.errors import extract_error_classifications
 from tracecat.webhooks.dependencies import (
     DraftWorkflowDep,
     PayloadDep,
@@ -51,7 +63,11 @@ from tracecat.webhooks.dependencies import (
     parse_interaction_payload,
     validate_incoming_webhook,
 )
-from tracecat.webhooks.schemas import NDJSON_CONTENT_TYPES
+from tracecat.webhooks.schemas import (
+    NDJSON_CONTENT_TYPES,
+    WebhookWaitErrorResponse,
+    WebhookWaitFailureDetail,
+)
 from tracecat.workflow.executions.enums import TriggerType
 from tracecat.workflow.executions.schemas import (
     ReceiveInteractionResponse,
@@ -100,6 +116,35 @@ class WaitResultUnwrapOverflowResponse(TypedDict):
 type WebhookResponse = (
     WorkflowExecutionCreateResponse | OktaVerificationResponse | Response
 )
+
+
+def _annotate_webhook_trace(
+    *,
+    wf_id: WorkflowID,
+    wf_exec_id: WorkflowExecutionID,
+    response: WorkflowExecutionCreateResponse | None = None,
+) -> None:
+    """Best-effort correlation that never blocks dispatch on tracing errors."""
+    try:
+        role = ctx_role.get()
+        set_current_span_attributes(
+            {
+                "tracecat.organization.id": (
+                    role.organization_id if role is not None else None
+                ),
+                "tracecat.workspace.id": role.workspace_id
+                if role is not None
+                else None,
+                "tracecat.workflow.id": wf_id,
+                "tracecat.workflow.execution.id": wf_exec_id,
+                "tracecat.trigger.type": TriggerType.WEBHOOK,
+            }
+        )
+        if response is not None and (trace_id := current_trace_id()):
+            response["trace_id"] = trace_id
+    except Exception:
+        # Tracing is optional; omit exception details that may contain request data.
+        logger.warning("Could not annotate webhook trace")
 
 
 async def _to_external_download_response(
@@ -440,6 +485,12 @@ async def _incoming_webhook(
             else None,
         )
 
+    _annotate_webhook_trace(
+        wf_id=response["wf_id"],
+        wf_exec_id=response["wf_exec_id"],
+        response=response,
+    )
+
     # Response handling
     if echo:
         if empty_echo:
@@ -477,7 +528,11 @@ async def _incoming_webhook(
                 "Unwrapped workflow result exceeded inline response limits. "
                 "Use `detail.download_url` to fetch the externalized result."
             ),
-        }
+        },
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
+            "model": WebhookWaitErrorResponse,
+            "description": "Invalid request parameters or a user-owned workflow failure.",
+        },
     },
 )
 async def incoming_webhook_wait(
@@ -515,16 +570,46 @@ async def incoming_webhook_wait(
     )
 
     service = await WorkflowExecutionsService.connect()
-    response = await service.create_workflow_execution(
-        dsl=dsl_input,
-        wf_id=workflow_id,
-        payload=payload,
-        trigger_type=TriggerType.WEBHOOK,
-        registry_lock=RegistryLock.model_validate(defn.registry_lock)
-        if defn.registry_lock
-        else None,
-    )
+    wf_exec_id = generate_exec_id(workflow_id)
+    try:
+        response = await service.create_workflow_execution(
+            dsl=dsl_input,
+            wf_id=workflow_id,
+            wf_exec_id=wf_exec_id,
+            payload=payload,
+            trigger_type=TriggerType.WEBHOOK,
+            registry_lock=RegistryLock.model_validate(defn.registry_lock)
+            if defn.registry_lock
+            else None,
+        )
+    except WorkflowFailureError as error:
+        classifications = extract_error_classifications(
+            error, include_implicit_context=False
+        )
+        if not classifications:
+            raise
+        classification = select_error_classification(classifications)
+        if classification.owner is not RuntimeErrorOwner.USER:
+            raise
+        logger.warning(
+            "User workflow execution failed",
+            kind=classification.kind,
+            wf_exec_id=wf_exec_id,
+        )
+        # Workflow messages and diagnostics can contain payload or secret values.
+        # Return only stable metadata; keep detailed errors in the workflow run.
+        failure = WebhookWaitErrorResponse(
+            detail=WebhookWaitFailureDetail(
+                code=classification.kind,
+                wf_exec_id=wf_exec_id,
+            )
+        )
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            content=failure.model_dump(mode="json"),
+        )
 
+    _annotate_webhook_trace(wf_id=workflow_id, wf_exec_id=wf_exec_id)
     result = response["result"]
     if unwrap:
         if isinstance(result, InlineObject):
@@ -569,6 +654,11 @@ async def incoming_webhook_draft(
         registry_lock=RegistryLock.model_validate(draft_ctx.registry_lock)
         if draft_ctx.registry_lock
         else None,
+    )
+    _annotate_webhook_trace(
+        wf_id=response["wf_id"],
+        wf_exec_id=response["wf_exec_id"],
+        response=response,
     )
     return response
 

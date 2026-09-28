@@ -1,0 +1,32 @@
+type: action
+definition:
+  title: Validate rule
+  description: Validate an API-native Sublime rule definition.
+  display_group: Sublime
+  doc_url: https://docs.sublime.security/reference/validaterule
+  namespace: tools.sublime
+  name: validate_rule
+  secrets:
+    - name: sublime
+      keys: ["SUBLIME_API_KEY"]
+  expects:
+    payload:
+      # Generic: this endpoint rejects an explicit null on optional body fields,
+      # and a literal payload map cannot omit an unset optional.
+      type: dict[str, Any]
+      description: >-
+        API-native request body. Documented fields: name (required), source (required), action_ids, active, attack_types, authors, auto_review_auto_share, auto_review_classification, description, detection_methods, false_positives, internal_type, label, maturity, references, run_triage_on_excluded_messages, severity, tactics_and_techniques, tags, triage_abuse_reports, triage_classification_changes, triage_dlp_rule_matched, triage_flagged_messages, type, user_provided_tags.
+    base_url:
+      type: str | None
+      description: Base URL of the Sublime API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.sublime.base_url }}/v0/rules/validate
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.sublime.SUBLIME_API_KEY }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result.data }}

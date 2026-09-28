@@ -1,0 +1,30 @@
+type: action
+definition:
+  title: List tags
+  description: >-
+    List tags. Calls POST /api/v1/ directly with query tag_list.
+  display_group: ThreatFox
+  doc_url: https://threatfox.abuse.ch/api/#tag-list
+  namespace: tools.threatfox
+  name: list_tags
+  secrets:
+    - name: abusech
+      keys: ["ABUSECH_API_KEY"]
+  expects:
+    base_url:
+      type: str | None
+      description: Base URL of the ThreatFox API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.threatfox.base_url || "https://threatfox-api.abuse.ch" }}/api/v1/
+        method: POST
+        headers:
+          Auth-Key: ${{ SECRETS.abusech.ABUSECH_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          query: tag_list
+  returns: ${{ steps.request.result }}

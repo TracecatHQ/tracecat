@@ -5,7 +5,11 @@ from typing import cast
 import pytest
 from fastmcp.exceptions import ToolError
 
-from tracecat.mcp.json_patch import apply_json_patch_operations, validate_patch_paths
+from tracecat.mcp.json_patch import (
+    apply_json_patch_operations,
+    resolve_action_ref_path,
+    validate_patch_paths,
+)
 from tracecat.mcp.schemas import JsonPatchOperation, JsonValue
 
 
@@ -187,4 +191,232 @@ def test_apply_json_patch_operations_rejects_non_canonical_array_index(
                 {"layout": {"actions": [{"ref": "step_a"}, {"ref": "step_b"}]}},
             ),
             patch_ops=[patch_op],
+        )
+
+
+def _actions_document() -> dict[str, JsonValue]:
+    return {
+        "definition": {
+            "actions": [
+                {"ref": "fetch_events", "action": "core.http_request", "args": {}},
+                {
+                    "ref": "classify",
+                    "action": "core.transform.reshape",
+                    "args": {"value": 1},
+                },
+                {
+                    "ref": "build_alert",
+                    "action": "core.transform.reshape",
+                    "args": {"value": 2},
+                },
+            ]
+        },
+        "layout": {
+            "actions": [
+                {"ref": "fetch_events", "x": 0.0, "y": 0.0},
+                {"ref": "classify", "x": 10.0, "y": 0.0},
+                {"ref": "build_alert", "x": 20.0, "y": 0.0},
+            ]
+        },
+    }
+
+
+def _action_refs(document: dict[str, JsonValue]) -> list[JsonValue]:
+    return [
+        _obj(action)["ref"] for action in _arr(_obj(document["definition"])["actions"])
+    ]
+
+
+def test_resolve_action_ref_path_rewrites_ref_to_index() -> None:
+    document = _actions_document()
+
+    assert (
+        resolve_action_ref_path(document, "/definition/actions/@classify")
+        == "/definition/actions/1"
+    )
+    assert (
+        resolve_action_ref_path(document, "/definition/actions/@build_alert/args/value")
+        == "/definition/actions/2/args/value"
+    )
+    assert (
+        resolve_action_ref_path(document, "/layout/actions/@classify/x")
+        == "/layout/actions/1/x"
+    )
+
+
+def test_resolve_action_ref_path_leaves_numeric_and_other_paths_alone() -> None:
+    document = _actions_document()
+
+    assert (
+        resolve_action_ref_path(document, "/definition/actions/0/args")
+        == "/definition/actions/0/args"
+    )
+    assert resolve_action_ref_path(document, "/metadata/title") == "/metadata/title"
+    assert resolve_action_ref_path(document, "/schedules/@x") == "/schedules/@x"
+
+
+def test_resolve_action_ref_path_unknown_ref_names_ref_and_known_refs() -> None:
+    with pytest.raises(ToolError, match="Unknown action ref 'missing'") as exc_info:
+        resolve_action_ref_path(_actions_document(), "/definition/actions/@missing")
+    assert "'fetch_events'" in str(exc_info.value)
+
+
+def test_resolve_action_ref_path_append_only_for_bare_action_path() -> None:
+    document = _actions_document()
+
+    assert (
+        resolve_action_ref_path(
+            document, "/definition/actions/@new_step", append_if_missing=True
+        )
+        == "/definition/actions/-"
+    )
+    with pytest.raises(ToolError, match="Unknown action ref 'new_step'"):
+        resolve_action_ref_path(
+            document, "/definition/actions/@new_step/args", append_if_missing=True
+        )
+
+
+def test_apply_json_patch_operations_replace_nested_by_ref() -> None:
+    patched = apply_json_patch_operations(
+        document=_actions_document(),
+        patch_ops=[
+            _op(
+                op="replace",
+                path="/definition/actions/@build_alert/args/value",
+                value=99,
+            ),
+            _op(op="test", path="/definition/actions/@classify/args/value", value=1),
+        ],
+    )
+
+    actions = _arr(_obj(patched["definition"])["actions"])
+    assert _obj(_obj(actions[2])["args"])["value"] == 99
+
+
+def test_apply_json_patch_operations_add_by_missing_ref_appends() -> None:
+    patched = apply_json_patch_operations(
+        document=_actions_document(),
+        patch_ops=[
+            _op(
+                op="add",
+                path="/definition/actions/@notify_owner",
+                value={"ref": "notify_owner", "action": "core.http_request"},
+            ),
+            _op(
+                op="add",
+                path="/layout/actions/@notify_owner",
+                value={"ref": "notify_owner", "x": 30.0, "y": 0.0},
+            ),
+        ],
+    )
+
+    assert _action_refs(patched) == [
+        "fetch_events",
+        "classify",
+        "build_alert",
+        "notify_owner",
+    ]
+    layout = _arr(_obj(patched["layout"])["actions"])
+    assert _obj(layout[-1])["ref"] == "notify_owner"
+
+
+def test_apply_json_patch_operations_add_by_ref_requires_matching_value_ref() -> None:
+    with pytest.raises(ToolError, match="must be 'notify_owner'"):
+        apply_json_patch_operations(
+            document=_actions_document(),
+            patch_ops=[
+                _op(
+                    op="add",
+                    path="/definition/actions/@notify_owner",
+                    value={"ref": "other", "action": "core.http_request"},
+                )
+            ],
+        )
+
+
+def test_apply_json_patch_operations_remove_by_ref() -> None:
+    patched = apply_json_patch_operations(
+        document=_actions_document(),
+        patch_ops=[
+            _op(op="remove", path="/definition/actions/@classify"),
+            _op(op="remove", path="/layout/actions/@classify"),
+        ],
+    )
+
+    assert _action_refs(patched) == ["fetch_events", "build_alert"]
+    layout = _arr(_obj(patched["layout"])["actions"])
+    assert [_obj(entry)["ref"] for entry in layout] == ["fetch_events", "build_alert"]
+
+
+def test_apply_json_patch_operations_reresolves_refs_after_index_shift() -> None:
+    # Removing the first action shifts build_alert from index 2 to index 1; the
+    # second op must resolve against the shifted document.
+    patched = apply_json_patch_operations(
+        document=_actions_document(),
+        patch_ops=[
+            _op(op="remove", path="/definition/actions/@fetch_events"),
+            _op(
+                op="replace",
+                path="/definition/actions/@build_alert/args/value",
+                value="shifted",
+            ),
+        ],
+    )
+
+    actions = _arr(_obj(patched["definition"])["actions"])
+    assert _action_refs(patched) == ["classify", "build_alert"]
+    assert _obj(_obj(actions[1])["args"])["value"] == "shifted"
+    assert _obj(_obj(actions[0])["args"])["value"] == 1
+
+
+def test_apply_json_patch_operations_move_and_copy_by_ref() -> None:
+    patched = apply_json_patch_operations(
+        document=_actions_document(),
+        patch_ops=[
+            _op(
+                op="copy",
+                path="/definition/actions/@build_alert/args/copied",
+                **{"from": "/definition/actions/@classify/args/value"},
+            ),
+            _op(
+                op="move",
+                path="/definition/actions/@classify/args/moved",
+                **{"from": "/definition/actions/@build_alert/args/value"},
+            ),
+        ],
+    )
+
+    actions = _arr(_obj(patched["definition"])["actions"])
+    assert _obj(_obj(actions[2])["args"]) == {"copied": 1}
+    assert _obj(_obj(actions[1])["args"]) == {"value": 1, "moved": 2}
+
+
+def test_apply_json_patch_operations_move_whole_action_by_ref() -> None:
+    # Moving fetch_events (index 0) to build_alert's slot: after the removal
+    # build_alert sits at index 1, so the target resolves to 1, not 2.
+    patched = apply_json_patch_operations(
+        document=_actions_document(),
+        patch_ops=[
+            _op(
+                op="move",
+                path="/definition/actions/@build_alert",
+                **{"from": "/definition/actions/@fetch_events"},
+            ),
+        ],
+    )
+
+    assert _action_refs(patched) == ["classify", "fetch_events", "build_alert"]
+
+
+def test_apply_json_patch_operations_unknown_ref_in_from() -> None:
+    with pytest.raises(ToolError, match="Unknown action ref 'ghost'"):
+        apply_json_patch_operations(
+            document=_actions_document(),
+            patch_ops=[
+                _op(
+                    op="copy",
+                    path="/definition/actions/@classify/args/x",
+                    **{"from": "/definition/actions/@ghost/args/value"},
+                )
+            ],
         )

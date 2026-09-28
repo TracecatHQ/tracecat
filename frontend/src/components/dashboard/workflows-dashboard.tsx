@@ -39,6 +39,7 @@ import {
 } from "@/components/dashboard/table-actions"
 import { ActiveDialog } from "@/components/dashboard/table-common"
 import { WorkflowMoveDialog } from "@/components/dashboard/workflow-move-dialog"
+import { WorkflowRenameDialog } from "@/components/dashboard/workflow-rename-dialog"
 import {
   DEFAULT_WORKFLOW_SORT,
   type WorkflowCaseTriggerFilterValue,
@@ -694,7 +695,7 @@ function FolderMetadataBadges({ item }: { item: FolderDirectoryItem }) {
 
       <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
         <WorkflowIcon className="mr-1 size-3" />
-        {item.num_items} workflows
+        {item.num_items} {item.num_items === 1 ? "item" : "items"}
       </Badge>
     </div>
   )
@@ -1238,9 +1239,19 @@ export function WorkflowsDashboard() {
     [canUseServerPaginatedList, sortedListItems, listStartIndex, limit]
   )
 
+  const directoryWorkflowCount = useMemo(
+    () =>
+      sortedDirectoryItems.reduce(
+        (total, item) =>
+          total + (item.type === "folder" ? item.num_workflows : 1),
+        0
+      ),
+    [sortedDirectoryItems]
+  )
+
   const headerTotalCount =
     view === "folders"
-      ? sortedDirectoryItems.length
+      ? directoryWorkflowCount
       : canUseServerPaginatedList
         ? workflowPagination.totalEstimate || sortedListItems.length
         : sortedListItems.length
@@ -1407,6 +1418,12 @@ export function WorkflowsDashboard() {
         onOpenChange={() => setActiveDialog(null)}
         selectedFolder={selectedFolder}
         setSelectedFolder={setSelectedFolder}
+      />
+      <WorkflowRenameDialog
+        open={activeDialog === ActiveDialog.WorkflowRename}
+        onOpenChange={() => setActiveDialog(null)}
+        selectedWorkflow={selectedWorkflow}
+        setSelectedWorkflow={setSelectedWorkflow}
       />
       <WorkflowMoveDialog
         open={activeDialog === ActiveDialog.WorkflowMove}

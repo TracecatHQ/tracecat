@@ -16,10 +16,12 @@ from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.enums import OwnerType
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.authz.service import resolve_grantable_role
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
     Invitation,
     Membership,
+    Organization,
     OrganizationMembership,
     Ownership,
     User,
@@ -39,6 +41,8 @@ from tracecat.exceptions import (
 from tracecat.identifiers import InvitationID, UserID, WorkspaceID
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.service import BaseOrgService
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workspaces.schemas import (
     WorkspaceInvitationCreate,
@@ -122,6 +126,35 @@ class WorkspaceService(BaseOrgService):
             raise TracecatAuthorizationError("User ID is required to list workspaces")
         return await self.list_workspaces(self.role.user_id, limit=limit)
 
+    async def _lock_workspace_creation(self) -> None:
+        # Lock the organization, since a fresh org has no workspace row to lock.
+        # Hold through creation and commit so concurrent requests cannot both
+        # observe an empty organization and bypass the entitlement.
+        result = await self.session.execute(
+            select(Organization.id)
+            .where(Organization.id == self.organization_id)
+            .with_for_update()
+        )
+        result.scalar_one()
+
+    async def _has_workspaces(self) -> bool:
+        return bool(
+            await self.session.scalar(
+                select(
+                    select(Workspace.id)
+                    .where(Workspace.organization_id == self.organization_id)
+                    .exists()
+                )
+            )
+        )
+
+    @require_scope("workspace:create")
+    async def ensure_default_workspace(self) -> None:
+        """Create a default workspace only when the organization has none."""
+        await self._lock_workspace_creation()
+        if not await self._has_workspaces():
+            await self.create_workspace("Default Workspace")
+
     @require_scope("workspace:create")
     @audit_log(resource_type="workspace", action="create")
     async def create_workspace(
@@ -132,6 +165,12 @@ class WorkspaceService(BaseOrgService):
         users: list[User] | None = None,
     ) -> Workspace:
         """Create a new workspace."""
+        await self._lock_workspace_creation()
+        if await self._has_workspaces():
+            await check_entitlement(
+                self.session, self.role, Entitlement.MULTI_WORKSPACE
+            )
+
         kwargs = {
             "name": name,
             "organization_id": self.organization_id,
@@ -218,7 +257,11 @@ class WorkspaceService(BaseOrgService):
         return workspace
 
     @require_scope("workspace:delete")
-    @audit_log(resource_type="workspace", action="delete")
+    @audit_log(
+        resource_type="workspace",
+        action="delete",
+        resource_id_attr="workspace_id",
+    )
     async def delete_workspace(self, workspace_id: WorkspaceID) -> None:
         """Delete a workspace."""
         all_workspaces = await self.admin_list_workspaces()
@@ -319,16 +362,14 @@ class WorkspaceService(BaseOrgService):
         except ValueError as e:
             raise TracecatValidationError("Invalid role ID format") from e
 
-        # Validate role_id exists and belongs to this organization
-        role_result = await self.session.execute(
-            select(DBRole).where(
-                DBRole.id == role_id,
-                DBRole.organization_id == self.organization_id,
+        try:
+            await resolve_grantable_role(
+                self.session, self.role, self.organization_id, role_id
             )
-        )
-        role_obj = role_result.scalar_one_or_none()
-        if role_obj is None:
-            raise TracecatValidationError("Invalid role ID for this organization")
+        except TracecatNotFoundError as e:
+            raise TracecatValidationError(
+                "Invalid role ID for this organization"
+            ) from e
 
         # Check for existing pending invitation that hasn't expired
         now = datetime.now(UTC)
@@ -566,7 +607,11 @@ class WorkspaceService(BaseOrgService):
         return membership
 
     @require_scope("workspace:member:remove")
-    @audit_log(resource_type="workspace_invitation", action="revoke")
+    @audit_log(
+        resource_type="workspace_invitation",
+        action="revoke",
+        resource_id_attr="invitation_id",
+    )
     async def revoke_invitation(
         self,
         workspace_id: WorkspaceID,

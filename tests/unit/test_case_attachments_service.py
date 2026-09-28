@@ -9,7 +9,9 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from dotenv import dotenv_values
 from sqlalchemy import delete
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_fixed
 
 from tracecat import config
 from tracecat.auth.types import Role
@@ -539,15 +541,32 @@ async def test_concurrent_uploads_cannot_exceed_attachment_limit(
     finally:
         # This test writes through real connections, so its rows survive the
         # savepoint rollback and must be removed before workspace teardown.
-        async with get_async_session_context_manager() as cleanup_session:
-            await cleanup_session.execute(
-                delete(CaseAttachment).where(CaseAttachment.case_id == case.id)
-            )
-            await cleanup_session.execute(
-                delete(CaseEvent).where(CaseEvent.case_id == case.id)
-            )
-            await cleanup_session.execute(delete(Case).where(Case.id == case.id))
-            await cleanup_session.execute(
-                delete(File).where(File.workspace_id == svc_role.workspace_id)
-            )
-            await cleanup_session.commit()
+        # Other workers drop custom-field schemas with FKs to the shared case
+        # table. A concurrent DELETE can deadlock with that DDL. Retry only the
+        # aborted cleanup transaction, using a fresh session each time.
+        async for attempt in AsyncRetrying(
+            retry=retry_if_exception(
+                lambda exc: (
+                    isinstance(exc, DBAPIError)
+                    and getattr(exc.orig, "sqlstate", None) == "40P01"
+                )
+            ),
+            stop=stop_after_attempt(3),
+            wait=wait_fixed(0.1),
+            reraise=True,
+        ):
+            with attempt:
+                async with get_async_session_context_manager() as cleanup_session:
+                    await cleanup_session.execute(
+                        delete(CaseAttachment).where(CaseAttachment.case_id == case.id)
+                    )
+                    await cleanup_session.execute(
+                        delete(CaseEvent).where(CaseEvent.case_id == case.id)
+                    )
+                    await cleanup_session.execute(
+                        delete(Case).where(Case.id == case.id)
+                    )
+                    await cleanup_session.execute(
+                        delete(File).where(File.workspace_id == svc_role.workspace_id)
+                    )
+                    await cleanup_session.commit()

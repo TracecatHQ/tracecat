@@ -16,7 +16,11 @@ from tracecat.agent.mcp.stdio_probe import (
 )
 from tracecat.agent.sandbox.cgroup import CgroupAvailability, PreparedCgroup
 from tracecat.sandbox.exceptions import SandboxTimeoutError
-from tracecat.sandbox.types import SandboxErrorCode, SandboxResult
+from tracecat.sandbox.types import (
+    SandboxErrorCode,
+    SandboxNetworkPurpose,
+    SandboxResult,
+)
 
 FAKE_MCP_SERVER = '''
 from fastmcp import FastMCP
@@ -223,6 +227,10 @@ async def test_probe_runs_in_sandbox_with_cgroup_slot_budget(
     executor.execute.assert_awaited_once()
     sandbox_config = executor.execute.await_args.args[1]
     assert sandbox_config.resources.memory_mb == 512
+    config = executor.execute.await_args.args[1]
+    assert config.network is not None
+    assert config.network.purpose is SandboxNetworkPurpose.AGENT
+    assert config.network.policy is None
 
 
 @pytest.mark.anyio

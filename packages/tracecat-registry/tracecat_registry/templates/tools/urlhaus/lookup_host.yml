@@ -1,0 +1,31 @@
+type: action
+definition:
+  title: Lookup host
+  description: >-
+    Look up a host, domain, or IPv4 address. Calls POST /v1/host/ directly.
+  display_group: URLhaus
+  doc_url: https://urlhaus-api.abuse.ch/#host
+  namespace: tools.urlhaus
+  name: lookup_host
+  secrets:
+    - name: abusech
+      keys: ["ABUSECH_API_KEY"]
+  expects:
+    host:
+      type: str
+      description: Host, domain, or IPv4 address to lookup.
+    base_url:
+      type: str | None
+      description: URLhaus API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.urlhaus.base_url || "https://urlhaus-api.abuse.ch" }}/v1/host/
+        method: POST
+        headers:
+          Auth-Key: ${{ SECRETS.abusech.ABUSECH_API_KEY }}
+        form_data:
+          host: ${{ inputs.host }}
+  returns: ${{ steps.request.result }}

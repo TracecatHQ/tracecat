@@ -1,6 +1,5 @@
 "use client"
 
-import type { QueryClient } from "@tanstack/react-query"
 import {
   Bell,
   BlocksIcon,
@@ -13,7 +12,9 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 import type { ComponentType } from "react"
+import { tableSearchKey } from "@/hooks/use-table-search"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
+import type { QueryClient } from "@/lib/query"
 import type { WorkspaceChatArtifact } from "@/types/workspace-chat-artifacts"
 
 export type ArtifactIconComponent = ComponentType<{ className?: string }>
@@ -95,6 +96,9 @@ export const ARTIFACT_REGISTRY = {
       })
       queryClient.invalidateQueries({
         queryKey: ["rows", "paginated", artifact.id, workspaceId],
+      })
+      queryClient.invalidateQueries({
+        queryKey: tableSearchKey(workspaceId, artifact.id),
       })
     },
   },

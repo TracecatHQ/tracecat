@@ -1,0 +1,61 @@
+---
+title: IP allowlist
+description: "Restrict sign-in and API access for an organization to approved IP addresses and ranges, and review where each session connects from."
+keywords: ["IP allowlist", "CIDR", "VPN", "network access", "sessions", "X-Forwarded-For"]
+---
+
+## Overview
+
+An IP allowlist limits an organization to requests from approved IP addresses and CIDR ranges, such as your corporate VPN egress. While enforcement is on, Tracecat rejects every sign-in and every organization-scoped REST API request from an address outside the allowlist with `403` and `Access from your IP address is not permitted by your organization's IP allowlist.`
+
+The allowlist lives under IP allowlist in the organization sidebar at `/organization/settings/security`. Reading it needs `org:settings:read` and changing it needs `org:settings:update`, which `organization-admin` and `organization-owner` hold.
+
+Enforcement is off for every organization until you turn it on, and an organization with enforcement on but no allowlists admits every address.
+
+![IP allowlist settings page](/img/manage-platform/ip-allowlist-settings.png)
+
+## Create an IP allowlist
+
+Select `Create allowlist`. The dialog takes:
+
+- `Name`: required, unique within the organization ignoring case.
+- `Description`: optional. Record the owner and purpose so you can retire the entry later.
+- `Allowed IP ranges`: one or more IPv4 or IPv6 addresses or CIDR ranges, one per line. Tracecat canonicalizes each range, so `10.0.0.5/8` becomes `10.0.0.0/8`, and drops duplicates.
+
+![Create IP allowlist dialog](/img/manage-platform/ip-allowlist-create.png)
+
+An organization holds up to 100 allowlists with up to 50 ranges each. Edit or delete an allowlist from its row. Changes apply to new requests within 30 seconds on every API replica.
+
+## Enforce the allowlist
+
+Turn on `Enforce IP allowlist` once at least one allowlist contains your own address. Tracecat rejects enabling an allowlist that excludes the address you are connecting from with `Your current IP address (<ip>) is not in the allowlist. Add it before enabling.`, so an administrator cannot lock the organization out.
+
+Use `Validate an IP address` to check any address before or after enabling. The result reports whether the address is allowed, the range and allowlist it matched, and whether enforcement is on.
+
+Turning enforcement off restores access from every address and keeps the allowlists.
+
+## What the allowlist applies to
+
+- Sign-in: password, OIDC, and SAML sign-in fail after credentials are verified when the address is denied. SAML checks the organization the connection belongs to. Password and OIDC sign-in succeed when at least one of the user's organizations admits the address; requests to a denying organization still fail.
+- REST API: every request that resolves to the organization, whether it authenticates with a session cookie or a service account API key. Requests from a denied address fail before any tenant data is read.
+- Not covered: the Tracecat MCP server, which authenticates with its own OAuth tokens, inbound workflow webhooks, and Tracecat's internal service calls. Use [webhook CIDR allowlists](/automations/triggers/webhooks) to restrict webhook senders.
+- Platform superusers bypass the allowlist for break-glass access.
+
+## Client IP resolution
+
+Tracecat resolves the client address from `X-Forwarded-For`, skipping hops listed in `TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS`. The default covers loopback and private ranges, which includes the bundled reverse proxy, the UI container, and load balancers on private subnets. Add any proxy with a public address to that variable before enabling enforcement; otherwise Tracecat treats the proxy address as the client and denies every request. A hop outside the trusted list can never inject a forwarded address, so a client cannot spoof its way onto the allowlist.
+
+Confirm what Tracecat resolves before you enable enforcement: open Sessions in the organization sidebar and check the IP column for your own session.
+
+## Sessions
+
+Sessions at `/organization/sessions` lists every active sign-in session in the organization with the account email, the resolved IP address, the browser user agent, when the session was created, and when it was last seen. `GET /organization/sessions` returns the same fields as `ip_address`, `user_agent`, `created_at`, and `last_seen_at`.
+
+Tracecat records the address and user agent at sign-in and refreshes `last_seen_at` at most every 5 minutes per session. Users with `org:member:remove` see these fields for every session and can revoke any session; other members see them for their own sessions only and `null` for everyone else's.
+
+## Related pages
+
+- See [Roles and permissions](/manage-platform/rbac) for which built-in roles hold `org:settings:update` and `org:member:remove`.
+- See [Environment variables](/self-hosting/environment-variables) for `TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS`.
+- See [Security architecture](/security/architecture#network-access) for how the allowlist fits the identity controls.
+- See [Organization audit logs](/audit-logs/organization) to stream settings changes to your SIEM.

@@ -63,6 +63,19 @@ export const linearStyles = {
     hover: "hover:bg-muted/50",
   },
 } as const
+
+/**
+ * Surface for the boxes that sit on a case: the tasks container, the comment
+ * cards, and the header's duration pills. The case panel itself paints
+ * nothing — it is the plain page background, like every other route — so this
+ * faint wash is what lifts a box off it, in both themes, without a shadow.
+ */
+export const INSET_SURFACE = "bg-muted/20"
+/**
+ * Copies `value` — or the text content of the `target` selector — to the
+ * clipboard. Returns whether the write landed, so callers can hold their
+ * "Copied" feedback when the clipboard API is unavailable (e.g. plain HTTP).
+ */
 export const copyToClipboard = async ({
   target,
   message,
@@ -89,8 +102,10 @@ export const copyToClipboard = async ({
     }
     await navigator.clipboard.writeText(copyValue)
     console.log(message ?? "Copied!!!")
+    return true
   } catch (error) {
     console.log(error)
+    return false
   }
 }
 
@@ -131,6 +146,23 @@ export function capitalizeFirst(str: string) {
   return str.charAt(0).toUpperCase() + str.slice(1)
 }
 
+/** Formats a byte count as a human-readable size, e.g. `321.1 KB`. */
+export function formatFileSize(bytes: number): string {
+  if (bytes === 0) return "0 Bytes"
+  const k = 1024
+  const sizes = ["Bytes", "KB", "MB", "GB"]
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return `${Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
+}
+
+/**
+ * Formats how long ago `date` was as a compact label, e.g. `4w ago`.
+ *
+ * Each unit hands over only once the next one can report at least 1, so no
+ * bucket ever renders a zero: weeks cover days 7-29 and months cover days
+ * 30-364. Handing over on the unit's own count instead (weeks at 4, months at
+ * 12) leaves gaps where the larger unit floors to `0mo` or `0y`.
+ */
 export function shortTimeAgo(date: Date) {
   const diffMs = Math.max(Date.now() - date.getTime(), 0)
   const diffSec = Math.floor(diffMs / 1000)
@@ -146,14 +178,11 @@ export function shortTimeAgo(date: Date) {
   const diffDay = Math.floor(diffHour / 24)
   if (diffDay < 7) return `${diffDay}d ago`
 
-  const diffWeek = Math.floor(diffDay / 7)
-  if (diffWeek < 4) return `${diffWeek}w ago`
+  if (diffDay < 30) return `${Math.floor(diffDay / 7)}w ago`
 
-  const diffMonth = Math.floor(diffDay / 30)
-  if (diffMonth < 12) return `${diffMonth}mo ago`
+  if (diffDay < 365) return `${Math.floor(diffDay / 30)}mo ago`
 
-  const diffYear = Math.floor(diffDay / 365)
-  return `${diffYear}y ago`
+  return `${Math.floor(diffDay / 365)}y ago`
 }
 
 /**

@@ -285,6 +285,7 @@ def test_artifact_bindings_list_canonical_tool_names() -> None:
         "core.table.lookup_many": "upsert",
         "core.table.is_in": "upsert",
         "core.table.search_rows": "upsert",
+        "core.table.aggregate_rows": "upsert",
         "core.table.insert_row": "upsert",
         "core.table.insert_rows": "upsert",
         "core.table.update_row": "upsert",
@@ -391,6 +392,52 @@ def test_table_schema_tool_result_emits_upsert_side_effect() -> None:
         },
     }
     assert effects[0].identity_ref is None
+
+
+def test_table_aggregate_result_references_input_table() -> None:
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="core.table.aggregate_rows",
+            tool_input={"table": "alerts", "group_by": ["source"]},
+            tool_output={
+                "groups": [{"source": "sensor", "count": 3}],
+                "truncated": False,
+            },
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert len(effects) == 1
+    assert artifact_data_payload(effects[0].op, effects[0].artifact) == {
+        "op": "upsert",
+        "artifact": {
+            "type": "table",
+            "id": "alerts",
+            "title": "alerts",
+            "scope": {"parentToolCallId": "toolu_123"},
+        },
+    }
+    assert effects[0].identity_ref == ArtifactIdentityRef(
+        artifact_type="table", ref="alerts", ref_kind="name"
+    )
+
+
+def test_case_aggregate_result_does_not_project_groups_as_cases() -> None:
+    effects = list(
+        artifact_side_effects_for_tool_result(
+            tool_name="core.cases.aggregate_cases",
+            tool_input={"group_by": ["priority"]},
+            tool_output={
+                "groups": [{"priority": "high", "count": 3}],
+                "truncated": False,
+            },
+            is_error=False,
+            tool_call_id="toolu_123",
+        )
+    )
+
+    assert effects == []
 
 
 def test_table_row_delete_tool_result_emits_upsert_side_effect_from_input() -> None:

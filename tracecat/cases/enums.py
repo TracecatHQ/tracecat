@@ -57,6 +57,20 @@ class CaseStatus(StrEnum):
     OTHER = "other"
 
 
+class CaseVersionField(StrEnum):
+    """Case text fields that have immutable version history."""
+
+    SUMMARY = "summary"
+    DESCRIPTION = "description"
+
+
+class CaseAgentSessionInteractionOperation(StrEnum):
+    """Operations that associate an agent session with a case."""
+
+    CREATE = "create"
+    UPDATE = "update"
+
+
 class CaseEventType(StrEnum):
     """Case activity type values."""
 
@@ -125,3 +139,24 @@ class CaseFieldReadType(StrEnum):
     SELECT = "SELECT"
     MULTI_SELECT = "MULTI_SELECT"
     UUID = "UUID"
+
+
+class MentionTargetType(StrEnum):
+    """Polymorphic target kind for a parsed case-comment mention.
+
+    Only ``AGENT`` is supported today. The finite set lives here (rather than
+    as a bare ``str`` checked at runtime) so every mention-aware call site —
+    the parser, persistence, and API read schema — shares one exhaustive,
+    type-checked domain of valid target kinds.
+    """
+
+    AGENT = "agent"
+
+
+class CaseCommentAgentInvocationStatus(StrEnum):
+    """Lifecycle state for an agent invoked from a case-comment mention."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"

@@ -4,12 +4,16 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_ee.inbox.providers.agent_runs import AgentRunsInboxProvider
+from temporalio.client import WorkflowExecutionStatus
+from temporalio.service import RPCError, RPCStatusCode
+from tracecat_ee.inbox.providers import agent_runs
+from tracecat_ee.inbox.providers.agent_runs import AgentRunsInboxProvider, RunStatus
 
+from tracecat.agent.backends import registry
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
@@ -116,11 +120,13 @@ async def test_grouped_list_items_passes_reverse(
     )
     grouped = AsyncMock(return_value=expected)
     monkeypatch.setattr(provider, "_list_items_grouped", grouped)
+    case_id = uuid.uuid4()
 
     page = await provider.list_items(
         limit=10,
         cursor="cursor",
         reverse=True,
+        case_id=case_id,
         group=InboxGroup.COMPLETED,
     )
 
@@ -129,6 +135,7 @@ async def test_grouped_list_items_passes_reverse(
     await_args = grouped.await_args
     assert await_args is not None
     assert await_args.kwargs["reverse"] is True
+    assert await_args.kwargs["case_id"] == case_id
 
 
 @pytest.mark.anyio
@@ -417,8 +424,10 @@ async def test_ungrouped_list_applies_entity_type_and_date_filters() -> None:
 
     created_after = datetime(2026, 1, 1, tzinfo=UTC)
     updated_after = datetime(2026, 2, 1, tzinfo=UTC)
+    case_id = uuid.uuid4()
     await provider.list_items(
         limit=10,
+        case_id=case_id,
         entity_type=AgentSessionEntity.CASE,
         created_after=created_after,
         updated_after=updated_after,
@@ -428,6 +437,37 @@ async def test_ungrouped_list_applies_entity_type_and_date_filters() -> None:
     assert "agent_session.entity_type =" in compiled
     assert "agent_session.created_at >=" in compiled
     assert "agent_session.updated_at >=" in compiled
+    assert "case_agent_session_interaction.workspace_id =" in compiled
+    assert "case_agent_session_interaction.case_id =" in compiled
+    assert "case_agent_session_interaction.agent_session_id = agent_session.id" in (
+        compiled
+    )
+
+
+@pytest.mark.parametrize("group", list(InboxGroup))
+@pytest.mark.anyio
+async def test_grouped_list_applies_case_filter(group: InboxGroup) -> None:
+    """Every grouped scan inherits the case EXISTS predicate."""
+    session = _RecordingSession()
+    provider = AgentRunsInboxProvider(cast(AsyncSession, session), _role())
+
+    await provider._list_items_grouped(
+        limit=10,
+        cursor=None,
+        reverse=False,
+        order_by=None,
+        sort=None,
+        search=None,
+        case_id=uuid.uuid4(),
+        group=group,
+    )
+
+    compiled = str(session.statements[-1].compile())
+    assert "case_agent_session_interaction.workspace_id =" in compiled
+    assert "case_agent_session_interaction.case_id =" in compiled
+    assert "case_agent_session_interaction.agent_session_id = agent_session.id" in (
+        compiled
+    )
 
 
 @pytest.mark.anyio
@@ -546,3 +586,125 @@ async def test_unfiltered_list_omits_optional_predicates() -> None:
     assert "agent_session.entity_type =" not in compiled
     assert "agent_session.created_at >=" not in compiled
     assert "agent_session.updated_at >=" not in compiled
+    assert "case_agent_session_interaction" not in compiled
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (WorkflowExecutionStatus.RUNNING, RunStatus.RUNNING),
+        (WorkflowExecutionStatus.CONTINUED_AS_NEW, RunStatus.RUNNING),
+        (WorkflowExecutionStatus.COMPLETED, RunStatus.COMPLETED),
+        (WorkflowExecutionStatus.CANCELED, RunStatus.COMPLETED),
+        (WorkflowExecutionStatus.FAILED, RunStatus.ERROR),
+        (WorkflowExecutionStatus.TIMED_OUT, RunStatus.ERROR),
+        (WorkflowExecutionStatus.TERMINATED, RunStatus.ERROR),
+    ],
+)
+async def test_backend_handle_lookup_preserves_status_mapping(
+    monkeypatch: pytest.MonkeyPatch,
+    status: WorkflowExecutionStatus,
+    expected: RunStatus,
+) -> None:
+    role = _role()
+    assert role.workspace_id is not None
+    sessions = [
+        _agent_session(
+            name, datetime(2026, 1, 1, tzinfo=UTC), workspace_id=role.workspace_id
+        )
+        for name in ("built-in", "plugin")
+    ]
+    backends = {}
+    for session, backend_id in zip(sessions, ("oss", "ee"), strict=True):
+        session.backend_id = backend_id
+        session.curr_run_id = uuid.uuid4()
+        backend = Mock()
+        backend.handle = AsyncMock(
+            return_value=Mock(describe=AsyncMock(return_value=Mock(status=status)))
+        )
+        backend.is_enabled.return_value = False
+        backends[backend_id] = backend
+    monkeypatch.setattr(registry, "get_agent_backends", lambda: backends)
+    client = Mock()
+    connect = AsyncMock(return_value=client)
+    monkeypatch.setattr(agent_runs, "get_temporal_client", connect)
+    provider = AgentRunsInboxProvider(cast(AsyncSession, _RecordingSession()), role)
+
+    assert await provider._resolve_live_statuses(sessions) == {
+        session.id: expected for session in sessions
+    }
+    connect.assert_awaited_once()
+    client.get_workflow_handle_for.assert_not_called()
+    for session in sessions:
+        backend = backends[session.backend_id]
+        backend.handle.assert_awaited_once_with(session.curr_run_id, client=client)
+        backend.is_enabled.assert_not_called()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failure", ["missing_plugin", "missing_execution", "lookup_error"]
+)
+async def test_backend_lookup_failure_keeps_completed_fallback(
+    monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    role = _role()
+    assert role.workspace_id is not None
+    session = _agent_session(
+        "plugin", datetime(2026, 1, 1, tzinfo=UTC), workspace_id=role.workspace_id
+    )
+    session.backend_id = "ee"
+    session.curr_run_id = uuid.uuid4()
+    backends = {} if failure == "missing_plugin" else {"ee": Mock()}
+    monkeypatch.setattr(registry, "get_agent_backends", lambda: backends)
+    error = (
+        RPCError("gone", RPCStatusCode.NOT_FOUND, b"")
+        if failure == "missing_execution"
+        else RuntimeError("Lookup failed")
+    )
+    client = Mock()
+    if failure != "missing_plugin":
+        backends["ee"].handle = AsyncMock(
+            return_value=Mock(describe=AsyncMock(side_effect=error))
+        )
+    monkeypatch.setattr(
+        agent_runs, "get_temporal_client", AsyncMock(return_value=client)
+    )
+    provider = AgentRunsInboxProvider(cast(AsyncSession, _RecordingSession()), role)
+
+    assert await provider._resolve_live_statuses([session]) == {
+        session.id: RunStatus.COMPLETED
+    }
+    assert session.last_error is None
+    assert session.curr_run_id is not None
+    if failure == "missing_plugin":
+        client.get_workflow_handle_for.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_backend_compatibility_preserves_connection_failure_and_persisted_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    role = _role()
+    assert role.workspace_id is not None
+    session = _agent_session(
+        "session", datetime(2026, 1, 1, tzinfo=UTC), workspace_id=role.workspace_id
+    )
+    session.backend_id = "oss"
+    session.curr_run_id = uuid.uuid4()
+    connect = AsyncMock(side_effect=RuntimeError("Connection failed"))
+    monkeypatch.setattr(agent_runs, "get_temporal_client", connect)
+    provider = AgentRunsInboxProvider(cast(AsyncSession, _RecordingSession()), role)
+    with pytest.raises(RuntimeError, match="Connection failed"):
+        await provider._resolve_live_statuses([session])
+    connect.reset_mock()
+    session.last_error = "Persisted failure"
+    assert await provider._resolve_live_statuses([session]) == {
+        session.id: RunStatus.ERROR
+    }
+    connect.assert_not_called()
+    session.last_error = None
+    session.curr_run_id = None
+    assert await provider._resolve_live_statuses([session]) == {}
+    connect.assert_not_called()

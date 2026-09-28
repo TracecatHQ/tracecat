@@ -1,0 +1,63 @@
+type: action
+definition:
+  title: Get customer usage report
+  description: >-
+    Retrieves a report which is a collection of properties and statistics for a specific
+    customer's account.
+  display_group: Google Workspace Reports
+  doc_url: https://developers.google.com/workspace/admin/reports/reference/rest/v1/customerUsageReports/get
+  namespace: tools.google_reports
+  name: get_customer_usage_report
+  secrets:
+    - type: oauth
+      provider_id: google_admin
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_admin
+      grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
+      optional: true
+  expects:
+    date:
+      type: str
+      description: >-
+        Represents the date the usage occurred, based on UTC-8:00 (Pacific Standard Time). The
+        timestamp is in the ISO 8601 format, `yyyy-mm-dd`.
+    customer_id:
+      type: str | None
+      description: The unique ID of the customer to retrieve data for.
+      default: null
+    page_token:
+      type: str | None
+      description: >-
+        Token to specify next page. A report with multiple pages has a `nextPageToken` property in
+        the response.
+      default: null
+    parameters:
+      type: str | None
+      description: >-
+        The `parameters` query string is a comma-separated list of event parameters that refine a
+        report's results, in the form {application name}:{parameter name}. Applicable applications
+        include `accounts`, `app_maker`, `apps_scripts`, `calendar`, `chat`, `classroom`, `cros`,
+        `docs`, `gmail`, `gplus`, `device_management`, `meet` and `sites`.
+      default: null
+  steps:
+    - ref: get_customer_usage_report
+      action: tools.google_api.call_api
+      args:
+        service_name: admin
+        version: reports_v1
+        resource: customerUsageReports
+        method_name: get
+        access_token: ${{ SECRETS.google_admin_oauth.GOOGLE_ADMIN_USER_TOKEN || SECRETS.google_admin_oauth.GOOGLE_ADMIN_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/admin.reports.usage.readonly"]
+        params:
+          date: ${{ inputs.date }}
+          customerId: ${{ inputs.customer_id }}
+          pageToken: ${{ inputs.page_token }}
+          parameters: ${{ inputs.parameters }}
+  returns: ${{ steps.get_customer_usage_report.result }}

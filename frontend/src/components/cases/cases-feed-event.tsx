@@ -13,6 +13,7 @@ import {
   UserIcon,
   UserXIcon,
 } from "lucide-react"
+import { Fragment } from "react"
 import type {
   AssigneeChangedEventRead,
   AttachmentCreatedEventRead,
@@ -56,7 +57,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { User } from "@/lib/auth"
-import { cn } from "@/lib/utils"
+import { cn, formatFileSize } from "@/lib/utils"
 
 export function EventIcon({
   icon: Icon,
@@ -347,9 +348,11 @@ export function CaseUpdatedEvent({
 export function FieldsChangedEvent({
   event,
   actor,
+  caseFieldDisplayNameById,
 }: {
   event: FieldChangedEventRead
   actor: User
+  caseFieldDisplayNameById: ReadonlyMap<string, string>
 }) {
   return (
     <TooltipProvider>
@@ -359,13 +362,13 @@ export function FieldsChangedEvent({
           <span>
             <EventActor user={actor} /> changed fields
           </span>
-          {event.changes.map(({ field, old, new: newVal }) => (
-            <>
+          {event.changes.map(({ field, old, new: newVal }, index) => (
+            <Fragment key={`${field}-${index}`}>
               <InlineDotSeparator />
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="max-w-32 truncate text-xs hover:cursor-default hover:underline">
-                    {field}
+                    {caseFieldDisplayNameById.get(field) ?? field}
                   </span>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -380,7 +383,7 @@ export function FieldsChangedEvent({
                   </span>
                 </TooltipContent>
               </Tooltip>
-            </>
+            </Fragment>
           ))}
         </div>
       </div>
@@ -395,16 +398,6 @@ export function AttachmentCreatedEvent({
   event: AttachmentCreatedEventRead
   actor: User
 }) {
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return "0 Bytes"
-    const k = 1024
-    const sizes = ["Bytes", "KB", "MB", "GB"]
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return (
-      Number.parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i]
-    )
-  }
-
   return (
     <div className="flex items-center space-x-2 text-xs">
       <EventIcon icon={PaperclipIcon} />

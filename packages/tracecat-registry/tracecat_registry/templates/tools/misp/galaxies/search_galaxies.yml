@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Search galaxies
+  description: Search MISP galaxies for threat actors, malware, tools, and ATT&CK knowledge bases.
+  display_group: MISP
+  doc_url: https://www.misp-project.org/openapi/#tag/Galaxies/operation/searchGalaxies
+  namespace: tools.misp
+  name: search_galaxies
+  secrets:
+    - name: misp
+      keys: ["MISP_API_KEY"]
+  expects:
+    value:
+      type: str
+      description: Text to match in galaxy names and descriptions.
+    with_clusters:
+      type: bool
+      description: Request cluster data with matching galaxies when supported.
+      default: false
+    base_url:
+      type: str | None
+      description: MISP base URL. Falls back to VARS.misp.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Whether to verify SSL certificates.
+      default: true
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.misp.base_url }}/galaxies
+        method: POST
+        verify_ssl: ${{ inputs.verify_ssl }}
+        headers:
+          Authorization: ${{ SECRETS.misp.MISP_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        payload:
+          value: ${{ inputs.value }}
+          withCluster: ${{ inputs.with_clusters }}
+  returns: ${{ steps.request.result.data }}

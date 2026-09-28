@@ -49,6 +49,8 @@ from tracecat.tiers.entitlements import Entitlement, check_entitlement
 
 router = APIRouter(prefix=REGISTRY_REPOS_PATH, tags=["registry-repositories"])
 
+_NO_REGISTRY_SSH_KEY_DETAIL = "No registry SSH key configured"
+
 
 async def _get_configured_custom_registry_origin(role: Role) -> str | None:
     remote_url = cast(str | None, await get_setting("git_repo_url", role=role))
@@ -326,7 +328,7 @@ async def list_repository_commits(
             if ssh_env is None:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="No SSH key found for git operations",
+                    detail=_NO_REGISTRY_SSH_KEY_DETAIL,
                 )
 
             # List commits from the repository
@@ -347,6 +349,8 @@ async def list_repository_commits(
 
             return commits
 
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.error("Invalid git URL", origin=repo.origin, error=str(e))
         raise HTTPException(
@@ -358,6 +362,12 @@ async def list_repository_commits(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to list commits: {str(e)}",
+        ) from e
+    except TracecatCredentialsNotFoundError as e:
+        logger.warning(_NO_REGISTRY_SSH_KEY_DETAIL, origin=repo.origin)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=_NO_REGISTRY_SSH_KEY_DETAIL,
         ) from e
     except Exception as e:
         logger.error("Unexpected error listing commits", exc=e)

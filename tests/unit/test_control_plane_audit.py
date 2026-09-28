@@ -422,6 +422,11 @@ async def _schedule(mp: pytest.MonkeyPatch, role: Role, action: str):
     if action == "create":
         mp.setattr(
             service,
+            "_require_published_workflow",
+            AsyncMock(),
+        )
+        mp.setattr(
+            service,
             "_create_schedule_impl",
             AsyncMock(return_value=SimpleNamespace(id=schedule_id)),
         )
@@ -475,6 +480,7 @@ async def _case_upsert(mp: pytest.MonkeyPatch, role: Role):
 async def _case_update(mp: pytest.MonkeyPatch, role: Role):
     trigger_id = uuid.uuid4()
     service = CaseTriggersService(cast(Any, _session()), role=role)
+    cast(AsyncMock, service.session.scalar).return_value = trigger_id
     mp.setattr(service, "require_entitlement", AsyncMock())
     mp.setattr(
         service,
@@ -485,7 +491,11 @@ async def _case_update(mp: pytest.MonkeyPatch, role: Role):
         WorkflowUUID.new_uuid4(), CaseTriggerUpdate(status="online")
     )
     return _pair(
-        "case_trigger", "update", None, trigger_id, {"changed_fields": ["status"]}
+        "case_trigger",
+        "update",
+        trigger_id,
+        trigger_id,
+        {"changed_fields": ["status"]},
     )
 
 

@@ -9,7 +9,15 @@ definition:
   secrets:
     - type: oauth
       provider_id: google_sheets
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: google_sheets
       grant_type: client_credentials
+      optional: true
+    - name: google_api
+      keys: ["GOOGLE_API_CREDENTIALS"]
+      optional_keys: ["GOOGLE_API_SUBJECT"]
       optional: true
   expects:
     title:
@@ -33,14 +41,15 @@ definition:
                   payload["sheets"] = [
                       {"properties": {"title": sheet_title}} for sheet_title in sheet_titles
                   ]
-              return payload
+              return {"body": payload}
     - ref: create_spreadsheet
-      action: core.http_request
+      action: tools.google_api.call_api
       args:
-        url: https://sheets.googleapis.com/v4/spreadsheets
-        method: POST
-        headers:
-          Authorization: Bearer ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
-          Content-Type: application/json
-        payload: ${{ steps.build_payload.result }}
-  returns: ${{ steps.create_spreadsheet.result.data }}
+        service_name: sheets
+        version: v4
+        resource: spreadsheets
+        method_name: create
+        access_token: ${{ SECRETS.google_sheets_oauth.GOOGLE_SHEETS_USER_TOKEN || SECRETS.google_sheets_oauth.GOOGLE_SHEETS_SERVICE_TOKEN }}
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+        params: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create_spreadsheet.result }}
