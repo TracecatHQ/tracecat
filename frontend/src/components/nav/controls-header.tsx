@@ -150,7 +150,6 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { WorkspaceResourceSyncActions } from "@/components/workspace-sync/resource-sync-actions"
-import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
   NewVariableDialog,
   NewVariableDialogTrigger,
@@ -1679,9 +1678,7 @@ function MembersActions({ view }: { view: MembersViewMode }) {
       <CreateRoleButton workspaceOnly />
     ) : view === MembersViewMode.Groups ? (
       <CreateGroupButton />
-    ) : (
-      <AddWorkspaceMember workspace={workspace} />
-    )
+    ) : null
 
   return (
     <>

@@ -208,11 +208,14 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "read",
         "View workspace role assignments and group permissions",
     ),
+    # Deprecated: no route requires this scope; role and group management is
+    # centralized in org settings. The row stays until custom-role links are
+    # cleared, because deleting a scope cascades through role_scope.
     ScopeDefinition(
         "workspace:rbac:manage",
         "workspace:rbac",
         "manage",
-        "Manage workspace role assignments and group permissions",
+        "Deprecated. Manage workspace role assignments and group permissions",
     ),
     ScopeDefinition(
         "workspace:service_account:read",

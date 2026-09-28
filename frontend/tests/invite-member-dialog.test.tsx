@@ -292,21 +292,4 @@ describe("InviteMemberDialog", () => {
     expect(mockUseRbacRoles).not.toHaveBeenCalled()
     expect(mockUseWorkspaceManager).not.toHaveBeenCalled()
   })
-
-  it("pre-fills the first grant with the handoff workspace", () => {
-    render(
-      <InviteMemberDialog
-        open={true}
-        onOpenChange={() => {}}
-        initialWorkspaceId="ws-b"
-      />
-    )
-
-    expect(screen.getByLabelText("Grant 1 scope")).toHaveValue("ws-b")
-    const optionValues = Array.from(
-      screen.getByLabelText("Grant 1 role").querySelectorAll("option")
-    ).map((option) => option.getAttribute("value"))
-    expect(optionValues).toContain(WORKSPACE_EDITOR_ROLE_ID)
-    expect(optionValues).not.toContain(ORG_ADMIN_ROLE_ID)
-  })
 })

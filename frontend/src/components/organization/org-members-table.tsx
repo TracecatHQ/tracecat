@@ -3,7 +3,6 @@
 import { DialogTrigger } from "@radix-ui/react-dialog"
 import { DotsHorizontalIcon, PlusIcon } from "@radix-ui/react-icons"
 import { FolderIcon, GlobeIcon, Trash2Icon } from "lucide-react"
-import { useSearchParams } from "next/navigation"
 import { useRef, useState } from "react"
 import {
   type GroupRoleAssignmentReadWithDetails,
@@ -92,9 +91,7 @@ export function OrgMembersTable() {
   } = useOrgMembers()
   const { roles, isLoading: rolesIsLoading, error: rolesError } = useRbacRoles()
   const { workspaces } = useWorkspaceManager()
-  const searchParams = useSearchParams()
   const roleMenuTrigger = useRef<HTMLButtonElement | null>(null)
-  const inviteWorkspaceId = searchParams.get("inviteWorkspace")
 
   function roleText(member: OrgMemberRead): string {
     if (member.invitation_id) {
@@ -140,9 +137,7 @@ export function OrgMembersTable() {
 
   const toolbarProps: DataTableToolbarProps<OrgMemberRead> = {
     ...defaultToolbarProps,
-    actions: (
-      <InviteMemberDialogButton initialWorkspaceId={inviteWorkspaceId} />
-    ),
+    actions: <InviteMemberDialogButton />,
   }
 
   return (
