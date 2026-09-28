@@ -28,7 +28,7 @@ In Organization settings > SCIM, select `Generate token`. The `Copy SCIM credent
 - `SCIM base URL`: `https://<your-tracecat-instance>/api/scim/v2`
 - `Bearer token`: shown once. Copy it before you close the dialog.
 
-Your IdP sends the token as `Authorization: Bearer <token>` on every request.
+Your IdP sends the token as `Authorization: Bearer <token>` on every request. If your organization enforces an [IP allowlist](/manage-platform/ip-allowlist), add your IdP's egress addresses to it; Tracecat rejects SCIM requests from other addresses with `403`.
 
 ![Copy SCIM credentials dialog with the bearer token hidden](/img/authentication/scim/credentials.png)
 
