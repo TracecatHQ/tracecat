@@ -122,6 +122,52 @@ def test_role_deletion_cascades_legacy_invitations_and_restores_restrict(
         engine.dispose()
 
 
+def test_merge_keeps_platform_flag_when_newer_workspace_invitation_wins(
+    migration_db_url: str,
+) -> None:
+    engine = sa.create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text("""
+                INSERT INTO organization (id, name, slug, is_active)
+                VALUES (md5('merge-org')::uuid, 'Merge test', 'merge-test', true);
+                INSERT INTO workspace (id, organization_id, name)
+                VALUES (md5('merge-workspace')::uuid, md5('merge-org')::uuid,
+                        'Merge workspace');
+                INSERT INTO role (id, organization_id, name, slug)
+                VALUES (md5('merge-role')::uuid, md5('merge-org')::uuid,
+                        'Merge role', 'merge-role');
+                INSERT INTO organization_invitation
+                    (id, organization_id, email, role_id, token, status, expires_at,
+                     created_by_platform_admin, created_at)
+                VALUES (md5('merge-platform')::uuid, md5('merge-org')::uuid,
+                        'merge@example.com', md5('merge-role')::uuid,
+                        'merge-platform', 'PENDING', now() + interval '1 day', true,
+                        now() - interval '1 hour');
+                INSERT INTO invitation
+                    (id, workspace_id, email, role_id, token, status, expires_at)
+                VALUES (md5('merge-workspace-invite')::uuid,
+                        md5('merge-workspace')::uuid, 'merge@example.com',
+                        md5('merge-role')::uuid, 'merge-workspace',
+                        'PENDING', now() + interval '1 day');
+                """)
+            )
+
+        _migrate(migration_db_url, "upgrade", INVITATION_REVISION)
+        with engine.connect() as conn:
+            assert conn.execute(
+                sa.text("""
+                SELECT id = md5('merge-workspace-invite')::uuid,
+                       created_by_platform_admin
+                FROM invitation WHERE status = 'PENDING'
+                """)
+            ).all() == [(True, True)]
+            assert conn.scalar(sa.text("SELECT count(*) FROM invitation_grant")) == 2
+    finally:
+        engine.dispose()
+
+
 def test_downgrade_restores_current_direct_memberships(
     migration_db_url: str,
 ) -> None:

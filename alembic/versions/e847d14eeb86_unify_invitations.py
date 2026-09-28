@@ -347,6 +347,16 @@ def upgrade() -> None:
         WHERE g.invitation_id = m.loser_id
         """
     )
+    # The admin console lists platform invitations by this flag.
+    op.execute(
+        """
+        UPDATE invitation AS k
+        SET created_by_platform_admin = true
+        FROM _invitation_merge AS m
+        JOIN invitation AS l ON l.id = m.loser_id
+        WHERE k.id = m.keeper_id AND l.created_by_platform_admin
+        """
+    )
     op.execute(
         "DELETE FROM invitation WHERE id IN (SELECT loser_id FROM _invitation_merge)"
     )
