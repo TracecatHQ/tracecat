@@ -494,7 +494,7 @@ class NsjailExecutor:
             [
                 "",
                 "# Resource limits",
-                f"rlimit_as: {config.resources.memory_mb}",
+                f"rlimit_as: {config.resources.address_space_limit_mb}",
                 f"rlimit_cpu: {config.resources.cpu_seconds}",
                 f"rlimit_fsize: {config.resources.max_file_size_mb}",
                 f"rlimit_nofile: {config.resources.max_open_files}",
@@ -922,7 +922,7 @@ class NsjailExecutor:
             [
                 "",
                 "# Resource limits",
-                f"rlimit_as: {config.resources.memory_mb}",
+                f"rlimit_as: {config.resources.address_space_limit_mb}",
                 f"rlimit_cpu: {config.resources.cpu_seconds}",
                 f"rlimit_fsize: {config.resources.max_file_size_mb}",
                 f"rlimit_nofile: {config.resources.max_open_files}",

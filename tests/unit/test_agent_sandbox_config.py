@@ -21,6 +21,58 @@ from tracecat.agent.sandbox.config import (
 )
 
 
+@pytest.mark.parametrize("memory_mb", [512, 2048, 4096])
+def test_agent_address_space_default_tracks_each_memory_budget(memory_mb: int) -> None:
+    limits = AgentResourceLimits(memory_mb=memory_mb, address_space_mb=None)
+    assert limits.address_space_limit_mb == 2 * memory_mb
+
+
+@pytest.mark.parametrize("address_space_mb", [0, -1])
+def test_agent_address_space_cap_must_be_positive(address_space_mb: int) -> None:
+    with pytest.raises(ValueError, match="address_space_mb must be positive"):
+        AgentResourceLimits(address_space_mb=address_space_mb)
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (None, 1024),
+        ("", 1024),
+        ("  ", 1024),
+        ("8192", 8192),
+        ("0", None),
+        ("-1", None),
+        ("bad", None),
+    ],
+)
+def test_agent_address_space_environment_override(
+    value: str | None, expected: int | None
+) -> None:
+    env = os.environ.copy()
+    key = "TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB"
+    env.pop(key, None)
+    if value is not None:
+        env[key] = value
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from tracecat.agent.sandbox.config import AgentResourceLimits; print(AgentResourceLimits(memory_mb=512).address_space_limit_mb)",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+    if expected is None:
+        assert result.returncode != 0
+        assert "ValueError" in result.stderr
+    else:
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == str(expected)
+
+
 def test_build_agent_nsjail_config_separates_job_and_agent_dirs() -> None:
     config_text = build_agent_nsjail_config(
         rootfs=Path("/var/lib/tracecat/sandbox-rootfs"),
@@ -168,13 +220,18 @@ def test_build_agent_nsjail_config_mounts_fresh_procfs() -> None:
     assert 'mount { dst: "/proc" fstype: "proc" rw: false }' in config_text
 
 
-def test_build_agent_nsjail_config_adds_available_cgroup_v2_memory_limit() -> None:
+@pytest.mark.parametrize("address_space_mb, expected_as", [(None, 6144), (8192, 8192)])
+def test_build_agent_nsjail_config_adds_available_cgroup_v2_memory_limit(
+    address_space_mb: int | None, expected_as: int
+) -> None:
     config_text = build_agent_nsjail_config(
         rootfs=Path("/var/lib/tracecat/sandbox-rootfs"),
         job_dir=Path("/tmp/agent-job"),
         socket_dir=Path("/tmp/agent-job/sockets"),
         config=AgentSandboxConfig(
-            resources=AgentResourceLimits(memory_mb=3072),
+            resources=AgentResourceLimits(
+                memory_mb=3072, address_space_mb=address_space_mb
+            ),
         ),
         site_packages_dir=Path("/app/.venv/lib/python3.12/site-packages"),
         llm_socket_path=Path("/tmp/agent-job/sockets/llm.sock"),
@@ -183,7 +240,7 @@ def test_build_agent_nsjail_config_adds_available_cgroup_v2_memory_limit() -> No
 
     assert "use_cgroupv2: true" in config_text
     assert 'cgroupv2_mount: "/sys/fs/cgroup/kubepods.slice/pod.scope"' in config_text
-    assert "rlimit_as: 3072" in config_text
+    assert f"rlimit_as: {expected_as}" in config_text
     assert "rlimit_fsize: 256" in config_text
     assert f"cgroup_mem_max: {3072 * 1024 * 1024}" in config_text
     assert "cgroup_mem_swap_max: 0" in config_text

@@ -511,6 +511,10 @@ def test_agent_executor_sandbox_overlay_delegates_cgroups(
     config = cast(_ComposeConfig, json.loads(result.stdout))
     service = config["services"]["agent-executor"]
 
+    assert (
+        "TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB="
+        "${TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB:-}"
+    ) in service["environment"]
     assert service["user"] == "0:0"
     assert service["entrypoint"] == ["/usr/local/bin/agent-executor-entrypoint.sh"]
     assert "SYS_ADMIN" in service["cap_add"]

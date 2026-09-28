@@ -138,7 +138,7 @@ nsjail requires:
 
 ### Resource limits
 
-Each sandbox runs under nsjail rlimits. The memory cap is the one you tune; the others are fixed.
+When you enable nsjail, each agent sandbox gets a cgroup v2 memory budget shared by its child processes. Python scripts and custom actions use a per-process address-space cap.
 
 | Sandbox | Memory cap | Configure with | CPU time | File size | Processes |
 | :------ | :--------- | :------------- | :------- | :-------- | :-------- |
@@ -146,11 +146,15 @@ Each sandbox runs under nsjail rlimits. The memory cap is the one you tune; the 
 | Dependency installation for `core.script.run_python` | 2048 MB | Fixed | 300 s | 256 MB | 64 |
 | Agents | 4096 MB | `TRACECAT__AGENT_SANDBOX_MEMORY_MB` | Agent timeout ceiling | 256 MB | 128 |
 
-Both variables are read by the `executor` and `agent-executor` processes, so setting one in a `.env` file is not enough on its own: your deployment has to pass it through to those two services. On Docker Compose add it to their `environment` blocks, and on Kubernetes to the corresponding values.
+Pass `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` to the executor that runs your actions and `TRACECAT__AGENT_SANDBOX_MEMORY_MB` to `agent-executor`. Docker Compose forwards the agent setting; Kubernetes deployments must configure it on the agent executor container.
 
-The memory cap is `rlimit_as`: it bounds the virtual address space a process may map, not its resident memory. A runtime that reserves large address ranges up front hits the cap before it uses that much RAM, so size it above the peak virtual size of your workload rather than its RSS. Python raises `MemoryError` at the cap; native runtimes such as the agent's Claude Code CLI abort.
+Agent sandboxes also have a per-process virtual address-space cap (`rlimit_as`) that defaults to twice their memory budget: 8192 MiB with the default 4096 MiB budget. Set `TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB` to a positive integer to override it. Size this guard above your workload's peak virtual size: runtimes can reserve address space well before using that much RAM. Stdio MCP connection probes use the same policy with a memory budget capped at 1024 MiB.
 
-The cap applies per process inside the sandbox. The executor pod's container memory limit still applies on top and covers every concurrent sandbox, so raising a sandbox cap without raising the pod limit trades a sandbox failure for an OOM kill of the executor.
+Cgroup enforcement requires a delegated, writable cgroup v2 subtree. The Docker Compose sandbox overlay runs a root entrypoint to delegate the container's subtree, then drops privileges before starting the worker. With `TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED=true` (the default), the worker refuses to start if enforcement is unavailable. Setting it to `false` disables cgroup enforcement and leaves the address-space guard in place.
+
+The agent executor clamps concurrency to `(container memory limit - reserve) / sandbox memory budget`, rounded down, and rejects startup when no sandbox fits. `TRACECAT__AGENT_EXECUTOR_MEMORY_RESERVE_MB` defaults to 4096 MiB for the worker and shared services. The outer container limit still covers every sandbox and the worker, so choose a reserve that covers your deployment's overhead.
+
+For Python scripts and custom actions, the memory setting continues to control `rlimit_as` per process. It does not bound the total memory of all child processes. Python can raise `MemoryError` at this limit; native runtimes can abort.
 
 Tracecat reports an action or agent run that exceeds the memory, CPU time, or file size limit as `sandbox.resource_limit_exceeded`. The failure is attributed to the workload, is not retried, and the error names the env var that controls the cap.
 

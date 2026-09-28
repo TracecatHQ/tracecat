@@ -37,6 +37,7 @@ from tracecat.agent.common.config import (
     JAILED_CONTROL_SOCKET_PATH,
     JAILED_LLM_SOCKET_PATH,
     JAILED_OTEL_SOCKET_PATH,
+    TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB,
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
     TRUSTED_MCP_SOCKET_PATH,
@@ -100,7 +101,9 @@ class AgentResourceLimits:
     sits above the deployment ceiling.
 
     Attributes:
-        memory_mb: Maximum memory in megabytes.
+        memory_mb: Aggregate cgroup memory budget in MiB.
+        address_space_mb: Per-process virtual address-space cap in MiB.
+            Defaults to twice memory_mb when no deployment override is set.
         cpu_seconds: Maximum CPU time in seconds.
         max_file_size_mb: Maximum file size in megabytes.
         max_open_files: Maximum number of open file descriptors.
@@ -116,6 +119,25 @@ class AgentResourceLimits:
     timeout_seconds: int = field(
         default_factory=lambda: _sandbox_kill_ceiling_seconds()
     )
+
+    address_space_mb: int | None = field(
+        default_factory=lambda: TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB
+    )
+
+    def __post_init__(self) -> None:
+        if self.memory_mb <= 0:
+            raise ValueError("memory_mb must be positive")
+        if self.address_space_mb is not None and self.address_space_mb <= 0:
+            raise ValueError("address_space_mb must be positive")
+
+    @property
+    def address_space_limit_mb(self) -> int:
+        """Resolve the independent per-process virtual address-space guard."""
+        return (
+            self.address_space_mb
+            if self.address_space_mb is not None
+            else 2 * self.memory_mb
+        )
 
 
 @dataclass
@@ -504,7 +526,7 @@ def build_agent_nsjail_config(
         [
             "",
             "# Resource limits",
-            f"rlimit_as: {config.resources.memory_mb}",
+            f"rlimit_as: {config.resources.address_space_limit_mb}",
             f"rlimit_cpu: {config.resources.cpu_seconds}",
             f"rlimit_fsize: {config.resources.max_file_size_mb}",
             f"rlimit_nofile: {config.resources.max_open_files}",

@@ -227,6 +227,7 @@ async def test_probe_runs_in_sandbox_with_cgroup_slot_budget(
     executor.execute.assert_awaited_once()
     sandbox_config = executor.execute.await_args.args[1]
     assert sandbox_config.resources.memory_mb == 512
+    assert sandbox_config.resources.address_space_limit_mb == 1024
     config = executor.execute.await_args.args[1]
     assert config.network is not None
     assert config.network.purpose is SandboxNetworkPurpose.AGENT

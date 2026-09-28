@@ -84,13 +84,15 @@ def test_stdio_probe_sandbox_config_includes_cgroup_memory_limit(
     config_text = executor._build_config(
         job_dir=tmp_path / "job",
         phase="execute",
-        config=SandboxConfig(resources=ResourceLimits(memory_mb=512)),
+        config=SandboxConfig(
+            resources=ResourceLimits(memory_mb=512, address_space_mb=1024)
+        ),
         script_name="probe.py",
     )
 
     assert "use_cgroupv2: true" in config_text
     assert f'cgroupv2_mount: "{cgroup_mount}"' in config_text
-    assert "rlimit_as: 512" in config_text
+    assert "rlimit_as: 1024" in config_text
     assert "rlimit_fsize: 256" in config_text
     assert f"cgroup_mem_max: {512 * 1024 * 1024}" in config_text
     assert "cgroup_mem_swap_max: 0" in config_text
@@ -205,8 +207,12 @@ def test_nsjail_configs_use_resource_limit_megabyte_units(tmp_path: Path) -> Non
         llm_socket_path=tmp_path / "llm.sock",
     )
 
-    for config_text in (python_config, action_config, agent_config):
-        assert "rlimit_as: 321" in config_text
+    for config_text, address_space_mb in (
+        (python_config, 321),
+        (action_config, 321),
+        (agent_config, 642),
+    ):
+        assert f"rlimit_as: {address_space_mb}" in config_text
         assert "rlimit_fsize: 45" in config_text
         assert f"rlimit_as: {321 * 1024 * 1024}" not in config_text
         assert f"rlimit_fsize: {45 * 1024 * 1024}" not in config_text

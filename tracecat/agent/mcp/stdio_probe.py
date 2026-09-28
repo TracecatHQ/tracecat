@@ -30,6 +30,7 @@ from tracecat.agent.mcp.stdio_probe_types import (
 )
 from tracecat.agent.mcp.utils import MCP_TOOL_NAME_RE
 from tracecat.agent.sandbox.cgroup import get_agent_sandbox_cgroup
+from tracecat.agent.sandbox.config import AgentResourceLimits
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError
@@ -411,6 +412,9 @@ async def probe_stdio_mcp_tools_in_sandbox(
             (job_dir / "input.json").write_bytes(orjson.dumps(payload))
 
             if is_nsjail_available():
+                probe_limits = AgentResourceLimits(
+                    memory_mb=min(1024, config.TRACECAT__AGENT_SANDBOX_MEMORY_MB)
+                )
                 sandbox = NsjailExecutor(
                     cgroup_mount=get_agent_sandbox_cgroup().sandbox_mount
                 )
@@ -419,10 +423,8 @@ async def probe_stdio_mcp_tools_in_sandbox(
                     SandboxConfig(
                         network=SandboxNetworkRequest(SandboxNetworkPurpose.AGENT),
                         resources=ResourceLimits(
-                            memory_mb=min(
-                                1024,
-                                config.TRACECAT__AGENT_SANDBOX_MEMORY_MB,
-                            ),
+                            memory_mb=probe_limits.memory_mb,
+                            address_space_mb=probe_limits.address_space_limit_mb,
                             cpu_seconds=hard_timeout_seconds,
                             max_open_files=512,
                             max_processes=128,

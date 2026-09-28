@@ -162,12 +162,9 @@ _STDIO_MCP_COMBINED_FLOW_COUNT = (
 # under retained load, which exceeds the default 128-process agent jail cap.
 # The stress test opts into a raised cap; production keeps the default.
 _STDIO_MCP_BURST_AGENT_NPROC_LIMIT = 1024
-# The jailed Claude CLI runs under Bun (JavaScriptCore), which sizes its heap
-# reservations by host RAM. On large CI runners the reservation exceeds the
-# default 4 GiB rlimit_as (enforced in MiB since the rlimit units fix), so
-# JSC aborts with "MemoryExhaustion ... Crash intentionally" (SIGABRT). The
-# burst case opts into 8 GiB address-space headroom; production keeps 4 GiB.
-_STDIO_MCP_BURST_AGENT_MEMORY_MB = 8192
+# Keep at least 8 GiB of virtual address space for Bun's heap reservations
+# without inflating the cgroup memory budget for this stress case.
+_STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB = 8192
 _STDIO_MCP_BURST_PARENT_NOFILE_LIMIT = 4096
 _STDIO_MCP_BASH_TOOL_USE_ID = "toolu_tracecat_bash_network_probe"
 _STDIO_MCP_BASH_RESULT_MARKER = "TRACE_CAT_BASH_NETWORK_PROBE_OK"
@@ -1279,8 +1276,11 @@ async def _run_stdio_mcp_startup_burst_case(
         updates: dict[str, int] = {}
         if config.resources.max_processes < _STDIO_MCP_BURST_AGENT_NPROC_LIMIT:
             updates["max_processes"] = _STDIO_MCP_BURST_AGENT_NPROC_LIMIT
-        if config.resources.memory_mb < _STDIO_MCP_BURST_AGENT_MEMORY_MB:
-            updates["memory_mb"] = _STDIO_MCP_BURST_AGENT_MEMORY_MB
+        if (
+            config.resources.address_space_limit_mb
+            < _STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB
+        ):
+            updates["address_space_mb"] = _STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB
         if updates:
             config.resources = dataclasses.replace(config.resources, **updates)
         return config
@@ -1960,10 +1960,13 @@ async def _run_agent_cgroup_oom_isolation_case(
 ) -> None:
     """Trigger a cgroup OOM kill below the sandbox's per-process RLIMIT_AS."""
     tmp_path.mkdir(parents=True)
+    session_paths_module.job_uv_state_dir(tmp_path).mkdir()
     workload_path = tmp_path / Path(JAILED_SHIM_ENTRYPOINT_PATH).name
     workload_path.write_text(
         "\n".join(
             [
+                "import resource",
+                "assert resource.getrlimit(resource.RLIMIT_AS) == (512 * 1024 * 1024,) * 2",
                 "allocations = []",
                 "",
                 "while True:",
@@ -1985,7 +1988,8 @@ async def _run_agent_cgroup_oom_isolation_case(
     )
     assert site_packages_dir is not None
     limits = AgentResourceLimits(
-        memory_mb=512,
+        memory_mb=128,
+        address_space_mb=512,
         cpu_seconds=30,
         timeout_seconds=15,
     )
@@ -1999,18 +2003,10 @@ async def _run_agent_cgroup_oom_isolation_case(
         mount_control_socket=False,
         cgroup_mount=cgroup_root,
     )
-    configured_cgroup_limit = f"cgroup_mem_max: {limits.memory_mb * 1024 * 1024}"
-    test_cgroup_limit = f"cgroup_mem_max: {128 * 1024 * 1024}"
-    assert nsjail_config.count(f"rlimit_as: {limits.memory_mb}") == 1
-    assert nsjail_config.count(configured_cgroup_limit) == 1
-    # Keep the normal 512 MiB per-process RLIMIT_AS while lowering only the
-    # child cgroup to 128 MiB. A resulting oom_kill therefore proves that the
-    # kernel cgroup limit, rather than RLIMIT_AS, terminated the sandbox.
-    nsjail_config = nsjail_config.replace(
-        configured_cgroup_limit,
-        test_cgroup_limit,
-        1,
-    )
+    assert nsjail_config.count("rlimit_as: 512") == 1
+    assert nsjail_config.count(f"cgroup_mem_max: {128 * 1024 * 1024}") == 1
+    # The cgroup budget is lower than RLIMIT_AS, so oom_kill proves that the
+    # kernel's aggregate memory limit terminated the sandbox.
     config_path = tmp_path / "nsjail.cfg"
     config_path.write_text(nsjail_config)
     config_path.chmod(0o600)

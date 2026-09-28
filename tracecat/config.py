@@ -972,7 +972,7 @@ TRACECAT__AGENT_SANDBOX_MEMORY_MB = _env_int(
     4096,
     min_value=1,
 )
-"""Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
+"""Aggregate cgroup memory budget for each agent sandbox in MiB (4 GiB)."""
 
 TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED = env_bool(
     "TRACECAT__AGENT_SANDBOX_CGROUP_ENABLED", default=True

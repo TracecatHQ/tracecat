@@ -36,7 +36,21 @@ TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
 TRACECAT__AGENT_SANDBOX_MEMORY_MB = int(
     os.environ.get("TRACECAT__AGENT_SANDBOX_MEMORY_MB") or 4096
 )
-"""Default memory limit for agent sandbox execution in megabytes (4 GiB)."""
+"""Aggregate cgroup memory budget for each agent sandbox in MiB (4 GiB)."""
+
+# Leave unset to derive the address-space guard from each sandbox's memory budget.
+_address_space_mb = os.environ.get(
+    "TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB", ""
+).strip()
+TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB = (
+    int(_address_space_mb) if _address_space_mb else None
+)
+"""Per-process address-space cap in MiB; defaults to twice the cgroup budget."""
+if (
+    TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB is not None
+    and TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB <= 0
+):
+    raise ValueError("TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB must be positive")
 
 TRACECAT__DISABLE_NSJAIL = _env_bool("TRACECAT__DISABLE_NSJAIL", default=True)
 """Disable nsjail sandbox and use the unsafe PID executor instead."""
