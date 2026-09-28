@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import binascii
+import gzip
 import re
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -127,7 +128,7 @@ async def call_method(
 
 @registry.register(
     default_title="Get S3 object",
-    description="Download an object from S3 and return its body as a string.",
+    description="Download an object from S3 as a string, decompressing gzip content.",
     display_group="Amazon S3",
     doc_url="https://docs.aws.amazon.com/boto3/latest/reference/services/s3.html#S3.Client.get_object",
     namespace="tools.amazon_s3",
@@ -159,11 +160,11 @@ async def get_object(
     async with session.client("s3", endpoint_url=endpoint_url) as s3_client:  # type: ignore
         obj = await s3_client.get_object(Bucket=bucket, Key=key)
         body = await obj["Body"].read()
-        # Defensively handle different types of bodies
-        if isinstance(body, bytes):
-            return body.decode("utf-8")
-        else:
+        if not isinstance(body, bytes):
             raise ValueError(f"Unexpected body type. Expected bytes, got {type(body)}")
+        if body.startswith(b"\x1f\x8b"):
+            body = gzip.decompress(body)
+        return body.decode("utf-8")
 
 
 @registry.register(
@@ -298,7 +299,7 @@ async def copy_objects(
 
 @registry.register(
     default_title="Get S3 objects",
-    description="Download multiple S3 objects and return their bodies as strings.",
+    description="Download multiple S3 objects as strings, decompressing gzip content.",
     display_group="Amazon S3",
     doc_url="https://docs.aws.amazon.com/boto3/latest/reference/services/s3.html#S3.Client.get_object",
     namespace="tools.amazon_s3",
