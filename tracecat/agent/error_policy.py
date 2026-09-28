@@ -5,15 +5,14 @@ from __future__ import annotations
 import signal
 from dataclasses import dataclass
 
-from tracecat.agent.common.config import TRACECAT__AGENT_SANDBOX_MEMORY_MB
 from tracecat.agent.common.exceptions import AgentSandboxProcessExitError
+from tracecat.agent.sandbox.config import AgentResourceLimits
 from tracecat.exceptions import RegistryLockAmbiguousActionError
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
     RuntimeErrorKind,
 )
-from tracecat.sandbox.exceptions import sandbox_resource_limit_message
 from tracecat.temporal.errors import iter_error_chain
 
 # Exit codes (``128 + signal``) that mean the jailed agent runtime hit one of
@@ -217,16 +216,20 @@ def agent_executor_unavailable(
 def agent_sandbox_resource_limit_exceeded(
     error: BaseException | None = None,
 ) -> RuntimeErrorClassification:
-    """Classify a jailed agent runtime that died from one of its rlimits.
+    """Classify a jailed agent runtime that exceeded a resource limit.
 
     The cap is published deployment configuration the caller's workload
     exceeded, and a retry hits the same cap deterministically.
     """
+    limits = AgentResourceLimits()
     return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.SANDBOX_RESOURCE_LIMIT_EXCEEDED,
-        message=sandbox_resource_limit_message(
-            memory_mb=TRACECAT__AGENT_SANDBOX_MEMORY_MB,
-            memory_env_var="TRACECAT__AGENT_SANDBOX_MEMORY_MB",
+        message=(
+            "The sandbox exceeded a resource limit (memory, CPU time, or file size). "
+            f"The cgroup memory budget is {limits.memory_mb} MiB "
+            "(TRACECAT__AGENT_SANDBOX_MEMORY_MB). "
+            f"Per-process address space is capped at {limits.address_space_limit_mb} MiB "
+            "(TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB; defaults to twice the memory budget)."
         ),
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,

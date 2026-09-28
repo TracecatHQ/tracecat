@@ -28,6 +28,11 @@ services:
     privileged: true
 
   agent-executor:
+    user: "0:0"
+    cgroup: private
+    entrypoint: ["python", "-m", "tracecat.agent.sandbox.cgroup"]
+    environment:
+      TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-false}
     # Same fork-bomb bound as executor (nested userns bypasses in-jail caps).
     pids_limit: 4096
     # Required for nsjail sandbox execution.

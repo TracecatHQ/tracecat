@@ -195,6 +195,10 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
             return_value=True,
         ),
         patch(
+            "tracecat.agent.mcp.stdio_probe.sandbox_cgroup",
+            return_value=Path("/cgroup"),
+        ),
+        patch(
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
             return_value=executor,
         ),
@@ -210,6 +214,8 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
     assert [tool.name for tool in result.tools] == ["list_alerts"]
     executor.execute.assert_awaited_once()
     config = executor.execute.await_args.args[1]
+    assert config.resources.memory_mb == 1024
+    assert config.resources.address_space_limit_mb == 2048
     assert config.network is not None
     assert config.network.purpose is SandboxNetworkPurpose.AGENT
     assert config.network.policy is None
@@ -230,6 +236,10 @@ async def test_probe_timeout_leaves_buffer_before_nsjail_limit() -> None:
         patch(
             "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
             return_value=True,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.sandbox_cgroup",
+            return_value=Path("/cgroup"),
         ),
         patch(
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
@@ -272,6 +282,10 @@ async def test_probe_returns_friendly_structured_timeout() -> None:
             return_value=True,
         ),
         patch(
+            "tracecat.agent.mcp.stdio_probe.sandbox_cgroup",
+            return_value=Path("/cgroup"),
+        ),
+        patch(
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
             return_value=executor,
         ),
@@ -299,6 +313,10 @@ async def test_probe_returns_friendly_sandbox_timeout() -> None:
         patch(
             "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
             return_value=True,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.sandbox_cgroup",
+            return_value=Path("/cgroup"),
         ),
         patch(
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
