@@ -27,6 +27,7 @@ const BACKEND_EXECUTION_FIELDS = [
   "namespaces",
   "tool_approvals",
   "mcp_integrations",
+  "library_skills",
   "agents",
   "retries",
   "enable_thinking",
@@ -140,6 +141,7 @@ describe("canSubmitAgentPresetForm", () => {
         namespaces: ["core.http_request"],
         tool_approvals: { "core.http_request": true },
         mcp_integrations: ["mcp-1"],
+        library_skills: ["phishing-triage"],
         retries: 2,
         enable_internet_access: true,
         created_at: "2026-03-13T12:00:00Z",
@@ -152,6 +154,7 @@ describe("canSubmitAgentPresetForm", () => {
     expect(duplicated.slug).toBe("copy-of-triage-agent")
     expect(duplicated.instructions).toBe("Investigate alerts")
     expect(duplicated.actions).toEqual(["core.http_request"])
+    expect(duplicated.library_skills).toEqual(["phishing-triage"])
     expect(duplicated.enable_internet_access).toBe(true)
   })
 

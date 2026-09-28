@@ -26,6 +26,7 @@ from tracecat.agent.skill.library.catalog import (
 from tracecat.agent.skill.library.service import (
     SkillLibraryErrorCode,
     SkillLibraryService,
+    normalize_library_slugs,
 )
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import (
@@ -37,6 +38,7 @@ from tracecat.db.models import AgentPreset, SkillLibraryInstall, Workspace
 from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.workspace_sync.adapters import AGENT_PRESET_RESOURCE_ADAPTER
+from tracecat.workspace_sync.adapters.agent_preset import AgentPresetAdapter
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
 from tracecat.workspace_sync.schemas import AgentPresetResourceSpec, WorkspaceSpec
 
@@ -82,6 +84,24 @@ def test_catalog_rejects_supporting_files(tmp_path: Path) -> None:
     (tmp_path / "with-reference" / "reference.md").write_text("Details")
     with pytest.raises(ValueError, match="only SKILL.md"):
         load_library_from(tmp_path)
+
+
+def test_normalize_library_slugs_dedupes_and_sorts() -> None:
+    assert normalize_library_slugs(["b", "a", "b"]) == ["a", "b"]
+    assert normalize_library_slugs(None) == []
+
+
+def test_sync_import_dedupes_library_skills_like_api_saves() -> None:
+    spec = AgentPresetResourceSpec(
+        id="agent-preset-triage",
+        name="Triage",
+        slug="triage",
+        library_skills=["phishing-triage", "incident-summary", "phishing-triage"],
+    )
+
+    attrs = AgentPresetAdapter()._version_attrs_from_spec(spec)
+
+    assert attrs["library_skills"] == ["incident-summary", "phishing-triage"]
 
 
 def test_unknown_slug_fails_loudly() -> None:

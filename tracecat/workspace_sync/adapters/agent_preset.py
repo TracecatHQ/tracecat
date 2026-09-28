@@ -16,7 +16,10 @@ from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.catalog.types import ModelKey
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.preset.types import SkillBindingSpec
-from tracecat.agent.skill.library.service import SkillLibraryService
+from tracecat.agent.skill.library.service import (
+    SkillLibraryService,
+    normalize_library_slugs,
+)
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     ResolvedAgentsConfig,
@@ -217,7 +220,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 namespaces=sorted(execution.namespaces or []),
                 mcp_integrations=mcp_integrations,
                 mcp_integration_hints=mcp_integration_hints,
-                library_skills=sorted(execution.library_skills or []),
+                library_skills=normalize_library_slugs(execution.library_skills),
                 retries=execution.retries,
                 enable_thinking=execution.enable_thinking,
                 enable_internet_access=execution.enable_internet_access,
@@ -1708,7 +1711,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             "namespaces": spec.namespaces or None,
             "tool_approvals": _tool_approvals(spec.tool_approvals),
             "mcp_integrations": spec.mcp_integrations or None,
-            "library_skills": sorted(spec.library_skills) or None,
+            "library_skills": normalize_library_slugs(spec.library_skills) or None,
             "retries": spec.retries,
             "enable_thinking": spec.enable_thinking,
             "enable_internet_access": spec.enable_internet_access,

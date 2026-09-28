@@ -61,7 +61,10 @@ from tracecat.agent.skill.bindings import (
     validate_no_duplicate_skill_ids,
 )
 from tracecat.agent.skill.dependencies import SkillToolDependencyService
-from tracecat.agent.skill.library.service import SkillLibraryService
+from tracecat.agent.skill.library.service import (
+    SkillLibraryService,
+    normalize_library_slugs,
+)
 from tracecat.agent.skill.types import SkillMcpGrant
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
@@ -605,7 +608,7 @@ class AgentPresetService(BaseWorkspaceService):
         self, slugs: Sequence[str] | None
     ) -> list[str] | None:
         """Normalize library slugs and require each to be installed here."""
-        normalized = sorted(set(slugs or []))
+        normalized = normalize_library_slugs(slugs)
         if not normalized:
             return None
         await self.library.validate_bindable(normalized)

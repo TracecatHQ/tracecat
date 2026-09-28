@@ -2915,8 +2915,6 @@ function AgentPresetSkillsPanel({
   const { skills, skillsLoading, skillsError } = useSkills(workspaceId)
   const { librarySkills, librarySkillsIsLoading, librarySkillsError } =
     useSkillLibrary(workspaceId)
-  const isLoadingSkills = skillsLoading || librarySkillsIsLoading
-  const skillsLoadError = skillsError ?? librarySkillsError
   const librarySkillsBySlug = useMemo(
     () => new Map((librarySkills ?? []).map((skill) => [skill.slug, skill])),
     [librarySkills]
@@ -2968,6 +2966,8 @@ function AgentPresetSkillsPanel({
   }
 
   const attachedLibrarySkills = selectedLibrarySkills ?? []
+  const hasAttachedSkills =
+    skillFields.length > 0 || attachedLibrarySkills.length > 0
 
   return (
     <div className="h-full overflow-auto">
@@ -2987,7 +2987,6 @@ function AgentPresetSkillsPanel({
               onClick={() => setIsPickerOpen(true)}
               disabled={
                 isSaving ||
-                isLoadingSkills ||
                 (availableSkillsToAdd.length === 0 &&
                   availableLibrarySkillsToAdd.length === 0)
               }
@@ -2996,36 +2995,51 @@ function AgentPresetSkillsPanel({
               Add skill
             </Button>
           </div>
-          {skillsLoadError ? (
+          {/* Workspace and library requests fail and load independently. */}
+          {skillsError ? (
             <Alert variant="destructive">
               <AlertCircle className="size-4" />
-              <AlertTitle>Unable to load skills</AlertTitle>
+              <AlertTitle>Unable to load workspace skills</AlertTitle>
               <AlertDescription>
-                {getApiErrorDetail(skillsLoadError) ?? "Please try again."}
+                {getApiErrorDetail(skillsError) ?? "Please try again."}
               </AlertDescription>
             </Alert>
-          ) : isLoadingSkills ? (
+          ) : null}
+          {librarySkillsError ? (
+            <Alert variant="destructive">
+              <AlertCircle className="size-4" />
+              <AlertTitle>Unable to load the Tracecat library</AlertTitle>
+              <AlertDescription>
+                {getApiErrorDetail(librarySkillsError) ?? "Please try again."}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {skillsLoading || librarySkillsIsLoading ? (
             <div className="flex items-center gap-2 rounded-md border px-3 py-4 text-xs text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
               Loading skills...
             </div>
-          ) : skillFields.length === 0 && attachedLibrarySkills.length === 0 ? (
+          ) : null}
+          {!skillsLoading && !librarySkillsIsLoading && !hasAttachedSkills ? (
             <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
               No skills attached yet.
             </p>
-          ) : (
+          ) : null}
+          {hasAttachedSkills ? (
             <div className="min-w-0 w-full space-y-3">
-              {skillFields.map((item, index) => (
-                <AgentPresetSkillBindingRow
-                  key={item.id}
-                  form={form}
-                  workspaceId={workspaceId}
-                  index={index}
-                  isSaving={isSaving}
-                  availableSkills={skills ?? []}
-                  onRemove={onRemoveSkillBinding}
-                />
-              ))}
+              {!skillsLoading
+                ? skillFields.map((item, index) => (
+                    <AgentPresetSkillBindingRow
+                      key={item.id}
+                      form={form}
+                      workspaceId={workspaceId}
+                      index={index}
+                      isSaving={isSaving}
+                      availableSkills={skills ?? []}
+                      onRemove={onRemoveSkillBinding}
+                    />
+                  ))
+                : null}
               {attachedLibrarySkills.map((slug) => (
                 <AgentPresetLibrarySkillRow
                   key={slug}
@@ -3036,9 +3050,9 @@ function AgentPresetSkillsPanel({
                 />
               ))}
             </div>
-          )}
-          {!isLoadingSkills &&
-          !skillsLoadError &&
+          ) : null}
+          {!skillsLoading &&
+          !skillsError &&
           skillFields.length > 0 &&
           availableSkillsToAdd.length === 0 ? (
             <p className="text-xs text-muted-foreground">

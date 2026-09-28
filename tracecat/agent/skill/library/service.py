@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from enum import StrEnum
 
 from sqlalchemy import delete, select
@@ -24,6 +24,11 @@ from tracecat.pagination import (
 )
 from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tiers.enums import Entitlement
+
+
+def normalize_library_slugs(slugs: Iterable[str] | None) -> list[str]:
+    """Return library slugs deduplicated and sorted, the canonical saved form."""
+    return sorted(set(slugs or []))
 
 
 class SkillLibraryErrorCode(StrEnum):
