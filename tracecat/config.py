@@ -547,8 +547,8 @@ TRACECAT__BLOB_STORAGE_BUCKET_SKILLS = os.environ.get(
 TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get("TRACECAT__BLOB_STORAGE_ENDPOINT", "")
 """Endpoint URL for blob storage."""
 
-TRACECAT__BLOB_STORAGE_SSL_VERIFY = (
-    os.environ.get("TRACECAT__BLOB_STORAGE_SSL_VERIFY", "true").lower() == "true"
+TRACECAT__BLOB_STORAGE_SSL_VERIFY = env_bool(
+    "TRACECAT__BLOB_STORAGE_SSL_VERIFY", default=True
 )
 """Verify TLS certificates when connecting to blob storage (S3/MinIO).
 
