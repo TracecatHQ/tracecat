@@ -1,11 +1,12 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import { GitlabIcon, Trash2Icon } from "lucide-react"
+import { Trash2Icon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { BitbucketIcon } from "@/components/organization/vcs-icons"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,29 +36,27 @@ import {
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/ui/use-toast"
 import {
-  useDeleteGitLabTokenCredentials,
-  useGitLabTokenCredentials,
-  useGitLabTokenCredentialsStatus,
-} from "@/lib/hooks"
+  useBitbucketTokenCredentials,
+  useBitbucketTokenCredentialsStatus,
+  useDeleteBitbucketTokenCredentials,
+} from "@/hooks/use-bitbucket-credentials"
 
-const gitLabTokenFormSchema = z.object({
-  base_url: z
-    .string()
-    .trim()
-    .url("Please enter a valid URL")
-    .default("https://gitlab.com"),
+const bitbucketTokenFormSchema = z.object({
+  email: z.string().trim().email("Enter your Atlassian account email"),
   token: z.string().trim().min(1, "Token is required"),
 })
 
-type GitLabTokenFormData = z.infer<typeof gitLabTokenFormSchema>
+type BitbucketTokenFormData = z.infer<typeof bitbucketTokenFormSchema>
 
-export function GitLabTokenSetup() {
+/** Configure organization credentials for Bitbucket Cloud workspace sync. */
+export function BitbucketTokenSetup() {
   const {
     credentialsStatus,
     credentialsStatusIsLoading,
+    credentialsStatusError,
     refetchCredentialsStatus,
-  } = useGitLabTokenCredentialsStatus()
-  const { deleteCredentials } = useDeleteGitLabTokenCredentials()
+  } = useBitbucketTokenCredentialsStatus()
+  const { deleteCredentials } = useDeleteBitbucketTokenCredentials()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const { toast } = useToast()
@@ -65,13 +64,21 @@ export function GitLabTokenSetup() {
   const isConfigured = credentialsStatus?.exists ?? false
   const isCorrupted = credentialsStatus?.is_corrupted ?? false
 
+  let statusLabel = "Not connected"
+  if (isCorrupted) {
+    statusLabel =
+      "Stored credentials are unreadable. Re-enter the API token to reconnect."
+  } else if (isConfigured) {
+    statusLabel = `Account email: ${credentialsStatus?.email ?? "unknown"}`
+  }
+
   async function handleDelete() {
     try {
       await deleteCredentials.mutateAsync()
       setDeleteDialogOpen(false)
       toast({
-        title: "GitLab credentials deleted",
-        description: "GitLab workspace sync has been disconnected.",
+        title: "Bitbucket credentials deleted",
+        description: "Bitbucket workspace sync has been disconnected.",
       })
     } catch (error) {
       toast({
@@ -89,20 +96,25 @@ export function GitLabTokenSetup() {
     return <CenteredSpinner />
   }
 
+  if (credentialsStatusError) {
+    return (
+      <p className="text-sm text-destructive">
+        Unable to load Bitbucket credentials.{" "}
+        <Button variant="link" onClick={() => refetchCredentialsStatus()}>
+          Retry
+        </Button>
+      </p>
+    )
+  }
+
   return (
     <>
       <div className="flex items-center justify-between rounded-lg border p-4">
         <div className="flex items-center gap-3">
-          <GitlabIcon className="size-5 text-muted-foreground" />
+          <BitbucketIcon className="size-5 text-muted-foreground" />
           <div>
-            <p className="text-sm font-medium">GitLab</p>
-            <p className="text-xs text-muted-foreground">
-              {isCorrupted
-                ? "Stored credentials are unreadable. Re-enter the GitLab token to reconnect."
-                : isConfigured
-                  ? `Base URL: ${credentialsStatus?.base_url ?? "unknown"}`
-                  : "Not connected"}
-            </p>
+            <p className="text-sm font-medium">Bitbucket Cloud</p>
+            <p className="text-xs text-muted-foreground">{statusLabel}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -118,6 +130,7 @@ export function GitLabTokenSetup() {
               <Button
                 variant="destructive"
                 size="sm"
+                aria-label="Delete Bitbucket credentials"
                 onClick={() => setDeleteDialogOpen(true)}
               >
                 <Trash2Icon className="size-3.5" />
@@ -131,16 +144,16 @@ export function GitLabTokenSetup() {
         </div>
       </div>
 
-      <GitLabConnectionDialog
+      <BitbucketConnectionDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        existingBaseUrl={credentialsStatus?.base_url ?? undefined}
+        existingEmail={credentialsStatus?.email ?? undefined}
         onFormSuccess={() => {
           setDialogOpen(false)
           refetchCredentialsStatus()
           toast({
-            title: "GitLab credentials saved",
-            description: "GitLab workspace sync credentials are ready.",
+            title: "Bitbucket credentials saved",
+            description: "Bitbucket workspace sync credentials are ready.",
           })
         }}
       />
@@ -148,10 +161,10 @@ export function GitLabTokenSetup() {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete GitLab credentials</AlertDialogTitle>
+            <AlertDialogTitle>Delete Bitbucket credentials</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete the GitLab token credentials?
-              GitLab workspace sync will stop working until credentials are
+              Are you sure you want to delete the Bitbucket token credentials?
+              Bitbucket workspace sync will stop working until credentials are
               reconnected.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -173,38 +186,35 @@ export function GitLabTokenSetup() {
   )
 }
 
-function GitLabConnectionDialog({
+function BitbucketConnectionDialog({
   open,
   onOpenChange,
-  existingBaseUrl,
+  existingEmail,
   onFormSuccess,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  existingBaseUrl?: string
+  existingEmail?: string
   onFormSuccess: () => void
 }) {
-  const { saveCredentials } = useGitLabTokenCredentials()
+  const { saveCredentials } = useBitbucketTokenCredentials()
   const { toast } = useToast()
-  const form = useForm<GitLabTokenFormData>({
-    resolver: zodResolver(gitLabTokenFormSchema),
+  const form = useForm<BitbucketTokenFormData>({
+    resolver: zodResolver(bitbucketTokenFormSchema),
     defaultValues: {
-      base_url: existingBaseUrl ?? "https://gitlab.com",
+      email: existingEmail ?? "",
       token: "",
     },
   })
 
   useEffect(() => {
-    if (!open) {
-      return
-    }
     form.reset({
-      base_url: existingBaseUrl ?? "https://gitlab.com",
+      email: existingEmail ?? "",
       token: "",
     })
-  }, [existingBaseUrl, form, open])
+  }, [existingEmail, form, open])
 
-  async function onSubmit(values: GitLabTokenFormData) {
+  async function onSubmit(values: BitbucketTokenFormData) {
     try {
       await saveCredentials.mutateAsync(values)
       onFormSuccess()
@@ -214,7 +224,7 @@ function GitLabConnectionDialog({
         description:
           error instanceof Error
             ? error.message
-            : "Failed to save GitLab credentials",
+            : "Failed to save Bitbucket credentials",
         variant: "destructive",
       })
     }
@@ -224,21 +234,22 @@ function GitLabConnectionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>GitLab workspace sync credential</DialogTitle>
+          <DialogTitle>Bitbucket workspace sync credential</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
               control={form.control}
-              name="base_url"
+              name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Base URL</FormLabel>
+                  <FormLabel>Account email</FormLabel>
                   <FormControl>
-                    <Input placeholder="https://gitlab.com" {...field} />
+                    <Input placeholder="you@example.com" {...field} />
                   </FormControl>
                   <FormDescription>
-                    Use your self-managed GitLab URL when not using GitLab.com.
+                    Use the Atlassian account email associated with your API
+                    token.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -254,15 +265,21 @@ function GitLabConnectionDialog({
                     <Input
                       type="password"
                       autoComplete="off"
-                      placeholder="glpat-..."
+                      placeholder="API token"
                       {...field}
                     />
                   </FormControl>
                   <FormDescription>
-                    Use a GitLab project or group access token with the api
-                    scope. Tracecat stores this token as the GitLab credential
-                    for workspace sync; prefer it over a personal access token
-                    for long-lived sync.
+                    Create a scoped Bitbucket Cloud API token with repository
+                    read/write and pull request read/write permissions.{" "}
+                    <a
+                      className="underline"
+                      href="https://support.atlassian.com/bitbucket-cloud/docs/api-token-permissions/"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Token permissions
+                    </a>
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
