@@ -33,6 +33,7 @@ from tracecat.tables.common import (
     ColumnHasDuplicateValuesError,
     handle_default_value,
     parse_postgres_default,
+    to_sql_clause,
 )
 from tracecat.tables.enums import SqlType
 from tracecat.tables.exceptions import TableRowError
@@ -2985,3 +2986,85 @@ async def test_database_not_null_fallback(
     assert "private-test-value" not in str(exc.value.detail)
     assert exc.value.__context__ is None
     await tables_service.session.rollback()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("true", True),
+        ("false", False),
+        ("1", True),
+        ("0", False),
+        ("TRUE", True),
+        ("FaLsE", False),
+        (True, True),
+        (False, False),
+        (1, True),
+        (0, False),
+    ],
+)
+async def test_boolean_row_writes_preserve_supported_values(
+    tables_service: TablesService,
+    table: Table,
+    value: str | bool | int,
+    expected: bool,
+) -> None:
+    await tables_service.create_column(
+        table, TableColumnCreate(name="enabled", type=SqlType.BOOLEAN)
+    )
+    await tables_service.create_unique_index(table, "name")
+    assert to_sql_clause(value, "enabled", SqlType.BOOLEAN).value is expected
+
+    row = await tables_service.insert_row(
+        table, TableRowInsert(data={"name": "single", "enabled": value})
+    )
+    assert row["enabled"] is expected
+    updated = await tables_service.update_row(table, row["id"], {"enabled": value})
+    assert updated["enabled"] is expected
+    upserted = await tables_service.insert_row(
+        table, TableRowInsert(data={"name": "single", "enabled": value}, upsert=True)
+    )
+    assert upserted["enabled"] is expected
+
+    assert (
+        await tables_service.batch_insert_rows(
+            table, [{"name": "batch", "enabled": value}]
+        )
+        == 1
+    )
+    assert (
+        await tables_service.batch_insert_rows(
+            table, [{"name": "batch", "enabled": value}], upsert=True
+        )
+        == 1
+    )
+    assert (
+        await tables_service.batch_update_rows(table, [row["id"]], {"enabled": value})
+        == 1
+    )
+    rows = await _list_rows(tables_service, table)
+    assert len(rows) == 2
+    assert all(result["enabled"] is expected for result in rows)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("value", ["yes", "", 2, 1.5, {}, []])
+@pytest.mark.parametrize("batch", [False, True])
+async def test_boolean_row_writes_reject_invalid_values_safely(
+    tables_service: TablesService, table: Table, value: Any, batch: bool
+) -> None:
+    await tables_service.create_column(
+        table, TableColumnCreate(name="enabled", type=SqlType.BOOLEAN)
+    )
+    with pytest.raises(TableRowError) as exc:
+        if batch:
+            await tables_service.batch_insert_rows(table, [{"enabled": value}])
+        else:
+            await tables_service.insert_row(
+                table, TableRowInsert(data={"enabled": value})
+            )
+    assert exc.value.code == "invalid_value"
+    assert exc.value.detail["column"] == "enabled"
+    assert exc.value.__context__ is None
+    assert await _list_rows(tables_service, table) == []

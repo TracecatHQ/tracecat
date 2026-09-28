@@ -55,6 +55,7 @@ from tracecat.tables.common import (
 )
 from tracecat.tables.common import (
     ColumnHasDuplicateValuesError,
+    coerce_boolean_value,
     coerce_integer_value,
     coerce_multi_select_value,
     coerce_numeric_value,
@@ -366,8 +367,7 @@ class BaseTablesService(BaseWorkspaceService):
                 elif sql_type is SqlType.DATE:
                     value = coerce_to_date(value)
                 elif sql_type is SqlType.BOOLEAN:
-                    if not isinstance(value, (bool, int)) or value not in (0, 1):
-                        raise ValueError("Expected bool or 0/1")
+                    value = coerce_boolean_value(value)
                 elif sql_type is SqlType.JSONB:
                     # Match SQLAlchemy's JSON serializer before reaching the DB.
                     json.dumps(value)
