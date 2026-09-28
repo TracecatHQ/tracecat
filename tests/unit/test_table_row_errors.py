@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 from asyncpg.exceptions import CheckViolationError, NotNullViolationError
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.auth.types import Role
@@ -71,20 +71,24 @@ def test_json_row_values_preserve_finite_numbers_and_strings(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("error_type", [DBAPIError, IntegrityError])
 @pytest.mark.parametrize(
     "cause",
     [
+        RuntimeError("unexpected database failure"),
         CheckViolationError("unexpected constraint"),
         NotNullViolationError.new({"C": "23502", "c": "__tc_workspace_id"}),
         NotNullViolationError.new({"C": "23502", "c": "id"}),
     ],
 )
-async def test_unrecognized_constraints_are_not_client_errors(cause: Exception) -> None:
-    error = IntegrityError("synthetic SQL", {}, cause)
+async def test_unrecognized_database_errors_are_not_client_errors(
+    cause: Exception, error_type: type[DBAPIError]
+) -> None:
+    error = error_type("synthetic SQL", {}, cause)
 
     async def failed_write() -> None:
         raise error
 
-    with pytest.raises(IntegrityError) as exc:
+    with pytest.raises(error_type) as exc:
         await _execute_row_write(failed_write(), [TableColumn(name="record_key")])
     assert exc.value is error

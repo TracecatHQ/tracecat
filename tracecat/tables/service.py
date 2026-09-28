@@ -10,6 +10,8 @@ from uuid import UUID
 
 import sqlalchemy as sa
 from asyncpg.exceptions import (
+    CardinalityViolationError,
+    DataError,
     InFailedSQLTransactionError,
     InvalidCachedStatementError,
     NotNullViolationError,
@@ -143,14 +145,14 @@ def visible_column_clauses(column_names: Sequence[str]) -> list[sa.ColumnClause]
 async def _execute_row_write[T](
     operation: Awaitable[T], columns: Sequence[TableColumn]
 ) -> T:
-    """Translate known row constraints without exposing SQL or submitted values.
+    """Translate known row input errors without exposing SQL or submitted values.
 
     Unknown NOT NULL columns and constraint types remain server errors.
     """
     error: TableRowError | None = None
     try:
         return await operation
-    except IntegrityError as exc:
+    except DBAPIError as exc:
         cause: BaseException | None = exc.orig
         while cause is not None:
             if isinstance(cause, NotNullViolationError):
@@ -166,6 +168,18 @@ async def _execute_row_write[T](
             if isinstance(cause, UniqueViolationError):
                 error = TableRowError(
                     "duplicate_value", "A value already exists in a unique column."
+                )
+                break
+            if isinstance(cause, CardinalityViolationError):
+                error = TableRowError(
+                    "duplicate_value",
+                    "Rows in an upsert batch must have distinct unique column values.",
+                )
+                break
+            if isinstance(cause, DataError):
+                error = TableRowError(
+                    "invalid_value",
+                    "A row contains a value that is invalid for its column type.",
                 )
                 break
             cause = cause.__cause__

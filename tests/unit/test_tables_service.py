@@ -2963,6 +2963,53 @@ async def test_duplicate_row_is_safe_conflict(
 
 
 @pytest.mark.anyio
+async def test_batch_upsert_repeated_key_is_safe_conflict(
+    tables_service: TablesService, required_row_table: Table
+) -> None:
+    with pytest.raises(TableRowError) as exc:
+        await tables_service.batch_insert_rows(
+            required_row_table,
+            [
+                {"record_key": "private-test-value", "description": "first"},
+                {"record_key": "private-test-value", "description": "second"},
+            ],
+            upsert=True,
+        )
+    assert exc.value.code == "duplicate_value"
+    assert "private-test-value" not in str(exc.value.detail)
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
+    await tables_service.session.rollback()
+    await tables_service.session.refresh(required_row_table)
+    assert await _list_rows(tables_service, required_row_table) == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "sql_type,value",
+    [
+        (SqlType.TEXT, 123),
+        (SqlType.JSONB, {"value": "private-test-value\u0000"}),
+    ],
+)
+async def test_batch_invalid_database_values_are_safe_client_errors(
+    tables_service: TablesService, table: Table, sql_type: SqlType, value: Any
+) -> None:
+    await tables_service.create_column(
+        table, TableColumnCreate(name="payload", type=sql_type)
+    )
+    with pytest.raises(TableRowError) as exc:
+        await tables_service.batch_insert_rows(table, [{"payload": value}])
+    assert exc.value.code == "invalid_value"
+    assert "private-test-value" not in str(exc.value.detail)
+    assert exc.value.__cause__ is None
+    assert exc.value.__context__ is None
+    await tables_service.session.rollback()
+    await tables_service.session.refresh(table)
+    assert await _list_rows(tables_service, table) == []
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("batch", [False, True])
 async def test_database_not_null_fallback(
     tables_service: TablesService, required_row_table: Table, batch: bool
