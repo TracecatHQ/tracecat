@@ -217,6 +217,15 @@ async def test_create_workspace_membership_conflict(
     test_admin_role: Role,
 ) -> None:
     """Test POST /workspaces/{workspace_id}/memberships duplicate returns 409."""
+    # Presets no longer carry the add scope; API callers hold it explicitly.
+    ctx_role.set(
+        test_admin_role.model_copy(
+            update={
+                "scopes": (test_admin_role.scopes or frozenset())
+                | {"workspace:member:invite"}
+            }
+        )
+    )
     with patch.object(workspaces_router, "MembershipService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.create_membership.side_effect = IntegrityError(

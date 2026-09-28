@@ -132,7 +132,8 @@ def actor_role(
         organization_id=organization.id,
         workspace_id=workspace.id,
         service_id="tracecat-api",
-        scopes=ADMIN_SCOPES,
+        # Presets no longer carry the add scope; API callers hold it explicitly.
+        scopes=ADMIN_SCOPES | {"workspace:member:invite"},
     )
 
 
