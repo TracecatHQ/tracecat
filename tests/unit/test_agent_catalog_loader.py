@@ -104,3 +104,20 @@ def test_platform_catalog_includes_gpt_6_astra_and_claude_fable_5_1() -> None:
     assert fable.metadata["input_cost_per_token"] == 1e-05
     assert fable.metadata["cache_read_input_token_cost"] == 2.5e-07
     assert fable.metadata["max_input_tokens"] == 1000000
+
+
+def test_platform_catalog_includes_claude_opus_and_sonnet_5_5() -> None:
+    entries = {
+        (entry.model_provider, entry.model_name): entry
+        for entry in loader.get_platform_catalog_models()
+    }
+
+    opus = entries[("anthropic", "claude-opus-5-5")]
+    assert opus.metadata["input_cost_per_token"] == 4e-06
+    assert opus.metadata["output_cost_per_token"] == 2e-05
+    assert opus.metadata["max_input_tokens"] == 1000000
+
+    sonnet = entries[("anthropic", "claude-sonnet-5-5")]
+    assert sonnet.metadata["input_cost_per_token"] == 2e-06
+    assert sonnet.metadata["cache_read_input_token_cost"] == 2e-07
+    assert sonnet.metadata["max_output_tokens"] == 128000
