@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import Depends, Query
+from fastapi.exceptions import RequestValidationError
 from pydantic import UUID4, StringConstraints
 
 from tracecat.identifiers.common import TracecatUUID
@@ -170,12 +171,30 @@ def exec_id_from_parts(
     return f"{wf_id}:{exec_suffix_id}"
 
 
+def _wf_id_from_any(
+    workflow_id: AnyWorkflowID, *, loc: Literal["path", "query"]
+) -> WorkflowID:
+    try:
+        return WorkflowUUID.new(workflow_id)
+    except ValueError as exc:
+        raise RequestValidationError(
+            [
+                {
+                    "type": "value_error",
+                    "loc": (loc, "workflow_id"),
+                    "msg": "Invalid workflow ID",
+                    "input": workflow_id,
+                }
+            ]
+        ) from exc
+
+
 def wf_id_from_any_dep(workflow_id: AnyWorkflowID) -> WorkflowID:
     """Convert a workflow ID string to a UUID.
 
     Accepts either a UUID string or a short ID in the format wf_XXXXX.
     """
-    return WorkflowUUID.new(workflow_id)
+    return _wf_id_from_any(workflow_id, loc="path")
 
 
 def opt_wf_id_from_any_query_dep(
@@ -185,7 +204,7 @@ def opt_wf_id_from_any_query_dep(
 
     Accepts either a UUID string or a short ID in the format wf_XXXXX.
     """
-    return WorkflowUUID.new(workflow_id) if workflow_id else None
+    return _wf_id_from_any(workflow_id, loc="query") if workflow_id else None
 
 
 def wf_id_from_any_query_dep(workflow_id: AnyWorkflowID = Query(...)) -> WorkflowID:
@@ -193,7 +212,7 @@ def wf_id_from_any_query_dep(workflow_id: AnyWorkflowID = Query(...)) -> Workflo
 
     Accepts either a UUID string or a short ID in the format wf_XXXXX.
     """
-    return WorkflowUUID.new(workflow_id)
+    return _wf_id_from_any(workflow_id, loc="query")
 
 
 AnyWorkflowIDPath = Annotated[WorkflowID, Depends(wf_id_from_any_dep)]
