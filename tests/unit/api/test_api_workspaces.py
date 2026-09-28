@@ -318,8 +318,8 @@ async def test_get_workspace_success(
         patch.object(workspaces_router, "MembershipService") as MockMembershipService,
         patch.object(
             workspaces_router,
-            "workspace_allows_error_details",
-            AsyncMock(return_value=True),
+            "resolve_error_masking_mode",
+            AsyncMock(return_value="conservative"),
         ),
     ):
         # Mock workspace service
@@ -347,7 +347,7 @@ async def test_get_workspace_success(
         logger.info("DATA", data=data)
         assert response.status_code == status.HTTP_200_OK
         assert data["name"] == mock_workspace_data.name
-        assert data["unsafe_disable_secret_error_withholding_allowed"] is True
+        assert data["effective_error_masking_mode"] == "conservative"
 
 
 @pytest.mark.anyio

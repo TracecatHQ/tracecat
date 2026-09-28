@@ -198,7 +198,6 @@ const actionFormSchema = z.object({
     .transform((val) => normalizeOptionalExpression(val))
     .optional(),
   mask_output: z.boolean().default(false),
-  unsafe_disable_secret_error_withholding: z.boolean().default(false),
   is_interactive: z.boolean().default(false),
   interaction: z
     .discriminatedUnion("type", [
@@ -352,8 +351,6 @@ function ActionPanelContent({
       wait_until: actionControlFlow?.wait_until || undefined,
       environment: actionControlFlow?.environment || undefined,
       mask_output: actionControlFlow?.mask_output ?? false,
-      unsafe_disable_secret_error_withholding:
-        actionControlFlow?.unsafe_disable_secret_error_withholding ?? false,
       is_interactive: action?.is_interactive ?? false,
       interaction: action?.interaction ?? undefined,
     }),
@@ -373,7 +370,6 @@ function ActionPanelContent({
       actionControlFlow?.wait_until,
       actionControlFlow?.environment,
       actionControlFlow?.mask_output,
-      actionControlFlow?.unsafe_disable_secret_error_withholding,
     ]
   )
 
@@ -624,8 +620,6 @@ function ActionPanelContent({
             wait_until: values.wait_until,
             environment: values.environment,
             mask_output: values.mask_output ?? false,
-            unsafe_disable_secret_error_withholding:
-              values.unsafe_disable_secret_error_withholding ?? false,
           },
           is_interactive: values.is_interactive,
           interaction: values.interaction,

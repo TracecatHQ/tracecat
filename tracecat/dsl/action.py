@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import threading
 import weakref
-from collections.abc import Callable, Coroutine, Mapping
+from collections.abc import Callable, Coroutine, Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any, Never, cast
 
 import dateparser
@@ -79,6 +80,9 @@ from tracecat.runtime.errors import (
     RuntimeErrorOwner,
 )
 from tracecat.secrets import secrets_manager
+from tracecat.secrets.diagnostics import error_masking_scope
+from tracecat.secrets.error_masking import ErrorMaskingMode
+from tracecat.settings.service import get_error_masking_mode
 from tracecat.storage.collection import (
     materialize_collection_values,
     store_collection,
@@ -410,6 +414,19 @@ def run_sync[T: Any](coro: Coroutine[Any, Any, T]) -> T:
         runner = _ThreadLocalRunner()
         _thread_local.runner = runner
     return runner.run(coro)
+
+
+@contextmanager
+def _expression_masking_scope() -> Iterator[None]:
+    """Apply workspace policy to synchronous workflow expression activities."""
+    role = ctx_role.get()
+    mode = (
+        run_sync(get_error_masking_mode(role))
+        if role is not None
+        else ErrorMaskingMode.CONSERVATIVE
+    )
+    with error_masking_scope(mode):
+        yield
 
 
 async def _store_collection_as_refs(prefix: str, items: list[Any]) -> CollectionObject:
@@ -769,7 +786,10 @@ class DSLActivities:
         with activity_error_boundary(_materialization_error_classification):
             materialized = run_sync(materialize_context(operand))
 
-        with activity_error_boundary(_expression_error_classification):
+        with (
+            _expression_masking_scope(),
+            activity_error_boundary(_expression_error_classification),
+        ):
             expr_str = expression.strip()
 
             # Fail fast on empty / whitespace‐only expressions so that users receive a
@@ -795,7 +815,10 @@ class DSLActivities:
         """
         with activity_error_boundary(_materialization_error_classification):
             materialized = run_sync(materialize_context(input.operand))
-        with activity_error_boundary(_expression_error_classification):
+        with (
+            _expression_masking_scope(),
+            activity_error_boundary(_expression_error_classification),
+        ):
             result = eval_templated_object(input.obj, operand=materialized)
         with activity_error_boundary(_result_persistence_error_classification):
             return run_sync(get_object_storage().store(input.key, result))
@@ -817,7 +840,10 @@ class DSLActivities:
         """
         with activity_error_boundary(_materialization_error_classification):
             materialized = run_sync(materialize_context(input.operand))
-        with activity_error_boundary(_expression_error_classification):
+        with (
+            _expression_masking_scope(),
+            activity_error_boundary(_expression_error_classification),
+        ):
             result = eval_templated_object(input.collection, operand=materialized)
             if result is None:
                 items: list[Any] = []
@@ -838,7 +864,10 @@ class DSLActivities:
         """Evaluate for_each expression to get iteration count for looped subflows."""
         with activity_error_boundary(_materialization_error_classification):
             materialized = run_sync(materialize_context(input.operand))
-        with activity_error_boundary(_expression_error_classification):
+        with (
+            _expression_masking_scope(),
+            activity_error_boundary(_expression_error_classification),
+        ):
             try:
                 iterators = get_iterables_from_expression(
                     expr=input.for_each, operand=materialized
@@ -864,7 +893,10 @@ class DSLActivities:
             - configs: Single config if all identical, list if varying per iteration
             - trigger_inputs: CollectionObject of evaluated trigger_inputs
         """
-        with activity_error_boundary(_subflow_error_classification):
+        with (
+            _expression_masking_scope(),
+            activity_error_boundary(_subflow_error_classification),
+        ):
             return _resolve_subflow_batch(input)
 
     @staticmethod
@@ -1023,7 +1055,10 @@ class DSLActivities:
         """
         with activity_error_boundary(_materialization_error_classification):
             materialized = run_sync(materialize_context(input.operand))
-        with activity_error_boundary(_expression_error_classification):
+        with (
+            _expression_masking_scope(),
+            activity_error_boundary(_expression_error_classification),
+        ):
             result = eval_templated_object(input.obj, operand=materialized)
         with activity_error_boundary(_result_persistence_error_classification):
             return run_sync(get_object_storage().store(input.key, result))
@@ -1124,26 +1159,29 @@ class DSLActivities:
 
 async def _evaluate_agent_args(input: BuildAgentArgsActivityInput) -> dict[str, Any]:
     """Resolve environment and VARS, materialize the operand, and evaluate templated args."""
-    operand = input.operand
-    materialized = await materialize_context(operand)
-    environment = await asyncio.to_thread(
-        _resolve_environment,
-        input.task_environment,
-        input.default_environment,
-        materialized,
-    )
-    collected = await asyncio.to_thread(collect_expressions, input.args)
-    if collected.variables:
-        workspace_variables = await get_workspace_variables(
-            variable_exprs=collected.variables,
-            environment=environment,
-            role=input.role,
+    with error_masking_scope(await get_error_masking_mode(input.role)):
+        operand = input.operand
+        materialized = await materialize_context(operand)
+        environment = await asyncio.to_thread(
+            _resolve_environment,
+            input.task_environment,
+            input.default_environment,
+            materialized,
         )
-        if workspace_variables:
-            operand["VARS"] = workspace_variables
-            materialized = await materialize_context(operand)
-    args = _strip_string_values(input.args)
-    return await asyncio.to_thread(eval_templated_object, args, operand=materialized)
+        collected = await asyncio.to_thread(collect_expressions, input.args)
+        if collected.variables:
+            workspace_variables = await get_workspace_variables(
+                variable_exprs=collected.variables,
+                environment=environment,
+                role=input.role,
+            )
+            if workspace_variables:
+                operand["VARS"] = workspace_variables
+                materialized = await materialize_context(operand)
+        args = _strip_string_values(input.args)
+        return await asyncio.to_thread(
+            eval_templated_object, args, operand=materialized
+        )
 
 
 def _subflow_error_classification(error: Exception) -> RuntimeErrorClassification:
@@ -1449,9 +1487,10 @@ async def _prepare_subflow(input: PrepareSubflowActivityInput) -> PreparedSubflo
 
     # Evaluate task args to get workflow_id or workflow_alias
     # Run CPU-bound expression evaluation in thread to avoid blocking event loop
-    evaluated_args, val_args = await asyncio.to_thread(
-        _evaluate_subflow_args, task.args, materialized
-    )
+    with error_masking_scope(await get_error_masking_mode(input.role)):
+        evaluated_args, val_args = await asyncio.to_thread(
+            _evaluate_subflow_args, task.args, materialized
+        )
 
     # Resolve workflow ID
     wf_id: WorkflowUUID

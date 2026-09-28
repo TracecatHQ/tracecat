@@ -10,6 +10,7 @@ from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.identifiers import InvitationID, OrganizationID, UserID, WorkspaceID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.secrets.error_masking import ErrorMaskingMode
 from tracecat.workspace_sync.enums import VcsProvider
 
 # === Workspace === #
@@ -17,6 +18,7 @@ from tracecat.workspace_sync.enums import VcsProvider
 
 # DTO
 class WorkspaceSettings(TypedDict):
+    error_masking_mode: NotRequired[ErrorMaskingMode | None]
     git_provider: NotRequired[VcsProvider | None]
     git_repo_url: NotRequired[str | None]
     workflow_unlimited_timeout_enabled: NotRequired[bool | None]
@@ -28,6 +30,7 @@ class WorkspaceSettings(TypedDict):
 
 # Schema
 class WorkspaceSettingsRead(Schema):
+    error_masking_mode: ErrorMaskingMode | None = None
     git_provider: VcsProvider | None = None
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = None
@@ -54,6 +57,10 @@ class WorkspaceSettingsRead(Schema):
 
 
 class WorkspaceSettingsUpdate(Schema):
+    error_masking_mode: ErrorMaskingMode | None = Field(
+        default=None,
+        description="Error masking override. Null inherits the organization default.",
+    )
     git_provider: VcsProvider | None = None
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = Field(
@@ -151,13 +158,7 @@ class WorkspaceRead(Schema):
     name: str
     settings: WorkspaceSettingsRead | None = None
     organization_id: OrganizationID
-    unsafe_disable_secret_error_withholding_allowed: bool = Field(
-        default=False,
-        description=(
-            "Whether the organization lets this workspace's actions opt into "
-            "showing original error details when secrets are in scope."
-        ),
-    )
+    effective_error_masking_mode: ErrorMaskingMode = ErrorMaskingMode.CONSERVATIVE
 
 
 WorkspaceSettingsRead.model_rebuild()

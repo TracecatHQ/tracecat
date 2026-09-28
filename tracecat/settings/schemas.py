@@ -19,7 +19,7 @@ from tracecat.auth.ip_allowlist import (
     normalize_cidrs,
 )
 from tracecat.git.constants import GIT_SSH_URL_REGEX
-from tracecat.identifiers import WorkspaceID
+from tracecat.secrets.error_masking import ErrorMaskingMode
 
 
 class BaseSettingsGroup(BaseModel):
@@ -104,8 +104,9 @@ class AppSettingsRead(BaseSettingsGroup):
     app_workflow_export_enabled: bool
     app_create_workspace_on_register: bool
     app_action_form_mode_enabled: bool
-    app_unsafe_disable_secret_error_withholding_workspace_ids: list[WorkspaceID] = (
-        Field(default_factory=list)
+    app_error_masking_mode: ErrorMaskingMode = Field(
+        default=ErrorMaskingMode.PROVENANCE,
+        description="Default error masking mode. Workspaces may override this setting.",
     )
 
 
@@ -135,14 +136,9 @@ class AppSettingsUpdate(BaseSettingsGroup):
         default=True,
         description="Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
     )
-    app_unsafe_disable_secret_error_withholding_workspace_ids: list[WorkspaceID] = (
-        Field(
-            default_factory=list,
-            description=(
-                "Legacy allow-list, ignored by action execution. Error diagnostics "
-                "always mask known secrets and observed secret-derived values."
-            ),
-        )
+    app_error_masking_mode: ErrorMaskingMode = Field(
+        default=ErrorMaskingMode.PROVENANCE,
+        description="Default error masking mode. Workspaces may override this setting.",
     )
 
 

@@ -32,6 +32,7 @@ from tracecat.sandbox.types import (
     SandboxNetworkRequest,
     SandboxResult,
 )
+from tracecat.secrets.diagnostics import sanitize_diagnostic
 
 RUN_PYTHON_ACTION_GATEWAY_SOCKET = Path("/var/run/tracecat/action-gateway.sock")
 """Path visible inside run_python nsjail for executor-owned SDK calls."""
@@ -768,7 +769,7 @@ class NsjailExecutor:
             logger.error(
                 "Package installation failed",
                 returncode=returncode,
-                stderr=stderr[:1000],
+                stderr=sanitize_diagnostic(stderr[:1000]),
             )
 
         return SandboxResult(
@@ -1055,7 +1056,7 @@ class NsjailExecutor:
             "Action sandbox execution did not produce a usable result",
             error_code=error_code,
             returncode=returncode,
-            stderr=stderr[-2000:],
+            stderr=sanitize_diagnostic(stderr[-2000:]),
         )
         return SandboxResult(
             success=False,

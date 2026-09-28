@@ -30,7 +30,7 @@ import orjson
 from pydantic_core import to_json
 
 from tracecat import config
-from tracecat.contexts import ctx_secret_masks
+from tracecat.contexts import ctx_error_masking, ctx_secret_masks
 from tracecat.executor.action_gateway.config import (
     ACTION_GATEWAY_SANDBOX_SOCKET,
     action_gateway_socket_path,
@@ -150,6 +150,8 @@ def _sandbox_failure_message(
             )
         case _:
             message = "Action sandbox workload stopped before producing a result"
+            if (policy := ctx_error_masking.get()) is not None and policy.withhold:
+                return message
             tail = workload_stderr_tail(stderr, limit=_WORKLOAD_STDERR_MESSAGE_CHARS)
             if not tail:
                 return message
@@ -302,6 +304,9 @@ class ActionRunner:
                 "role": role,
                 "resolved_context": resolved_context,
                 "secret_env": secret_projection.env,
+                "withhold_error_details": (policy := ctx_error_masking.get())
+                is not None
+                and policy.withhold,
                 "secret_mask_values": sorted(masks.values)
                 if (masks := ctx_secret_masks.get())
                 else [],
@@ -445,6 +450,9 @@ class ActionRunner:
         if resolved_context is not None:
             payload["resolved_context"] = resolved_context
             payload["secret_env"] = secret_projection.env
+            payload["withhold_error_details"] = (
+                policy := ctx_error_masking.get()
+            ) is not None and policy.withhold
             masks = ctx_secret_masks.get()
             payload["secret_mask_values"] = sorted(masks.values) if masks else []
         input_json = to_json(payload)

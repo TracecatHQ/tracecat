@@ -3,6 +3,7 @@ import uuid
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
@@ -33,6 +34,7 @@ from tracecat.integrations.enums import OAuthGrantType
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.constants import MASK_VALUE
+from tracecat.secrets.error_masking import ErrorMaskingMode
 
 
 def test_flatten_secrets_supports_runtime_scalar_entries() -> None:
@@ -1527,3 +1529,12 @@ async def test_template_expects_validation_leaves_no_plaintext_in_chain(mocker):
     assert err.__cause__ is None
     assert err.__context__ is None
     assert canary not in str(err)
+
+
+@pytest.fixture(autouse=True)
+def provenance_error_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Executor tests run with the default mode without accessing settings storage."""
+    monkeypatch.setattr(
+        "tracecat.executor.service.get_error_masking_mode",
+        AsyncMock(return_value=ErrorMaskingMode.PROVENANCE),
+    )

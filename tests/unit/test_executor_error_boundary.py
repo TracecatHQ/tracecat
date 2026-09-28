@@ -37,6 +37,7 @@ from tracecat.runtime.errors import (
 )
 from tracecat.sandbox.exceptions import SandboxInfrastructureError, SandboxWorkloadError
 from tracecat.sandbox.types import SandboxErrorCode
+from tracecat.secrets.error_masking import ErrorMaskingMode
 from tracecat.temporal.errors import application_error_from_classification
 
 CANARY = "synthetic-secret\nclassification-canary"
@@ -387,3 +388,12 @@ async def test_source_capture_precedes_executor_privacy_boundary(
     assert original.__traceback__ is not None
     assert caught.value.__cause__ is None
     assert caught.value.__context__ is None
+
+
+@pytest.fixture(autouse=True)
+def provenance_error_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Executor tests run with the default mode without accessing settings storage."""
+    monkeypatch.setattr(
+        "tracecat.executor.service.get_error_masking_mode",
+        AsyncMock(return_value=ErrorMaskingMode.PROVENANCE),
+    )

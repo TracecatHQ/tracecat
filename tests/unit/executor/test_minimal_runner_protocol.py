@@ -658,7 +658,7 @@ def test_main_minimal_errors_when_secret_value_stringify_fails(monkeypatch) -> N
     assert "BROKEN" in result["error"]["message"]
 
 
-def test_main_minimal_keeps_error_message_when_withholding_disabled(
+def test_main_minimal_keeps_public_error_message_in_provenance_mode(
     monkeypatch,
 ) -> None:
     test_module: Any = types.ModuleType("test_module")
@@ -685,7 +685,6 @@ def test_main_minimal_keeps_error_message_when_withholding_disabled(
                 "evaluated_args": {},
             },
             "secret_env": {"API_KEY": "sk-test"},
-            "unsafe_disable_secret_error_withholding": True,
         }
     )
 

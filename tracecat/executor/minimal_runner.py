@@ -485,6 +485,8 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
     """
     action_impl: dict[str, Any] | None = None
     secret_env: dict[str, str] = input_data.get("secret_env", {})
+    withhold = input_data.get("withhold_error_details", False)
+    withheld_message = "Details withheld because this operation may involve secrets."
     mask_values: set[str] = set()
     mask_pattern: re.Pattern[str] | None = None
 
@@ -533,13 +535,13 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         if captured_stdout := action_stdout.getvalue().strip():
             _emit_suppressed_output_notice(
                 stream_name="stdout",
-                output=redact(captured_stdout),
+                output=withheld_message if withhold else redact(captured_stdout),
                 truncated=action_stdout.truncated,
             )
         if captured_stderr := action_stderr.getvalue().strip():
             _emit_suppressed_output_notice(
                 stream_name="stderr",
-                output=redact(captured_stderr),
+                output=withheld_message if withhold else redact(captured_stderr),
                 truncated=action_stderr.truncated,
             )
 
@@ -564,7 +566,7 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
         last_frame = tb[-1] if tb else None
 
         try:
-            message = redact(str(e))
+            message = withheld_message if withhold else redact(str(e))
         except Exception as masking_error:
             # Lazy compilation can exhaust memory while handling an action
             # failure. Preserve the runner's structured resource-limit response.
@@ -579,11 +581,15 @@ def main_minimal(input_data: dict[str, Any]) -> dict[str, Any]:
             "success": False,
             "result": None,
             "error": {
-                "type": type(e).__name__,
+                "type": "ActionError" if withhold else type(e).__name__,
                 "message": message,
                 "action_name": _action_display_name(action_impl),
-                "filename": last_frame.filename if last_frame else "<unknown>",
-                "function": last_frame.name if last_frame else "<unknown>",
+                "filename": "<withheld>"
+                if withhold
+                else (last_frame.filename if last_frame else "<unknown>"),
+                "function": "<withheld>"
+                if withhold
+                else (last_frame.name if last_frame else "<unknown>"),
                 "lineno": last_frame.lineno if last_frame else None,
             },
         }

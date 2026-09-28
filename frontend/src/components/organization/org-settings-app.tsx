@@ -3,6 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
@@ -15,10 +16,19 @@ import {
   FormLabel,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useOrgAppSettings } from "@/lib/hooks"
 
 const appFormSchema = z.object({
+  app_error_masking_mode: z.enum(["provenance", "conservative"]),
   app_registry_validation_enabled: z.boolean(),
   app_executions_query_limit: z.number().min(1).max(1000),
   app_interactions_enabled: z.boolean(),
@@ -30,6 +40,7 @@ const appFormSchema = z.object({
 type AppFormValues = z.infer<typeof appFormSchema>
 
 export function OrgSettingsAppForm() {
+  const canUpdate = useScopeCheck("org:settings:update") === true
   const {
     appSettings,
     appSettingsIsLoading,
@@ -41,6 +52,8 @@ export function OrgSettingsAppForm() {
   const form = useForm<AppFormValues>({
     resolver: zodResolver(appFormSchema),
     values: {
+      app_error_masking_mode:
+        appSettings?.app_error_masking_mode ?? "provenance",
       app_registry_validation_enabled:
         appSettings?.app_registry_validation_enabled ?? false,
       app_executions_query_limit:
@@ -59,6 +72,7 @@ export function OrgSettingsAppForm() {
     try {
       await updateAppSettings({
         requestBody: {
+          app_error_masking_mode: data.app_error_masking_mode,
           app_registry_validation_enabled: data.app_registry_validation_enabled,
           app_executions_query_limit: data.app_executions_query_limit,
           app_interactions_enabled: data.app_interactions_enabled,
@@ -219,7 +233,44 @@ export function OrgSettingsAppForm() {
           )}
         />
 
-        <Button type="submit" disabled={updateAppSettingsIsPending}>
+        <FormField
+          control={form.control}
+          name="app_error_masking_mode"
+          render={({ field }) => (
+            <FormItem className="flex flex-col gap-2 rounded-lg border p-4">
+              <FormLabel>Default error masking</FormLabel>
+              <FormDescription>
+                Provenance preserves diagnostics while masking known secrets and
+                observed secret-derived values. Conservative disables error
+                value tracking and withholds details when secrets may be
+                involved, including transformations inside action code.
+                Workspaces can override this default.
+              </FormDescription>
+              <Select
+                value={field.value}
+                onValueChange={field.onChange}
+                disabled={!canUpdate}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="provenance">Provenance</SelectItem>
+                    <SelectItem value="conservative">Conservative</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </FormItem>
+          )}
+        />
+
+        <Button
+          type="submit"
+          disabled={updateAppSettingsIsPending || !canUpdate}
+        >
           Update application settings
         </Button>
       </form>

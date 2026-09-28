@@ -33,10 +33,6 @@ export type ActionControlFlow = {
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
   mask_output?: boolean
-  /**
-   * Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.
-   */
-  unsafe_disable_secret_error_withholding?: boolean
 }
 
 export type ActionCreate = {
@@ -193,10 +189,6 @@ export type ActionStatement_Input = {
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
   mask_output?: boolean
-  /**
-   * Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.
-   */
-  unsafe_disable_secret_error_withholding?: boolean
 }
 
 export type ActionStatement_Output = {
@@ -255,10 +247,6 @@ export type ActionStatement_Output = {
    * If true, redact this action's result in workflow execution API responses while preserving internal workflow data flow between actions.
    */
   mask_output?: boolean
-  /**
-   * Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.
-   */
-  unsafe_disable_secret_error_withholding?: boolean
 }
 
 export type ActionStep = {
@@ -1299,7 +1287,10 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
-  app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
+  /**
+   * Default error masking mode. Workspaces may override this setting.
+   */
+  app_error_masking_mode?: ErrorMaskingMode
 }
 
 /**
@@ -1331,9 +1322,9 @@ export type AppSettingsUpdate = {
    */
   app_action_form_mode_enabled?: boolean
   /**
-   * Legacy allow-list, ignored by action execution. Error diagnostics always mask known secrets and observed secret-derived values.
+   * Default error masking mode. Workspaces may override this setting.
    */
-  app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
+  app_error_masking_mode?: ErrorMaskingMode
 }
 
 /**
@@ -4424,6 +4415,8 @@ export type EntitlementsDict = {
    */
   external_secret_stores?: boolean
 }
+
+export type ErrorMaskingMode = "provenance" | "conservative"
 
 export type ErrorModel = {
   detail:
@@ -10950,10 +10943,7 @@ export type WorkspaceRead = {
   name: string
   settings?: WorkspaceSettingsRead | null
   organization_id: string
-  /**
-   * Whether the organization lets this workspace's actions opt into showing original error details when secrets are in scope.
-   */
-  unsafe_disable_secret_error_withholding_allowed?: boolean
+  effective_error_masking_mode?: ErrorMaskingMode
 }
 
 export type WorkspaceReadMinimal = {
@@ -10974,6 +10964,7 @@ export type WorkspaceSecretStoreRead = {
 }
 
 export type WorkspaceSettingsRead = {
+  error_masking_mode?: ErrorMaskingMode | null
   git_provider?: VcsProvider | null
   git_repo_url?: string | null
   workflow_unlimited_timeout_enabled?: boolean | null
@@ -10992,6 +10983,10 @@ export type WorkspaceSettingsRead = {
 }
 
 export type WorkspaceSettingsUpdate = {
+  /**
+   * Error masking override. Null inherits the organization default.
+   */
+  error_masking_mode?: ErrorMaskingMode | null
   git_provider?: VcsProvider | null
   git_repo_url?: string | null
   /**
