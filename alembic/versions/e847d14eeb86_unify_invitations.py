@@ -445,9 +445,6 @@ def downgrade() -> None:
     op.execute(disable_org_optional_workspace_table_rls("invitation_grant"))
     op.drop_index("ix_invitation_org_email_pending_unique", table_name="invitation")
     op.drop_index(_EMAIL_INDEX_NAME, table_name="invitation")
-    op.drop_column("invitation", "email_attempts")
-    op.drop_column("invitation", "email_sent_at")
-    op.drop_column("invitation", "email_claimed_at")
     op.add_column("invitation", sa.Column("workspace_id", sa.UUID(), nullable=True))
     op.add_column("invitation", sa.Column("role_id", sa.UUID(), nullable=True))
 
@@ -508,7 +505,8 @@ def downgrade() -> None:
         INSERT INTO organization_invitation (
             id, organization_id, email, role_id, token, status, invited_by,
             expires_at, accepted_at, created_by_platform_admin,
-            created_at, updated_at
+            created_at, updated_at,
+            email_claimed_at, email_sent_at, email_attempts
         )
         SELECT DISTINCT ON (i.organization_id, lower(i.email))
                CASE WHEN i.workspace_id IS NULL THEN i.id
@@ -517,13 +515,21 @@ def downgrade() -> None:
                CASE WHEN i.workspace_id IS NULL THEN i.token
                     ELSE {_FRESH_TOKEN} END,
                i.status, i.invited_by, i.expires_at, i.accepted_at,
-               i.created_by_platform_admin, i.created_at, i.updated_at
+               i.created_by_platform_admin, i.created_at, i.updated_at,
+               -- A kept token keeps its delivery state so the old outbox does
+               -- not resend it; a fresh token was never emailed.
+               CASE WHEN i.workspace_id IS NULL THEN i.email_claimed_at END,
+               CASE WHEN i.workspace_id IS NULL THEN i.email_sent_at END,
+               CASE WHEN i.workspace_id IS NULL THEN i.email_attempts ELSE 0 END
         FROM invitation AS i
         JOIN invitation_grant AS g ON g.invitation_id = i.id
         WHERE g.workspace_id IS NULL
         ORDER BY i.organization_id, lower(i.email), i.created_at DESC, i.id DESC
         """
     )
+    op.drop_column("invitation", "email_attempts")
+    op.drop_column("invitation", "email_sent_at")
+    op.drop_column("invitation", "email_claimed_at")
 
     # Rows whose only grant was org-scoped now live in the legacy table.
     op.execute("DELETE FROM invitation WHERE workspace_id IS NULL")

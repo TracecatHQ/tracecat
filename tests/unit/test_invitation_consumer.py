@@ -351,6 +351,8 @@ async def test_pre_send_failure_rolls_back_the_claim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     invitation = await _add_invitation(session, org, org_role, inviter)
+    # The rollback below expires loaded rows; keep the id out of reach of it.
+    invitation_id = invitation.id
     transport = FakeTransport()
     _patch_transport(monkeypatch, transport)
     monkeypatch.setattr(
@@ -363,7 +365,7 @@ async def test_pre_send_failure_rolls_back_the_claim(
     # Closing the tick's session rolls back what it did not commit.
     await session.rollback()
 
-    row = await _reload(session, invitation.id)
+    row = await _reload(session, invitation_id)
     assert row.email_claimed_at is None
     assert row.email_attempts == 0
     assert transport.sent == []

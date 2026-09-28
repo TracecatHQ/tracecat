@@ -168,6 +168,62 @@ def test_merge_keeps_platform_flag_when_newer_workspace_invitation_wins(
         engine.dispose()
 
 
+def test_downgrade_keeps_delivery_state_for_kept_tokens(
+    migration_db_url: str,
+) -> None:
+    _migrate(migration_db_url, "upgrade", INVITATION_REVISION)
+    engine = sa.create_engine(migration_db_url, poolclass=NullPool)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                sa.text("""
+                INSERT INTO organization (id, name, slug, is_active)
+                VALUES (md5('delivery-org')::uuid, 'Delivery test', 'delivery-test', true);
+                INSERT INTO workspace (id, organization_id, name)
+                VALUES (md5('delivery-ws')::uuid, md5('delivery-org')::uuid, 'Delivery ws');
+                INSERT INTO role (id, organization_id, name, slug)
+                VALUES (md5('delivery-role')::uuid, md5('delivery-org')::uuid,
+                        'Delivery role', 'delivery-role');
+                INSERT INTO invitation
+                    (id, organization_id, email, status, token, expires_at,
+                     created_by_platform_admin, email_claimed_at, email_sent_at,
+                     email_attempts)
+                SELECT md5(label)::uuid, md5('delivery-org')::uuid,
+                       label || '@example.com', 'PENDING', label,
+                       now() + interval '1 day', false, now(), now(), 1
+                FROM unnest(ARRAY['org-only', 'org-and-ws']) AS label;
+                INSERT INTO invitation_grant
+                    (id, organization_id, invitation_id, workspace_id, role_id)
+                SELECT gen_random_uuid(), md5('delivery-org')::uuid,
+                       md5(label)::uuid, NULL, md5('delivery-role')::uuid
+                FROM unnest(ARRAY['org-only', 'org-and-ws']) AS label;
+                INSERT INTO invitation_grant
+                    (id, organization_id, invitation_id, workspace_id, role_id)
+                VALUES (gen_random_uuid(), md5('delivery-org')::uuid,
+                        md5('org-and-ws')::uuid, md5('delivery-ws')::uuid,
+                        md5('delivery-role')::uuid);
+                """)
+            )
+
+        _migrate(migration_db_url, "downgrade", "fa922accd060")
+        with engine.connect() as conn:
+            rows = conn.execute(
+                sa.text("""
+                SELECT email, token = split_part(email, '@', 1),
+                       email_claimed_at IS NOT NULL, email_sent_at IS NOT NULL,
+                       email_attempts
+                FROM organization_invitation ORDER BY email
+                """)
+            ).all()
+        # The org-and-ws token moved to the workspace row, so its org row is new.
+        assert rows == [
+            ("org-and-ws@example.com", False, False, False, 0),
+            ("org-only@example.com", True, True, True, 1),
+        ]
+    finally:
+        engine.dispose()
+
+
 def test_downgrade_restores_current_direct_memberships(
     migration_db_url: str,
 ) -> None:
