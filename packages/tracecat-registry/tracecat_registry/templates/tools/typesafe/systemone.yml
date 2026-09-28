@@ -2,7 +2,7 @@ type: action
 definition:
   title: System One
   description: Evaluate a state against named typed questions with TypeSafe System One.
-  display_group: TypeSafe AI
+  display_group: Typesafe AI (Jev)
   doc_url: https://docs.typesafe.ai/api#evaluation-endpoint
   namespace: tools.typesafe
   name: systemone
