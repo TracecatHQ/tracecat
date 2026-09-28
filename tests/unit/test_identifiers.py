@@ -70,6 +70,10 @@ def test_workflow_id_dependencies_reject_malformed_ids(
     error = response.json()["detail"][0]
     assert error["loc"] == [location, "workflow_id"]
     assert error["type"] == "value_error"
+    assert error["msg"] == (
+        "Invalid workflow ID. Expected a UUID, a short ID "
+        "(wf_<base62>), or a legacy ID (wf-<32 hexadecimal characters>)."
+    )
     assert error["input"] == workflow_id
 
 

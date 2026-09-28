@@ -182,7 +182,11 @@ def _wf_id_from_any(
                 {
                     "type": "value_error",
                     "loc": (loc, "workflow_id"),
-                    "msg": "Invalid workflow ID",
+                    "msg": (
+                        "Invalid workflow ID. Expected a UUID, a short ID "
+                        "(wf_<base62>), or a legacy ID "
+                        "(wf-<32 hexadecimal characters>)."
+                    ),
                     "input": workflow_id,
                 }
             ]
