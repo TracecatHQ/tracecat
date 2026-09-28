@@ -47,10 +47,25 @@ class EntitlementsDict(TypedDict, total=False):
         bool,
         Field(description="Whether Workspace Chat is enabled"),
     ]
+    multi_workspace: Annotated[
+        bool,
+        Field(
+            title="Multi-workspace",
+            description="Whether multiple workspaces per organization are enabled",
+        ),
+    ]
     watchtower: Annotated[
         bool,
         Field(
             description="Whether Watchtower agent monitoring is enabled"
             " (agent sessions, tool-call telemetry, and controls)"
+        ),
+    ]
+    external_secret_stores: Annotated[
+        bool,
+        Field(
+            title="External secret stores",
+            description="Whether workspace secrets may reference external"
+            " secret stores such as AWS Secrets Manager",
         ),
     ]

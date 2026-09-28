@@ -11,7 +11,7 @@ from collections.abc import Callable
 from typing import Any
 
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, is_cancelled_exception
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
@@ -235,6 +235,8 @@ class ExecutorActivities:
                             stored = await get_object_storage().store(key, result)
                     return stored
         except Exception as e:
+            if is_cancelled_exception(e):
+                raise
             classification = classify_execute_action_error(e, action_name=action_name)
             log.bind(
                 error_owner=classification.owner,

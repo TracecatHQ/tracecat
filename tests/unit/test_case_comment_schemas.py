@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from tracecat.cases.schemas import CaseCommentCreate
+from tracecat.cases.schemas import CaseCommentCreate, CaseCommentUpdate
 
 WORKFLOW_ID = "wf-00000000000000000000000000000001"
 
@@ -29,3 +29,25 @@ def test_create_strips_surrounding_whitespace() -> None:
     params = CaseCommentCreate(content="  hello  ")
 
     assert params.content == "hello"
+
+
+def test_create_strips_nul_bytes() -> None:
+    params = CaseCommentCreate(content="ver\x00dict\x00")
+
+    assert params.content == "verdict"
+
+
+def test_create_rejects_nul_only_content_without_workflow() -> None:
+    with pytest.raises(ValidationError, match="Comment content cannot be blank"):
+        CaseCommentCreate(content="\x00 \x00")
+
+
+def test_update_strips_nul_bytes() -> None:
+    params = CaseCommentUpdate(content="\x00hello\x00")
+
+    assert params.content == "hello"
+
+
+def test_update_rejects_nul_only_content() -> None:
+    with pytest.raises(ValidationError, match="Comment content cannot be blank"):
+        CaseCommentUpdate(content="\x00")

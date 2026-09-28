@@ -103,6 +103,19 @@ TRACECAT__PUBLIC_API_URL = os.environ.get(
 TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
+
+# Email (SMTP relay). Invitation email delivery is enabled only when every
+# required value is configured.
+TRACECAT__SMTP_HOST = (os.environ.get("TRACECAT__SMTP_HOST") or "").strip() or None
+TRACECAT__SMTP_PORT = int(os.environ.get("TRACECAT__SMTP_PORT") or 587)
+if not 1 <= TRACECAT__SMTP_PORT <= 65535:
+    raise ValueError(f"TRACECAT__SMTP_PORT is an invalid port: {TRACECAT__SMTP_PORT}")
+TRACECAT__SMTP_USER = (os.environ.get("TRACECAT__SMTP_USER") or "").strip() or None
+# Whitespace is preserved: a stripped password is a different credential.
+_smtp_password = os.environ.get("TRACECAT__SMTP_PASSWORD") or ""
+TRACECAT__SMTP_PASSWORD = _smtp_password if _smtp_password.strip() else None
+TRACECAT__EMAIL_FROM = (os.environ.get("TRACECAT__EMAIL_FROM") or "").strip() or None
+
 TRACECAT__PLATFORM_OTEL_ENABLED = env_bool(
     "TRACECAT__PLATFORM_OTEL_ENABLED", default=False
 )
@@ -334,6 +347,10 @@ TRACECAT__AUTH_REQUIRE_EMAIL_VERIFICATION = env_bool(
 SESSION_EXPIRE_TIME_SECONDS = int(
     os.environ.get("SESSION_EXPIRE_TIME_SECONDS") or 86400 * 7
 )  # 7 days
+SESSION_LAST_SEEN_UPDATE_INTERVAL_SECONDS = int(
+    os.environ.get("SESSION_LAST_SEEN_UPDATE_INTERVAL_SECONDS") or 300
+)
+"""Minimum interval between ``last_seen_at`` writes for an active session."""
 TRACECAT__AUTH_ALLOWED_DOMAINS = set(
     ((domains := os.getenv("TRACECAT__AUTH_ALLOWED_DOMAINS")) and domains.split(","))
     or []
@@ -488,6 +505,14 @@ TRACECAT__UNSAFE_DISABLE_SM_MASKING = env_bool(
     development and should never be enabled in production.
 """
 
+TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING = env_bool(
+    "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", default=False
+)
+"""Legacy setting accepted by existing deployments; no longer changes behavior.
+Action and expression errors always use selective masking of known secrets and
+observed secret-derived values.
+"""
+
 # === M2M config === #
 TRACECAT__SERVICE_KEY = os.environ.get("TRACECAT__SERVICE_KEY")
 TRACECAT__EXECUTOR_TOKEN_TTL_SECONDS = int(
@@ -521,6 +546,14 @@ TRACECAT__BLOB_STORAGE_BUCKET_SKILLS = os.environ.get(
 
 TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get("TRACECAT__BLOB_STORAGE_ENDPOINT", "")
 """Endpoint URL for blob storage."""
+
+TRACECAT__BLOB_STORAGE_SSL_VERIFY = env_bool(
+    "TRACECAT__BLOB_STORAGE_SSL_VERIFY", default=True
+)
+"""Verify TLS certificates when connecting to blob storage (S3/MinIO).
+
+Set to false for self-hosted S3-compatible storage that terminates TLS with a
+self-signed or otherwise unverifiable certificate. Defaults to true."""
 
 TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS = int(
     os.environ.get("TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS") or 5
@@ -729,6 +762,16 @@ def env_ports(name: str, *, default: tuple[int, ...]) -> tuple[int, ...]:
             ports.append(port)
     return tuple(ports)
 
+
+TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS = env_networks(
+    "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS"
+)
+"""Operator-only exceptions for caller-controlled MCP and LLM HTTP destinations.
+
+Empty by default. Configure exact IPs or narrow CIDRs only for intentional private
+integrations. Every workspace using these clients can reach an allowed address.
+Set this in the process/container environment, not workspace or action inputs.
+"""
 
 TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS = env_networks(
     "TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS",
@@ -1021,9 +1064,15 @@ TRACECAT__RATE_LIMIT_BY_ENDPOINT = env_bool(
 """Whether to rate limit by endpoint."""
 
 TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES = int(
-    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES") or 1024 * 1024
+    os.environ.get("TRACECAT__EXECUTOR_PAYLOAD_MAX_SIZE_BYTES") or 5 * 1024**3
 )
-"""The maximum size of a payload in bytes the executor can return. Defaults to 1MB"""
+"""The maximum size of a payload in bytes the executor can return.
+
+Defaults to 5 GiB, the largest single-object upload S3 and MinIO accept.
+Results above ``TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES`` are
+externalized to blob storage with a single PUT, so the object store's
+single-upload cap is the effective ceiling on an action's result.
+"""
 
 TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES = int(
     os.environ.get("TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES") or 5 * 1024**3

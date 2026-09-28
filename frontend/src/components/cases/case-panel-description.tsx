@@ -17,7 +17,7 @@ type DescriptionFormSchema = z.infer<typeof descriptionFormSchema>
 
 interface CasePanelDescriptionProps {
   caseData: CaseRead
-  updateCase: (caseData: CaseUpdate) => Promise<void>
+  updateCase: (caseData: CaseUpdate) => Promise<unknown>
   compact?: boolean
 }
 

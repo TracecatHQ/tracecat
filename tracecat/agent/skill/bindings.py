@@ -14,8 +14,7 @@ from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.db.models import AgentPresetVersionSkill, Skill, SkillVersion
 from tracecat.db.soft_delete import with_deleted
 from tracecat.exceptions import TracecatValidationError
-from tracecat.service import BaseWorkspaceService, requires_entitlement
-from tracecat.tiers.enums import Entitlement
+from tracecat.service import BaseWorkspaceService
 
 
 def validate_no_duplicate_skill_ids(skill_ids: Sequence[uuid.UUID]) -> None:
@@ -65,7 +64,6 @@ class SkillBindingService(BaseWorkspaceService):
             for skill in (await self.session.execute(stmt)).scalars().all()
         }
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def validate_binding_inputs(
         self,
         bindings: Sequence[AgentPresetSkillBindingBase],
@@ -94,7 +92,6 @@ class SkillBindingService(BaseWorkspaceService):
                     detail={"code": "skill_not_published", "skill_id": str(skill.id)},
                 )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_resolved_skill_refs_for_preset_version(
         self,
         preset_version_id: uuid.UUID,

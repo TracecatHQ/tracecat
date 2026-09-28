@@ -3,11 +3,12 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { KeyIcon } from "lucide-react"
 import { useEffect, useState } from "react"
-import { useForm } from "react-hook-form"
+import { type ControllerRenderProps, useForm } from "react-hook-form"
 import { z } from "zod"
 import {
   agentCreateProviderCredentials,
   agentUpdateProviderCredentials,
+  type ProviderCredentialField,
 } from "@/client"
 import { Spinner } from "@/components/loading/spinner"
 import { ServiceAccountJsonUploader } from "@/components/service-account-json-uploader"
@@ -30,6 +31,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
 import { useProviderCredentialConfig } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
@@ -151,7 +153,12 @@ export function AgentCredentialsDialog({
 
   useEffect(() => {
     if (provider && providerConfig) {
-      form.reset()
+      const defaults = Object.fromEntries(
+        providerConfig.fields
+          .filter((field) => field.default != null)
+          .map((field) => [field.key, field.default ?? ""])
+      )
+      form.reset(defaults)
       setError(null)
     }
   }, [provider, providerConfig, form])
@@ -196,6 +203,51 @@ export function AgentCredentialsDialog({
     }
   }
 
+  function renderCredentialInput(
+    field: ProviderCredentialField,
+    formField: ControllerRenderProps<Record<string, string>, string>
+  ) {
+    if (field.type === "boolean") {
+      return (
+        <div className="flex h-9 items-center">
+          <Switch
+            checked={formField.value === "true"}
+            onCheckedChange={(checked) =>
+              formField.onChange(checked ? "true" : "false")
+            }
+          />
+        </div>
+      )
+    }
+    if (isJsonCredentialField(field.key)) {
+      return (
+        <ServiceAccountJsonUploader
+          value={formField.value ?? ""}
+          onChange={formField.onChange}
+          onError={(message) => {
+            form.setError(field.key, {
+              type: "manual",
+              message,
+            })
+          }}
+          onClearError={() => {
+            form.clearErrors(field.key)
+          }}
+          placeholder="Drag & drop the JSON key (.json) or choose a file"
+          existingConfigured={false}
+          hasError={Boolean(form.formState.errors[field.key])}
+        />
+      )
+    }
+    return (
+      <Input
+        placeholder={`Enter your ${field.label.toLowerCase()}`}
+        type={field.type}
+        {...formField}
+      />
+    )
+  }
+
   if (!provider) return null
 
   const fieldsByKey = new Map(
@@ -216,8 +268,8 @@ export function AgentCredentialsDialog({
             <span>Configure {dialogLabel} credentials</span>
           </DialogTitle>
           <DialogDescription>
-            Enter your {provider} credentials to enable AI model access for your
-            organization.
+            Enter your {dialogLabel} credentials to enable AI model access for
+            your organization.
           </DialogDescription>
         </DialogHeader>
 
@@ -287,32 +339,7 @@ export function AgentCredentialsDialog({
                                   )}
                                 </FormLabel>
                                 <FormControl>
-                                  {isJsonCredentialField(field.key) ? (
-                                    <ServiceAccountJsonUploader
-                                      value={formField.value ?? ""}
-                                      onChange={formField.onChange}
-                                      onError={(message) => {
-                                        form.setError(field.key, {
-                                          type: "manual",
-                                          message,
-                                        })
-                                      }}
-                                      onClearError={() => {
-                                        form.clearErrors(field.key)
-                                      }}
-                                      placeholder="Drag & drop the JSON key (.json) or choose a file"
-                                      existingConfigured={false}
-                                      hasError={Boolean(
-                                        form.formState.errors[field.key]
-                                      )}
-                                    />
-                                  ) : (
-                                    <Input
-                                      placeholder={`Enter your ${field.label.toLowerCase()}`}
-                                      type={field.type}
-                                      {...formField}
-                                    />
-                                  )}
+                                  {renderCredentialInput(field, formField)}
                                 </FormControl>
                                 <FormDescription>
                                   {field.description}

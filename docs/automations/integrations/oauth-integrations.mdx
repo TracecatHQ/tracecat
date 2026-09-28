@@ -32,6 +32,20 @@ Most providers require these fields:
 
 After you save a custom provider, connect it (complete the OAuth flow) when using delegated access so Tracecat can issue tokens.
 
+## Redirect URI
+
+Delegated access (`authorization_code`) requires a redirect URI registered in the provider's OAuth app. Tracecat uses one redirect URI for every OAuth provider, built-in or custom:
+
+```
+<PUBLIC_APP_URL>/integrations/callback
+```
+
+`PUBLIC_APP_URL` is the URL you use to reach the Tracecat UI (`https://platform.tracecat.com/integrations/callback` on Tracecat Cloud). Self-hosted deployments set it through the `TRACECAT__PUBLIC_APP_URL` environment variable; see [Environment variables](/self-hosting/environment-variables). The integration's configuration dialog also shows the exact value with a copy button.
+
+Register the URI as a Web platform redirect URI (reply URL) in the provider's app registration before you connect. If it is missing or does not match exactly, the provider rejects the login flow. Microsoft Entra ID reports this as `AADSTS900971: No reply address provided` or `AADSTS50011: The redirect URI specified in the request does not match`.
+
+Client credentials (`client_credentials`) has no login flow and needs no redirect URI.
+
 ## Use OAuth tokens in expressions
 
 <OAuthTokenExpressions />

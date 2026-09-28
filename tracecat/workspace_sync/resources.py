@@ -12,6 +12,7 @@ from pydantic import BaseModel, ValidationError
 from tracecat.dsl.common import DSLInput
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import ActionStatement
+from tracecat.expressions import patterns
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.sync import PullDiagnostic, serializable_validation_errors
 from tracecat.workspace_sync.adapters import (
@@ -297,8 +298,21 @@ class WorkflowReferences(NamedTuple):
     versioned_preset_slugs: set[VersionedSlug]
 
 
+def _static_reference(value: object) -> str | None:
+    """Return ``value`` when it is a literal, non-empty reference string.
+
+    Templated values (``${{ ... }}``) are resolved at runtime and cannot be
+    checked against the workspace at sync time, so they are not references.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    if patterns.TEMPLATE_STRING.search(value):
+        return None
+    return value
+
+
 def workflow_references(definition: DSLInput) -> WorkflowReferences:
-    """Collect child workflow and agent preset references in a single pass."""
+    """Collect static child workflow and agent preset references in one pass."""
     execute_aliases: set[str] = set()
     execute_ids: set[WorkflowUUID] = set()
     preset_slugs: set[str] = set()
@@ -310,9 +324,12 @@ def workflow_references(definition: DSLInput) -> WorkflowReferences:
             ):
                 # Mirror runtime resolution (see dsl/action.py): alias takes
                 # precedence over id, so collect at most one child reference.
-                if isinstance(alias := args.get("workflow_alias"), str):
-                    execute_aliases.add(alias)
-                elif isinstance(workflow_id := args.get("workflow_id"), str):
+                if isinstance(raw_alias := args.get("workflow_alias"), str):
+                    if (alias := _static_reference(raw_alias)) is not None:
+                        execute_aliases.add(alias)
+                elif (
+                    workflow_id := _static_reference(args.get("workflow_id"))
+                ) is not None:
                     try:
                         execute_ids.add(WorkflowUUID.new(workflow_id))
                     except ValueError:
@@ -324,7 +341,7 @@ def workflow_references(definition: DSLInput) -> WorkflowReferences:
                 preset_slug = args.get("preset")
                 if not isinstance(preset_slug, str):
                     preset_slug = args.get("preset_slug")
-                if isinstance(preset_slug, str):
+                if (preset_slug := _static_reference(preset_slug)) is not None:
                     if isinstance(version := args.get("preset_version"), int):
                         versioned_preset_slugs.add(VersionedSlug(preset_slug, version))
                     else:

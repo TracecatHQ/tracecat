@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowRight, ExternalLink, Loader2, Lock, Sparkles } from "lucide-react"
+import { ArrowRight, ExternalLink, Loader2, Sparkles } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { type ReactNode, useEffect, useMemo, useState } from "react"
 import {
@@ -21,7 +21,6 @@ import { CatalogHeader } from "@/components/catalog/catalog-header"
 import { getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import { MCPIntegrationDialog } from "@/components/integrations/mcp-integration-dialog"
 import { OAuthIntegrationDialog } from "@/components/integrations/oauth-integration-dialog"
-import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -32,7 +31,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
-import { useEntitlements } from "@/hooks/use-entitlements"
 import {
   markStdioMcpVerificationStarted,
   useStdioMcpVerificationStatus,
@@ -52,6 +50,21 @@ import { useWorkspaceId } from "@/providers/workspace-id"
 const CREATE_MCP_SERVER_PARAM = "createMcpServer"
 const MCP_VERIFY_ERROR_PARAM = "mcp_verify_error"
 const ALL_CATEGORY = "All"
+const ALL_STATUSES = "all"
+const CONNECTED_STATUS = "connected"
+const NOT_CONNECTED_STATUS = "not_connected"
+type McpStatusFilter =
+  | typeof ALL_STATUSES
+  | typeof CONNECTED_STATUS
+  | typeof NOT_CONNECTED_STATUS
+const MCP_STATUS_FILTER_OPTIONS: Array<{
+  value: McpStatusFilter
+  label: string
+}> = [
+  { value: ALL_STATUSES, label: "All statuses" },
+  { value: CONNECTED_STATUS, label: "Connected" },
+  { value: NOT_CONNECTED_STATUS, label: "Not connected" },
+]
 const CUSTOM_CATEGORY = "Custom"
 const MCP_CATEGORIES = [
   "SIEM / Datalake",
@@ -161,7 +174,6 @@ function workspaceIntegrationToCatalogEntry(
     provider_id: "custom",
     connection_spec: connectionSpecFromIntegration(integration),
     connection_options: [],
-    locked: false,
     state: integration.state,
     mcp_integration_id: integration.id,
     mcp_server_type: integration.server_type,
@@ -237,6 +249,14 @@ function catalogConnectOptionId(entry: PlatformMCPCatalogRead) {
   return connectable.length === 1 ? connectable[0].id : undefined
 }
 
+/**
+ * A row with no tool listing hasn't been verified yet, so it counts as
+ * configured, not connected. Keep in sync with McpCatalogCard.
+ */
+function isCatalogEntryConnected(entry: PlatformMCPCatalogRead) {
+  return entry.state === "connected" && entry.tools != null
+}
+
 function isCatalogEntryConnectable(entry: PlatformMCPCatalogRead) {
   return Boolean(
     entry.connection_spec ||
@@ -254,17 +274,15 @@ export default function McpServersPage() {
   const canCreateMcp = canCreate === true
   const canUpdateIntegrations = canUpdate === true
   const canDeleteMcp = canDelete === true
-  const { hasEntitlement } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
 
   const [searchQuery, setSearchQuery] = useState("")
   const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORY)
+  const [statusFilter, setStatusFilter] =
+    useState<McpStatusFilter>(ALL_STATUSES)
   const [createOpen, setCreateOpen] = useState(false)
   const [configEntry, setConfigEntry] = useState<PlatformMCPCatalogRead | null>(
     null
   )
-  const [lockedCatalogEntry, setLockedCatalogEntry] =
-    useState<PlatformMCPCatalogRead | null>(null)
   const [providerConfigEntry, setProviderConfigEntry] =
     useState<PlatformMCPCatalogRead | null>(null)
   const [editingItem, setEditingItem] = useState<CatalogItem | null>(null)
@@ -479,15 +497,29 @@ export default function McpServersPage() {
               entry: workspaceIntegrationToCatalogEntry(integration),
             }))
         : []
-    return [...catalogItems, ...workspaceItems].sort((a, b) =>
-      a.entry.name.localeCompare(b.entry.name, undefined, {
-        sensitivity: "base",
+    return [...catalogItems, ...workspaceItems]
+      .filter((item) => {
+        if (statusFilter === ALL_STATUSES) {
+          return true
+        }
+        const connected = isCatalogEntryConnected(item.entry)
+        return statusFilter === CONNECTED_STATUS ? connected : !connected
       })
-    )
+      .sort((a, b) => {
+        const aConnected = isCatalogEntryConnected(a.entry)
+        const bConnected = isCatalogEntryConnected(b.entry)
+        if (aConnected !== bConnected) {
+          return aConnected ? -1 : 1
+        }
+        return a.entry.name.localeCompare(b.entry.name, undefined, {
+          sensitivity: "base",
+        })
+      })
   }, [
     activeCategory,
     catalogData?.items,
     searchQuery,
+    statusFilter,
     workspaceMcpIntegrations,
   ])
 
@@ -516,15 +548,11 @@ export default function McpServersPage() {
 
   function handleConnect(item: CatalogItem) {
     const { entry } = item
-    if (entry.locked) {
-      setLockedCatalogEntry(entry)
-      return
-    }
     // Mirror McpCatalogCard's derivation: a row with no tool listing hasn't
     // been verified yet, so it is "configured"/reconnect, not a connected
     // disconnect. Keeping this in sync avoids showing "Reconnect" while
     // routing through the disconnect/no-op path.
-    const connected = entry.state === "connected" && entry.tools != null
+    const connected = isCatalogEntryConnected(entry)
     const connectable = isCatalogEntryConnectable(entry)
 
     if (entry.mcp_integration_id && connected) {
@@ -536,13 +564,6 @@ export default function McpServersPage() {
 
     if (item.kind === "workspace" && entry.mcp_integration_id) {
       setEditingItem(item)
-      return
-    }
-
-    // Migrated catalog rows can be disconnected without the entitlement, but
-    // reconnecting through the platform catalog requires the upgrade.
-    if (entry.mcp_integration_id && !agentAddonsEnabled) {
-      setLockedCatalogEntry(entry)
       return
     }
 
@@ -576,10 +597,6 @@ export default function McpServersPage() {
 
   function handleConfigure(item: CatalogItem) {
     const { entry } = item
-    if (entry.locked) {
-      setLockedCatalogEntry(entry)
-      return
-    }
     if (entry.mcp_integration_id) {
       setEditingItem(item)
       return
@@ -630,6 +647,17 @@ export default function McpServersPage() {
         }))}
         activePillFilters={[activeCategory]}
         onPillFilterToggle={(category) => setActiveCategory(category)}
+        selectFilters={[
+          {
+            key: "status",
+            value: statusFilter,
+            onValueChange: (value) => setStatusFilter(value as McpStatusFilter),
+            options: MCP_STATUS_FILTER_OPTIONS,
+            placeholder: "Status",
+            allValue: ALL_STATUSES,
+            widthClassName: "w-[140px]",
+          },
+        ]}
         displayCount={totalCount}
         countLabel={`server${totalCount === 1 ? "" : "s"}`}
       />
@@ -664,7 +692,7 @@ export default function McpServersPage() {
             <div>
               <h2 className="text-sm font-semibold">No MCP servers found</h2>
               <p className="mt-1 text-xs text-muted-foreground">
-                Try a different search or category.
+                Try a different search, category, or status.
               </p>
             </div>
           </div>
@@ -685,13 +713,6 @@ export default function McpServersPage() {
                         item.entry.mcp_integration_id
                       )
                     : undefined
-                }
-                reconnectLocked={
-                  item.kind === "catalog" &&
-                  !item.entry.locked &&
-                  Boolean(item.entry.mcp_integration_id) &&
-                  item.entry.state !== "connected" &&
-                  !agentAddonsEnabled
                 }
                 onConnect={() => handleConnect(item)}
                 onConfigure={() => handleConfigure(item)}
@@ -714,19 +735,6 @@ export default function McpServersPage() {
           hideTrigger
         />
       ) : null}
-
-      <LockedFeatureModal
-        open={lockedCatalogEntry !== null}
-        onOpenChange={(next) => {
-          if (!next) {
-            setLockedCatalogEntry(null)
-          }
-        }}
-        title="Upgrade to unlock this feature"
-        description="Tracecat-managed MCP catalog connectors are included with Enterprise. To use your own setup, create a custom MCP server."
-        bullets={[]}
-        hideFooter
-      />
 
       {configEntry ? (
         <MCPIntegrationDialog
@@ -787,7 +795,6 @@ interface McpCatalogCardProps {
   isActionPending: boolean
   isDisconnecting: boolean
   verification?: MCPVerificationStatusRead
-  reconnectLocked: boolean
   onConnect: () => void
   onConfigure: () => void
 }
@@ -800,23 +807,17 @@ function McpCatalogCard({
   isActionPending,
   isDisconnecting,
   verification,
-  reconnectLocked,
   onConnect,
   onConfigure,
 }: McpCatalogCardProps) {
   const { entry } = item
-  const locked = entry.locked === true
   const hasMcpRow = Boolean(entry.mcp_integration_id)
-  // A row with no tool listing hasn't been verified yet, so it counts as
-  // configured, not connected.
-  const connected = entry.state === "connected" && entry.tools != null
+  const connected = isCatalogEntryConnected(entry)
   const configured = !connected && (entry.state === "configured" || hasMcpRow)
   const hasWorkspaceConfig = configured || connected
   const connectable = isCatalogEntryConnectable(entry)
-  // Rows with a workspace integration stay actionable even when the catalog
-  // response hides connection specs (e.g. unentitled with a migrated row).
   const comingSoon =
-    !locked && !hasMcpRow && (entry.status === "coming_soon" || !connectable)
+    !hasMcpRow && (entry.status === "coming_soon" || !connectable)
   const specTransports = catalogTransports(entry)
   const transports =
     specTransports.length > 0
@@ -824,7 +825,7 @@ function McpCatalogCard({
       : entry.mcp_server_type
         ? [entry.mcp_server_type]
         : []
-  const docsUrl = locked ? null : entry.docs_url
+  const docsUrl = entry.docs_url
   const disconnectable = connected && hasMcpRow
   let actionLabel = "Connect"
   if (disconnectable) {
@@ -834,9 +835,7 @@ function McpCatalogCard({
   }
   const canManage = entry.mcp_integration_id ? canUpdate : false
   let canAct = false
-  if (locked || reconnectLocked) {
-    canAct = true
-  } else if (disconnectable) {
+  if (disconnectable) {
     canAct = canDelete
   } else if (item.kind === "workspace" && configured) {
     canAct = canManage
@@ -844,9 +843,7 @@ function McpCatalogCard({
     canAct = canCreate
   }
   let canConfigure = false
-  if (locked) {
-    canConfigure = true
-  } else if (hasWorkspaceConfig) {
+  if (hasWorkspaceConfig) {
     canConfigure = canManage
   } else if (isCatalogEntryConnectable(entry)) {
     canConfigure = canCreate
@@ -871,9 +868,6 @@ function McpCatalogCard({
   } else if (verificationStatus === "failed") {
     statusLabel = "Verification failed"
     statusTone = "danger"
-  } else if (locked) {
-    statusLabel = "Locked"
-    statusTone = "neutral"
   } else if (entry.state === "reauth_required") {
     // OAuth token expired with no refresh token: only re-auth revives it.
     statusLabel = "Reconnect required"
@@ -899,25 +893,18 @@ function McpCatalogCard({
   let buttonLabel = actionLabel
   if (comingSoon) {
     buttonLabel = "Coming soon"
-  } else if (locked) {
-    buttonLabel = "Connect"
   }
   if (isActionPending) {
     buttonLabel = statusLabel
   }
-  const actionLocked = locked || reconnectLocked
   let actionClassName = "text-blue-600 hover:text-blue-700"
-  if (actionLocked) {
-    actionClassName = "text-muted-foreground hover:text-foreground"
-  } else if (disconnectable) {
+  if (disconnectable) {
     actionClassName = "text-destructive hover:text-destructive"
   }
   const tone = STATUS_TONES[statusTone]
   let statusIndicator: ReactNode
   if (isActionPending) {
     statusIndicator = <Loader2 className="size-3 animate-spin" />
-  } else if (locked) {
-    statusIndicator = <Lock className="size-3" />
   } else {
     statusIndicator = (
       <span
@@ -944,29 +931,11 @@ function McpCatalogCard({
   )
 
   return (
-    <Card
-      role={locked ? "button" : undefined}
-      tabIndex={locked ? 0 : undefined}
-      onClick={locked ? onConnect : undefined}
-      onKeyDown={
-        locked
-          ? (event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault()
-                onConnect()
-              }
-            }
-          : undefined
-      }
-      className={cn(
-        "flex h-full min-h-[132px] flex-col gap-2.5 border bg-card p-4 shadow-none transition-colors hover:border-foreground/30",
-        locked && "cursor-pointer"
-      )}
-    >
+    <Card className="flex h-full min-h-[132px] flex-col gap-2.5 border bg-card p-4 shadow-none transition-colors hover:border-foreground/30">
       <div className="flex items-start justify-between gap-3">
         <ProviderIcon
           providerId={getMcpProviderIconId(entry.provider_id ?? entry.slug)}
-          className={cn("size-9 shrink-0", locked && "opacity-50 grayscale")}
+          className="size-9 shrink-0"
         />
 
         <div className="flex flex-wrap justify-end gap-1">

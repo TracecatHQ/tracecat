@@ -6,6 +6,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
+from unittest.mock import AsyncMock
 
 import pytest
 import sqlalchemy as sa
@@ -48,11 +49,14 @@ from tracecat.auth.types import Role
 from tracecat.db.models import (
     AgentCatalog,
     AgentChannelToken,
+    AgentFolder,
     AgentModelAccess,
     AgentPreset,
     AgentPresetSkill,
     AgentPresetVersion,
     AgentPresetVersionSkill,
+    AgentTag,
+    AgentTagLink,
     MCPIntegration,
     Organization,
     RegistryAction,
@@ -64,7 +68,11 @@ from tracecat.db.models import (
     SkillVersionTool,
     Workspace,
 )
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.integrations.service import IntegrationService
 from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
@@ -841,6 +849,51 @@ class TestAgentPresetService:
 
         # Verify ordering by created_at descending (most recent first)
         assert presets[0].created_at >= presets[1].created_at
+
+    async def test_preset_crud_without_agent_addons_ignores_folder_and_tags(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Existing folder/tag assignments must not block ungated preset CRUD."""
+        assert svc_role.workspace_id is not None
+        service = AgentPresetService(session=session, role=svc_role)
+        monkeypatch.setattr(service, "has_entitlement", AsyncMock(return_value=False))
+
+        preset = await service.create_preset(agent_preset_create_params)
+
+        folder = AgentFolder(
+            name="legacy", path="/legacy/", workspace_id=svc_role.workspace_id
+        )
+        tag = AgentTag(name="legacy", ref="legacy", workspace_id=svc_role.workspace_id)
+        session.add_all([folder, tag])
+        await session.flush()
+        preset.folder_id = folder.id
+        session.add(AgentTagLink(preset_id=preset.id, tag_id=tag.id))
+        await session.flush()
+        await session.refresh(preset, attribute_names=["folder_id", "tags"])
+        assert len(preset.tags) == 1
+
+        listed = await service.list_presets()
+        assert preset.id in {item.id for item in listed}
+
+        fetched = await service.get_preset(preset.id)
+        assert fetched is not None
+        assert fetched.folder_id == folder.id
+
+        updated = await service.update_preset(
+            fetched, AgentPresetUpdate(name="Renamed without add-ons")
+        )
+        assert updated.name == "Renamed without add-ons"
+
+        duplicate_params = agent_preset_create_params.model_copy(deep=True)
+        duplicate_params.name = "Duplicated without add-ons"
+        duplicated = await service.create_preset(duplicate_params)
+        await session.refresh(duplicated, attribute_names=["folder_id", "tags"])
+        assert duplicated.folder_id is None
+        assert duplicated.tags == []
 
     async def test_update_preset_name(
         self,
@@ -2381,6 +2434,54 @@ class TestAgentPresetService:
         assert head_bindings[0].skill_name == "head-binding-v2"
         assert version_read.skills[0].skill_version_id == skill_version_two.id
         assert version_read.skills[0].skill_name == "head-binding-v2"
+
+    async def test_head_skill_bindings_report_current_published_version(
+        self,
+        configure_minio_for_skills,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+    ) -> None:
+        """Publishing a skill is reflected on the preset head without re-attaching."""
+
+        skill_service = SkillService(session=session, role=svc_role)
+        created_skill = await skill_service.create_skill(
+            SkillCreate(name="follow-head-v1")
+        )
+        await skill_service.publish_skill(created_skill.id)
+
+        created_preset = await agent_preset_service.create_preset(
+            AgentPresetCreate(
+                name="Follow head preset",
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                skills=[AgentPresetSkillBindingBase(skill_id=created_skill.id)],
+            )
+        )
+
+        draft = await skill_service.get_draft(created_skill.id)
+        assert draft is not None
+        await skill_service.patch_draft(
+            skill_id=created_skill.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content="---\nname: follow-head-v2\n---\n\n# Follow head v2\n",
+                        content_type="text/markdown; charset=utf-8",
+                    )
+                ],
+            ),
+        )
+        skill_version_two = await skill_service.publish_skill(created_skill.id)
+
+        preset_read = await agent_preset_service.build_preset_read(created_preset)
+
+        assert len(preset_read.skills) == 1
+        assert preset_read.skills[0].skill_version_id == skill_version_two.id
+        assert preset_read.skills[0].skill_version == 2
+        assert preset_read.skills[0].skill_name == "follow-head-v2"
 
     async def test_create_preset_rejects_duplicate_bound_skill_names(
         self,
@@ -4001,6 +4102,126 @@ class TestAgentPresetService:
         preset = await agent_preset_service.create_preset(agent_preset_create_params)
         assert preset.tool_approvals == {"tools.test.test_action": True}
 
+    @pytest.mark.parametrize("requires_approval", [True, False])
+    async def test_create_preset_rejects_approval_rules_without_entitlement(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+        requires_approval: bool,
+    ) -> None:
+        """Any authored rule requires add-ons, matching the execution gate."""
+        monkeypatch.setattr(
+            agent_preset_service, "has_entitlement", AsyncMock(return_value=False)
+        )
+        agent_preset_create_params.tool_approvals = {
+            "tools.test.test_action": requires_approval
+        }
+
+        with pytest.raises(EntitlementRequired):
+            await agent_preset_service.create_preset(agent_preset_create_params)
+
+        assert await agent_preset_service.list_presets() == []
+
+    @pytest.mark.parametrize("tool_approvals", [None, {}])
+    async def test_create_preset_without_rules_needs_no_entitlement(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+        tool_approvals: dict[str, bool] | None,
+    ) -> None:
+        """Core preset creation stays available without approval rules."""
+        monkeypatch.setattr(
+            agent_preset_service, "has_entitlement", AsyncMock(return_value=False)
+        )
+        agent_preset_create_params.tool_approvals = tool_approvals
+
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+
+        assert not preset.tool_approvals
+
+    @pytest.mark.parametrize("requires_approval", [True, False])
+    async def test_update_preset_rejects_approval_rules_without_entitlement(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+        requires_approval: bool,
+    ) -> None:
+        """An invalid approval update must not modify or publish the preset."""
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        current_version_id = preset.current_version_id
+        monkeypatch.setattr(
+            agent_preset_service, "has_entitlement", AsyncMock(return_value=False)
+        )
+
+        with pytest.raises(EntitlementRequired):
+            await agent_preset_service.update_preset(
+                preset,
+                AgentPresetUpdate(
+                    name="Must not be saved",
+                    tool_approvals={"tools.test.test_action": requires_approval},
+                ),
+            )
+
+        await agent_preset_service.session.refresh(preset)
+        assert preset.name == agent_preset_create_params.name
+        assert preset.current_version_id == current_version_id
+        assert not preset.tool_approvals
+
+    @pytest.mark.parametrize("tool_approvals", [None, {}])
+    async def test_clear_preset_approval_rules_after_entitlement_removed(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+        tool_approvals: dict[str, bool] | None,
+    ) -> None:
+        """A downgraded organization can remove rules to recover a runnable agent."""
+        agent_preset_create_params.tool_approvals = {"tools.test.test_action": True}
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        monkeypatch.setattr(
+            agent_preset_service, "has_entitlement", AsyncMock(return_value=False)
+        )
+
+        updated = await agent_preset_service.update_preset(
+            preset, AgentPresetUpdate(tool_approvals=tool_approvals)
+        )
+        version = await agent_preset_service.get_current_version_for_preset(updated)
+
+        assert not updated.tool_approvals
+        assert not version.tool_approvals
+
+    @pytest.mark.parametrize("requires_approval", [True, False])
+    async def test_restore_preset_rejects_approval_rules_without_entitlement(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        monkeypatch: pytest.MonkeyPatch,
+        requires_approval: bool,
+    ) -> None:
+        """Restoring history cannot reintroduce approval rules after a downgrade."""
+        agent_preset_create_params.tool_approvals = {
+            "tools.test.test_action": requires_approval
+        }
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        old_version = await agent_preset_service.get_current_version_for_preset(preset)
+        await agent_preset_service.update_preset(
+            preset, AgentPresetUpdate(tool_approvals=None)
+        )
+        current_version_id = preset.current_version_id
+        monkeypatch.setattr(
+            agent_preset_service, "has_entitlement", AsyncMock(return_value=False)
+        )
+
+        with pytest.raises(EntitlementRequired):
+            await agent_preset_service.restore_version(preset, old_version)
+
+        await agent_preset_service.session.refresh(preset)
+        assert not preset.tool_approvals
+        assert preset.current_version_id == current_version_id
+
     async def test_create_parent_rejects_subagent_with_tool_approvals(
         self,
         agent_preset_service: AgentPresetService,
@@ -4444,7 +4665,7 @@ async def test_skill_dependency_policy_is_shared_by_reads_and_runtime(
         assert updated.enable_internet_access
     else:
         assert read.tool_policy.has_approvals
-        assert runtime.tool_approvals == {"mcp.Synthetic.write": True}
+        assert runtime.tool_approvals == {"mcp.synthetic.write": True}
         assert "approvals" in listed.capabilities
         assert not listed.current_version_subagent_eligibility.eligible
         with pytest.raises(TracecatValidationError, match="uses manual approvals"):
@@ -4460,3 +4681,60 @@ async def test_skill_dependency_policy_is_shared_by_reads_and_runtime(
                     }
                 )
             )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("operation", ["create", "preview", "runtime", "update"])
+async def test_effective_skill_tool_limit_is_checked_before_execution(
+    operation: str,
+    configure_minio_for_skills: None,
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+    registry_actions: list[RegistryAction],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    skill_service = SkillService(session=session, role=svc_role)
+    skill = await skill_service.create_skill(SkillCreate(name="extra-tool"))
+    await skill_service.patch_draft(
+        skill_id=skill.id,
+        params=SkillDraftPatch(
+            base_revision=skill.draft_revision,
+            operations=[
+                SkillDraftUpsertTextFileOp(
+                    path="SKILL.md",
+                    content="---\nname: extra-tool\nmetadata: {tools: [tools.test.test_action]}\n---\n",
+                )
+            ],
+        ),
+    )
+    await skill_service.publish_skill(skill.id)
+    agent_preset_create_params.skills = [AgentPresetSkillBindingBase(skill_id=skill.id)]
+    agent_preset_create_params.actions = ["core.http_request"]
+    monkeypatch.setattr(config, "TRACECAT__AGENT_MAX_TOOLS", 2)
+    preset = await agent_preset_service.create_preset(agent_preset_create_params)
+    version = await agent_preset_service.get_current_version_for_preset(preset)
+    monkeypatch.setattr(config, "TRACECAT__AGENT_MAX_TOOLS", 1)
+    with pytest.raises(TracecatValidationError) as exc_info:
+        match operation:
+            case "create":
+                agent_preset_create_params.name = "Over limit"
+                await agent_preset_service.create_preset(agent_preset_create_params)
+            case "preview":
+                await agent_preset_service.preview_tool_policy(
+                    AgentPresetToolPolicyPreview(
+                        actions=["core.http_request"], skill_ids=[skill.id]
+                    )
+                )
+            case "runtime":
+                await agent_preset_service._version_to_agent_config(version)
+            case "update":
+                await agent_preset_service.update_preset(
+                    preset, AgentPresetUpdate(instructions="Updated instructions")
+                )
+    assert exc_info.value.detail == {
+        "code": "agent_tool_limit_exceeded",
+        "tool_count": 2,
+        "max_tools": 1,
+    }

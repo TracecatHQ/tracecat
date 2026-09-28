@@ -21,6 +21,7 @@ from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
     Invitation,
     Membership,
+    Organization,
     OrganizationMembership,
     Ownership,
     User,
@@ -40,6 +41,8 @@ from tracecat.exceptions import (
 from tracecat.identifiers import InvitationID, UserID, WorkspaceID
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.service import BaseOrgService
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workspaces.schemas import (
     WorkspaceInvitationCreate,
@@ -123,6 +126,35 @@ class WorkspaceService(BaseOrgService):
             raise TracecatAuthorizationError("User ID is required to list workspaces")
         return await self.list_workspaces(self.role.user_id, limit=limit)
 
+    async def _lock_workspace_creation(self) -> None:
+        # Lock the organization, since a fresh org has no workspace row to lock.
+        # Hold through creation and commit so concurrent requests cannot both
+        # observe an empty organization and bypass the entitlement.
+        result = await self.session.execute(
+            select(Organization.id)
+            .where(Organization.id == self.organization_id)
+            .with_for_update()
+        )
+        result.scalar_one()
+
+    async def _has_workspaces(self) -> bool:
+        return bool(
+            await self.session.scalar(
+                select(
+                    select(Workspace.id)
+                    .where(Workspace.organization_id == self.organization_id)
+                    .exists()
+                )
+            )
+        )
+
+    @require_scope("workspace:create")
+    async def ensure_default_workspace(self) -> None:
+        """Create a default workspace only when the organization has none."""
+        await self._lock_workspace_creation()
+        if not await self._has_workspaces():
+            await self.create_workspace("Default Workspace")
+
     @require_scope("workspace:create")
     @audit_log(resource_type="workspace", action="create")
     async def create_workspace(
@@ -133,6 +165,12 @@ class WorkspaceService(BaseOrgService):
         users: list[User] | None = None,
     ) -> Workspace:
         """Create a new workspace."""
+        await self._lock_workspace_creation()
+        if await self._has_workspaces():
+            await check_entitlement(
+                self.session, self.role, Entitlement.MULTI_WORKSPACE
+            )
+
         kwargs = {
             "name": name,
             "organization_id": self.organization_id,

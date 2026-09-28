@@ -166,12 +166,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         icon: MousePointerClickIcon,
         isActive: pathname?.startsWith(`${basePath}/agents`),
         visible: canViewAgents === true,
-        isLocked: entitlementsKnown && !agentAddonsEnabled,
-        isPendingEntitlement: !entitlementsKnown,
-        onSelect:
-          entitlementsKnown && !agentAddonsEnabled
-            ? () => setLockedFeatureDialogOpen(true)
-            : undefined,
       },
       {
         title: "Tables",
@@ -213,12 +207,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         url: `${basePath}/skills`,
         icon: Pyramid,
         isActive: pathname?.startsWith(`${basePath}/skills`),
-        isLocked: entitlementsKnown && !agentAddonsEnabled,
-        isPendingEntitlement: !entitlementsKnown,
-        onSelect:
-          entitlementsKnown && !agentAddonsEnabled
-            ? () => setLockedFeatureDialogOpen(true)
-            : undefined,
         visible: canViewAgents === true,
       },
       {
@@ -240,7 +228,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       canViewSecrets,
       canViewIntegrations,
       entitlementsKnown,
-      agentAddonsEnabled,
       workspaceChatEnabled,
       canViewAgents,
       canViewActions,
@@ -400,7 +387,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                           {item.badgeCount ? (
                             <SidebarMenuBadge
                               aria-label={item.badgeLabel}
-                              className="top-1/2 -translate-y-1/2 bg-violet-500/10 text-violet-700 peer-data-[size=default]/menu-button:top-1/2 peer-data-[size=lg]/menu-button:top-1/2 peer-data-[size=sm]/menu-button:top-1/2 dark:text-violet-300"
+                              className="bg-violet-500/10 text-violet-700 dark:text-violet-300"
                             >
                               {formatPendingApprovalCount(item.badgeCount)}
                             </SidebarMenuBadge>

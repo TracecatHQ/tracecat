@@ -20,6 +20,7 @@ import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 import { AgentPresetDetailProvider } from "@/providers/agent-preset-detail"
@@ -303,16 +304,30 @@ function WorkflowView({
 function NoWorkspaces() {
   const { user } = useAuth()
   const { logout } = useAuthActions()
-  const canCreateWorkspace = useScopeCheck("workspace:create")
+  const canCreateWorkspaceScope = useScopeCheck("workspace:create")
+  const canReadOrganizationWorkspaces = useScopeCheck("org:workspace:read")
+  const {
+    hasEntitlement,
+    hasEntitlementData,
+    isLoading: entitlementsLoading,
+  } = useEntitlements()
   const { createWorkspace } = useWorkspaceManager()
   const router = useRouter()
   const [isCreating, setIsCreating] = useState(false)
+  const canCreateWorkspace =
+    canCreateWorkspaceScope === true &&
+    (canReadOrganizationWorkspaces === true ||
+      (hasEntitlementData &&
+        !entitlementsLoading &&
+        hasEntitlement("multi_workspace")))
 
   const handleLogout = async () => {
     await logout()
   }
 
   const handleCreateWorkspace = async () => {
+    if (!canCreateWorkspace) return
+
     setIsCreating(true)
     try {
       const workspace = await createWorkspace({ name: "New Workspace" })

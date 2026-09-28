@@ -11,7 +11,7 @@ from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.authz.controls import require_scope
 from tracecat.db.models import Schedule, Workflow
 from tracecat.db.session_events import AfterCommitQueue
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.identifiers import ScheduleUUID, WorkflowID
 from tracecat.identifiers.schedules import AnyScheduleID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
@@ -86,7 +86,7 @@ class WorkflowSchedulesService(BaseWorkspaceService):
                 "Workflow not found. Please check the workflow ID and try again."
             )
         if workflow.version is None:
-            raise TracecatNotFoundError(
+            raise TracecatConflictError(
                 "Workflow must be saved before creating a schedule."
             )
 

@@ -1,0 +1,52 @@
+type: action
+definition:
+  title: Update firewall configuration
+  description: >-
+    Process updates to modify the existing firewall config for a project. Calls PATCH /v1/security/firewall/config directly.
+  display_group: Vercel Security
+  doc_url: https://vercel.com/docs/rest-api/security/update-firewall-configuration
+  namespace: tools.vercel_security
+  name: update_firewall_configuration
+  secrets:
+    - name: vercel
+      keys: ["VERCEL_API_TOKEN"]
+  expects:
+    projectId:
+      type: str
+      description: Project ID.
+    payload:
+      # Generic: the body is a discriminated union keyed on `action`, so there is
+      # no single field set to name.
+      type: dict[str, Any]
+      description: >-
+        API-native request body with fields action, id, value. Documented actions include
+        firewallEnabled, rules.insert, rules.update, rules.remove, rules.priority, crs.update,
+        crs.disable, ip.insert, ip.update, ip.remove, managedRules.update, and named-condition,
+        ruleset, bot ID and log-header updates; the shape of `value` depends on the action.
+    teamId:
+      type: str | None
+      description: The Team identifier to perform the request on behalf of.
+      default: null
+    slug:
+      type: str | None
+      description: The Team slug to perform the request on behalf of.
+      default: null
+    base_url:
+      type: str | None
+      description: Vercel REST API base URL.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.vercel_security.base_url || "https://api.vercel.com" }}/v1/security/firewall/config
+        method: PATCH
+        headers:
+          Authorization: Bearer ${{ SECRETS.vercel.VERCEL_API_TOKEN }}
+          Content-Type: application/json
+        params:
+          projectId: ${{ inputs.projectId }}
+          teamId: ${{ inputs.teamId }}
+          slug: ${{ inputs.slug }}
+        payload: ${{ inputs.payload }}
+  returns: ${{ steps.request.result }}

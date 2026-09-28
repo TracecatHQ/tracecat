@@ -63,6 +63,7 @@ from tracecat.db.models import (
     PlatformRegistryVersion,
     Workspace,
 )
+from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
@@ -416,6 +417,10 @@ def db() -> Iterator[None]:
         test_engine = create_engine(TEST_DB_CONFIG.test_url_sync)
         with test_engine.begin() as conn:
             logger.info("Creating all tables")
+            # Each isolated test database needs its own extension registration.
+            conn.execute(
+                text("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
+            )
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
         yield
@@ -752,7 +757,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                 "options": {"required_entitlements": ["case_addons"]},
             }
 
-            # ai.agent preset CRUD actions (agent add-on gated)
+            # ai.agent preset CRUD actions
             agent_preset_actions = {
                 "create_preset": {
                     "description": "Create an agent preset",
@@ -791,7 +796,7 @@ def registry_version_with_manifest(default_org: None) -> Iterator[None]:
                     "display_group": "Agent Presets",
                     "interface": {"expects": {}, "returns": None},
                     "implementation": preset_impl,
-                    "options": {"required_entitlements": ["agent_addons"]},
+                    "options": {},
                 }
 
             # core.table.lookup
@@ -1227,6 +1232,7 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
                 "git_sync": True,
                 "agent_addons": True,
                 "case_addons": True,
+                "multi_workspace": True,
             }
         ),
     )
@@ -1956,6 +1962,10 @@ async def test_worker_factory(
         """Create a worker with the same configuration as production."""
 
         activities = get_activities() if activities is None else activities
+        # DSL workers always need the dependency compilation bootstrap activity.
+        compile_activity = DSLActivities.compile_dsl_dependencies_activity
+        if compile_activity not in activities:
+            activities = [*activities, compile_activity]
         return Worker(
             client=client,
             task_queue=task_queue or os.environ["TEMPORAL__CLUSTER_QUEUE"],

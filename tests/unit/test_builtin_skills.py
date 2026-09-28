@@ -18,6 +18,7 @@ import yaml
 from tracecat import config
 from tracecat.agent.executor.activity import SandboxedAgentExecutor
 from tracecat.agent.skill.builtin import PLATFORM_SKILLS
+from tracecat.agent.skill.frontmatter import parse_skill_markdown
 from tracecat.agent.skill.schemas import SkillCreate
 from tracecat.agent.skill.types import SkillOrigin
 
@@ -48,8 +49,10 @@ class TestSkillOrigin:
 
     def test_platform_origin_is_explicit(self):
         assert all(skill.origin is SkillOrigin.PLATFORM for skill in PLATFORM_SKILLS)
-        assert PLATFORM_SKILLS[0].skill_name == "workspace-chat"
-        assert PLATFORM_SKILLS[0].qualified_name == "tracecat:workspace-chat"
+        workspace_chat = next(
+            skill for skill in PLATFORM_SKILLS if skill.skill_name == "workspace-chat"
+        )
+        assert workspace_chat.qualified_name == "tracecat:workspace-chat"
 
 
 class TestBuiltinSkillsConstant:
@@ -239,11 +242,13 @@ class TestStageBuiltinSkills:
         await _executor_with_builtin_skills(
             ["tracecat-automation-best-practices"]
         ).stage(skills_dir)
-        assert (
-            (skills_dir / "skills" / "automation-best-practices" / "SKILL.md")
-            .read_text()
-            .endswith("vendored content")
-        )
+        staged_markdown = (
+            skills_dir / "skills" / "automation-best-practices" / "SKILL.md"
+        ).read_text()
+        assert staged_markdown.endswith("vendored content")
+        frontmatter = parse_skill_markdown(staged_markdown)
+        assert frontmatter is not None
+        assert frontmatter.name == "automation-best-practices"
 
     @pytest.mark.anyio
     async def test_errors_when_vendored_dir_absent(

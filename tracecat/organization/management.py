@@ -25,6 +25,7 @@ from tracecat.db.models import (
     Organization,
     OrganizationMembership,
     OrganizationSecret,
+    OrganizationSecretStore,
     Ownership,
     RegistryAction,
     RegistryIndex,
@@ -79,16 +80,10 @@ async def ensure_organization_defaults(
     settings_service = SettingsService(session, role=org_role)
     await settings_service.init_default_settings()
 
-    # Ensure at least one workspace exists
-    workspace_count_result = await session.execute(
-        select(func.count())
-        .select_from(Workspace)
-        .where(Workspace.organization_id == org_id)
-    )
-    if workspace_count_result.scalar_one() == 0:
-        logger.info("Creating default workspace", organization_id=str(org_id))
-        workspace_service = WorkspaceService(session, role=org_role)
-        await workspace_service.create_workspace(name="Default Workspace")
+    # Serialize bootstrap with regular creation so concurrent initializers
+    # cannot create a second workspace or fail the single-workspace limit.
+    workspace_service = WorkspaceService(session, role=org_role)
+    await workspace_service.ensure_default_workspace()
 
     # Ensure system roles exist for this org (idempotent)
     await seed_system_roles_for_org(session, org_id)
@@ -249,6 +244,11 @@ async def delete_organization_with_cleanup(
     await session.execute(
         delete(OrganizationSecret).where(
             OrganizationSecret.organization_id == organization.id
+        )
+    )
+    await session.execute(
+        delete(OrganizationSecretStore).where(
+            OrganizationSecretStore.organization_id == organization.id
         )
     )
     await session.execute(

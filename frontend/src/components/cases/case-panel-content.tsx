@@ -16,7 +16,7 @@ export interface CasePanelContentProps {
   caseId: string
   workspaceId: string
   caseData: CaseRead
-  updateCase: (caseData: CaseUpdate) => Promise<void>
+  updateCase: (caseData: CaseUpdate) => Promise<unknown>
   /** Embedded (chat artifact) density, forwarded to panels that support it. */
   embedded?: boolean
 }

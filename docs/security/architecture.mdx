@@ -6,7 +6,7 @@ keywords: ["security architecture", "AI agent security", "MCP security", "sandbo
 
 Tracecat's security design rests on seven control areas:
 
-- Identity: SSO, SCIM provisioning, and role-based access control at organization and workspace level.
+- Identity: SSO, SCIM provisioning, role-based access control at organization and workspace level, and per-organization IP allowlists.
 - Data security: row-level tenant isolation, encrypted credentials, and encrypted workflow payloads.
 - AI agent security: default-deny tool policy, durable human approval, and token budgets.
 - Sandboxed execution: nsjail isolation for custom Python, agent-generated code, and local MCP servers.
@@ -125,7 +125,7 @@ Custom code runs on shared infrastructure, so isolation cannot depend on that co
 
 | Attack surface | How an attacker can use it | Primary Tracecat controls |
 | --- | --- | --- |
-| Authentication and tenant access | Steal or replay user credentials.<br/>Steal service-account credentials or personal access tokens.<br/>Call API or MCP endpoints as the victim.<br/>Probe identifiers from another workspace. | Authenticate before tenant resolution.<br/>Enforce SSO and RBAC.<br/>Scope service accounts.<br/>Apply tenant scope and PostgreSQL row-level policies. |
+| Authentication and tenant access | Steal or replay user credentials.<br/>Steal service-account credentials or personal access tokens.<br/>Call API or MCP endpoints as the victim.<br/>Sign in with a stolen credential from outside the corporate network.<br/>Probe identifiers from another workspace. | Authenticate before tenant resolution.<br/>Enforce SSO and RBAC.<br/>Deny sign-in and API access from addresses outside the organization's IP allowlist.<br/>Record IP, user agent, and last-seen time per session so administrators can spot and revoke unexpected sessions.<br/>Scope service accounts.<br/>Apply tenant scope and PostgreSQL row-level policies. |
 | Multi-tenant code execution | Submit hostile Python, custom actions, agents, or local MCP processes.<br/>Read files or process state.<br/>Escape the executor.<br/>Reach another run, tenant, or platform service. | nsjail enabled by default on full-isolation profiles.<br/>User, process, mount, IPC, hostname, and network namespaces.<br/>Read-only runtime and scoped mounts.<br/>Syscall, cgroup, file, and process limits. |
 | Credential and downstream access | Read stored secrets.<br/>Capture provider credentials.<br/>Reuse a credential outside its intended workspace or tool. | Encrypted credential storage.<br/>Execution-time credential broker.<br/>Short-lived JWTs scoped to the run, workspace, model, and allowed tools.<br/>Trusted services add provider credentials outside the sandbox. |
 | OAuth and MCP access | Steal an OAuth grant or personal access token.<br/>Use the MCP endpoint with the victim's permissions.<br/>Hide activity across many connections. | Authenticated OAuth flows.<br/>OAuth connections inherit the user's effective permissions.<br/>Personal access tokens remain workspace-scoped.<br/>Connections, tokens, and external MCP calls stay visible by user. |
@@ -230,6 +230,21 @@ Assign a role to a group or directly to a user. Each assignment is either organi
 Tracecat scopes service accounts directly rather than through roles, and bounds them two ways: a service account holds only scopes from the allowlist for its kind, and a grantor can assign only scopes they already hold themselves.
 
 See [Roles and permissions](/manage-platform/rbac) for each built-in role's scopes and the assignment rules, [Custom roles and groups](/manage-platform/custom-roles) for defining your own, and [Service accounts](/manage-platform/service-accounts) for scoping a machine identity.
+
+### Network access
+
+An organization administrator can restrict the organization to named IP allowlists of IPv4 and IPv6 addresses and CIDR ranges. Enforcement is off by default. When it is on, Tracecat rejects with `403`:
+
+- Sign-in from a denied address after the credential is verified, for password, OIDC, and SAML.
+- Every REST API request scoped to the organization from a denied address, whether it carries a session cookie or a service account API key, before any tenant data is read.
+
+Tracecat resolves the client address from `X-Forwarded-For` and trusts only the hops in `TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS`, so a client cannot forge its address past the proxy chain. Each API replica caches the compiled allowlist for 30 seconds and matches in memory, so the check adds no database round trip to the request path. Tracecat refuses to enable an allowlist that excludes the administrator's own address, and platform superusers bypass the allowlist as the break-glass path. The Tracecat MCP server authenticates with its own OAuth tokens and is outside the allowlist.
+
+### Session visibility
+
+Tracecat records the resolved client IP address and browser user agent when it issues a session, and refreshes the session's last-seen time at most every five minutes. Users with `org:member:remove` see these fields for every session in the organization and can revoke any of them; other members see them only for their own sessions.
+
+See [IP allowlist](/manage-platform/ip-allowlist) for configuration steps and the session table.
 
 ## Data security
 

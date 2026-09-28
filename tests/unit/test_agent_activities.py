@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -48,6 +49,7 @@ from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.common.types import MCPToolDefinition
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
     agent_executor_timed_out,
     user_agent_execution_failed,
@@ -66,7 +68,9 @@ from tracecat.agent.executor.loopback import (
     LoopbackInput,
     LoopbackResult,
 )
+from tracecat.agent.mcp import user_client
 from tracecat.agent.otel_config import AgentOtelConfig, ResolvedAgentOtelConfig
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
     ConcurrentSessionTurnError,
@@ -97,12 +101,18 @@ from tracecat.agent.types import AgentConfig, Tool, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    EntitlementRequired,
+    RegistryLockAmbiguousActionError,
+    RegistryLockInvalidDataError,
+)
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.observability.otel import (
     initialize_platform_tracing,
     shutdown_platform_tracing,
 )
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import (
@@ -111,6 +121,8 @@ from tracecat.runtime.errors import (
     RuntimeErrorOwner,
 )
 from tracecat.temporal.errors import extract_error_classification
+from tracecat.tiers.entitlements import EntitlementService
+from tracecat.tiers.service import TierService
 
 
 @pytest.fixture
@@ -195,6 +207,97 @@ class TestSessionActivities:
 
 class TestBuildToolDefinitionsActivity:
     @pytest.mark.anyio
+    @pytest.mark.parametrize("raw_names", [("a__b", "a.b"), ("a.b", "a__b")])
+    @pytest.mark.parametrize(
+        ("stored_approval", "precomputed_approval"),
+        [(True, False), (False, True), (False, False)],
+    )
+    async def test_rejected_name_cannot_erase_surviving_tool_approval(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_role: Role,
+        raw_names: tuple[str, str],
+        stored_approval: bool,
+        precomputed_approval: bool,
+    ) -> None:
+        integration_id = uuid.uuid4()
+        approval_key = "mcp.example.a.b"
+        service = MagicMock(spec=AgentPresetService)
+        service.resolve_mcp_integration_tool_policies = AsyncMock(
+            return_value={
+                integration_id: {
+                    "a__b": MCPToolSummary(
+                        name="a__b", requires_approval=stored_approval
+                    ),
+                    "a.b": MCPToolSummary(name="a.b", requires_approval=True),
+                }
+            }
+        )
+        service.resolve_mcp_integration_secrets = AsyncMock(return_value={})
+        lock_service = MagicMock(spec=RegistryLockService)
+        lock_service.resolve_lock_with_bindings = AsyncMock(
+            return_value=RegistryLock(origins={}, actions={})
+        )
+
+        @asynccontextmanager
+        async def preset_context(
+            **_kwargs: object,
+        ) -> AsyncIterator[AgentPresetService]:
+            yield service
+
+        @asynccontextmanager
+        async def lock_context() -> AsyncIterator[RegistryLockService]:
+            yield lock_service
+
+        monkeypatch.setattr(AgentPresetService, "with_session", preset_context)
+        monkeypatch.setattr(RegistryLockService, "with_session", lock_context)
+        monkeypatch.setattr(
+            agent_activities,
+            "build_agent_tools",
+            AsyncMock(return_value=BuildToolsResult(tools=[], collected_secrets=set())),
+        )
+        monkeypatch.setattr(
+            user_client,
+            "discover_user_mcp_tools",
+            AsyncMock(
+                return_value={
+                    f"mcp__example__{name}": MCPToolDefinition(
+                        name=f"mcp__example__{name}",
+                        description="Synthetic tool",
+                        parameters_json_schema={"type": "object"},
+                    )
+                    for name in raw_names
+                }
+            ),
+        )
+        check_entitlement = AsyncMock()
+        monkeypatch.setattr(
+            AgentActivities, "_check_tool_approval_entitlement", check_entitlement
+        )
+        result = await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=mock_role,
+                tool_filters=ToolFilters(actions=[]),
+                tool_approvals={approval_key: True} if precomputed_approval else None,
+                mcp_servers=[
+                    {
+                        "type": "http",
+                        "name": "example",
+                        "url": "https://example.test/mcp",
+                        "id": str(integration_id),
+                    }
+                ],
+            )
+        )
+        assert set(result.tool_definitions) == {"mcp__example__a__b"}
+        if stored_approval or precomputed_approval:
+            assert result.tool_approvals == {approval_key: True}
+            check_entitlement.assert_awaited_once_with(mock_role)
+        else:
+            assert result.tool_approvals is None
+            check_entitlement.assert_not_awaited()
+
+    @pytest.mark.anyio
     async def test_classifies_tool_approval_entitlement_denial(
         self,
         monkeypatch: pytest.MonkeyPatch,
@@ -210,12 +313,12 @@ class TestBuildToolDefinitionsActivity:
                 return None
 
         monkeypatch.setattr(
-            agent_activities.TierService,
+            TierService,
             "with_session",
             lambda: _TierContext(),
         )
         monkeypatch.setattr(
-            agent_activities.EntitlementService,
+            EntitlementService,
             "check_entitlement",
             AsyncMock(side_effect=EntitlementRequired("agent_addons")),
         )
@@ -348,6 +451,103 @@ class TestBuildToolDefinitionsActivity:
         assert classification.owner is RuntimeErrorOwner.USER
         assert classification.kind is RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED
         assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert exc_info.value.non_retryable is True
+
+    @pytest.mark.anyio
+    async def test_classifies_registry_lock_invalid_data_as_platform_registry(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        class _LockService:
+            async def resolve_lock_with_bindings(self, _actions: set[str]) -> None:
+                raise RegistryLockInvalidDataError(
+                    "Ambiguous action 'tools.example.get' found in multiple registries"
+                )
+
+        class _AsyncContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            RegistryLockService,
+            "with_session",
+            lambda: _AsyncContext(),
+        )
+
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=[]),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities().build_tool_definitions(args)
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.kind is RuntimeErrorKind.REGISTRY_LOCK_INVALID_DATA
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert exc_info.value.non_retryable is True
+
+    @pytest.mark.anyio
+    async def test_classifies_ambiguous_registry_action_as_user_owned(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        class _LockService:
+            async def resolve_lock_with_bindings(self, _actions: set[str]) -> None:
+                raise RegistryLockAmbiguousActionError(
+                    "tools.example.get",
+                    ["tracecat_registry", "git+ssh://git@example.com/acme/reg.git"],
+                )
+
+        class _AsyncContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            RegistryLockService,
+            "with_session",
+            lambda: _AsyncContext(),
+        )
+
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=[]),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities().build_tool_definitions(args)
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.REGISTRY_LOCK_ACTION_AMBIGUOUS
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert "tools.example.get" in classification.message
+        assert "tracecat_registry" in classification.message
         assert exc_info.value.non_retryable is True
 
     @pytest.mark.anyio
@@ -573,15 +773,24 @@ class TestBuildToolDefinitionsActivity:
         assert entitlement_roles == [mock_role]
 
     @pytest.mark.anyio
-    async def test_mcp_tool_with_dotted_remote_name_always_dropped(
+    @pytest.mark.parametrize(
+        ("unsupported_name", "approval_name"),
+        [
+            ("issue.get", "issue.delete"),
+            ("x" * 65, "y" * 65),
+            ("with space", "with space too"),
+            ("x\n", "y\n"),
+            ("", " "),
+        ],
+    )
+    async def test_mcp_tool_with_unsupported_remote_name_always_dropped(
         self,
         monkeypatch: pytest.MonkeyPatch,
         mock_role: Role,
+        unsupported_name: str,
+        approval_name: str,
     ) -> None:
-        """User MCP tool names reach the provider verbatim (registered on the
-        trusted server without dot-to-underscore conversion). Provider tool-name
-        constraints reject dots, so a dotted remote name is dropped regardless of
-        approval status - otherwise the agent would fail to start."""
+        """Drop unsupported remote names and their precomputed approval policy."""
         from tracecat.agent.mcp import user_client
         from tracecat.agent.preset.service import AgentPresetService
 
@@ -596,23 +805,24 @@ class TestBuildToolDefinitionsActivity:
             fail_on_error: bool = False,
         ) -> dict[str, MCPToolDefinition]:
             return {
-                # Dotted, no approval -> dropped (dot reaches provider verbatim).
-                "mcp__Jira__issue.get": MCPToolDefinition(
-                    name="mcp__Jira__issue.get",
-                    description="Dotted, no approval",
+                f"mcp__Jira__{unsupported_name}": MCPToolDefinition(
+                    name=f"mcp__Jira__{unsupported_name}",
+                    description="Unsupported, no approval",
                     parameters_json_schema={"type": "object"},
                 ),
-                # Dotted, approval-gated -> dropped (dot reaches provider verbatim
-                # and approval key can't round-trip back to the router name).
-                "mcp__Jira__issue.delete": MCPToolDefinition(
-                    name="mcp__Jira__issue.delete",
-                    description="Dotted, approval-gated",
+                f"mcp__Jira__{approval_name}": MCPToolDefinition(
+                    name=f"mcp__Jira__{approval_name}",
+                    description="Unsupported, approval-gated",
                     parameters_json_schema={"type": "object"},
                 ),
-                # Non-dotted -> kept.
-                "mcp__Jira__list_issues": MCPToolDefinition(
-                    name="mcp__Jira__list_issues",
-                    description="Non-dotted, no approval",
+                "mcp__Jira__x": MCPToolDefinition(
+                    name="mcp__Jira__x",
+                    description="Minimum remote name length",
+                    parameters_json_schema={"type": "object"},
+                ),
+                f"mcp__Jira__{'x' * 64}": MCPToolDefinition(
+                    name=f"mcp__Jira__{'x' * 64}",
+                    description="Maximum remote name length",
                     parameters_json_schema={"type": "object"},
                 ),
             }
@@ -624,8 +834,8 @@ class TestBuildToolDefinitionsActivity:
             ) -> dict[uuid.UUID, dict[str, MCPToolSummary]]:
                 return {
                     integration_id: {
-                        "issue.delete": MCPToolSummary(
-                            name="issue.delete",
+                        approval_name: MCPToolSummary(
+                            name=approval_name,
                             requires_approval=True,
                         ),
                     }
@@ -661,9 +871,6 @@ class TestBuildToolDefinitionsActivity:
             ) -> None:
                 return None
 
-        async def mock_check_tool_approval_entitlement(role: Role) -> None:
-            return None
-
         monkeypatch.setattr(
             agent_activities, "build_agent_tools", mock_build_agent_tools
         )
@@ -676,16 +883,18 @@ class TestBuildToolDefinitionsActivity:
             staticmethod(lambda **_kwargs: _PresetContext()),
         )
         monkeypatch.setattr(RegistryLockService, "with_session", lambda: _LockContext())
+        check_entitlement = AsyncMock()
         monkeypatch.setattr(
             AgentActivities,
             "_check_tool_approval_entitlement",
-            staticmethod(mock_check_tool_approval_entitlement),
+            check_entitlement,
         )
 
         result = await AgentActivities().build_tool_definitions(
             BuildToolDefsArgs(
                 role=mock_role,
                 tool_filters=ToolFilters(actions=[]),
+                tool_approvals={f"mcp.Jira.{approval_name}": True},
                 mcp_servers=[
                     {
                         "type": "http",
@@ -697,10 +906,13 @@ class TestBuildToolDefinitionsActivity:
             )
         )
 
-        # Both dotted tools are dropped; only the non-dotted tool survives.
-        assert set(result.tool_definitions) == {"mcp__Jira__list_issues"}
-        # No approval entry is recorded for the dropped approval-gated dotted tool.
+        assert set(result.tool_definitions) == {
+            "mcp__Jira__x",
+            f"mcp__Jira__{'x' * 64}",
+        }
+        # Dropped tools must not leave behind approval entries.
         assert not (result.tool_approvals or {})
+        check_entitlement.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_build_agent_tool_definitions_returns_partitioned_scopes(
@@ -830,7 +1042,10 @@ class TestCreateSessionActivity:
 
         # Set up the mock service
         mock_service = AsyncMock()
-        mock_service.get_or_create_session.return_value = (MagicMock(), True)
+        mock_service.get_or_create_session.return_value = (
+            MagicMock(backend_id="oss", harness_type="claude_code"),
+            True,
+        )
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
@@ -858,7 +1073,7 @@ class TestCreateSessionActivity:
         )
 
         # Set up the mock service
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
         mock_agent_session.parent_session_id = None
@@ -890,7 +1105,7 @@ class TestCreateSessionActivity:
             agents_binding=agents_binding,
         )
 
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
         mock_agent_session.parent_session_id = None
@@ -1026,7 +1241,7 @@ class TestCreateSessionActivity:
             enforce_session_agents_binding=enforce_session_agents_binding,
         )
 
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = persisted_agents_binding
         mock_agent_session.sdk_session_id = sdk_session_id
         mock_agent_session.parent_session_id = parent_session_id
@@ -1083,7 +1298,7 @@ class TestCreateSessionActivity:
         )
 
         mock_service = AsyncMock()
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
         mock_agent_session.parent_session_id = None
@@ -1149,7 +1364,10 @@ class TestCreateSessionActivity:
 
         # Set up the mock service
         mock_service = AsyncMock()
-        mock_service.get_or_create_session.return_value = (MagicMock(), True)
+        mock_service.get_or_create_session.return_value = (
+            MagicMock(backend_id="oss", harness_type="claude_code"),
+            True,
+        )
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
@@ -1177,7 +1395,7 @@ class TestCreateSessionActivity:
             initial_user_prompt="Investigate login failures",
         )
 
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (mock_agent_session, True)
@@ -1210,7 +1428,7 @@ class TestCreateSessionActivity:
             initial_user_prompt="Investigate repeated login failures",
         )
 
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
         mock_agent_session.parent_session_id = None
@@ -1798,6 +2016,7 @@ class TestSandboxedAgentExecutorHelpers:
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
         concurrent: bool = False,
+        cancel_fails: bool = False,
     ) -> AgentExecutorResult:
         executor._job_dir = tmp_path
         executor._llm_proxy = cast(
@@ -1829,6 +2048,8 @@ class TestSandboxedAgentExecutorHelpers:
                 await asyncio.Event().wait()
 
             async def cancel_turn(self, _session_id: str) -> None:
+                if cancel_fails:
+                    raise ConcurrentSessionTurnError("synthetic cleanup conflict")
                 return None
 
         async def wait_for_cancel_signal(**_kwargs: Any) -> None:
@@ -1936,9 +2157,15 @@ class TestSandboxedAgentExecutorHelpers:
         tmp_path: Path,
     ) -> None:
         executor = SandboxedAgentExecutor(input=executor_input)
+        classification = agent_executor_timed_out(TimeoutError("secret"))
+        capture = PlatformErrorCapture.for_error("a" * 32, classification)
         executor._fatal_error = LLMProxyError(
             message="raw gateway timeout",
-            classification=agent_executor_timed_out(TimeoutError("secret")),
+            classification=classification,
+            sentry_capture=capture,
+            diagnostic=LLMErrorDiagnostics(
+                route="managed", provider_configuration="custom"
+            ),
         )
         executor._fatal_error_event.set()
 
@@ -1953,7 +2180,125 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
         assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
         assert "secret" not in result.classification.message
+        assert result.sentry_capture == capture
+        restored = AgentExecutorResult.model_validate_json(result.model_dump_json())
+        assert restored.sentry_capture == capture
+        assert result.diagnostic == executor._fatal_error.diagnostic
+        assert "llm" not in result.model_dump(mode="json")["classification"]
         assert result.terminal_stream_error_emitted is True
+
+    @pytest.mark.anyio
+    async def test_fatal_proxy_error_survives_runtime_cleanup_send_done(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        """Runtime cleanup must preserve the proxy's authoritative failure."""
+        executor = SandboxedAgentExecutor(input=executor_input)
+        error = "provider request failed"
+        classification = user_agent_execution_failed()
+        executor._fatal_error = LLMProxyError(
+            message=error,
+            classification=classification,
+        )
+        executor._fatal_error_event.set()
+        executor._job_dir = tmp_path
+        executor._llm_proxy = cast(
+            LLMSocketProxy,
+            SimpleNamespace(start=AsyncMock()),
+        )
+
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor.input.session_id,
+                workspace_id=executor.input.workspace_id,
+            )
+        )
+        stream = SimpleNamespace(
+            append=AsyncMock(),
+            error=AsyncMock(),
+            done=AsyncMock(),
+        )
+        handler._stream_sink = cast(Any, stream)
+        capture = MagicMock()
+        monkeypatch.setattr(
+            "tracecat.agent.executor.loopback.capture_activity_failure",
+            capture,
+        )
+
+        class FakeBroker:
+            @asynccontextmanager
+            async def session_turn_lease(self, _session_id: str):
+                yield
+
+            async def run_turn_in_session_lease(
+                self,
+                _request: ClaudeTurnRequest,
+                turn_handler: LoopbackHandler,
+            ) -> None:
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    await turn_handler.send_done()
+
+            async def cancel_turn(self, _session_id: str) -> None:
+                return None
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            lambda: FakeBroker(),
+        )
+
+        result = AgentExecutorResult(
+            success=False,
+            terminal_stream_error_emitted=False,
+        )
+        await executor._run_with_broker(
+            result=result,
+            handler=handler,
+            init_payload=executor._build_runtime_init_payload(),
+            socket_dir=tmp_path / "sockets",
+            llm_socket_path=tmp_path / "sockets" / "llm.sock",
+            artifact_working_set=None,
+            otel_socket_path=None,
+        )
+
+        assert result.success is False
+        assert result.error == error
+        assert result.classification == classification
+        assert result.terminal_stream_error_emitted is True
+        stream.error.assert_awaited_once_with(error)
+        stream.done.assert_not_awaited()
+        capture.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_cleanup_failure_drops_original_proxy_diagnostics(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input)
+        executor._fatal_error = LLMProxyError(
+            message="synthetic proxy timeout",
+            classification=agent_executor_timed_out(),
+            diagnostic=LLMErrorDiagnostics(
+                route="managed", provider_configuration="custom"
+            ),
+        )
+        executor._fatal_error_event.set()
+
+        result = await self._run_broker_leaf(
+            executor=executor,
+            monkeypatch=monkeypatch,
+            tmp_path=tmp_path,
+            cancel_fails=True,
+        )
+
+        assert result.classification is not None
+        assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        assert result.diagnostic is None
 
     @pytest.mark.anyio
     async def test_elapsed_deadline_is_platform_timeout(
@@ -2212,6 +2557,99 @@ class TestSandboxedAgentExecutorCancellation:
         assert result.cancelled_reason == "user_cancel"
         assert result.error is None
         assert result.success is True
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("interrupt_delivered", [False, True])
+    @pytest.mark.parametrize("runtime_failed", [False, True])
+    async def test_cancellation_cleanup_timeout_preserves_outcome(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        interrupt_delivered: bool,
+        runtime_failed: bool,
+    ) -> None:
+        """A stuck shutdown must not escape as an executor-unavailable error."""
+        executor = SandboxedAgentExecutor(input=executor_input)
+        executor._job_dir = tmp_path
+        executor._llm_proxy = AsyncMock()
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor_input.session_id,
+                workspace_id=executor_input.workspace_id,
+            )
+        )
+        if runtime_failed:
+            handler._result = LoopbackResult(
+                success=False,
+                error="runtime crashed",
+                classification=user_agent_execution_failed(),
+            )
+
+        started = asyncio.Event()
+        stopped = asyncio.Event()
+        hard_cancel = AsyncMock()
+
+        class FakeBroker:
+            @asynccontextmanager
+            async def session_turn_lease(self, _session_id: str) -> AsyncIterator[None]:
+                yield
+
+            async def run_turn_in_session_lease(
+                self, _request: ClaudeTurnRequest, _handler: LoopbackHandler
+            ) -> None:
+                started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    stopped.set()
+
+            async def interrupt_turn(self, _session_id: str, _reason: str) -> bool:
+                # Cover both startup that cannot accept an interrupt and a
+                # runtime that accepts it but never finishes shutting down.
+                return interrupt_delivered
+
+            cancel_turn = hard_cancel
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            FakeBroker,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.GRACEFUL_CANCEL_TIMEOUT_SECONDS", 0.01
+        )
+        capture_failure = MagicMock()
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.capture_activity_failure",
+            capture_failure,
+        )
+        result = AgentExecutorResult(success=False, terminal_stream_error_emitted=False)
+        task = asyncio.create_task(
+            executor._run_with_broker(
+                result=result,
+                handler=handler,
+                init_payload=executor._build_runtime_init_payload(),
+                socket_dir=tmp_path / "sockets",
+                llm_socket_path=tmp_path / "sockets" / "llm.sock",
+                artifact_working_set=None,
+                otel_socket_path=None,
+            )
+        )
+        await asyncio.wait_for(started.wait(), timeout=5)
+        task.cancel()
+        await asyncio.wait_for(task, timeout=5)
+
+        hard_cancel.assert_awaited_once_with(str(executor_input.session_id))
+        assert stopped.is_set()
+        assert result.cancelled is True
+        assert result.cancelled_reason == "user_cancel"
+        assert result.success is not runtime_failed
+        assert result.error == ("runtime crashed" if runtime_failed else None)
+        assert result.classification == (
+            user_agent_execution_failed() if runtime_failed else None
+        )
+        assert result.sentry_capture is None
+        capture_failure.assert_not_called()
 
     @pytest.mark.anyio
     async def test_cancel_signal_interrupts_turn_without_task_cancellation(

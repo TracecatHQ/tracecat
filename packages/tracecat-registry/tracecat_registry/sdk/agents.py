@@ -147,6 +147,45 @@ class AgentsClient:
         identifier = _skill_identifier(skill_id, skill_uuid)
         await self._client.delete(f"/agent/skills/{identifier}")
 
+    async def get_skill_draft(
+        self, skill_id: str, *, skill_uuid: str | uuid.UUID | None = None
+    ) -> dict[str, Any]:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        return await self._client.get(f"/agent/skills/{identifier}/draft")
+
+    async def get_skill_draft_file(
+        self,
+        *,
+        skill_id: str,
+        path: str,
+        skill_uuid: str | uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        return await self._client.get(
+            f"/agent/skills/{identifier}/draft/file",
+            params={"path": path},
+        )
+
+    async def patch_skill_draft(
+        self,
+        *,
+        skill_id: str,
+        base_revision: int,
+        operations: list[dict[str, Any]],
+        skill_uuid: str | uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        return await self._client.patch(
+            f"/agent/skills/{identifier}/draft",
+            json={"base_revision": base_revision, "operations": operations},
+        )
+
+    async def publish_skill_draft(
+        self, skill_id: str, *, skill_uuid: str | uuid.UUID | None = None
+    ) -> dict[str, Any]:
+        identifier = _skill_identifier(skill_id, skill_uuid)
+        return await self._client.post(f"/agent/skills/{identifier}/publish")
+
     # --- Preset methods ---
 
     async def list_presets(self) -> list[dict[str, Any]]:

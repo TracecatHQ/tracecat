@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from temporalio import workflow
 from temporalio.common import TypedSearchAttributes
 from temporalio.exceptions import (
@@ -20,6 +20,15 @@ from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 
 with workflow.unsafe.imports_passed_through():
     from tracecat import config
+    from tracecat.agent.backends.schemas import (
+        AgentWorkflowArgs as AgentWorkflowArgs,
+    )
+    from tracecat.agent.backends.schemas import (
+        WorkflowApprovalSubmission as WorkflowApprovalSubmission,
+    )
+    from tracecat.agent.backends.schemas import (
+        WorkflowCancelRequest as WorkflowCancelRequest,
+    )
     from tracecat.agent.common.stream_types import HarnessType
     from tracecat.agent.common.types import (
         MCPToolDefinition,
@@ -43,6 +52,7 @@ with workflow.unsafe.imports_passed_through():
         run_agent_activity,
     )
     from tracecat.agent.executor.schemas import ToolExecutionResult
+    from tracecat.agent.gateway_providers import is_gateway_provider
     from tracecat.agent.llm_routing import get_litellm_route_model
     from tracecat.agent.mcp.executor import (
         AGENT_TOOL_PRIORITY,
@@ -68,7 +78,7 @@ with workflow.unsafe.imports_passed_through():
         ResolvedAgentsRuntimeConfig,
         ResolvedSubagentConfig,
     )
-    from tracecat.agent.schemas import AgentOutput, RunAgentArgs, RunUsage, ToolFilters
+    from tracecat.agent.schemas import AgentOutput, RunUsage, ToolFilters
     from tracecat.agent.session.activities import (
         CreateSessionInput,
         FinalizeTurnInput,
@@ -112,9 +122,10 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.logger import logger
     from tracecat.registry.lock.types import RegistryLock
     from tracecat.runtime.errors import RuntimeErrorClassification
+    from tracecat.temporal.error_chain import iter_error_chain
     from tracecat.temporal.errors import (
+        build_error_transport_detail,
         extract_error_classifications,
-        iter_error_chain,
         raise_application_error_from_classification,
         raise_wrapped_application_error,
     )
@@ -138,7 +149,7 @@ with workflow.unsafe.imports_passed_through():
         EmitSessionErrorInputs,
         ExecuteRemoteMCPToolArgs,
     )
-    from tracecat_ee.agent.approvals.service import ApprovalManager, ApprovalMap
+    from tracecat_ee.agent.approvals.service import ApprovalManager
     from tracecat_ee.agent.context import AgentContext
     from tracecat_ee.agent.types import AgentWorkflowID
 
@@ -327,6 +338,27 @@ def _start_registry_tool_call(
     )
 
 
+_DEFAULT_DENIAL_REASON = "Tool denied by user"
+
+
+def _denied_tool_result_text(denied_tool: DeniedToolCall) -> str:
+    """Build the tool_result text the model sees for a user-denied tool call."""
+    reason = denied_tool.reason.strip()
+    if not reason or reason == _DEFAULT_DENIAL_REASON:
+        header = "Tool denied by user (no reason given)"
+    else:
+        header = f"Tool denied by user: {reason}"
+    return (
+        f"{header}\n\n"
+        f"The user explicitly reviewed this '{denied_tool.tool_name}' call and "
+        "chose not to allow it. It was not executed. Do not retry it, do not "
+        "call the same tool with different arguments, and do not treat this as "
+        "a transient error or an accident. Acknowledge the denial and the "
+        "user's reason, do not offer to retry, and wait for the user to tell "
+        "you how to proceed."
+    )
+
+
 def _cancelled_tool_result(
     tool_call: ApprovedToolCall, *, started: bool
 ) -> PendingToolResult:
@@ -450,64 +482,6 @@ class CompiledAgentRun(BaseModel):
     @property
     def sandbox_subagents(self) -> list[SandboxSubagentConfig]:
         return [subagent.to_sandbox_subagent() for subagent in self.subagents]
-
-
-class AgentWorkflowArgs(BaseModel):
-    """Arguments for starting an agent workflow."""
-
-    # Temporal stores the original workflow input in history. Keep stale keys
-    # replayable after workflow args evolve, including the removed legacy
-    # ``use_workspace_credentials`` flag.
-    model_config = ConfigDict(extra="ignore")
-
-    role: Role
-    agent_args: RunAgentArgs
-    # Session metadata
-    title: str = Field(default="New Chat", description="Session title")
-    entity_type: AgentSessionEntity = Field(
-        ..., description="Type of entity this session is associated with"
-    )
-    entity_id: uuid.UUID = Field(..., description="ID of the associated entity")
-    tools: list[str] | None = Field(
-        default=None, description="Tools available to the agent"
-    )
-    agent_preset_id: uuid.UUID | None = Field(
-        default=None, description="Agent preset used for this session"
-    )
-    agent_preset_version_id: uuid.UUID | None = Field(
-        default=None,
-        description=(
-            "Pinned preset version used for this workflow run. "
-            "If null, the run follows the preset's current version."
-        ),
-    )
-    harness_type: HarnessType | None = Field(
-        default=None,
-        description="Agent harness type. Reserved for future multi-harness support.",
-    )
-    continue_existing_session: bool = Field(
-        default=False,
-        description=("If true, session_id is caller-supplied and must already exist."),
-    )
-
-
-class WorkflowApprovalSubmission(BaseModel):
-    approvals: ApprovalMap
-    approved_by: uuid.UUID | None = None
-    decision_metadata: dict[str, dict[str, Any]] | None = None
-    new_stream_id: uuid.UUID | None = Field(
-        default=None,
-        description=(
-            "Rotated per-turn Redis stream ID. When set, the workflow sends every "
-            "event emitted after approval resumes to this new stream instead of "
-            "the stream that ended at the approval pause, which may already have "
-            "expired."
-        ),
-    )
-
-
-class WorkflowCancelRequest(BaseModel):
-    reason: Literal["user_cancel"] = "user_cancel"
 
 
 def _resolve_agent_output(
@@ -640,11 +614,11 @@ class DurableAgentWorkflow:
         self,
         cfg: AgentConfig,
     ) -> None:
-        if cfg.model_provider != "custom-model-provider":
+        if not is_gateway_provider(cfg.model_provider):
             return
         result = await workflow.execute_activity(
             resolve_custom_model_provider_config_activity,
-            args=(self.role, cfg.catalog_id),
+            args=(self.role, cfg.catalog_id, False, cfg.model_provider),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RETRY_POLICIES["activity:fail_fast"],
         )
@@ -653,7 +627,8 @@ class DurableAgentWorkflow:
         if result.model_name:
             cfg.model_name = result.model_name
         logger.info(
-            "Applied custom model provider runtime config",
+            "Applied gateway provider runtime config",
+            provider=cfg.model_provider,
             passthrough=cfg.passthrough,
             has_model_name_override=result.model_name is not None,
             has_base_url=bool(cfg.base_url),
@@ -1556,8 +1531,12 @@ class DurableAgentWorkflow:
                 # A missing classification can only come from a legacy history or
                 # a broken executor contract. Treat it as a platform invariant,
                 # never infer ownership from the free-form error string.
+                classification = (
+                    result.classification or agent_workflow_internal_error()
+                )
                 raise_application_error_from_classification(
-                    result.classification or agent_workflow_internal_error(),
+                    classification,
+                    build_error_transport_detail(classification, result.diagnostic),
                     capture=result.sentry_capture,
                 )
 
@@ -1906,7 +1885,7 @@ class DurableAgentWorkflow:
                     DeniedToolCall(
                         tool_call_id=tool_call_id,
                         tool_name=tool_name,
-                        reason=decision.message or "Tool denied by user",
+                        reason=decision.message or _DEFAULT_DENIAL_REASON,
                     )
                 )
             elif decision is False:
@@ -1914,7 +1893,7 @@ class DurableAgentWorkflow:
                     DeniedToolCall(
                         tool_call_id=tool_call_id,
                         tool_name=tool_name,
-                        reason="Tool denied by user",
+                        reason=_DEFAULT_DENIAL_REASON,
                     )
                 )
 
@@ -2050,7 +2029,7 @@ class DurableAgentWorkflow:
                 PendingToolResult(
                     tool_call_id=denied_tool.tool_call_id,
                     tool_name=denied_tool.tool_name,
-                    raw_result=f"Tool denied by user: {denied_tool.reason}",
+                    raw_result=_denied_tool_result_text(denied_tool),
                     is_error=True,
                 )
             )

@@ -1413,7 +1413,7 @@ async def test_agent_workflow_resolves_turn_bindings_and_replays(
 
     if session_activity != "stub":
         # Keep real activity validation; only database/Redis I/O is mocked.
-        stored_session = MagicMock()
+        stored_session = MagicMock(backend_id="oss", harness_type="claude_code")
         stored_session.agents_binding = stored_binding.model_dump(mode="json")
         stored_session.sdk_session_id = "sdk-session"
         service = AsyncMock()
@@ -2401,7 +2401,7 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
     ]
     denied_result = pending_results[1]
     assert denied_result.is_error is True
-    assert denied_result.raw_result == "Tool denied by user: too risky"
+    assert denied_result.raw_result.startswith("Tool denied by user: too risky")
 
     decisions_by_tool_call_id = {
         decision.tool_call_id: decision for decision in captured_approval_decisions

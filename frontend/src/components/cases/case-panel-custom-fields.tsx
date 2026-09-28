@@ -69,7 +69,7 @@ export function CustomField({
   formClassName,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
   inputClassName?: string
   inputStyle?: CSSProperties
   onValueChange?: (id: string, value: unknown) => void
@@ -112,7 +112,7 @@ function InlineCustomField({
   formClassName,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
   inputClassName?: string
   inputStyle?: CSSProperties
   onValueChange?: (id: string, value: unknown) => void
@@ -162,7 +162,7 @@ function LongTextCustomField({
   updateCase,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
 }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const currentValue =
@@ -203,7 +203,7 @@ function UrlCustomField({
   updateCase,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
 }) {
   const parsed =
     customField.value &&
@@ -243,7 +243,7 @@ function JsonCustomField({
   updateCase,
 }: {
   customField: CaseFieldRead
-  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<void>
+  updateCase: (caseUpdate: Partial<CaseUpdate>) => Promise<unknown>
 }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const hasValue = customField.value !== null && customField.value !== undefined

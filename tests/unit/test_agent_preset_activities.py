@@ -4,10 +4,15 @@ import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
-from temporalio.exceptions import ApplicationError
+from cryptography.fernet import Fernet
+from pydantic import SecretStr
+from sqlalchemy.ext.asyncio import AsyncSession
+from temporalio.api.failure.v1 import Failure
+from temporalio.exceptions import ActivityError, ApplicationError
+from tracecat_ee.agent.workflows.durable import _agent_activity_classification
 
 from tracecat.agent.preset.activities import (
     ResolveAgentPresetConfigActivityInput,
@@ -23,17 +28,28 @@ from tracecat.agent.preset.resolver import (
     ResolvedSubagentConfig,
 )
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.service import AgentManagementService
 from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAttachedSubagentRef
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
+from tracecat.dsl._converter import get_data_converter
 from tracecat.exceptions import (
+    ScopeDeniedError,
     TracecatAuthorizationError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat.runtime.errors import RuntimeErrorKind, RuntimeErrorOwner
-from tracecat.temporal.errors import extract_error_classification
+from tracecat.runtime.errors import (
+    RetryDisposition,
+    RuntimeErrorKind,
+    RuntimeErrorOwner,
+)
+from tracecat.secrets.schemas import SecretKeyValue
+from tracecat.temporal.errors import (
+    extract_error_classification,
+    raise_wrapped_application_error,
+)
 
 
 class _AsyncContext:
@@ -65,6 +81,18 @@ def minio_server() -> Iterator[None]:
 
 @pytest.fixture(scope="session", autouse=True)
 def workflow_bucket() -> Iterator[None]:
+    yield
+
+
+@pytest.fixture(scope="session", autouse=True)
+def default_org() -> Iterator[None]:
+    """Storage is stubbed throughout this activity unit-test module."""
+    yield
+
+
+@pytest.fixture(autouse=True)
+def clean_redis_db() -> Iterator[None]:
+    """These activity unit tests do not use Redis."""
     yield
 
 
@@ -109,6 +137,8 @@ async def test_resolve_agent_preset_version_ref_activity_returns_ids(
     [
         TracecatNotFoundError("Agent preset not found"),
         TracecatValidationError("Preset version does not belong to preset"),
+        ScopeDeniedError(required_scopes=["agent:read"], missing_scopes=["agent:read"]),
+        TracecatAuthorizationError("Synthetic model access denial"),
     ],
 )
 async def test_resolve_agent_preset_config_classifies_user_input_errors(
@@ -142,6 +172,199 @@ async def test_resolve_agent_preset_config_classifies_user_input_errors(
     assert classification.owner is RuntimeErrorOwner.USER
     assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
     assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "scopes",
+    [
+        pytest.param(None, id="unresolved"),
+        pytest.param(frozenset(), id="empty"),
+        pytest.param(frozenset({"agent:execute"}), id="execute-only"),
+        pytest.param(frozenset({"agent:read"}), id="missing-secret-read"),
+        pytest.param(frozenset({"agent:read", "org:secret:read"}), id="authorized"),
+    ],
+)
+async def test_preset_preparation_enforces_serialized_role_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+    scopes: frozenset[str] | None,
+) -> None:
+    """Exercise the real catalog/provider credential guard across the wire."""
+    monkeypatch.setattr(
+        "tracecat.config.TRACECAT__DB_ENCRYPTION_KEY", Fernet.generate_key().decode()
+    )
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=scopes,
+    )
+    catalog_id = uuid.uuid4()
+    config = AgentConfig(
+        model_name="test-model", model_provider="openai", catalog_id=catalog_id
+    )
+    session = Mock(spec=AsyncSession)
+    session.execute = AsyncMock(
+        return_value=Mock(
+            scalar_one_or_none=Mock(
+                return_value=SimpleNamespace(
+                    custom_provider_id=None,
+                    model_provider="openai",
+                    encrypted_config=None,
+                )
+            )
+        )
+    )
+    converter = get_data_converter()
+    args = ResolveAgentPresetConfigActivityInput(role=role, preset_slug="test-agent")
+    (restored_args,) = await converter.decode(
+        await converter.encode([args]), [ResolveAgentPresetConfigActivityInput]
+    )
+    assert restored_args.role.scopes == scopes
+    service = AgentManagementService(session, restored_args.role)
+    assert service.presets is not None
+    monkeypatch.setattr(
+        service.presets, "resolve_agent_preset_config", AsyncMock(return_value=config)
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.service.AgentModelAccessService.is_catalog_enabled",
+        AsyncMock(return_value=True),
+    )
+    secret_lookup = AsyncMock(return_value=SimpleNamespace(encrypted_keys=b"synthetic"))
+    monkeypatch.setattr(
+        service.secrets_service, "_get_org_secret_by_name", secret_lookup
+    )
+    # Only storage/decryption is stubbed; credential loading and scope checks run.
+    monkeypatch.setattr(
+        service.secrets_service,
+        "decrypt_keys",
+        Mock(
+            return_value=[
+                SecretKeyValue(
+                    key="OPENAI_API_KEY",
+                    value=SecretStr("synthetic-key"),
+                )
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        AgentManagementService, "with_session", lambda **_: _AsyncContext(service)
+    )
+
+    if scopes == frozenset({"agent:read", "org:secret:read"}):
+        result = await resolve_agent_preset_config_activity(restored_args)
+        assert result.catalog_id == catalog_id
+        assert result.model_name == "test-model"
+        secret_lookup.assert_awaited_once()
+        assert "synthetic-key" not in result.model_dump_json()
+        return
+
+    with pytest.raises(ApplicationError) as denied:
+        await resolve_agent_preset_config_activity(restored_args)
+    secret_lookup.assert_not_awaited()
+    classification = extract_error_classification(denied.value)
+    assert classification is not None
+    assert classification.cause_type == "ScopeDeniedError"
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
+    # Use Temporal's actual failure converter, then the durable workflow's
+    # classification and terminal wrapping paths, rather than matching text.
+    failure = Failure()
+    await converter.encode_failure(denied.value, failure)
+    restored = await converter.decode_failure(failure)
+    assert isinstance(restored, ApplicationError)
+    assert restored.non_retryable
+    activity_error = ActivityError(
+        "Activity failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="test-worker",
+        activity_type="resolve_agent_preset_config_activity",
+        activity_id="test-activity",
+        retry_state=None,
+    )
+    activity_error.__cause__ = restored
+    assert _agent_activity_classification(activity_error) == classification
+    with pytest.raises(ApplicationError) as terminal:
+        raise_wrapped_application_error(
+            activity_error,
+            fallback_classification=classification,
+            include_implicit_context=False,
+        )
+    await converter.encode_failure(terminal.value, failure)
+    restored_terminal = await converter.decode_failure(failure)
+    assert isinstance(restored_terminal, ApplicationError)
+    assert restored_terminal.non_retryable
+    assert extract_error_classification(restored_terminal) == classification
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("subagents", [False, True])
+@pytest.mark.parametrize(
+    "error",
+    [
+        ScopeDeniedError(required_scopes=["agent:read"], missing_scopes=["agent:read"]),
+        TracecatAuthorizationError("Synthetic private resource"),
+        ConnectionError("Synthetic database unavailable"),
+    ],
+)
+async def test_preparation_boundary_distinguishes_denials_from_platform_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    subagents: bool,
+    error: Exception,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        organization_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+    )
+    service_class = AgentPresetService if subagents else AgentManagementService
+    monkeypatch.setattr(
+        service_class, "with_session", lambda **_: _FailingAsyncContext(error)
+    )
+    with pytest.raises(Exception) as raised:
+        if subagents:
+            await resolve_agents_config_activity(
+                ResolveAgentsConfigActivityInput(role=role)
+            )
+        else:
+            await resolve_agent_preset_config_activity(
+                ResolveAgentPresetConfigActivityInput(
+                    role=role, preset_slug="test-agent"
+                )
+            )
+
+    failure = Failure()
+    converter = get_data_converter()
+    await converter.encode_failure(raised.value, failure)
+    restored = await converter.decode_failure(failure)
+    activity_error = ActivityError(
+        "Activity failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="test-worker",
+        activity_type="test-preparation",
+        activity_id="test-activity",
+        retry_state=None,
+    )
+    activity_error.__cause__ = restored
+    classification = _agent_activity_classification(activity_error)
+    if isinstance(error, TracecatAuthorizationError):
+        assert isinstance(restored, ApplicationError)
+        assert restored.non_retryable
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert str(error).encode() not in failure.SerializeToString()
+    else:
+        assert raised.value is error
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.kind is RuntimeErrorKind.AGENT_PREPARATION_FAILED
+        assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
 def test_resolve_agents_config_result_derives_session_binding() -> None:

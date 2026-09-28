@@ -51,6 +51,8 @@ class RuntimeErrorKind(StrEnum):
     TENANT_ENTITLEMENT_DENIED = "tenant.entitlement.denied"
     INTEGRATION_RATE_LIMITED = "integration.rate_limited"
     REGISTRY_SYNC_VALIDATION_FAILED = "registry.sync.validation_failed"
+    REGISTRY_LOCK_INVALID_DATA = "registry.lock.invalid_data"
+    REGISTRY_LOCK_ACTION_AMBIGUOUS = "registry.lock.action_ambiguous"
     RUNTIME_UNCLASSIFIED = "runtime.unclassified"
     STORAGE_MATERIALIZATION_TRANSPORT_UNAVAILABLE = (
         "storage.materialization.transport_unavailable"
@@ -59,6 +61,7 @@ class RuntimeErrorKind(StrEnum):
     STORAGE_PERSISTENCE_TRANSPORT_UNAVAILABLE = (
         "storage.persistence.transport_unavailable"
     )
+    EXECUTOR_ACTIVITY_TIMED_OUT = "executor.activity.timed_out"
     EXECUTOR_BACKEND_INITIALIZATION_FAILED = "executor.backend.initialization_failed"
     EXECUTOR_REGISTRY_LEASE_CONTENTION = "executor.registry.lease_contention"
     EXECUTOR_REGISTRY_CAPACITY_EXHAUSTED = "executor.registry.capacity_exhausted"
@@ -81,6 +84,11 @@ class RuntimeErrorKind(StrEnum):
     AGENT_CONFIGURATION_INVALID = "agent.configuration.invalid"
     AGENT_PREPARATION_FAILED = "agent.preparation.failed"
     AGENT_SESSION_INITIALIZATION_FAILED = "agent.session.initialization_failed"
+    AGENT_LLM_GATEWAY_AUTH_FAILED = "agent.llm.gateway_auth_failed"
+    AGENT_LLM_PROVIDER_AUTH_FAILED = "agent.llm.provider_auth_failed"
+    AGENT_LLM_BUDGET_EXCEEDED = "agent.llm.budget_exceeded"
+    AGENT_LLM_RATE_LIMITED = "agent.llm.rate_limited"
+    AGENT_LLM_READ_TIMEOUT = "agent.llm.read_timeout"
     AGENT_EXECUTION_FAILED = "agent.execution.failed"
     AGENT_EXECUTOR_UNAVAILABLE = "agent.executor.unavailable"
     AGENT_EXECUTOR_TIMED_OUT = "agent.executor.timed_out"

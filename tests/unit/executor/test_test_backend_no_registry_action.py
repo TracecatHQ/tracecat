@@ -275,10 +275,7 @@ class TestTestBackendNoRegistryAction:
             async def lease(
                 self,
                 artifact_uris: list[str] | None = None,
-                *,
-                paths_may_be_modified: bool = False,
             ) -> AsyncIterator[list[Path]]:
-                assert paths_may_be_modified is True
                 if artifact_uris == [broken_uri]:
                     raise RuntimeError("artifact unavailable")
                 self.active += 1
@@ -362,11 +359,8 @@ class TestTestBackendNoRegistryAction:
             async def lease(
                 self,
                 artifact_uris: list[str] | None = None,
-                *,
-                paths_may_be_modified: bool = False,
             ) -> AsyncIterator[list[Path]]:
                 assert artifact_uris == [artifact_uri]
-                assert paths_may_be_modified is True
                 self.active += 1
                 try:
                     yield [artifact_path]

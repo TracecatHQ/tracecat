@@ -15,7 +15,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
     container_name: api
     restart: unless-stopped
     networks:
@@ -46,6 +46,11 @@ services:
       TRACECAT__DB_URI: ${TRACECAT__DB_URI} # Sensitive
       TRACECAT__PUBLIC_API_URL: ${TRACECAT__PUBLIC_API_URL}
       TRACECAT__PUBLIC_APP_URL: ${TRACECAT__PUBLIC_APP_URL}
+      TRACECAT__SMTP_HOST: ${TRACECAT__SMTP_HOST:-}
+      TRACECAT__SMTP_PORT: ${TRACECAT__SMTP_PORT:-587}
+      TRACECAT__SMTP_USER: ${TRACECAT__SMTP_USER:-}
+      TRACECAT__SMTP_PASSWORD: ${TRACECAT__SMTP_PASSWORD:-} # Sensitive
+      TRACECAT__EMAIL_FROM: ${TRACECAT__EMAIL_FROM:-}
       TRACECAT__SERVICE_KEY: ${TRACECAT__SERVICE_KEY} # Sensitive
       TRACECAT__SERVICE_NAME: api
       SENTRY_DSN: ${SENTRY_DSN:-}
@@ -64,11 +69,13 @@ services:
       TRACECAT__FEATURE_FLAGS: ${TRACECAT__FEATURE_FLAGS}
       TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
       TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://litellm:4000}
+      TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS: ${TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS:-}
       TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
       TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
       TRACECAT__RESULT_EXTERNALIZATION_ENABLED: ${TRACECAT__RESULT_EXTERNALIZATION_ENABLED:-true}
       TRACECAT__COLLECTION_MANIFESTS_ENABLED: ${TRACECAT__COLLECTION_MANIFESTS_ENABLED:-true}
       TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES: ${TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES}
+      TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING: ${TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING:-false}
       # SAML SSO
       SAML_IDP_METADATA_URL: ${SAML_IDP_METADATA_URL}
       # Temporal
@@ -83,6 +90,7 @@ services:
       TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS:-128}
       # Blob Storage (MinIO/S3)
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      TRACECAT__BLOB_STORAGE_SSL_VERIFY: ${TRACECAT__BLOB_STORAGE_SSL_VERIFY:-true}
       TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: ${TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:-${TRACECAT__PUBLIC_APP_URL}/s3}
       TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW: ${TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW:-tracecat-workflow}
       TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS: ${TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS:-tracecat-attachments}
@@ -108,14 +116,14 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost:$${PORT:-8000}/health"]
       interval: 5s
       timeout: 5s
       retries: 30
       start_period: 10s
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
     restart: unless-stopped
     networks:
       - core
@@ -153,6 +161,7 @@ services:
       TRACECAT__RESULT_EXTERNALIZATION_ENABLED: ${TRACECAT__RESULT_EXTERNALIZATION_ENABLED:-true}
       TRACECAT__COLLECTION_MANIFESTS_ENABLED: ${TRACECAT__COLLECTION_MANIFESTS_ENABLED:-true}
       TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES: ${TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES}
+      TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING: ${TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING:-false}
       # Temporal
       TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
       TEMPORAL__CLUSTER_QUEUE: ${TEMPORAL__CLUSTER_QUEUE}
@@ -177,6 +186,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       # Blob storage (MinIO/S3)
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      TRACECAT__BLOB_STORAGE_SSL_VERIFY: ${TRACECAT__BLOB_STORAGE_SSL_VERIFY:-true}
       TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW: ${TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW:-tracecat-workflow}
       TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS: ${TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS:-tracecat-attachments}
       TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY: ${TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY:-tracecat-registry}
@@ -195,13 +205,15 @@ services:
         condition: service_healthy
 
   executor:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
     restart: unless-stopped
 
     # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable
-    # via nested user namespaces (fresh per-userns fork counter), so the
-    # cgroup pids limit is the reliable bound. 4096 leaves headroom above
-    # the in-jail 64-process caps at executor default concurrency (16 x 64 = 1024).
+    # via nested user namespaces (fresh per-userns fork counter).
+    # All activities, loop iterations, and executor overhead share this cap.
+    # Defaults allow 32 activities x 4 for_each iterations x 64 in-jail
+    # processes = 8192, exceeding this intentional aggregate safety limit.
+    # Process-heavy workloads can hit the cap and fail to fork.
     pids_limit: 4096
     networks:
       - core
@@ -249,6 +261,7 @@ services:
       TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES: ${TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES:-64}
       TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES: ${TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES:-10737418240}
       TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
+      TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING: ${TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING:-false}
       # Local registry
       TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
       TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED:-false}
@@ -283,8 +296,8 @@ services:
       # Executor worker configuration
       TRACECAT__EXECUTOR_QUEUE: ${TRACECAT__EXECUTOR_QUEUE:-shared-action-queue}
       TRACECAT__EXECUTOR_BACKEND: ${TRACECAT__EXECUTOR_BACKEND:-direct}
-      TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-16}
-      TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS: ${TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS:-16}
+      TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-32}
+      TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS: ${TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS:-32}
       TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY: ${TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY:-4}
       # Sentry
       SENTRY_DSN: ${SENTRY_DSN:-}
@@ -292,6 +305,7 @@ services:
       REDIS_URL: ${REDIS_URL}
       # Blob storage (MinIO/S3)
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      TRACECAT__BLOB_STORAGE_SSL_VERIFY: ${TRACECAT__BLOB_STORAGE_SSL_VERIFY:-true}
       TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW: ${TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW:-tracecat-workflow}
       TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS: ${TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS:-tracecat-attachments}
       TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY: ${TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY:-tracecat-registry}
@@ -313,7 +327,7 @@ services:
         condition: service_healthy
 
   agent-worker:
-      image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
+      image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
       restart: unless-stopped
       networks:
         - core
@@ -352,6 +366,7 @@ services:
         TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES: ${TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES}
         # Registry
         TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
+        TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING: ${TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING:-false}
         # Temporal
         TEMPORAL__CLUSTER_URL: ${TEMPORAL__CLUSTER_URL}
         TEMPORAL__CLUSTER_NAMESPACE: ${TEMPORAL__CLUSTER_NAMESPACE}
@@ -367,12 +382,15 @@ services:
         TRACECAT__AGENT_EXECUTOR_QUEUE: ${TRACECAT__AGENT_EXECUTOR_QUEUE:-shared-agent-executor-queue}
         TRACECAT__EXECUTOR_QUEUE: ${TRACECAT__EXECUTOR_QUEUE:-shared-action-queue}
         TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__AGENT_MAX_CONCURRENT_ACTIVITIES:-100}
+        TEMPORAL__THREADPOOL_MAX_WORKERS: ${TEMPORAL__THREADPOOL_MAX_WORKERS:-100}
         TRACECAT__EXECUTOR_CLIENT_TIMEOUT: ${TRACECAT__EXECUTOR_CLIENT_TIMEOUT:-300}
         TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://litellm:4000}
+        TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS: ${TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS:-}
         # Redis
         REDIS_URL: ${REDIS_URL}
         # Blob storage (MinIO/S3)
         TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+        TRACECAT__BLOB_STORAGE_SSL_VERIFY: ${TRACECAT__BLOB_STORAGE_SSL_VERIFY:-true}
         TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW: ${TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW:-tracecat-workflow}
         TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS: ${TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS:-tracecat-attachments}
         TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY: ${TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY:-tracecat-registry}
@@ -391,7 +409,7 @@ services:
           condition: service_healthy
 
   litellm:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
     restart: unless-stopped
     networks:
       - core
@@ -410,26 +428,27 @@ services:
       TRACECAT__DB_AUTH_MAX_OVERFLOW: ${TRACECAT__DB_AUTH_MAX_OVERFLOW:-5}
       TRACECAT__LITELLM_PORT: ${TRACECAT__LITELLM_PORT:-4000}
       TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://litellm:4000}
+      TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS: ${TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS:-}
       PYTHONPATH: /app:/app/packages/tracecat-registry:/app/packages/tracecat-ee
     command: ["python", "-m", "tracecat.agent.litellm"]
     depends_on:
       migrations:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health/readiness"]
+      test: ["CMD-SHELL", "curl -f http://localhost:$${TRACECAT__LITELLM_PORT:-4000}/health/readiness"]
       interval: 5s
       timeout: 5s
       retries: 30
       start_period: 10s
 
   agent-executor:
-      image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
+      image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
       restart: unless-stopped
 
       # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable
       # via nested user namespaces (fresh per-userns fork counter), so the
       # cgroup pids limit is the reliable bound. 4096 leaves headroom above
-      # the in-jail 64-process caps at executor default concurrency (16 x 64 = 1024).
+      # the in-jail 64-process caps at agent-executor default concurrency (8 x 64 = 512).
       pids_limit: 4096
       networks:
         - core
@@ -469,6 +488,7 @@ services:
         TRACECAT__EE_MULTI_TENANT: ${TRACECAT__EE_MULTI_TENANT:-false}
         TRACECAT__API_URL: ${TRACECAT__API_URL:-http://api:8000}
         TRACECAT__LITELLM_BASE_URL: ${TRACECAT__LITELLM_BASE_URL:-http://litellm:4000}
+        TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS: ${TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS:-}
         # Compression (must match worker for codec compatibility)
         TRACECAT__CONTEXT_COMPRESSION_ENABLED: ${TRACECAT__CONTEXT_COMPRESSION_ENABLED:-false}
         TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB: ${TRACECAT__CONTEXT_COMPRESSION_THRESHOLD_KB:-16}
@@ -479,6 +499,7 @@ services:
         TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES: ${TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_ENTRIES:-64}
         TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES: ${TRACECAT__EXECUTOR_REGISTRY_CACHE_MAX_BYTES:-10737418240}
         TRACECAT__UNSAFE_DISABLE_SM_MASKING: ${TRACECAT__UNSAFE_DISABLE_SM_MASKING:-false}
+        TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING: ${TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING:-false}
         # Local registry
         TRACECAT__LOCAL_REPOSITORY_PATH: ${TRACECAT__LOCAL_REPOSITORY_PATH}
         TRACECAT__LOCAL_REPOSITORY_ENABLED: ${TRACECAT__LOCAL_REPOSITORY_ENABLED:-false}
@@ -506,7 +527,9 @@ services:
         TRACECAT__AGENT_QUEUE: ${TRACECAT__AGENT_QUEUE:-shared-agent-queue}
         TRACECAT__AGENT_EXECUTOR_QUEUE: ${TRACECAT__AGENT_EXECUTOR_QUEUE:-shared-agent-executor-queue}
         TRACECAT__EXECUTOR_QUEUE: ${TRACECAT__EXECUTOR_QUEUE:-shared-action-queue}
-        TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-1}
+        TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES: ${TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-8}
+        # Keep the thread pool aligned with agent activity concurrency.
+        TEMPORAL__THREADPOOL_MAX_WORKERS: ${TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES:-8}
         TRACECAT__LLM_PROXY_READ_TIMEOUT: ${TRACECAT__LLM_PROXY_READ_TIMEOUT:-600}
         TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS: ${TRACECAT__LLM_GATEWAY_CREDENTIAL_CACHE_TTL_SECONDS:-60}
         TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS: ${TRACECAT__LLM_GATEWAY_HEALTHCHECK_INTERVAL_SECONDS:-30}
@@ -521,6 +544,7 @@ services:
         REDIS_URL: ${REDIS_URL}
         # Blob storage (MinIO/S3)
         TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+        TRACECAT__BLOB_STORAGE_SSL_VERIFY: ${TRACECAT__BLOB_STORAGE_SSL_VERIFY:-true}
         TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW: ${TRACECAT__BLOB_STORAGE_BUCKET_WORKFLOW:-tracecat-workflow}
         TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS: ${TRACECAT__BLOB_STORAGE_BUCKET_ATTACHMENTS:-tracecat-attachments}
         TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY: ${TRACECAT__BLOB_STORAGE_BUCKET_REGISTRY:-tracecat-registry}
@@ -544,7 +568,7 @@ services:
           condition: service_healthy
 
   mcp:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
     restart: on-failure:3
     networks:
       - core
@@ -587,6 +611,7 @@ services:
       TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS: ${TEMPORAL__PAYLOAD_ENCRYPTION_CACHE_MAX_ITEMS:-128}
       # Blob Storage (MinIO/S3)
       TRACECAT__BLOB_STORAGE_ENDPOINT: ${TRACECAT__BLOB_STORAGE_ENDPOINT:-http://minio:9000}
+      TRACECAT__BLOB_STORAGE_SSL_VERIFY: ${TRACECAT__BLOB_STORAGE_SSL_VERIFY:-true}
       TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT: ${TRACECAT__BLOB_STORAGE_PRESIGNED_URL_ENDPOINT:-${TRACECAT__PUBLIC_APP_URL}/s3}
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -602,7 +627,7 @@ services:
         condition: service_healthy
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-1.0.0}
     container_name: ui
     restart: unless-stopped
     networks:
@@ -620,26 +645,28 @@ services:
       - api
 
   postgres_db:
-    image: postgres:16
+    image: ${TRACECAT__PGVECTOR_IMAGE:-ghcr.io/tracecathq/tracecat-postgres:1}
     container_name: postgres_db
+    command: ["postgres"]
     restart: unless-stopped
     networks:
       - core-db
     shm_size: 128mb
     environment:
+      POSTGRES_DB: postgres
       POSTGRES_USER: ${TRACECAT__POSTGRES_USER}
       POSTGRES_PASSWORD: ${TRACECAT__POSTGRES_PASSWORD}
     volumes:
       - core-db:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d postgres"]
       interval: 5s
       timeout: 5s
       retries: 12
-      start_period: 5s
+      start_period: 180s
 
   migrations:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0-beta.50}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
     container_name: migrations
     restart: "no"
     networks:
@@ -709,8 +736,17 @@ services:
     depends_on:
       - temporal
 
+  minio-init:
+    image: cgr.dev/chainguard/minio:latest@sha256:6a1d0b45c8669726bba580ced0bfa4cb9fdeed1ed636dfabd81d1577beb6937b
+    user: "0:0"
+    entrypoint: ["chown", "-R", "65532:65532", "/data"]
+    volumes:
+      - minio-data:/data
+    network_mode: none
+    restart: "no"
+
   minio:
-    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: cgr.dev/chainguard/minio:latest@sha256:6a1d0b45c8669726bba580ced0bfa4cb9fdeed1ed636dfabd81d1577beb6937b
     container_name: minio
     restart: unless-stopped
     networks:
@@ -721,6 +757,9 @@ services:
     volumes:
       - minio-data:/data
     command: server /data --console-address ":9001"
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
       interval: 5s

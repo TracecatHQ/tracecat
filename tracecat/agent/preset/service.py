@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import JSONB, aggregate_order_by
 from sqlalchemy.orm import load_only, selectinload
 
+from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
@@ -23,6 +24,7 @@ from tracecat.agent.common.types import (
     MCPServerToolSummary,
     MCPStdioServerConfig,
 )
+from tracecat.agent.mcp.utils import is_tracecat_registry_server_name
 from tracecat.agent.preset.resolver import resolve_agents_config
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -107,7 +109,7 @@ from tracecat.pagination import (
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.common import call_with_masked_errors
-from tracecat.service import BaseWorkspaceService, requires_entitlement
+from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.enums import Entitlement
 
 if TYPE_CHECKING:
@@ -143,7 +145,6 @@ class AgentPresetService(BaseWorkspaceService):
         self.skill_tools = SkillToolDependencyService(session, role=self.role)
         self.tool_policy = PresetToolPolicyService(session, role=self.role)
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_presets(self) -> Sequence[AgentPreset]:
         """Return all agent presets for the current workspace ordered by recency."""
 
@@ -163,23 +164,37 @@ class AgentPresetService(BaseWorkspaceService):
         binding_model: type[AgentPresetSkill] | type[AgentPresetVersionSkill],
         owner_column: Any,
         owner_id: uuid.UUID,
+        follow_skill_heads: bool = False,
     ) -> list[AgentPresetSkillBindingRead]:
-        """Return resolved skill bindings for a preset head or immutable version."""
+        """Return resolved skill bindings for a preset head or immutable version.
 
-        stmt = (
-            select(
-                binding_model.skill_id,
-                SkillVersion.name,
-                binding_model.skill_version_id,
-                SkillVersion.version,
-            )
-            .join(SkillVersion, binding_model.skill_version_id == SkillVersion.id)
-            .where(
-                binding_model.workspace_id == self.workspace_id,
-                owner_column == owner_id,
-            )
-            .order_by(SkillVersion.name.asc(), binding_model.skill_id.asc())
+        With ``follow_skill_heads`` each binding reports the skill's current
+        published version, which is what the preset runs, instead of the
+        version recorded on the binding row.
+        """
+
+        stmt = select(
+            binding_model.skill_id,
+            SkillVersion.name,
+            SkillVersion.id,
+            SkillVersion.version,
         )
+        if follow_skill_heads:
+            stmt = stmt.join(
+                Skill,
+                sa.and_(
+                    Skill.id == binding_model.skill_id,
+                    Skill.workspace_id == binding_model.workspace_id,
+                ),
+            ).join(SkillVersion, Skill.current_version_id == SkillVersion.id)
+        else:
+            stmt = stmt.join(
+                SkillVersion, binding_model.skill_version_id == SkillVersion.id
+            )
+        stmt = stmt.where(
+            binding_model.workspace_id == self.workspace_id,
+            owner_column == owner_id,
+        ).order_by(SkillVersion.name.asc(), binding_model.skill_id.asc())
         rows = (await self.session.execute(stmt)).tuples().all()
         return [
             AgentPresetSkillBindingRead(
@@ -195,12 +210,13 @@ class AgentPresetService(BaseWorkspaceService):
     async def _list_head_skill_bindings(
         self, preset_id: uuid.UUID
     ) -> list[AgentPresetSkillBindingRead]:
-        """Return mutable skill bindings for a preset head."""
+        """Return a preset head's skill bindings at their current published versions."""
 
         return await self._list_skill_bindings(
             binding_model=AgentPresetSkill,
             owner_column=AgentPresetSkill.preset_id,
             owner_id=preset_id,
+            follow_skill_heads=True,
         )
 
     async def _list_version_skill_bindings(
@@ -341,6 +357,19 @@ class AgentPresetService(BaseWorkspaceService):
             )
         )[version.id]
 
+    @staticmethod
+    def _validate_effective_tool_count(policy: EffectivePresetTools) -> None:
+        max_tools = config.TRACECAT__AGENT_MAX_TOOLS
+        if max_tools > 0 and len(policy.actions) > max_tools:
+            raise TracecatValidationError(
+                f"Cannot request more than {max_tools} tools",
+                detail={
+                    "code": "agent_tool_limit_exceeded",
+                    "tool_count": len(policy.actions),
+                    "max_tools": max_tools,
+                },
+            )
+
     async def preview_tool_policy(
         self, params: AgentPresetToolPolicyPreview
     ) -> AgentPresetToolPolicyRead:
@@ -367,6 +396,7 @@ class AgentPresetService(BaseWorkspaceService):
             inputs.mcp_integrations, list(metadata.integrations.values())
         )
         policy = resolve_tool_policy(inputs, metadata.versions, metadata.integrations)
+        self._validate_effective_tool_count(policy)
         return self._tool_policy_read(policy)
 
     async def build_preset_list_reads(
@@ -478,9 +508,11 @@ class AgentPresetService(BaseWorkspaceService):
 
     @require_scope("agent:create")
     @audit_log(resource_type="agent_preset", action="create")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_preset(self, params: AgentPresetCreate) -> AgentPreset:
         """Create a new agent preset scoped to the current workspace."""
+
+        if params.tool_approvals:
+            await self.require_entitlement(Entitlement.AGENT_ADDONS)
 
         slug = await self._normalize_and_validate_slug(
             proposed_slug=params.slug,
@@ -588,11 +620,13 @@ class AgentPresetService(BaseWorkspaceService):
 
     @require_scope("agent:update")
     @audit_log(resource_type="agent_preset", action="update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def update_preset(
         self, preset: AgentPreset, params: AgentPresetUpdate
     ) -> AgentPreset:
         """Update an existing preset."""
+        if params.tool_approvals:
+            await self.require_entitlement(Entitlement.AGENT_ADDONS)
+
         set_fields = params.model_dump(exclude_unset=True, exclude={"skills"})
         execution_changed = False
         requested_skills = None
@@ -757,7 +791,6 @@ class AgentPresetService(BaseWorkspaceService):
 
     @require_scope("agent:delete")
     @audit_log(resource_type="agent_preset", action="delete")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def delete_preset(
         self,
         preset: AgentPreset,
@@ -823,7 +856,6 @@ class AgentPresetService(BaseWorkspaceService):
         self.session.add(preset)
         await self.session.commit()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def resolve_agent_preset_config(
         self,
         *,
@@ -847,7 +879,6 @@ class AgentPresetService(BaseWorkspaceService):
             resolve_dependencies_from_heads=resolve_dependencies_from_heads,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def resolve_agent_preset_version(
         self,
         *,
@@ -1343,9 +1374,19 @@ class AgentPresetService(BaseWorkspaceService):
                     },
                 )
                 continue
+            if is_tracecat_registry_server_name(mcp_integration.slug):
+                raise TracecatValidationError(
+                    "MCP integration slug conflicts with the built-in registry. "
+                    "Recreate the integration to assign a safe slug.",
+                    detail={
+                        "code": "reserved_mcp_integration_slug",
+                        "mcp_integration_id": str(mcp_integration.id),
+                    },
+                )
             http_ref: MCPHttpServerConfig = {
                 "type": "http",
-                "name": mcp_integration.name,
+                # Display names need not be unique; route by the workspace-unique slug.
+                "name": mcp_integration.slug,
                 "url": mcp_integration.server_uri,
                 "id": str(mcp_integration.id),
             }
@@ -1615,7 +1656,6 @@ class AgentPresetService(BaseWorkspaceService):
             )
         return slug
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_preset(
         self, preset_id: uuid.UUID, *, include_deleted: bool = False
     ) -> AgentPreset | None:
@@ -1632,7 +1672,6 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_preset_by_slug(
         self, slug: str, *, include_deleted: bool = False
     ) -> AgentPreset | None:
@@ -1649,7 +1688,6 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_versions(
         self,
         preset_id: uuid.UUID,
@@ -1778,7 +1816,6 @@ class AgentPresetService(BaseWorkspaceService):
             has_previous=params.cursor is not None,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version(self, version_id: uuid.UUID) -> AgentPresetVersion | None:
         """Get a preset version by ID."""
         stmt = select(AgentPresetVersion).where(
@@ -1788,7 +1825,6 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_active_version(
         self,
         *,
@@ -1814,7 +1850,6 @@ class AgentPresetService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalars().first()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_by_number(
         self, *, preset_id: uuid.UUID, version: int
     ) -> AgentPresetVersion | None:
@@ -2185,7 +2220,6 @@ class AgentPresetService(BaseWorkspaceService):
 
     @require_scope("agent:update")
     @audit_log(resource_type="agent_preset", action="update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def restore_version(
         self, preset: AgentPreset, version: AgentPresetVersion
     ) -> AgentPreset:
@@ -2198,6 +2232,9 @@ class AgentPresetService(BaseWorkspaceService):
         # A deletion may have removed dependencies since this snapshot was
         # loaded by the caller. Restore the stored membership, never that cache.
         await self.session.refresh(version)
+
+        if version.tool_approvals:
+            await self.require_entitlement(Entitlement.AGENT_ADDONS)
 
         restored_bindings = await self._current_skill_bindings_for_version(
             version.id,
@@ -2235,7 +2272,6 @@ class AgentPresetService(BaseWorkspaceService):
         )
         return agents
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def compare_versions(
         self,
         base_version: AgentPresetVersion,
@@ -2355,6 +2391,7 @@ class AgentPresetService(BaseWorkspaceService):
             metadata=metadata,
         )
         policy = resolve_tool_policy(inputs, metadata.versions, metadata.integrations)
+        self._validate_effective_tool_count(policy)
         mcp_servers = self._resolve_tool_mcp_grants(
             policy.mcp_grants, metadata.integrations
         )
@@ -2524,6 +2561,7 @@ class AgentPresetService(BaseWorkspaceService):
                 ]
             )
         )[preset.id]
+        self._validate_effective_tool_count(policy)
         preset.enable_internet_access = (
             preset.enable_internet_access or policy.requires_internet_access
         )

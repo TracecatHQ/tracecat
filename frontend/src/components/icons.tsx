@@ -640,6 +640,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.microsoft_teams": createIconRenderer(MicrosoftTeamsIcon),
     "tools.microsoft_sentinel": createIconRenderer(MicrosoftSentinelIcon),
     "tools.azure_log_analytics": createIconRenderer(AzureLogAnalyticsIcon),
+    "tools.azure_devops": createIconRenderer(AzureDevOpsIcon),
     "tools.google_sheets": createIconRenderer(GoogleSheetsIcon),
     "tools.google_docs": createIconRenderer(GoogleDocsIcon),
     "tools.google_drive": createIconRenderer(GoogleDriveIcon),
@@ -652,8 +653,6 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.google_directory": createIconRenderer(GoogleIcon),
     "tools.google_reports": createIconRenderer(GoogleIcon),
     "tools.google_alert_center": createIconRenderer(GoogleIcon),
-    "tools.google_secops_detection": createIconRenderer(GoogleSecOpsIcon),
-    "tools.google_secops_soar": createIconRenderer(GoogleSecOpsIcon),
     // Existing vendor marks reused across additional namespaces
     "tools.alertmedia": createIconRenderer(AlertMediaIcon),
     "tools.amazon_s3": createIconRenderer(AwsIcon),
@@ -670,7 +669,11 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.runreveal": createIconRenderer(RunRevealIcon),
     "tools.sentry": createIconRenderer(SentryIcon),
     "tools.slack_sdk": createIconRenderer(SlackIcon),
+    "tools.typesafe": createIconRenderer(TypeSafeIcon, {
+      iconClassName: "text-[#1E1E1E] dark:text-white",
+    }),
     "tools.terraform": createIconRenderer(TerraformIcon),
+    "tools.vercel_security": createIconRenderer(VercelIcon),
     "tools.x": createIconRenderer(Icons.twitter, {
       iconClassName: "fill-current",
     }),
@@ -700,6 +703,10 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.rootly": createCatalogIconRenderer("rootly_mcp"),
     "tools.sentinel_one": createCatalogIconRenderer("sentinelone_mcp"),
     "tools.splunk": createCatalogIconRenderer("splunk_mcp"),
+    "tools.google_chronicle": createCatalogIconRenderer(
+      "google_cloud_secops_mcp"
+    ),
+    "tools.rapid7": createCatalogIconRenderer("rapid7_mcp"),
     // Semantic lucide fallbacks (no clean brand mark available)
     "tools.abuseipdb": createColoredLucideRenderer(
       ShieldBan,
@@ -899,6 +906,11 @@ export const providerIcons: Record<
       <AzureLogAnalyticsIcon {...rest} />
     </div>
   ),
+  azure_devops: ({ className, ...rest }) => (
+    <div className={className}>
+      <AzureDevOpsIcon {...rest} />
+    </div>
+  ),
   azure_management: ({ className, ...rest }) => (
     <div className={className}>
       <AzureManagementIcon {...rest} />
@@ -942,6 +954,16 @@ export const providerIcons: Record<
   vllm: ({ className, ...rest }) => (
     <div className={className}>
       <VllmIcon {...rest} />
+    </div>
+  ),
+  litellm: ({ className }) => (
+    <div className={className}>
+      <LiteLLMIcon className="size-full object-contain" />
+    </div>
+  ),
+  openrouter: ({ className, ...rest }) => (
+    <div className={className}>
+      <OpenRouterIcon {...rest} />
     </div>
   ),
   "manual-custom-source": ({ className, ...rest }) => (
@@ -1004,12 +1026,22 @@ export const providerIcons: Record<
       <DatabricksIcon {...rest} />
     </div>
   ),
+  typesafe: ({ className, iconClassName, ...rest }) => (
+    <div className={className}>
+      <TypeSafeIcon
+        {...rest}
+        className={cn("text-[#1E1E1E] dark:text-white", iconClassName)}
+      />
+    </div>
+  ),
   snowflake: ({ className, ...rest }) => (
     <div className={className}>
       <SnowflakeIcon {...rest} />
     </div>
   ),
   jamf: createCatalogIconRenderer("jamf_mcp"),
+  google_chronicle: createCatalogIconRenderer("google_cloud_secops_mcp"),
+  rapid7: createCatalogIconRenderer("rapid7_mcp"),
   slack: ({ className, iconClassName, flairsize: _ignored, ...rest }) => (
     <div className={cn("!rounded-sm", className)}>
       <SlackIcon {...rest} className={cn("size-full", iconClassName)} />
@@ -1222,6 +1254,14 @@ export const secretIcons: Record<
   databricks: ({ className, ...rest }) => (
     <div className={className}>
       <DatabricksIcon {...rest} />
+    </div>
+  ),
+  typesafe: ({ className, iconClassName, ...rest }) => (
+    <div className={className}>
+      <TypeSafeIcon
+        {...rest}
+        className={cn("text-[#1E1E1E] dark:text-white", iconClassName)}
+      />
     </div>
   ),
   snowflake: ({ className, ...rest }) => (
@@ -1661,19 +1701,51 @@ export function OllamaIcon({ className, ...rest }: IconProps) {
 export function VllmIcon({ className, ...rest }: IconProps) {
   return (
     <svg
-      viewBox="0 0 24 24"
+      viewBox="0 0 96 96"
       role="img"
+      aria-label="vLLM"
       className={className}
       xmlns="http://www.w3.org/2000/svg"
       {...rest}
     >
-      <rect x="2" y="2" width="20" height="20" rx="5" fill="#111827" />
-      <path d="M5.5 7.5h2.3l2 6.3 2-6.3h2.2l-3.3 9h-1.8z" fill="#F8FAFC" />
-      <rect x="14.8" y="8" width="1.5" height="8" rx="0.75" fill="#60A5FA" />
-      <rect x="17.2" y="8" width="1.5" height="8" rx="0.75" fill="#34D399" />
-      <rect x="19.6" y="8" width="1.5" height="8" rx="0.75" fill="#FBBF24" />
+      <path
+        fill="#fdb515"
+        d="m41.0477 27.293962l0 55.30709l-27.653542 -55.30709z"
+        fillRule="evenodd"
+      />
+      <path
+        fill="#30a2ff"
+        d="m41.046566 82.60105l21.72966 0l18.653545 -70.385826l-25.574806 13.461943z"
+        fillRule="evenodd"
+      />
     </svg>
   )
+}
+
+export function OpenRouterIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 401.4 293.7"
+      role="img"
+      aria-label="OpenRouter"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      {...rest}
+    >
+      <path
+        fill="#7624F4"
+        d="M303.9475,17.19926c42.79734,0,77.48933,34.69327,77.48933,77.48933s-34.69199,77.48933-77.48933,77.48933l76.86166,76.86244c9.76367,9.76313,2.84903,26.45667-10.95697,26.45667h-220.88335c-71.32686,0-129.14889-57.82202-129.14889-129.14889S77.64197,17.19926,148.96884,17.19926h154.97866ZM148.96884,68.85881c-42.79607,0-77.48933,34.69327-77.48933,77.48933s34.69327,77.48933,77.48933,77.48933,77.48933-34.69327,77.48933-77.48933-34.69327-77.48933-77.48933-77.48933Z"
+      />
+    </svg>
+  )
+}
+
+/**
+ * LiteLLM brand mark. LiteLLM publishes raster assets only, so this renders
+ * the official favicon shipped in `public/`.
+ */
+export function LiteLLMIcon({ className }: { className?: string }) {
+  return <img src="/litellm-icon.png" alt="LiteLLM" className={className} />
 }
 
 export function GoogleSheetsIcon({ className, ...rest }: IconProps) {
@@ -1913,6 +1985,18 @@ export function MicrosoftIcon({ className, ...rest }: IconProps) {
       <path fill="#80CC28" d="M256 121.666H134.335V0H256z" />
       <path fill="#00ADEF" d="M121.663 256.002H0V134.336h121.663z" />
       <path fill="#FBBC09" d="M256 256.002H134.335V134.336H256z" />
+    </svg>
+  )
+}
+
+/**
+ * Official Vercel logomark.
+ * https://vercel.com/geist/brands
+ */
+export function VercelIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg viewBox="0 0 76 65" className={className} {...rest}>
+      <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" fill="currentColor" />
     </svg>
   )
 }
@@ -2383,6 +2467,38 @@ export function AzureLogAnalyticsIcon({ className, ...rest }: IconProps) {
   )
 }
 
+export function AzureDevOpsIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 18 18"
+      className={className}
+      {...rest}
+    >
+      <defs>
+        <linearGradient
+          id="azure-devops-gradient"
+          x1="9"
+          y1="16.97"
+          x2="9"
+          y2="1.03"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop offset="0" stopColor="#0078d4" />
+          <stop offset=".16" stopColor="#1380da" />
+          <stop offset=".53" stopColor="#3c91e5" />
+          <stop offset=".82" stopColor="#559cec" />
+          <stop offset="1" stopColor="#5ea0ef" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M17 4v9.74l-4 3.28-6.2-2.26V17l-3.51-4.59 10.23.8V4.44zm-3.41.49L7.85 1v2.29L2.58 4.84 1 6.87v4.61l2.26 1V6.57z"
+        fill="url(#azure-devops-gradient)"
+      />
+    </svg>
+  )
+}
+
 export function AzureManagementIcon({ className, ...rest }: IconProps) {
   return (
     <svg
@@ -2812,44 +2928,6 @@ export function GrafanaIcon({ className, ...rest }: IconProps) {
   )
 }
 
-export function GoogleSecOpsIcon({ className, ...rest }: IconProps) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      className={className}
-      {...rest}
-    >
-      <path
-        d="M6.4 4.8 H17.6 Q18.8 4.8 18.8 6 V11.5 C18.8 15.8 15.5 18.6 12 20.2 C8.5 18.6 5.2 15.8 5.2 11.5 V6 Q5.2 4.8 6.4 4.8 Z"
-        fill="none"
-        stroke="#4285F4"
-        strokeWidth="2.2"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M18.8 6 V11.5 C18.8 15.8 15.5 18.6 12 20.2"
-        fill="none"
-        stroke="#34A853"
-        strokeWidth="2.2"
-      />
-      <path
-        d="M9.4 8.6 H14.6 Q15.2 8.6 15.2 9.2 V11.6 C15.2 13.9 13.9 15.2 12 16.2 C10.1 15.2 8.8 13.9 8.8 11.6 V9.2 Q8.8 8.6 9.4 8.6 Z"
-        fill="none"
-        stroke="#EA4335"
-        strokeWidth="2"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M10.9 8.6 H9.4 Q8.8 8.6 8.8 9.2 V11.6 C8.8 13.9 10.1 15.2 12 16.2"
-        fill="none"
-        stroke="#FBBC04"
-        strokeWidth="2"
-      />
-    </svg>
-  )
-}
-
 export function PagerDutyIcon({ className, ...rest }: IconProps) {
   return (
     <svg
@@ -3021,6 +3099,21 @@ export function OnePasswordIcon({ className, ...rest }: IconProps) {
           <stop offset="1" stopColor="#1B1C33" />
         </linearGradient>
       </defs>
+    </svg>
+  )
+}
+
+/** TypeSafe AI logo. */
+export function TypeSafeIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg role="img" viewBox="0 0 21 32" className={className} {...rest}>
+      <title>TypeSafe AI</title>
+      <path
+        fill="currentColor"
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M10.3604 0.0713094C10.5495 -0.0544688 10.7065 -0.0082915 10.7568 0.166036L15.5703 2.79201L15.3301 3.23049L15.748 2.95315V8.80959L20.542 11.4248L20.2236 12.0078L20.7422 11.6631V23.6133C20.7422 23.8894 20.5559 24.2375 20.3262 24.3906L10.3828 31.0205V30.4024L10.1201 30.8848L5.32324 28.2686C5.12353 28.365 4.97169 28.262 4.97168 28.0117V22.1533L0.398438 19.6592C0.176221 19.7971 0 19.6973 0 19.4278V7.47756C0.000183397 7.20148 0.186363 6.85331 0.416016 6.70022L10.3604 0.0713094ZM6.26953 27.6455L10.4902 29.9473L19.4336 23.9854L15.2119 21.6836L6.26953 27.6455ZM10.7754 12.7432V18.2178C10.7753 18.4938 10.589 18.842 10.3594 18.9951L5.80371 22.0322V26.9571L14.915 20.8819V9.98342L10.7754 12.7432ZM15.7471 20.8272C15.7471 20.8297 15.7461 20.8324 15.7461 20.835L19.9102 23.1065V12.2188L15.7471 9.94826V20.8272ZM1.33984 19.0332L5.40137 21.249L9.43457 18.5596L5.37305 16.3447L1.33984 19.0332ZM0.832031 7.42287V18.3731L4.97168 15.6133V10.1387C4.97179 9.86264 5.15806 9.51452 5.3877 9.36135L9.94434 6.32424V1.34865L0.832031 7.42287ZM5.80371 15.4395L9.94336 17.6973V12.9131L5.80371 10.6553V15.4395ZM6.27148 9.7715L10.335 11.9883C10.3433 11.9822 10.3509 11.9754 10.3594 11.9697L14.374 9.29104L10.3135 7.07717L6.27148 9.7715ZM10.7764 6.18947L14.916 8.44729V3.57326L10.7764 1.31643V6.18947Z"
+      />
     </svg>
   )
 }

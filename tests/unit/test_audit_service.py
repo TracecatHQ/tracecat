@@ -31,7 +31,12 @@ from tracecat.audit.service import (
     _AuditDelivery,
     _spawn_delivery,
 )
-from tracecat.audit.types import AuditEvent, AuditMetadata, AuditWebhookConfig
+from tracecat.audit.types import (
+    AuditAction,
+    AuditEvent,
+    AuditMetadata,
+    AuditWebhookConfig,
+)
 from tracecat.auth.types import PlatformRole, Role
 from tracecat.auth.users import UserManager
 from tracecat.authz.scopes import ADMIN_SCOPES
@@ -1660,6 +1665,7 @@ async def test_audit_log_organization_invitation_create_uses_returned_id(
     class MockService:
         def __init__(self):
             self.session = AsyncMock()
+            self.role = role
 
         @audit_log(resource_type="organization_invitation", action="create")
         async def create_invitation(self):
@@ -1687,8 +1693,10 @@ async def test_audit_log_organization_invitation_create_uses_returned_id(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("action", ["revoke", "resend"])
 async def test_audit_log_explicit_invitation_id_overrides_result_id(
     role: Role,
+    action: AuditAction,
 ) -> None:
     invitation_id = uuid.uuid4()
     unrelated_result_id = uuid.uuid4()
@@ -1696,10 +1704,11 @@ async def test_audit_log_explicit_invitation_id_overrides_result_id(
     class MockService:
         def __init__(self):
             self.session = AsyncMock()
+            self.role = role
 
         @audit_log(
             resource_type="organization_invitation",
-            action="revoke",
+            action=action,
             resource_id_attr="invitation_id",
         )
         async def revoke_invitation(self, invitation_id: uuid.UUID):
@@ -1720,6 +1729,11 @@ async def test_audit_log_explicit_invitation_id_overrides_result_id(
 
     resource_ids = [call["resource_id"] for call in create_event_calls]
     assert resource_ids == [invitation_id, invitation_id]
+    assert [call["action"] for call in create_event_calls] == [action, action]
+    assert [call["status"] for call in create_event_calls] == [
+        AuditEventStatus.ATTEMPT,
+        AuditEventStatus.SUCCESS,
+    ]
 
 
 @pytest.mark.anyio

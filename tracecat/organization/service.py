@@ -24,7 +24,7 @@ from tracecat.auth.users import (
     get_user_db_context,
     get_user_manager_context,
 )
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import has_scope, require_scope
 from tracecat.authz.service import resolve_grantable_role
 from tracecat.db.models import (
     AccessToken,
@@ -47,6 +47,7 @@ from tracecat.exceptions import (
 )
 from tracecat.identifiers import OrganizationID, SessionID, UserID
 from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.service import reset_invitation_email
 from tracecat.organization.management import (
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
@@ -455,7 +456,15 @@ class OrgService(BaseOrgService):
 
     # === Manage sessions ===
     async def list_sessions(self) -> list[SessionRead]:
-        """List all sessions for users in this organization."""
+        """List all sessions for users in this organization.
+
+        Client metadata (IP address, user agent, last seen) is only returned
+        for callers who can manage sessions (``org:member:remove``); other
+        members see it for their own sessions only.
+        """
+        can_view_metadata = has_scope(
+            self.role.scopes or frozenset(), "org:member:remove"
+        )
         statement = (
             select(AccessToken)
             .join(User, cast(AccessToken.user_id, UUID) == User.id)
@@ -469,15 +478,21 @@ class OrgService(BaseOrgService):
             .options(contains_eager(AccessToken.user))
         )
         result = await self.session.execute(statement)
-        return [
-            SessionRead(
-                id=s.id,
-                created_at=s.created_at,
-                user_id=s.user.id,
-                user_email=s.user.email,
+        sessions: list[SessionRead] = []
+        for s in result.scalars().all():
+            reveal = can_view_metadata or s.user.id == self.role.user_id
+            sessions.append(
+                SessionRead(
+                    id=s.id,
+                    created_at=s.created_at,
+                    user_id=s.user.id,
+                    user_email=s.user.email,
+                    ip_address=s.ip_address if reveal else None,
+                    user_agent=s.user_agent if reveal else None,
+                    last_seen_at=s.last_seen_at if reveal else None,
+                )
             )
-            for s in result.scalars().all()
-        ]
+        return sessions
 
     @require_scope("org:member:remove")
     @audit_log(resource_type="organization_session", action="delete")
@@ -622,11 +637,15 @@ class OrgService(BaseOrgService):
         Raises:
             NoResultFound: If the invitation doesn't exist or belongs to another org.
         """
-        statement = select(OrganizationInvitation).where(
-            and_(
-                OrganizationInvitation.id == invitation_id,
-                OrganizationInvitation.organization_id == self.organization_id,
+        statement = (
+            select(OrganizationInvitation)
+            .where(
+                and_(
+                    OrganizationInvitation.id == invitation_id,
+                    OrganizationInvitation.organization_id == self.organization_id,
+                )
             )
+            .options(selectinload(OrganizationInvitation.role_obj))
         )
         result = await self.session.execute(statement)
         return result.scalar_one()
@@ -820,4 +839,32 @@ class OrgService(BaseOrgService):
         invitation.status = InvitationStatus.REVOKED
         await self.session.commit()
         await self.session.refresh(invitation)
+        return invitation
+
+    @require_scope("org:member:invite")
+    @audit_log(
+        resource_type="organization_invitation",
+        action="resend",
+        resource_id_attr="invitation_id",
+    )
+    async def resend_invitation(
+        self, invitation_id: uuid.UUID
+    ) -> OrganizationInvitation:
+        """Re-enter a pending invitation into the email outbox.
+
+        Args:
+            invitation_id: The invitation UUID.
+
+        Returns:
+            OrganizationInvitation: The updated invitation record.
+
+        Raises:
+            NoResultFound: If the invitation doesn't exist or belongs to another org.
+            TracecatValidationError: If the invitation is not pending, has expired,
+                or email delivery is not configured.
+            TracecatConflictError: If the invitation was claimed within the cooldown.
+        """
+        invitation = await self.get_invitation(invitation_id)
+        await reset_invitation_email(self.session, invitation)
+        await self.session.commit()
         return invitation

@@ -13,7 +13,11 @@ Test Strategy:
 from __future__ import annotations
 
 import base64
+import os
+import subprocess
+import sys
 import uuid
+from pathlib import Path
 from typing import Any, cast, get_args
 
 import httpx
@@ -25,7 +29,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import types
 from tracecat_registry.context import RegistryContext, clear_context, set_context
 from tracecat_registry.core.cases import (
+    PriorityType,
     add_case_tag,
+    aggregate_cases,
     assign_user,
     assign_user_by_email,
     create_case,
@@ -74,12 +80,21 @@ from tracecat.cases.durations.schemas import (
     CaseDurationEventAnchor,
 )
 from tracecat.cases.durations.service import CaseDurationDefinitionService
-from tracecat.cases.enums import CaseEventType
+from tracecat.cases.enums import (
+    CaseEventType,
+    CaseFieldKind,
+    CasePriority,
+    CaseSeverity,
+)
+from tracecat.cases.schemas import CaseFieldCreate
 from tracecat.cases.service import CaseFieldsService
 from tracecat.contexts import ctx_role
 from tracecat.db.dependencies import get_async_session
-from tracecat.db.models import User, Workspace
+from tracecat.db.models import Case, User, Workspace
 from tracecat.executor.action_gateway.app import create_app as create_action_gateway_app
+from tracecat.registry.repository import Repository
+from tracecat.tables.enums import SqlType
+from tracecat.validation.common import json_schema_to_pydantic
 
 # Advisory lock ID for serializing case_fields schema creation in tests.
 # This prevents deadlocks when concurrent tests create workspace-scoped tables
@@ -195,6 +210,259 @@ async def cases_ctx(
         ctx_role.reset(token)
         clear_context()
         app.dependency_overrides.clear()
+
+
+@pytest.mark.anyio
+@pytest.mark.dbtest
+@pytest.mark.usefixtures("db", "cases_ctx")
+class TestAggregateCases:
+    async def test_url_custom_fields_use_url_text_not_json_or_label(
+        self, session: AsyncSession, cases_ctx: Role
+    ) -> None:
+        fields = CaseFieldsService(session=session, role=cases_ctx)
+        await fields.create_field(
+            CaseFieldCreate(name="link", type=SqlType.JSONB, kind=CaseFieldKind.URL)
+        )
+        await fields.create_field(CaseFieldCreate(name="raw", type=SqlType.JSONB))
+        for path, label in [
+            ("first", "First label"),
+            ("first", "Other label"),
+            ("other", "First label"),
+        ]:
+            await create_case(
+                summary="Synthetic URL aggregation case",
+                description="",
+                fields={"link": {"url": f"https://example.com/{path}", "label": label}},
+            )
+
+        assert await aggregate_cases(
+            group_by=["fields.link"],
+            filters={
+                "field": "fields.link",
+                "op": "eq",
+                "value": "https://example.com/first",
+            },
+        ) == {
+            "groups": [{"fields.link": "https://example.com/first", "count": 2}],
+            "truncated": False,
+        }
+        with pytest.raises(SDKValidationError) as unsupported:
+            await aggregate_cases(group_by=["fields.raw"])
+        assert unsupported.value.status_code == 400
+
+    async def test_registered_action_groups_custom_fields(
+        self, session: AsyncSession, cases_ctx: Role
+    ) -> None:
+        fields = CaseFieldsService(session=session, role=cases_ctx)
+        for name, field_type in [("region", SqlType.TEXT), ("amount", SqlType.NUMERIC)]:
+            await fields.create_field(CaseFieldCreate(name=name, type=field_type))
+        for region, amount, severity in [
+            ("alpha", 10, "high"),
+            ("alpha", 20, "fatal"),
+            ("beta", 5, "low"),
+            (None, 15, "critical"),
+        ]:
+            await create_case(
+                summary="Synthetic aggregation case",
+                description="Synthetic description",
+                severity=severity,
+                fields={"region": region, "amount": amount},
+            )
+
+        repo = Repository()
+        repo._register_udf_from_function(aggregate_cases, name="aggregate_cases")
+        action = repo.get("core.cases.aggregate_cases")
+        model = json_schema_to_pydantic(action.get_interface()["expects"])
+        args = model.model_validate(
+            {
+                "group_by": [{"field": "fields.region", "alias": "region"}],
+                "filters": {
+                    "and": [
+                        {"field": "severity", "op": "gte", "value": "high"},
+                        {"not": {"field": "fields.amount", "op": "lt", "value": 10}},
+                    ]
+                },
+                "aggs": [
+                    {"function": "count"},
+                    {"function": "sum", "field": "fields.amount", "alias": "total"},
+                ],
+                "order_by": "total",
+                "sort": "desc",
+            }
+        )
+        result = await action.fn(**action.validate_args(args.model_dump()))
+        assert result == {
+            "groups": [
+                {"region": "alpha", "count": 2, "total": 30.0},
+                {"region": None, "count": 1, "total": 15.0},
+            ],
+            "truncated": False,
+        }
+        assert isinstance(result["groups"][0]["total"], float)
+        TypeAdapter(types.AggregateResponse).validate_python(result)
+        assert await aggregate_cases(group_by=[]) == {
+            "groups": [{"count": 4}],
+            "truncated": False,
+        }
+        assert await aggregate_cases(
+            group_by=["fields.region"], min_count=2, limit=1
+        ) == {"groups": [{"fields.region": "alpha", "count": 2}], "truncated": False}
+        assert await aggregate_cases(group_by=["fields.region"], limit=1) == {
+            "groups": [{"fields.region": "alpha", "count": 2}],
+            "truncated": True,
+        }
+        assert await aggregate_cases(
+            group_by=["fields.region"],
+            filters={"field": "fields.region", "op": "is_null"},
+        ) == {"groups": [{"fields.region": None, "count": 1}], "truncated": False}
+        time_args = model.model_validate(
+            {
+                "group_by": [
+                    {"field": "created_at", "bucket": "month", "timezone": "UTC"}
+                ]
+            }
+        )
+        time_result = await action.fn(**action.validate_args(time_args.model_dump()))
+        assert sum(group["count"] for group in time_result["groups"]) == 4
+        assert all(group["created_at"].endswith("Z") for group in time_result["groups"])
+
+    async def test_omitted_limit_uses_server_default(self) -> None:
+        """Also runs in fresh processes with lower and higher configured limits."""
+        priorities: list[PriorityType] = ["low", "medium", "high"]
+        for priority in priorities:
+            await create_case(
+                summary="Synthetic aggregation case", description="", priority=priority
+            )
+        result = await aggregate_cases(
+            group_by=["priority"], order_by="priority", sort="asc"
+        )
+        expected_count = min(config.TRACECAT__LIMIT_AGG_GROUPS_DEFAULT, 3)
+        assert result == {
+            "groups": [
+                {"priority": priority, "count": 1}
+                for priority in ["low", "medium", "high"][:expected_count]
+            ],
+            "truncated": expected_count < 3,
+        }
+        assert await aggregate_cases(
+            group_by=[], limit=config.TRACECAT__LIMIT_AGG_GROUPS_MAX
+        ) == {"groups": [{"count": 3}], "truncated": False}
+        with pytest.raises(SDKValidationError) as exc:
+            await aggregate_cases(
+                group_by=[], limit=config.TRACECAT__LIMIT_AGG_GROUPS_MAX + 1
+            )
+        assert exc.value.status_code == 422
+
+    async def test_invalid_requests_preserve_status(self) -> None:
+        assert await aggregate_cases(group_by=[]) == {
+            "groups": [{"count": 0}],
+            "truncated": False,
+        }
+        with pytest.raises(SDKValidationError) as semantic:
+            await aggregate_cases(group_by=["fields.missing"])
+        assert semantic.value.status_code == 400
+        for invalid in [{"aggs": []}, {"limit": 0}]:
+            with pytest.raises(SDKValidationError) as structural:
+                await aggregate_cases(group_by=[], **invalid)
+            assert structural.value.status_code == 422
+
+    async def test_missing_custom_field_row_shares_null_group(
+        self, session: AsyncSession, cases_ctx: Role
+    ) -> None:
+        fields = CaseFieldsService(session=session, role=cases_ctx)
+        await fields.create_field(CaseFieldCreate(name="region", type=SqlType.TEXT))
+        await create_case(
+            summary="Explicit null", description="", fields={"region": None}
+        )
+        # Older cases can lack the row that current case creation always adds.
+        session.add(
+            Case(
+                workspace_id=cases_ctx.workspace_id,
+                summary="Missing fields",
+                description="",
+                priority=CasePriority.UNKNOWN,
+                severity=CaseSeverity.UNKNOWN,
+            )
+        )
+        await session.flush()
+        expected = {"groups": [{"fields.region": None, "count": 2}], "truncated": False}
+        assert await aggregate_cases(group_by=["fields.region"]) == expected
+        assert (
+            await aggregate_cases(
+                group_by=["fields.region"],
+                filters={"field": "fields.region", "op": "is_null"},
+            )
+            == expected
+        )
+
+    async def test_real_timeout_preserves_error_details(
+        self, session: AsyncSession, cases_ctx: Role, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        await create_case(summary="Synthetic timeout case", description="")
+        fields = CaseFieldsService(session=session, role=cases_ctx)
+        await fields.create_field(CaseFieldCreate(name="slow", type=SqlType.INTEGER))
+        connection = await session.connection()
+        # Only this test workspace's generated schema is affected. A real slow
+        # view makes the timeout deterministic without mocking query execution.
+        schema = connection.dialect.identifier_preparer.quote_schema(fields.schema_name)
+        await session.execute(sa.text(f"DROP TABLE {schema}.case_fields"))
+        await session.execute(
+            sa.text(
+                f"CREATE VIEW {schema}.case_fields AS "
+                "SELECT id AS case_id, 1 AS slow FROM public.case CROSS JOIN pg_sleep(0.05)"
+            )
+        )
+        monkeypatch.setattr(config, "TRACECAT__AGG_STATEMENT_TIMEOUT_MS", 1)
+        with pytest.raises(SDKValidationError) as exc:
+            await aggregate_cases(group_by=["fields.slow"])
+        assert exc.value.status_code == 422
+        assert isinstance(exc.value.detail, dict)
+        assert exc.value.detail["code"] == "query_timeout"
+        monkeypatch.setattr(config, "TRACECAT__AGG_STATEMENT_TIMEOUT_MS", 30_000)
+        assert await aggregate_cases(group_by=[]) == {
+            "groups": [{"count": 1}],
+            "truncated": False,
+        }
+
+
+@pytest.mark.dbtest
+@pytest.mark.slow
+@pytest.mark.parametrize(("default", "maximum"), [(2, 50), (1200, 2000)])
+def test_aggregate_cases_server_limit_overrides(
+    default: int, maximum: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Load deployment settings before request models and FastAPI cache them.
+    # Each process uses its own randomly named database (tests.database).
+    # Parent test selection must not deselect the explicitly requested child test.
+    monkeypatch.setenv("PYTEST_ADDOPTS", "-k server_limit_overrides -m slow")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "tests/registry/test_cases_characterization.py::TestAggregateCases::test_omitted_limit_uses_server_default",
+            "-o",
+            "addopts=",
+            "-n",
+            "0",
+            "-q",
+            "--tb=short",
+            "-p",
+            "no:cacheprovider",
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        env={
+            **os.environ,
+            "PYTEST_ADDOPTS": "",
+            "TRACECAT__LIMIT_AGG_GROUPS_DEFAULT": str(default),
+            "TRACECAT__LIMIT_AGG_GROUPS_MAX": str(maximum),
+        },
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.fixture

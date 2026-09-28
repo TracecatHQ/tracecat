@@ -629,11 +629,16 @@ class AgentCatalogService(BaseService):
         self,
         *,
         org_id: UUID,
-        custom_provider_id: UUID,
+        custom_provider_id: UUID | None,
         models: Sequence[Mapping[str, Any]],
         model_provider: str,
     ) -> int:
-        """Bulk upsert discovered models for a custom provider."""
+        """Bulk upsert discovered models for a provider.
+
+        Pass ``custom_provider_id`` for rows linked to an ``AgentCustomProvider``.
+        Built-in gateway providers (Ollama, vLLM, LiteLLM, OpenRouter) pass
+        ``None`` and are scoped by ``model_provider`` instead.
+        """
         values: list[_CatalogRowValues] = []
         now = datetime.now(UTC)
         for raw in models:
@@ -670,10 +675,18 @@ class AgentCatalogService(BaseService):
         # Runs even when values is empty so a provider returning no models
         # clears its entire catalog rather than leaving stale rows.
         current_model_names = [v["model_name"] for v in values]
+        provider_scope = (
+            AgentCatalog.custom_provider_id == custom_provider_id
+            if custom_provider_id is not None
+            else and_(
+                AgentCatalog.custom_provider_id.is_(None),
+                AgentCatalog.model_provider == model_provider,
+            )
+        )
         delete_stmt = sa.delete(AgentCatalog).where(
             and_(
                 AgentCatalog.organization_id == org_id,
-                AgentCatalog.custom_provider_id == custom_provider_id,
+                provider_scope,
                 AgentCatalog.model_name.not_in(current_model_names),
             )
         )

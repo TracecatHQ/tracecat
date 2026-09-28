@@ -1221,3 +1221,19 @@ class WorkflowExecutionDetailResponse(WorkflowExecutionSummaryResponse):
 
     history_length: int
     events: list[WorkflowExecutionEventResponse] = Field(default_factory=list)
+
+
+class WorkflowExecutionActionResultResponse(BaseModel):
+    """One byte window of a single action's full stored result, as JSON text."""
+
+    execution_id: WorkflowExecutionID
+    action_ref: str
+    stream_id: str
+    status: str
+    result: str
+    """JSON text of the result, sliced to ``[offset, offset + len(result))`` bytes."""
+    total_bytes: int
+    offset: int
+    truncated: bool
+    next_offset: int | None = None
+    """Byte offset to request next, or null when this window reaches the end."""

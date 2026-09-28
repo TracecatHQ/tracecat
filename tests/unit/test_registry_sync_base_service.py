@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from packaging.version import Version
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ActivityError
@@ -14,7 +14,12 @@ from temporalio.exceptions import ActivityError
 from tests.shared import capture_application_error
 from tracecat import config
 from tracecat.auth.types import Role
-from tracecat.db.models import Organization, PlatformRegistryVersion, RegistryRepository
+from tracecat.db.models import (
+    Organization,
+    PlatformRegistryRepository,
+    PlatformRegistryVersion,
+    RegistryRepository,
+)
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
@@ -34,7 +39,11 @@ from tracecat.registry.sync.artifact import RegistryArtifactBuildResult
 from tracecat.registry.sync.base_service import ArtifactsBuildResult
 from tracecat.registry.sync.platform_service import PlatformRegistrySyncService
 from tracecat.registry.sync.prebuilt import write_prebuilt_registry_manifest
-from tracecat.registry.sync.service import RegistrySyncError, RegistrySyncService
+from tracecat.registry.sync.service import (
+    RegistryActionShadowsBuiltinError,
+    RegistrySyncError,
+    RegistrySyncService,
+)
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.runtime.errors import (
@@ -177,6 +186,105 @@ async def test_sync_creates_collision_version_for_manifest_changes(
     versions_service = RegistryVersionsService(session, role)
     versions = await versions_service.list_versions(repository_id=repo.id)
     assert len(versions) == 2
+
+
+@pytest.mark.anyio
+async def test_custom_sync_rejects_actions_that_shadow_builtin_registry(
+    session: AsyncSession,
+    mock_org_id: uuid.UUID,
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A custom registry cannot redefine an action name the builtin registry owns."""
+    monkeypatch.setattr(config, "TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED", False)
+
+    session.add(
+        Organization(
+            id=mock_org_id,
+            name="Shadow Test Org",
+            slug=f"shadow-test-{mock_org_id.hex[:8]}",
+            is_active=True,
+        )
+    )
+    await session.flush()
+
+    platform_repo = await session.scalar(
+        select(PlatformRegistryRepository).where(
+            PlatformRegistryRepository.origin == DEFAULT_REGISTRY_ORIGIN
+        )
+    )
+    if platform_repo is None:
+        platform_repo = PlatformRegistryRepository(origin=DEFAULT_REGISTRY_ORIGIN)
+        session.add(platform_repo)
+        await session.flush()
+    builtin_actions = [
+        _make_action(repository_id=platform_repo.id, default_title="Builtin")
+    ]
+    platform_version = PlatformRegistryVersion(
+        repository_id=platform_repo.id,
+        version=f"builtin-{uuid.uuid4().hex[:8]}",
+        manifest=RegistryVersionManifest.from_actions(builtin_actions).model_dump(
+            mode="json"
+        ),
+        tarball_uri="s3://platform/builtin.squashfs",
+    )
+    session.add(platform_version)
+    await session.flush()
+    platform_repo.current_version_id = platform_version.id
+    session.add(platform_repo)
+    await session.flush()
+
+    role = Role(
+        type="service",
+        user_id=mock_org_id,
+        organization_id=mock_org_id,
+        workspace_id=uuid.uuid4(),
+        service_id="tracecat-runner",
+    )
+    custom_origin = "git+ssh://git@example.com/acme/custom-registry.git"
+    repos_service = RegistryReposService(session, role)
+    repo = await repos_service.create_repository(
+        RegistryRepositoryCreate(origin=custom_origin)
+    )
+
+    shadowing_action = _make_action(repository_id=repo.id, default_title="Shadow")
+    distinct_action = _make_action(repository_id=repo.id, default_title="Distinct")
+    distinct_action.namespace = "tools.acme_custom"
+    mocker.patch(
+        "tracecat.registry.sync.base_service.fetch_actions_from_subprocess",
+        side_effect=[
+            SimpleNamespace(
+                actions=[shadowing_action, distinct_action],
+                commit_sha="abc123",
+                validation_errors={},
+            ),
+            SimpleNamespace(
+                actions=[distinct_action], commit_sha="abc123", validation_errors={}
+            ),
+        ],
+    )
+    mocker.patch.object(
+        RegistrySyncService,
+        "_build_and_upload_artifacts",
+        return_value=ArtifactsBuildResult(
+            artifact_uri="s3://test-bucket/custom/site-packages.squashfs"
+        ),
+    )
+
+    sync_service = RegistrySyncService(session, role)
+    with pytest.raises(RegistryActionShadowsBuiltinError) as exc_info:
+        await sync_service.sync_repository_v2(repo, commit=False)
+
+    assert exc_info.value.shadowed_actions == ["core.transform.reshape"]
+    assert exc_info.value.origin == custom_origin
+    assert isinstance(exc_info.value, RegistrySyncError)
+    assert repo.current_version_id is None
+    versions_service = RegistryVersionsService(session, role)
+    assert await versions_service.list_versions(repository_id=repo.id) == []
+
+    result = await sync_service.sync_repository_v2(repo, commit=False)
+    assert set(result.version.manifest["actions"]) == {"tools.acme_custom.reshape"}
+    assert repo.current_version_id == result.version.id
 
 
 @pytest.mark.parametrize(

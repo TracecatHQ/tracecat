@@ -176,6 +176,23 @@ resource "aws_iam_policy" "api_only_secrets_access" {
   })
 }
 
+resource "aws_iam_policy" "smtp_password_access" {
+  count       = var.smtp_password_arn != null ? 1 : 0
+  name        = "${var.iam_name_prefix}SmtpPasswordAccessPolicy"
+  description = "Policy for accessing the SMTP password (API service only)"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = [var.smtp_password_arn]
+      }
+    ]
+  })
+}
+
 resource "aws_iam_policy" "temporal_payload_encryption_keyring_access" {
   count       = var.temporal_payload_encryption_keyring_arn != null ? 1 : 0
   name        = "${var.iam_name_prefix}TemporalPayloadEncryptionKeyringAccessPolicy"
@@ -188,23 +205,6 @@ resource "aws_iam_policy" "temporal_payload_encryption_keyring_access" {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = [var.temporal_payload_encryption_keyring_arn]
-      }
-    ]
-  })
-}
-
-resource "aws_iam_policy" "platform_otel_headers_access" {
-  count       = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
-  name        = "${var.iam_name_prefix}PlatformOTelHeadersAccessPolicy"
-  description = "Policy for accessing OTLP exporter headers"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["secretsmanager:GetSecretValue"]
-        Resource = [var.otel_exporter_otlp_headers_arn]
       }
     ]
   })
@@ -270,9 +270,9 @@ resource "aws_iam_role_policy_attachment" "api_execution_api_only_secrets" {
   role       = aws_iam_role.api_execution.name
 }
 
-resource "aws_iam_role_policy_attachment" "api_execution_platform_otel_headers" {
-  count      = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
-  policy_arn = aws_iam_policy.platform_otel_headers_access[0].arn
+resource "aws_iam_role_policy_attachment" "api_execution_smtp_password" {
+  count      = var.smtp_password_arn != null ? 1 : 0
+  policy_arn = aws_iam_policy.smtp_password_access[0].arn
   role       = aws_iam_role.api_execution.name
 }
 
@@ -289,12 +289,6 @@ resource "aws_iam_role_policy_attachment" "worker_execution_ecs_poll" {
 
 resource "aws_iam_role_policy_attachment" "worker_execution_secrets" {
   policy_arn = aws_iam_policy.secrets_access.arn
-  role       = aws_iam_role.worker_execution.name
-}
-
-resource "aws_iam_role_policy_attachment" "worker_execution_platform_otel_headers" {
-  count      = var.otel_exporter_otlp_headers_arn != null ? 1 : 0
-  policy_arn = aws_iam_policy.platform_otel_headers_access[0].arn
   role       = aws_iam_role.worker_execution.name
 }
 

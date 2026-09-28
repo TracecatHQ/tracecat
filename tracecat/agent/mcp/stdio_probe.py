@@ -27,7 +27,7 @@ from tracecat.agent.mcp.stdio_probe_types import (
     build_stdio_mcp_probe_workflow_id,
     sanitize_stdio_probe_error,
 )
-from tracecat.agent.mcp.utils import STDIO_MCP_TOOL_NAME_RE
+from tracecat.agent.mcp.utils import MCP_TOOL_NAME_RE
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import SandboxTimeoutError
@@ -278,7 +278,7 @@ def _parse_probe_tools(output: object) -> list[MCPToolSummary]:
         name = raw_tool.get("name")
         if not isinstance(name, str) or not name:
             continue
-        if not STDIO_MCP_TOOL_NAME_RE.fullmatch(name):
+        if not MCP_TOOL_NAME_RE.fullmatch(name):
             logger.warning(
                 "Skipping stdio MCP tool with unsupported name",
                 tool_name=name,

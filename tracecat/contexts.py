@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import loguru
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +13,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.auth.types import Role
 from tracecat.dsl.schemas import ROOT_STREAM, RunContext, StreamID
 from tracecat.interactions.schemas import InteractionContext
+
+if TYPE_CHECKING:
+    from tracecat.secrets.masking import SecretMaskCollector
+
+
+ctx_secret_masks: ContextVar[SecretMaskCollector | None] = ContextVar(
+    "secret-masks", default=None
+)
+"""Observed secret-derived values, isolated to one executor invocation."""
+
 
 __all__ = [
     "ctx_run",
@@ -34,6 +45,9 @@ class RequestAuditContext:
 
     client_ip: str | None
     user_agent: str | None
+    """Normalized client family/version, safe to forward to audit sinks."""
+    raw_user_agent: str | None = None
+    """Verbatim User-Agent header, bounded in length."""
 
 
 ctx_run: ContextVar[RunContext | None] = ContextVar("run", default=None)

@@ -75,9 +75,12 @@ from tracecat.authz.controls import require_scope
 from tracecat.db.models import (
     AgentPresetSkill,
     AgentPresetVersionSkill,
+    MCPIntegration,
     Skill,
     SkillBlob,
     SkillDraftFile,
+    SkillTag,
+    SkillTagLink,
     SkillVersion,
     SkillVersionFile,
     SkillVersionMcpTool,
@@ -97,9 +100,8 @@ from tracecat.pagination import (
     CursorPaginationParams,
 )
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.service import requires_entitlement
 from tracecat.storage import blob
-from tracecat.tiers.enums import Entitlement
+from tracecat.tags.schemas import TagRead
 
 INLINE_TEXT_LIMIT_BYTES = 256 * 1024
 DEFAULT_UPLOAD_TTL_SECONDS = 15 * 60
@@ -1617,6 +1619,43 @@ class SkillService(SkillBindingService):
                 )
             )
 
+    async def _lock_projected_mcp_integrations(
+        self, projection: SkillToolProjection
+    ) -> None:
+        """Keep resolved MCP rows alive until publication commits."""
+        integration_ids = {tool.mcp_integration_id for tool in projection.mcp_tools}
+        if not integration_ids:
+            return
+        # Validation may precede this transaction. Recheck UUIDs under key-share
+        # locks so deletion either wins here or waits for the published references.
+        locked_ids = set(
+            await self.session.scalars(
+                select(MCPIntegration.id)
+                .where(
+                    MCPIntegration.workspace_id == self.workspace_id,
+                    MCPIntegration.id.in_(integration_ids),
+                )
+                .order_by(MCPIntegration.id)
+                .with_for_update(read=True, key_share=True)
+            )
+        )
+        if integration_ids - locked_ids:
+            error = SkillValidationErrorDetail(
+                code="unknown_skill_tools",
+                message=(
+                    "MCP integrations were deleted before publication. "
+                    "Validate the skill again."
+                ),
+                path="SKILL.md",
+            )
+            raise TracecatValidationError(
+                "Skill draft failed validation",
+                detail={
+                    "code": "skill_publish_validation_failed",
+                    "errors": [error.model_dump(mode="json")],
+                },
+            )
+
     async def publish_version_from_blob_refs(
         self,
         *,
@@ -1641,6 +1680,7 @@ class SkillService(SkillBindingService):
                 "Skill tool declarations were not projected",
                 detail={"code": "skill_tools_not_projected"},
             )
+        await self._lock_projected_mcp_integrations(validation.tool_projection)
         manifest_name = validation.name
         await self.validate_publication_names({skill.id: manifest_name})
         sorted_file_refs = sorted(file_refs, key=lambda item: item[0])
@@ -1752,6 +1792,21 @@ class SkillService(SkillBindingService):
         """Build the summary response for a skill."""
 
         draft = await self._build_draft_read(skill)
+        tags = (
+            (
+                await self.session.execute(
+                    select(SkillTag)
+                    .join(SkillTagLink, SkillTagLink.tag_id == SkillTag.id)
+                    .where(
+                        SkillTagLink.skill_id == skill.id,
+                        SkillTag.workspace_id == skill.workspace_id,
+                    )
+                    .order_by(SkillTag.name)
+                )
+            )
+            .scalars()
+            .all()
+        )
         current_version_summary = None
         current_version = None
         if skill.current_version_id is not None:
@@ -1780,6 +1835,8 @@ class SkillService(SkillBindingService):
             slug=skill.slug or skill.name,
             description=skill.description,
             current_version_id=skill.current_version_id,
+            folder_id=skill.folder_id,
+            tags=[TagRead.model_validate(tag, from_attributes=True) for tag in tags],
             draft_revision=skill.draft_revision,
             created_at=skill.created_at,
             updated_at=skill.updated_at,
@@ -1803,6 +1860,10 @@ class SkillService(SkillBindingService):
             slug=skill.slug or skill.name,
             description=skill.description,
             current_version_id=skill.current_version_id,
+            folder_id=skill.folder_id,
+            tags=[
+                TagRead.model_validate(tag, from_attributes=True) for tag in skill.tags
+            ],
             created_at=skill.created_at,
             updated_at=skill.updated_at,
             deleted_at=skill.deleted_at or skill.archived_at,
@@ -1963,7 +2024,6 @@ class SkillService(SkillBindingService):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_skill(
         self, skill_id: uuid.UUID, *, include_archived: bool = False
     ) -> Skill | None:
@@ -1979,14 +2039,13 @@ class SkillService(SkillBindingService):
             predicates.extend((Skill.deleted_at.is_(None), Skill.archived_at.is_(None)))
         stmt = (
             select(Skill)
-            .options(selectinload(Skill.current_version))
+            .options(selectinload(Skill.current_version), selectinload(Skill.tags))
             .where(*predicates)
         )
         if include_archived:
             stmt = with_deleted(stmt)
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_skill_by_identifier(
         self, identifier: str | uuid.UUID
     ) -> Skill | None:
@@ -2019,7 +2078,7 @@ class SkillService(SkillBindingService):
         # wins; ties order like the backfill migration (created_at, id).
         stmt = (
             select(Skill)
-            .options(selectinload(Skill.current_version))
+            .options(selectinload(Skill.current_version), selectinload(Skill.tags))
             .where(
                 Skill.workspace_id == self.workspace_id,
                 sa.or_(
@@ -2101,7 +2160,6 @@ class SkillService(SkillBindingService):
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     @require_scope("agent:create")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_skill(self, params: SkillCreate) -> SkillRead:
         """Create a logical skill and seed its initial draft.
 
@@ -2129,7 +2187,6 @@ class SkillService(SkillBindingService):
         return await self._build_skill_read(skill)
 
     @require_scope("agent:create")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def upload_skill(self, params: SkillUpload) -> SkillRead:
         """Import a full skill draft in one operation.
 
@@ -2160,7 +2217,6 @@ class SkillService(SkillBindingService):
         return await self._build_skill_read(skill)
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def replace_skill_draft(
         self, *, skill_id: uuid.UUID, params: SkillUpload
     ) -> SkillRead:
@@ -2183,17 +2239,20 @@ class SkillService(SkillBindingService):
         await self.session.refresh(skill)
         return await self._build_skill_read(skill)
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_skills(
         self, params: CursorPaginationParams
     ) -> CursorPaginatedResponse[SkillReadMinimal]:
         """List workspace skills with cursor pagination."""
 
         paginator = BaseCursorPaginator(self.session)
-        stmt = select(Skill).where(
-            Skill.workspace_id == self.workspace_id,
-            Skill.deleted_at.is_(None),
-            Skill.archived_at.is_(None),
+        stmt = (
+            select(Skill)
+            .where(
+                Skill.workspace_id == self.workspace_id,
+                Skill.deleted_at.is_(None),
+                Skill.archived_at.is_(None),
+            )
+            .options(selectinload(Skill.tags))
         )
         if params.cursor:
             try:
@@ -2252,7 +2311,6 @@ class SkillService(SkillBindingService):
             has_previous=params.cursor is not None,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_skill_read(self, skill_id: uuid.UUID) -> SkillRead | None:
         """Return a fully rendered skill summary."""
 
@@ -2260,7 +2318,6 @@ class SkillService(SkillBindingService):
             return None
         return await self._build_skill_read(skill)
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_draft(self, skill_id: uuid.UUID) -> SkillDraftRead | None:
         """Return the current mutable draft for a skill."""
 
@@ -2268,7 +2325,6 @@ class SkillService(SkillBindingService):
             return None
         return await self._build_draft_read(skill)
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def prepare_draft_download(
         self,
         *,
@@ -2319,7 +2375,6 @@ class SkillService(SkillBindingService):
             files=files,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_draft_file(
         self,
         *,
@@ -2386,7 +2441,6 @@ class SkillService(SkillBindingService):
             ),
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_file(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID, path: str
     ) -> SkillDraftFileRead | None:
@@ -2448,7 +2502,6 @@ class SkillService(SkillBindingService):
             ),
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_draft_text_file(
         self, *, skill_id: uuid.UUID, path: str
     ) -> str | None:
@@ -2690,7 +2743,6 @@ class SkillService(SkillBindingService):
         )
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def patch_draft(
         self, *, skill_id: uuid.UUID, params: SkillDraftPatch
     ) -> SkillDraftRead:
@@ -2882,7 +2934,6 @@ class SkillService(SkillBindingService):
         return uploads
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def prepare_draft_uploads(
         self,
         *,
@@ -2917,7 +2968,6 @@ class SkillService(SkillBindingService):
         return prepared
 
     @require_scope("agent:create", "agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def prepare_new_skill_draft_uploads(
         self,
         *,
@@ -2965,7 +3015,6 @@ class SkillService(SkillBindingService):
         return prepared
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def create_draft_upload(
         self,
         *,
@@ -2980,7 +3029,6 @@ class SkillService(SkillBindingService):
         )
         return prepared.uploads[0]
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version(self, version_id: uuid.UUID) -> SkillVersion | None:
         """Return a skill version by ID."""
 
@@ -2991,7 +3039,6 @@ class SkillService(SkillBindingService):
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def publish_skill(self, skill_id: uuid.UUID) -> SkillVersionRead:
         """Publish the current draft into a new immutable skill version."""
 
@@ -3038,7 +3085,6 @@ class SkillService(SkillBindingService):
         )
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def publish_skill_version(
         self, *, skill_id: uuid.UUID, params: SkillVersionPublish
     ) -> SkillVersionRead:
@@ -3082,7 +3128,6 @@ class SkillService(SkillBindingService):
             validation=validation,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def list_versions(
         self, *, skill_id: uuid.UUID, params: CursorPaginationParams
     ) -> CursorPaginatedResponse[SkillVersionReadMinimal]:
@@ -3170,7 +3215,6 @@ class SkillService(SkillBindingService):
             has_previous=params.cursor is not None,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_read(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
     ) -> SkillVersionRead:
@@ -3206,7 +3250,6 @@ class SkillService(SkillBindingService):
             ],
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_snapshot_read(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
     ) -> SkillVersionSnapshotRead:
@@ -3251,7 +3294,6 @@ class SkillService(SkillBindingService):
         )
 
     @require_scope("agent:update")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def restore_version(
         self, *, skill_id: uuid.UUID, version_id: uuid.UUID
     ) -> SkillReadMinimal:
@@ -3323,7 +3365,6 @@ class SkillService(SkillBindingService):
         return self._build_skill_read_minimal(refreshed)
 
     @require_scope("agent:delete")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def archive_skill(
         self,
         skill_id: uuid.UUID,
@@ -3348,7 +3389,6 @@ class SkillService(SkillBindingService):
         self.session.add(skill)
         await self.session.commit()
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_resolved_skill_ref(
         self, *, skill_id: uuid.UUID, skill_version_id: uuid.UUID
     ) -> ResolvedSkillRef:
@@ -3381,7 +3421,6 @@ class SkillService(SkillBindingService):
             manifest_sha256=manifest_sha256,
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def get_version_file_materialization(
         self, skill_version_id: uuid.UUID
     ) -> list[tuple[str, SkillBlob]]:

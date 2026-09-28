@@ -119,6 +119,8 @@ def _normalize_audit_user_agent(value: str | None) -> str | None:
 
 # === Audit context === #
 
+RAW_USER_AGENT_MAX_LENGTH = 512
+
 
 def build_request_audit_context(request: Request) -> RequestAuditContext:
     """Derive audit attribution from an HTTP request.
@@ -126,8 +128,15 @@ def build_request_audit_context(request: Request) -> RequestAuditContext:
     Informational attribution, not a security control.
     """
     client_ip = _resolve_client_ip(request)
-    user_agent = _normalize_audit_user_agent(request.headers.get("User-Agent"))
-    return RequestAuditContext(client_ip=client_ip, user_agent=user_agent)
+    raw_user_agent = request.headers.get("User-Agent")
+    user_agent = _normalize_audit_user_agent(raw_user_agent)
+    return RequestAuditContext(
+        client_ip=client_ip,
+        user_agent=user_agent,
+        raw_user_agent=raw_user_agent[:RAW_USER_AGENT_MAX_LENGTH]
+        if raw_user_agent
+        else None,
+    )
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):

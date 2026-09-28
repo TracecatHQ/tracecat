@@ -8,6 +8,7 @@ from cryptography.fernet import InvalidToken
 from pydantic import BaseModel, SecretStr
 from pydantic_core import to_jsonable_python
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.api.common import get_default_organization_id
@@ -24,7 +25,7 @@ from tracecat.db.engine import (
 )
 from tracecat.db.models import OrganizationSetting
 from tracecat.db.rls import set_rls_context_from_role
-from tracecat.identifiers import OrganizationID
+from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.network import DisallowedUrlError, validate_url_resolves_public_async
 from tracecat.secrets.encryption import decrypt_value, encrypt_value
@@ -38,6 +39,7 @@ from tracecat.settings.schemas import (
     BaseSettingsGroup,
     GitSettingsUpdate,
     SAMLSettingsUpdate,
+    SecuritySettingsUpdate,
     SettingCreate,
     SettingUpdate,
 )
@@ -76,6 +78,7 @@ class SettingsService(BaseOrgService):
         SAMLSettingsUpdate,
         AppSettingsUpdate,
         AuditSettingsUpdate,
+        SecuritySettingsUpdate,
     ]
     """The set of settings groups that are managed by the service."""
 
@@ -331,6 +334,19 @@ class SettingsService(BaseOrgService):
 
     @require_scope("org:settings:update")
     @audit_log(resource_type="organization_setting", action="update")
+    async def update_security_settings(self, params: SecuritySettingsUpdate) -> None:
+        """Persist the organization IP allowlist.
+
+        Callers must clear the allowlist cache after this commits; the service
+        cannot import the enforcement module without creating an import cycle.
+        """
+        security_settings = await self.list_org_settings(
+            keys=SecuritySettingsUpdate.keys()
+        )
+        await self._update_grouped_settings(security_settings, params)
+
+    @require_scope("org:settings:update")
+    @audit_log(resource_type="organization_setting", action="update")
     async def update_app_settings(self, params: AppSettingsUpdate) -> None:
         app_settings = await self.list_org_settings(keys=AppSettingsUpdate.keys())
         await self._update_grouped_settings(app_settings, params)
@@ -407,6 +423,36 @@ async def get_setting_from_bypass_session(
         logger.debug("Setting not found, using default value", key=key)
         return default
     return no_default_val
+
+
+async def workspace_allows_error_details(
+    *,
+    organization_id: OrganizationID,
+    workspace_id: WorkspaceID,
+    session: SupportsExecute,
+) -> bool:
+    """Whether the org lets this workspace's actions opt out of secret error withholding.
+
+    Fails closed: any lookup failure or malformed value denies the workspace.
+    """
+    try:
+        value = await get_setting_from_bypass_session(
+            "app_unsafe_disable_secret_error_withholding_workspace_ids",
+            organization_id=organization_id,
+            session=session,
+            default=[],
+        )
+    except SQLAlchemyError as e:
+        logger.warning(
+            "Failed to read error-details workspace allow-list; denying",
+            organization_id=organization_id,
+            workspace_id=workspace_id,
+            error=str(e),
+        )
+        return False
+    if not isinstance(value, list):
+        return False
+    return str(workspace_id) in {str(item) for item in value}
 
 
 async def get_setting(

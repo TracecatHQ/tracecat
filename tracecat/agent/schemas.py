@@ -136,8 +136,8 @@ class ProviderCredentialField(BaseModel):
         min_length=1,
         max_length=200,
     )
-    type: Literal["text", "password"] = Field(
-        ..., description="Input type: 'text' or 'password'"
+    type: Literal["text", "password", "boolean"] = Field(
+        ..., description="Input type: 'text', 'password', or 'boolean'"
     )
     description: str = Field(
         ...,
@@ -146,6 +146,11 @@ class ProviderCredentialField(BaseModel):
         max_length=500,
     )
     required: bool = Field(default=True, description="Whether this field is required")
+    default: str | None = Field(
+        default=None,
+        description="Default value pre-filled when no credential is stored yet",
+        max_length=500,
+    )
 
 
 class ProviderCredentialConfig(BaseModel):

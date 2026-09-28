@@ -1,0 +1,76 @@
+type: action
+definition:
+  title: List work item comments
+  description: "List comments on a work item. Returns one page; pass `continuation_token` to fetch the next page."
+  display_group: Azure DevOps
+  doc_url: https://learn.microsoft.com/en-us/rest/api/azure/devops/wit/comments/get-comments?view=azure-devops-rest-7.2
+  namespace: tools.azure_devops
+  name: list_work_item_comments
+  secrets:
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: authorization_code
+      optional: true
+    - type: oauth
+      provider_id: azure_devops
+      grant_type: client_credentials
+      optional: true
+  expects:
+    organization:
+      type: str
+      description: "Azure DevOps organization name."
+    project:
+      type: str
+      description: "Project ID or project name."
+    work_item_id:
+      type: int
+      description: "Work item ID."
+    top:
+      type: int | None
+      description: "Maximum number of comments to return."
+      default: null
+    continuation_token:
+      type: str | None
+      description: "Continuation token from the previous page."
+      default: null
+    include_deleted:
+      type: bool | None
+      description: "Include deleted comments."
+      default: null
+    expand:
+      type: str | None
+      description: "Additional data to include. One of `none`, `reactions`, `renderedText`, `renderedTextOnly`, `all`."
+      default: null
+    order:
+      type: str | None
+      description: "Order of comments. One of `asc`, `desc`."
+      default: null
+    base_url:
+      type: str | None
+      description: "Azure DevOps base URL. Defaults to `https://dev.azure.com` (Azure DevOps Services). For Azure DevOps Server, set this to the collection URL."
+      default: null
+  steps:
+    - ref: build_params
+      action: core.script.run_python
+      args:
+        inputs:
+          params:
+            $top: ${{ inputs.top }}
+            continuationToken: ${{ inputs.continuation_token }}
+            includeDeleted: ${{ inputs.include_deleted }}
+            $expand: ${{ inputs.expand }}
+            order: ${{ inputs.order }}
+        script: |
+          def main(params):
+              query = {k: v for k, v in params.items() if v is not None}
+              query["api-version"] = "7.2-preview.4"
+              return query
+    - ref: list_work_item_comments
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.azure_devops.base_url || "https://dev.azure.com" }}/${{ FN.url_encode(inputs.organization) }}/${{ FN.url_encode(inputs.project) }}/_apis/wit/workItems/${{ FN.url_encode(inputs.work_item_id) }}/comments
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.azure_devops_oauth.AZURE_DEVOPS_USER_TOKEN || SECRETS.azure_devops_oauth.AZURE_DEVOPS_SERVICE_TOKEN }}
+        params: ${{ steps.build_params.result }}
+  returns: ${{ steps.list_work_item_comments.result }}

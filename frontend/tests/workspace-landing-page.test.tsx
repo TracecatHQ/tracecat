@@ -4,12 +4,14 @@
 
 import { render, screen, waitFor } from "@testing-library/react"
 import WorkspacePage from "@/app/workspaces/[workspaceId]/page"
+import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 
 const mockRouterReplace = jest.fn()
 const mockUseScopeCheck = jest.fn<boolean | undefined, [string]>()
 const mockHasEntitlement = jest.fn<boolean, [string]>()
 let mockScopes: Record<string, boolean | undefined> = {}
 let mockEntitlements: Record<string, boolean> = {}
+let mockEntitlementsLoading = false
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({ replace: mockRouterReplace }),
@@ -35,7 +37,7 @@ jest.mock("@/components/loading/spinner", () => ({
 jest.mock("@/hooks", () => ({
   useEntitlements: () => ({
     hasEntitlement: mockHasEntitlement,
-    isLoading: false,
+    isLoading: mockEntitlementsLoading,
   }),
 }))
 
@@ -50,6 +52,7 @@ describe("WorkspacePage", () => {
     mockHasEntitlement.mockReset()
     mockScopes = {}
     mockEntitlements = {}
+    mockEntitlementsLoading = false
     mockUseScopeCheck.mockImplementation((scope) => mockScopes[scope] ?? false)
     mockHasEntitlement.mockImplementation(
       (entitlement) => mockEntitlements[entitlement] ?? false
@@ -88,6 +91,9 @@ describe("WorkspacePage", () => {
   })
 
   it("redirects to Chat when the workspace shell is readable", async () => {
+    expect(getWorkspaceLandingPath("workspace-1")).toBe(
+      "/workspaces/workspace-1"
+    )
     mockScopes = {
       "agent:execute": true,
       "agent:read": true,
@@ -106,10 +112,15 @@ describe("WorkspacePage", () => {
     })
   })
 
-  it("falls back when Chat is not entitled", async () => {
+  it("falls back to workflows when Chat is not entitled", async () => {
     mockScopes = {
       "workspace:read": true,
       "workflow:read": true,
+      "agent:read": true,
+      "agent:execute": true,
+    }
+    mockEntitlements = {
+      workspace_chat: false,
     }
 
     render(<WorkspacePage />)
@@ -119,5 +130,35 @@ describe("WorkspacePage", () => {
         "/workspaces/workspace-1/workflows"
       )
     })
+  })
+
+  it("falls back to agents when Chat, workflows, and cases are unavailable", async () => {
+    mockScopes = {
+      "workspace:read": true,
+      "agent:read": true,
+    }
+    mockEntitlements = {
+      workspace_chat: true,
+    }
+
+    render(<WorkspacePage />)
+
+    await waitFor(() => {
+      expect(mockRouterReplace).toHaveBeenCalledWith(
+        "/workspaces/workspace-1/agents"
+      )
+    })
+  })
+
+  it("waits for entitlements before selecting a landing page", () => {
+    mockEntitlementsLoading = true
+    mockScopes = {
+      "workflow:read": true,
+    }
+
+    render(<WorkspacePage />)
+
+    expect(mockRouterReplace).not.toHaveBeenCalled()
+    expect(screen.getByText("Loading")).toBeInTheDocument()
   })
 })

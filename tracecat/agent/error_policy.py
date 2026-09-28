@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from tracecat.agent.common.config import TRACECAT__AGENT_SANDBOX_MEMORY_MB
 from tracecat.agent.common.exceptions import AgentSandboxProcessExitError
+from tracecat.exceptions import RegistryLockAmbiguousActionError
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorClassification,
@@ -46,6 +47,39 @@ def invalid_agent_configuration(
     return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
         message="Agent configuration is invalid",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def registry_lock_invalid_data(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Classify deterministic registry lock resolution failures.
+
+    Missing or unsupported actions are resolution gaps in the registry itself
+    rather than a fault in the agent's configuration.
+    """
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.REGISTRY_LOCK_INVALID_DATA,
+        message="Tracecat could not resolve the agent's registry actions",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+        cause=error,
+    )
+
+
+def registry_lock_action_ambiguous(
+    error: RegistryLockAmbiguousActionError,
+) -> RuntimeErrorClassification:
+    """Classify an action name that resolves to more than one registry.
+
+    The collision comes from an org's custom registry shadowing another
+    registry's action, so the org owns the fix and the message only exposes
+    the action name and registry origins the org already controls.
+    """
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.REGISTRY_LOCK_ACTION_AMBIGUOUS,
+        message=str(error),
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,
     )
@@ -108,6 +142,63 @@ def user_agent_execution_failed(
             RetryDisposition.RETRYABLE if retryable else RetryDisposition.NON_RETRYABLE
         ),
         cause=error,
+    )
+
+
+def agent_llm_read_timeout(
+    error: BaseException | None = None,
+) -> RuntimeErrorClassification:
+    """Assign investigation of an ambiguous upstream read stall to Tracecat.
+
+    Operational ownership is not root-cause attribution: a direct route alone
+    cannot distinguish provider, network, or local proxy failures.
+    """
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT,
+        message="Timed out waiting for data from the LLM upstream",
+        retry_disposition=RetryDisposition.RETRYABLE,
+        cause=error,
+    )
+
+
+def agent_llm_gateway_auth_failed() -> RuntimeErrorClassification:
+    """Classify a rejected internal gateway credential at its trusted source."""
+    return RuntimeErrorClassification.platform(
+        kind=RuntimeErrorKind.AGENT_LLM_GATEWAY_AUTH_FAILED,
+        message="Tracecat could not authenticate to the LLM gateway",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
+def agent_llm_provider_auth_failed() -> RuntimeErrorClassification:
+    """Classify rejected upstream provider credentials or permissions."""
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+        message="LLM provider authentication failed; check provider credentials and permissions",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
+def agent_llm_budget_exceeded() -> RuntimeErrorClassification:
+    """Classify an explicit budget denial that needs a limit or billing change."""
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED,
+        message="LLM budget exhausted; check the configured budget or billing limits",
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
+def agent_llm_rate_limited(*, route_is_direct: bool) -> RuntimeErrorClassification:
+    """Classify temporary throttling without assuming that a budget ran out."""
+    constructor = (
+        RuntimeErrorClassification.user
+        if route_is_direct
+        else RuntimeErrorClassification.platform
+    )
+    return constructor(
+        kind=RuntimeErrorKind.AGENT_LLM_RATE_LIMITED,
+        message="LLM requests are temporarily rate limited; retry later",
+        retry_disposition=RetryDisposition.RETRYABLE,
     )
 
 

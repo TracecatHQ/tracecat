@@ -21,7 +21,7 @@ type SummaryFormSchema = z.infer<typeof summaryFormSchema>
 
 interface CasePanelSummaryProps {
   caseData: CaseRead
-  updateCase: (caseData: CaseUpdate) => Promise<void>
+  updateCase: (caseData: CaseUpdate) => Promise<unknown>
   compact?: boolean
 }
 

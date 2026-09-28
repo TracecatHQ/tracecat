@@ -72,6 +72,17 @@ def mock_case(test_workspace: Workspace) -> Case:
     return case
 
 
+def _mock_case_read_services(mock_svc: AsyncMock) -> AsyncMock:
+    """Configure the mocks needed to serialize a CaseRead response."""
+    mock_svc.fields = AsyncMock()
+    mock_svc.fields.get_fields.return_value = {}
+    mock_svc.fields.list_fields.return_value = []
+    mock_svc.fields.get_field_schema.return_value = {}
+    mock_dropdown_svc = AsyncMock()
+    mock_dropdown_svc.has_entitlement.return_value = False
+    return mock_dropdown_svc
+
+
 @pytest.fixture
 def mock_case_tag(test_workspace: Workspace) -> CaseTag:
     """Create a mock case tag DB object."""
@@ -317,12 +328,14 @@ async def test_create_case_success(
     test_admin_role: Role,
     mock_case: Case,
 ) -> None:
-    """Test POST /cases creates a new case."""
+    """Test POST /cases creates a new case and returns it."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseDropdownValuesService") as MockDropdownService,
     ):
         mock_svc = AsyncMock()
         mock_svc.create_case.return_value = mock_case
+        MockDropdownService.return_value = _mock_case_read_services(mock_svc)
         MockService.return_value = mock_svc
 
         # Make request
@@ -341,6 +354,11 @@ async def test_create_case_success(
 
         # Assertions
         assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["id"] == str(mock_case.id)
+        assert data["short_id"] == "CASE-0001"
+        assert data["summary"] == "Test Case Summary"
+        assert data["status"] == "new"
 
         # Verify service was called
         mock_svc.create_case.assert_called_once()
@@ -383,9 +401,11 @@ async def test_create_case_with_dropdown_values(
     """Test POST /cases accepts dropdown value inputs."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseDropdownValuesService") as MockDropdownService,
     ):
         mock_svc = AsyncMock()
         mock_svc.create_case.return_value = mock_case
+        MockDropdownService.return_value = _mock_case_read_services(mock_svc)
         MockService.return_value = mock_svc
 
         response = client.post(
@@ -439,6 +459,18 @@ async def test_create_case_field_accepts_long_text_kind(
 ) -> None:
     with patch.object(cases_router, "CaseFieldsService") as mock_service_cls:
         mock_service = AsyncMock()
+        mock_service.list_fields.return_value = [
+            {
+                "name": "details",
+                "type": "TEXT",
+                "nullable": True,
+                "default": None,
+                "comment": None,
+            }
+        ]
+        mock_service.get_field_schema.return_value = {
+            "details": {"type": "TEXT", "kind": "LONG_TEXT"}
+        }
         mock_service_cls.return_value = mock_service
 
         response = client.post(
@@ -448,6 +480,9 @@ async def test_create_case_field_accepts_long_text_kind(
         )
 
     assert response.status_code == status.HTTP_201_CREATED
+    data = response.json()
+    assert data["id"] == "details"
+    assert data["kind"] == "LONG_TEXT"
     mock_service.create_field.assert_awaited_once()
     params = mock_service.create_field.await_args.args[0]
     assert params.type == "TEXT"
@@ -739,13 +774,16 @@ async def test_update_case_success(
     test_admin_role: Role,
     mock_case: Case,
 ) -> None:
-    """Test PATCH /cases/{id} updates case."""
+    """Test PATCH /cases/{id} updates case and returns it."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseDropdownValuesService") as MockDropdownService,
     ):
         mock_svc = AsyncMock()
         mock_svc.get_case.return_value = mock_case
-        mock_svc.update_case.return_value = None
+        mock_case.summary = "Updated Summary"
+        mock_svc.update_case.return_value = mock_case
+        MockDropdownService.return_value = _mock_case_read_services(mock_svc)
         MockService.return_value = mock_svc
 
         # Make request
@@ -760,7 +798,10 @@ async def test_update_case_success(
         )
 
         # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["id"] == str(mock_case.id)
+        assert data["summary"] == "Updated Summary"
 
         # Verify service was called
         mock_svc.update_case.assert_called_once()
@@ -965,10 +1006,15 @@ async def test_batch_update_cases_success_and_route_non_collision(
         failed=1,
     )
 
-    with patch.object(cases_router, "CasesService") as mock_service_cls:
+    with (
+        patch.object(cases_router, "CasesService") as mock_service_cls,
+        patch.object(cases_router, "CaseDropdownValuesService") as MockDropdownService,
+    ):
         mock_svc = AsyncMock()
         mock_svc.batch_update_cases.return_value = batch_response
         mock_svc.get_case.return_value = mock_case
+        mock_svc.update_case.return_value = mock_case
+        MockDropdownService.return_value = _mock_case_read_services(mock_svc)
         mock_service_cls.return_value = mock_svc
 
         batch_result = client.post(
@@ -998,7 +1044,8 @@ async def test_batch_update_cases_success_and_route_non_collision(
         "succeeded": 1,
         "failed": 1,
     }
-    assert single_result.status_code == status.HTTP_204_NO_CONTENT
+    assert single_result.status_code == status.HTTP_200_OK
+    assert single_result.json()["id"] == str(mock_case.id)
     mock_svc.batch_update_cases.assert_awaited_once()
     mock_svc.update_case.assert_awaited_once()
 
@@ -1165,10 +1212,12 @@ async def test_update_case_with_dropdown_values(
     """Test PATCH /cases/{id} accepts dropdown value inputs."""
     with (
         patch.object(cases_router, "CasesService") as MockService,
+        patch.object(cases_router, "CaseDropdownValuesService") as MockDropdownService,
     ):
         mock_svc = AsyncMock()
         mock_svc.get_case.return_value = mock_case
         mock_svc.update_case.return_value = mock_case
+        MockDropdownService.return_value = _mock_case_read_services(mock_svc)
         MockService.return_value = mock_svc
 
         case_id = str(mock_case.id)
@@ -1182,7 +1231,7 @@ async def test_update_case_with_dropdown_values(
             },
         )
 
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.status_code == status.HTTP_200_OK
         mock_svc.update_case.assert_called_once()
         params = mock_svc.update_case.call_args.args[1]
         assert params.dropdown_values is not None

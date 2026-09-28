@@ -11,6 +11,13 @@ from tracecat.cases.enums import MentionTargetType
 # persisted, so an overlong label is treated as a malformed token and skipped,
 # consistent with the other malformed-token handling below.
 _MAX_LABEL_LENGTH = 255
+# ``uuid.UUID`` accepts the 36-character canonical form with braces and the
+# ``urn:uuid:`` prefix combined. Bounding every variable-width token keeps
+# failed matches linear in the size of untrusted comment content.
+_MAX_TARGET_ID_LENGTH = 47
+_MAX_TARGET_TYPE_LENGTH = max(
+    len(target_type.value) for target_type in MentionTargetType
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,7 +30,9 @@ class MentionToken:
 
 
 _MENTION_PATTERN = re.compile(
-    r"\[@(?P<label>[^\]]+)\]\(mention://(?P<target_type>[a-z]+)/(?P<target_id>[^)]+)\)"
+    rf"\[@(?P<label>[^\]]{{1,{_MAX_LABEL_LENGTH}}})\]"
+    rf"\(mention://(?P<target_type>[a-z]{{1,{_MAX_TARGET_TYPE_LENGTH}}})/"
+    rf"(?P<target_id>[^)]{{1,{_MAX_TARGET_ID_LENGTH}}})\)"
 )
 
 

@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.exc import ProgrammingError
 
 from tracecat.auth.types import Role
-from tracecat.db.models import Table, Workspace
+from tracecat.db.models import Table, TableColumn, Workspace
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.tables import router as tables_router
@@ -64,11 +64,14 @@ async def test_list_tables_success(
 async def test_create_table_success(
     client: TestClient,
     test_admin_role: Role,
+    mock_table: Table,
 ) -> None:
-    """Test POST /tables creates a new table."""
+    """Test POST /tables creates a new table and returns it."""
     with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
-        mock_svc.create_table.return_value = None
+        mock_svc.create_table.return_value = mock_table
+        mock_svc.get_table.return_value = mock_table
+        mock_svc.get_index.return_value = []
         MockService.return_value = mock_svc
 
         # Make request
@@ -87,6 +90,50 @@ async def test_create_table_success(
 
         # Assertions
         assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["id"] == str(mock_table.id)
+        assert data["name"] == "test_table"
+
+
+@pytest.mark.anyio
+async def test_create_column_with_is_index_returns_indexed_column(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    column = TableColumn(
+        id=uuid.UUID("eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeef"),
+        table_id=mock_table.id,
+        name="email",
+        type=SqlType.TEXT.value,
+        nullable=False,
+        default=None,
+        options=None,
+    )
+    with patch.object(tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_table.return_value = mock_table
+        mock_svc.create_column.return_value = column
+        mock_svc.get_index.return_value = ["email"]
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            f"/tables/{mock_table.id}/columns",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={
+                "name": "email",
+                "type": SqlType.TEXT.value,
+                "nullable": False,
+                "is_index": True,
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["id"] == str(column.id)
+        assert data["is_index"] is True
+        assert mock_svc.create_column.await_args is not None
+        assert mock_svc.create_column.await_args.args[1].is_index is True
 
 
 @pytest.mark.anyio
@@ -174,11 +221,12 @@ async def test_update_table_success(
     test_admin_role: Role,
     mock_table: Table,
 ) -> None:
-    """Test PATCH /tables/{table_id} updates table."""
+    """Test PATCH /tables/{table_id} updates table and returns it."""
     with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_table.return_value = mock_table
         mock_svc.update_table.return_value = None
+        mock_svc.get_index.return_value = []
         MockService.return_value = mock_svc
 
         # Make request
@@ -190,7 +238,8 @@ async def test_update_table_success(
         )
 
         # Assertions
-        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(mock_table.id)
 
 
 @pytest.mark.anyio
@@ -222,11 +271,18 @@ async def test_insert_table_row_success(
     test_admin_role: Role,
     mock_table: Table,
 ) -> None:
-    """Test POST /tables/{table_id}/rows inserts a row."""
+    """Test POST /tables/{table_id}/rows inserts a row and returns it."""
+    row_id = uuid.uuid4()
+    now = datetime(2024, 1, 1, tzinfo=UTC)
     with patch.object(tables_router, "TablesService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.get_table.return_value = mock_table
-        mock_svc.insert_row.return_value = None
+        mock_svc.insert_row.return_value = {
+            "id": row_id,
+            "created_at": now,
+            "updated_at": now,
+            "value": "test",
+        }
         MockService.return_value = mock_svc
 
         # Make request
@@ -239,6 +295,9 @@ async def test_insert_table_row_success(
 
         # Assertions
         assert response.status_code == status.HTTP_201_CREATED
+        data = response.json()
+        assert data["id"] == str(row_id)
+        assert data["value"] == "test"
 
 
 @pytest.mark.anyio

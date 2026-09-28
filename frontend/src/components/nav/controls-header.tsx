@@ -80,6 +80,11 @@ import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
 import { CreateGroupButton } from "@/components/rbac/create-group-button"
 import { CreateRoleButton } from "@/components/rbac/create-role-button"
 import { CreateSkillButton } from "@/components/skills/create-skill-button"
+import {
+  SkillsCatalogViewMode,
+  SkillsCatalogViewToggle,
+} from "@/components/skills/skills-catalog-view-toggle"
+import { SkillFolderCreateDialog } from "@/components/skills/skills-dashboard"
 import { SkillsDetailActions } from "@/components/skills/skills-detail-actions"
 import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
@@ -157,6 +162,7 @@ import {
   useAgentTagCatalog,
 } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useSkillTagCatalog } from "@/hooks/use-skill-tags"
 import { useSkill } from "@/hooks/use-skills"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
@@ -357,14 +363,109 @@ function IntegrationsActions() {
 }
 
 function SkillsActions() {
+  const pathname = usePathname()
+  const workspaceId = useWorkspaceId()
+  const searchParams = useSearchParams()
+  const canCreateSkill = useScopeCheck("agent:create")
+  const { hasEntitlement } = useEntitlements()
+  const organizationEnabled = hasEntitlement("agent_addons")
+  const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false)
+  const catalogView = pathname?.includes("/skills/tags")
+    ? SkillsCatalogViewMode.Tags
+    : SkillsCatalogViewMode.Skills
+  const skillsHref = `/workspaces/${workspaceId}/skills`
+  const tagsHref = `/workspaces/${workspaceId}/skills/tags`
+  const isFoldersView =
+    organizationEnabled && searchParams?.get("view") !== "list"
+  const currentPath = normalizeAgentActionPath(
+    searchParams?.get("path") ?? null
+  )
+  const canUseSkillActions = canCreateSkill === true
+
+  let skillActionControls: ReactNode = null
+  if (canUseSkillActions) {
+    if (catalogView === SkillsCatalogViewMode.Tags) {
+      if (organizationEnabled) {
+        skillActionControls = (
+          <AddSkillTag
+            open={createTagDialogOpen}
+            onOpenChange={setCreateTagDialogOpen}
+          />
+        )
+      }
+    } else {
+      skillActionControls = (
+        <>
+          <CreateSkillButton
+            currentPath={isFoldersView ? currentPath : null}
+            showFolder={isFoldersView}
+            onCreateFolder={() => setFolderDialogOpen(true)}
+          />
+          {organizationEnabled ? (
+            <SkillFolderCreateDialog
+              open={folderDialogOpen}
+              onOpenChange={setFolderDialogOpen}
+              currentPath={currentPath}
+            />
+          ) : null}
+        </>
+      )
+    }
+  }
+
   return (
     <>
+      {organizationEnabled ? (
+        <SkillsCatalogViewToggle
+          view={catalogView}
+          skillsHref={skillsHref}
+          tagsHref={tagsHref}
+        />
+      ) : null}
       <WorkspaceResourceSyncActions
         label="skills"
         branchSlug="skills"
         resources={["skill"]}
       />
-      <CreateSkillButton />
+      {skillActionControls}
+    </>
+  )
+}
+
+function AddSkillTag({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const workspaceId = useWorkspaceId()
+  const { skillTags, createSkillTag } = useSkillTagCatalog(workspaceId, {
+    enabled: open,
+  })
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 bg-background"
+        onClick={() => onOpenChange(true)}
+      >
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        Create tag
+      </Button>
+      <CreateTagDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        existingTags={skillTags}
+        onCreateTag={async (params) => {
+          await createSkillTag(params)
+        }}
+        title="Create new skill tag"
+        description="Enter a name for your new skill tag."
+      />
     </>
   )
 }
@@ -431,11 +532,31 @@ function AgentFoldersBreadcrumb({
   workspaceId: string
   path: string | null
 }) {
+  const { hasEntitlement } = useEntitlements()
+  const organizationEnabled = hasEntitlement("agent_addons")
   return (
     <FolderPathBreadcrumb
       rootLabel="Agents"
       rootHref={`/workspaces/${workspaceId}/agents`}
-      folderPath={path}
+      folderPath={organizationEnabled ? path : "/"}
+    />
+  )
+}
+
+function SkillsFoldersBreadcrumb({
+  workspaceId,
+  path,
+}: {
+  workspaceId: string
+  path: string | null
+}) {
+  const { hasEntitlement } = useEntitlements()
+  const organizationEnabled = hasEntitlement("agent_addons")
+  return (
+    <FolderPathBreadcrumb
+      rootLabel="Skills"
+      rootHref={`/workspaces/${workspaceId}/skills`}
+      folderPath={organizationEnabled ? path : "/"}
     />
   )
 }
@@ -444,8 +565,10 @@ function AgentsActions() {
   const pathname = usePathname()
   const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
-  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
   const canCreateAgent = useScopeCheck("agent:create")
+  const { hasEntitlement } = useEntitlements()
+  // Folders and tags are agent add-ons; core preset creation is not.
+  const organizationEnabled = hasEntitlement("agent_addons")
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
@@ -455,23 +578,24 @@ function AgentsActions() {
     : AgentsCatalogViewMode.Agents
   const agentsHref = `/workspaces/${workspaceId}/agents`
   const tagsHref = `/workspaces/${workspaceId}/agents/tags`
-  const isFoldersView = searchParams?.get("view") !== "list"
+  const isFoldersView =
+    organizationEnabled && searchParams?.get("view") !== "list"
   const currentPath = normalizeAgentActionPath(
     searchParams?.get("path") ?? null
   )
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
-  const canUseAgentActions =
-    !entitlementsLoading && agentAddonsEnabled && canCreateAgent === true
+  const canUseAgentActions = canCreateAgent === true
   let agentActionControls: ReactNode = null
 
   if (canUseAgentActions) {
     if (catalogView === AgentsCatalogViewMode.Tags) {
-      agentActionControls = (
-        <AddAgentTag
-          open={createTagDialogOpen}
-          onOpenChange={setCreateTagDialogOpen}
-        />
-      )
+      if (organizationEnabled) {
+        agentActionControls = (
+          <AddAgentTag
+            open={createTagDialogOpen}
+            onOpenChange={setCreateTagDialogOpen}
+          />
+        )
+      }
     } else {
       agentActionControls = (
         <>
@@ -518,11 +642,13 @@ function AgentsActions() {
             onOpenChange={setCreateDialogOpen}
             currentPath={isFoldersView ? currentPath : null}
           />
-          <AgentFolderCreateDialog
-            open={folderDialogOpen}
-            onOpenChange={setFolderDialogOpen}
-            currentPath={currentPath}
-          />
+          {organizationEnabled ? (
+            <AgentFolderCreateDialog
+              open={folderDialogOpen}
+              onOpenChange={setFolderDialogOpen}
+              currentPath={currentPath}
+            />
+          ) : null}
         </>
       )
     }
@@ -530,11 +656,13 @@ function AgentsActions() {
 
   return (
     <>
-      <AgentsCatalogViewToggle
-        view={catalogView}
-        agentsHref={agentsHref}
-        tagsHref={tagsHref}
-      />
+      {organizationEnabled ? (
+        <AgentsCatalogViewToggle
+          view={catalogView}
+          agentsHref={agentsHref}
+          tagsHref={tagsHref}
+        />
+      ) : null}
       <WorkspaceResourceSyncActions
         label="agents"
         branchSlug="agents"
@@ -1901,12 +2029,15 @@ function AgentPresetBreadcrumb({
 }) {
   const { workspace } = useWorkspaceDetails()
   const { preset } = useAgentPreset(workspaceId, presetId)
+  const { hasEntitlement } = useEntitlements()
+  const organizationEnabled = hasEntitlement("agent_addons")
   const { folders } = useAgentFolders(workspaceId, {
-    enabled: Boolean(preset?.folder_id),
+    enabled: organizationEnabled && Boolean(preset?.folder_id),
   })
-  const folderPath = preset?.folder_id
-    ? folders?.find((folder) => folder.id === preset.folder_id)?.path
-    : null
+  const folderPath =
+    organizationEnabled && preset?.folder_id
+      ? folders?.find((folder) => folder.id === preset.folder_id)?.path
+      : null
 
   return (
     <FolderPathBreadcrumb
@@ -2068,6 +2199,13 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/skills")) {
+    if (pagePath === "/skills/tags") {
+      return {
+        title: "Skills",
+        actions: <SkillsActions />,
+      }
+    }
+
     const skillMatch = pagePath.match(/^\/skills\/([^/]+)$/)
     if (skillMatch) {
       return {
@@ -2086,8 +2224,16 @@ function getPageConfig(
         ),
       }
     }
+    const skillsView = searchParams?.get("view") === "list" ? "list" : "folders"
     return {
-      title: "Skills",
+      title: (
+        <SkillsFoldersBreadcrumb
+          workspaceId={workspaceId}
+          path={
+            skillsView === "folders" ? (searchParams?.get("path") ?? "/") : "/"
+          }
+        />
+      ),
       actions: <SkillsActions />,
     }
   }

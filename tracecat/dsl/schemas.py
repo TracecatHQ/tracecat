@@ -37,6 +37,13 @@ TriggerInputs = Any
 """Trigger inputs JSON type."""
 
 
+class DSLDependencyPlan(BaseModel):
+    """Direct action refs read by each action and the workflow return value."""
+
+    actions: dict[str, list[str]]
+    returns: list[str]
+
+
 class ExecutionContext(TypedDict):
     """Workflow execution context with typed fields.
 
@@ -377,6 +384,13 @@ class ActionStatement(BaseModel):
         description=(
             "If true, redact this action's result in workflow execution API responses "
             "while preserving internal workflow data flow between actions."
+        ),
+    )
+    unsafe_disable_secret_error_withholding: bool = Field(
+        default=False,
+        description=(
+            "Legacy field, ignored. Error diagnostics always mask known secrets "
+            "and observed secret-derived values."
         ),
     )
 

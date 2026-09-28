@@ -38,6 +38,7 @@
                   "automations/tables",
                   "automations/core-concepts/expressions",
                   "automations/core-concepts/secrets",
+                  "automations/core-concepts/external-secret-stores",
                   "automations/core-concepts/variables",
                   "automations/core-concepts/workflow-metadata",
                   "automations/core-concepts/functions",
@@ -85,6 +86,8 @@
               "agents/workspace-chat",
               "agents/ai-action",
               "agents/ai-agent",
+              "agents/ai-preset-agent",
+              "agents/llm-providers",
               "agents/custom-llm-providers",
               "agents/skills",
               "agents/secrets-variables"
@@ -105,11 +108,13 @@
             "icon": "server",
             "pages": [
               "self-hosting/docker-compose",
+              "self-hosting/scaling",
               "self-hosting/aws-fargate",
               "self-hosting/kubernetes",
               "self-hosting/air-gapped",
               "self-hosting/temporal-retention",
               "self-hosting/architecture",
+              "self-hosting/pgvector",
               "self-hosting/tls",
               "self-hosting/environment-variables",
               "self-hosting/security"
@@ -123,6 +128,7 @@
               "manage-platform/rbac",
               "manage-platform/custom-roles",
               "manage-platform/service-accounts",
+              "manage-platform/ip-allowlist",
               "manage-platform/git-sync"
             ]
           },
@@ -235,6 +241,7 @@
               "tools/ansible",
               "tools/anyrun",
               "tools/aws_boto3",
+              "tools/azure_devops",
               "tools/azure_log_analytics",
               "tools/caldera",
               "tools/censys",
@@ -271,8 +278,6 @@
               "tools/google_maps",
               "tools/google_reports",
               "tools/google_scc",
-              "tools/google_secops_detection",
-              "tools/google_secops_soar",
               "tools/google_sheets",
               "tools/google_slides",
               "tools/gophish",
@@ -311,6 +316,7 @@
               "tools/pipe0",
               "tools/project_discovery",
               "tools/pymongo",
+              "tools/rapid7",
               "tools/recorded_future",
               "tools/rippling",
               "tools/rootly",
@@ -331,6 +337,7 @@
               "tools/threatstream",
               "tools/urlhaus",
               "tools/urlscan",
+              "tools/vercel_security",
               "tools/virustotal",
               "tools/wazuh",
               "tools/x",
@@ -373,6 +380,14 @@
     ]
   },
   "redirects": [
+    {
+      "source": "/tools/google_secops_detection",
+      "destination": "/tools/google_chronicle"
+    },
+    {
+      "source": "/tools/google_secops_soar",
+      "destination": "/tools/google_chronicle"
+    },
     {
       "source": "/automations/core-actions/http",
       "destination": "/automations/core-actions/request-actions/http"

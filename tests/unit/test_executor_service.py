@@ -1,3 +1,4 @@
+import base64
 import uuid
 from collections.abc import Mapping
 from contextlib import asynccontextmanager
@@ -15,7 +16,7 @@ from tracecat_registry import (
 from tracecat.auth.types import Role
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
-from tracecat.exceptions import TracecatCredentialsError
+from tracecat.exceptions import ExecutionError, TracecatCredentialsError
 from tracecat.executor import service as executor_service
 from tracecat.executor.schemas import (
     ActionImplementation,
@@ -847,8 +848,8 @@ async def test_template_step_applies_target_action_expression_policy(
 
 
 @pytest.mark.anyio
-async def test_template_step_result_is_not_tainted_by_its_arguments(mocker):
-    """Step results stay runtime data across the accepted implementation boundary."""
+async def test_template_step_result_stays_runtime_data_for_field_policy(mocker):
+    """Diagnostic masking does not rewrite values supplied to later actions."""
     source_value = "${{ SECRETS.runtime.TOKEN }}"
     action_input = _expression_policy_input(
         "testing.policy_wrapper",
@@ -1208,13 +1209,8 @@ async def test_invoke_once_returns_none_result_as_success(mocker):
 
 
 @pytest.mark.anyio
-async def test_invoke_once_withholds_carrier_derived_action_error(mocker):
-    """No declared secrets does not mean no secrets.
-
-    ACTIONS/var inputs can be secret-derived, so the original exception must
-    not ride along as __cause__/__context__: Temporal serializes the chain and
-    the run view surfaces its deepest message.
-    """
+async def test_invoke_once_keeps_unknown_carrier_error_without_chain(mocker):
+    """Unknown carrier lineage retains diagnostics; exception chains stay severed."""
     from tracecat.exceptions import ExecutionError
 
     canary = "SUPERSECRET-chain-canary"
@@ -1261,8 +1257,226 @@ async def test_invoke_once_withholds_carrier_derived_action_error(mocker):
 
     assert exc_info.value.__cause__ is None
     assert exc_info.value.__context__ is None
-    assert "Details withheld:" in str(exc_info.value)
-    assert canary not in str(exc_info.value)
+    assert "Details withheld:" not in str(exc_info.value)
+    assert f"rejected {canary}" in str(exc_info.value)
+
+
+@pytest.mark.anyio
+async def test_invoke_once_selectively_masks_all_error_fields(mocker):
+    """Diagnostics retain useful text while masking known values in all fields."""
+    canary = "secret-error-info-canary"
+    role = _expression_policy_role("tracecat-executor")
+    action_input = _expression_policy_input(
+        "core.probe", {"value": "${{ ACTIONS.fetch.result }}"}
+    )
+    resolved_context = mocker.Mock(logical_time=mocker.sentinel.logical_time)
+    prepared_context = executor_service.PreparedContext(
+        resolved_context=resolved_context,
+        mask_values={canary},
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "prefetch_lock",
+        new=mocker.AsyncMock(),
+    )
+    mocker.patch.object(
+        executor_service,
+        "prepare_resolved_context",
+        new=mocker.AsyncMock(return_value=prepared_context),
+    )
+    action_error = ExecutionError(
+        info=ExecutorActionErrorInfo(
+            action_name=f"core.{canary}",
+            type=f"Error_{canary}",
+            message=f"upstream rejected the request: {canary}",
+            filename=f"{canary}.py",
+            function=f"run_{canary}",
+            lineno=42,
+            loop_vars={"value": [canary]},
+        )
+    )
+    original_info = action_error.info.model_dump()
+    mocker.patch.object(
+        executor_service,
+        "_invoke_step",
+        new=mocker.AsyncMock(side_effect=action_error),
+    )
+
+    with pytest.raises(ExecutionError) as exc_info:
+        await executor_service.invoke_once(
+            backend=mocker.Mock(),
+            input=action_input,
+            ctx=executor_service.DispatchActionContext(role=role),
+            iteration=2,
+        )
+
+    error = exc_info.value
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert "Details withheld:" not in str(error)
+    assert "upstream rejected the request" in str(error)
+    assert canary not in str(error)
+    assert canary not in error.info.model_dump_json()
+    assert MASK_VALUE in error.info.message
+    assert error.info.lineno == 42
+    assert error.info.loop_iteration == 2
+    assert error.info.loop_vars == {"value": [MASK_VALUE]}
+    assert action_error.info.model_dump() == original_info
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "failure_site",
+    [
+        "step",
+        "returns",
+        "nested-returns",
+        "jsonpath-returns",
+        "opaque-returns",
+        "opaque-nested-returns",
+    ],
+)
+@pytest.mark.parametrize("encoded", [False, True])
+async def test_invoke_once_masks_template_expression_errors(
+    mocker, failure_site, encoded
+):
+    """Real template failures retain diagnostics, but never known secret values."""
+    canary = "secret-template-canary"
+    match failure_site:
+        case "jsonpath-returns":
+            operand = "steps.probe.result.`split(-, 0, -1)`"
+            probe_result = canary
+        case "opaque-returns" | "opaque-nested-returns":
+            operand = "steps.probe.result"
+            probe_result = base64.b64encode(canary.encode()).decode()
+        case _:
+            operand = "SECRETS.api.KEY"
+            probe_result = None
+    if encoded:
+        operand = f"FN.to_base64({operand})"
+    expression = "${{ int(" + operand + ") }}"
+    role = _expression_policy_role("tracecat-executor")
+    action_input = _expression_policy_input("testing.error_details", {})
+    template_definition = {
+        "name": "error_details",
+        "namespace": "testing",
+        "title": "Error details",
+        "description": "Exercises secret-bearing expression failures",
+        "display_group": "Testing",
+        "expects": {},
+        "steps": [
+            {
+                "ref": "probe",
+                "action": "core.probe",
+                "args": {"value": expression} if failure_site == "step" else {},
+            }
+        ],
+        "returns": expression,
+    }
+    action_impl = ActionImplementation(
+        type="template",
+        action_name="testing.error_details",
+        template_definition=template_definition,
+    )
+    if failure_site in {"nested-returns", "opaque-nested-returns"}:
+        # The nested failure is wrapped in ExecutionError before reaching the
+        # root; the other cases reach invoke_once as ordinary exceptions.
+        action_impl = action_impl.model_copy(
+            update={
+                "template_definition": {
+                    **template_definition,
+                    "steps": [{"ref": "nested", "action": "testing.inner", "args": {}}],
+                }
+            }
+        )
+    resolved_context = ResolvedContext(
+        secrets={"api": {"KEY": canary}},
+        action_impl=action_impl,
+        evaluated_args={},
+        workspace_id=str(role.workspace_id),
+        workflow_id=str(action_input.run_context.wf_id),
+        run_id=str(action_input.run_context.wf_run_id),
+        executor_token="parent-token",
+    )
+    prepared_context = executor_service.PreparedContext(
+        resolved_context=resolved_context,
+        mask_values={canary},
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "prefetch_lock",
+        new=mocker.AsyncMock(),
+    )
+    mocker.patch.object(
+        executor_service,
+        "prepare_resolved_context",
+        new=mocker.AsyncMock(return_value=prepared_context),
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "collect_action_secrets_from_manifest",
+        new=mocker.AsyncMock(return_value=[]),
+    )
+    mocker.patch.object(
+        executor_service.registry_resolver,
+        "resolve_action",
+        new=mocker.AsyncMock(
+            side_effect=(
+                [
+                    ActionImplementation(
+                        type="template",
+                        action_name="testing.inner",
+                        template_definition=template_definition,
+                    ),
+                    ActionImplementation(type="udf", action_name="core.probe"),
+                ]
+                if failure_site in {"nested-returns", "opaque-nested-returns"}
+                else [ActionImplementation(type="udf", action_name="core.probe")]
+            )
+        ),
+    )
+    mocker.patch.object(
+        executor_service, "_mint_action_executor_token", return_value="step-token"
+    )
+    backend = mocker.Mock()
+    backend.execute = mocker.AsyncMock(
+        return_value=ExecutorResultSuccess(result=probe_result)
+    )
+    error_log = mocker.patch.object(executor_service.logger, "error")
+
+    with pytest.raises(ExecutionError) as exc_info:
+        await executor_service.invoke_once(
+            backend=backend,
+            input=action_input,
+            ctx=executor_service.DispatchActionContext(role=role),
+            iteration=2,
+        )
+
+    error = exc_info.value
+    assert canary not in error.info.model_dump_json()
+    assert (
+        base64.b64encode(canary.encode()).decode() not in error.info.model_dump_json()
+    )
+    assert canary not in str(error)
+    if failure_site == "jsonpath-returns":
+        fragment = canary.split("-")[0]
+        assert fragment not in error.info.message
+        assert base64.b64encode(fragment.encode()).decode() not in error.info.message
+    assert "ValueError in int(***)" in error.info.message
+    assert MASK_VALUE in error.info.message
+    assert "Details withheld" not in error.info.message
+    assert error.info.type == "TracecatExpressionError"
+    assert error.info.loop_iteration == 2
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    assert canary not in str(error_log.call_args_list)
+    assert base64.b64encode(canary.encode()).decode() not in str(
+        error_log.call_args_list
+    )
+    error_log.assert_called()
+    if failure_site not in {"nested-returns", "opaque-nested-returns"}:
+        assert error_log.call_args.kwargs["error"] == error.info.message
+    assert backend.execute.await_count == (0 if failure_site == "step" else 1)
 
 
 @pytest.mark.anyio

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable, Iterator, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 from unittest.mock import AsyncMock, Mock
 
 import httpx
@@ -31,6 +31,7 @@ from starlette.responses import JSONResponse, Response
 from temporalio import workflow
 from temporalio.converter import DataConverter
 from temporalio.exceptions import ActivityError, ApplicationError, TimeoutType
+from temporalio.exceptions import CancelledError as TemporalCancelledError
 from temporalio.exceptions import TimeoutError as TemporalTimeoutError
 from temporalio.testing import ActivityEnvironment
 from temporalio.worker import (
@@ -39,6 +40,7 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
     agent_executor_unavailable,
     invalid_agent_configuration,
@@ -90,7 +92,9 @@ from tracecat.runtime.errors import (
 from tracecat.temporal.errors import (
     activity_error_boundary,
     application_error_from_classification,
+    build_error_transport_detail,
     extract_error_capture,
+    raise_wrapped_application_error,
 )
 from tracecat.workflow.executions.enums import TriggerType
 
@@ -129,6 +133,21 @@ class _TestWorkflow:
 
 async def _run_workflow() -> None:
     return None
+
+
+def _activity_error_from_cancellation() -> ActivityError:
+    try:
+        raise ActivityError(
+            "Synthetic activity cancellation",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="test-executor",
+            activity_type="execute_action_activity",
+            activity_id="synthetic-activity-id",
+            retry_state=None,
+        ) from TemporalCancelledError("activity cancelled")
+    except ActivityError as error:
+        return error
 
 
 @pytest.fixture
@@ -710,6 +729,40 @@ async def test_invalid_agent_configuration_does_not_emit_sentry(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(
+            TemporalCancelledError("activity cancelled"),
+            id="direct-temporal-cancellation",
+        ),
+        pytest.param(
+            _activity_error_from_cancellation(),
+            id="wrapped-temporal-cancellation",
+        ),
+    ],
+)
+async def test_temporal_cancellation_is_not_reported_by_attribution_interceptor(
+    sentry_events: list[Event],
+    workflow_runtime: _WorkflowInfo,
+    monkeypatch: pytest.MonkeyPatch,
+    error: BaseException,
+) -> None:
+    del workflow_runtime
+    capture = Mock()
+    monkeypatch.setattr(interceptor_module, "capture_platform_failure", capture)
+    attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
+
+    with pytest.raises(type(error)) as raised:
+        await attribution.execute_workflow(_workflow_input())
+
+    assert raised.value is error
+    sentry_sdk.flush()
+    capture.assert_not_called()
+    assert sentry_events == []
+
+
+@pytest.mark.anyio
 async def test_platform_agent_executor_failure_emits_one_sanitized_sentry_event(
     sentry_events: list[Event],
     workflow_runtime: _WorkflowInfo,
@@ -732,6 +785,8 @@ async def test_platform_agent_executor_failure_emits_one_sanitized_sentry_event(
         RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE.value
     )
     assert tags[SentryTag.ERROR_OWNER.value] == "platform"
+    assert SentryTag.LLM_ROUTE.value not in tags
+    assert SentryTag.LLM_PROVIDER_CONFIGURATION.value not in tags
     assert _SENSITIVE_VALUE not in json.dumps(event)
 
 
@@ -1328,9 +1383,13 @@ async def test_activity_capture_failure_keeps_terminal_fallback(
 
 def test_activity_user_failure_is_quiet(sentry_events: list[Event]) -> None:
     capture = ActivityEnvironment().run(
-        capture_activity_failure,
-        RuntimeError(_SENSITIVE_VALUE),
-        user_agent_execution_failed(),
+        lambda: capture_activity_failure(
+            RuntimeError(_SENSITIVE_VALUE),
+            user_agent_execution_failed(),
+            diagnostics=(
+                LLMErrorDiagnostics(route="managed", provider_configuration="builtin"),
+            ),
+        )
     )
     assert capture is None
     assert sentry_events == []
@@ -1379,6 +1438,78 @@ def test_activity_receipt_deduplicates_only_matching_source(
         )
         is None
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("provider_configuration", ["builtin", "custom", None])
+async def test_llm_dimensions_survive_activity_and_workflow_sentry_sanitization(
+    sentry_events: list[Event],
+    workflow_runtime: _WorkflowInfo,
+    provider_configuration: Literal["builtin", "custom"] | None,
+) -> None:
+    del workflow_runtime
+    classification = agent_executor_unavailable()
+    diagnostic = LLMErrorDiagnostics(
+        route="managed", provider_configuration=provider_configuration
+    )
+    error = application_error_from_classification(
+        classification,
+        build_error_transport_detail(classification, diagnostic),
+    )
+    error.__cause__ = RuntimeError(_SENSITIVE_VALUE)
+    with pytest.raises(ApplicationError) as wrapped:
+        ActivityEnvironment().run(
+            lambda: raise_wrapped_application_error(
+                error, fallback_classification=classification
+            )
+        )
+    error = wrapped.value
+    assert extract_error_capture(error, classification) is not None
+    attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
+    with pytest.raises(ApplicationError):
+        await attribution.execute_workflow(_workflow_input())
+    assert len(sentry_events) == 2
+    for event in sentry_events:
+        assert "tags" in event
+        assert event["tags"][SentryTag.LLM_ROUTE.value] == "managed"
+        assert event["tags"][SentryTag.LLM_PROVIDER_CONFIGURATION.value] == (
+            provider_configuration or "unknown"
+        )
+        assert _SENSITIVE_VALUE not in json.dumps(event)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "diagnostic",
+    [
+        None,
+        {"unrelated": _SENSITIVE_VALUE},
+        {"route": "managed", "url": _SENSITIVE_VALUE},
+        {"route": "managed", "provider_configuration": _SENSITIVE_VALUE},
+    ],
+)
+async def test_invalid_domain_diagnostics_do_not_change_terminal_reporting(
+    sentry_events: list[Event],
+    workflow_runtime: _WorkflowInfo,
+    diagnostic: object,
+) -> None:
+    del workflow_runtime
+    classification = agent_executor_unavailable()
+    error = application_error_from_classification(
+        classification, build_error_transport_detail(classification, diagnostic)
+    )
+    attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
+
+    with pytest.raises(ApplicationError) as raised:
+        await attribution.execute_workflow(_workflow_input())
+
+    assert raised.value is error
+    assert len(sentry_events) == 1
+    event = sentry_events[0]
+    assert "tags" in event
+    assert SentryTag.LLM_ROUTE.value not in event["tags"]
+    assert SentryTag.LLM_PROVIDER_CONFIGURATION.value not in event["tags"]
+    assert _SENSITIVE_VALUE not in json.dumps(event)
 
 
 @pytest.mark.anyio
@@ -1432,6 +1563,8 @@ async def test_proxy_source_capture_keeps_safe_origin_and_receipt(
     assert "contexts" in event
     assert "exception" in event
     assert event["contexts"]["tracecat_proxy"]["route"] == "managed"
+    assert "tags" in event
+    assert event["tags"][SentryTag.LLM_ROUTE.value] == "managed"
     if not transport_failure:
         assert event["contexts"]["tracecat_proxy"]["status_code"] == 401
     frames = [
@@ -1447,3 +1580,67 @@ async def test_proxy_source_capture_keeps_safe_origin_and_receipt(
     assert all("vars" not in frame for frame in frames)
     assert _SENSITIVE_VALUE not in json.dumps(event)
     assert "https://example.com" not in json.dumps(event)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("stopping", [False, True])
+async def test_proxy_body_failure_preserves_source_diagnostics_unless_stopping(
+    sentry_events: list[Event], tmp_path: Path, streaming: bool, stopping: bool
+) -> None:
+    errors: list[LLMProxyError] = []
+    diagnostic = LLMErrorDiagnostics(route="managed", provider_configuration="custom")
+    proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=LLMRoutingPlan(
+            managed_route=LLMRoute(
+                base_url="https://example.com", model_provider="openai", mode="managed"
+            ),
+            direct_routes={},
+        ),
+        on_error=errors.append,
+    )
+    proxy._stopping = stopping
+    writer = Mock()
+    writer.is_closing.return_value = False
+    writer.drain = AsyncMock()
+
+    async def body() -> AsyncIterator[bytes]:
+        yield b"partial response"
+        raise httpx.ReadTimeout(_SENSITIVE_VALUE)
+
+    for _ in range(2):
+        await ActivityEnvironment().run(
+            proxy._write_response,
+            writer,
+            status_code=200,
+            reason_phrase="OK",
+            headers={
+                "content-type": "text/event-stream" if streaming else "application/json"
+            },
+            body_chunks=body(),
+            method="POST",
+            path="/v1/messages",
+            diagnostic_factory=lambda: diagnostic,
+        )
+
+    if stopping:
+        assert errors == sentry_events == []
+        return
+    assert len(errors) == len(sentry_events) == 1
+    error = errors[0]
+    event = sentry_events[0]
+    assert "event_id" in event
+    assert "tags" in event
+    assert "exception" in event
+    assert error.diagnostic == diagnostic
+    assert error.sentry_capture is not None
+    assert error.sentry_capture.event_id == event["event_id"]
+    assert error.classification.kind is RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
+    assert event["tags"][SentryTag.LLM_PROVIDER_CONFIGURATION.value] == "custom"
+    assert any(
+        frame["function"] == "body"
+        for value in event["exception"]["values"]
+        for frame in value.get("stacktrace", {}).get("frames", [])
+    )
+    assert _SENSITIVE_VALUE not in json.dumps(event)

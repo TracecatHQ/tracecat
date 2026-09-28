@@ -17,12 +17,30 @@ from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.secrets.stores.backends import get_backend
 from tracecat_registry._internal import secrets as registry_secrets
 
 from tracecat.agent.access.service import AgentModelAccessService
 from tracecat.agent.catalog.schemas import AgentCatalogRead
-from tracecat.agent.config import MODEL_CONFIGS, PROVIDER_CREDENTIAL_CONFIGS
+from tracecat.agent.catalog.service import AgentCatalogService
+from tracecat.agent.config import (
+    MODEL_CONFIGS,
+    PROVIDER_CREDENTIAL_CONFIGS,
+    provider_display_rank,
+)
+from tracecat.agent.default_model import (
+    read_default_model_catalog_id,
+    read_default_model_name,
+    resolve_legacy_default_model,
+    resolve_org_default_model,
+)
+from tracecat.agent.gateway_providers import (
+    GATEWAY_PROVIDER_SPECS,
+    is_builtin_gateway_provider,
+    resolve_gateway_provider_config,
+)
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.provider.service import discover_openai_compatible_models
 from tracecat.agent.schemas import (
     DefaultModelSelection,
     ModelConfig,
@@ -48,11 +66,22 @@ from tracecat.secrets import secrets_manager
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, decrypt_value
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.schemas import (
+    SecretCreate,
+    SecretKeyValue,
+    SecretSearch,
+    SecretUpdate,
+)
+from tracecat.secrets.service import (
+    SecretsService,
+    build_external_secret_reference,
+    is_external_reference,
+)
 from tracecat.service import BaseOrgService
 from tracecat.settings.schemas import SettingCreate, SettingUpdate, ValueType
 from tracecat.settings.service import SettingsService
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 
 _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
 _VERTEX_BEARER_TOKEN_KEY = "VERTEX_AI_BEARER_TOKEN"
@@ -313,51 +342,10 @@ class AgentManagementService(BaseOrgService):
         await self.session.commit()
 
     async def _get_default_model_name_setting(self) -> str | None:
-        """Return the stored legacy default model name, if present."""
-        setting = await self.settings_service.get_org_setting(
-            _DEFAULT_MODEL_SETTING_KEY
-        )
-        if not setting:
-            return None
-        value = self.settings_service.get_value(setting)
-        return value if isinstance(value, str) and value else None
+        return await read_default_model_name(self.session, self.organization_id)
 
     async def _get_default_model_catalog_id_setting(self) -> uuid.UUID | None:
-        """Return the stored canonical default model catalog id, if present."""
-        setting = await self.settings_service.get_org_setting(
-            _DEFAULT_MODEL_CATALOG_ID_SETTING_KEY
-        )
-        if not setting:
-            return None
-
-        value = self.settings_service.get_value(setting)
-        if not isinstance(value, str) or not value:
-            return None
-        try:
-            return uuid.UUID(value)
-        except ValueError:
-            logger.warning("Invalid default model catalog id setting", value=value)
-            return None
-
-    def _resolve_legacy_default_model_entry(
-        self,
-        enabled_models: list[AgentCatalogRead],
-        *,
-        model_name: str,
-    ) -> AgentCatalogRead | None:
-        """Resolve a legacy name-only default model selection."""
-        matches = [entry for entry in enabled_models if entry.model_name == model_name]
-        if not matches:
-            return None
-        if len(matches) == 1:
-            return matches[0]
-
-        builtin_matches = [
-            entry for entry in matches if entry.custom_provider_id is None
-        ]
-        if len(builtin_matches) == 1:
-            return builtin_matches[0]
-        return None
+        return await read_default_model_catalog_id(self.session, self.organization_id)
 
     def _to_default_model_selection(
         self, catalog_entry: AgentCatalogRead
@@ -371,8 +359,8 @@ class AgentManagementService(BaseOrgService):
         )
 
     async def list_providers(self) -> list[str]:
-        """List all available AI model providers."""
-        return sorted(PROVIDER_CREDENTIAL_CONFIGS.keys())
+        """List all available AI model providers in display order."""
+        return sorted(PROVIDER_CREDENTIAL_CONFIGS.keys(), key=provider_display_rank)
 
     async def list_models(self) -> dict[str, ModelConfig]:
         """List all available AI models."""
@@ -387,8 +375,11 @@ class AgentManagementService(BaseOrgService):
     async def list_provider_credential_configs(
         self,
     ) -> list[ProviderCredentialConfig]:
-        """List all provider credential configurations."""
-        return list(PROVIDER_CREDENTIAL_CONFIGS.values())
+        """List all provider credential configurations in display order."""
+        return sorted(
+            PROVIDER_CREDENTIAL_CONFIGS.values(),
+            key=lambda config: provider_display_rank(config.provider),
+        )
 
     async def get_provider_credential_config(
         self, provider: str
@@ -415,6 +406,7 @@ class AgentManagementService(BaseOrgService):
             ]
             update_params = SecretUpdate(keys=keys)
             await self.secrets_service.update_org_secret(existing, update_params)
+            await self._refresh_gateway_provider_catalog_best_effort(params.provider)
             await self._auto_grant_provider_access(params.provider)
             return existing
         except TracecatNotFoundError:
@@ -431,6 +423,7 @@ class AgentManagementService(BaseOrgService):
                 tags={"provider": params.provider, "type": "agent-credentials"},
             )
             await self.secrets_service.create_org_secret(create_params)
+            await self._refresh_gateway_provider_catalog_best_effort(params.provider)
             await self._auto_grant_provider_access(params.provider)
             return await self.secrets_service.get_org_secret_by_name(secret_name)
 
@@ -448,7 +441,76 @@ class AgentManagementService(BaseOrgService):
         ]
         update_params = SecretUpdate(keys=keys)
         await self.secrets_service.update_org_secret(secret, update_params)
+        await self._refresh_gateway_provider_catalog_best_effort(provider)
+        await self._auto_grant_provider_access(provider)
         return secret
+
+    async def _refresh_gateway_provider_catalog_best_effort(
+        self, provider: str
+    ) -> None:
+        """Refresh the model catalog after saving gateway provider credentials.
+
+        Discovery failures (unreachable host, bad key) must not block saving
+        credentials, so they are logged and swallowed here. Admins can retry
+        with :meth:`refresh_gateway_provider_catalog`.
+        """
+        if not is_builtin_gateway_provider(provider):
+            return
+        try:
+            await self.refresh_gateway_provider_catalog(provider)
+        except (ValueError, TracecatNotFoundError) as exc:
+            self.logger.warning(
+                "Gateway provider model discovery failed",
+                provider=provider,
+                error=str(exc),
+            )
+
+    @require_scope("agent:update")
+    async def refresh_gateway_provider_catalog(self, provider: str) -> int:
+        """Discover models from a built-in gateway provider and upsert catalog rows.
+
+        Built-in gateway providers (Ollama, vLLM, LiteLLM, OpenRouter) expose an
+        OpenAI-compatible ``GET /models`` endpoint. Discovered models are stored
+        as org-owned catalog rows keyed by ``model_provider`` with no linked
+        ``AgentCustomProvider``, so they resolve credentials from the org
+        provider secret at runtime.
+
+        Args:
+            provider: Built-in gateway provider slug.
+
+        Returns:
+            Number of models discovered.
+
+        Raises:
+            TracecatNotFoundError: If the provider is not a built-in gateway
+                provider or has no stored credentials.
+            ValueError: If the base URL is missing or discovery fails.
+        """
+        org_id = self.role.organization_id
+        if org_id is None or not is_builtin_gateway_provider(provider):
+            raise TracecatNotFoundError(
+                f"{provider} is not a built-in gateway provider"
+            )
+        creds = await self.get_provider_credentials(provider)
+        if creds is None:
+            raise TracecatNotFoundError(f"No credentials configured for {provider}")
+        runtime = resolve_gateway_provider_config(provider, creds)
+        if runtime is None or not runtime.base_url:
+            raise ValueError(f"{provider} base URL is not configured")
+
+        models = await discover_openai_compatible_models(
+            runtime.base_url,
+            api_key=runtime.api_key,
+        )
+        catalog_service = AgentCatalogService(session=self.session)
+        count = await catalog_service.upsert_discovered_models(
+            org_id=org_id,
+            custom_provider_id=None,
+            model_provider=provider,
+            models=models,
+        )
+        await self._auto_grant_provider_access(provider)
+        return count
 
     @require_scope("agent:read")
     async def get_provider_credentials(self, provider: str) -> dict[str, str] | None:
@@ -466,17 +528,28 @@ class AgentManagementService(BaseOrgService):
         self,
         provider: str,
     ) -> dict[str, str] | None:
-        """Get decrypted credentials for an AI provider at workspace level."""
+        """Resolve local or externally backed workspace credentials for a provider.
+
+        Commits the caller's session before resolving an external reference.
+        """
         secret_name = self._get_workspace_credential_secret_name(provider)
-        try:
-            secret = await self.secrets_service.get_secret_by_name(
-                secret_name,
-                DEFAULT_SECRETS_ENVIRONMENT,
-            )
-            decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
-            return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
-        except TracecatNotFoundError:
+        secrets = await self.secrets_service.search_secrets(
+            SecretSearch(names={secret_name}, environment=DEFAULT_SECRETS_ENVIRONMENT)
+        )
+        if not secrets:
             return None
+        secret = secrets[0]
+        if is_external_reference(secret):
+            await check_entitlement(
+                self.session, self.role, Entitlement.EXTERNAL_SECRET_STORES
+            )
+            reference = build_external_secret_reference(secret)
+            # Release the DB connection before the remote call.
+            await self.session.commit()
+            values = await get_backend(reference.provider).resolve([reference])
+            return values.get(secret_name)
+        decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
+        return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
 
     async def _augment_runtime_provider_credentials(
         self, provider: str, credentials: dict[str, str]
@@ -687,27 +760,24 @@ class AgentManagementService(BaseOrgService):
         config: AgentConfig,
         credentials: dict[str, str],
     ) -> AgentConfig:
-        """Populate derived runtime settings for the custom model provider."""
-        if config.model_provider != "custom-model-provider":
+        """Populate derived runtime settings for OpenAI-compatible providers."""
+        runtime = resolve_gateway_provider_config(config.model_provider, credentials)
+        if runtime is None:
             return config
-        passthrough = credentials.get(
-            "CUSTOM_MODEL_PROVIDER_PASSTHROUGH", ""
-        ).lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-        if not passthrough:
+        if not runtime.passthrough:
             return replace(config, passthrough=False)
-        if not (base_url := credentials.get("CUSTOM_MODEL_PROVIDER_BASE_URL")):
+        if not runtime.base_url:
+            spec = GATEWAY_PROVIDER_SPECS[config.model_provider]
             raise TracecatNotFoundError(
-                "Custom model provider passthrough requires "
-                "CUSTOM_MODEL_PROVIDER_BASE_URL in provider credentials."
+                f"{config.model_provider} passthrough requires "
+                f"{spec.base_url_key} in provider credentials."
             )
-        updates: dict[str, str | bool] = {"base_url": base_url, "passthrough": True}
-        if model_name := credentials.get("CUSTOM_MODEL_PROVIDER_MODEL_NAME"):
-            updates["model_name"] = model_name
+        updates: dict[str, str | bool] = {
+            "base_url": runtime.base_url,
+            "passthrough": True,
+        }
+        if runtime.model_name:
+            updates["model_name"] = runtime.model_name
         return replace(config, **updates)
 
     @require_scope("agent:update")
@@ -932,26 +1002,11 @@ class AgentManagementService(BaseOrgService):
             return self.settings_service.get_value(setting)
         return None
 
+    @require_scope("agent:read")
     async def get_default_model_selection(self) -> DefaultModelSelection | None:
         """Get the canonical default model selection, if it resolves cleanly."""
-        access_svc = AgentModelAccessService(session=self.session, role=self.role)
-        enabled_models = await access_svc.get_org_models()
-
-        if catalog_id := await self._get_default_model_catalog_id_setting():
-            if catalog_entry := next(
-                (entry for entry in enabled_models if entry.id == catalog_id),
-                None,
-            ):
-                return self._to_default_model_selection(catalog_entry)
-            return None
-
-        if model_name := await self._get_default_model_name_setting():
-            if catalog_entry := self._resolve_legacy_default_model_entry(
-                enabled_models,
-                model_name=model_name,
-            ):
-                return self._to_default_model_selection(catalog_entry)
-        return None
+        entry = await resolve_org_default_model(self.session, self.organization_id)
+        return self._to_default_model_selection(entry) if entry else None
 
     @contextlib.contextmanager
     def _credentials_sandbox(self, credentials: dict[str, str]) -> Iterator[None]:
@@ -988,7 +1043,7 @@ class AgentManagementService(BaseOrgService):
 
             access_svc = AgentModelAccessService(session=self.session, role=self.role)
             enabled_models = await access_svc.get_org_models()
-            catalog_entry = self._resolve_legacy_default_model_entry(
+            catalog_entry = resolve_legacy_default_model(
                 enabled_models, model_name=legacy_name
             )
             if catalog_entry is None:

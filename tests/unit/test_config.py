@@ -66,6 +66,13 @@ SENTRY_PLATFORM_COMPOSE_SERVICES = (
     "executor",
     "agent-executor",
 )
+SMTP_COMPOSE_ENV = (
+    "TRACECAT__SMTP_HOST: ${TRACECAT__SMTP_HOST:-}",
+    "TRACECAT__SMTP_PORT: ${TRACECAT__SMTP_PORT:-587}",
+    "TRACECAT__SMTP_USER: ${TRACECAT__SMTP_USER:-}",
+    "TRACECAT__SMTP_PASSWORD: ${TRACECAT__SMTP_PASSWORD:-}",
+    "TRACECAT__EMAIL_FROM: ${TRACECAT__EMAIL_FROM:-}",
+)
 
 
 def _config_bool_env_vars() -> set[str]:
@@ -234,6 +241,70 @@ def test_audit_trusted_proxy_env_is_wired_to_deployments() -> None:
     assert name in (fargate / "modules/ecs/locals.tf").read_text()
     for tf in ("variables.tf", "main.tf", "modules/ecs/variables.tf"):
         assert "audit_trusted_proxy_cidrs" in (fargate / tf).read_text(), tf
+
+
+def test_outbound_private_cidrs_are_wired_to_deployments() -> None:
+    """Validation, gateway, and agent processes share the operator's policy."""
+    name = "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS"
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        for service in ("api", "litellm", "agent-executor", "agent-worker"):
+            match = re.search(
+                rf"(?ms)^  {service}:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+                path.read_text(),
+            )
+            assert match is not None, f"{path.name}: no {service} service block"
+            assert f"{name}: ${{{name}:-}}" in match.group("body"), (
+                f"{path.name}: {service} must forward the override and default to empty"
+            )
+    fargate = REPO_ROOT / "deployments/fargate"
+    assert (
+        f"{name} = var.outbound_allowed_private_cidrs"
+        in (fargate / "modules/ecs/locals.tf").read_text()
+    )
+    assert re.search(
+        r"outbound_allowed_private_cidrs\s*=\s*var.outbound_allowed_private_cidrs",
+        (fargate / "main.tf").read_text(),
+    )
+    for tf in ("variables.tf", "modules/ecs/variables.tf"):
+        assert re.search(
+            r'variable "outbound_allowed_private_cidrs" \{[^}]*default\s*=\s*""',
+            (fargate / tf).read_text(),
+        ), tf
+
+
+def test_smtp_env_is_wired_to_api_deployments() -> None:
+    for path in SANDBOX_POLICY_COMPOSE_ENV_FILES:
+        source = path.read_text().replace(" # Sensitive", "")
+        api_match = re.search(
+            r"(?ms)^  api:\n(?P<body>.*?)(?=^  [a-z][a-z0-9_-]*:\n|\Z)",
+            source,
+        )
+        assert api_match is not None
+        for env_line in SMTP_COMPOSE_ENV:
+            assert env_line in api_match.group("body"), f"{path.name}: {env_line}"
+
+    fargate = REPO_ROOT / "deployments/fargate"
+    for name in (
+        "smtp_host",
+        "smtp_port",
+        "smtp_user",
+        "smtp_password",
+        "email_from",
+    ):
+        assert (
+            name in (fargate / "modules/ecs/locals.tf").read_text()
+            or name in (fargate / "modules/ecs/secrets.tf").read_text()
+        )
+    for tf in ("variables.tf", "main.tf", "modules/ecs/variables.tf"):
+        source = (fargate / tf).read_text()
+        for name in (
+            "smtp_password_arn",
+            "smtp_host",
+            "smtp_port",
+            "smtp_user",
+            "email_from",
+        ):
+            assert name in source, f"{tf}: {name}"
 
 
 def test_sandbox_policy_env_vars_are_wired_to_compose_files() -> None:
@@ -415,6 +486,18 @@ def test_bound_env_uses_default_for_empty_string(
     assert result == 10
 
 
+def test_agent_runtime_feature_flag_is_loaded_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__FEATURE_FLAGS", "agent-runtime")
+            reloaded_config = importlib.reload(tracecat_config)
+            assert reloaded_config.TRACECAT__FEATURE_FLAGS == {"agent-runtime"}
+    finally:
+        importlib.reload(tracecat_config)
+
+
 def test_action_gateway_socket_uses_default_for_empty_string(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -428,6 +511,41 @@ def test_action_gateway_socket_uses_default_for_empty_string(
                 reloaded_config.TRACECAT__ACTION_GATEWAY_SOCKET
                 == "/var/run/tracecat/action-gateway.sock"
             )
+    finally:
+        importlib.reload(tracecat_config)
+
+
+@pytest.mark.parametrize("port", ["0", "65536", "-1"])
+def test_smtp_port_rejects_out_of_range(
+    monkeypatch: pytest.MonkeyPatch, port: str
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__SMTP_PORT", port)
+
+            with pytest.raises(ValueError, match="TRACECAT__SMTP_PORT"):
+                importlib.reload(tracecat_config)
+    finally:
+        importlib.reload(tracecat_config)
+
+
+def test_smtp_password_preserves_whitespace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__SMTP_PASSWORD", " secret ")
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__SMTP_PASSWORD == " secret "
+
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__SMTP_PASSWORD", "   ")
+
+            reloaded_config = importlib.reload(tracecat_config)
+
+            assert reloaded_config.TRACECAT__SMTP_PASSWORD is None
     finally:
         importlib.reload(tracecat_config)
 
@@ -566,3 +684,10 @@ def test_bound_env_rejects_invalid_bounds() -> None:
         ValueError, match="lower \\(10\\) cannot be greater than upper \\(8\\)"
     ):
         bound_env("TEST_BOUND_ENV", 16, lower=10, upper=8)
+
+
+def test_platform_otel_operator_settings_are_not_advertised_in_env_example() -> None:
+    source = (REPO_ROOT / ".env.example").read_text()
+    assert "TRACECAT__PLATFORM_OTEL_ENABLED" not in source
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in source
+    assert "OTEL_EXPORTER_OTLP_HEADERS" not in source

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import uuid
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
@@ -96,6 +97,10 @@ def disable_workflow_concurrency_limits(monkeypatch: pytest.MonkeyPatch) -> None
 @pytest.fixture
 async def env() -> AsyncGenerator[WorkflowEnvironment, None]:
     """Run attribution tests against an ephemeral Temporal dev server."""
+    # Collect stopped workflows before another workflow event loop is active.
+    # Otherwise finalizers from a terminated/timed-out run can execute during
+    # the next activation and stamp its error-owner search attribute.
+    gc.collect()
     async with await WorkflowEnvironment.start_local(
         data_converter=get_data_converter(compression_enabled=False),
         search_attributes=[TemporalSearchAttr.ERROR_OWNER.key],

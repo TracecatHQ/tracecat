@@ -5,7 +5,11 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping, Sequence
 
-from tracecat.agent.mcp.utils import REGISTRY_MCP_SERVER_NAME, normalize_mcp_tool_name
+from tracecat.agent.mcp.utils import (
+    MCP_TOOL_NAME_RE,
+    REGISTRY_MCP_SERVER_NAME,
+    normalize_mcp_tool_name,
+)
 from tracecat.agent.preset.types import (
     EffectivePresetTools,
     PresetToolInputs,
@@ -127,11 +131,11 @@ def resolve_tool_policy(
                 tool.enabled
                 and tool.status == "available"
                 and tool.requires_approval
-                and "." not in tool.name
+                and MCP_TOOL_NAME_RE.fullmatch(tool.name)
                 and (allowed_names is None or tool.name in allowed_names)
             ):
                 key = normalize_mcp_tool_name(
-                    f"mcp__{REGISTRY_MCP_SERVER_NAME}__mcp__{integration.name}__{tool.name}"
+                    f"mcp__{REGISTRY_MCP_SERVER_NAME}__mcp__{integration.slug}__{tool.name}"
                 )
                 approvals[key] = True
 

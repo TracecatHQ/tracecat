@@ -33,6 +33,7 @@ with workflow.unsafe.imports_passed_through():
         application_error_from_classification,
         extract_error_capture,
         extract_error_classifications,
+        extract_error_diagnostics,
         iter_error_chain,
     )
     from tracecat.temporal.patches import WorkflowPatch
@@ -84,6 +85,7 @@ def _report_terminal_failure(
                 attempt=info.attempt,
                 trigger_type=trigger_type.value,
             ),
+            diagnostics=extract_error_diagnostics(error, classification),
         )
     else:
         terminal_logger.warning("Terminal user workflow failure")

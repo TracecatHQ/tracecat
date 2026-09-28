@@ -64,6 +64,7 @@ from tracecat.cases.service import (
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import Case
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
@@ -102,6 +103,80 @@ def _raise_case_field_http_error(
 ) -> NoReturn:
     """Convert case-field validation failures into HTTP 400 responses."""
     raise HTTPException(status_code=HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+async def _build_case_read(
+    *,
+    service: CasesService,
+    session: AsyncDBSession,
+    role: WorkspaceActorRouteRole,
+    case: Case,
+    include_rows: bool,
+) -> CaseRead:
+    """Assemble the full case representation returned by read and write routes."""
+    fields = await service.fields.get_fields(case) or {}
+    field_definitions = await service.fields.list_fields()
+    field_schema = await service.fields.get_field_schema()
+    final_fields: list[CaseFieldRead] = []
+    for defn in field_definitions:
+        f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
+        final_fields.append(
+            CaseFieldRead(
+                **f.model_dump(),
+                value=fields.get(f.id),
+            )
+        )
+
+    # Tags are already loaded via selectinload
+    tag_reads = [
+        CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
+    ]
+
+    dropdown_service = CaseDropdownValuesService(session, role)
+    dropdown_reads = []
+    if await dropdown_service.has_entitlement(Entitlement.CASE_ADDONS):
+        dropdown_reads = await dropdown_service.list_values_for_case(case.id)
+
+    rows = []
+    if include_rows:
+        hydrated = await CaseTableRowsService(session, role).hydrate_case_rows(
+            case_ids=[case.id], include_row_data=True
+        )
+        rows = hydrated.get(case.id, [])
+
+    return CaseRead(
+        id=case.id,
+        short_id=case.short_id,
+        created_at=case.created_at,
+        updated_at=case.updated_at,
+        summary=case.summary,
+        status=case.status,
+        priority=case.priority,
+        severity=case.severity,
+        description=case.description,
+        assignee=UserRead.model_validate(case.assignee, from_attributes=True)
+        if case.assignee
+        else None,
+        fields=final_fields,
+        payload=case.payload,
+        tags=tag_reads,
+        dropdown_values=dropdown_reads,
+        rows=rows,
+    )
+
+
+async def _read_case_field(
+    service: CaseFieldsService, field_id: str
+) -> CaseFieldReadMinimal:
+    """Load a single case field definition by its column name."""
+    field_schema = await service.get_field_schema()
+    for column in await service.list_fields():
+        if column["name"] == field_id:
+            return CaseFieldReadMinimal.from_sa(column, field_schema=field_schema)
+    raise HTTPException(
+        status_code=HTTP_404_NOT_FOUND,
+        detail=f"Case field with ID {field_id} not found",
+    )
 
 
 def _parse_dropdown_filter(
@@ -567,55 +642,12 @@ async def get_case(
             status_code=HTTP_404_NOT_FOUND,
             detail=f"Case with ID {case_id} not found",
         )
-    fields = await service.fields.get_fields(case) or {}
-    field_definitions = await service.fields.list_fields()
-    field_schema = await service.fields.get_field_schema()
-    final_fields = []
-    for defn in field_definitions:
-        f = CaseFieldReadMinimal.from_sa(defn, field_schema=field_schema)
-        final_fields.append(
-            CaseFieldRead(
-                **f.model_dump(),
-                value=fields.get(f.id),
-            )
-        )
-
-    # Tags are already loaded via selectinload
-    tag_reads = [
-        CaseTagRead.model_validate(tag, from_attributes=True) for tag in case.tags
-    ]
-
-    # Dropdown values
-    dropdown_service = CaseDropdownValuesService(session, role)
-    dropdown_reads = []
-    if await dropdown_service.has_entitlement(Entitlement.CASE_ADDONS):
-        dropdown_reads = await dropdown_service.list_values_for_case(case.id)
-
-    # Match up the fields with the case field definitions
-    return CaseRead(
-        id=case.id,
-        short_id=case.short_id,
-        created_at=case.created_at,
-        updated_at=case.updated_at,
-        summary=case.summary,
-        status=case.status,
-        priority=case.priority,
-        severity=case.severity,
-        description=case.description,
-        assignee=UserRead.model_validate(case.assignee, from_attributes=True)
-        if case.assignee
-        else None,
-        fields=final_fields,
-        payload=case.payload,
-        tags=tag_reads,
-        dropdown_values=dropdown_reads,
-        rows=(
-            await CaseTableRowsService(session, role).hydrate_case_rows(
-                case_ids=[case.id], include_row_data=True
-            )
-        ).get(case.id, [])
-        if include_rows
-        else [],
+    return await _build_case_read(
+        service=service,
+        session=session,
+        role=role,
+        case=case,
+        include_rows=include_rows,
     )
 
 
@@ -626,19 +658,26 @@ async def create_case(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     params: CaseCreate,
-) -> None:
+) -> CaseRead:
     """Create a new case."""
     service = CasesService(session, role)
     try:
-        await service.create_case(params)
+        case = await service.create_case(params)
     except ValueError as e:
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    return await _build_case_read(
+        service=service,
+        session=session,
+        role=role,
+        case=case,
+        include_rows=False,
+    )
 
 
-@cases_router.patch("/{case_id}", status_code=HTTP_204_NO_CONTENT)
+@cases_router.patch("/{case_id}", status_code=HTTP_200_OK)
 @require_scope("case:update")
 async def update_case(
     *,
@@ -646,7 +685,8 @@ async def update_case(
     session: AsyncDBSession,
     params: CaseUpdate,
     case_id: uuid.UUID,
-) -> None:
+    include_rows: bool = Query(False, description="Include linked table rows"),
+) -> CaseRead:
     """Update a case."""
     service = CasesService(session, role)
     case = await service.get_case(case_id, for_update=True)
@@ -656,7 +696,7 @@ async def update_case(
             detail=f"Case with ID {case_id} not found",
         )
     try:
-        await service.update_case(case, params)
+        updated_case = await service.update_case(case, params)
     except TracecatValidationError as e:
         raise HTTPException(
             status_code=HTTP_422_UNPROCESSABLE_ENTITY,
@@ -673,6 +713,13 @@ async def update_case(
             status_code=HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database operation failed",
         ) from e
+    return await _build_case_read(
+        service=service,
+        session=session,
+        role=role,
+        case=updated_case,
+        include_rows=include_rows,
+    )
 
 
 @cases_router.delete("/{case_id}", status_code=HTTP_204_NO_CONTENT)
@@ -747,7 +794,7 @@ async def create_comment(
     session: AsyncDBSession,
     case_id: uuid.UUID,
     params: CaseCommentCreate,
-) -> None:
+) -> CaseCommentRead:
     """Create a new comment on a case."""
     cases_svc = CasesService(session, role)
     case = await cases_svc.get_case(case_id)
@@ -758,14 +805,15 @@ async def create_comment(
         )
     comments_svc = CaseCommentsService(session, role)
     try:
-        await comments_svc.create_comment(case, params)
+        comment = await comments_svc.create_comment(case, params)
     except (TracecatAuthorizationError, TracecatValidationError) as exc:
         _raise_comment_http_error(exc)
+    return await comments_svc.serialize_comment_with_mentions(comment)
 
 
 @cases_router.patch(
     "/{case_id}/comments/{comment_id}",
-    status_code=HTTP_204_NO_CONTENT,
+    status_code=HTTP_200_OK,
 )
 @require_scope("case:update")
 async def update_comment(
@@ -775,7 +823,7 @@ async def update_comment(
     case_id: uuid.UUID,
     comment_id: uuid.UUID,
     params: CaseCommentUpdate,
-) -> None:
+) -> CaseCommentRead:
     """Update an existing comment."""
     cases_svc = CasesService(session, role)
     case = await cases_svc.get_case(case_id)
@@ -792,9 +840,10 @@ async def update_comment(
             detail=f"Comment with ID {comment_id} not found",
         )
     try:
-        await comments_svc.update_comment(comment, params)
+        updated_comment = await comments_svc.update_comment(comment, params)
     except (TracecatAuthorizationError, TracecatValidationError) as exc:
         _raise_comment_http_error(exc)
+    return await comments_svc.serialize_comment_with_mentions(updated_comment)
 
 
 @cases_router.delete(
@@ -856,7 +905,7 @@ async def create_field(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     params: CaseFieldCreate,
-) -> None:
+) -> CaseFieldReadMinimal:
     """Create a new case field."""
     service = CaseFieldsService(session, role)
     try:
@@ -873,9 +922,10 @@ async def create_field(
                 detail=f"A field with the name '{params.name}' already exists",
             ) from e
         raise
+    return await _read_case_field(service, params.name)
 
 
-@case_fields_router.patch("/{field_id}", status_code=HTTP_204_NO_CONTENT)
+@case_fields_router.patch("/{field_id}", status_code=HTTP_200_OK)
 @require_scope("case:update")
 async def update_field(
     *,
@@ -883,7 +933,7 @@ async def update_field(
     session: AsyncDBSession,
     field_id: str,
     params: CaseFieldUpdate,
-) -> None:
+) -> CaseFieldReadMinimal:
     """Update a case field."""
     service = CaseFieldsService(session, role)
     try:
@@ -899,6 +949,7 @@ async def update_field(
                 detail=f"A field with the name '{params.name}' already exists",
             ) from err
         raise
+    return await _read_case_field(service, params.name or field_id)
 
 
 @case_fields_router.delete("/{field_id}", status_code=HTTP_204_NO_CONTENT)

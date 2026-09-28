@@ -81,6 +81,14 @@ class CaseAggregateRequest(AggregationSpec):
     float8 JSON numbers. NUMERIC group keys remain exact decimal strings.
     TEXT/SELECT group keys use their first 256 characters, so values sharing
     that prefix collapse into one group. Missing values form a null group.
+
+    When grouping by tags, each case appears once in each of its tag groups.
+    A case with multiple tags contributes to multiple groups, so adding the
+    group counts can exceed the number of matching cases. Untagged cases form
+    the null group. Counts, counts of populated fields, and minimum group sizes
+    always count each case once per group. Sum, mean, and median are unavailable
+    when grouping by tags. Tag filters select cases before grouping; all tags
+    on the matching cases remain available as groups.
     """
 
     filters: Filter | None = Field(default=None)
@@ -418,7 +426,7 @@ class CaseCommentCreate(Schema):
     @field_validator("content")
     @classmethod
     def strip_content(cls, value: str) -> str:
-        return value.strip()
+        return value.replace("\x00", "").strip()
 
     @model_validator(mode="after")
     def validate_content(self) -> CaseCommentCreate:
@@ -440,7 +448,7 @@ class CaseCommentUpdate(Schema):
         """Reject blank edits; only creation with a workflow may leave a comment empty."""
         if value is None:
             return None
-        stripped = value.strip()
+        stripped = value.replace("\x00", "").strip()
         if not stripped:
             raise ValueError("Comment content cannot be blank")
         return stripped

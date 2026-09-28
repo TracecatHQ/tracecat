@@ -49,7 +49,12 @@ type WorkflowContextType = {
     WorkflowDslPublish,
     unknown
   >
-  updateWorkflow: MutateFunction<void, ApiError, WorkflowUpdate, unknown>
+  updateWorkflow: MutateFunction<
+    WorkflowRead,
+    ApiError,
+    WorkflowUpdate,
+    unknown
+  >
   validationErrors: ValidationResult[] | null
   setValidationErrors: React.Dispatch<SetStateAction<ValidationResult[] | null>>
 }

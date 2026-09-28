@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pydantic import TypeAdapter
 from tracecat_registry import config
 from tracecat_registry.core.table import (
     create_table,
@@ -22,9 +23,11 @@ from tracecat_registry.core.table import (
     list_tables,
     lookup,
     lookup_many,
+    search,
     search_rows,
     update_row,
 )
+from tracecat_registry.types import SemanticSearchPage
 
 
 @pytest.fixture
@@ -582,3 +585,32 @@ class TestCoreDownloadTable:
             limit=100,
         )
         assert isinstance(result, str)
+
+
+@pytest.mark.anyio
+async def test_semantic_search_action_and_plain_data_schema(mock_tables_client):
+    page = {
+        "items": [],
+        "next_cursor": None,
+        "has_more": False,
+        "capped": False,
+        "index": {
+            "state": "active",
+            "pending": 0,
+            "failed": 0,
+            "empty": 0,
+            "ready": 0,
+            "backfill_complete": True,
+            "partial": False,
+        },
+    }
+    mock_tables_client.search.return_value = page
+    result = await search(table="synthetic", query="meaning")
+    assert TypeAdapter(SemanticSearchPage).validate_python(result) == page
+    assert (
+        TypeAdapter(SemanticSearchPage).json_schema()["properties"]["items"]["type"]
+        == "array"
+    )
+    mock_tables_client.search.assert_awaited_once_with(
+        table="synthetic", query="meaning", limit=10, cursor=None, allow_partial=False
+    )

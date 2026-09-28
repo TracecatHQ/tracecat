@@ -393,9 +393,7 @@ function CaseLinkedTableSection({
           )}
         </div>
       </div>
-      <div className="overflow-x-auto rounded-md border">
-        <div className="min-w-[1200px]">{gridContent}</div>
-      </div>
+      <div className="overflow-hidden rounded-md border">{gridContent}</div>
     </div>
   )
 }

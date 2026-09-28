@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import httpx
 import orjson
@@ -36,6 +36,7 @@ from tracecat_ee.agent.types import AgentWorkflowID
 from tracecat_ee.agent.workflows.durable import AgentWorkflowArgs, DurableAgentWorkflow
 
 from tracecat import config
+from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.executor.activity import AgentExecutorInput, AgentExecutorResult
 from tracecat.agent.sandbox.llm_proxy import (
     LLMProxyError,
@@ -53,6 +54,7 @@ from tracecat.agent.session.activities import (
     LoadSessionResult,
 )
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.tokens import mint_llm_token
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.dsl._converter import get_data_converter
@@ -106,6 +108,7 @@ class GatewayFailureInjection:
 
     route: GatewayRoute
     mode: GatewayFailureMode
+    provider_configuration: Literal["builtin", "custom"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +120,7 @@ class FailureInjection:
     activity_non_retryable: bool = False
     terminal_stream_error_emitted: bool | None = None
     gateway_failure: GatewayFailureInjection | None = None
+    llm_diagnostic: LLMErrorDiagnostics | None = None
     emit_session_error_fails: bool = False
 
 
@@ -224,14 +228,26 @@ def _gateway_status_code(mode: GatewayFailureMode) -> int | None:
             return None
 
 
-def _gateway_routing_plan(route: GatewayRoute) -> tuple[LLMRoutingPlan, str | None]:
+def _gateway_routing_plan(
+    route: GatewayRoute,
+    provider_configuration: Literal["builtin", "custom"],
+) -> tuple[LLMRoutingPlan, str]:
     managed_route = LLMRoute(
         base_url="http://managed-litellm.invalid",
-        model_provider="openai",
+        model_provider="custom-model-provider"
+        if provider_configuration == "custom"
+        else "openai",
         mode="managed",
     )
     if route is GatewayRoute.MANAGED_LITELLM:
-        return LLMRoutingPlan(managed_route=managed_route, direct_routes={}), None
+        model = "synthetic-managed-model"
+        return (
+            LLMRoutingPlan(
+                managed_route=managed_route,
+                direct_routes={},
+            ),
+            model,
+        )
 
     model = route.value
     base_url = (
@@ -242,7 +258,11 @@ def _gateway_routing_plan(route: GatewayRoute) -> tuple[LLMRoutingPlan, str | No
     direct_route = LLMRoute(
         base_url=base_url,
         model_provider=(
-            "anthropic" if route is GatewayRoute.DIRECT_PROVIDER else "openai"
+            "custom-model-provider"
+            if provider_configuration == "custom"
+            else "anthropic"
+            if route is GatewayRoute.DIRECT_PROVIDER
+            else "openai"
         ),
         mode="direct",
         authorization="Bearer synthetic-test-key",
@@ -256,13 +276,15 @@ def _gateway_routing_plan(route: GatewayRoute) -> tuple[LLMRoutingPlan, str | No
     )
 
 
-async def _gateway_failure_classification(
+async def _gateway_failure(
     injection: GatewayFailureInjection,
     diagnostic: str,
-) -> RuntimeErrorClassification:
-    """Exercise the real proxy and return the classification it emits."""
+) -> LLMProxyError:
+    """Exercise the real proxy and return its classification and diagnostics."""
     errors: list[LLMProxyError] = []
-    routing_plan, request_model = _gateway_routing_plan(injection.route)
+    routing_plan, request_model = _gateway_routing_plan(
+        injection.route, injection.provider_configuration
+    )
 
     async def handler(request: httpx.Request) -> httpx.Response:
         status_code = _gateway_status_code(injection.mode)
@@ -291,17 +313,28 @@ async def _gateway_failure_classification(
         on_error=errors.append,
     )
     proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy._direct_client = proxy._client
     writer = _FakeWriter()
     request_body: dict[str, object] = {"messages": []}
     if request_model is not None:
         request_body["model"] = request_model
 
+    token = mint_llm_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        model=request_model or "synthetic-model",
+        provider=routing_plan.managed_route.model_provider,
+    )
     try:
         await proxy._forward_request(
             {
                 "method": "POST",
                 "path": "/v1/messages",
-                "headers": {"content-type": "application/json"},
+                "headers": {
+                    "content-type": "application/json",
+                    "Authorization": f"Bearer {token}",
+                },
                 "body": orjson.dumps(request_body),
             },
             cast(asyncio.StreamWriter, writer),
@@ -314,7 +347,7 @@ async def _gateway_failure_classification(
         raise AssertionError(
             f"Expected one proxy error for {injection}, observed {len(errors)}"
         )
-    return errors[0].classification
+    return errors[0]
 
 
 @pytest.fixture
@@ -337,8 +370,11 @@ async def env() -> AsyncGenerator[WorkflowEnvironment, None]:
 
 
 @pytest.fixture
-def worker_factory() -> Iterator[WorkerFactory]:
+def worker_factory(monkeypatch: pytest.MonkeyPatch) -> Iterator[WorkerFactory]:
     """Create Workers with the same runner and interceptor as production."""
+    monkeypatch.setattr(
+        config, "TRACECAT__SERVICE_KEY", "synthetic-signing-key-for-tests-only"
+    )
     with ThreadPoolExecutor(max_workers=4) as activity_executor:
 
         def create_worker(
@@ -456,6 +492,7 @@ def _activities(state: _HarnessState) -> list[Callable[..., Any]]:
                 success=False,
                 error=state.diagnostic,
                 classification=state.injection.classification,
+                diagnostic=state.injection.llm_diagnostic,
                 terminal_stream_error_emitted=(
                     state.injection.terminal_stream_error_emitted
                 ),
@@ -499,12 +536,11 @@ async def run_failure_scenario(
 ) -> ScenarioObservation:
     """Execute one matrix row through the production workflow configuration."""
     if injection.gateway_failure is not None:
+        failure = await _gateway_failure(injection.gateway_failure, diagnostic)
         injection = replace(
             injection,
-            classification=await _gateway_failure_classification(
-                injection.gateway_failure,
-                diagnostic,
-            ),
+            classification=failure.classification,
+            llm_diagnostic=failure.diagnostic,
         )
     state = _HarnessState(injection=injection, diagnostic=diagnostic)
     args = _workflow_args(injection)

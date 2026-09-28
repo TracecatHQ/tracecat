@@ -26,6 +26,7 @@ from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
+    RegistryLockAmbiguousActionError,
     RegistryLockInvalidDataError,
 )
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
@@ -248,6 +249,43 @@ async def test_resolve_lock_queries_platform_registry(
             RegistryVersionManifest.model_validate(platform_version.manifest)
         )
     )
+
+
+@pytest.mark.anyio
+async def test_resolve_lock_raises_ambiguous_error_for_shadowed_builtin_action(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    """A custom registry redefining a builtin action name is a typed collision."""
+    custom_origin = "git+ssh://git@example.com/acme/custom-registry.git"
+    repo = RegistryRepository(
+        organization_id=svc_role.organization_id,
+        origin=custom_origin,
+    )
+    session.add(repo)
+    await session.flush()
+
+    version = RegistryVersion(
+        organization_id=svc_role.organization_id,
+        repository_id=repo.id,
+        version="1.0.0",
+        manifest=_make_manifest(["core.transform.reshape"]),
+        tarball_uri="s3://custom/v1.tar.gz",
+    )
+    session.add(version)
+    await session.flush()
+    repo.current_version_id = version.id
+    session.add(repo)
+    await session.commit()
+
+    service = RegistryLockService(session, role=svc_role)
+    with pytest.raises(RegistryLockAmbiguousActionError) as exc_info:
+        await service.resolve_lock_with_bindings({"core.transform.reshape"})
+
+    assert exc_info.value.action_name == "core.transform.reshape"
+    assert set(exc_info.value.origins) == {custom_origin, DEFAULT_REGISTRY_ORIGIN}
+    assert "defined in multiple registries" in str(exc_info.value)
+    assert isinstance(exc_info.value, RegistryLockInvalidDataError)
 
 
 @pytest.mark.anyio

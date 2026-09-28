@@ -18,8 +18,7 @@ from tracecat.exceptions import TracecatValidationError
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.integrations.service import IntegrationService
 from tracecat.registry.actions.service import RegistryActionsService
-from tracecat.service import BaseWorkspaceService, requires_entitlement
-from tracecat.tiers.enums import Entitlement
+from tracecat.service import BaseWorkspaceService
 
 
 class SkillToolDependencyService(BaseWorkspaceService):
@@ -68,7 +67,6 @@ class SkillToolDependencyService(BaseWorkspaceService):
             integrations={integration.id: integration for integration in integrations},
         )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def validate_dependencies(
         self,
         *,

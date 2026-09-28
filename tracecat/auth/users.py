@@ -3,8 +3,8 @@ import hashlib
 import os
 import uuid
 from collections.abc import AsyncGenerator, Iterable, Sequence
-from datetime import UTC, datetime
-from typing import Annotated
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -28,22 +28,28 @@ from fastapi_users.authentication.strategy.db import (
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.exceptions import (
     FastAPIUsersException,
+    InvalidID,
     UserAlreadyExists,
     UserNotExists,
 )
 from fastapi_users.openapi import OpenAPIResponseType
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyAccessTokenDatabase
 from pydantic import EmailStr
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.audit.service import AuditService
 from tracecat.auth.enums import AuthType
+from tracecat.auth.ip_allowlist import IP_ALLOWLIST_DENIED_DETAIL
+from tracecat.auth.ip_allowlist_enforcement import (
+    current_client_ip,
+    is_ip_allowed_for_org,
+)
 from tracecat.auth.schemas import UserCreate, UserUpdate
 from tracecat.auth.secrets import get_user_auth_secret
 from tracecat.auth.types import PlatformRole, Role
-from tracecat.contexts import ctx_role
+from tracecat.contexts import ctx_request_audit, ctx_role
 from tracecat.db.engine import (
     SupportsExecute,
     get_async_session,
@@ -160,14 +166,51 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         user = await super().authenticate(credentials)
         if user is None:
             return None
-        if await self._is_local_password_login_allowed(user):
-            return user
-        self.logger.info(
-            "Blocked local email/password login by auth policy",
-            user_id=str(user.id),
-            email=user.email,
+        if not await self._is_local_password_login_allowed(user):
+            self.logger.info(
+                "Blocked local email/password login by auth policy",
+                user_id=str(user.id),
+                email=user.email,
+            )
+            return None
+        await self._enforce_login_ip_allowlist(user)
+        return user
+
+    async def _enforce_login_ip_allowlist(
+        self, user: User, *, organization_id: OrganizationID | None = None
+    ) -> None:
+        """Reject a login whose client IP no member organization admits.
+
+        With explicit org context (SAML) only that org's allowlist applies.
+        Otherwise the login succeeds if at least one of the user's organizations
+        admits the IP; requests scoped to a denying org are still rejected by
+        the per-request check. Platform superusers bypass (break-glass).
+
+        Raises:
+            HTTPException(403): If every candidate organization denies the IP.
+        """
+        if user.is_superuser:
+            return
+        org_ids = (
+            {organization_id}
+            if organization_id is not None
+            else await self._list_user_org_ids(user.id)
         )
-        return None
+        if not org_ids:
+            return
+        client_ip = current_client_ip()
+        for org_id in org_ids:
+            if await is_ip_allowed_for_org(org_id, client_ip):
+                return
+        self.logger.warning(
+            "Blocked login by organization IP allowlist",
+            user_id=str(user.id),
+            client_ip=str(client_ip) if client_ip else None,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=IP_ALLOWLIST_DENIED_DETAIL,
+        )
 
     async def _is_local_password_login_allowed(self, user: User) -> bool:
         if AuthType.BASIC not in config.TRACECAT__AUTH_TYPES:
@@ -304,7 +347,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="SAML authentication is enforced for this organization",
             )
-        return await super().oauth_callback(  # pyright: ignore[reportAttributeAccessIssue]
+        user = await super().oauth_callback(  # pyright: ignore[reportAttributeAccessIssue]
             oauth_name,
             access_token,
             account_id,
@@ -315,6 +358,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             associate_by_email=associate_by_email,
             is_verified_by_default=is_verified_by_default,
         )
+        await self._enforce_login_ip_allowlist(user)
+        return user
 
     async def create(
         self,
@@ -607,6 +652,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             user = await self.user_db.create(user_dict)
             await self.on_after_register(user)
 
+        await self._enforce_login_ip_allowlist(user, organization_id=organization_id)
         self.logger.info(f"User {user.id} authenticated via SAML.")
         return user
 
@@ -696,10 +742,85 @@ cookie_transport = CookieTransport(
 )
 
 
+class SessionMetadataDatabaseStrategy(DatabaseStrategy[User, uuid.UUID, AccessToken]):
+    """Database session strategy that records client metadata on the token.
+
+    Captures the client IP and User-Agent when a session is created and
+    refreshes ``last_seen_at`` on reads, throttled so an active session incurs
+    at most one write per ``SESSION_LAST_SEEN_UPDATE_INTERVAL_SECONDS``.
+    """
+
+    def _create_access_token_dict(self, user: User) -> dict[str, Any]:
+        token_dict = super()._create_access_token_dict(user)
+        now = datetime.now(UTC)
+        token_dict["last_seen_at"] = now
+        if audit := ctx_request_audit.get():
+            token_dict["ip_address"] = audit.client_ip
+            token_dict["user_agent"] = audit.raw_user_agent
+        return token_dict
+
+    async def read_token(
+        self, token: str | None, user_manager: BaseUserManager[User, uuid.UUID]
+    ) -> User | None:
+        if token is None:
+            return None
+
+        max_age = None
+        if self.lifetime_seconds:
+            max_age = datetime.now(UTC) - timedelta(seconds=self.lifetime_seconds)
+
+        access_token = await self.database.get_by_token(token, max_age)
+        if access_token is None:
+            return None
+
+        try:
+            user = await user_manager.get(user_manager.parse_id(access_token.user_id))
+        except (UserNotExists, InvalidID):
+            return None
+
+        await self._touch_last_seen(access_token)
+        return user
+
+    async def _touch_last_seen(self, access_token: AccessToken) -> None:
+        now = datetime.now(UTC)
+        stale_before = now - timedelta(
+            seconds=config.SESSION_LAST_SEEN_UPDATE_INTERVAL_SECONDS
+        )
+        if (
+            access_token.last_seen_at is not None
+            and access_token.last_seen_at > stale_before
+        ):
+            return
+        if not isinstance(self.database, SQLAlchemyAccessTokenDatabase):
+            return
+        # Conditional UPDATE so concurrent requests on the same session issue at
+        # most one write per interval and never move the timestamp backwards.
+        statement = (
+            update(AccessToken)
+            .where(
+                AccessToken.id == access_token.id,
+                or_(
+                    AccessToken.last_seen_at.is_(None),
+                    AccessToken.last_seen_at < stale_before,
+                ),
+            )
+            .values(last_seen_at=now)
+        )
+        try:
+            await self.database.session.execute(statement)
+            await self.database.session.commit()
+        except Exception as e:
+            logger.warning(
+                "Failed to update session last seen",
+                session_id=access_token.id,
+                error=e,
+            )
+
+
 def get_database_strategy(
     access_token_db: AccessTokenDatabase[AccessToken] = Depends(get_access_token_db),
 ) -> DatabaseStrategy[User, uuid.UUID, AccessToken]:
-    strategy = DatabaseStrategy(
+    strategy = SessionMetadataDatabaseStrategy(
         access_token_db,
         lifetime_seconds=config.SESSION_EXPIRE_TIME_SECONDS,
     )

@@ -26,6 +26,19 @@ class CasesClient:
     def __init__(self, client: TracecatClient) -> None:
         self._client = client
 
+    async def aggregate_cases(self, spec: dict[str, Any]) -> types.AggregateResponse:
+        """Aggregate cases using the server's JSON query specification.
+
+        Args:
+            spec: Plain JSON filters, grouping, calculations, and result options.
+                The server owns validation; its recursive models cannot be
+                imported or mirrored by the standalone registry package.
+
+        Returns:
+            Flat groups and whether additional groups were omitted.
+        """
+        return await self._client.post("/cases/aggregate", json=spec)
+
     @staticmethod
     def _serialize_dropdown_values(
         dropdown_values: list[types.CaseDropdownValueInput] | None,

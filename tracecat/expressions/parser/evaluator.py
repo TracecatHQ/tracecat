@@ -1,4 +1,4 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any, TypeVar
 
 from lark import Token, Transformer, Tree, v_args
@@ -11,6 +11,7 @@ from tracecat.expressions.common import (
     ExprContext,
     ExprOperand,
     IterableExpr,
+    JSONPathFinder,
     eval_jsonpath,
 )
 from tracecat.logger import logger
@@ -22,11 +23,20 @@ class ExprEvaluator(Transformer[Token, Any]):
     _visitor_name: str = "ExprEvaluator"
 
     def __init__(
-        self, operand: ExprOperand[str] | None = None, strict: bool = False
+        self,
+        operand: ExprOperand[str] | None = None,
+        strict: bool = False,
+        *,
+        observe: Callable[[Tree[Token], Any], None] | None = None,
+        format_error: Callable[[Tree[Token], Exception], str] | None = None,
+        find_jsonpath: JSONPathFinder | None = None,
     ) -> None:
         super().__init__()
         self._operand: ExprOperand[str] = operand or {}
         self._strict = strict
+        self._observe = observe
+        self._format_error = format_error
+        self._find_jsonpath = find_jsonpath
         self.logger = logger.bind(visitor=self._visitor_name)
 
     def evaluate(self, tree: Tree[Token]) -> Any:
@@ -40,9 +50,14 @@ class ExprEvaluator(Transformer[Token, Any]):
                 node_type=type(e.obj).__name__,
                 reason_type=type(e.orig_exc).__name__,
             )
+            reason = (
+                self._format_error(e.obj, e.orig_exc)
+                if self._format_error is not None and isinstance(e.obj, Tree)
+                else str(e)
+            )
             raise TracecatExpressionError(
-                f"[evaluator] Evaluation failed at node:\n```\n{tree.pretty()}\n```\nReason: {e}",
-                detail=str(e),
+                f"[evaluator] Evaluation failed at node:\n```\n{tree.pretty()}\n```\nReason: {reason}",
+                detail=reason,
             ) from e
 
     def _transform_tree(self, tree: Tree[Token]) -> Any:
@@ -55,8 +70,12 @@ class ExprEvaluator(Transformer[Token, Any]):
                 "Visiting ternary",
                 selected_branch="true" if condition else "false",
             )
-            return selected_value
-        return super()._transform_tree(tree)
+            result = selected_value
+        else:
+            result = super()._transform_tree(tree)
+        if self._observe is not None:
+            self._observe(tree, result)
+        return result
 
     def _transform_child(self, child: Tree[Token] | Token) -> Any:
         if isinstance(child, Tree):
@@ -143,17 +162,22 @@ class ExprEvaluator(Transformer[Token, Any]):
         logger.trace("Visiting kvpair", arity=len(args))
         return args
 
+    def _eval_jsonpath(self, expr: str) -> Any:
+        return eval_jsonpath(
+            expr, self._operand, strict=self._strict, find=self._find_jsonpath
+        )
+
     @v_args(inline=True)
     def actions(self, jsonpath: str):
         logger.trace("Visiting actions:", args=jsonpath)
         expr = ExprContext.ACTIONS + jsonpath
-        return eval_jsonpath(expr, self._operand, strict=self._strict)
+        return self._eval_jsonpath(expr)
 
     @v_args(inline=True)
     def secrets(self, path: str):
         logger.trace("Visiting secrets:", path=path)
         expr = ExprContext.SECRETS + path
-        return eval_jsonpath(expr, self._operand or {}, strict=self._strict)
+        return self._eval_jsonpath(expr)
 
     @v_args(inline=True)
     def vars(self, path: str):
@@ -169,19 +193,19 @@ class ExprEvaluator(Transformer[Token, Any]):
                 f"Got VARS.{formatted!s} with {len(key_segments)} key segments after the variable name."
             )
         expr = ExprContext.VARS + path
-        return eval_jsonpath(expr, self._operand or {}, strict=self._strict)
+        return self._eval_jsonpath(expr)
 
     @v_args(inline=True)
     def env(self, jsonpath: str):
         logger.trace("Visiting env:", args=jsonpath)
         expr = ExprContext.ENV + jsonpath
-        return eval_jsonpath(expr, self._operand, strict=self._strict)
+        return self._eval_jsonpath(expr)
 
     @v_args(inline=True)
     def local_vars(self, jsonpath: str):
         logger.trace("Visiting local_vars:", args=jsonpath)
         expr = ExprContext.LOCAL_VARS + jsonpath
-        return eval_jsonpath(expr, self._operand, strict=self._strict)
+        return self._eval_jsonpath(expr)
 
     @v_args(inline=True)
     def local_vars_assignment(self, jsonpath: str):
@@ -192,19 +216,19 @@ class ExprEvaluator(Transformer[Token, Any]):
     def trigger(self, jsonpath: str | None):
         logger.trace("Visiting trigger:", args=jsonpath)
         expr = ExprContext.TRIGGER + (jsonpath or "")
-        return eval_jsonpath(expr, self._operand, strict=self._strict)
+        return self._eval_jsonpath(expr)
 
     @v_args(inline=True)
     def template_action_inputs(self, jsonpath: str):
         logger.trace("Visiting template_action_inputs:", args=jsonpath)
         expr = ExprContext.TEMPLATE_ACTION_INPUTS + jsonpath
-        return eval_jsonpath(expr, self._operand, strict=self._strict)
+        return self._eval_jsonpath(expr)
 
     @v_args(inline=True)
     def template_action_steps(self, jsonpath: str):
         logger.trace("Visiting template_action_steps:", args=jsonpath)
         expr = ExprContext.TEMPLATE_ACTION_STEPS + jsonpath
-        return eval_jsonpath(expr, self._operand, strict=self._strict)
+        return self._eval_jsonpath(expr)
 
     @v_args(inline=True)
     def function(self, fn_name: str, fn_args: Sequence[Any] | None):

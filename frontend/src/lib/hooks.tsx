@@ -166,6 +166,7 @@ import {
   organizationDeleteSession,
   organizationListOrgMembers,
   organizationListSessions,
+  organizationResendInvitation,
   organizationRevokeInvitation,
   organizationSecretsCreateOrgSecret,
   organizationSecretsDeleteOrgSecretById,
@@ -644,9 +645,14 @@ export function useUpdateWebhook(workspaceId: string, workflowId: string) {
   return mutation
 }
 
-export function useCaseTrigger(workspaceId: string, workflowId: string) {
+export function useCaseTrigger(
+  workspaceId: string,
+  workflowId: string,
+  options?: { enabled?: boolean }
+) {
   return useQuery<CaseTriggerRead | null, ApiError>({
     queryKey: ["case-trigger", workspaceId, workflowId],
+    enabled: options?.enabled ?? true,
     queryFn: async () => {
       try {
         return await triggersGetCaseTrigger({ workspaceId, workflowId })
@@ -2326,6 +2332,19 @@ export function useOrgMembers() {
     },
   })
 
+  const {
+    mutateAsync: resendInvitation,
+    isPending: resendInvitationIsPending,
+  } = useMutation({
+    mutationFn: async (invitationId: string) =>
+      await organizationResendInvitation({ invitationId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["org-members"] })
+    },
+    // Callers toast on the awaited result, including the 409 cooldown.
+    meta: { suppressErrorToast: true },
+  })
+
   return {
     orgMembers,
     updateOrgMember,
@@ -2337,6 +2356,8 @@ export function useOrgMembers() {
     createInvitation,
     createInvitationIsPending,
     revokeInvitation,
+    resendInvitation,
+    resendInvitationIsPending,
   }
 }
 
@@ -3063,6 +3084,7 @@ export function useOrgAppSettings() {
       await settingsUpdateAppSettings(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-app-settings"] })
+      queryClient.invalidateQueries({ queryKey: ["workspace"] })
       toast({
         title: "Updated application settings",
         description: "Application settings updated successfully.",
@@ -3248,6 +3270,9 @@ function invalidateTableDetailQuery(
 ) {
   queryClient.invalidateQueries({
     queryKey: ["table", workspaceId, tableId],
+  })
+  queryClient.invalidateQueries({
+    queryKey: ["table-search", workspaceId, tableId],
   })
 }
 
@@ -3515,6 +3540,9 @@ export function useBatchInsertRows() {
       await tablesBatchInsertRows(params),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
+        queryKey: ["table-search", variables.workspaceId, variables.tableId],
+      })
+      queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
       queryClient.invalidateQueries({
@@ -3558,6 +3586,9 @@ export function useInsertRow() {
     mutationFn: async (params: TablesInsertRowData) =>
       await tablesInsertRow(params),
     onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["table-search", variables.workspaceId, variables.tableId],
+      })
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
@@ -3606,6 +3637,9 @@ export function useUpdateRow() {
     mutationFn: async (params: TablesUpdateRowData) =>
       await tablesUpdateRow(params),
     onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["table-search", variables.workspaceId, variables.tableId],
+      })
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
@@ -3754,6 +3788,9 @@ export function useImportCsv() {
     mutationFn: async (params: TablesImportCsvData) =>
       await tablesImportCsv(params),
     onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["table-search", variables.workspaceId, variables.tableId],
+      })
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
@@ -5827,6 +5864,10 @@ export function useWorkspaceAgentModels(
   return {
     models,
     providers,
+    catalogLoading: modelsLoading,
+    catalogError: modelsError,
+    providersLoading,
+    providersError,
     modelsLoading: modelsLoading || providersLoading,
     modelsError: modelsError ?? providersError,
   }
@@ -5920,6 +5961,7 @@ export function useAgentDefaultModel() {
   const {
     data: defaultModelSelection,
     isLoading: defaultModelSelectionLoading,
+    error: defaultModelSelectionError,
   } = useQuery<DefaultModelSelection | null>({
     queryKey: ["agent-default-model-selection"],
     queryFn: async () => await agentGetDefaultModelSelection(),
@@ -5946,8 +5988,10 @@ export function useAgentDefaultModel() {
   return {
     defaultModel,
     defaultModelSelection,
+    defaultModelSelectionLoading,
+    defaultModelSelectionError,
     defaultModelLoading: defaultModelLoading || defaultModelSelectionLoading,
-    defaultModelError,
+    defaultModelError: defaultModelError ?? defaultModelSelectionError,
     updateDefaultModel,
     isUpdating,
     updateError,

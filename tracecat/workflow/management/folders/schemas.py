@@ -36,6 +36,7 @@ class WorkflowFolderDelete(BaseModel):
 class FolderDirectoryItem(WorkflowFolderRead):
     type: Literal["folder"]
     num_items: int
+    num_workflows: int
 
 
 class WorkflowDirectoryItem(WorkflowReadMinimal):

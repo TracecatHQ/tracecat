@@ -39,6 +39,7 @@ def test_workspace_chat_default_tools_include_authoring_actions() -> None:
         "core.table.lookup_many",
         "core.table.is_in",
         "core.table.search_rows",
+        "core.table.aggregate_rows",
         "core.table.insert_row",
         "core.table.insert_rows",
         "core.table.update_row",
@@ -50,6 +51,7 @@ def test_workspace_chat_default_tools_include_authoring_actions() -> None:
         "core.cases.list_cases",
         "core.cases.get_case",
         "core.cases.search_cases",
+        "core.cases.aggregate_cases",
         "core.workflow.create_workflow",
         "core.workflow.get_workflow",
         "core.workflow.edit_workflow",
@@ -66,15 +68,10 @@ def test_workspace_chat_default_tools_include_authoring_actions() -> None:
     ]
 
 
-def test_workspace_chat_default_tools_exclude_agent_actions_without_entitlement() -> (
-    None
-):
-    tools = get_default_tools(
-        AgentSessionEntity.WORKSPACE_CHAT.value,
-        agent_addons_enabled=False,
-    )
+def test_workspace_chat_default_tools_include_agent_actions() -> None:
+    tools = get_default_tools(AgentSessionEntity.WORKSPACE_CHAT.value)
 
-    assert all(tool not in tools for tool in WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS)
+    assert all(tool in tools for tool in WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS)
     assert "core.table.list_tables" in tools
     assert "core.cases.list_cases" in tools
 
