@@ -66,7 +66,13 @@ from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
 )
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
-from tracecat.agent.sandbox.config import AgentResourceLimits
+from tracecat.agent.sandbox.cgroup import sandbox_cgroup
+from tracecat.agent.sandbox.config import (
+    JAILED_SHIM_ENTRYPOINT_PATH,
+    AgentResourceLimits,
+    AgentSandboxConfig,
+    build_agent_nsjail_config,
+)
 from tracecat.agent.sandbox.llm_proxy import (
     LLM_SOCKET_NAME,
     LLMRoute,
@@ -148,12 +154,8 @@ _STDIO_MCP_COMBINED_FLOW_COUNT = (
 # under retained load, which exceeds the default 128-process agent jail cap.
 # The stress test opts into a raised cap; production keeps the default.
 _STDIO_MCP_BURST_AGENT_NPROC_LIMIT = 1024
-# The jailed Claude CLI runs under Bun (JavaScriptCore), which sizes its heap
-# reservations by host RAM. On large CI runners the reservation exceeds the
-# default 4 GiB rlimit_as (enforced in MiB since the rlimit units fix), so
-# JSC aborts with "MemoryExhaustion ... Crash intentionally" (SIGABRT). The
-# burst case opts into 8 GiB address-space headroom; production keeps 4 GiB.
-_STDIO_MCP_BURST_AGENT_MEMORY_MB = 8192
+# Reserve virtual address space for Bun without raising the cgroup budget.
+_STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB = 8192
 _STDIO_MCP_BURST_PARENT_NOFILE_LIMIT = 4096
 _STDIO_MCP_BASH_TOOL_USE_ID = "toolu_tracecat_bash_network_probe"
 _STDIO_MCP_BASH_RESULT_MARKER = "TRACE_CAT_BASH_NETWORK_PROBE_OK"
@@ -342,6 +344,7 @@ def _agent_nsjail_available() -> bool:
     rootfs_path = Path(app_config.TRACECAT__SANDBOX_ROOTFS_PATH)
     return (
         platform.system() == "Linux"
+        and bool(os.environ.get("TRACECAT__AGENT_SANDBOX_CGROUP_PATH"))
         and nsjail_path.is_file()
         and os.access(nsjail_path, os.X_OK)
         and rootfs_path.is_dir()
@@ -1304,8 +1307,11 @@ async def _run_stdio_mcp_startup_burst_case(
         updates: dict[str, int] = {}
         if config.resources.max_processes < _STDIO_MCP_BURST_AGENT_NPROC_LIMIT:
             updates["max_processes"] = _STDIO_MCP_BURST_AGENT_NPROC_LIMIT
-        if config.resources.memory_mb < _STDIO_MCP_BURST_AGENT_MEMORY_MB:
-            updates["memory_mb"] = _STDIO_MCP_BURST_AGENT_MEMORY_MB
+        if (
+            config.resources.address_space_limit_mb
+            < _STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB
+        ):
+            updates["address_space_mb"] = _STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB
         if updates:
             config.resources = dataclasses.replace(config.resources, **updates)
         return config
@@ -1772,6 +1778,8 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "  api:",
                 "    build:",
                 "      target: test",
+                '    user: "0:0"',
+                "    cgroup: private",
                 *privileged_lines,
                 "    cap_add:",
                 "      - SYS_ADMIN",
@@ -1807,8 +1815,11 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "--build",
                 "-T",
                 "--entrypoint",
-                "sh",
+                "python",
                 "api",
+                "-m",
+                "tracecat.agent.sandbox.cgroup",
+                "sh",
                 "-lc",
                 f"uv run python -m tests.unit.test_agent_sandbox_litellm {cli_flag}",
             ],
@@ -1826,6 +1837,67 @@ def _run_nsjail_harness_in_docker_or_skip(
         pytest.fail(
             f"{failure_label}\n\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
         )
+
+
+def test_agent_cgroup_oom_containment_and_recovery() -> None:
+    _run_nsjail_harness_in_docker_or_skip(cli_flag="--run-nsjail-cgroup-smoke")
+
+
+def _run_nsjail_cgroup_smoke_from_cli() -> None:
+    """Verify the real kernel boundary, then reuse the agent/DuckDB smoke."""
+    assert os.getuid() == 1001
+    root = sandbox_cgroup()
+    events_path = root / "memory.events"
+
+    def oom_kills() -> int:
+        return int(
+            dict(line.split() for line in events_path.read_text().splitlines())[
+                "oom_kill"
+            ]
+        )
+
+    before = oom_kills()
+    parent_group = Path("/proc/self/cgroup").read_text()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        job = Path(temp_dir)
+        session_paths_module.job_uv_state_dir(job).mkdir()
+        (job / Path(JAILED_SHIM_ENTRYPOINT_PATH).name).write_text(
+            "import resource\n"
+            "assert resource.getrlimit(resource.RLIMIT_AS) == (512 * 1024 * 1024,) * 2\n"
+            "data = []\nwhile True: data.append(bytearray(16 * 1024 * 1024))\n"
+        )
+        site_packages = next(
+            Path(p) for p in sys.path if "site-packages" in p and Path(p).is_dir()
+        )
+        text = build_agent_nsjail_config(
+            rootfs=Path(app_config.TRACECAT__SANDBOX_ROOTFS_PATH),
+            job_dir=job,
+            socket_dir=job,
+            config=AgentSandboxConfig(
+                resources=AgentResourceLimits(
+                    memory_mb=128,
+                    address_space_mb=512,
+                    timeout_seconds=15,
+                )
+            ),
+            site_packages_dir=site_packages,
+            llm_socket_path=None,
+            mount_control_socket=False,
+            cgroup_mount=root,
+        )
+        config_path = job / "nsjail.cfg"
+        config_path.write_text(text)
+        result = subprocess.run(
+            [app_config.TRACECAT__SANDBOX_NSJAIL_PATH, "--config", str(config_path)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 137, result.stderr
+        assert oom_kills() > before, result.stderr
+        assert Path("/proc/self/cgroup").read_text() == parent_group
+    _run_nsjail_duckdb_smoke_from_cli()
 
 
 def _run_nsjail_harness_smoke_from_cli() -> None:
@@ -1969,21 +2041,31 @@ async def _run_nproc_cap_case(
     # only thing that can bound the fork loop is the shim's RLIMIT_NPROC.
     expected = AgentResourceLimits().max_processes
     probe_lines = [
-        "import os, resource, json",
+        "import errno, os, resource, json",
         "soft, _hard = resource.getrlimit(resource.RLIMIT_NPROC)",
         "forked = 0",
+        "fork_errno = None",
         "try:",
         "    for _ in range(300):",
         "        pid = os.fork()",
         "        if pid == 0:",
         "            os._exit(0)",
         "        forked += 1",
-        "except OSError:",
-        "    pass",
-        f"capped = soft == {expected} and 0 < forked < 300",
+        "except OSError as exc:",
+        "    fork_errno = exc.errno",
         # Zombie children still count against RLIMIT_NPROC until reaped, so
-        # the un-reaped fork loop is exactly what makes the cap bind.
-        'print(json.dumps({"soft": soft, "forked": forked, "capped": capped}))',
+        # retain them until the cap binds, then reap them before Claude resumes.
+        # Otherwise the shim inherits zombies and the runtime can abort when
+        # it tries to create another thread or subprocess at the exhausted cap.
+        "finally:",
+        "    for _ in range(forked):",
+        "        os.waitpid(-1, 0)",
+        f"capped = soft == {expected} and 0 < forked < 300 and fork_errno == errno.EAGAIN",
+        "pid = os.fork()",
+        "if pid == 0:",
+        "    os._exit(0)",
+        "_, status = os.waitpid(pid, 0)",
+        'print(json.dumps({"soft": soft, "forked": forked, "capped": capped, "recovered": status == 0}))',
     ]
     bash_command = "python3 - <<'PYEOF'\n" + "\n".join(probe_lines) + "\nPYEOF"
 
@@ -2012,6 +2094,7 @@ async def _run_nproc_cap_case(
     probe = json.loads(probe_output)
     assert probe["soft"] == expected, bash_result
     assert probe["capped"] is True, bash_result
+    assert probe["recovered"] is True, bash_result
 
 
 def _run_nsjail_nproc_smoke_from_cli() -> None:
@@ -3511,7 +3594,9 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] == ["--run-nsjail-harness-smoke"]:
+    if sys.argv[1:] == ["--run-nsjail-cgroup-smoke"]:
+        _run_nsjail_cgroup_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-harness-smoke"]:
         _run_nsjail_harness_smoke_from_cli()
     elif sys.argv[1:] == ["--run-nsjail-nstun-smoke"]:
         _run_nsjail_nstun_smoke_from_cli()
@@ -3531,7 +3616,7 @@ if __name__ == "__main__":
             "[--run-nsjail-harness-smoke|--run-nsjail-nstun-smoke|"
             "--run-nsjail-stdio-mcp-burst-smoke|"
             "--run-nsjail-skills-smoke|--run-nsjail-mcp-compression-smoke|"
-            "--run-nsjail-duckdb-smoke|--run-nsjail-nproc-smoke]"
+            "--run-nsjail-duckdb-smoke|--run-nsjail-nproc-smoke|--run-nsjail-cgroup-smoke]"
         )
 
 

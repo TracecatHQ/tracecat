@@ -175,7 +175,21 @@ async def test_probe_falls_back_to_pid_isolation_without_nsjail() -> None:
 
 
 @pytest.mark.anyio
-async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
+@pytest.mark.parametrize(
+    (
+        "memory_mb",
+        "address_space_mb",
+        "expected_memory_mb",
+        "expected_address_space_mb",
+    ),
+    [(4096, None, 1024, 2048), (512, None, 512, 1024), (4096, 8192, 1024, 8192)],
+)
+async def test_probe_runs_in_sandbox_when_nsjail_available(
+    memory_mb: int,
+    address_space_mb: int | None,
+    expected_memory_mb: int,
+    expected_address_space_mb: int,
+) -> None:
     """With nsjail available, the probe executes inside the sandbox."""
     sandbox_result = MagicMock(
         success=True,
@@ -191,8 +205,20 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
 
     with (
         patch(
+            "tracecat.agent.mcp.stdio_probe.config.TRACECAT__AGENT_SANDBOX_MEMORY_MB",
+            memory_mb,
+        ),
+        patch(
+            "tracecat.agent.sandbox.config.TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB",
+            address_space_mb,
+        ),
+        patch(
             "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
             return_value=True,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.sandbox_cgroup",
+            return_value=Path("/cgroup"),
         ),
         patch(
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
@@ -210,6 +236,8 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
     assert [tool.name for tool in result.tools] == ["list_alerts"]
     executor.execute.assert_awaited_once()
     config = executor.execute.await_args.args[1]
+    assert config.resources.memory_mb == expected_memory_mb
+    assert config.resources.address_space_limit_mb == expected_address_space_mb
     assert config.network is not None
     assert config.network.purpose is SandboxNetworkPurpose.AGENT
     assert config.network.policy is None
@@ -230,6 +258,10 @@ async def test_probe_timeout_leaves_buffer_before_nsjail_limit() -> None:
         patch(
             "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
             return_value=True,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.sandbox_cgroup",
+            return_value=Path("/cgroup"),
         ),
         patch(
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
@@ -272,6 +304,10 @@ async def test_probe_returns_friendly_structured_timeout() -> None:
             return_value=True,
         ),
         patch(
+            "tracecat.agent.mcp.stdio_probe.sandbox_cgroup",
+            return_value=Path("/cgroup"),
+        ),
+        patch(
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
             return_value=executor,
         ),
@@ -299,6 +335,10 @@ async def test_probe_returns_friendly_sandbox_timeout() -> None:
         patch(
             "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
             return_value=True,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.sandbox_cgroup",
+            return_value=Path("/cgroup"),
         ),
         patch(
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",

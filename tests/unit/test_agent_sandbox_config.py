@@ -14,6 +14,7 @@ from tracecat.agent.common.config import (
 )
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
 from tracecat.agent.sandbox.config import (
+    AgentResourceLimits,
     AgentSandboxConfig,
     build_agent_env_map,
     build_agent_nsjail_config,
@@ -233,3 +234,34 @@ def test_real_uv_resolves_managed_directories_inside_job_state(
         assert reported_dir.is_relative_to(uv_state_dir.resolve()), (
             f"uv {' '.join(command)} escaped per-job state: {reported_dir}"
         )
+
+
+@pytest.mark.parametrize("address_space_mb, expected", [(None, 6144), (8192, 8192)])
+def test_agent_cgroup_budget_and_address_space_are_independent(
+    address_space_mb: int | None, expected: int
+) -> None:
+    text = build_agent_nsjail_config(
+        rootfs=Path("/rootfs"),
+        job_dir=Path("/job"),
+        socket_dir=Path("/sockets"),
+        config=AgentSandboxConfig(
+            resources=AgentResourceLimits(
+                memory_mb=3072, address_space_mb=address_space_mb
+            )
+        ),
+        site_packages_dir=Path("/packages"),
+        llm_socket_path=None,
+        cgroup_mount=Path("/cgroup"),
+    )
+    assert f"rlimit_as: {expected}" in text
+    assert f"cgroup_mem_max: {3072 * 1024 * 1024}" in text
+    assert "cgroup_mem_swap_max: 0" in text
+    assert 'cgroupv2_mount: "/cgroup"' in text
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_agent_memory_limits_reject_nonpositive_values(value: int) -> None:
+    with pytest.raises(ValueError):
+        AgentResourceLimits(memory_mb=value)
+    with pytest.raises(ValueError):
+        AgentResourceLimits(address_space_mb=value)

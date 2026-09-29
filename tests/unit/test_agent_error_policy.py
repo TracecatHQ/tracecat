@@ -302,6 +302,7 @@ def test_agent_runtime_failure_attributes_resource_limit_exit_to_user(
     assert failure.classification.cause_type == "AgentSandboxProcessExitError"
     assert failure.message == failure.classification.message
     assert "TRACECAT__AGENT_SANDBOX_MEMORY_MB" in failure.message
+    assert "TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB" in failure.message
     assert "raw stderr tail" not in failure.message
 
 

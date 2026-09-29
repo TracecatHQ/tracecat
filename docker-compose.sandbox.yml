@@ -28,6 +28,9 @@ services:
     privileged: true
 
   agent-executor:
+    user: "0:0"
+    cgroup: private
+    entrypoint: ["python", "-m", "tracecat.agent.sandbox.cgroup"]
     environment:
       TRACECAT__EXECUTOR_BACKEND: ${TRACECAT__EXECUTOR_BACKEND:-nsjail}
     # Same fork-bomb bound as executor (nested userns bypasses in-jail caps).
