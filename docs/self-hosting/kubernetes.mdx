@@ -402,7 +402,9 @@ Choose a chart with the required `appVersion`, then run the chart upgrade comman
 
 ### Set image tags
 
-To update Tracecat without changing the chart version, keep `--version` unchanged and set both image tags in `values.yaml`:
+For the unified execution backend configuration below, upgrade to chart `0.5.0` together with a compatible Tracecat release. Changing only the image tags on an older chart does not update its sandbox permissions or agent startup configuration. The new chart's version guard checks the app version only when you use that chart.
+
+When your chart supports the target Tracecat release, keep `--version` unchanged and set both image tags in `values.yaml`:
 
 ```yaml
 image:
@@ -420,7 +422,7 @@ Run the chart upgrade command after updating `values.yaml`. If you set `migratio
 
 ### Execution sandboxing
 
-Choose the backend independently for the executor and agent-executor. Both default to `nsjail`:
+With chart `0.5.0` or newer, choose the backend independently for the executor and agent-executor. Both default to `nsjail`:
 
 ```yaml
 executor:
