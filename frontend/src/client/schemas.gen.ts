@@ -16152,6 +16152,7 @@ export const $GraphOperationType = {
     "move_nodes",
     "update_trigger_position",
     "update_viewport",
+    "auto_layout",
   ],
   title: "GraphOperationType",
   description: "Graph operation types.",
