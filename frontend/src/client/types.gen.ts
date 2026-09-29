@@ -4908,6 +4908,7 @@ export type GraphOperationType =
   | "move_nodes"
   | "update_trigger_position"
   | "update_viewport"
+  | "auto_layout"
 
 /**
  * Request for PATCH /workflows/{id}/graph.
