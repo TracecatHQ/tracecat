@@ -213,7 +213,8 @@ class OrgService(BaseOrgService):
         if commit:
             await self.session.commit()
 
-    @require_scope("org:member:read")
+    # Group and IdP group names are RBAC detail, not member-list detail.
+    @require_scope("org:member:read", "org:rbac:read")
     async def trace_member_access(self, user_id: UserID) -> MemberAccessTrace:
         """Trace a member's roles to their direct and group sources.
 
@@ -225,7 +226,11 @@ class OrgService(BaseOrgService):
 
         Returns:
             The member's roles and the direct, group, or IdP group sources of each.
+
+        Raises:
+            NoResultFound: The user is not a member of this organization.
         """
+        await self.get_member(user_id)
         direct = (
             select(
                 UserRoleAssignment.workspace_id,

@@ -14788,7 +14788,7 @@ export const scimReplaceUser = (
 
 /**
  * Patch User
- * Apply a PatchOp to the login or the ``active`` state.
+ * Apply a PatchOp to the login, the provider identifier, or ``active``.
  * @param data The data for the request.
  * @param data.resourceId
  * @param data.requestBody

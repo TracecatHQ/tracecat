@@ -1378,6 +1378,48 @@ async def test_user_rename_updates_the_account_email(
 
 
 @pytest.mark.anyio
+async def test_user_patch_updates_external_id_and_ignores_profile_fields(
+    client: httpx.AsyncClient,
+) -> None:
+    """Providers reconcile identifiers and profile attributes through PATCH."""
+    created = await _post_user(
+        client, f"patch-{uuid.uuid4().hex}@tracecat.com", externalId="idp-before"
+    )
+    resource_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/scim/v2/Users/{resource_id}",
+        json={
+            "Operations": [
+                {"op": "replace", "path": "externalId", "value": "idp-after"},
+                {"op": "replace", "path": "displayName", "value": "Jane Doe"},
+                {"op": "replace", "path": "name.givenName", "value": "Jane"},
+            ]
+        },
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["externalId"] == "idp-after"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("value", ["", "   ", 7])
+async def test_user_patch_rejects_an_unusable_external_id(
+    client: httpx.AsyncClient, value: object
+) -> None:
+    """A blank or non-string identifier would orphan the provider's link."""
+    created = await _post_user(client, f"patch-{uuid.uuid4().hex}@tracecat.com")
+    resource_id = created.json()["id"]
+
+    response = await client.patch(
+        f"/scim/v2/Users/{resource_id}",
+        json={"Operations": [{"op": "replace", "path": "externalId", "value": value}]},
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.anyio
 async def test_user_create_rejects_superuser(
     client: httpx.AsyncClient, session: AsyncSession, org: Organization
 ) -> None:

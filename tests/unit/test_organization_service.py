@@ -2355,3 +2355,35 @@ class TestOrganizationServiceTraceMemberAccess:
 
         assert len(trace.roles) == 1
         assert [source.type for source in trace.roles[0].sources] == ["direct"]
+
+    async def test_trace_requires_rbac_read(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        user_in_org1: User,
+    ):
+        """Group provenance is RBAC detail, so member-read alone is refused."""
+        member_role = Role(
+            type="user",
+            user_id=user_in_org1.id,
+            organization_id=org1.id,
+            service_id="tracecat-api",
+            scopes=ORG_MEMBER_SCOPES,
+        )
+
+        with pytest.raises(TracecatAuthorizationError):
+            await OrgService(session, role=member_role).trace_member_access(
+                user_in_org1.id
+            )
+
+    async def test_trace_rejects_a_non_member(
+        self,
+        session: AsyncSession,
+        org1: Organization,
+        admin_in_org1: User,
+    ):
+        """A user outside the organization has no trace to return."""
+        role = create_admin_role(org1.id, admin_in_org1.id)
+
+        with pytest.raises(NoResultFound):
+            await OrgService(session, role=role).trace_member_access(uuid.uuid4())

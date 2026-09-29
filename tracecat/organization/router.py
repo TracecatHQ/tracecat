@@ -368,7 +368,7 @@ async def list_org_members(
 
 
 @router.get("/members/{user_id}/access", response_model=MemberAccessTrace)
-@require_scope("org:member:read")
+@require_scope("org:member:read", "org:rbac:read")
 async def trace_org_member_access(
     *,
     role: OrgUserRole,
@@ -376,7 +376,12 @@ async def trace_org_member_access(
     user_id: UserID,
 ) -> MemberAccessTrace:
     """Trace a member's roles to their direct and group sources."""
-    return await OrgService(session, role=role).trace_member_access(user_id)
+    try:
+        return await OrgService(session, role=role).trace_member_access(user_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        ) from e
 
 
 @router.delete("/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

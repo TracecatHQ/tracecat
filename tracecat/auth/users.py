@@ -221,7 +221,7 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             return False
 
         # An IdP-provisioned user holds a generated password the IdP cannot
-        # revoke. Require external login only when one is enabled.
+        # revoke. Require the org's SSO only when it would admit them.
         if await self._requires_external_login(user.id, user.email):
             return False
 
@@ -289,11 +289,12 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         return False
 
     async def _requires_external_login(self, user_id: uuid.UUID, email: str) -> bool:
-        """Require an enabled external login for active, admitted SCIM users.
+        """Require the org's SAML login for active, admitted SCIM users.
 
-        Only for an organization whose SSO would actually admit them: the SAML
+        Only for an organization whose SAML would actually admit them: the SAML
         callback rejects an email outside the organization's active domains, so
-        forcing external login there would leave the account no way in.
+        forcing external login there would leave the account no way in. Platform
+        OIDC does not count: it is not the organization's identity provider.
         """
         statement = (
             select(ExternalUser.organization_id)
@@ -317,8 +318,6 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             org_ids = result.scalars().all()
             if not org_ids:
                 return False
-            if AuthType.OIDC in config.TRACECAT__AUTH_TYPES:
-                return True
             if AuthType.SAML in config.TRACECAT__AUTH_TYPES:
                 for org_id in org_ids:
                     if not await get_setting_from_bypass_session(

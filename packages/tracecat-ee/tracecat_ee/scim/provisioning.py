@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from fastapi_users.exceptions import InvalidPasswordException
+from pydantic import EmailStr, TypeAdapter, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
@@ -52,6 +53,8 @@ from tracecat.exceptions import (
 from tracecat.organization.domains import normalize_domain
 from tracecat.service import BaseOrgService
 from tracecat_ee.scim.service import SCIMService
+
+_EMAIL = TypeAdapter(EmailStr)
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +189,10 @@ class ScimProvisioningService(BaseOrgService):
             raise TracecatConflictError(
                 "Another account already uses this userName"
             ) from e
+        # An invitation to the new address could outrank the directory's grants.
+        if await self._connection_is_active():
+            await lock_role_changes(self.session, self.organization_id)
+            await SCIMService(self.session, self.role).admit_users(user_id)
 
     async def _require_owned_domain(self, email: str) -> None:
         """Reject an address outside this organization's domain policy."""
@@ -287,6 +294,8 @@ class ScimProvisioningService(BaseOrgService):
 def _normalize_email(email: str) -> str:
     """Lowercase and strip an address, rejecting anything unusable."""
     normalized = email.strip().lower()
-    if not normalized or "@" not in normalized:
-        raise TracecatValidationError("userName is not a valid email address")
+    try:
+        _EMAIL.validate_python(normalized)
+    except ValidationError as e:
+        raise TracecatValidationError("userName is not a valid email address") from e
     return normalized

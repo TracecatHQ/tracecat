@@ -553,7 +553,8 @@ async def test_historical_scim_link_does_not_block_password_or_reset(
         ({AuthType.BASIC}, True, True),
         ({AuthType.BASIC, AuthType.SAML}, False, True),
         ({AuthType.BASIC, AuthType.SAML}, True, False),
-        ({AuthType.BASIC, AuthType.OIDC}, False, False),
+        # Platform OIDC is not the org's IdP, so it never replaces the password.
+        ({AuthType.BASIC, AuthType.OIDC}, False, True),
         ({AuthType.SAML}, False, False),
     ],
 )

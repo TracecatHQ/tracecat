@@ -358,6 +358,50 @@ async def test_existing_higher_role_is_not_downgraded(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "email", ["a@b@tracecat.com", "has space@tracecat.com", "@tracecat.com"]
+)
+async def test_malformed_username_is_rejected(
+    service: ScimProvisioningService, email: str
+) -> None:
+    """An owned domain is not enough: the whole address must be well formed."""
+    with pytest.raises(TracecatValidationError):
+        await service.provision_user(
+            external_id=f"idp-{uuid.uuid4().hex[:8]}", email=email
+        )
+
+
+@pytest.mark.anyio
+async def test_rename_revokes_an_invitation_to_the_new_address(
+    session: AsyncSession,
+    org: Organization,
+    service: ScimProvisioningService,
+    active_connection: None,
+) -> None:
+    """A renamed user cannot pick up an invitation that outranks the directory."""
+    provisioned = await service.provision_user(
+        external_id="idp-rename",
+        email=f"before-{uuid.uuid4().hex[:8]}@tracecat.com",
+    )
+    renamed = f"after-{uuid.uuid4().hex[:8]}@tracecat.com"
+    invitation = Invitation(
+        id=uuid.uuid4(),
+        organization_id=org.id,
+        email=renamed,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex,
+        expires_at=datetime.now(UTC) + timedelta(days=3),
+    )
+    session.add(invitation)
+    await session.flush()
+
+    await service.rename_user(user_id=provisioned.user_id, email=renamed)
+
+    await session.refresh(invitation)
+    assert invitation.status == InvitationStatus.REVOKED
+
+
+@pytest.mark.anyio
 async def test_non_email_username_is_rejected(
     service: ScimProvisioningService,
 ) -> None:

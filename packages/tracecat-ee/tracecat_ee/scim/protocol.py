@@ -39,6 +39,7 @@ from tracecat_ee.scim.credentials import ScimConnectionRole
 from tracecat_ee.scim.provisioning import ScimProvisioningService
 from tracecat_ee.scim.schemas import (
     DISPLAY_NAME_MAX_LENGTH,
+    EXTERNAL_ID_MAX_LENGTH,
     SCIM_CONTENT_TYPE,
     ScimEmail,
     ScimError,
@@ -347,7 +348,7 @@ async def patch_user(
     resource_id: UUID,
     params: ScimPatchOp,
 ) -> ScimUserResource:
-    """Apply a PatchOp to the login or the ``active`` state."""
+    """Apply a PatchOp to the login, the provider identifier, or ``active``."""
     await lock_role_changes(session, _organization_id(role))
     organization_id = _organization_id(role)
     external_user, user = await _linked_user(
@@ -356,6 +357,7 @@ async def patch_user(
 
     active = external_user.active
     user_name = user.email
+    external_id: str | None = None
     emails: list[Any] = []
     for operation in params.operations:
         path = operation.path.strip().lower() if operation.path is not None else None
@@ -376,6 +378,20 @@ async def patch_user(
             if re.match(r"^emails(?:$|[.\[])", attribute):
                 emails.append(_primary_email_value(value))
                 continue
+            if attribute == "externalid":
+                if not isinstance(value, str) or not value.strip():
+                    raise TracecatValidationError(
+                        "externalId must be a non-empty string"
+                    )
+                if len(value) > EXTERNAL_ID_MAX_LENGTH:
+                    raise TracecatValidationError(
+                        f"externalId exceeds {EXTERNAL_ID_MAX_LENGTH} characters"
+                    )
+                external_id = value
+                continue
+            # Accepted but not stored, matching PUT, so profile syncs don't fail.
+            if attribute == "displayname" or re.match(r"^name(?:$|\.)", attribute):
+                continue
             if attribute != "active":
                 raise TracecatValidationError("Unsupported user PATCH path")
             parsed = _coerce_bool(value)
@@ -384,10 +400,10 @@ async def patch_user(
             active = parsed
 
     _require_primary_email_matches(user_name, emails)
+    service = ScimProvisioningService(session, role)
     if user_name.strip().lower() != user.email.lower():
-        await ScimProvisioningService(session, role).rename_user(
-            user_id=user.id, email=user_name
-        )
+        await service.rename_user(user_id=user.id, email=user_name)
+    await service.update_external_id(external_user, external_id)
     await _apply_active(session, role=role, external_user=external_user, active=active)
     await session.commit()
     return _user_resource(external_user, user)
