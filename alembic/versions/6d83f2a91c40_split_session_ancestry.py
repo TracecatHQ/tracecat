@@ -116,13 +116,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # The original fork links remain intact for the previous application.
-    # Downgrade discards the new spawning ancestry and captured boundaries.
-    op.execute(
-        sa.text("DROP TRIGGER trg_capture_legacy_agent_session_fork ON agent_session")
+    raise NotImplementedError(
+        "Session ancestry migrations are roll-forward-only. "
+        "Apply a forward migration to repair the schema."
     )
-    op.execute(sa.text("DROP FUNCTION capture_legacy_agent_session_fork()"))
-    op.drop_column("agent_session", "forked_from_sdk_session_id")
-    op.drop_column("agent_session", "forked_from_history_id")
-    op.drop_column("agent_session", "forked_from_session_id")
-    op.drop_column("agent_session", "spawned_by_session_id")

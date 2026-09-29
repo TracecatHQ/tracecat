@@ -2,6 +2,7 @@
 
 import uuid
 
+import pytest
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
@@ -168,15 +169,21 @@ def test_session_ancestry_preserves_old_and_new_forks() -> None:
                 assert ancestry(empty_fork) == (None, None, None, None, None)
                 assert ancestry(fresh_child) == (None, None, None, None, None)
 
-                revision.module.downgrade()
+                with pytest.raises(NotImplementedError, match="roll-forward-only"):
+                    revision.module.downgrade()
                 columns = {
                     column["name"]
                     for column in inspect(connection).get_columns(
                         "agent_session", schema=schema
                     )
                 }
-                assert "spawned_by_session_id" not in columns
-                assert "forked_from_session_id" not in columns
+                assert {
+                    "spawned_by_session_id",
+                    "forked_from_session_id",
+                    "forked_from_history_id",
+                    "forked_from_sdk_session_id",
+                } <= columns
+                assert ancestry(new_fork) == (source, source, None, 1, "sdk-captured")
                 # All forks of the surviving source remain usable by the old app.
                 assert set(
                     connection.execute(
@@ -186,13 +193,15 @@ def test_session_ancestry_preserves_old_and_new_forks() -> None:
                         {"source": source},
                     ).scalars()
                 ) == {existing, old_fork, new_fork}
-                # No trigger remains to reference the removed columns.
+                # Application rollback keeps the upgraded schema and legacy trigger.
+                rollback_fork = uuid.uuid4()
                 connection.execute(
                     text(
                         "INSERT INTO agent_session (id, workspace_id, parent_session_id) VALUES (:id, :workspace, :source)"
                     ),
-                    {"id": uuid.uuid4(), "workspace": workspace, "source": source},
+                    {"id": rollback_fork, "workspace": workspace, "source": source},
                 )
+                assert ancestry(rollback_fork) == (source, source, None, 3, "sdk-later")
             transaction.rollback()
     finally:
         engine.dispose()
