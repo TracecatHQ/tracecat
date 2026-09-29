@@ -455,7 +455,7 @@ class CaseAgentSessionBackfill:
                     select(
                         AgentSession.workspace_id,
                         AgentSession.id,
-                        AgentSession.parent_session_id,
+                        AgentSession.spawned_by_session_id,
                         AgentSession.forked_from_session_id,
                     )
                     .where(

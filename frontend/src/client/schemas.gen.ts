@@ -3975,7 +3975,7 @@ export const $AgentSessionCreate = {
       title: "Id",
       description: "Session ID. If not provided, service generates one.",
     },
-    parent_session_id: {
+    spawned_by_session_id: {
       anyOf: [
         {
           type: "string",
@@ -3985,7 +3985,7 @@ export const $AgentSessionCreate = {
           type: "null",
         },
       ],
-      title: "Parent Session Id",
+      title: "Spawned By Session Id",
       description: "Session that spawned this fresh child",
     },
     title: {
@@ -4149,7 +4149,7 @@ export const $AgentSessionForkRequest = {
       description:
         "Override entity type for the forked session. Use 'approval' for inbox forks to hide from main chat list.",
     },
-    parent_session_id: {
+    spawned_by_session_id: {
       anyOf: [
         {
           type: "string",
@@ -4159,7 +4159,7 @@ export const $AgentSessionForkRequest = {
           type: "null",
         },
       ],
-      title: "Parent Session Id",
+      title: "Spawned By Session Id",
       description: "Session that spawned this forked child",
     },
   },
@@ -4340,6 +4340,18 @@ export const $AgentSessionRead = {
         },
       ],
       title: "Parent Session Id",
+    },
+    spawned_by_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Spawned By Session Id",
     },
     forked_from_session_id: {
       anyOf: [
@@ -4557,6 +4569,18 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Parent Session Id",
+    },
+    spawned_by_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Spawned By Session Id",
     },
     forked_from_session_id: {
       anyOf: [
@@ -4782,6 +4806,18 @@ export const $AgentSessionReadWithMessages = {
         },
       ],
       title: "Parent Session Id",
+    },
+    spawned_by_session_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Spawned By Session Id",
     },
     forked_from_session_id: {
       anyOf: [

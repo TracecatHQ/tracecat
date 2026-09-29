@@ -490,8 +490,8 @@ class AgentSessionService(BaseWorkspaceService):
             The created AgentSession model.
         """
         backend = get_agent_backend(args.backend_id, harness_type=args.harness_type)
-        if args.parent_session_id is not None:
-            if await self.get_session(args.parent_session_id) is None:
+        if args.spawned_by_session_id is not None:
+            if await self.get_session(args.spawned_by_session_id) is None:
                 raise TracecatNotFoundError(
                     "Parent session not found in this workspace"
                 )
@@ -544,7 +544,7 @@ class AgentSessionService(BaseWorkspaceService):
             # Harness
             backend_id=args.backend_id,
             harness_type=args.harness_type or backend.default_harness,
-            parent_session_id=args.parent_session_id,
+            spawned_by_session_id=args.spawned_by_session_id,
         )
         # Use provided ID if given, otherwise DB default generates one
         if args.id:
@@ -803,7 +803,7 @@ class AgentSessionService(BaseWorkspaceService):
         entity_type: AgentSessionEntity | None = None,
         entity_id: uuid.UUID | None = None,
         exclude_entity_types: list[AgentSessionEntity] | None = None,
-        parent_session_id: uuid.UUID | None = None,
+        spawned_by_session_id: uuid.UUID | None = None,
         forked_from_session_id: uuid.UUID | None = None,
         include_children: bool = False,
         limit: int = 100,
@@ -816,7 +816,7 @@ class AgentSessionService(BaseWorkspaceService):
             entity_type: Filter by entity type.
             entity_id: Filter by entity ID.
             exclude_entity_types: Entity types to exclude from results.
-            parent_session_id: Filter by spawning parent session ID.
+            spawned_by_session_id: Filter by spawning parent session ID.
             forked_from_session_id: Filter by history source session ID.
             include_children: Include spawned children without a parent filter.
             limit: Maximum number of results.
@@ -844,12 +844,14 @@ class AgentSessionService(BaseWorkspaceService):
             )
         if entity_id is not None:
             session_stmt = session_stmt.where(AgentSession.entity_id == entity_id)
-        if parent_session_id is not None:
+        if spawned_by_session_id is not None:
             session_stmt = session_stmt.where(
-                AgentSession.parent_session_id == parent_session_id
+                AgentSession.spawned_by_session_id == spawned_by_session_id
             )
         elif not include_children:
-            session_stmt = session_stmt.where(AgentSession.parent_session_id.is_(None))
+            session_stmt = session_stmt.where(
+                AgentSession.spawned_by_session_id.is_(None)
+            )
         if forked_from_session_id is not None:
             session_stmt = session_stmt.where(
                 AgentSession.forked_from_session_id == forked_from_session_id
@@ -864,7 +866,7 @@ class AgentSessionService(BaseWorkspaceService):
 
         legacy_chats: list[Chat] = []
         if (
-            parent_session_id is None
+            spawned_by_session_id is None
             and forked_from_session_id is None
             and not filter_created_by_none
         ):
@@ -3404,7 +3406,7 @@ class AgentSessionService(BaseWorkspaceService):
         source_session_id: uuid.UUID,
         *,
         entity_type: AgentSessionEntity | None = None,
-        parent_session_id: uuid.UUID | None = None,
+        spawned_by_session_id: uuid.UUID | None = None,
     ) -> AgentSession:
         """Create a forked session from a parent session.
 
@@ -3413,7 +3415,7 @@ class AgentSessionService(BaseWorkspaceService):
 
         Args:
             source_session_id: The ID of the session whose history is forked.
-            parent_session_id: Optional session that spawned the forked child.
+            spawned_by_session_id: Optional session that spawned the forked child.
             entity_type: Override entity type for the forked session. If None,
                 inherits from parent. Use APPROVAL for inbox forks to hide
                 from main chat list.
@@ -3430,8 +3432,8 @@ class AgentSessionService(BaseWorkspaceService):
                 f"Source session with ID {source_session_id} not found"
             )
         if (
-            parent_session_id is not None
-            and await self.get_session(parent_session_id) is None
+            spawned_by_session_id is not None
+            and await self.get_session(spawned_by_session_id) is None
         ):
             raise TracecatNotFoundError("Parent session not found in this workspace")
 
@@ -3458,7 +3460,8 @@ class AgentSessionService(BaseWorkspaceService):
             backend_id=source.backend_id,
             harness_type=source.harness_type,
             # Fork reference
-            parent_session_id=parent_session_id,
+            spawned_by_session_id=spawned_by_session_id,
+            parent_session_id=source_session_id,  # Dual-write for older app versions.
             forked_from_session_id=source_session_id,
             forked_from_history_id=boundary,
             forked_from_sdk_session_id=source.sdk_session_id,
@@ -3477,7 +3480,7 @@ class AgentSessionService(BaseWorkspaceService):
             "Created forked session",
             forked_session_id=forked_session.id,
             forked_from_session_id=source_session_id,
-            parent_session_id=parent_session_id,
+            spawned_by_session_id=spawned_by_session_id,
         )
 
         return forked_session

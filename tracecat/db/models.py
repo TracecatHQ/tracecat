@@ -3234,8 +3234,15 @@ class AgentSession(WorkspaceModel):
         server_default=text("'[]'::jsonb"),
         doc="Durable artifact panel projection for artifact-capable sessions",
     )
-    # Spawning parent; independent of history inheritance.
+    # Legacy fork source. Dual-written until the compatibility window closes.
     parent_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("agent_session.id", ondelete="SET NULL", use_alter=True),
+        nullable=True,
+        index=True,
+        doc="Legacy session whose history this session inherited",
+    )
+    spawned_by_session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("agent_session.id", ondelete="SET NULL", use_alter=True),
         nullable=True,
@@ -3266,6 +3273,9 @@ class AgentSession(WorkspaceModel):
         "AgentSession",
         remote_side=[id],
         foreign_keys=[parent_session_id],
+    )
+    spawned_by_session: Mapped[AgentSession | None] = relationship(
+        "AgentSession", remote_side=[id], foreign_keys=[spawned_by_session_id]
     )
     forked_from_session: Mapped[AgentSession | None] = relationship(
         "AgentSession", remote_side=[id], foreign_keys=[forked_from_session_id]

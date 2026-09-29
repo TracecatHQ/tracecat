@@ -91,6 +91,7 @@ def _agent_session_stub(**overrides: Any) -> SimpleNamespace:
         "last_error": None,
         "artifacts": [],
         "parent_session_id": None,
+        "spawned_by_session_id": None,
         "forked_from_session_id": None,
     }
     values.update(overrides)
@@ -163,7 +164,7 @@ async def test_list_sessions_service_account_defaults_to_workspace_sessions() ->
             entity_id=None,
             created_by=None,
             exclude_entity_types=None,
-            parent_session_id=None,
+            spawned_by_session_id=None,
             forked_from_session_id=None,
             include_children=False,
             limit=100,
@@ -175,7 +176,7 @@ async def test_list_sessions_service_account_defaults_to_workspace_sessions() ->
         entity_type=None,
         entity_id=None,
         exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
-        parent_session_id=None,
+        spawned_by_session_id=None,
         forked_from_session_id=None,
         include_children=False,
         limit=100,
@@ -210,7 +211,7 @@ async def test_list_sessions_user_filters_by_explicit_user_id() -> None:
             entity_id=None,
             created_by=user_id,
             exclude_entity_types=None,
-            parent_session_id=None,
+            spawned_by_session_id=None,
             forked_from_session_id=None,
             include_children=False,
             limit=100,
@@ -222,7 +223,7 @@ async def test_list_sessions_user_filters_by_explicit_user_id() -> None:
         entity_type=None,
         entity_id=None,
         exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
-        parent_session_id=None,
+        spawned_by_session_id=None,
         forked_from_session_id=None,
         include_children=False,
         limit=100,
@@ -247,7 +248,7 @@ async def test_list_sessions_keeps_workspace_chat_when_entitled() -> None:
             entity_id=None,
             created_by=None,
             exclude_entity_types=None,
-            parent_session_id=None,
+            spawned_by_session_id=None,
             forked_from_session_id=None,
             include_children=False,
             limit=100,
@@ -259,7 +260,7 @@ async def test_list_sessions_keeps_workspace_chat_when_entitled() -> None:
         entity_type=None,
         entity_id=None,
         exclude_entity_types=None,
-        parent_session_id=None,
+        spawned_by_session_id=None,
         forked_from_session_id=None,
         include_children=False,
         limit=100,
@@ -293,7 +294,7 @@ async def test_list_sessions_user_defaults_to_workspace_sessions() -> None:
             entity_id=None,
             created_by=None,
             exclude_entity_types=None,
-            parent_session_id=None,
+            spawned_by_session_id=None,
             forked_from_session_id=None,
             include_children=False,
             limit=100,
@@ -305,7 +306,7 @@ async def test_list_sessions_user_defaults_to_workspace_sessions() -> None:
         entity_type=None,
         entity_id=None,
         exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
-        parent_session_id=None,
+        spawned_by_session_id=None,
         forked_from_session_id=None,
         include_children=False,
         limit=100,
@@ -478,7 +479,7 @@ async def test_get_session_requires_entitlement_for_workspace_chat_parent() -> N
     parent_session = _agent_session_stub(entity_type=AgentSessionEntity.WORKSPACE_CHAT)
     child_session = _agent_session_stub(
         entity_type=AgentSessionEntity.APPROVAL,
-        parent_session_id=parent_session.id,
+        spawned_by_session_id=parent_session.id,
     )
     fake_svc = SimpleNamespace(
         get_session=AsyncMock(side_effect=[child_session, parent_session]),
@@ -1355,7 +1356,7 @@ async def test_send_message_requires_entitlement_for_workspace_chat_parent() -> 
         id=session_id,
         workspace_id=workspace_id,
         entity_type=AgentSessionEntity.APPROVAL,
-        parent_session_id=parent_session.id,
+        spawned_by_session_id=parent_session.id,
     )
     role = Role(
         type="service",
@@ -1530,6 +1531,7 @@ async def test_stream_session_events_returns_204_when_no_turn() -> None:
     fake_session = SimpleNamespace(
         id=session_id,
         parent_session_id=None,
+        spawned_by_session_id=None,
         forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
@@ -1584,6 +1586,7 @@ async def test_stream_session_events_returns_204_when_completed() -> None:
     fake_session = SimpleNamespace(
         id=session_id,
         parent_session_id=None,
+        spawned_by_session_id=None,
         forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
@@ -1638,6 +1641,7 @@ async def test_stream_session_events_emits_terminal_frame_when_failed() -> None:
     fake_session = SimpleNamespace(
         id=session_id,
         parent_session_id=None,
+        spawned_by_session_id=None,
         forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
@@ -1694,6 +1698,7 @@ async def test_stream_session_events_attaches_when_running_no_cursor() -> None:
     fake_session = SimpleNamespace(
         id=session_id,
         parent_session_id=None,
+        spawned_by_session_id=None,
         forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
@@ -1761,6 +1766,7 @@ async def test_stream_session_events_returns_204_when_pending_approvals() -> Non
     fake_session = SimpleNamespace(
         id=session_id,
         parent_session_id=None,
+        spawned_by_session_id=None,
         forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
@@ -1823,6 +1829,7 @@ async def test_stream_session_events_running_always_replays_from_start() -> None
     fake_session = SimpleNamespace(
         id=session_id,
         parent_session_id=None,
+        spawned_by_session_id=None,
         forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,

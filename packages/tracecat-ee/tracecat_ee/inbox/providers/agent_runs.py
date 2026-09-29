@@ -197,7 +197,8 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
         )
         base_stmt = select(AgentSession).where(
             AgentSession.workspace_id == self.workspace_id,
-            AgentSession.parent_session_id.is_(None),
+            AgentSession.spawned_by_session_id.is_(None),
+            AgentSession.forked_from_session_id.is_(None),
             AgentSession.entity_type != "approval",
             or_(
                 AgentSession.harness_type.in_(INBOX_HARNESS_TYPES),
@@ -760,7 +761,8 @@ class AgentRunsInboxProvider(BaseCursorPaginator):
                 Approval.workspace_id == self.workspace_id,
                 Approval.status == ApprovalStatus.PENDING,
                 AgentSession.workspace_id == self.workspace_id,
-                AgentSession.parent_session_id.is_(None),
+                AgentSession.spawned_by_session_id.is_(None),
+                AgentSession.forked_from_session_id.is_(None),
             )
         )
         count = await self.session.scalar(stmt)

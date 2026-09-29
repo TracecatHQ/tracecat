@@ -41,10 +41,11 @@ async def test_fresh_child_has_only_spawning_parent() -> None:
                 title="Child",
                 entity_type=AgentSessionEntity.WORKSPACE_CHAT,
                 entity_id=role.workspace_id,
-                parent_session_id=parent_id,
+                spawned_by_session_id=parent_id,
             )
         )
-    assert child.parent_session_id == parent_id
+    assert child.spawned_by_session_id == parent_id
+    assert child.parent_session_id is None
     assert child.forked_from_session_id is None
     assert child.sdk_session_id is None
     db.commit.assert_awaited_once()
@@ -60,7 +61,7 @@ async def test_child_rejects_parent_outside_authorized_workspace() -> None:
                 AgentSessionCreate(
                     entity_type=AgentSessionEntity.WORKSPACE_CHAT,
                     entity_id=role.workspace_id,
-                    parent_session_id=uuid.uuid4(),
+                    spawned_by_session_id=uuid.uuid4(),
                 )
             )
     db.add.assert_not_called()
@@ -105,7 +106,7 @@ async def test_fork_creation_rejects_reference_outside_authorized_workspace(
     references = [None] if missing_reference == "source" else [source, None]
     with patch.object(service, "get_session", AsyncMock(side_effect=references)):
         with pytest.raises(TracecatNotFoundError):
-            await service.fork_session(source_id, parent_session_id=uuid.uuid4())
+            await service.fork_session(source_id, spawned_by_session_id=uuid.uuid4())
     db.add.assert_not_called()
     db.commit.assert_not_awaited()
 
@@ -174,8 +175,9 @@ async def test_fork_captures_source_and_optional_spawning_parent(
     parent_id = uuid.uuid4() if spawned else None
     db.scalar.return_value = 42
     with patch.object(service, "get_session", AsyncMock(return_value=source)):
-        fork = await service.fork_session(source_id, parent_session_id=parent_id)
-    assert fork.parent_session_id == parent_id
+        fork = await service.fork_session(source_id, spawned_by_session_id=parent_id)
+    assert fork.spawned_by_session_id == parent_id
+    assert fork.parent_session_id == source_id
     assert fork.forked_from_session_id == source_id
     assert fork.forked_from_history_id == 42
     assert fork.forked_from_sdk_session_id == "source-sdk-id"
@@ -219,17 +221,13 @@ def test_legacy_forks_migrate_to_captured_history_ancestry() -> None:
                 ('source', 2, '2026-01-05')
         """)
         conn.execute(text(migration.BACKFILL_SQL))
-        conn.exec_driver_sql(
-            "UPDATE agent_session SET parent_session_id = NULL "
-            "WHERE parent_session_id IS NOT NULL"
-        )
         rows = conn.exec_driver_sql("""
             SELECT id, parent_session_id, forked_from_session_id,
                    forked_from_history_id, forked_from_sdk_session_id
             FROM agent_session ORDER BY id
         """).all()
     assert rows == [
-        ("legacy-fork", None, "source", 1, "sdk"),
-        ("other-workspace", None, None, None, None),
+        ("legacy-fork", "source", "source", 1, "sdk"),
+        ("other-workspace", "source", None, None, None),
         ("source", None, None, None, None),
     ]

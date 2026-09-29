@@ -38,5 +38,6 @@ def build_session_read(session: AgentSession, role: Role) -> AgentSessionRead:
         last_stream_id=session.last_stream_id,
         artifacts=validate_artifacts(session.artifacts),
         parent_session_id=session.parent_session_id,
+        spawned_by_session_id=session.spawned_by_session_id,
         forked_from_session_id=session.forked_from_session_id,
     )

@@ -133,7 +133,7 @@ async def _require_workspace_chat_entitlement_for_session_tree(
             entity_type=AgentSessionEntity(current.entity_type),
         )
         for related_id in (
-            current.parent_session_id,
+            current.spawned_by_session_id,
             current.forked_from_session_id,
         ):
             if related_id is not None:
@@ -173,8 +173,8 @@ async def create_session(
     )
     svc = AgentSessionService(session, role)
     try:
-        if request.parent_session_id is not None:
-            parent = await svc.get_session(request.parent_session_id)
+        if request.spawned_by_session_id is not None:
+            parent = await svc.get_session(request.spawned_by_session_id)
             if parent is None:
                 raise TracecatNotFoundError("Parent session not found in workspace")
             _require_session_write_access(role, parent)
@@ -209,7 +209,7 @@ async def list_sessions(
     exclude_entity_types: list[AgentSessionEntity] | None = Query(
         None, description="Entity types to exclude from results"
     ),
-    parent_session_id: uuid.UUID | None = Query(
+    spawned_by_session_id: uuid.UUID | None = Query(
         None, description="Filter by spawning parent session ID"
     ),
     forked_from_session_id: uuid.UUID | None = Query(
@@ -228,7 +228,7 @@ async def list_sessions(
     """List agent sessions for the current workspace with optional filtering.
 
     Returns root sessions by default, including standalone history forks and
-    legacy chats. Filter by parent_session_id to find spawned children.
+    legacy chats. Filter by spawned_by_session_id to find spawned children.
     Legacy chats have is_readonly=True.
     """
     if entity_type is AgentSessionEntity.WORKSPACE_CHAT:
@@ -248,7 +248,7 @@ async def list_sessions(
         entity_type=entity_type,
         entity_id=entity_id,
         exclude_entity_types=exclude_entity_types,
-        parent_session_id=parent_session_id,
+        spawned_by_session_id=spawned_by_session_id,
         forked_from_session_id=forked_from_session_id,
         include_children=include_children,
         limit=limit,
@@ -849,7 +849,7 @@ async def fork_session(
             role=role,
             entity_type=entity_type,
         )
-        spawning_parent_id = request.parent_session_id if request else None
+        spawning_parent_id = request.spawned_by_session_id if request else None
         if spawning_parent_id is not None:
             spawning_parent = await svc.get_session(spawning_parent_id)
             if spawning_parent is None:
@@ -859,7 +859,9 @@ async def fork_session(
                 svc=svc, session=session, role=role, agent_session=spawning_parent
             )
         forked = await svc.fork_session(
-            session_id, entity_type=entity_type, parent_session_id=spawning_parent_id
+            session_id,
+            entity_type=entity_type,
+            spawned_by_session_id=spawning_parent_id,
         )
         return build_session_read(forked, role)
     except TracecatNotFoundError as e:

@@ -1012,7 +1012,7 @@ export type AgentSessionCreate = {
   /**
    * Session that spawned this fresh child
    */
-  parent_session_id?: string | null
+  spawned_by_session_id?: string | null
   /**
    * Human-readable title for the session
    */
@@ -1087,7 +1087,7 @@ export type AgentSessionForkRequest = {
   /**
    * Session that spawned this forked child
    */
-  parent_session_id?: string | null
+  spawned_by_session_id?: string | null
 }
 
 /**
@@ -1118,6 +1118,7 @@ export type AgentSessionRead = {
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null
+  spawned_by_session_id?: string | null
   forked_from_session_id?: string | null
   created_at: string
   updated_at: string
@@ -1151,6 +1152,7 @@ export type AgentSessionReadVercel = {
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null
+  spawned_by_session_id?: string | null
   forked_from_session_id?: string | null
   created_at: string
   updated_at: string
@@ -1188,6 +1190,7 @@ export type AgentSessionReadWithMessages = {
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null
+  spawned_by_session_id?: string | null
   forked_from_session_id?: string | null
   created_at: string
   updated_at: string
@@ -13333,7 +13336,7 @@ export type AgentSessionsListSessionsData = {
   /**
    * Filter by spawning parent session ID
    */
-  parentSessionId?: string | null
+  spawnedBySessionId?: string | null
   workspaceId: string
 }
 

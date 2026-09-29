@@ -7315,7 +7315,7 @@ export const agentSessionsCreateSession = (
  * List agent sessions for the current workspace with optional filtering.
  *
  * Returns root sessions by default, including standalone history forks and
- * legacy chats. Filter by parent_session_id to find spawned children.
+ * legacy chats. Filter by spawned_by_session_id to find spawned children.
  * Legacy chats have is_readonly=True.
  * @param data The data for the request.
  * @param data.workspaceId
@@ -7323,7 +7323,7 @@ export const agentSessionsCreateSession = (
  * @param data.entityId Filter by entity ID
  * @param data.createdBy Filter by session creator. Omit to list the entire workspace.
  * @param data.excludeEntityTypes Entity types to exclude from results
- * @param data.parentSessionId Filter by spawning parent session ID
+ * @param data.spawnedBySessionId Filter by spawning parent session ID
  * @param data.forkedFromSessionId Filter by history source session ID
  * @param data.includeChildren Include spawned children without a parent filter
  * @param data.limit Maximum number of sessions to return
@@ -7344,7 +7344,7 @@ export const agentSessionsListSessions = (
       entity_id: data.entityId,
       created_by: data.createdBy,
       exclude_entity_types: data.excludeEntityTypes,
-      parent_session_id: data.parentSessionId,
+      spawned_by_session_id: data.spawnedBySessionId,
       forked_from_session_id: data.forkedFromSessionId,
       include_children: data.includeChildren,
       limit: data.limit,

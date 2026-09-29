@@ -164,6 +164,7 @@ async def test_backfill_reconstructs_mutations_safely_and_idempotently(
         title="Continuation",
         entity_type="approval",
         entity_id=uuid.uuid4(),
+        forked_from_session=root,
         parent_session=root,
         agents_binding=ResolvedAgentsConfig(
             subagents=[
