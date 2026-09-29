@@ -16,7 +16,7 @@ def worker_module(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> ModuleType:
     module: ModuleType = request.param
-    monkeypatch.setattr(module, "validate_execution_backend", Mock())
+    monkeypatch.setattr("tracecat.executor.startup.validate_execution_backend", Mock())
     monkeypatch.setattr(module, "initialize_platform_tracing", Mock())
     monkeypatch.setattr(module, "shutdown_platform_tracing", Mock())
     monkeypatch.setattr(module, "close_storage_client_cache", AsyncMock())
@@ -89,7 +89,9 @@ async def test_unremovable_ready_file_fails_before_initialization(
     ready.mkdir()
     monkeypatch.setattr(worker_module, "WORKER_READY_FILE", ready)
     validate = Mock()
-    monkeypatch.setattr(worker_module, "validate_execution_backend", validate)
+    monkeypatch.setattr(
+        "tracecat.executor.startup.validate_execution_backend", validate
+    )
     with pytest.raises(OSError):
         await worker_module.main()
     validate.assert_not_called()

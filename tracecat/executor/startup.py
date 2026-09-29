@@ -1,9 +1,12 @@
 """Validate execution prerequisites before a worker accepts tasks."""
 
 import os
+from collections.abc import Iterator
+from contextlib import AbstractAsyncContextManager, contextmanager
 from pathlib import Path
 
 from tracecat import config
+from tracecat.temporal.worker_lifecycle import WORKER_READY_FILE, worker_readiness
 
 
 def validate_execution_backend() -> None:
@@ -24,3 +27,20 @@ def validate_execution_backend() -> None:
             "TRACECAT__EXECUTOR_BACKEND=nsjail requires a sandbox rootfs "
             f"directory at {rootfs}. Check TRACECAT__SANDBOX_ROOTFS_PATH."
         )
+
+
+@contextmanager
+def executor_lifecycle(
+    path: Path = WORKER_READY_FILE,
+) -> Iterator[AbstractAsyncContextManager[None]]:
+    """Validate startup and provide readiness for the initialized worker.
+
+    Enter the yielded context after the Temporal worker so readiness is removed
+    before Temporal drains. The outer context also cleans up on startup failure.
+    """
+    path.unlink(missing_ok=True)
+    validate_execution_backend()
+    try:
+        yield worker_readiness(path)
+    finally:
+        path.unlink(missing_ok=True)
