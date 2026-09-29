@@ -173,7 +173,15 @@ async def list_agent_backends(
     ]
 
 
-@router.post("")
+@router.post(
+    "",
+    responses={
+        403: {
+            "description": "Workspace Chat entitlement or parent session write access required"
+        },
+        404: {"description": "Parent session not found in this workspace"},
+    },
+)
 @require_scope("agent:execute")
 async def create_session(
     request: AgentSessionCreate,

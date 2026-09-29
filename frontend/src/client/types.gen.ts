@@ -19126,6 +19126,14 @@ export type $OpenApiTs = {
          */
         200: AgentSessionRead
         /**
+         * Workspace Chat entitlement or parent session write access required
+         */
+        403: unknown
+        /**
+         * Parent session not found in this workspace
+         */
+        404: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError

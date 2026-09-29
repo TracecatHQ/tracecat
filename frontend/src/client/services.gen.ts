@@ -7305,6 +7305,8 @@ export const agentSessionsCreateSession = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      403: "Workspace Chat entitlement or parent session write access required",
+      404: "Parent session not found in this workspace",
       422: "Validation Error",
     },
   })
