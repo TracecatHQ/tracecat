@@ -162,7 +162,8 @@ def _initial_rows(
     """
     visited: set[str] = set()
     walk: list[str] = []
-    for start in refs:
+    roots = [ref for ref in refs if depth[ref] == 0]
+    for start in [*roots, *refs]:
         if start in visited:
             continue
         stack = [start]

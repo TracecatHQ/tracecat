@@ -17,11 +17,16 @@ from tracecat.agent.types import clamp_agent_timeout_seconds
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.db.models import Action, Workflow
+from tracecat.dsl.common import UpstreamEdgeDataValidator
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.view import RFGraph
 from tracecat.identifiers import WorkflowID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.service import BaseWorkspaceService
+from tracecat.workflow.management.layout import (
+    WorkflowActionLayoutInput,
+    auto_generate_layout,
+)
 from tracecat.workflow.management.schemas import (
     AddEdgePayload,
     AddNodePayload,
@@ -279,6 +284,8 @@ class WorkflowGraphService(BaseWorkspaceService):
                 await self._update_viewport(
                     workflow, UpdateViewportPayload(**op.payload)
                 )
+            case "auto_layout":
+                self._auto_layout(workflow)
             case _:
                 raise ValueError(f"Unknown operation type: {op.type}")
 
@@ -286,7 +293,7 @@ class WorkflowGraphService(BaseWorkspaceService):
     def _is_structural(cls, op: GraphOperation) -> bool:
         """Return True if the operation mutates graph semantics.
 
-        Layout-only operations (move/update trigger position) do not
+        Layout-only operations (move, trigger position, auto-layout) do not
         increment graph_version.
         """
 
@@ -547,6 +554,34 @@ class WorkflowGraphService(BaseWorkspaceService):
                 .values(position_x=x, position_y=y)
             )
             await self.session.execute(stmt)
+
+    @staticmethod
+    def _layout_input(action: Action) -> WorkflowActionLayoutInput:
+        depends_on: list[str] = []
+        for edge_data in action.upstream_edges or []:
+            edge = UpstreamEdgeDataValidator.validate_python(edge_data)
+            if edge.get("source_type", "udf") != "udf":
+                continue
+            source_id = edge["source_id"]
+            if edge.get("source_handle") == "error":
+                depends_on.append(f"{source_id}.error")
+            else:
+                depends_on.append(source_id)
+        return {"ref": str(action.id), "depends_on": depends_on}
+
+    def _auto_layout(self, workflow: Workflow) -> None:
+        """Re-position the trigger and every action with the shared auto-layout."""
+        actions_by_id = {str(action.id): action for action in workflow.actions}
+        layout = auto_generate_layout(
+            [self._layout_input(action) for action in workflow.actions]
+        )
+        for position in layout["actions"]:
+            action = actions_by_id[position["ref"]]
+            action.position_x = position["x"]
+            action.position_y = position["y"]
+        workflow.trigger_position_x = layout["trigger"]["x"]
+        workflow.trigger_position_y = layout["trigger"]["y"]
+        self.session.add(workflow)
 
     async def _update_trigger_position(
         self, workflow: Workflow, payload: UpdateTriggerPositionPayload

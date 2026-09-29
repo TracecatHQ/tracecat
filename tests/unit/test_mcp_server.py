@@ -691,6 +691,18 @@ def test_auto_generate_layout_orders_success_before_error_paths():
     assert len(set(xs)) == 4
 
 
+def test_auto_generate_layout_orders_error_paths_regardless_of_action_order():
+    positions = _layout_by_ref(
+        [
+            {"ref": "on_error", "depends_on": ["call_api.error"]},
+            {"ref": "parse", "depends_on": ["call_api"]},
+            {"ref": "call_api", "depends_on": []},
+        ]
+    )
+
+    assert positions["parse"][0] < positions["on_error"][0]
+
+
 def test_auto_generate_layout_keeps_error_handler_right_of_success_chain():
     positions = _layout_by_ref(
         [

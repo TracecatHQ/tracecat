@@ -161,7 +161,7 @@ export function RunIfBadge({
         <div
           data-testid="run-if-stack"
           className={cn(
-            "nowheel max-h-40 w-max max-w-[32rem] overflow-auto",
+            "nowheel max-h-40 w-max max-w-[32rem] overflow-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
             "font-mono text-xs leading-4 tracking-tighter"
           )}
         >

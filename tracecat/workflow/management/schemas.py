@@ -539,6 +539,7 @@ class GraphOperationType(StrEnum):
     MOVE_NODES = "move_nodes"
     UPDATE_TRIGGER_POSITION = "update_trigger_position"
     UPDATE_VIEWPORT = "update_viewport"
+    AUTO_LAYOUT = "auto_layout"
 
 
 class GraphOperation(Schema):
