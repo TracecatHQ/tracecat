@@ -18,6 +18,11 @@ from pydantic_core import to_jsonable_python
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.admin.router import router as admin_router
 from tracecat_ee.agent.approvals.router import router as approvals_router
+from tracecat_ee.secrets.references.router import router as external_secrets_router
+from tracecat_ee.secrets.references.router import (
+    stores_router as workspace_secret_stores_router,
+)
+from tracecat_ee.secrets.stores.router import router as org_secret_stores_router
 from tracecat_ee.watchtower.router import router as watchtower_router
 
 from tracecat import __version__ as APP_VERSION
@@ -58,6 +63,7 @@ from tracecat.api.common import (
     http_exception_handler,
     query_overflow_exception_handler,
     query_timeout_exception_handler,
+    table_row_exception_handler,
     tracecat_exception_handler,
 )
 from tracecat.api.lifespan import LifespanTaskSupervisor
@@ -128,13 +134,13 @@ from tracecat.integrations.router import (
     oauth_router as integrations_oauth_router,
 )
 from tracecat.invitations.consumer import start_invitation_email_consumer
+from tracecat.invitations.router import router as invitations_router
 from tracecat.logger import logger
 from tracecat.mcp.oidc import router as mcp_oidc_router
 from tracecat.mcp.personal_access_tokens.router import (
     router as mcp_personal_access_tokens_router,
 )
 from tracecat.middleware import (
-    AuthorizationCacheMiddleware,
     RequestLoggingMiddleware,
 )
 from tracecat.middleware.security import SecurityHeadersMiddleware
@@ -157,6 +163,7 @@ from tracecat.query.errors import (
 from tracecat.registry.actions.router import router as registry_actions_router
 from tracecat.registry.repositories.router import router as registry_repos_router
 from tracecat.registry.sync.jobs import sync_platform_registry_on_startup
+from tracecat.search.embeddings.router import router as embedding_configuration_router
 from tracecat.secrets.router import org_router as org_secrets_router
 from tracecat.secrets.router import router as secrets_router
 from tracecat.service_accounts.router import (
@@ -172,6 +179,7 @@ from tracecat.storage.blob import (
     configure_bucket_lifecycle,
     ensure_bucket_exists,
 )
+from tracecat.tables.exceptions import TableRowError
 from tracecat.tables.router import router as tables_router
 from tracecat.tags.router import router as tags_router
 from tracecat.variables.router import router as variables_router
@@ -495,6 +503,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(webhook_router)
     app.include_router(agent_channels_router)
     app.include_router(workspaces_router)
+    app.include_router(embedding_configuration_router)
     app.include_router(workspace_service_accounts_router)
     app.include_router(mcp_personal_access_tokens_router)
     _include_workspace_scoped_router(app, workflow_management_router)
@@ -504,12 +513,16 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, workflow_actions_router)
     _include_workspace_scoped_router(app, workflow_tags_router)
     _include_workspace_scoped_router(app, workflow_store_router)
+    # EE references register first so POST /secrets/aws wins over /secrets/{secret_id}.
+    _include_workspace_scoped_router(app, external_secrets_router)
+    _include_workspace_scoped_router(app, workspace_secret_stores_router)
     _include_workspace_scoped_router(app, secrets_router)
     _include_workspace_scoped_router(app, variables_router)
     _include_workspace_scoped_router(app, schedules_router)
     _include_workspace_scoped_router(app, tags_router)
     app.include_router(users_router)
     app.include_router(org_router)
+    app.include_router(invitations_router)
     app.include_router(org_service_accounts_router)
     app.include_router(agent_router)
     app.include_router(agent_catalog_router)
@@ -538,6 +551,7 @@ def create_app(**kwargs) -> FastAPI:
     app.include_router(registry_actions_router)
     app.include_router(org_settings_router)
     app.include_router(org_secrets_router)
+    app.include_router(org_secret_stores_router)
     _include_workspace_scoped_router(app, tables_router)
     _include_workspace_scoped_router(app, cases_router)
     _include_workspace_scoped_router(app, case_versions_router)
@@ -649,6 +663,7 @@ def create_app(**kwargs) -> FastAPI:
         auth_pool_exhausted_exception_handler,
     )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
+    app.add_exception_handler(TableRowError, table_row_exception_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
         query_timeout_exception_handler,
@@ -672,8 +687,6 @@ def create_app(**kwargs) -> FastAPI:
     app.add_exception_handler(HTTPException, http_exception_handler)
 
     # Middleware
-    # Add authorization cache middleware first so it's available for all requests
-    app.add_middleware(AuthorizationCacheMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     if config.TRACECAT__APP_ENV != "development":
         app.add_middleware(SecurityHeadersMiddleware)

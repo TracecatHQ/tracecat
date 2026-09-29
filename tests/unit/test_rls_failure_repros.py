@@ -32,7 +32,7 @@ from tracecat.executor.registry_resolver import _load_manifest_entry
 from tracecat.executor.service import get_registry_artifacts_for_lock
 from tracecat.integrations.router import oauth_callback
 from tracecat.integrations.service import IntegrationService
-from tracecat.organization.router import (
+from tracecat.invitations.router import (
     accept_invitation,
     get_invitation_by_token,
     list_my_pending_invitations,
@@ -63,7 +63,6 @@ async def test_authenticate_user_membership_check_is_not_done_under_deny_default
 
     request = MagicMock(spec=Request)
     request.state = MagicMock()
-    request.state.auth_cache = None
     session = AsyncMock()
     session.sync_session = MagicMock()
     session.sync_session.info = {

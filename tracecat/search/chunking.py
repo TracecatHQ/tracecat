@@ -8,6 +8,7 @@ even the minimum prefix is too large, a bounded, resumable scan finds a fitting
 starting point or establishes that no prefix of the current window can fit.
 """
 
+import asyncio
 import hashlib
 import re
 from collections.abc import Sequence
@@ -153,6 +154,12 @@ class TextChunker:
         if len(source.text) != length:
             raise ChunkInputMismatch("Source range is shorter than the saved chunk")
         text = self._label(column) + source.text
+        await asyncio.to_thread(self._validate_reconstructed_input, text, metadata)
+        return text
+
+    def _validate_reconstructed_input(
+        self, text: str, metadata: ChunkReference
+    ) -> None:
         tokens = self._count(text)
         if (
             _hash_text(text) != metadata.input_hash
@@ -162,7 +169,6 @@ class TextChunker:
             raise ChunkInputMismatch(
                 "Reconstructed input does not match the saved chunk"
             )
-        return text
 
     def _validate_checkpoint(self, cursor: ChunkCheckpoint) -> None:
         if (
@@ -213,6 +219,13 @@ class TextChunker:
         column = self._columns[cursor.column_index]
         start = cursor.overlap_start
         source = await self._read(reader, column, start, self.config.read_size)
+        # Keep database reads on their owning loop; only pure CPU work moves.
+        return await asyncio.to_thread(self._prepare_slice, column, cursor, source)
+
+    def _prepare_slice(
+        self, column: TextColumn, cursor: ChunkCheckpoint, source: SourceSlice
+    ) -> tuple[PreparedChunk | None, ChunkCheckpoint]:
+        start = cursor.overlap_start
         covered = cursor.character_offset - start
         if len(source.text) < covered:
             raise InvalidSourceSlice(

@@ -234,6 +234,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         return not await self._any_org_saml_enforced(org_ids)
 
     async def _list_user_org_ids(self, user_id: uuid.UUID) -> set[OrganizationID]:
+        # Presence already covers workspace-only paths, which bind the user to
+        # that org's login policy.
         statement = select(OrganizationMembership.organization_id).where(
             OrganizationMembership.user_id == user_id
         )
@@ -443,8 +445,8 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
         Errors during invitation acceptance are logged but do NOT fail registration.
         This ensures users can still register even if the invitation is invalid/expired.
         """
-        # Import here to avoid circular import (organization.service imports from auth.users)
-        from tracecat.organization.service import accept_invitation_for_user
+        # Import here to avoid circular import (invitations.service imports from auth.users)
+        from tracecat.invitations.service import accept_invitation_for_user
 
         token = self._pending_invitation_token
         self._pending_invitation_token = None  # Clear to prevent reuse
@@ -454,16 +456,16 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
 
         try:
             async with get_async_session_bypass_rls_context_manager() as session:
-                membership = await accept_invitation_for_user(
+                invitation = await accept_invitation_for_user(
                     session, user_id=user.id, token=token
                 )
                 self.logger.info(
                     "Invitation accepted during registration",
                     user_id=str(user.id),
                     email=user.email,
-                    org_id=str(membership.organization_id),
+                    org_id=str(invitation.organization_id),
                 )
-                return membership.organization_id
+                return invitation.organization_id
         except TracecatNotFoundError:
             self.logger.warning(
                 "Invitation token not found during registration",

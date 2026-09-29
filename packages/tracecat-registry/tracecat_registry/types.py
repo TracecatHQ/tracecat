@@ -800,3 +800,45 @@ class WorkflowExecutionStatusRead(TypedDict):
     execution_type: str | None
     history_length: int | None
     events: list[WorkflowExecutionEventRead] | None
+
+
+class SemanticSearchMatch(TypedDict):
+    """Bounded original text; start/end are half-open Unicode character offsets."""
+
+    column_id: str
+    column_name: str
+    text: str
+    start: int
+    end: int
+    shortened: bool
+
+
+class SemanticSearchResult(TypedDict):
+    """One distinct row; score is cosine similarity, not confidence."""
+
+    row_id: str
+    score: float
+    match: SemanticSearchMatch
+    indexed_revision: int
+
+
+class SemanticSearchIndex(TypedDict):
+    """Current coverage; partial results never contain partly embedded rows."""
+
+    state: str
+    pending: int
+    failed: int
+    empty: int
+    ready: int
+    backfill_complete: bool
+    partial: bool
+
+
+class SemanticSearchPage(TypedDict):
+    """A page from a five-minute window of at most 100 distinct rows."""
+
+    items: list[SemanticSearchResult]
+    next_cursor: str | None
+    has_more: bool
+    capped: bool
+    index: SemanticSearchIndex

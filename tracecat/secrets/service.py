@@ -1,20 +1,28 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
+from typing import Protocol, TypeGuard
 
 from cryptography.fernet import InvalidToken
 from pydantic import SecretStr, ValidationError
 from sqlalchemy import select
 from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from tracecat.audit.logger import audit_log
 from tracecat.auth.secrets import get_db_encryption_key
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
-from tracecat.db.models import BaseSecret, OrganizationSecret, Secret
+from tracecat.db.models import (
+    BaseSecret,
+    OrganizationSecret,
+    Secret,
+)
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatCredentialsError,
     TracecatCredentialsNotFoundError,
     TracecatNotFoundError,
 )
@@ -23,18 +31,74 @@ from tracecat.logger import logger
 from tracecat.registry.constants import REGISTRY_GIT_SSH_KEY_SECRET_NAME
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, encrypt_keyvalues
-from tracecat.secrets.enums import SecretType
+from tracecat.secrets.enums import (
+    SecretSource,
+    SecretStoreProvider,
+    SecretType,
+)
 from tracecat.secrets.schemas import (
+    EXPRESSION_SECRET_NAME_PATTERN,
+    AwsSecretKeyMapping,
     SecretCreate,
     SecretKeyValue,
     SecretSearch,
+    SecretStoreConfig,
     SecretUpdate,
     SSHKeyTarget,
     validate_ca_cert_values,
     validate_mtls_key_values,
     validate_ssh_key_values,
 )
+from tracecat.secrets.types import ExternalSecretReference
 from tracecat.service import BaseOrgService
+
+
+def is_external_reference(secret: BaseSecret) -> TypeGuard[Secret]:
+    """Return True when a secret row resolves its values from an external store."""
+    return (
+        isinstance(secret, Secret) and secret.source == SecretSource.AWS_SECRETS_MANAGER
+    )
+
+
+class KeyDecryptor(Protocol):
+    """Anything that can decrypt a local ``encrypted_keys`` payload."""
+
+    def decrypt_keys(self, encrypted_keys: bytes) -> list[SecretKeyValue]: ...
+
+
+def secret_key_names(decryptor: KeyDecryptor, secret: BaseSecret) -> list[str]:
+    """Return declared key names without contacting any remote store.
+
+    Local secrets are decrypted synchronously; AWS-backed secrets return the
+    declared output keys from their stored mapping.
+    """
+    if is_external_reference(secret):
+        mapping = AwsSecretKeyMapping.model_validate(secret.remote_key_mapping or {})
+        return mapping.output_keys()
+    return [kv.key for kv in decryptor.decrypt_keys(secret.encrypted_keys)]
+
+
+def build_external_secret_reference(secret: Secret) -> ExternalSecretReference:
+    """Materialize an immutable provider-neutral descriptor from a loaded ORM row.
+
+    ``secret.store`` must already be loaded; callers release the session
+    before handing descriptors to the resolver.
+    """
+    if secret.store is None or secret.remote_reference is None:
+        raise TracecatCredentialsError(
+            f"Externally backed secret {secret.name!r} is missing its store or reference"
+        )
+    return ExternalSecretReference(
+        secret_id=secret.id,
+        alias=secret.name,
+        environment=secret.environment,
+        store_id=secret.store.id,
+        provider=SecretStoreProvider(secret.store.provider),
+        store_enabled=secret.store.enabled,
+        store_config=SecretStoreConfig.model_validate(secret.store.config),
+        key=secret.remote_reference,
+        mapping=AwsSecretKeyMapping.model_validate(secret.remote_key_mapping or {}),
+    )
 
 
 class SecretsService(BaseOrgService):
@@ -63,10 +127,36 @@ class SecretsService(BaseOrgService):
         """Encrypt and return the keys for a secret."""
         return encrypt_keyvalues(keys, key=self._encryption_key)
 
+    def secret_key_names(self, secret: BaseSecret) -> list[str]:
+        """Return declared key names without contacting any remote store."""
+        return secret_key_names(self, secret)
+
     # === Base secrets ===
 
     async def _update_secret(self, secret: BaseSecret, params: SecretUpdate) -> None:
         """Update a base secret."""
+        if is_external_reference(secret):
+            if params.keys is not None:
+                raise ValueError(
+                    "AWS-backed secrets do not store values in Tracecat. Update the"
+                    " reference or key mapping instead."
+                )
+            if params.type is not None and SecretType(params.type) != SecretType(
+                secret.type
+            ):
+                raise ValueError("AWS-backed secrets cannot change type.")
+            if params.name is not None and not re.fullmatch(
+                EXPRESSION_SECRET_NAME_PATTERN, params.name
+            ):
+                raise ValueError(
+                    "AWS-backed secret names must be snake_case and start with a"
+                    " letter or underscore."
+                )
+            for field, value in params.model_dump(exclude_unset=True).items():
+                setattr(secret, field, value)
+            self.session.add(secret)
+            await self.session.commit()
+            return
         existing_type = SecretType(secret.type)
         if existing_type == SecretType.SSH_KEY:
             if params.type is not None and SecretType(params.type) != existing_type:
@@ -176,7 +266,11 @@ class SecretsService(BaseOrgService):
     ) -> Sequence[Secret]:
         """List all workspace secrets."""
         workspace_id = self._require_workspace_id()
-        statement = select(Secret).where(Secret.workspace_id == workspace_id)
+        statement = (
+            select(Secret)
+            .where(Secret.workspace_id == workspace_id)
+            .options(selectinload(Secret.store))
+        )
         if types:
             statement = statement.where(Secret.type.in_(types))
         result = await self.session.execute(statement)
@@ -186,9 +280,13 @@ class SecretsService(BaseOrgService):
     async def get_secret(self, secret_id: SecretID) -> Secret:
         """Get a workspace secret by ID."""
         workspace_id = self._require_workspace_id()
-        statement = select(Secret).where(
-            Secret.workspace_id == workspace_id,
-            Secret.id == secret_id,
+        statement = (
+            select(Secret)
+            .where(
+                Secret.workspace_id == workspace_id,
+                Secret.id == secret_id,
+            )
+            .options(selectinload(Secret.store))
         )
         result = await self.session.execute(statement)
         try:
@@ -291,12 +389,16 @@ class SecretsService(BaseOrgService):
         await self._delete_secret(secret)
 
     async def search_secrets(self, params: SecretSearch) -> Sequence[Secret]:
-        """Search workspace secrets."""
+        """Search workspace secrets. Eagerly loads external store metadata."""
         if not any((params.ids, params.names, params.environment)):
             return []
 
         workspace_id = self._require_workspace_id()
-        stmt = select(Secret).where(Secret.workspace_id == workspace_id)
+        stmt = (
+            select(Secret)
+            .where(Secret.workspace_id == workspace_id)
+            .options(selectinload(Secret.store))
+        )
         fields = params.model_dump(exclude_unset=True)
         self.logger.info("Searching secrets", set_fields=fields)
 

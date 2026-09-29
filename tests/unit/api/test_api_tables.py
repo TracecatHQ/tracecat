@@ -8,7 +8,7 @@ import pytest
 from asyncpg import DuplicateTableError
 from fastapi import status
 from fastapi.testclient import TestClient
-from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from tracecat.auth.types import Role
 from tracecat.db.models import Table, TableColumn, Workspace
@@ -16,6 +16,7 @@ from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import CursorPaginatedResponse
 from tracecat.tables import router as tables_router
 from tracecat.tables.enums import SqlType
+from tracecat.tables.exceptions import TableRowError
 from tracecat.tables.schemas import TableRowRead
 
 
@@ -426,3 +427,101 @@ async def test_update_table_row_invalid_integer_value_returns_400(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "Invalid integer value: '1.5'"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("batch", [False, True])
+@pytest.mark.parametrize(
+    "error,expected_status",
+    [
+        (
+            TableRowError(
+                "missing_required_column",
+                "Required column 'record_key' is missing.",
+                column="record_key",
+            ),
+            400,
+        ),
+        (
+            TableRowError(
+                "null_not_allowed",
+                "Column 'record_key' cannot be null.",
+                column="record_key",
+            ),
+            400,
+        ),
+        (
+            TableRowError(
+                "unknown_column", "Column 'unknown' does not exist.", column="unknown"
+            ),
+            400,
+        ),
+        (
+            TableRowError(
+                "invalid_value",
+                "Column 'attempts' requires a valid INTEGER value.",
+                column="attempts",
+            ),
+            400,
+        ),
+        (
+            TableRowError(
+                "duplicate_value", "A value already exists in a unique column."
+            ),
+            409,
+        ),
+    ],
+)
+async def test_row_errors_have_structured_client_responses(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+    batch: bool,
+    error: TableRowError,
+    expected_status: int,
+) -> None:
+    with patch.object(tables_router, "TablesService") as service_type:
+        service = AsyncMock()
+        service.get_table.return_value = mock_table
+        service.insert_row.side_effect = error
+        service.batch_insert_rows.side_effect = error
+        service_type.return_value = service
+        path = f"/tables/{mock_table.id}/rows"
+        payload = {"rows": [{}]} if batch else {"data": {}}
+        response = client.post(
+            path + ("/batch" if batch else ""),
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json=payload,
+        )
+    assert response.status_code == expected_status
+    assert response.json() == {"detail": error.detail}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("batch", [False, True])
+async def test_unrecognized_row_database_errors_remain_server_errors(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+    batch: bool,
+) -> None:
+    with patch.object(tables_router, "TablesService") as service_type:
+        service = AsyncMock()
+        service.get_table.return_value = mock_table
+        error = IntegrityError(
+            "private SQL",
+            {"value": "private-test-value"},
+            RuntimeError("unknown failure"),
+        )
+        service.insert_row.side_effect = error
+        service.batch_insert_rows.side_effect = error
+        service_type.return_value = service
+        path = f"/tables/{mock_table.id}/rows"
+        response = TestClient(client.app, raise_server_exceptions=False).post(
+            path + ("/batch" if batch else ""),
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"rows": [{}]} if batch else {"data": {}},
+        )
+    assert response.status_code == 500
+    assert "private SQL" not in response.text
+    assert "private-test-value" not in response.text

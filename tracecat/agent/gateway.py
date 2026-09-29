@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, urlencode
 
 import boto3
 import httpx
+import orjson
 from aiocache import Cache
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, Request
@@ -434,6 +435,13 @@ def _is_provider_quota_exceeded(error: BaseException) -> bool:
     return False
 
 
+def _anthropic_error_message(error_type: str, message: str) -> str:
+    """Preserve gateway error codes through LiteLLM's Anthropic serializer."""
+    return orjson.dumps(
+        {"type": "error", "error": {"type": error_type, "message": message}}
+    ).decode()
+
+
 class TracecatCallbackHandler(CustomLogger):
     """LiteLLM callback handler that injects provider credentials per request."""
 
@@ -450,6 +458,16 @@ class TracecatCallbackHandler(CustomLogger):
     ) -> HTTPException | None:
         """Label typed gateway and provider failures without copying details."""
         del request_data, user_api_key_dict, traceback_str
+        if isinstance(original_exception, ProxyException):
+            if original_exception.type in {
+                "tracecat_llm_token_invalid",
+                "tracecat_llm_provider_auth_failed",
+                "budget_exceeded",
+            }:
+                original_exception.message = _anthropic_error_message(
+                    original_exception.type, original_exception.message
+                )
+            return None
         if isinstance(original_exception, RouterRateLimitError):
             # LiteLLM otherwise serializes this ValueError as a 429. Its
             # deployment-scoped cooldown state is shared across credentials;
@@ -480,14 +498,14 @@ class TracecatCallbackHandler(CustomLogger):
         else:
             return None
 
-        # LiteLLM's /v1/messages handler ignores the returned replacement and
-        # serializes the original exception. Normalize its wire fields too;
-        # other endpoints still use the bounded replacement above.
-        # RouterRateLimitError is a ValueError without these wire attributes;
-        # attach them explicitly for LiteLLM's duck-typed endpoint serializer.
+        # /v1/messages ignores the replacement and normalizes the original
+        # message into an Anthropic envelope. Supply that envelope explicitly
+        # so its status-based mapping cannot erase auth origin or quota codes.
+        # RouterRateLimitError lacks these wire attributes; attach them for
+        # LiteLLM's duck-typed endpoint serializer.
         original_exception.__dict__.update(
             type=replacement.type,
-            message=str(replacement.detail),
+            message=_anthropic_error_message(replacement.type, str(replacement.detail)),
             status_code=replacement.status_code,
         )
         return replacement
@@ -577,6 +595,10 @@ class TracecatCallbackHandler(CustomLogger):
             provider=provider,
         )
         data.update(model_settings)
+
+        # LiteLLM's native Rust transport bypasses our guarded HTTPX factories.
+        # A request override takes precedence over process and environment flags.
+        data["rust"] = False
 
         if provider == CUSTOM_MODEL_PROVIDER_SLUG:
             # Custom providers expose the OpenAI-compatible protocol. Make the

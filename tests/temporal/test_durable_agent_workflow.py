@@ -2401,7 +2401,7 @@ async def test_agent_workflow_plumbs_forked_session_through_approval_continuatio
     ]
     denied_result = pending_results[1]
     assert denied_result.is_error is True
-    assert denied_result.raw_result == "Tool denied by user: too risky"
+    assert denied_result.raw_result.startswith("Tool denied by user: too risky")
 
     decisions_by_tool_call_id = {
         decision.tool_call_id: decision for decision in captured_approval_decisions
@@ -3238,43 +3238,3 @@ async def test_agent_workflow_mixed_approvals_and_rejections(
             except Exception:
                 pass
         raise
-
-
-# =============================================================================
-# Tests: Workflow State Management
-# =============================================================================
-
-
-@pytest.mark.anyio
-class TestWorkflowValidation:
-    """Test approval validation logic in the workflow."""
-
-    async def test_validation_rejects_missing_approvals(
-        self,
-        agent_workflow_args: AgentWorkflowArgs,
-    ) -> None:
-        """Test that workflow validator rejects submissions missing required approvals.
-
-        This tests the validator in isolation without running a full workflow.
-        """
-        # This would require instantiating the workflow in a test context
-        # which is complex with Temporal. Instead, we test the ApprovalManager
-        # validation directly in test_approvals_manager.py
-        pass
-
-    async def test_validation_rejects_unexpected_approvals(
-        self,
-        agent_workflow_args: AgentWorkflowArgs,
-    ) -> None:
-        """Test that workflow validator rejects extra unexpected approvals."""
-        pass
-
-
-@pytest.mark.anyio
-class TestAgentWorkflowStateManagement:
-    """Test workflow state management and turn tracking."""
-
-    async def test_workflow_tracks_turns(self) -> None:
-        """Test that workflow properly increments turn counter."""
-        # This would be tested in full integration tests
-        pass

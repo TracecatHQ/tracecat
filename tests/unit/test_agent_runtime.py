@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
 import pytest
+from claude_agent_sdk import CLIConnectionError
 from claude_agent_sdk.types import (
     AssistantMessage,
     HookContext,
@@ -1995,7 +1996,10 @@ class TestClaudeAgentRuntimeRun:
         assert messages == [
             {
                 "type": "user",
-                "message": {"role": "user", "content": "Continue."},
+                "message": {
+                    "role": "user",
+                    "content": runtime_module.APPROVAL_CONTINUATION_PROMPT,
+                },
                 "parent_tool_use_id": None,
                 "session_id": "default",
                 "isMeta": True,
@@ -3919,3 +3923,102 @@ async def test_run_keeps_original_error_when_sandbox_process_did_not_exit(
     assert log_args.kwargs["error_type"] == "ValueError"
     assert log_args.kwargs["error_message"] == "Test error"
     assert "cause_type" not in log_args.kwargs
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("interrupt_in_flight", [False, True])
+@pytest.mark.parametrize("runtime_failed", [False, True])
+@pytest.mark.parametrize(
+    "connection_error", [CLIConnectionError, BrokenPipeError, ConnectionResetError]
+)
+async def test_interrupt_racing_sdk_teardown_preserves_turn_outcome(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    interrupt_in_flight: bool,
+    runtime_failed: bool,
+    connection_error: type[Exception],
+) -> None:
+    """Late stop requests must not replace a completed or failed turn's outcome."""
+    response_started = asyncio.Event()
+    finish_response = asyncio.Event()
+    disconnect_started = asyncio.Event()
+    finish_disconnect = asyncio.Event()
+    interrupt_started = asyncio.Event()
+
+    async def receive_response() -> Any:
+        response_started.set()
+        await finish_response.wait()
+        if runtime_failed:
+            raise ValueError("synthetic runtime failure")
+        return
+        yield  # noqa: B901
+
+    async def disconnect() -> None:
+        disconnect_started.set()
+        await finish_disconnect.wait()
+
+    async def interrupt() -> None:
+        interrupt_started.set()
+        await disconnect_started.wait()
+        raise connection_error("synthetic closed transport")
+
+    mock_claude_sdk_client.receive_response = receive_response
+    mock_claude_sdk_client.disconnect.side_effect = disconnect
+    mock_claude_sdk_client.interrupt.side_effect = interrupt
+    runtime = ClaudeAgentRuntime(
+        mock_socket_writer, transport_factory=lambda _: MagicMock()
+    )
+    with patch.object(
+        runtime_module, "ClaudeSDKClient", return_value=mock_claude_sdk_client
+    ):
+        async with asyncio.timeout(5):
+            run_task = asyncio.create_task(runtime.run(sample_init_payload))
+            await response_started.wait()
+            interrupt_task = None
+            if interrupt_in_flight:
+                interrupt_task = asyncio.create_task(
+                    runtime.interrupt(reason="user_cancel")
+                )
+                await interrupt_started.wait()
+            finish_response.set()
+            await disconnect_started.wait()
+            try:
+                if interrupt_task is not None:
+                    await interrupt_task
+                else:
+                    await runtime.interrupt(reason="user_cancel")
+                    mock_claude_sdk_client.interrupt.assert_not_awaited()
+            finally:
+                finish_disconnect.set()
+                if runtime_failed:
+                    with pytest.raises(ValueError, match="synthetic runtime failure"):
+                        await run_task
+                else:
+                    await run_task
+
+    if runtime_failed:
+        mock_socket_writer.send_error.assert_awaited_once()
+    else:
+        mock_socket_writer.send_error.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "connection_error", [CLIConnectionError, BrokenPipeError, ConnectionResetError]
+)
+async def test_interrupt_preserves_live_connection_error(
+    mock_socket_writer: MagicMock,
+    connection_error: type[Exception],
+) -> None:
+    runtime = ClaudeAgentRuntime(
+        mock_socket_writer, transport_factory=lambda _: MagicMock()
+    )
+    client = MagicMock()
+    client.interrupt = AsyncMock(side_effect=connection_error("synthetic live failure"))
+    runtime.client = client
+    runtime._client_connected_event.set()
+    runtime._query_sent_event.set()
+
+    with pytest.raises(connection_error, match="synthetic live failure"):
+        await runtime.interrupt(reason="user_cancel")

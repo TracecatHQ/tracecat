@@ -591,37 +591,28 @@ class AuthorizationCodeOAuthProvider(BaseOAuthProvider):
             state: State parameter from authorization request
             code_verifier: PKCE code verifier (required if PKCE was used)
         """
-        try:
-            # Build token request params
-            token_params = self._get_additional_token_params()
-            if code_verifier:
-                token_params["code_verifier"] = code_verifier
+        # Build token request params
+        token_params = self._get_additional_token_params()
+        if code_verifier:
+            token_params["code_verifier"] = code_verifier
 
-            token = TokenResponse.from_oauth_response(
-                await self.client.fetch_token(
-                    self.token_endpoint,
-                    code=code,
-                    state=state,
-                    **token_params,
-                ),
-                default_scope=" ".join(self.requested_scopes),
-            )
+        token = TokenResponse.from_oauth_response(
+            await self.client.fetch_token(
+                self.token_endpoint,
+                code=code,
+                state=state,
+                **token_params,
+            ),
+            default_scope=" ".join(self.requested_scopes),
+        )
 
-            self.logger.info(
-                "Successfully acquired OAuth token",
-                provider=self.id,
-                used_pkce=code_verifier is not None,
-            )
+        self.logger.info(
+            "Successfully acquired OAuth token",
+            provider=self.id,
+            used_pkce=code_verifier is not None,
+        )
 
-            return token
-
-        except Exception as e:
-            self.logger.error(
-                "Error exchanging code for token",
-                provider=self.id,
-                error=str(e),
-            )
-            raise
+        return token
 
     async def refresh_access_token(self, refresh_token: str) -> TokenResponse:
         """Refresh the access token using a refresh token."""

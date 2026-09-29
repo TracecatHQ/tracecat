@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
+from contextlib import nullcontext
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.authz.membership import mirror_workspace_membership
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Workflow
 from tracecat.db.rls import (
@@ -93,6 +95,58 @@ def superuser_role() -> Role:
         service_id="tracecat-api",
         is_platform_superuser=True,
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "bypass", [None, False, True], ids=["uncached", "enforced", "bypassed"]
+)
+@pytest.mark.parametrize("fails", [False, True], ids=["success", "failure"])
+async def test_temporary_bypass_restores_session_context(
+    mock_session: AsyncMock,
+    test_role: Role,
+    bypass: bool | None,
+    fails: bool,
+) -> None:
+    """Restore exact session values, including off/shadow bypass, on either exit."""
+    previous_params = {
+        "bypass": RLS_BYPASS_OFF,
+        "org_id": RLS_UNSET_VALUE,
+        "workspace_id": RLS_UNSET_VALUE,
+        "user_id": RLS_UNSET_VALUE,
+    }
+    if bypass is not None:
+        await set_rls_context(
+            mock_session,
+            org_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            bypass=bypass,
+        )
+        previous_params = mock_session.execute.call_args.args[1].copy()
+    previous_info = mock_session.sync_session.info.copy()
+    mock_session.execute.reset_mock()
+    if fails:
+        mock_session.execute.side_effect = [None, RuntimeError("mirror failed"), None]
+
+    # A different ambient role must never replace the saved session context.
+    token = ctx_role.set(test_role)
+    try:
+        with (
+            pytest.raises(RuntimeError, match="mirror failed")
+            if fails
+            else nullcontext()
+        ):
+            await mirror_workspace_membership(
+                mock_session, user_id=uuid.uuid4(), workspace_id=uuid.uuid4()
+            )
+    finally:
+        ctx_role.reset(token)
+
+    calls = mock_session.execute.call_args_list
+    assert calls[0].args[1]["bypass"] == RLS_BYPASS_ON
+    assert calls[-1].args[1] == previous_params
+    assert mock_session.sync_session.info == previous_info
 
 
 class TestIsRlsEnabled:

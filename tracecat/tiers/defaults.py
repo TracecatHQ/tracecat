@@ -65,6 +65,7 @@ def resolve_oss_default_entitlements(
             workspace_chat=True,
             multi_workspace=False,
             watchtower=False,
+            external_secret_stores=False,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -99,6 +100,7 @@ def resolve_oss_default_entitlements(
         workspace_chat=True,
         multi_workspace=False,
         watchtower=False,
+        external_secret_stores=False,
     )
 
 

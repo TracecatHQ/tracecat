@@ -4568,6 +4568,34 @@ async def test_remove_case_tag(monkeypatch):
     assert "removed from case" in payload["message"]
 
 
+@pytest.mark.anyio
+async def test_remove_case_tag_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    case_id = uuid.uuid4()
+    message = f"Tag escalated not found on case {case_id}"
+    error = TracecatNotFoundError(message)
+    tag_service = SimpleNamespace(remove_case_tag=AsyncMock(side_effect=error))
+    monkeypatch.setattr(
+        mcp_server,
+        "_resolve_workspace_role",
+        AsyncMock(return_value=(uuid.uuid4(), SimpleNamespace())),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTagsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(tag_service)),
+    )
+
+    with pytest.raises(ToolError) as exc_info:
+        await _tool(mcp_server.remove_case_tag)(
+            workspace_id=str(uuid.uuid4()),
+            case_id=str(case_id),
+            tag_identifier="escalated",
+        )
+
+    assert str(exc_info.value) == message
+    assert exc_info.value.__cause__ is error
+
+
 # ---------------------------------------------------------------------------
 # Case field tests
 # ---------------------------------------------------------------------------

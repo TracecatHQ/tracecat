@@ -5,6 +5,7 @@ from typing import Annotated, NoReturn, cast
 from urllib.parse import urlencode
 
 import httpx
+from authlib.integrations.base_client.errors import OAuthError
 from fastapi import APIRouter, Body, HTTPException, Query, status
 from pydantic import SecretStr
 
@@ -69,7 +70,7 @@ from tracecat.integrations.service import (
     PlatformMCPCatalogConnectResult,
     ProviderConfigurationRequiredError,
 )
-from tracecat.integrations.types import MCPServerType
+from tracecat.integrations.types import MCPServerType, TokenResponse
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginationParams
 
@@ -219,6 +220,39 @@ def _oauth_callback_redirect_url(
         "mcp-servers" if issubclass(provider_impl, MCPAuthProvider) else "integrations"
     )
     return f"{config.TRACECAT__PUBLIC_APP_URL}/workspaces/{workspace_id}/{target_page}"
+
+
+async def _exchange_oauth_code_for_token(
+    provider: AuthorizationCodeOAuthProvider,
+    code: str,
+    state: str,
+    code_verifier: str | None,
+) -> TokenResponse:
+    """Translate expected token exchange failures without exposing provider details."""
+    try:
+        return await provider.exchange_code_for_token(code, state, code_verifier)
+    except OAuthError:
+        logger.warning(
+            "OAuth provider rejected token exchange",
+            provider=provider.id,
+            grant_type=provider.grant_type,
+        )
+        error = HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OAuth provider rejected authorization. Check the integration credentials and reconnect.",
+        )
+    except httpx.HTTPError:
+        logger.warning(
+            "OAuth token endpoint request failed",
+            provider=provider.id,
+            grant_type=provider.grant_type,
+        )
+        error = HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not complete token exchange with the OAuth provider. Try connecting again.",
+        )
+    # Raise outside the handler so provider errors cannot leak via __context__.
+    raise error
 
 
 @oauth_router.get("/callback")
@@ -429,8 +463,8 @@ async def oauth_callback(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Provider configuration or credentials are not available",
         ) from exc
-    token_result = await provider.exchange_code_for_token(
-        code, str(state), code_verifier
+    token_result = await _exchange_oauth_code_for_token(
+        provider, code, str(state), code_verifier
     )
 
     # Store integration tokens for this user

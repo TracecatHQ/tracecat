@@ -17,7 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.authz.enums import ScopeSource
 from tracecat.authz.scopes import PRESET_ROLE_SCOPES
-from tracecat.db.models import Organization, Role, RoleScope, Scope
+from tracecat.db.models import (
+    Organization,
+    Role,
+    RoleScope,
+    Scope,
+)
 from tracecat.logger import logger
 
 # =============================================================================
@@ -187,11 +192,14 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "remove",
         "Remove users from workspace",
     ),
+    # Deprecated: no route requires this scope; workspace role management is
+    # centralized in org settings. The row stays until custom-role links are
+    # cleared, because deleting a scope cascades through role_scope.
     ScopeDefinition(
         "workspace:member:update",
         "workspace:member",
         "update",
-        "Change member workspace roles",
+        "Deprecated. Change member workspace roles",
     ),
     # Workspace RBAC administration (delegated to workspace admins)
     ScopeDefinition(
@@ -200,11 +208,14 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "read",
         "View workspace role assignments and group permissions",
     ),
+    # Deprecated: no route requires this scope; role and group management is
+    # centralized in org settings. The row stays until custom-role links are
+    # cleared, because deleting a scope cascades through role_scope.
     ScopeDefinition(
         "workspace:rbac:manage",
         "workspace:rbac",
         "manage",
-        "Manage workspace role assignments and group permissions",
+        "Deprecated. Manage workspace role assignments and group permissions",
     ),
     ScopeDefinition(
         "workspace:service_account:read",
