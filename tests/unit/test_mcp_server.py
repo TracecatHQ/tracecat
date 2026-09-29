@@ -675,6 +675,36 @@ def test_auto_generate_layout_places_error_path_below_source():
     assert positions["on_error"] == (positions["call_api"][0], 600.0)
 
 
+def test_auto_generate_layout_orders_success_before_error_paths():
+    positions = _layout_by_ref(
+        [
+            {"ref": "normalize", "depends_on": []},
+            {"ref": "on_error", "depends_on": ["normalize.error"]},
+            {"ref": "cleanup", "depends_on": ["normalize", "normalize.error"]},
+            {"ref": "guarded", "depends_on": ["normalize"]},
+            {"ref": "other", "depends_on": ["normalize"]},
+        ]
+    )
+
+    xs = [positions[ref][0] for ref in ("guarded", "other", "cleanup", "on_error")]
+    assert xs == sorted(xs)
+    assert len(set(xs)) == 4
+
+
+def test_auto_generate_layout_keeps_error_handler_right_of_success_chain():
+    positions = _layout_by_ref(
+        [
+            {"ref": "call_api", "depends_on": []},
+            {"ref": "on_error", "depends_on": ["call_api.error"]},
+            {"ref": "parse", "depends_on": ["call_api"]},
+            {"ref": "notify", "depends_on": ["parse"]},
+        ]
+    )
+
+    assert positions["parse"][0] < positions["on_error"][0]
+    assert positions["notify"][0] == positions["parse"][0]
+
+
 @pytest.mark.parametrize(
     ("previous", "updated", "expected"),
     [

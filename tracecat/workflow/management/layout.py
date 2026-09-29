@@ -65,6 +65,41 @@ def _dependency_source(dependency: str) -> str:
     return dependency.split(".", 1)[0]
 
 
+def _is_error_dependency(dependency: str) -> bool:
+    return dependency.partition(".")[2] == "error"
+
+
+def _edge_rank(is_error: set[bool]) -> int:
+    if len(is_error) > 1:
+        return 1
+    if True in is_error:
+        return 2
+    return 0
+
+
+def _build_branch_ranks(
+    actions: Sequence[WorkflowActionLayoutInput],
+    parents: Mapping[str, Sequence[str]],
+) -> dict[str, float]:
+    """Rank each action by the path kind it takes from its parents.
+
+    Ranks are ``0`` for success-only, ``1`` for success and error, and ``2``
+    for error-only edges, averaged over parents, so siblings read left to
+    right as success, success and error, then error.
+    """
+    ranks: dict[str, float] = {}
+    for action in actions:
+        ref = action["ref"]
+        kinds: dict[str, set[bool]] = {source: set() for source in parents[ref]}
+        for dependency in action.get("depends_on", []) or []:
+            source = _dependency_source(dependency)
+            if source in kinds:
+                kinds[source].add(_is_error_dependency(dependency))
+        edge_ranks = [_edge_rank(flags) for flags in kinds.values()]
+        ranks[ref] = sum(edge_ranks) / len(edge_ranks) if edge_ranks else 0.0
+    return ranks
+
+
 def _build_parents(
     actions: Sequence[WorkflowActionLayoutInput],
 ) -> dict[str, list[str]]:
@@ -119,8 +154,12 @@ def _initial_rows(
     refs: Sequence[str],
     depth: Mapping[str, int],
     children: Mapping[str, Sequence[str]],
+    branch_rank: Mapping[str, float],
 ) -> list[list[str]]:
-    """Order each row by a depth-first walk so each branch stays contiguous."""
+    """Order each row by a depth-first walk so each branch stays contiguous.
+
+    Children are visited success paths first and error paths last.
+    """
     visited: set[str] = set()
     walk: list[str] = []
     for start in refs:
@@ -133,7 +172,8 @@ def _initial_rows(
                 continue
             visited.add(ref)
             walk.append(ref)
-            stack.extend(reversed(children[ref]))
+            ordered = sorted(children[ref], key=lambda child: branch_rank[child])
+            stack.extend(reversed(ordered))
 
     row_count = max(depth.values(), default=-1) + 1
     rows: list[list[str]] = [[] for _ in range(row_count)]
@@ -177,21 +217,25 @@ def _reorder_rows(
     rows: list[list[str]],
     neighbors: Mapping[str, Sequence[str]],
     row_indices: Sequence[int],
+    branch_rank: Mapping[str, float],
 ) -> list[list[str]]:
-    """Sort rows by the barycenter of each node's neighbors (stable)."""
+    """Sort rows by the barycenter of each node's neighbors.
+
+    Ties keep success paths left of error paths, then the current order.
+    """
     rows = [list(row) for row in rows]
     for row_index in row_indices:
         positions = _centered_positions(rows)
         row = rows[row_index]
-        keyed: list[tuple[float, int, str]] = []
+        keyed: list[tuple[float, float, int, str]] = []
         for index, ref in enumerate(row):
             linked = neighbors[ref]
             if linked:
                 key = sum(positions[other] for other in linked) / len(linked)
             else:
                 key = positions[ref]
-            keyed.append((key, index, ref))
-        rows[row_index] = [ref for _, _, ref in sorted(keyed)]
+            keyed.append((key, branch_rank[ref], index, ref))
+        rows[row_index] = [ref for *_, ref in sorted(keyed)]
     return rows
 
 
@@ -200,6 +244,7 @@ def _order_rows(
     depth: Mapping[str, int],
     parents: Mapping[str, Sequence[str]],
     children: Mapping[str, Sequence[str]],
+    branch_rank: Mapping[str, float],
 ) -> list[list[str]]:
     """Reduce edge crossings with alternating barycenter sweeps."""
     best_rows = rows
@@ -211,9 +256,9 @@ def _order_rows(
         if best_crossings == 0:
             break
         if sweep % 2 == 0:
-            current = _reorder_rows(current, parents, down)
+            current = _reorder_rows(current, parents, down, branch_rank)
         else:
-            current = _reorder_rows(current, children, up)
+            current = _reorder_rows(current, children, up, branch_rank)
         crossings = _count_crossings(current, depth, parents)
         if crossings < best_crossings:
             best_rows = current
@@ -333,6 +378,7 @@ def auto_generate_layout(
     action it waits for. Within a row, siblings are ordered to reduce edge
     crossings and each action is centered under its parents, so a linear chain
     is a straight vertical line and a fan-out is centered under its source.
+    Siblings read left to right as success, success and error, then error.
     The trigger sits at the origin, centered over the root actions.
     """
     refs = [action["ref"] for action in actions]
@@ -342,9 +388,10 @@ def auto_generate_layout(
         for source in parents[ref]:
             children[source].append(ref)
 
+    branch_rank = _build_branch_ranks(actions, parents)
     depth = _assign_depths(refs, parents, children)
-    rows = _initial_rows(refs, depth, children)
-    rows = _order_rows(rows, depth, parents, children)
+    rows = _initial_rows(refs, depth, children, branch_rank)
+    rows = _order_rows(rows, depth, parents, children, branch_rank)
     columns = _assign_columns(rows, parents, children)
 
     roots = rows[0] if rows else []
