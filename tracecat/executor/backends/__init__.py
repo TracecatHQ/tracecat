@@ -19,8 +19,8 @@ from __future__ import annotations
 
 from tracecat import config
 from tracecat.executor.backends.base import ExecutorBackend
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.executor.schemas import resolve_backend_type
-from tracecat.executor.types import ExecutorBackendType
 from tracecat.logger import logger
 
 __all__ = [

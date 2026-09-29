@@ -7,7 +7,7 @@ from typing import Literal, cast
 
 from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
 from tracecat.auth.enums import AuthType
-from tracecat.executor.types import ExecutorBackendType
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.feature_flags.enums import FeatureFlag
 
 # === Logger === #

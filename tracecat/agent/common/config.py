@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from tracecat.executor.types import ExecutorBackendType
+from tracecat.executor.enums import ExecutorBackendType
 
 # === Agent Sandbox Config (read directly from env) === #
 

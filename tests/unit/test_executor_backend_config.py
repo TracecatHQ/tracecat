@@ -15,10 +15,26 @@ from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.backends import _create_backend
 from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.backends.ephemeral import EphemeralBackend
-from tracecat.executor.types import ExecutorBackendType
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.sandbox import service as sandbox_service
 from tracecat.sandbox.exceptions import SandboxInfrastructureError
 from tracecat.sandbox.service import SandboxService
+
+
+@pytest.mark.parametrize("module", ["minimal_runner", "process_supervisor"])
+def test_executor_entrypoints_import_without_site_packages(module: str) -> None:
+    """Sibling modules must not shadow stdlib imports in standalone scripts."""
+    executor_dir = Path(__file__).parents[2] / "tracecat" / "executor"
+    # Site initialization can preload stdlib types and hide a sibling types.py.
+    subprocess.run(
+        [sys.executable, "-S", "-c", f"import {module}"],
+        cwd=executor_dir,
+        env={key: value for key, value in os.environ.items() if key != "PYTHONPATH"},
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
 
 
 @pytest.mark.parametrize(

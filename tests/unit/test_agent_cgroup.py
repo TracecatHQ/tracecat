@@ -8,7 +8,7 @@ import pytest
 from tracecat.agent import executor_worker
 from tracecat.agent.sandbox import cgroup
 from tracecat.agent.sandbox.cgroup import CGROUP_PATH_ENV, sandbox_cgroup
-from tracecat.executor.types import ExecutorBackendType
+from tracecat.executor.enums import ExecutorBackendType
 
 
 def test_missing_delegation_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
