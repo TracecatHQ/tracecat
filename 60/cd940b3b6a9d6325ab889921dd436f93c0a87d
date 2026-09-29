@@ -1,0 +1,25 @@
+docs/self-hosting/security.mdx
+  s_3c3128f5764eba::t_159043f08aedf6 179
+  s_3c3128f5764eba::t_547b5ae7bdbbe5 130-135
+SECURITY.md
+  s_3c3128f5764eba::t_547b5ae7bdbbe5 21,26
+  s_3c3128f5764eba::t_32a2f94d389221 22-25
+docs/self-hosting/docker-compose.mdx
+  s_3c3128f5764eba::t_547b5ae7bdbbe5 62-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "60cd940b3b6a9d6325ab889921dd436f93c0a87d",
+  "prompts": {},
+  "sessions": {
+    "s_3c3128f5764eba": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ea78-8780-79c3-952d-14be4a250b4f",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
