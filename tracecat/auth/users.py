@@ -160,6 +160,15 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
                 )
                 return
 
+        # Provisioning into an organization follows its domain policy, as SAML does.
+        if organization_id is not None:
+            async with get_async_session_auth_context_manager() as session:
+                if not await self._saml_would_admit_email(
+                    session, organization_id, email
+                ):
+                    raise InvalidEmailException()
+            return
+
         # For non-first users, apply normal domain validation
         allowed_domains = list(config.TRACECAT__AUTH_ALLOWED_DOMAINS)
         self.logger.debug("Allowed domains", allowed_domains=allowed_domains)

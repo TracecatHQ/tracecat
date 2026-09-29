@@ -1420,6 +1420,24 @@ async def test_user_patch_rejects_an_unusable_external_id(
 
 
 @pytest.mark.anyio
+async def test_blank_external_id_on_put_is_treated_as_absent(
+    client: httpx.AsyncClient,
+) -> None:
+    """Providers send "" for an unset identifier; it must not replace the link."""
+    email = f"blank-{uuid.uuid4().hex}@tracecat.com"
+    created = await _post_user(client, email, externalId="idp-kept")
+    resource_id = created.json()["id"]
+
+    response = await client.put(
+        f"/scim/v2/Users/{resource_id}",
+        json={"userName": email, "externalId": "", "active": True},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["externalId"] == "idp-kept"
+
+
+@pytest.mark.anyio
 async def test_user_create_rejects_superuser(
     client: httpx.AsyncClient, session: AsyncSession, org: Organization
 ) -> None:

@@ -65,6 +65,10 @@ def auth_session(session: AsyncSession, monkeypatch: pytest.MonkeyPatch) -> None
         "tracecat_ee.scim.credentials.get_async_session_auth_context_manager",
         _session_cm,
     )
+    # Without this, an empty auth-pool database takes the first-user path.
+    monkeypatch.setattr(
+        "tracecat.auth.users.get_async_session_auth_context_manager", _session_cm
+    )
 
 
 @pytest.fixture
@@ -262,6 +266,7 @@ async def test_scim_writes_emit_their_audit_events(
     session: AsyncSession,
     org: Organization,
     admin_role: Role,
+    auth_session: None,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Provisioning, directory pushes and mapping changes are each recorded.

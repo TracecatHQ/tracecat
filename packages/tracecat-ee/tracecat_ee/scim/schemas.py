@@ -7,7 +7,7 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.core.schemas import Schema
@@ -185,6 +185,14 @@ class ScimUserRequest(ScimModel):
     name: ScimName | None = Field(default=None)
     display_name: str | None = Field(default=None, alias="displayName")
     emails: list[ScimEmail] = Field(default_factory=list)
+
+    @field_validator("external_id", mode="before")
+    @classmethod
+    def blank_external_id_is_absent(cls, value: object) -> object:
+        """Providers send ``""`` for an unset identifier; treat it as absent."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def check_fallback_identifier(self) -> Self:

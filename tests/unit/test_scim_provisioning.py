@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_ee.scim.provisioning import ScimProvisioningService
 from tracecat_ee.scim.service import SCIMService
 
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.auth.users import UserManager, get_user_db_context
 from tracecat.authz.enums import ScimConnectionStatus
@@ -25,6 +26,7 @@ from tracecat.db.models import (
     Invitation,
     InvitationGrant,
     Organization,
+    OrganizationDomain,
     OrganizationMembership,
     ScimConnection,
     User,
@@ -399,6 +401,36 @@ async def test_rename_revokes_an_invitation_to_the_new_address(
 
     await session.refresh(invitation)
     assert invitation.status == InvitationStatus.REVOKED
+
+
+@pytest.mark.anyio
+async def test_new_account_follows_the_org_domain_policy(
+    session: AsyncSession,
+    org: Organization,
+    service: ScimProvisioningService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An owned domain outside the environment allowlist still gets new accounts."""
+    domain = f"owned-{uuid.uuid4().hex[:8]}.com"
+    session.add(
+        OrganizationDomain(
+            id=uuid.uuid4(),
+            organization_id=org.id,
+            domain=domain,
+            normalized_domain=domain,
+            is_primary=True,
+            is_active=True,
+            verification_method="platform_admin",
+        )
+    )
+    await session.flush()
+    monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", {"elsewhere.com"})
+
+    provisioned = await service.provision_user(
+        external_id="idp-owned", email=f"new@{domain}"
+    )
+
+    assert provisioned.created
 
 
 @pytest.mark.anyio

@@ -380,13 +380,16 @@ def _install_scim_exception_handlers(app: FastAPI) -> None:
         return scope_denied_exception_handler(request, exc)
 
     async def _unexpected(request: Request, exc: Exception) -> Response:
-        response = await generic_exception_handler(request, exc)
-        if is_scim_path(request):
-            return scim_error_response(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="An unexpected error occurred. Please try again later.",
-            )
-        return response
+        if not is_scim_path(request):
+            return await generic_exception_handler(request, exc)
+        # SCIM filters carry directory emails, so the query string is not logged.
+        logger.exception(
+            "Unexpected error", exc=exc, role=ctx_role.get(), path=request.url.path
+        )
+        return scim_error_response(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred. Please try again later.",
+        )
 
     app.add_exception_handler(Exception, _unexpected)
     app.add_exception_handler(TracecatAuthorizationError, _authorization)

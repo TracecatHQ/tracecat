@@ -17,6 +17,7 @@ from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
 from tracecat.audit.types import AuditAction
 from tracecat.auth.types import Role
+from tracecat.authz.membership import lock_role_changes
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.models import (
     Invitation,
@@ -170,6 +171,8 @@ class AdminOrgService(BasePlatformService):
         """Create a platform-scoped invitation for an organization."""
         await self._require_organization(org_id)
         role_obj = await self._get_org_invitation_role(org_id, params.role_slug)
+        # SCIM activation sweeps invitations under this lock; don't land mid-sweep.
+        await lock_role_changes(self.session, org_id)
 
         invitation = await create_invitation_row(
             self.session,
