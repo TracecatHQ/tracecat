@@ -92,7 +92,8 @@ async def create_invitation(
             f"{invitation.email} is invited manually into an organization "
             "provisioned by an identity provider. If the provider also "
             "provisions this address, it manages their mapped groups and can "
-            "remove them."
+            "remove them. Otherwise, SCIM does not add them to mapped groups "
+            "or remove them."
         )
     return read
 

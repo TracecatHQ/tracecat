@@ -140,7 +140,11 @@ export function useScimExternalGroups({
       }),
     initialPageParam: null,
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
-    refetchInterval: poll ? SCIM_DIRECTORY_POLL_MS : false,
+    // Each tick refetches every loaded page; poll only the first.
+    refetchInterval: (query) =>
+      poll && (query.state.data?.pages.length ?? 0) <= 1
+        ? SCIM_DIRECTORY_POLL_MS
+        : false,
   })
   return {
     externalGroups: query.data?.pages.flatMap((page) => page.items),

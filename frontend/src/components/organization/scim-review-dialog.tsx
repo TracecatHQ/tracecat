@@ -1,7 +1,7 @@
 "use client"
 
 import { ChevronRightIcon, Loader2 } from "lucide-react"
-import { type ReactNode, useState } from "react"
+import { type ReactNode, useId, useState } from "react"
 import type {
   ScimActivationReviewRead,
   ScimGroupTransitionRead,
@@ -105,11 +105,13 @@ function CollapsedRow({
   trailing: string
   children: ReactNode
 }) {
+  const hintId = useId()
   return (
     <div className="space-y-2">
       <button
         type="button"
         aria-expanded={open}
+        aria-describedby={hint ? hintId : undefined}
         onClick={onToggle}
         className="flex w-full items-center gap-2.5 rounded-md border px-3 py-2 text-left text-sm outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
       >
@@ -137,6 +139,11 @@ function CollapsedRow({
         <span className="shrink-0 text-xs text-muted-foreground">
           {trailing}
         </span>
+        {hint ? (
+          <span id={hintId} className="sr-only">
+            {hint}
+          </span>
+        ) : null}
       </button>
       {open ? children : null}
     </div>

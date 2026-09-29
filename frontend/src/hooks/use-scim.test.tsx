@@ -211,6 +211,37 @@ it("polls the directory only while asked to", async () => {
   }
 })
 
+it("stops polling groups once more than one page is loaded", async () => {
+  jest.mocked(scimListExternalGroups).mockClear()
+  jest.useFakeTimers()
+  try {
+    jest.mocked(scimListExternalGroups).mockResolvedValue({
+      items: [],
+      next_cursor: "next-page",
+      prev_cursor: null,
+    })
+    const { result } = renderHook(() => useScimExternalGroups({ poll: true }), {
+      wrapper: createWrapper(createQueryClient()),
+    })
+    await waitFor(() =>
+      expect(result.current.externalGroupsHasNextPage).toBe(true)
+    )
+    await act(async () => {
+      await result.current.fetchNextExternalGroups()
+    })
+    expect(scimListExternalGroups).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(60_000)
+    })
+    // Still two: the second page stopped the poll.
+    expect(scimListExternalGroups).toHaveBeenCalledTimes(2)
+  } finally {
+    jest.useRealTimers()
+    jest.mocked(scimListExternalGroups).mockClear()
+  }
+})
+
 it("reads the directory summary only when enabled", async () => {
   const summary = {
     users: { total: 3, active: 2, inactive: 1 },

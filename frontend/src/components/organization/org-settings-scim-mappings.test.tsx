@@ -274,6 +274,25 @@ test("discarding drafts clears them without writing", async () => {
   )
 })
 
+test("drafts cannot be discarded while their review is loading", async () => {
+  const user = userEvent.setup()
+  const { rerender } = renderScim()
+  await toggleTarget(user)
+  review.isPending = true
+  try {
+    rerender(
+      <TooltipProvider>
+        <OrgSettingsScim />
+      </TooltipProvider>
+    )
+    expect(
+      screen.getByRole("button", { name: "Discard drafts" })
+    ).toBeDisabled()
+  } finally {
+    review.isPending = false
+  }
+})
+
 test("active changes stay drafts until one review applies them", async () => {
   const user = userEvent.setup()
   connection = { ...initialConnection, status: "active" }

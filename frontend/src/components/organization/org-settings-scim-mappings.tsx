@@ -532,7 +532,12 @@ function ListFooter({
         </Button>
       )}
       {showDrafts && (
-        <Button variant="ghost" size="sm" onClick={onDiscardDrafts}>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={reviewIsPending}
+          onClick={onDiscardDrafts}
+        >
           Discard drafts
         </Button>
       )}
