@@ -33,7 +33,7 @@ import { v4 as uuid4 } from "uuid"
 
 import "@xyflow/react/dist/style.css"
 
-import { MoveHorizontalIcon, MoveVerticalIcon, PlusIcon } from "lucide-react"
+import { MoveVerticalIcon, PlusIcon } from "lucide-react"
 import type {
   GraphOperation,
   GraphResponse,
@@ -62,14 +62,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/use-toast"
 import { useGraph, useGraphOperations } from "@/lib/hooks"
-import { pruneGraphObject } from "@/lib/workflow"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
-import {
-  getLayoutedElements,
-  mergeHydratedEdges,
-  mergeHydratedNodes,
-} from "./graph-layout"
+import { mergeHydratedEdges, mergeHydratedNodes } from "./graph-layout"
 
 const defaultNodeWidth = 172
 const defaultNodeHeight = 36
@@ -808,27 +803,39 @@ export const WorkflowCanvas = React.forwardRef<
     [graphVersion, applyGraphOperations, refetchGraph]
   )
 
-  const onLayout = useCallback(
-    (direction: "TB" | "LR") => {
-      const prunedGraph = pruneGraphObject({
-        nodes,
-        edges,
+  const onLayout = useCallback(async () => {
+    if (!workflowId) return
+    const operations: GraphOperation[] = [{ type: "auto_layout", payload: {} }]
+    try {
+      const result = await applyGraphOperations({
+        baseVersion: graphVersion,
+        operations,
       })
-      const { nodes: newNodes, edges: newEdges } = getLayoutedElements(
-        prunedGraph.nodes,
-        prunedGraph.edges,
-        direction
-      )
-      setNodes(newNodes)
-      setEdges(newEdges)
-
-      // Save positions after layout
-      if (workflowId) {
-        saveNodePositions(newNodes)
+      updateStateFromGraph(result)
+    } catch (error) {
+      const apiError = error as { status?: number }
+      if (apiError.status !== 409) {
+        console.error("Failed to auto-layout workflow:", error)
+        return
       }
-    },
-    [nodes, edges, workflowId, setNodes, setEdges, saveNodePositions]
-  )
+      try {
+        const latestGraph = await refetchGraph()
+        const retryResult = await applyGraphOperations({
+          baseVersion: latestGraph.version,
+          operations,
+        })
+        updateStateFromGraph(retryResult)
+      } catch (retryError) {
+        console.error("Failed to auto-layout workflow after retry:", retryError)
+      }
+    }
+  }, [
+    workflowId,
+    graphVersion,
+    applyGraphOperations,
+    refetchGraph,
+    updateStateFromGraph,
+  ])
 
   // Batch update positions when nodes are dragged
   const onNodesDragStop = useCallback(() => {
@@ -1059,17 +1066,9 @@ export const WorkflowCanvas = React.forwardRef<
           <Button
             variant="outline"
             className="m-0 size-6 p-0 text-xs"
-            onClick={() => onLayout("TB")}
+            onClick={onLayout}
           >
             <MoveVerticalIcon className="size-3" strokeWidth={2} />
-          </Button>
-          <Button
-            variant="outline"
-            className="m-0 hidden size-6 p-0 text-xs"
-            onClick={() => onLayout("LR")}
-            disabled
-          >
-            <MoveHorizontalIcon className="size-3" strokeWidth={2} />
           </Button>
         </Panel>
         <Panel position="bottom-center" className="mb-4">
