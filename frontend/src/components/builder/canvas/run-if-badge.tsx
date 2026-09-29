@@ -110,48 +110,75 @@ export function splitRunIfCondition(condition: string): RunIfClause[] {
 }
 
 /**
+ * Whether an expanded `run_if` badge renders as a multi-line stack rather
+ * than a single inline pill.
+ */
+export function isStackedRunIf(runIf: string): boolean {
+  const condition = formatRunIfCondition(runIf)
+  return (
+    condition.length > INLINE_CONDITION_MAX_LENGTH ||
+    splitRunIfCondition(condition).length > 1
+  )
+}
+
+/**
  * Badge shown above an action node that has a `run_if` condition.
  *
  * In compact mode only the condition icon is shown until the action is
- * hovered or selected. Short single-clause conditions expand inline; longer
- * ones stack one clause per line in a panel above the badge that is capped
- * to the node width so it never spills over neighbouring nodes.
+ * hovered or selected. Short single-clause conditions expand inline. Longer
+ * ones grow the same teal badge upward into one clause per line, capped to
+ * the node width so it never spills over neighbouring nodes.
  */
 export function RunIfBadge({
   runIf,
   compact,
   expanded,
   attachedToJoin,
+  besideJoin,
 }: {
   runIf: string
   compact: boolean
   expanded: boolean
   attachedToJoin?: boolean
+  besideJoin?: boolean
 }) {
   const condition = formatRunIfCondition(runIf)
   const clauses = splitRunIfCondition(condition)
   const showCondition = !compact || expanded
-  const stacked =
-    clauses.length > 1 || condition.length > INLINE_CONDITION_MAX_LENGTH
-  const showInline = showCondition && !stacked
-  const showStacked = showCondition && stacked
+  const stacked = showCondition && isStackedRunIf(runIf)
 
   return (
-    <>
-      {showStacked && (
+    <Badge
+      aria-label={`Run if ${condition}`}
+      data-state={showCondition ? "expanded" : "collapsed"}
+      className={cn(
+        "border-0 text-xs shadow-none",
+        "bg-teal-500/80 hover:bg-teal-600/80",
+        showCondition ? "px-2" : "px-1.5",
+        stacked && "py-1",
+        attachedToJoin && "ml-0 rounded-l-none"
+      )}
+    >
+      {stacked ? (
         <div
           data-testid="run-if-stack"
           className={cn(
-            "nowheel absolute bottom-full left-1/2 mb-1 -translate-x-1/2",
-            "max-h-40 w-max max-w-64 overflow-y-auto",
-            "rounded-md border border-teal-500/40 bg-background px-2 py-1.5",
-            "text-left font-mono text-xs leading-4 tracking-tighter text-foreground"
+            "nowheel max-h-40 w-max overflow-y-auto",
+            besideJoin ? "max-w-48" : "max-w-60",
+            "font-mono text-xs leading-4 tracking-tighter"
           )}
         >
           {clauses.map((clause, index) => (
             <div key={index} className="flex gap-1.5">
-              <span className="w-4 shrink-0 font-semibold text-teal-600">
-                {clause.operator}
+              <span
+                className={cn(
+                  "flex h-4 w-4 shrink-0 items-center justify-center font-bold",
+                  clause.operator && "opacity-70"
+                )}
+              >
+                {clause.operator ?? (
+                  <GitBranch className="size-3" strokeWidth={2.5} />
+                )}
               </span>
               <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">
                 {clause.text}
@@ -159,26 +186,16 @@ export function RunIfBadge({
             </div>
           ))}
         </div>
-      )}
-      <Badge
-        aria-label={`Run if ${condition}`}
-        data-state={showCondition ? "expanded" : "collapsed"}
-        className={cn(
-          "border-0 text-xs shadow-none",
-          "bg-teal-500/80 hover:bg-teal-600/80",
-          showInline ? "px-2" : "px-1.5",
-          attachedToJoin && "ml-0 rounded-l-none"
-        )}
-      >
+      ) : (
         <span className="flex h-4 items-center space-x-1">
           <GitBranch className="size-3" strokeWidth={2.5} />
-          {showInline && (
+          {showCondition && (
             <pre className="text-xs leading-4 tracking-tighter">
               {condition}
             </pre>
           )}
         </span>
-      </Badge>
-    </>
+      )}
+    </Badge>
   )
 }

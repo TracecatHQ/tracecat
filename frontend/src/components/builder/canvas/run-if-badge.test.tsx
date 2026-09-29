@@ -75,7 +75,7 @@ describe("RunIfBadge stacked conditions", () => {
   const MULTI =
     "${{ ACTIONS.normalize.result != None && TRIGGER.severity == 'high' }}"
 
-  it("stacks multi-clause conditions above an icon-only pill", () => {
+  it("stacks multi-clause conditions one clause per line", () => {
     render(<RunIfBadge runIf={MULTI} compact expanded />)
     const badge = screen.getByLabelText(/^Run if /)
     expect(badge.querySelector("pre")).toBeNull()
