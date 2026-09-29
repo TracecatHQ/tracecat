@@ -70,13 +70,16 @@ def main() -> None:
         raise RuntimeError(
             "Run as root: python -m tracecat.agent.sandbox.cgroup COMMAND..."
         )
-    if not env_bool("TRACECAT__DISABLE_NSJAIL", default=True):
+    nsjail_enabled = not env_bool("TRACECAT__DISABLE_NSJAIL", default=True)
+    if nsjail_enabled and not os.environ.get(CGROUP_PATH_ENV):
         root = delegate_cgroup(APIUSER_ID, APIUSER_ID)
         os.environ[CGROUP_PATH_ENV] = str(root)
     os.environ.update(HOME="/home/apiuser", USER="apiuser", LOGNAME="apiuser")
     os.setgroups([])
     os.setgid(APIUSER_ID)
     os.setuid(APIUSER_ID)
+    if nsjail_enabled:
+        sandbox_cgroup()
     os.execvp(sys.argv[1], sys.argv[1:])
 
 
