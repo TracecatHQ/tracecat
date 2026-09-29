@@ -26,6 +26,7 @@ from tracecat.agent.runtime_services import (
 from tracecat.agent.sandbox.cgroup import sandbox_cgroup
 from tracecat.agent.worker import new_sandbox_runner
 from tracecat.dsl.client import get_temporal_client
+from tracecat.executor.startup import validate_execution_backend
 from tracecat.logger import logger
 from tracecat.observability.otel import (
     initialize_platform_tracing,
@@ -34,6 +35,7 @@ from tracecat.observability.otel import (
 from tracecat.observability.sentry import initialize_worker_sentry_from_environment
 from tracecat.storage.blob import close_storage_client_cache
 from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
+from tracecat.temporal.worker_readiness import worker_readiness
 
 if TYPE_CHECKING:
     from temporalio.client import Client
@@ -84,6 +86,7 @@ async def _stop_runtime_services() -> None:
 async def main(shutdown_event: asyncio.Event | None = None) -> None:
     """Run the AgentExecutorWorker."""
     global runtime_failure_reason
+    validate_execution_backend()
     if shutdown_event is None:
         shutdown_event = asyncio.Event()
     runtime_failure_reason = None
@@ -113,25 +116,28 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
 
         client = await _start_runtime_services()
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-            async with Worker(
-                client,
-                task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
-                activities=get_activities(),
-                workflow_runner=new_sandbox_runner(),
-                max_concurrent_activities=max_concurrent,
-                disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-                activity_executor=executor,
-                # Activity cancellation is only delivered to a running activity
-                # via heartbeat RPC responses, and the SDK throttles those to
-                # 80% of the heartbeat timeout (48s at our 60s timeout) by
-                # default. Cap the throttle so Temporal-driven cancellation
-                # reaches long agent turns promptly; the Redis cancel signal
-                # (tracecat/agent/cancellation.py) remains the primary path.
-                max_heartbeat_throttle_interval=timedelta(seconds=5),
-                default_heartbeat_throttle_interval=timedelta(seconds=5),
-                graceful_shutdown_timeout=timedelta(
-                    seconds=config.TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT
+            async with (
+                Worker(
+                    client,
+                    task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
+                    activities=get_activities(),
+                    workflow_runner=new_sandbox_runner(),
+                    max_concurrent_activities=max_concurrent,
+                    disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                    activity_executor=executor,
+                    # Activity cancellation is only delivered to a running activity
+                    # via heartbeat RPC responses, and the SDK throttles those to
+                    # 80% of the heartbeat timeout (48s at our 60s timeout) by
+                    # default. Cap the throttle so Temporal-driven cancellation
+                    # reaches long agent turns promptly; the Redis cancel signal
+                    # (tracecat/agent/cancellation.py) remains the primary path.
+                    max_heartbeat_throttle_interval=timedelta(seconds=5),
+                    default_heartbeat_throttle_interval=timedelta(seconds=5),
+                    graceful_shutdown_timeout=timedelta(
+                        seconds=config.TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT
+                    ),
                 ),
+                worker_readiness(),
             ):
                 logger.info("AgentExecutorWorker started, ctrl+c to exit")
                 await shutdown_event.wait()

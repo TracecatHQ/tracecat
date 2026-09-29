@@ -64,6 +64,7 @@ with workflow.unsafe.imports_passed_through():
         initialize_executor_backend,
         shutdown_executor_backend,
     )
+    from tracecat.executor.startup import validate_execution_backend
     from tracecat.logger import logger
     from tracecat.observability.otel import (
         initialize_platform_tracing,
@@ -79,6 +80,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.storage.blob import close_storage_client_cache
     from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
+    from tracecat.temporal.worker_readiness import worker_readiness
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
@@ -120,6 +122,7 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 
 async def main(shutdown_event: asyncio.Event | None = None) -> None:
     """Run the ExecutorWorker."""
+    validate_execution_backend()
     if shutdown_event is None:
         shutdown_event = asyncio.Event()
 
@@ -188,16 +191,19 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         )
 
         with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-            async with Worker(
-                client,
-                task_queue=task_queue,
-                workflows=workflows,
-                activities=activities,
-                activity_executor=executor,
-                max_concurrent_activities=max_concurrent,
-                workflow_runner=new_sandbox_runner(),
-                interceptors=interceptors,
-                graceful_shutdown_timeout=timedelta(minutes=5),
+            async with (
+                Worker(
+                    client,
+                    task_queue=task_queue,
+                    workflows=workflows,
+                    activities=activities,
+                    activity_executor=executor,
+                    max_concurrent_activities=max_concurrent,
+                    workflow_runner=new_sandbox_runner(),
+                    interceptors=interceptors,
+                    graceful_shutdown_timeout=timedelta(minutes=5),
+                ),
+                worker_readiness(),
             ):
                 logger.info(
                     "ExecutorWorker started, ctrl+c to exit",

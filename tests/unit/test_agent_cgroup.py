@@ -21,6 +21,7 @@ def test_missing_delegation_fails_closed(monkeypatch: pytest.MonkeyPatch) -> Non
 async def test_worker_rejects_missing_delegation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(executor_worker, "validate_execution_backend", lambda: None)
     monkeypatch.setattr(
         executor_worker.config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
     )
