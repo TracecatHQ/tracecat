@@ -145,6 +145,21 @@ async def _require_workspace_chat_entitlement_for_session_tree(
                 pending.append(related)
 
 
+async def _build_session_read_with_entitlement(
+    *,
+    svc: AgentSessionService,
+    session: AsyncDBSession,
+    role: WorkspaceActorRouteRole,
+    agent_session: AgentSession,
+) -> AgentSessionRead:
+    """Keep existing history readable when execution is no longer entitled."""
+    readonly = False
+    if not await is_workspace_chat_entitled(session, role):
+        readonly_ids = await svc.get_workspace_chat_session_ids([agent_session.id])
+        readonly = agent_session.id in readonly_ids
+    return build_session_read(agent_session, role, readonly=readonly)
+
+
 @router.get("/backends")
 @require_scope("agent:read")
 async def list_agent_backends(
@@ -250,17 +265,6 @@ async def list_sessions(
     legacy chats. Filter by spawned_by_session_id to find spawned children.
     Legacy chats have is_readonly=True.
     """
-    if entity_type is AgentSessionEntity.WORKSPACE_CHAT:
-        await require_workspace_chat_entitlement_for_entity(
-            session=session,
-            role=role,
-            entity_type=entity_type,
-        )
-    elif not await is_workspace_chat_entitled(session, role):
-        exclude_entity_types = [
-            *(exclude_entity_types or []),
-            AgentSessionEntity.WORKSPACE_CHAT,
-        ]
     svc = AgentSessionService(session, role)
     return await svc.list_sessions(
         created_by=created_by,
@@ -290,7 +294,7 @@ async def get_session(
     # Try AgentSession first
     agent_session = await svc.get_session(session_id)
     if agent_session:
-        await _require_workspace_chat_entitlement_for_session_tree(
+        session_read = await _build_session_read_with_entitlement(
             svc=svc,
             session=session,
             role=role,
@@ -299,18 +303,13 @@ async def get_session(
         messages = await svc.list_messages(session_id)
         logger.info("Session read", session_id=agent_session.id, messages=len(messages))
         return AgentSessionReadWithMessages(
-            **build_session_read(agent_session, role).model_dump(),
+            **session_read.model_dump(),
             messages=messages,
         )
 
     # Try legacy Chat (user_id remains for legacy Chat model)
     legacy_chat = await svc.get_legacy_chat(session_id)
     if legacy_chat:
-        await require_workspace_chat_entitlement_for_entity(
-            session=session,
-            role=role,
-            entity_type=AgentSessionEntity(legacy_chat.entity_type),
-        )
         messages = await svc.list_messages(session_id)
         logger.info(
             "Legacy chat read", session_id=legacy_chat.id, messages=len(messages)
@@ -352,7 +351,7 @@ async def get_session_vercel(
     # Try AgentSession first
     agent_session = await svc.get_session(session_id)
     if agent_session:
-        await _require_workspace_chat_entitlement_for_session_tree(
+        session_read = await _build_session_read_with_entitlement(
             svc=svc,
             session=session,
             role=role,
@@ -361,18 +360,13 @@ async def get_session_vercel(
         messages = await svc.list_messages(session_id)
         ui_messages = vercel.convert_chat_messages_to_ui(messages)
         return AgentSessionReadVercel(
-            **build_session_read(agent_session, role).model_dump(),
+            **session_read.model_dump(),
             messages=ui_messages,
         )
 
     # Try legacy Chat (user_id remains for legacy Chat model)
     legacy_chat = await svc.get_legacy_chat(session_id)
     if legacy_chat:
-        await require_workspace_chat_entitlement_for_entity(
-            session=session,
-            role=role,
-            entity_type=AgentSessionEntity(legacy_chat.entity_type),
-        )
         messages = await svc.list_messages(session_id)
         ui_messages = vercel.convert_chat_messages_to_ui(messages)
         return ChatReadVercel(
@@ -423,10 +417,11 @@ async def update_session(
 
     _require_session_write_access(role, agent_session)
 
-    await require_workspace_chat_entitlement_for_entity(
+    await _require_workspace_chat_entitlement_for_session_tree(
         session=session,
         role=role,
-        entity_type=agent_session.entity_type,
+        svc=svc,
+        agent_session=agent_session,
     )
 
     try:
@@ -461,10 +456,11 @@ async def remove_session_artifact(
         if agent_session is None:
             raise TracecatNotFoundError(f"Session {session_id} not found")
         _require_session_write_access(role, agent_session)
-        await require_workspace_chat_entitlement_for_entity(
+        await _require_workspace_chat_entitlement_for_session_tree(
             session=session,
             role=role,
-            entity_type=agent_session.entity_type,
+            svc=svc,
+            agent_session=agent_session,
         )
         artifacts = await svc.remove_artifact(
             session_id,
@@ -506,10 +502,11 @@ async def delete_session(
 
     _require_session_write_access(role, agent_session)
 
-    await require_workspace_chat_entitlement_for_entity(
+    await _require_workspace_chat_entitlement_for_session_tree(
         session=session,
         role=role,
-        entity_type=agent_session.entity_type,
+        svc=svc,
+        agent_session=agent_session,
     )
 
     await svc.delete_session(agent_session)
@@ -753,11 +750,6 @@ async def stream_session_events(
             legacy_chat = await svc.get_legacy_chat(session_id)
             if legacy_chat is None:
                 return Response(status_code=status.HTTP_204_NO_CONTENT)
-            await require_workspace_chat_entitlement_for_entity(
-                session=svc.session,
-                role=role,
-                entity_type=AgentSessionEntity(legacy_chat.entity_type),
-            )
             last_stream_id = legacy_chat.last_stream_id
             if last_stream_id is None and not last_event_id:
                 return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -773,12 +765,6 @@ async def stream_session_events(
                 headers=headers,
             )
 
-        await _require_workspace_chat_entitlement_for_session_tree(
-            svc=svc,
-            session=svc.session,
-            role=role,
-            agent_session=agent_session,
-        )
         stream_state = await svc.get_stream_resume_state(agent_session)
 
     message_id = _bubble_id(session_id, stream_state.curr_run_id)

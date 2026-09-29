@@ -641,6 +641,51 @@ class AgentSessionService(BaseWorkspaceService):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_workspace_chat_session_ids(
+        self, session_ids: Sequence[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """Find sessions whose own type or ancestry requires Workspace Chat."""
+        if not session_ids:
+            return set()
+        ancestry = (
+            select(
+                AgentSession.id.label("root_id"),
+                AgentSession.id,
+                AgentSession.entity_type,
+                AgentSession.spawned_by_session_id,
+                AgentSession.forked_from_session_id,
+            )
+            .where(
+                AgentSession.workspace_id == self.workspace_id,
+                AgentSession.id.in_(session_ids),
+            )
+            .cte("session_ancestry", recursive=True)
+        )
+        # UNION deduplicates visited (root, ancestor) pairs, including cycles.
+        ancestry = ancestry.union(
+            select(
+                ancestry.c.root_id,
+                AgentSession.id,
+                AgentSession.entity_type,
+                AgentSession.spawned_by_session_id,
+                AgentSession.forked_from_session_id,
+            )
+            .join(
+                ancestry,
+                or_(
+                    AgentSession.id == ancestry.c.spawned_by_session_id,
+                    AgentSession.id == ancestry.c.forked_from_session_id,
+                ),
+            )
+            .where(AgentSession.workspace_id == self.workspace_id)
+        )
+        result = await self.session.scalars(
+            select(ancestry.c.root_id)
+            .where(ancestry.c.entity_type == AgentSessionEntity.WORKSPACE_CHAT.value)
+            .distinct()
+        )
+        return set(result.all())
+
     async def is_legacy_session(self, session_id: uuid.UUID) -> bool:
         """Return whether a session ID belongs to a legacy chat."""
         return await self.get_legacy_chat(session_id) is not None
@@ -885,8 +930,14 @@ class AgentSessionService(BaseWorkspaceService):
             chat_result = await self.session.execute(chat_stmt)
             legacy_chats = list(chat_result.scalars().all())
 
+        readonly_ids: set[uuid.UUID] = set()
+        if not await is_workspace_chat_entitled(self.session, self.role):
+            readonly_ids = await self.get_workspace_chat_session_ids(
+                [s.id for s in sessions]
+            )
         items: list[AgentSessionRead | ChatReadMinimal] = [
-            build_session_read(s, self.role) for s in sessions
+            build_session_read(s, self.role, readonly=s.id in readonly_ids)
+            for s in sessions
         ]
         items.extend(
             ChatReadMinimal.model_validate(chat, from_attributes=True)
