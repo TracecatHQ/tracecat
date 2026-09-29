@@ -89,7 +89,7 @@
 | `TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT` | `3660` | Seconds the agent executor worker waits for running agent activities to finish during a planned shutdown. Defaults to `TRACECAT__AGENT_SANDBOX_TIMEOUT` plus `60`. |
 | `TRACECAT__LLM_PROXY_READ_TIMEOUT` | `600` | Seconds the sandbox LLM proxy waits for the next byte from the model gateway before failing the request with `504`. Separate from the agent timeout. |
 | `TRACECAT__AGENT_SANDBOX_MEMORY_MB` | `4096` | Cgroup v2 memory budget in MiB shared by an agent sandbox and its child processes. Requires nsjail and cgroup delegation. The outer container memory limit still applies. See [Resource limits](/self-hosting/security#resource-limits). |
-| `TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB` | Twice the memory budget | Per-process virtual address-space cap in MiB for agent sandboxes. Set a positive integer to override the computed default. |
+| `TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB` | Twice the memory budget | Per-process virtual address-space cap in MiB for agent sandboxes. Requires nsjail; this cap is not enforced in direct mode. Set a positive integer to override the computed default. |
 
 ### Blob storage
 
