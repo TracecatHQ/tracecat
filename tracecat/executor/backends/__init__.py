@@ -20,7 +20,6 @@ from __future__ import annotations
 from tracecat import config
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.enums import ExecutorBackendType
-from tracecat.executor.schemas import resolve_backend_type
 from tracecat.logger import logger
 
 __all__ = [
@@ -71,12 +70,8 @@ async def initialize_executor_backend() -> ExecutorBackend:
     if _backend is not None:
         raise RuntimeError("Executor backend already initialized")
 
-    backend_type = resolve_backend_type()
-    logger.info(
-        "Initializing executor backend",
-        backend_type=backend_type,
-        config_value=config.TRACECAT__EXECUTOR_BACKEND,
-    )
+    backend_type = config.TRACECAT__EXECUTOR_BACKEND
+    logger.info("Initializing executor backend", backend_type=backend_type)
 
     backend = _create_backend(backend_type)
     await backend.start()

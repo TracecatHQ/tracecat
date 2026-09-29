@@ -5,9 +5,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import UUID4, BaseModel, Field
 
-from tracecat import config
 from tracecat.config import TRACECAT__APP_ENV
-from tracecat.executor.enums import ExecutorBackendType
 from tracecat.executor.secret_preprocessors import SecretEnvProjection
 from tracecat.secrets.common import CapturedFailure, MaskedSecretError
 
@@ -41,11 +39,6 @@ ExecutorResult = Annotated[
     ExecutorResultSuccess | ExecutorResultFailure,
     Field(discriminator="type"),
 ]
-
-
-def resolve_backend_type() -> ExecutorBackendType:
-    """Resolve the configured backend, including the legacy ephemeral alias."""
-    return ExecutorBackendType.from_config(config.TRACECAT__EXECUTOR_BACKEND)
 
 
 class ExecutorSyncInput(BaseModel):
