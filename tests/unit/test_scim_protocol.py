@@ -1438,6 +1438,27 @@ async def test_blank_external_id_on_put_is_treated_as_absent(
 
 
 @pytest.mark.anyio
+async def test_blank_group_external_id_on_put_is_treated_as_absent(
+    client: httpx.AsyncClient,
+) -> None:
+    """A blank identifier must not replace the group's stable externalId."""
+    created = (
+        await client.post(
+            "/scim/v2/Groups",
+            json={"displayName": "Blank", "externalId": "idp-group-kept"},
+        )
+    ).json()
+
+    response = await client.put(
+        f"/scim/v2/Groups/{created['id']}",
+        json={"displayName": "Blank", "externalId": ""},
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["externalId"] == "idp-group-kept"
+
+
+@pytest.mark.anyio
 async def test_user_create_rejects_superuser(
     client: httpx.AsyncClient, session: AsyncSession, org: Organization
 ) -> None:

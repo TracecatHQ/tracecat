@@ -382,9 +382,12 @@ def _install_scim_exception_handlers(app: FastAPI) -> None:
     async def _unexpected(request: Request, exc: Exception) -> Response:
         if not is_scim_path(request):
             return await generic_exception_handler(request, exc)
-        # SCIM filters carry directory emails, so the query string is not logged.
-        logger.exception(
-            "Unexpected error", exc=exc, role=ctx_role.get(), path=request.url.path
+        # Filters and database errors carry directory identifiers; log the type only.
+        logger.error(
+            "Unexpected SCIM error",
+            error_type=type(exc).__name__,
+            role=ctx_role.get(),
+            path=request.url.path,
         )
         return scim_error_response(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

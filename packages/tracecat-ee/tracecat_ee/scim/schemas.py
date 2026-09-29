@@ -244,6 +244,14 @@ class ScimGroupRequest(ScimModel):
     )
     members: list[ScimGroupMemberRef] | None = Field(default=None)
 
+    @field_validator("external_id", mode="before")
+    @classmethod
+    def blank_external_id_is_absent(cls, value: object) -> object:
+        """Providers send ``""`` for an unset identifier; treat it as absent."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
 
 class ScimGroupResource(ScimModel):
     """A Group resource as returned to the provider."""
