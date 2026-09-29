@@ -4,9 +4,9 @@ This router consolidates chat and session endpoints into a unified /agent/sessio
 """
 
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
 from tracecat_ee.workspace_chat.policy import (
     is_workspace_chat_entitled,
@@ -193,11 +193,33 @@ async def create_session(
     return build_session_read(agent_session, role)
 
 
+async def _resolve_fork_source(
+    forked_from_session_id: uuid.UUID | None = Query(
+        None, description="Filter by history source session ID"
+    ),
+    parent_session_id: uuid.UUID | None = Query(
+        None, description="Legacy alias for forked_from_session_id", deprecated=True
+    ),
+) -> uuid.UUID | None:
+    """Resolve the history source filter across old and new API clients."""
+    if (
+        forked_from_session_id is not None
+        and parent_session_id is not None
+        and forked_from_session_id != parent_session_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="parent_session_id and forked_from_session_id must match",
+        )
+    return forked_from_session_id or parent_session_id
+
+
 @router.get("")
 @require_scope("agent:read")
 async def list_sessions(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
+    forked_from_session_id: Annotated[uuid.UUID | None, Depends(_resolve_fork_source)],
     entity_type: AgentSessionEntity | None = Query(
         None, description="Filter by entity type"
     ),
@@ -211,9 +233,6 @@ async def list_sessions(
     ),
     spawned_by_session_id: uuid.UUID | None = Query(
         None, description="Filter by spawning parent session ID"
-    ),
-    forked_from_session_id: uuid.UUID | None = Query(
-        None, description="Filter by history source session ID"
     ),
     include_children: bool = Query(
         False, description="Include spawned children without a parent filter"

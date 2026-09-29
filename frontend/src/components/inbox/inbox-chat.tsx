@@ -34,7 +34,8 @@ export function InboxChat({ session }: InboxChatProps) {
       try {
         const forkedSessions = await agentSessionsListSessions({
           workspaceId,
-          forkedFromSessionId: session.id,
+          // Keep requests compatible with older API instances during upgrades.
+          parentSessionId: session.id,
           createdBy: user?.id,
           limit: 1,
         })

@@ -13334,6 +13334,11 @@ export type AgentSessionsListSessionsData = {
    */
   limit?: number
   /**
+   * Legacy alias for forked_from_session_id
+   * @deprecated
+   */
+  parentSessionId?: string | null
+  /**
    * Filter by spawning parent session ID
    */
   spawnedBySessionId?: string | null

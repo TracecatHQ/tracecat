@@ -7324,9 +7324,10 @@ export const agentSessionsCreateSession = (
  * @param data.createdBy Filter by session creator. Omit to list the entire workspace.
  * @param data.excludeEntityTypes Entity types to exclude from results
  * @param data.spawnedBySessionId Filter by spawning parent session ID
- * @param data.forkedFromSessionId Filter by history source session ID
  * @param data.includeChildren Include spawned children without a parent filter
  * @param data.limit Maximum number of sessions to return
+ * @param data.forkedFromSessionId Filter by history source session ID
+ * @param data.parentSessionId Legacy alias for forked_from_session_id
  * @returns unknown Successful Response
  * @throws ApiError
  */
@@ -7345,9 +7346,10 @@ export const agentSessionsListSessions = (
       created_by: data.createdBy,
       exclude_entity_types: data.excludeEntityTypes,
       spawned_by_session_id: data.spawnedBySessionId,
-      forked_from_session_id: data.forkedFromSessionId,
       include_children: data.includeChildren,
       limit: data.limit,
+      forked_from_session_id: data.forkedFromSessionId,
+      parent_session_id: data.parentSessionId,
     },
     errors: {
       422: "Validation Error",

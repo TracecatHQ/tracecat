@@ -3,12 +3,13 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, cast, get_args
 from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response, StreamingResponse
+from fastapi.testclient import TestClient
 from starlette import status
 
 from tracecat.agent.adapter.vercel import UIMessage
@@ -28,6 +29,7 @@ from tracecat.agent.session.router import (
     get_session_vercel,
     list_sessions,
     remove_session_artifact,
+    router,
     send_message,
     stream_session_events,
     update_session,
@@ -40,6 +42,7 @@ from tracecat.agent.session.schemas import (
 )
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.artifacts.schemas import CaseArtifact
+from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseSeverity, CaseStatus
 from tracecat.chat.schemas import (
@@ -48,6 +51,7 @@ from tracecat.chat.schemas import (
     ContinueRunRequest,
     VercelChatRequest,
 )
+from tracecat.db.engine import get_async_session
 from tracecat.exceptions import (
     EntitlementRequired,
     TracecatConflictError,
@@ -141,6 +145,59 @@ def _without_workspace_chat_entitlement() -> Any:
     return patch(
         "tracecat.agent.session.router.is_workspace_chat_entitled",
         AsyncMock(return_value=False),
+    )
+
+
+@pytest.mark.parametrize(
+    ("filter_names", "conflicting", "expected_status"),
+    [
+        ((), False, 200),
+        (("parent_session_id",), False, 200),
+        (("forked_from_session_id",), False, 200),
+        (("parent_session_id", "forked_from_session_id"), False, 200),
+        (("parent_session_id", "forked_from_session_id"), True, 400),
+    ],
+)
+def test_list_sessions_http_fork_filter_compatibility(
+    filter_names: tuple[str, ...], conflicting: bool, expected_status: int
+) -> None:
+    """Old and new Inbox requests must retain their history-source filter."""
+    role = _read_role(uuid.uuid4())
+    source_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    params = {"created_by": str(user_id), "limit": "1"}
+    params.update({name: str(source_id) for name in filter_names})
+    if conflicting:
+        params["forked_from_session_id"] = str(uuid.uuid4())
+
+    app = FastAPI()
+    app.include_router(router)
+    role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
+    app.dependency_overrides[role_dependency] = lambda: role
+    app.dependency_overrides[get_async_session] = lambda: AsyncMock()
+    fake_svc = SimpleNamespace(list_sessions=AsyncMock(return_value=[]))
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        _without_workspace_chat_entitlement(),
+        TestClient(app) as client,
+    ):
+        response = client.get("/agent/sessions", params=params)
+
+    assert response.status_code == expected_status
+    if conflicting:
+        fake_svc.list_sessions.assert_not_awaited()
+        return
+    fake_svc.list_sessions.assert_awaited_once_with(
+        created_by=user_id,
+        entity_type=None,
+        entity_id=None,
+        exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
+        spawned_by_session_id=None,
+        forked_from_session_id=source_id if filter_names else None,
+        include_children=False,
+        limit=1,
     )
 
 
