@@ -26,14 +26,18 @@ def test_executor_entrypoints_import_without_site_packages(module: str) -> None:
     """Sibling modules must not shadow stdlib imports in standalone scripts."""
     executor_dir = Path(__file__).parents[2] / "tracecat" / "executor"
     # Site initialization can preload stdlib types and hide a sibling types.py.
-    subprocess.run(
+    result = subprocess.run(
         [sys.executable, "-S", "-c", f"import {module}"],
         cwd=executor_dir,
         env={key: value for key, value in os.environ.items() if key != "PYTHONPATH"},
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
         timeout=10,
+    )
+    assert result.returncode == 0, (
+        f"Standalone import of {module} failed (exit {result.returncode}):\n"
+        f"{result.stderr}"
     )
 
 
