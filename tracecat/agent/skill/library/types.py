@@ -11,5 +11,5 @@ class LibrarySkill:
 
     slug: str
     description: str | None
-    files: dict[str, bytes]
-    """File contents keyed by path relative to the skill root."""
+    markdown: bytes
+    """``SKILL.md`` content; library skills are single-file by construction."""

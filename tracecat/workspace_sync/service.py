@@ -929,6 +929,11 @@ class WorkspaceSyncService(SyncMappingService):
                 requested_mcp_integration_mappings=requested_mcp_integration_mappings,
             )
         )
+        library_diagnostics = (
+            await AGENT_PRESET_RESOURCE_ADAPTER.library_skill_diagnostics(
+                self, correlated_mcp.presets
+            )
+        )
         correlated_spec = snapshot.spec.model_copy(
             update={
                 "agent_presets": correlated_mcp.presets,
@@ -937,7 +942,11 @@ class WorkspaceSyncService(SyncMappingService):
         )
         return PreparedSnapshot(
             snapshot=snapshot.model_copy(update={"spec": correlated_spec}),
-            diagnostics=[*correlated.diagnostics, *correlated_mcp.diagnostics],
+            diagnostics=[
+                *correlated.diagnostics,
+                *correlated_mcp.diagnostics,
+                *library_diagnostics,
+            ],
             catalog_mapping_requirements=correlated.requirements,
             mcp_integration_mapping_requirements=correlated_mcp.requirements,
         )

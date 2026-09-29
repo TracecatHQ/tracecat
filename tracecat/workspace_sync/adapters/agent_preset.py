@@ -843,6 +843,44 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             return reference.preset_name
         return reference.workflow_title
 
+    async def library_skill_diagnostics(
+        self,
+        workspace_service: SyncMappingService,
+        presets: dict[str, AgentPresetResourceSpec],
+    ) -> list[PullDiagnostic]:
+        """Block pulls whose presets bind library skills not installed here.
+
+        Import still lock-validates each binding; this surfaces the gap in preview.
+        """
+        requested = {slug for spec in presets.values() for slug in spec.library_skills}
+        missing = set(
+            await SkillLibraryService(
+                workspace_service.session, role=workspace_service.role
+            ).missing_installs(sorted(requested))
+        )
+        diagnostics: list[PullDiagnostic] = []
+        for source_id, spec in sorted(presets.items()):
+            if not (
+                preset_missing := sorted(missing.intersection(spec.library_skills))
+            ):
+                continue
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=self.source_path(source_id),
+                    workflow_title=spec.name,
+                    error_type="dependency",
+                    message=(
+                        "Install these Tracecat library skills in this workspace "
+                        f"before applying this pull: {', '.join(preset_missing)}"
+                    ),
+                    details={
+                        "code": "library_skill_not_installed",
+                        "slugs": preset_missing,
+                    },
+                )
+            )
+        return diagnostics
+
     async def correlate_mcp_integration_refs(
         self,
         workspace_service: SyncMappingService,

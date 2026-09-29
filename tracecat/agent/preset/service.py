@@ -61,10 +61,7 @@ from tracecat.agent.skill.bindings import (
     validate_no_duplicate_skill_ids,
 )
 from tracecat.agent.skill.dependencies import SkillToolDependencyService
-from tracecat.agent.skill.library.service import (
-    SkillLibraryService,
-    normalize_library_slugs,
-)
+from tracecat.agent.skill.library.service import SkillLibraryService
 from tracecat.agent.skill.types import SkillMcpGrant
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
@@ -534,7 +531,7 @@ class AgentPresetService(BaseWorkspaceService):
                 params.skills,
                 for_update=True,
             )
-        library_skills = await self._validated_library_skills(params.library_skills)
+        library_skills = await self.library.validated_bindings(params.library_skills)
         catalog_entry: AgentCatalog | None = None
         if params.catalog_id is not None:
             catalog_entry = await self._get_enabled_catalog_entry(params.catalog_id)
@@ -603,16 +600,6 @@ class AgentPresetService(BaseWorkspaceService):
             raise TracecatValidationError(
                 f"{len(missing_actions)} actions were not found in the registry: {sorted(missing_actions)}"
             )
-
-    async def _validated_library_skills(
-        self, slugs: Sequence[str] | None
-    ) -> list[str] | None:
-        """Normalize library slugs and require each to be installed here."""
-        normalized = normalize_library_slugs(slugs)
-        if not normalized:
-            return None
-        await self.library.validate_bindable(normalized)
-        return normalized
 
     async def _get_enabled_catalog_entry(self, catalog_id: uuid.UUID) -> AgentCatalog:
         """Return an org-visible catalog row after validating workspace access."""
@@ -689,7 +676,7 @@ class AgentPresetService(BaseWorkspaceService):
                 execution_changed = True
 
         if "library_skills" in set_fields:
-            library_skills = await self._validated_library_skills(
+            library_skills = await self.library.validated_bindings(
                 set_fields.pop("library_skills")
             )
             if preset.library_skills != library_skills:
@@ -2268,7 +2255,7 @@ class AgentPresetService(BaseWorkspaceService):
             version.id,
             for_update=True,
         )
-        await self._validated_library_skills(version.library_skills)
+        await self.library.validated_bindings(version.library_skills)
         await self._lock_preset_update_dependencies(preset.id, version.agents)
         restored_agents = await self._resolve_restored_agents_config(preset, version)
         self._sync_preset_head_from_version(

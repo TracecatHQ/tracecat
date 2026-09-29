@@ -161,13 +161,34 @@ class SkillLibraryService(BaseWorkspaceService):
     async def fork(self, slug: str) -> SkillRead:
         """Copy a library skill into a new, editable workspace skill draft."""
 
+        markdown = self._get_skill(slug).markdown
         files = [
-            SkillUploadFile(path=path, content_base64=base64.b64encode(data).decode())
-            for path, data in self._get_skill(slug).files.items()
+            SkillUploadFile(
+                path="SKILL.md", content_base64=base64.b64encode(markdown).decode()
+            )
         ]
         return await SkillService(self.session, role=self.role).upload_skill(
             SkillUpload(name=slug, files=files)
         )
+
+    async def validated_bindings(self, slugs: Sequence[str] | None) -> list[str] | None:
+        """Normalize a binding selection and lock-validate it; empty becomes None."""
+        normalized = normalize_library_slugs(slugs)
+        if not normalized:
+            return None
+        await self.validate_bindable(normalized)
+        return normalized
+
+    async def missing_installs(self, slugs: Sequence[str]) -> list[str]:
+        """Return slugs that are unknown or not installed here, without locking.
+
+        For previews only; writes must go through ``validate_bindable``.
+        """
+        normalized = normalize_library_slugs(slugs)
+        if not normalized:
+            return []
+        # Install rows only exist for catalog slugs, so unknown slugs are missing.
+        return sorted(set(normalized) - await self._installed(normalized))
 
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def validate_bindable(self, slugs: Sequence[str]) -> None:

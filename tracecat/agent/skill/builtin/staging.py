@@ -65,10 +65,8 @@ def stage_platform_skill_plugin(
             document.write_text(content, encoding="utf-8")
     for library_skill in library_skills:
         destination = plugin_root / "skills" / library_skill.slug
-        for path, content in library_skill.files.items():
-            target = destination / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(content)
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "SKILL.md").write_bytes(library_skill.markdown)
     manifest_dir = plugin_root / ".claude-plugin"
     manifest_dir.mkdir(parents=True)
     (manifest_dir / "plugin.json").write_bytes(

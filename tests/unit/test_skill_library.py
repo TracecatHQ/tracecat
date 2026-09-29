@@ -4,6 +4,7 @@ import asyncio
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 
 import orjson
@@ -38,7 +39,9 @@ from tracecat.db.models import AgentPreset, SkillLibraryInstall, Workspace
 from tracecat.exceptions import EntitlementRequired, TracecatValidationError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.workspace_sync.adapters import AGENT_PRESET_RESOURCE_ADAPTER
+from tracecat.workspace_sync.adapters import agent_preset as agent_preset_adapter
 from tracecat.workspace_sync.adapters.agent_preset import AgentPresetAdapter
+from tracecat.workspace_sync.adapters.base import SyncMappingService
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
 from tracecat.workspace_sync.schemas import AgentPresetResourceSpec, WorkspaceSpec
 
@@ -104,6 +107,64 @@ def test_sync_import_dedupes_library_skills_like_api_saves() -> None:
     assert attrs["library_skills"] == ["incident-summary", "phishing-triage"]
 
 
+@pytest.mark.anyio
+async def test_sync_preview_blocks_uninstalled_library_skills(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    missing_installs = AsyncMock(return_value=["phishing-triage"])
+    monkeypatch.setattr(
+        agent_preset_adapter,
+        "SkillLibraryService",
+        lambda *_args, **_kwargs: SimpleNamespace(missing_installs=missing_installs),
+    )
+    presets = {
+        source_id: AgentPresetResourceSpec(
+            id=source_id, name=source_id, slug=source_id, library_skills=skills
+        )
+        for source_id, skills in {
+            "needs-install": ["incident-summary", "phishing-triage"],
+            "installed": ["incident-summary"],
+        }.items()
+    }
+    workspace_service = cast(
+        SyncMappingService, SimpleNamespace(session=None, role=None)
+    )
+
+    diagnostics = await AgentPresetAdapter().library_skill_diagnostics(
+        workspace_service, presets
+    )
+
+    missing_installs.assert_awaited_once_with(["incident-summary", "phishing-triage"])
+    assert [(d.workflow_title, d.error_type) for d in diagnostics] == [
+        ("needs-install", "dependency")
+    ]
+    assert diagnostics[0].details == {
+        "code": "library_skill_not_installed",
+        "slugs": ["phishing-triage"],
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("slugs", "expected"),
+    [(None, None), ([], None), (["b", "a", "b"], ["a", "b"])],
+)
+async def test_validated_bindings_normalizes_and_maps_empty_to_none(
+    monkeypatch: pytest.MonkeyPatch,
+    slugs: list[str] | None,
+    expected: list[str] | None,
+) -> None:
+    validate_bindable = AsyncMock()
+    monkeypatch.setattr(SkillLibraryService, "validate_bindable", validate_bindable)
+    service = object.__new__(SkillLibraryService)
+
+    assert await service.validated_bindings(slugs) == expected
+    if expected is None:
+        validate_bindable.assert_not_awaited()
+    else:
+        validate_bindable.assert_awaited_once_with(expected)
+
+
 def test_unknown_slug_fails_loudly() -> None:
     with pytest.raises(TracecatValidationError) as exc_info:
         get_library_skills(["does-not-exist"])
@@ -121,7 +182,7 @@ def test_library_skills_stage_without_platform_skills(tmp_path: Path) -> None:
     manifest = orjson.loads((plugin / ".claude-plugin" / "plugin.json").read_bytes())
     assert manifest == {"name": "tracecat"}
     staged = (plugin / "skills" / SLUG / "SKILL.md").read_bytes()
-    assert staged == load_library()[SLUG].files["SKILL.md"]
+    assert staged == load_library()[SLUG].markdown
 
 
 @pytest.mark.anyio

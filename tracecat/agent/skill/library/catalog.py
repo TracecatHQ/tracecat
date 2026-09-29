@@ -51,7 +51,7 @@ def _load_skill(skill_dir: Path) -> LibrarySkill:
     return LibrarySkill(
         slug=slug,
         description=frontmatter.description,
-        files=files,
+        markdown=files["SKILL.md"],
     )
 
 
