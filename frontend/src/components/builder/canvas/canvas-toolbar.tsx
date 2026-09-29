@@ -12,6 +12,7 @@ import {
   Table2Icon,
   WorkflowIcon,
 } from "lucide-react"
+import type { ReactNode } from "react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { RegistryActionReadMinimal } from "@/client"
 import { getIcon } from "@/components/icons"
@@ -284,11 +285,14 @@ export interface CanvasToolbarProps {
    * full category bar on hover (used in the embedded workflow artifact).
    */
   embedded?: boolean
+  /** Extra controls rendered after the action categories, behind a divider. */
+  trailing?: ReactNode
 }
 
 export function CanvasToolbar({
   onAddAction,
   embedded = false,
+  trailing,
 }: CanvasToolbarProps) {
   const { registryActions, registryActionsIsLoading } =
     useBuilderRegistryActions({ includeLocked: true })
@@ -366,8 +370,12 @@ export function CanvasToolbar({
           />
         )
       })}
-      <div className="mx-0.5 h-5 w-px bg-border" />
-      <ToggleConditionsButton />
+      {trailing && (
+        <>
+          <div className="mx-0.5 h-5 w-px bg-border" />
+          {trailing}
+        </>
+      )}
     </div>
   )
 
@@ -424,7 +432,7 @@ interface ToolbarCategoryDropdownProps {
  * Toolbar toggle that shows or hides every `run_if` condition on the canvas,
  * also bound to the {@link TOGGLE_CONDITIONS_SHORTCUT} keyboard shortcut.
  */
-function ToggleConditionsButton() {
+export function ToggleConditionsButton() {
   const { showAll, toggleShowAll } = useRunIfDisplay()
   const shortcutKeys = useMemo(
     () => parseShortcutKeys({ shortcutKeys: TOGGLE_CONDITIONS_SHORTCUT }),

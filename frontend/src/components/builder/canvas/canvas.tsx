@@ -43,7 +43,10 @@ import actionNode, {
   type ActionNodeData,
   type ActionNodeType,
 } from "@/components/builder/canvas/action-node"
-import { CanvasToolbar } from "@/components/builder/canvas/canvas-toolbar"
+import {
+  CanvasToolbar,
+  ToggleConditionsButton,
+} from "@/components/builder/canvas/canvas-toolbar"
 import { DeleteActionNodeDialog } from "@/components/builder/canvas/delete-node-dialog"
 import selectorNode, {
   type SelectorNodeData,
@@ -1073,6 +1076,7 @@ export const WorkflowCanvas = React.forwardRef<
           <CanvasToolbar
             onAddAction={handleToolbarAddAction}
             embedded={embedded}
+            trailing={<ToggleConditionsButton />}
           />
         </Panel>
         <NodeSilhouette

@@ -126,21 +126,19 @@ export function isStackedRunIf(runIf: string): boolean {
  *
  * In compact mode only the condition icon is shown until the action is
  * hovered or selected. Short single-clause conditions expand inline. Longer
- * ones grow the same teal badge upward into one clause per line, capped to
- * the node width so it never spills over neighbouring nodes.
+ * ones grow the same teal badge upward into one unwrapped clause per line,
+ * scrolling past a bounded width and height.
  */
 export function RunIfBadge({
   runIf,
   compact,
   expanded,
   attachedToJoin,
-  besideJoin,
 }: {
   runIf: string
   compact: boolean
   expanded: boolean
   attachedToJoin?: boolean
-  besideJoin?: boolean
 }) {
   const condition = formatRunIfCondition(runIf)
   const clauses = splitRunIfCondition(condition)
@@ -163,8 +161,7 @@ export function RunIfBadge({
         <div
           data-testid="run-if-stack"
           className={cn(
-            "nowheel max-h-40 w-max overflow-y-auto",
-            besideJoin ? "max-w-48" : "max-w-60",
+            "nowheel max-h-40 w-max max-w-[32rem] overflow-auto",
             "font-mono text-xs leading-4 tracking-tighter"
           )}
         >
@@ -180,9 +177,7 @@ export function RunIfBadge({
                   <GitBranch className="size-3" strokeWidth={2.5} />
                 )}
               </span>
-              <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">
-                {clause.text}
-              </span>
+              <span className="whitespace-pre">{clause.text}</span>
             </div>
           ))}
         </div>

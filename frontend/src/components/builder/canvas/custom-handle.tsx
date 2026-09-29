@@ -254,7 +254,6 @@ export function ActionTargetHandle({
                 compact={!showAllConditions}
                 expanded={showFullCondition}
                 attachedToJoin={attachRunIfToJoin}
-                besideJoin={Boolean(hasJoin)}
               />
             )}
           </div>
