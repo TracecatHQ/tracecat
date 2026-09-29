@@ -12,12 +12,17 @@ from sqlalchemy.exc import IntegrityError
 from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.scopes import ORG_MEMBER_SCOPES
-from tracecat.authz.service import MembershipWithOrg
 from tracecat.contexts import ctx_role
 from tracecat.db.models import Workspace
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.logger import logger
 from tracecat.workspaces import router as workspaces_router
+
+
+def _membership_row(membership, organization_id):
+    """A Membership row carries its organization_id."""
+    membership.organization_id = organization_id
+    return membership
 
 
 @pytest.fixture
@@ -212,6 +217,15 @@ async def test_create_workspace_membership_conflict(
     test_admin_role: Role,
 ) -> None:
     """Test POST /workspaces/{workspace_id}/memberships duplicate returns 409."""
+    # Presets no longer carry the add scope; API callers hold it explicitly.
+    ctx_role.set(
+        test_admin_role.model_copy(
+            update={
+                "scopes": (test_admin_role.scopes or frozenset())
+                | {"workspace:member:invite"}
+            }
+        )
+    )
     with patch.object(workspaces_router, "MembershipService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.create_membership.side_effect = IntegrityError(
@@ -333,8 +347,8 @@ async def test_get_workspace_success(
         mock_membership.user_id = test_admin_role.user_id
         mock_membership.workspace_id = mock_workspace_data.id
         mock_membership.role = WorkspaceRole.ADMIN
-        mock_membership_svc.get_membership.return_value = MembershipWithOrg(
-            membership=mock_membership, org_id=mock_workspace_data.organization_id
+        mock_membership_svc.get_membership.return_value = _membership_row(
+            mock_membership, mock_workspace_data.organization_id
         )
         MockMembershipService.return_value = mock_membership_svc
 

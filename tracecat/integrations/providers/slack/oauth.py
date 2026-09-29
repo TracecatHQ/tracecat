@@ -89,33 +89,25 @@ class SlackOAuthProvider(AuthorizationCodeOAuthProvider):
     async def exchange_code_for_token(
         self, code: str, state: str, code_verifier: str | None = None
     ) -> TokenResponse:
-        try:
-            token_params = self._get_additional_token_params()
-            if code_verifier:
-                token_params["code_verifier"] = code_verifier
+        token_params = self._get_additional_token_params()
+        if code_verifier:
+            token_params["code_verifier"] = code_verifier
 
-            token = cast(
-                dict[str, Any],
-                await self.client.fetch_token(
-                    self.token_endpoint,
-                    code=code,
-                    state=state,
-                    **token_params,
-                ),
-            )
-            self.logger.info(
-                "Successfully acquired Slack OAuth token",
-                provider=self.id,
-                used_pkce=code_verifier is not None,
-            )
-            return self._build_token_response(token)
-        except Exception as exc:
-            self.logger.error(
-                "Error exchanging code for Slack token",
-                provider=self.id,
-                error=str(exc),
-            )
-            raise
+        token = cast(
+            dict[str, Any],
+            await self.client.fetch_token(
+                self.token_endpoint,
+                code=code,
+                state=state,
+                **token_params,
+            ),
+        )
+        self.logger.info(
+            "Successfully acquired Slack OAuth token",
+            provider=self.id,
+            used_pkce=code_verifier is not None,
+        )
+        return self._build_token_response(token)
 
     async def refresh_access_token(self, refresh_token: str) -> TokenResponse:
         try:

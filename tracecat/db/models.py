@@ -15,7 +15,7 @@ from fastapi_users.db import (
 from fastapi_users_db_sqlalchemy.access_token import SQLAlchemyBaseAccessTokenTableUUID
 from numpy.typing import NDArray
 from pgvector.sqlalchemy import Vector
-from pydantic import GetCoreSchemaHandler
+from pydantic import GetCoreSchemaHandler, JsonValue
 from pydantic_core import CoreSchema, core_schema, to_json
 from sqlalchemy import (
     TIMESTAMP,
@@ -38,7 +38,10 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    select,
     text,
+    type_coerce,
+    union_all,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -157,11 +160,6 @@ class InvitationMixin:
         ForeignKey("user.id", ondelete="SET NULL"),
         doc="User who created the invitation",
     )
-    role_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("role.id", ondelete="RESTRICT"),
-        doc="RBAC role to assign upon acceptance",
-    )
     token: Mapped[str] = mapped_column(
         String(64), unique=True, doc="Unique token for magic link acceptance"
     )
@@ -242,6 +240,7 @@ class Organization(Base, TimestampMixin):
         "User",
         secondary="organization_membership",
         back_populates="organizations",
+        viewonly=True,
         lazy="select",
     )
     organization_tier: Mapped[OrganizationTier | None] = relationship(
@@ -364,49 +363,6 @@ class OAuthAccount(SQLAlchemyBaseOAuthAccountTableUUID, Base):
     user: Mapped[User] = relationship(back_populates="oauth_accounts")
 
 
-class Membership(Base):
-    """Link table for users and workspaces (many to many)."""
-
-    __tablename__ = "membership"
-    __table_args__ = (
-        Index("ix_membership_workspace_id", "workspace_id"),
-        Index("ix_membership_workspace_user", "workspace_id", "user_id"),
-    )
-
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("user.id"),
-        primary_key=True,
-    )
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("workspace.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-
-
-class OrganizationMembership(Base, TimestampMixin):
-    """Link table for users and organizations (many to many)."""
-
-    __tablename__ = "organization_membership"
-    __table_args__ = (
-        # Index for "get all members of org" queries
-        # (PK index covers user_id lookups, but not org_id alone)
-        Index("ix_org_membership_org_id", "organization_id"),
-    )
-
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("user.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    organization_id: Mapped[uuid.UUID] = mapped_column(
-        UUID,
-        ForeignKey("organization.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-
-
 class Ownership(Base):
     """Table to map resources to owners.
 
@@ -457,7 +413,10 @@ class Workspace(OrganizationModel):
     )
     members: Mapped[list[User]] = relationship(
         "User",
-        secondary=Membership.__table__,
+        secondary=lambda: Membership.__table__,
+        primaryjoin="Workspace.id == Membership.workspace_id",
+        secondaryjoin="Membership.user_id == User.id",
+        viewonly=True,
         back_populates="workspaces",
     )
     workflows: Mapped[list[Workflow]] = relationship(
@@ -616,7 +575,10 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
         "Workspace",
         back_populates="members",
         lazy="select",
-        secondary=Membership.__table__,
+        secondary=lambda: Membership.__table__,
+        primaryjoin="User.id == Membership.user_id",
+        secondaryjoin="Membership.workspace_id == Workspace.id",
+        viewonly=True,
     )
     assigned_cases: Mapped[list[Case]] = relationship(
         "Case",
@@ -644,10 +606,10 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     )
     organizations: Mapped[list[Organization]] = relationship(
         "Organization",
-        secondary=OrganizationMembership.__table__,
+        secondary="organization_membership",
+        viewonly=True,
         back_populates="members",
         lazy="select",
-        passive_deletes=True,
     )
 
 
@@ -727,12 +689,114 @@ class PlatformSecret(PlatformModel, BaseSecret):
 
 
 class Secret(WorkspaceModel, BaseSecret):
-    """Workspace secrets."""
+    """Workspace secrets.
+
+    ``source`` is ``local`` for values encrypted in ``encrypted_keys`` and
+    ``aws_secrets_manager`` for references resolved at runtime from an
+    organization-owned store. AWS-backed rows never carry remote values in
+    ``encrypted_keys``; ``remote_key_mapping`` only declares output key names.
+    """
 
     __tablename__ = "secret"
-    __table_args__ = (UniqueConstraint("name", "environment", "workspace_id"),)
+    __table_args__ = (
+        UniqueConstraint("name", "environment", "workspace_id"),
+        # A reference can only exist while its workspace authorization exists.
+        ForeignKeyConstraint(
+            ["workspace_id", "store_id"],
+            [
+                "workspace_secret_store_authorization.workspace_id",
+                "workspace_secret_store_authorization.store_id",
+            ],
+            ondelete="RESTRICT",
+            name="fk_secret_store_authorization",
+        ),
+    )
+
+    source: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="local", server_default=text("'local'")
+    )
+    store_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey("organization_secret_store.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    remote_reference: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    remote_key_mapping: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
 
     workspace: Mapped[Workspace] = relationship(back_populates="secrets")
+    store: Mapped[OrganizationSecretStore | None] = relationship(
+        "OrganizationSecretStore", back_populates="secrets"
+    )
+
+
+class OrganizationSecretStore(OrganizationModel):
+    """Organization-owned external secret store (AWS Secrets Manager)."""
+
+    __tablename__ = "organization_secret_store"
+    __table_args__ = (UniqueConstraint("organization_id", "name"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    provider: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="aws_secrets_manager"
+    )
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    all_workspaces: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+
+    secrets: Mapped[list[Secret]] = relationship(
+        "Secret", back_populates="store", passive_deletes="all"
+    )
+    authorizations: Mapped[list[WorkspaceSecretStoreAuthorization]] = relationship(
+        "WorkspaceSecretStoreAuthorization",
+        back_populates="store",
+        cascade="all, delete-orphan",
+    )
+
+
+class WorkspaceSecretStoreAuthorization(OrganizationModel):
+    """Grants a workspace permission to reference an organization secret store."""
+
+    __tablename__ = "workspace_secret_store_authorization"
+    __table_args__ = (UniqueConstraint("workspace_id", "store_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        default=uuid.uuid4,
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    workspace_id: Mapped[WorkspaceID] = mapped_column(
+        UUID,
+        ForeignKey("workspace.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    store_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("organization_secret_store.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    store: Mapped[OrganizationSecretStore] = relationship(
+        "OrganizationSecretStore", back_populates="authorizations"
+    )
 
 
 class WorkspaceVariable(WorkspaceModel):
@@ -1086,6 +1150,16 @@ class ServiceAccount(OrganizationModel):
             "workspace_id IS NULL OR organization_id IS NOT NULL",
             name="service_account_workspace_requires_org",
         ),
+        # Column-list SET NULL so removing the owner never nulls organization_id.
+        ForeignKeyConstraint(
+            ["organization_id", "owner_user_id"],
+            [
+                "organization_membership.organization_id",
+                "organization_membership.user_id",
+            ],
+            name="fk_service_account_owner_org_membership",
+            ondelete="SET NULL (owner_user_id)",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -1109,11 +1183,7 @@ class ServiceAccount(OrganizationModel):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        ForeignKey("user.id", ondelete="SET NULL"),
-        nullable=True,
-    )
+    owner_user_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
     disabled_at: Mapped[datetime | None] = mapped_column(
         TIMESTAMP(timezone=True), nullable=True
     )
@@ -5408,8 +5478,8 @@ class WorkflowTag(WorkspaceModel):
     )
 
 
-class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
-    """Invitation to join an organization."""
+class LegacyOrganizationInvitation(InvitationMixin, TimestampMixin, Base):
+    """Physical table the app no longer reads; kept mapped for RLS coverage."""
 
     __tablename__ = "organization_invitation"
     __table_args__ = (
@@ -5418,6 +5488,66 @@ class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
         # and the consumer's MAX_EMAIL_ATTEMPTS, or the planner drops the index.
         Index(
             "ix_organization_invitation_email_unclaimed",
+            "created_at",
+            postgresql_where=text(
+                "email_claimed_at IS NULL AND status = 'PENDING' AND email_attempts < 3"
+            ),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    # A deleted role takes its retained legacy invitation rows with it.
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("role.id", ondelete="CASCADE"),
+        doc="RBAC role to assign upon acceptance",
+    )
+    created_by_platform_admin: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        doc="Whether the invitation was created by a platform admin",
+    )
+    # The invitation row is its own delivery outbox: a NULL claim means unsent
+    # and eligible, and claiming before sending makes delivery at-most-once.
+    email_claimed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        doc="When a poller claimed this row for delivery",
+    )
+    email_sent_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True),
+        doc="When the invitation email was delivered",
+    )
+    email_attempts: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+        doc="Number of delivery attempts made",
+    )
+
+
+class Invitation(InvitationMixin, TimestampMixin, Base):
+    """Invitation to join an organization, carrying the grants it confers."""
+
+    __tablename__ = "invitation"
+    __table_args__ = (
+        # At most one pending invitation per organization and email.
+        Index(
+            "ix_invitation_org_email_pending_unique",
+            "organization_id",
+            text("lower(email)"),
+            unique=True,
+            postgresql_where=text("status = 'PENDING'"),
+        ),
+        # Poller scans deliverable rows oldest-first; must match the migration
+        # and the consumer's MAX_EMAIL_ATTEMPTS, or the planner drops the index.
+        Index(
+            "ix_invitation_email_unclaimed",
             "created_at",
             postgresql_where=text(
                 "email_claimed_at IS NULL AND status = 'PENDING' AND email_attempts < 3"
@@ -5457,24 +5587,49 @@ class OrganizationInvitation(InvitationMixin, TimestampMixin, Base):
     # Relationships
     organization: Mapped[Organization] = relationship("Organization")
     inviter: Mapped[User | None] = relationship("User")
-    role_obj: Mapped[Role] = relationship("Role")
+    grants: Mapped[list[InvitationGrant]] = relationship(
+        "InvitationGrant",
+        back_populates="invitation",
+        cascade="all, delete-orphan",
+    )
 
 
-class Invitation(InvitationMixin, TimestampMixin, Base):
-    """Invitation to join a workspace."""
+class InvitationGrant(Base, TimestampMixin):
+    """One role grant an invitation confers, at org scope or on one workspace."""
 
-    __tablename__ = "invitation"
-    __table_args__ = (UniqueConstraint("workspace_id", "email"),)
+    __tablename__ = "invitation_grant"
+    __table_args__ = (
+        Index(
+            "ix_invitation_grant_org_unique",
+            "invitation_id",
+            unique=True,
+            postgresql_where=text("workspace_id IS NULL"),
+        ),
+        Index(
+            "ix_invitation_grant_workspace_unique",
+            "invitation_id",
+            "workspace_id",
+            unique=True,
+            postgresql_where=text("workspace_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
-    workspace_id: Mapped[uuid.UUID] = mapped_column(
-        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), index=True
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+    invitation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("invitation.id", ondelete="CASCADE"), index=True
+    )
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE")
+    )
+    role_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("role.id", ondelete="CASCADE"), index=True
     )
 
     # Relationships
-    workspace: Mapped[Workspace] = relationship("Workspace")
-    inviter: Mapped[User | None] = relationship("User")
-    role_obj: Mapped[Role] = relationship("Role")
+    invitation: Mapped[Invitation] = relationship("Invitation", back_populates="grants")
 
 
 class Tier(Base, TimestampMixin):
@@ -5711,6 +5866,19 @@ class GroupMember(Base):
     """Junction table linking users to groups."""
 
     __tablename__ = "group_member"
+    __table_args__ = (
+        # Nullable this release so N-1 pods can still insert; NULL in a
+        # composite FK is unchecked. App code always populates it.
+        ForeignKeyConstraint(
+            ["organization_id", "user_id"],
+            [
+                "organization_membership.organization_id",
+                "organization_membership.user_id",
+            ],
+            name="fk_group_member_org_membership",
+            ondelete="CASCADE",
+        ),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True
@@ -5718,6 +5886,7 @@ class GroupMember(Base):
     group_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("group.id", ondelete="CASCADE"), primary_key=True
     )
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(UUID, nullable=True)
     added_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now()
     )
@@ -5783,6 +5952,16 @@ class UserRoleAssignment(Base):
     __tablename__ = "user_role_assignment"
     __table_args__ = (
         UniqueConstraint("user_id", "workspace_id"),
+        # Assignments hang off the membership row; removing a member unwinds them.
+        ForeignKeyConstraint(
+            ["organization_id", "user_id"],
+            [
+                "organization_membership.organization_id",
+                "organization_membership.user_id",
+            ],
+            name="fk_user_role_assignment_org_membership",
+            ondelete="CASCADE",
+        ),
         # Partial unique index for org-wide assignments (workspace_id IS NULL)
         Index(
             "ix_user_role_assignment_user_org_unique",
@@ -5853,6 +6032,8 @@ class SearchEmbeddingConfig(TimestampMixin, Base):
 
     Records contain no credential secrets. Collections and chunks reference the
     configuration version, and chunks must match its embedding dimensions.
+    Embedding semantics are immutable within a version; only the credential
+    reference/environment may rotate after validation without rebuilding vectors.
     """
 
     __tablename__ = "search_embedding_config"
@@ -5873,6 +6054,8 @@ class SearchEmbeddingConfig(TimestampMixin, Base):
     credential_environment: Mapped[str] = mapped_column(Text)
     dimensions: Mapped[int] = mapped_column(Integer)
     input_token_limit: Mapped[int] = mapped_column(Integer)
+    # NULL identifies configurations written before recipe pinning.
+    recipe_revision: Mapped[str | None] = mapped_column(Text)
 
 
 class SearchCollection(TimestampMixin, Base):
@@ -5905,7 +6088,7 @@ class SearchCollection(TimestampMixin, Base):
     source_id: Mapped[uuid.UUID] = mapped_column(UUID)
     selected_column_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID))
     generation: Mapped[int] = mapped_column(BigInteger, server_default="1")
-    config_version: Mapped[int] = mapped_column(BigInteger)
+    config_version: Mapped[int | None] = mapped_column(BigInteger)
     chunker_settings: Mapped[dict[str, str | int]] = mapped_column(JSONB)
     enabled: Mapped[bool] = mapped_column(Boolean, server_default="false")
     backfill_cursor: Mapped[uuid.UUID | None] = mapped_column(UUID)
@@ -5969,7 +6152,7 @@ class SearchDocument(TimestampMixin, Base):
     build_revision: Mapped[int | None] = mapped_column(BigInteger)
     indexed_revision: Mapped[int | None] = mapped_column(BigInteger)
     state: Mapped[str] = mapped_column(Text, server_default="pending")
-    enumeration_cursor: Mapped[dict[str, int] | None] = mapped_column(JSONB)
+    enumeration_cursor: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB)
     enumeration_complete: Mapped[bool] = mapped_column(Boolean, server_default="false")
     expected_chunks: Mapped[int] = mapped_column(BigInteger, server_default="0")
     fence: Mapped[int] = mapped_column(BigInteger, server_default="0")
@@ -6050,3 +6233,96 @@ class SearchChunk(TimestampMixin, Base):
     embedding: Mapped[NDArray[np.float32] | None] = mapped_column(Vector())
     state: Mapped[str] = mapped_column(Text, server_default="prepared")
     error_code: Mapped[str | None] = mapped_column(Text)
+
+
+# Workspace membership is derived, never stored: a user is present in a
+# workspace iff they hold a role path there, directly or through a group.
+# type_coerce strips the source columns' foreign keys: the composite one to
+# organization_membership would otherwise propagate into the subquery and the
+# mapper would try to resolve it as a real table.
+role_paths = union_all(
+    select(
+        type_coerce(UserRoleAssignment.user_id, UUID).label("user_id"),
+        type_coerce(UserRoleAssignment.organization_id, UUID).label("organization_id"),
+        type_coerce(UserRoleAssignment.workspace_id, UUID).label("workspace_id"),
+    ),
+    select(
+        type_coerce(GroupMember.user_id, UUID).label("user_id"),
+        type_coerce(GroupRoleAssignment.organization_id, UUID).label("organization_id"),
+        type_coerce(GroupRoleAssignment.workspace_id, UUID).label("workspace_id"),
+    ).join_from(
+        GroupRoleAssignment,
+        GroupMember,
+        GroupMember.group_id == GroupRoleAssignment.group_id,
+    ),
+).subquery("role_paths")
+
+# Workspace rows only: org presence is the stored OrganizationMembership row.
+membership_select = (
+    select(
+        role_paths.c.user_id,
+        role_paths.c.organization_id,
+        role_paths.c.workspace_id,
+    )
+    .where(role_paths.c.workspace_id.is_not(None))
+    .distinct()
+    .subquery("membership_derived")
+)
+
+
+class Membership(Base):
+    """Read-only workspace membership derived from role assignments."""
+
+    __table__ = membership_select
+    __mapper_args__ = {
+        "primary_key": [
+            membership_select.c.user_id,
+            membership_select.c.organization_id,
+            membership_select.c.workspace_id,
+        ]
+    }
+
+    user_id: Mapped[uuid.UUID]
+    organization_id: Mapped[uuid.UUID]
+    workspace_id: Mapped[uuid.UUID]
+
+
+# Organization presence is stored: `organization_membership` is the aggregate
+# root and children hang off it by composite foreign key.
+class OrganizationMembership(Base, TimestampMixin):
+    """Link table for users and organizations (many to many)."""
+
+    __tablename__ = "organization_membership"
+    __table_args__ = (
+        # Index for "get all members of org" queries
+        # (PK index covers user_id lookups, but not org_id alone)
+        Index("ix_org_membership_org_id", "organization_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("user.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("organization.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+
+# Physical workspace link table the app no longer reads. Writers keep it in
+# step so older app versions see the same rows; a follow-up drops it.
+class LegacyMembership(Base):
+    __tablename__ = "membership"
+    __table_args__ = (
+        Index("ix_membership_workspace_id", "workspace_id"),
+        Index("ix_membership_workspace_user", "workspace_id", "user_id"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("user.id"), primary_key=True
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("workspace.id", ondelete="CASCADE"), primary_key=True
+    )

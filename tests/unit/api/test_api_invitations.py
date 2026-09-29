@@ -1,0 +1,210 @@
+"""HTTP-level tests for organization invitation endpoints."""
+
+import uuid
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
+from fastapi import status
+from fastapi.testclient import TestClient
+from pydantic import TypeAdapter
+from sqlalchemy.exc import NoResultFound
+
+from tracecat.api.app import app
+from tracecat.auth.types import Role
+from tracecat.auth.users import current_active_user
+from tracecat.db.engine import get_async_session
+from tracecat.exceptions import TracecatConflictError, TracecatValidationError
+from tracecat.invitations import router as invitations_router
+from tracecat.invitations.enums import InvitationStatus
+from tracecat.invitations.schemas import InvitationGrant
+
+
+@pytest.mark.anyio
+async def test_list_my_pending_invitations_success(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    mock_session = await app.dependency_overrides[get_async_session]()
+
+    mock_user = SimpleNamespace(
+        id=test_admin_role.user_id,
+        email="user@example.com",
+    )
+    mock_inviter = SimpleNamespace(
+        first_name="Alice",
+        last_name="Admin",
+        email="alice@example.com",
+    )
+    organization_id = uuid.uuid4()
+    mock_invitation = SimpleNamespace(
+        token="invitation-token-123",
+        organization_id=organization_id,
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+        created_at=datetime.now(UTC),
+    )
+    mock_organization = SimpleNamespace(name="Acme Security")
+    role_id = uuid.uuid4()
+    mock_invitation.id = uuid.uuid4()
+    # Grants arrive as ORM rows now, so the mock exposes attributes.
+    mock_invitation.grants = [SimpleNamespace(workspace_id=None, role_id=role_id)]
+
+    tuples_result = Mock()
+    tuples_result.all.return_value = [
+        (mock_invitation, mock_organization, mock_inviter),
+    ]
+    pending_result = Mock()
+    pending_result.tuples.return_value = tuples_result
+
+    mock_session.execute.side_effect = [pending_result]
+    app.dependency_overrides[current_active_user] = lambda: mock_user
+
+    try:
+        response = client.get("/invitations/pending/me")
+    finally:
+        app.dependency_overrides.pop(current_active_user, None)
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["token"] == mock_invitation.token
+    assert payload[0]["organization_id"] == str(organization_id)
+    assert payload[0]["organization_name"] == "Acme Security"
+    assert payload[0]["inviter_name"] == "Alice Admin"
+    assert payload[0]["inviter_email"] == "alice@example.com"
+    assert payload[0]["grants"] == [{"workspace_id": None, "role_id": str(role_id)}]
+
+
+def test_grant_json_validates_into_uuids() -> None:
+    """Grant rows read through from_attributes; a null workspace stays None."""
+    role_id = uuid.uuid4()
+    workspace_id = uuid.uuid4()
+    grants = TypeAdapter(list[InvitationGrant]).validate_python(
+        [
+            SimpleNamespace(workspace_id=None, role_id=role_id),
+            SimpleNamespace(workspace_id=workspace_id, role_id=role_id),
+        ]
+    )
+    assert grants[0].workspace_id is None
+    assert grants[0].role_id == role_id
+    assert grants[1].workspace_id == workspace_id
+
+
+@pytest.mark.anyio
+async def test_list_my_pending_invitations_empty_result(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    mock_session = await app.dependency_overrides[get_async_session]()
+    mock_user = SimpleNamespace(
+        id=test_admin_role.user_id,
+        email="user@example.com",
+    )
+
+    tuples_result = Mock()
+    tuples_result.all.return_value = []
+    pending_result = Mock()
+    pending_result.tuples.return_value = tuples_result
+
+    mock_session.execute.side_effect = [pending_result]
+    app.dependency_overrides[current_active_user] = lambda: mock_user
+
+    try:
+        response = client.get("/invitations/pending/me")
+    finally:
+        app.dependency_overrides.pop(current_active_user, None)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == []
+
+
+def _mock_invitation(*, email_sent_at: datetime | None = None) -> SimpleNamespace:
+    """A row shaped like the ORM object the resend route serializes."""
+    now = datetime.now(UTC)
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        email="invitee@example.com",
+        status=InvitationStatus.PENDING,
+        invited_by=uuid.uuid4(),
+        expires_at=now + timedelta(days=7),
+        created_at=now,
+        accepted_at=None,
+        created_by_platform_admin=False,
+        grants=[SimpleNamespace(workspace_id=None, role_id=uuid.uuid4())],
+        email_sent_at=email_sent_at,
+    )
+
+
+@pytest.mark.anyio
+async def test_resend_invitation_success(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    invitation = _mock_invitation()
+
+    with patch.object(invitations_router, "InvitationService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.resend_invitation.return_value = invitation
+        MockService.return_value = mock_svc
+
+        response = client.post(f"/invitations/{invitation.id}/resend")
+
+    assert response.status_code == status.HTTP_200_OK
+    payload = response.json()
+    assert payload["id"] == str(invitation.id)
+    assert payload["email"] == invitation.email
+    assert payload["grants"] == [
+        {
+            "workspace_id": None,
+            "role_id": str(invitation.grants[0].role_id),
+        }
+    ]
+    mock_svc.resend_invitation.assert_awaited_once_with(invitation.id)
+
+
+@pytest.mark.anyio
+async def test_resend_invitation_not_found(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    with patch.object(invitations_router, "InvitationService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.resend_invitation.side_effect = NoResultFound
+        MockService.return_value = mock_svc
+
+        response = client.post(f"/invitations/{uuid.uuid4()}/resend")
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["detail"] == "Invitation not found"
+
+
+@pytest.mark.anyio
+async def test_resend_invitation_validation_error_returns_400(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    with patch.object(invitations_router, "InvitationService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.resend_invitation.side_effect = TracecatValidationError(
+            "Email delivery is not configured"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.post(f"/invitations/{uuid.uuid4()}/resend")
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Email delivery is not configured"
+
+
+@pytest.mark.anyio
+async def test_resend_invitation_cooldown_returns_409(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    with patch.object(invitations_router, "InvitationService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.resend_invitation.side_effect = TracecatConflictError("too soon")
+        MockService.return_value = mock_svc
+
+        response = client.post(f"/invitations/{uuid.uuid4()}/resend")
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert (
+        response.json()["detail"] == "Invitation email was sent less than a minute ago"
+    )

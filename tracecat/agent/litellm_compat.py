@@ -12,6 +12,12 @@ import logging
 from collections.abc import Sequence
 from typing import Any
 
+from litellm.llms.anthropic.experimental_pass_through.adapters.transformation import (
+    LiteLLMAnthropicMessagesAdapter,
+)
+from litellm.types.llms.anthropic import AnthropicMessagesRequest
+from litellm.types.llms.openai import ChatCompletionRequest
+
 logger = logging.getLogger(__name__)
 
 OPENAI_MAX_TOOL_CALL_ID_LENGTH = 40
@@ -58,15 +64,18 @@ def _truncate_tool_call_ids_in_messages(messages: Sequence[Any]) -> None:
 
 def apply_patch() -> None:
     """Apply monkeypatches to LiteLLM's Anthropic adapter."""
-    from litellm.llms.anthropic.experimental_pass_through.adapters.transformation import (
-        LiteLLMAnthropicMessagesAdapter,
-    )
-
     original_translate = LiteLLMAnthropicMessagesAdapter.translate_anthropic_to_openai
 
-    def patched_translate_anthropic_to_openai(self, anthropic_message_request):
+    def patched_translate_anthropic_to_openai(
+        self: LiteLLMAnthropicMessagesAdapter,
+        anthropic_message_request: AnthropicMessagesRequest,
+        *,
+        custom_llm_provider: str | None = None,
+    ) -> tuple[ChatCompletionRequest, dict[str, str]]:
         openai_request, tool_name_mapping = original_translate(
-            self, anthropic_message_request
+            self,
+            anthropic_message_request,
+            custom_llm_provider=custom_llm_provider,
         )
         if messages := openai_request.get("messages"):
             _truncate_tool_call_ids_in_messages(messages)

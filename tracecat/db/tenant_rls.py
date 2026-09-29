@@ -43,7 +43,6 @@ INITIAL_WORKSPACE_SCOPED_TABLES = (
     "chat",
     "chat_message",
     "membership",
-    "invitation",
     "oauth_integration",
     "oauth_provider",
     "mcp_integration",
@@ -56,6 +55,7 @@ INITIAL_ORG_SCOPED_TABLES = (
     "organization_membership",
     "organization_invitation",
     "organization_tier",
+    "invitation",
     "registry_repository",
     "registry_action",
     "registry_version",
@@ -99,14 +99,17 @@ POST_RLS_ORG_SCOPED_TABLES = (
     "watchtower_agent",
     "mcp_refresh_token",
     "agent_custom_provider",
+    "organization_secret_store",
 )
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
+    "invitation_grant",
     "watchtower_agent_session",
     "watchtower_agent_tool_call",
     "service_account",
     "mcp_personal_access_token",
     "agent_model_access",
+    "workspace_secret_store_authorization",
 )
 
 SPECIAL_TENANT_POLICY_TABLES = frozenset(
@@ -129,9 +132,12 @@ SEARCH_POLICY_TABLES = frozenset(
         "search_chunk",
     }
 )
+# group_member.organization_id is a nullable denormalization for the membership
+# foreign key; the table is governed by its parent group's policy.
 SPECIAL_WORKSPACE_POLICY_TABLES = frozenset({"oauth_state"}) | SEARCH_POLICY_TABLES
 SPECIAL_ORG_POLICY_TABLES = (
-    frozenset({"workspace", "scope", "agent_catalog"}) | SEARCH_POLICY_TABLES
+    frozenset({"workspace", "scope", "agent_catalog", "group_member"})
+    | SEARCH_POLICY_TABLES
 )
 
 CURRENT_WORKSPACE_SCOPED_TABLES = (
@@ -215,6 +221,25 @@ def disable_oauth_state_special_rls() -> str:
     return f"""
         DROP POLICY IF EXISTS {policy_name("oauth_state")} ON "oauth_state";
         ALTER TABLE "oauth_state" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def enable_group_member_table_rls() -> str:
+    """Scope legacy nullable membership rows through their owning group."""
+    return f"""
+        ALTER TABLE group_member ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY {policy_name("group_member")} ON group_member
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR EXISTS (
+                    SELECT 1 FROM "group" AS parent_group
+                    WHERE parent_group.id = group_member.group_id
+                      AND parent_group.organization_id = NULLIF(
+                          current_setting('app.current_org_id', true), ''
+                      )::uuid
+                )
+            );
     """
 
 

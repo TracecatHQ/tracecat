@@ -30,6 +30,7 @@ import orjson
 from pydantic_core import to_json
 
 from tracecat import config
+from tracecat.contexts import ctx_secret_masks
 from tracecat.executor.action_gateway.config import (
     ACTION_GATEWAY_SANDBOX_SOCKET,
     action_gateway_socket_path,
@@ -60,7 +61,6 @@ from tracecat.sandbox.utils import (
 )
 from tracecat.secrets.common import (
     apply_masks_object,
-    secret_error_withholding_disabled,
 )
 
 if TYPE_CHECKING:
@@ -302,7 +302,9 @@ class ActionRunner:
                 "role": role,
                 "resolved_context": resolved_context,
                 "secret_env": secret_projection.env,
-                "unsafe_disable_secret_error_withholding": secret_error_withholding_disabled(),
+                "secret_mask_values": sorted(masks.values)
+                if (masks := ctx_secret_masks.get())
+                else [],
             }
 
             # Write input JSON to job directory
@@ -443,9 +445,8 @@ class ActionRunner:
         if resolved_context is not None:
             payload["resolved_context"] = resolved_context
             payload["secret_env"] = secret_projection.env
-            payload["unsafe_disable_secret_error_withholding"] = (
-                secret_error_withholding_disabled()
-            )
+            masks = ctx_secret_masks.get()
+            payload["secret_mask_values"] = sorted(masks.values) if masks else []
         input_json = to_json(payload)
 
         # Build environment with registry paths in PYTHONPATH

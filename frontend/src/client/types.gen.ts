@@ -34,7 +34,7 @@ export type ActionControlFlow = {
    */
   mask_output?: boolean
   /**
-   * UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked.
+   * Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.
    */
   unsafe_disable_secret_error_withholding?: boolean
 }
@@ -194,7 +194,7 @@ export type ActionStatement_Input = {
    */
   mask_output?: boolean
   /**
-   * UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked, but the original text may echo transformed secret values that exact-string masking cannot catch.
+   * Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.
    */
   unsafe_disable_secret_error_withholding?: boolean
 }
@@ -256,7 +256,7 @@ export type ActionStatement_Output = {
    */
   mask_output?: boolean
   /**
-   * UNSAFE: if true, surface this action's original error message even when secrets are in scope, instead of the generic 'Details withheld' message. Known secret values are still masked, but the original text may echo transformed secret values that exact-string masking cannot catch.
+   * Legacy field, ignored. Error diagnostics always mask known secrets and observed secret-derived values.
    */
   unsafe_disable_secret_error_withholding?: boolean
 }
@@ -813,6 +813,9 @@ export type AgentPresetReadMinimal = {
 
 /**
  * Shared fields for preset skill bindings.
+ *
+ * Bindings reference a skill only; presets always run its latest published
+ * version, so there is no version to pin.
  */
 export type AgentPresetSkillBindingBase = {
   skill_id: string
@@ -1342,7 +1345,7 @@ export type AppSettingsUpdate = {
    */
   app_action_form_mode_enabled?: boolean
   /**
-   * UNSAFE: workspaces whose actions may opt into showing their original error message when secrets are in scope. Each action must still enable 'Show error details' individually. Known secret values are still masked.
+   * Legacy allow-list, ignored by action execution. Error diagnostics always mask known secrets and observed secret-derived values.
    */
   app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
 }
@@ -1472,7 +1475,14 @@ export type AssigneeChangedEventRead = {
 }
 
 export type AssistantMessage = {
-  content: Array<TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock>
+  content: Array<
+    | TextBlock
+    | ThinkingBlock
+    | ToolUseBlock
+    | ToolResultBlock
+    | ServerToolUseBlock
+    | ServerToolResultBlock
+  >
   model: string
   parent_tool_use_id?: string | null
   error?:
@@ -1637,6 +1647,108 @@ export type AwsAssumeRoleAccessRead = {
 }
 
 /**
+ * One declared output key sourced from a top-level JSON field.
+ */
+export type AwsSecretJsonField = {
+  key: string
+  field: string
+}
+
+/**
+ * Declares how a remote AWS secret value maps onto output keys.
+ *
+ * ``whole_string`` maps the entire ``SecretString`` onto exactly one key.
+ * ``json`` maps selected top-level string fields onto declared keys.
+ */
+export type AwsSecretKeyMapping = {
+  mode: AwsSecretMappingMode
+  keys?: Array<string>
+  fields?: Array<AwsSecretJsonField>
+}
+
+/**
+ * How an AWS Secrets Manager value maps onto declared secret keys.
+ */
+export type AwsSecretMappingMode = "whole_string" | "json"
+
+/**
+ * Create a workspace custom secret backed by AWS Secrets Manager.
+ */
+export type AwsSecretReferenceCreate = {
+  name: string
+  description?: string | null
+  environment?: string
+  tags?: {
+    [key: string]: string
+  } | null
+  store_id: string
+  remote_reference: string
+  key_mapping: AwsSecretKeyMapping
+}
+
+/**
+ * Update an AWS-backed workspace secret. Values are never accepted.
+ */
+export type AwsSecretReferenceUpdate = {
+  name?: string | null
+  description?: string | null
+  environment?: string | null
+  tags?: {
+    [key: string]: string
+  } | null
+  store_id?: string | null
+  remote_reference?: string | null
+  key_mapping?: AwsSecretKeyMapping | null
+}
+
+/**
+ * Sanitized failure classes for AWS Secrets Manager resolution.
+ */
+export type AwsSecretResolutionErrorCode =
+  | "store_disabled"
+  | "store_not_authorized"
+  | "assume_role_failed"
+  | "access_denied"
+  | "not_found"
+  | "decryption_failed"
+  | "throttled"
+  | "timeout"
+  | "binary_value"
+  | "malformed_json"
+  | "missing_field"
+  | "non_string_field"
+  | "invalid_mapping"
+  | "region_mismatch"
+  | "unknown"
+
+/**
+ * Persisted provider configuration for an AWS Secrets Manager store.
+ */
+export type AwsSecretsManagerStoreConfig = {
+  provider?: "aws_secrets_manager"
+  role_arn: string
+  region: string
+  external_id: string
+}
+
+/**
+ * Client-supplied fields when creating an AWS Secrets Manager store.
+ */
+export type AwsSecretsManagerStoreCreate = {
+  provider?: "aws_secrets_manager"
+  role_arn: string
+  region: string
+}
+
+/**
+ * Client-supplied fields when updating an AWS Secrets Manager store.
+ */
+export type AwsSecretsManagerStoreUpdate = {
+  role_arn?: string | null
+  region?: string | null
+}
+
+/**
  * Azure AI catalog entry.
  */
 export type AzureAICatalogCreate = {
@@ -1694,6 +1806,50 @@ export type BedrockCatalogUpdate = {
   inference_profile_id?: string | null
   model_id?: string | null
   use_converse?: boolean
+}
+
+/**
+ * Register or rotate the organization Bitbucket Data Center API token.
+ */
+export type BitbucketDataCenterTokenCredentialsRequest = {
+  base_url: string
+  token: string
+}
+
+export type BitbucketDataCenterTokenCredentialsSaveResponse = {
+  message: string
+  action: "created" | "updated"
+  base_url: string
+}
+
+export type action2 = "created" | "updated"
+
+export type BitbucketDataCenterTokenCredentialsStatus = {
+  exists: boolean
+  is_corrupted?: boolean
+  base_url?: string | null
+  created_at?: string | null
+}
+
+/**
+ * Register or rotate the organization Bitbucket Cloud API token.
+ */
+export type BitbucketTokenCredentialsRequest = {
+  email: string
+  token: string
+}
+
+export type BitbucketTokenCredentialsSaveResponse = {
+  message: string
+  action: "created" | "updated"
+  email: string
+}
+
+export type BitbucketTokenCredentialsStatus = {
+  exists: boolean
+  is_corrupted?: boolean
+  email?: string | null
+  created_at?: string | null
 }
 
 export type Body_auth_reset_forgot_password = {
@@ -2914,6 +3070,7 @@ export type ChatMessage = {
     | ResultMessage
     | StreamEvent
     | RateLimitEvent
+    | ConversationResetMessage
     | null
   /**
    * Approval data for approval bubble rendering (for kind=APPROVAL_REQUEST/APPROVAL_DECISION)
@@ -3335,6 +3492,12 @@ export type ContinueRunRequest = {
  * Origin of the approval decision submission. Use 'inbox' for Tracecat UI/API and 'slack' for Slack actions.
  */
 export type source = "inbox" | "slack"
+
+export type ConversationResetMessage = {
+  new_conversation_id: string
+  uuid: string
+  session_id: string
+}
 
 /**
  * Event for when a case is created.
@@ -3997,6 +4160,25 @@ export type DefaultModelSelectionUpdate = {
   catalog_id: string
 }
 
+export type DeferredToolUse = {
+  id: string
+  name: string
+  input: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * Lifecycle states of a row document within an index generation.
+ */
+export type DocumentState =
+  | "pending"
+  | "building"
+  | "ready"
+  | "empty"
+  | "failed"
+  | "deleted"
+
 /**
  * Event for when a case dropdown value is changed.
  */
@@ -4156,7 +4338,80 @@ export type EffectiveEntitlements = {
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
+  /**
+   * Whether workspace secrets may reference external secret stores such as AWS Secrets Manager
+   */
+  external_secret_stores?: boolean
 }
+
+/**
+ * Availability from existing provider settings and current indexing state.
+ */
+export type EmbeddingConfigurationRead = {
+  available: boolean
+  version: number
+  state: SearchState
+  configuration?: EmbeddingModelRead | null
+  reindex_required?: boolean
+}
+
+/**
+ * Stable public failures; provider messages must never cross this boundary.
+ */
+export type EmbeddingErrorCode =
+  | "CREDENTIAL_INVALID"
+  | "CONFIGURATION_INVALID"
+  | "CONFIGURATION_CHANGED"
+  | "INPUT_INVALID"
+  | "RATE_LIMITED"
+  | "TIMEOUT"
+  | "UNAVAILABLE"
+  | "RESPONSE_INVALID"
+  | "NOT_CONFIGURED"
+
+export type EmbeddingErrorRead = {
+  code: EmbeddingErrorCode
+  retryable: boolean
+  retry_after?: number | null
+}
+
+export type EmbeddingErrorResponse = {
+  detail: EmbeddingErrorRead
+}
+
+/**
+ * Public metadata needed for status and bounded chunk preparation.
+ */
+export type EmbeddingModelRead = {
+  provider: "openai" | "gemini" | "bedrock" | "ollama" | "vllm"
+  model:
+    | "text-embedding-3-small"
+    | "text-embedding-3-large"
+    | "gemini-embedding-001"
+    | "amazon.titan-embed-text-v2:0"
+    | "all-minilm"
+    | "all-minilm:latest"
+    | "all-minilm:22m"
+    | "sentence-transformers/all-MiniLM-L6-v2"
+  dimensions: number
+  tokenizer: string
+  input_token_limit: number
+  input_character_limit: number
+  batch_size_limit: number
+  batch_token_limit: number
+}
+
+export type provider = "openai" | "gemini" | "bedrock" | "ollama" | "vllm"
+
+export type model =
+  | "text-embedding-3-small"
+  | "text-embedding-3-large"
+  | "gemini-embedding-001"
+  | "amazon.titan-embed-text-v2:0"
+  | "all-minilm"
+  | "all-minilm:latest"
+  | "all-minilm:22m"
+  | "sentence-transformers/all-MiniLM-L6-v2"
 
 /**
  * TypedDict for tier entitlements stored in JSONB.
@@ -4200,6 +4455,10 @@ export type EntitlementsDict = {
    * Whether Watchtower agent monitoring is enabled (agent sessions, tool-call telemetry, and controls)
    */
   watchtower?: boolean
+  /**
+   * Whether workspace secrets may reference external secret stores such as AWS Secrets Manager
+   */
+  external_secret_stores?: boolean
 }
 
 export type ErrorModel = {
@@ -4414,6 +4673,7 @@ export type FolderDirectoryItem = {
   updated_at: string
   type: "folder"
   num_items: number
+  num_workflows: number
 }
 
 /**
@@ -4510,8 +4770,6 @@ export type GitHubAppCredentialsSaveResponse = {
   action: "created" | "updated"
   app_id: string
 }
-
-export type action2 = "created" | "updated"
 
 /**
  * Status of GitHub App credentials.
@@ -5198,9 +5456,72 @@ export type InteractionStatus =
 export type InteractionType = "approval" | "response"
 
 /**
+ * Request body for accepting an invitation via token.
+ */
+export type InvitationAccept = {
+  token: string
+}
+
+/**
+ * Request body for creating an invitation.
+ */
+export type InvitationCreate = {
+  email: string
+  grants: Array<InvitationGrant>
+}
+
+/**
+ * One role grant: at org scope when ``workspace_id`` is None.
+ */
+export type InvitationGrant = {
+  workspace_id?: string | null
+  role_id: string
+}
+
+/**
+ * Response model for an invitation.
+ */
+export type InvitationRead = {
+  id: string
+  organization_id: string
+  email: string
+  status: InvitationStatus
+  invited_by: string | null
+  expires_at: string
+  created_at: string
+  accepted_at: string | null
+  created_by_platform_admin: boolean
+  grants: Array<InvitationGrant>
+}
+
+/**
+ * Minimal public response for token-based lookup on the accept page.
+ *
+ * Excludes email, inviter ID, and timestamps to limit information disclosure.
+ */
+export type InvitationReadMinimal = {
+  organization_id: string
+  organization_name: string
+  organization_slug: string
+  inviter_name: string | null
+  inviter_email: string | null
+  grants: Array<InvitationGrant>
+  status: InvitationStatus
+  expires_at: string
+  email_matches?: boolean | null
+}
+
+/**
  * Invitation lifecycle status.
  */
 export type InvitationStatus = "pending" | "accepted" | "revoked"
+
+/**
+ * Raw invitation token response.
+ */
+export type InvitationTokenRead = {
+  token: string
+}
 
 export type IssuedMCPPersonalAccessToken = {
   raw_token: string
@@ -5827,6 +6148,40 @@ export type MessageKind =
   | "compaction"
   | "cancelled"
 
+export type MessageOrigin = {
+  kind:
+    | "human"
+    | "channel"
+    | "peer"
+    | "task-notification"
+    | "coordinator"
+    | "unclassified"
+    | "observer"
+    | "auto-continuation"
+    | "observer-activity"
+  server?: string
+  from?: string
+  name?: string
+  fromSession?: string
+  senderTaskId?: string
+  body?: string
+  verifiedPeerPid?: number
+  subkind?: "scheduled-trigger" | "peer-send-message"
+}
+
+export type kind =
+  | "human"
+  | "channel"
+  | "peer"
+  | "task-notification"
+  | "coordinator"
+  | "unclassified"
+  | "observer"
+  | "auto-continuation"
+  | "observer-activity"
+
+export type subkind = "scheduled-trigger" | "peer-send-message"
+
 export type ModelConfig = {
   /**
    * The name of the model. This is used to identify the model in the system.
@@ -5878,6 +6233,25 @@ export type ModelCredentialUpdate = {
 export type ModelSecretConfig = {
   required?: Array<string>
   optional?: Array<string>
+}
+
+/**
+ * Per-model token usage and cost breakdown.
+ *
+ * Keys match the TypeScript SDK's ``ModelUsage`` shape (camelCase), since
+ * the value is passed through verbatim from the CLI's ``modelUsage`` field.
+ */
+export type ModelUsage = {
+  inputTokens: number
+  outputTokens: number
+  cacheReadInputTokens: number
+  cacheCreationInputTokens: number
+  webSearchRequests: number
+  costUSD: number
+  contextWindow: number
+  maxOutputTokens: number
+  canonicalModel?: string
+  provider?: string
 }
 
 export type OAuth2AuthorizeResponse = {
@@ -5933,58 +6307,6 @@ export type OrgDomainUpdate = {
 }
 
 /**
- * Request body for accepting an organization invitation via token.
- */
-export type OrgInvitationAccept = {
-  token: string
-}
-
-/**
- * Request body for creating an organization invitation.
- */
-export type OrgInvitationCreate = {
-  email: string
-  role_id: string
-}
-
-/**
- * Response model for organization invitation.
- */
-export type OrgInvitationRead = {
-  id: string
-  organization_id: string
-  email: string
-  role_id: string
-  role_name: string
-  role_slug?: string | null
-  status: InvitationStatus
-  invited_by: string | null
-  expires_at: string
-  created_at: string
-  accepted_at: string | null
-  last_emailed_at?: string | null
-}
-
-/**
- * Minimal response for public token-based invitation lookup.
- *
- * Excludes sensitive fields like email, invited_by ID, and timestamps
- * to reduce information disclosure when querying by token.
- */
-export type OrgInvitationReadMinimal = {
-  organization_id: string
-  organization_name: string
-  organization_slug: string
-  inviter_name: string | null
-  inviter_email: string | null
-  role_name: string
-  role_slug?: string | null
-  status: InvitationStatus
-  expires_at: string
-  email_matches?: boolean | null
-}
-
-/**
  * Detailed member info for /me and update endpoints.
  */
 export type OrgMemberDetail = {
@@ -6007,6 +6329,7 @@ export type OrgMemberRead = {
   email: string
   role_name: string
   role_slug?: string | null
+  grants?: Array<InvitationGrant>
   status: OrgMemberStatus
   first_name?: string | null
   last_name?: string | null
@@ -6016,20 +6339,6 @@ export type OrgMemberRead = {
 }
 
 export type OrgMemberStatus = "active" | "inactive" | "invited"
-
-/**
- * Pending invitation visible to the invited authenticated user.
- */
-export type OrgPendingInvitationRead = {
-  token: string
-  organization_id: string
-  organization_name: string
-  inviter_name: string | null
-  inviter_email: string | null
-  role_name: string
-  role_slug?: string | null
-  expires_at: string
-}
 
 /**
  * Organization registry repository response.
@@ -6168,6 +6477,30 @@ export type OutputType =
       [key: string]: unknown
     }
 
+export type Page_SecretStoreRead_ = {
+  items: Array<SecretStoreRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
+export type Page_WorkspaceSecretStoreRead_ = {
+  items: Array<WorkspaceSecretStoreRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
 /**
  * Event for when a case payload is changed.
  */
@@ -6185,6 +6518,19 @@ export type PayloadChangedEventRead = {
    * The timestamp of the event.
    */
   created_at: string
+}
+
+/**
+ * Pending invitation visible to the invited authenticated user.
+ */
+export type PendingInvitationRead = {
+  token: string
+  organization_id: string
+  organization_name: string
+  inviter_name: string | null
+  inviter_email: string | null
+  grants: Array<InvitationGrant>
+  expires_at: string
 }
 
 export type PersistedApprovalDecision =
@@ -7032,11 +7378,15 @@ export type ResultMessage = {
   result?: string | null
   structured_output?: unknown
   model_usage?: {
-    [key: string]: unknown
+    [key: string]: ModelUsage
   } | null
   permission_denials?: Array<unknown> | null
+  deferred_tool_use?: DeferredToolUse | null
   errors?: Array<string> | null
+  api_error_status?: number | null
   uuid?: string | null
+  terminal_reason?: string | null
+  origin?: MessageOrigin | null
 }
 
 /**
@@ -7096,6 +7446,15 @@ export type service_id =
   | "tracecat-schedule-runner"
   | "tracecat-service"
   | "tracecat-ui"
+
+/**
+ * Assignment identity and value observed when editing began.
+ */
+export type RoleAssignmentSnapshot = {
+  role_id: string
+  workspace_id?: string | null
+  id: string
+}
 
 /**
  * Create schema for a custom role.
@@ -7423,6 +7782,47 @@ export type ScopeRead = {
 export type ScopeSource = "platform" | "custom"
 
 /**
+ * Stable error codes safe to expose without source text or credentials.
+ */
+export type SearchErrorCode =
+  | "NOT_FOUND"
+  | "INDEX_NOT_READY"
+  | "STALE_CLAIM"
+  | "MANIFEST_CONFLICT"
+  | "INVALID_VECTOR"
+  | "CONFIGURATION_CHANGED"
+  | "PROVIDER_UNAVAILABLE"
+  | "INVALID_CURSOR"
+  | "INVALID_TABLE_NAME"
+
+/**
+ * Index availability and document counts for a collection.
+ *
+ * Attributes:
+ * state: Effective workspace or collection search state.
+ * pending: Documents awaiting work for the current index configuration.
+ * failed: Documents that failed in the current index generation.
+ * empty: Current documents that contain no searchable chunks.
+ * ready: Current documents whose complete embeddings are published.
+ * backfill_complete: Whether all source rows have been enumerated.
+ * partial: Whether the index is unavailable or results may be incomplete.
+ */
+export type SearchIndexStatus = {
+  state: SearchState
+  pending?: number
+  failed?: number
+  empty?: number
+  ready?: number
+  backfill_complete?: boolean
+  partial?: boolean
+}
+
+/**
+ * Workspace availability states controlling search and indexing.
+ */
+export type SearchState = "disabled" | "active" | "paused" | "reindex_required"
+
+/**
  * Secret artifact stub. Extend when secret surfaces are wired.
  */
 export type SecretArtifact = {
@@ -7488,6 +7888,10 @@ export type SecretRead = {
   created_at: string
   updated_at: string
   workspace_id: string
+  source?: SecretSource
+  store_id?: string | null
+  remote_reference?: string | null
+  remote_key_mapping?: AwsSecretKeyMapping | null
 }
 
 export type SecretReadMinimal = {
@@ -7498,6 +7902,93 @@ export type SecretReadMinimal = {
   keys: Array<string>
   environment: string
   is_corrupted?: boolean
+  source?: SecretSource
+  store_id?: string | null
+  store_name?: string | null
+  remote_reference?: string | null
+}
+
+/**
+ * Outcome of a reference check. Never contains the remote value.
+ */
+export type SecretReferenceCheckResult = {
+  ok: boolean
+  error_code?: AwsSecretResolutionErrorCode | null
+  message?: string | null
+  resolved_keys?: Array<string>
+}
+
+/**
+ * Where a workspace secret's values live.
+ */
+export type SecretSource = "local" | "aws_secrets_manager"
+
+/**
+ * Authorize a workspace to reference a store.
+ */
+export type SecretStoreAuthorizationCreate = {
+  workspace_id: string
+}
+
+export type SecretStoreAuthorizationRead = {
+  id: string
+  store_id: string
+  workspace_id: string
+  created_at: string
+}
+
+/**
+ * Create an organization-owned external secret store.
+ */
+export type SecretStoreCreate = {
+  name: string
+  description?: string | null
+  provider?: SecretStoreProvider
+  config: AwsSecretsManagerStoreCreate
+  enabled?: boolean
+  /**
+   * Allow all current and future workspaces.
+   */
+  all_workspaces?: boolean
+}
+
+/**
+ * Supported external secret store providers.
+ */
+export type SecretStoreProvider = "aws_secrets_manager"
+
+/**
+ * Organization view of a secret store, including trust-policy inputs.
+ */
+export type SecretStoreRead = {
+  id: string
+  organization_id: string
+  name: string
+  description?: string | null
+  provider: SecretStoreProvider
+  config: AwsSecretsManagerStoreConfig
+  enabled: boolean
+  all_workspaces: boolean
+  tracecat_aws_account_id?: string | null
+  tracecat_aws_principal_arn?: string | null
+  authorized_workspace_ids?: Array<string>
+  reference_count?: number
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * Update an organization-owned secret store. Server-owned fields are immutable.
+ */
+export type SecretStoreUpdate = {
+  name?: string | null
+  description?: string | null
+  config?: AwsSecretsManagerStoreUpdate | null
+  enabled?: boolean | null
+  /**
+   * Allow all current and future workspaces.
+   */
+  all_workspaces?: boolean
 }
 
 /**
@@ -7578,6 +8069,39 @@ export type Select = {
   options?: Array<string> | null
   multiple?: boolean
 }
+
+export type ServerToolResultBlock = {
+  tool_use_id: string
+  content: {
+    [key: string]: unknown
+  }
+}
+
+export type ServerToolUseBlock = {
+  id: string
+  name:
+    | "advisor"
+    | "web_search"
+    | "web_fetch"
+    | "code_execution"
+    | "bash_code_execution"
+    | "text_editor_code_execution"
+    | "tool_search_tool_regex"
+    | "tool_search_tool_bm25"
+  input: {
+    [key: string]: unknown
+  }
+}
+
+export type name =
+  | "advisor"
+  | "web_search"
+  | "web_fetch"
+  | "code_execution"
+  | "bash_code_execution"
+  | "text_editor_code_execution"
+  | "tool_search_tool_regex"
+  | "tool_search_tool_bm25"
 
 export type ServiceAccountApiKeyCounts = {
   total?: number
@@ -7744,7 +8268,7 @@ export type SkillDraftFileRead = {
   download_url?: string | null
 }
 
-export type kind = "inline" | "download"
+export type kind2 = "inline" | "download"
 
 /**
  * Move (rename) a draft file to a new path while preserving its blob.
@@ -8426,6 +8950,96 @@ export type TableRowUpdate = {
 }
 
 /**
+ * Persisted selection with truthful readiness; never includes credentials.
+ */
+export type TableSearchConfiguration = {
+  generation?: number
+  selected_column_ids?: Array<string>
+  status?: TableSearchDisplayState
+  index?: SearchIndexStatus | null
+}
+
+export type TableSearchDisplayState =
+  | "disabled"
+  | "unavailable"
+  | "indexing"
+  | "ready"
+  | "updating"
+  | "needs_attention"
+
+/**
+ * Bounded progress sample; chunk totals remain unknown until enumeration ends.
+ */
+export type TableSearchDocumentProgress = {
+  document_id: string
+  row_id: string
+  state: DocumentState
+  revision: number
+  expected_chunks: number | null
+  sampled_chunks: number
+  sampled_embedded: number
+  chunks_capped: boolean
+  error_code: string | null
+}
+
+/**
+ * Safe domain failure, including a stale generation precondition.
+ */
+export type TableSearchErrorRead = {
+  code: SearchErrorCode | "INVALID_SELECTION"
+}
+
+export type TableSearchErrorResponse = {
+  detail: TableSearchErrorRead
+}
+
+export type TableSearchProgressPage = {
+  generation: number
+  items: Array<TableSearchDocumentProgress>
+  next_cursor?: string | null
+  prev_cursor?: string | null
+  has_more?: boolean
+  has_previous?: boolean
+}
+
+/**
+ * Standard FastAPI request validation fields for the selection endpoint.
+ */
+export type TableSearchRequestValidationError = {
+  loc: Array<string | number>
+  msg: string
+  type: string
+  input?: JsonValue
+  ctx?: {
+    [key: string]: JsonValue
+  } | null
+}
+
+/**
+ * Retry a bounded explicit set of failed documents in the current generation.
+ */
+export type TableSearchRetry = {
+  expected_generation: number
+  document_ids: Array<string>
+}
+
+/**
+ * Set one selection; generation zero denotes an absent collection.
+ */
+export type TableSearchSelection = {
+  column_id: string
+  enabled: boolean
+  expected_generation: number
+}
+
+/**
+ * Invalid column selection or malformed request parameters.
+ */
+export type TableSearchSelectionErrorResponse = {
+  detail: TableSearchErrorRead | Array<TableSearchRequestValidationError>
+}
+
+/**
  * Update model for a table.
  */
 export type TableUpdate = {
@@ -9057,12 +9671,20 @@ export type UserCreate = {
 export type UserMessage = {
   content:
     | string
-    | Array<TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock>
+    | Array<
+        | TextBlock
+        | ThinkingBlock
+        | ToolUseBlock
+        | ToolResultBlock
+        | ServerToolUseBlock
+        | ServerToolResultBlock
+      >
   uuid?: string | null
   parent_tool_use_id?: string | null
   tool_use_result?: {
     [key: string]: unknown
   } | null
+  origin?: MessageOrigin | null
 }
 
 export type UserRead = {
@@ -9132,6 +9754,14 @@ export type UserRoleAssignmentReadWithDetails = {
 }
 
 /**
+ * One desired direct assignment, with at most one role per scope.
+ */
+export type UserRoleAssignmentSpec = {
+  role_id: string
+  workspace_id?: string | null
+}
+
+/**
  * Update schema for a user role assignment (change role only).
  */
 export type UserRoleAssignmentUpdate = {
@@ -9139,6 +9769,16 @@ export type UserRoleAssignmentUpdate = {
    * New role ID to assign
    */
   role_id: string
+}
+
+/**
+ * Replace a member's direct roles only if their access has not changed.
+ */
+export type UserRoleAssignmentsReplace = {
+  user_id: string
+  assignments: Array<UserRoleAssignmentSpec>
+  expected_assignments: Array<RoleAssignmentSnapshot>
+  expected_group_assignments?: Array<RoleAssignmentSnapshot> | null
 }
 
 /**
@@ -9263,7 +9903,11 @@ export type VariableUpdate = {
 /**
  * Version control host backing a workspace sync repository.
  */
-export type VcsProvider = "github" | "gitlab" | "bitbucket"
+export type VcsProvider =
+  | "github"
+  | "gitlab"
+  | "bitbucket"
+  | "bitbucket_data_center"
 
 /**
  * Vercel AI SDK format request with structured UI messages.
@@ -9540,7 +10184,7 @@ export type WebhookStoredObjectDownloadResponse = {
   size_bytes: number
 }
 
-export type kind2 = "download_file" | "download_export"
+export type kind3 = "download_file" | "download_export"
 
 export type WebhookStoredObjectInlineResponse = {
   kind: "value"
@@ -10432,37 +11076,13 @@ export type WorkspaceCreate = {
   organization_id?: string | null
 }
 
-/**
- * Request schema for creating a workspace invitation.
- */
-export type WorkspaceInvitationCreate = {
-  email: string
-  role_id: string
-}
-
-/**
- * Response schema for a workspace invitation.
- */
-export type WorkspaceInvitationRead = {
-  id: string
-  workspace_id: string
-  email: string
-  role_id: string
-  role_name: string
-  role_slug?: string | null
-  status: InvitationStatus
-  invited_by: string | null
-  expires_at: string
-  accepted_at: string | null
-  created_at: string
-}
-
 export type WorkspaceMember = {
   user_id: string
   first_name: string | null
   last_name: string | null
   email: string
   role_name: string
+  via_group: boolean
 }
 
 export type WorkspaceMembershipCreate = {
@@ -10488,6 +11108,18 @@ export type WorkspaceRead = {
 export type WorkspaceReadMinimal = {
   id: string
   name: string
+}
+
+/**
+ * Workspace view of an authorized store. Never exposes the external ID.
+ */
+export type WorkspaceSecretStoreRead = {
+  id: string
+  name: string
+  description?: string | null
+  provider: SecretStoreProvider
+  region: string
+  enabled: boolean
 }
 
 export type WorkspaceSettingsRead = {
@@ -10935,28 +11567,11 @@ export type WorkspacesDeleteWorkspaceMembershipData = {
 
 export type WorkspacesDeleteWorkspaceMembershipResponse = void
 
-export type WorkspacesCreateWorkspaceInvitationData = {
-  requestBody: WorkspaceInvitationCreate
+export type SearchGetEmbeddingConfigurationData = {
   workspaceId: string
 }
 
-export type WorkspacesCreateWorkspaceInvitationResponse =
-  WorkspaceInvitationRead
-
-export type WorkspacesListWorkspaceInvitationsData = {
-  status?: InvitationStatus | null
-  workspaceId: string
-}
-
-export type WorkspacesListWorkspaceInvitationsResponse =
-  Array<WorkspaceInvitationRead>
-
-export type WorkspacesRevokeWorkspaceInvitationData = {
-  invitationId: string
-  workspaceId: string
-}
-
-export type WorkspacesRevokeWorkspaceInvitationResponse = void
+export type SearchGetEmbeddingConfigurationResponse = EmbeddingConfigurationRead
 
 export type ServiceAccountsListWorkspaceServiceAccountsData = {
   cursor?: string | null
@@ -11559,6 +12174,37 @@ export type WorkflowsPullWorkflowsData = {
 
 export type WorkflowsPullWorkflowsResponse = PullResult
 
+export type SecretsCreateAwsSecretReferenceData = {
+  requestBody: AwsSecretReferenceCreate
+  workspaceId: string
+}
+
+export type SecretsCreateAwsSecretReferenceResponse = unknown
+
+export type SecretsUpdateAwsSecretReferenceData = {
+  requestBody: AwsSecretReferenceUpdate
+  secretId: string
+  workspaceId: string
+}
+
+export type SecretsUpdateAwsSecretReferenceResponse = void
+
+export type SecretsCheckAwsSecretReferenceData = {
+  secretId: string
+  workspaceId: string
+}
+
+export type SecretsCheckAwsSecretReferenceResponse = SecretReferenceCheckResult
+
+export type SecretsListAuthorizedSecretStoresData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type SecretsListAuthorizedSecretStoresResponse =
+  Page_WorkspaceSecretStoreRead_
+
 export type SecretsSearchSecretsData = {
   environment: string
   /**
@@ -11812,54 +12458,46 @@ export type OrganizationDeleteSessionData = {
 
 export type OrganizationDeleteSessionResponse = void
 
-export type OrganizationCreateInvitationData = {
-  requestBody: OrgInvitationCreate
+export type InvitationsCreateInvitationData = {
+  requestBody: InvitationCreate
 }
 
-export type OrganizationCreateInvitationResponse = OrgInvitationRead
+export type InvitationsCreateInvitationResponse = InvitationRead
 
-export type OrganizationListInvitationsData = {
-  status?: InvitationStatus | null
+export type InvitationsAcceptInvitationData = {
+  requestBody: InvitationAccept
 }
 
-export type OrganizationListInvitationsResponse = Array<OrgInvitationRead>
-
-export type OrganizationRevokeInvitationData = {
-  invitationId: string
-}
-
-export type OrganizationRevokeInvitationResponse = void
-
-export type OrganizationResendInvitationData = {
-  invitationId: string
-}
-
-export type OrganizationResendInvitationResponse = OrgInvitationRead
-
-export type OrganizationGetInvitationTokenData = {
-  invitationId: string
-}
-
-export type OrganizationGetInvitationTokenResponse = {
+export type InvitationsAcceptInvitationResponse = {
   [key: string]: string
 }
 
-export type OrganizationAcceptInvitationData = {
-  requestBody: OrgInvitationAccept
-}
+export type InvitationsListMyPendingInvitationsResponse =
+  Array<PendingInvitationRead>
 
-export type OrganizationAcceptInvitationResponse = {
-  [key: string]: string
-}
-
-export type OrganizationListMyPendingInvitationsResponse =
-  Array<OrgPendingInvitationRead>
-
-export type OrganizationGetInvitationByTokenData = {
+export type InvitationsGetInvitationByTokenData = {
   token: string
 }
 
-export type OrganizationGetInvitationByTokenResponse = OrgInvitationReadMinimal
+export type InvitationsGetInvitationByTokenResponse = InvitationReadMinimal
+
+export type InvitationsRevokeInvitationData = {
+  invitationId: string
+}
+
+export type InvitationsRevokeInvitationResponse = void
+
+export type InvitationsResendInvitationData = {
+  invitationId: string
+}
+
+export type InvitationsResendInvitationResponse = InvitationRead
+
+export type InvitationsGetInvitationTokenData = {
+  invitationId: string
+}
+
+export type InvitationsGetInvitationTokenResponse = InvitationTokenRead
 
 export type ServiceAccountsListOrganizationServiceAccountsData = {
   cursor?: string | null
@@ -13463,6 +14101,54 @@ export type OrganizationSecretsDeleteOrgSecretByIdData = {
 
 export type OrganizationSecretsDeleteOrgSecretByIdResponse = void
 
+export type OrganizationSecretStoresListSecretStoresData = {
+  cursor?: string | null
+  limit?: number
+}
+
+export type OrganizationSecretStoresListSecretStoresResponse =
+  Page_SecretStoreRead_
+
+export type OrganizationSecretStoresCreateSecretStoreData = {
+  requestBody: SecretStoreCreate
+}
+
+export type OrganizationSecretStoresCreateSecretStoreResponse = SecretStoreRead
+
+export type OrganizationSecretStoresGetSecretStoreData = {
+  storeId: string
+}
+
+export type OrganizationSecretStoresGetSecretStoreResponse = SecretStoreRead
+
+export type OrganizationSecretStoresUpdateSecretStoreData = {
+  requestBody: SecretStoreUpdate
+  storeId: string
+}
+
+export type OrganizationSecretStoresUpdateSecretStoreResponse = void
+
+export type OrganizationSecretStoresDeleteSecretStoreData = {
+  storeId: string
+}
+
+export type OrganizationSecretStoresDeleteSecretStoreResponse = void
+
+export type OrganizationSecretStoresAuthorizeSecretStoreWorkspaceData = {
+  requestBody: SecretStoreAuthorizationCreate
+  storeId: string
+}
+
+export type OrganizationSecretStoresAuthorizeSecretStoreWorkspaceResponse =
+  SecretStoreAuthorizationRead
+
+export type OrganizationSecretStoresRevokeSecretStoreWorkspaceData = {
+  storeId: string
+  workspaceId: string
+}
+
+export type OrganizationSecretStoresRevokeSecretStoreWorkspaceResponse = void
+
 export type TablesListTablesData = {
   workspaceId: string
 }
@@ -13612,6 +14298,39 @@ export type TablesImportCsvData = {
 }
 
 export type TablesImportCsvResponse = TableRowInsertBatchResponse
+
+export type TablesGetTableSearchData = {
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesGetTableSearchResponse = TableSearchConfiguration
+
+export type TablesSelectTableSearchColumnData = {
+  requestBody: TableSearchSelection
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesSelectTableSearchColumnResponse = TableSearchConfiguration
+
+export type TablesRetryTableSearchData = {
+  requestBody: TableSearchRetry
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesRetryTableSearchResponse = void
+
+export type TablesGetTableSearchProgressData = {
+  cursor?: string | null
+  generation: number
+  limit?: number
+  tableId: string
+  workspaceId: string
+}
+
+export type TablesGetTableSearchProgressResponse = TableSearchProgressPage
 
 export type CasesListCasesData = {
   /**
@@ -14642,6 +15361,30 @@ export type VcsDeleteGitlabTokenCredentialsResponse = void
 export type VcsGetGitlabTokenCredentialsStatusResponse =
   GitLabTokenCredentialsStatus
 
+export type VcsSaveBitbucketTokenCredentialsData = {
+  requestBody: BitbucketTokenCredentialsRequest
+}
+
+export type VcsSaveBitbucketTokenCredentialsResponse =
+  BitbucketTokenCredentialsSaveResponse
+
+export type VcsDeleteBitbucketTokenCredentialsResponse = void
+
+export type VcsGetBitbucketTokenCredentialsStatusResponse =
+  BitbucketTokenCredentialsStatus
+
+export type VcsSaveBitbucketDataCenterTokenCredentialsData = {
+  requestBody: BitbucketDataCenterTokenCredentialsRequest
+}
+
+export type VcsSaveBitbucketDataCenterTokenCredentialsResponse =
+  BitbucketDataCenterTokenCredentialsSaveResponse
+
+export type VcsDeleteBitbucketDataCenterTokenCredentialsResponse = void
+
+export type VcsGetBitbucketDataCenterTokenCredentialsStatusResponse =
+  BitbucketDataCenterTokenCredentialsStatus
+
 export type UsersGetMyScopesData = {
   workspaceId?: string | null
 }
@@ -14668,6 +15411,12 @@ export type RbacListUserAssignmentsData = {
 }
 
 export type RbacListUserAssignmentsResponse = UserRoleAssignmentList
+
+export type RbacReplaceUserAssignmentsData = {
+  requestBody: UserRoleAssignmentsReplace
+}
+
+export type RbacReplaceUserAssignmentsResponse = void
 
 export type RbacCreateUserAssignmentData = {
   requestBody: UserRoleAssignmentCreate
@@ -14792,6 +15541,10 @@ export type RbacListAssignmentsData = {
    * Filter by group ID
    */
   groupId?: string | null
+  /**
+   * Filter by group member user ID
+   */
+  userId?: string | null
   /**
    * Filter by workspace ID
    */
@@ -15145,6 +15898,10 @@ export type $OpenApiTs = {
          */
         201: WorkspaceMembershipRead
         /**
+         * User is already a member of the workspace.
+         */
+        409: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -15173,52 +15930,48 @@ export type $OpenApiTs = {
          */
         204: void
         /**
+         * User remains a member through a group.
+         */
+        409: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
       }
     }
   }
-  "/workspaces/{workspace_id}/invitations": {
-    post: {
-      req: WorkspacesCreateWorkspaceInvitationData
-      res: {
-        /**
-         * Successful Response
-         */
-        201: WorkspaceInvitationRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
+  "/workspaces/{workspace_id}/search/configuration": {
     get: {
-      req: WorkspacesListWorkspaceInvitationsData
+      req: SearchGetEmbeddingConfigurationData
       res: {
         /**
          * Successful Response
          */
-        200: Array<WorkspaceInvitationRead>
+        200: EmbeddingConfigurationRead
+        /**
+         * Bad Request
+         */
+        400: EmbeddingErrorResponse
+        /**
+         * Conflict
+         */
+        409: EmbeddingErrorResponse
         /**
          * Validation Error
          */
         422: HTTPValidationError
-      }
-    }
-  }
-  "/workspaces/{workspace_id}/invitations/{invitation_id}": {
-    delete: {
-      req: WorkspacesRevokeWorkspaceInvitationData
-      res: {
         /**
-         * Successful Response
+         * Too Many Requests
          */
-        204: void
+        429: EmbeddingErrorResponse
         /**
-         * Validation Error
+         * Bad Gateway
          */
-        422: HTTPValidationError
+        502: EmbeddingErrorResponse
+        /**
+         * Gateway Timeout
+         */
+        504: EmbeddingErrorResponse
       }
     }
   }
@@ -16219,6 +16972,66 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/secrets/aws": {
+    post: {
+      req: SecretsCreateAwsSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secrets/aws/{secret_id}": {
+    post: {
+      req: SecretsUpdateAwsSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secrets/aws/{secret_id}/check": {
+    post: {
+      req: SecretsCheckAwsSecretReferenceData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SecretReferenceCheckResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/secret-stores": {
+    get: {
+      req: SecretsListAuthorizedSecretStoresData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_WorkspaceSecretStoreRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/secrets/search": {
     get: {
       req: SecretsSearchSecretsData
@@ -16715,27 +17528,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/organization/invitations": {
+  "/invitations": {
     post: {
-      req: OrganizationCreateInvitationData
+      req: InvitationsCreateInvitationData
       res: {
         /**
          * Successful Response
          */
-        201: OrgInvitationRead
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-    get: {
-      req: OrganizationListInvitationsData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<OrgInvitationRead>
+        201: InvitationRead
         /**
          * Validation Error
          */
@@ -16743,9 +17543,51 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/organization/invitations/{invitation_id}": {
+  "/invitations/accept": {
+    post: {
+      req: InvitationsAcceptInvitationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: {
+          [key: string]: string
+        }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/invitations/pending/me": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<PendingInvitationRead>
+      }
+    }
+  }
+  "/invitations/token/{token}": {
+    get: {
+      req: InvitationsGetInvitationByTokenData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: InvitationReadMinimal
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/invitations/{invitation_id}": {
     delete: {
-      req: OrganizationRevokeInvitationData
+      req: InvitationsRevokeInvitationData
       res: {
         /**
          * Successful Response
@@ -16758,14 +17600,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/organization/invitations/{invitation_id}/resend": {
+  "/invitations/{invitation_id}/resend": {
     post: {
-      req: OrganizationResendInvitationData
+      req: InvitationsResendInvitationData
       res: {
         /**
          * Successful Response
          */
-        200: OrgInvitationRead
+        200: InvitationRead
         /**
          * Validation Error
          */
@@ -16773,58 +17615,14 @@ export type $OpenApiTs = {
       }
     }
   }
-  "/organization/invitations/{invitation_id}/token": {
+  "/invitations/{invitation_id}/token": {
     get: {
-      req: OrganizationGetInvitationTokenData
+      req: InvitationsGetInvitationTokenData
       res: {
         /**
          * Successful Response
          */
-        200: {
-          [key: string]: string
-        }
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/organization/invitations/accept": {
-    post: {
-      req: OrganizationAcceptInvitationData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: {
-          [key: string]: string
-        }
-        /**
-         * Validation Error
-         */
-        422: HTTPValidationError
-      }
-    }
-  }
-  "/organization/invitations/pending/me": {
-    get: {
-      res: {
-        /**
-         * Successful Response
-         */
-        200: Array<OrgPendingInvitationRead>
-      }
-    }
-  }
-  "/organization/invitations/token/{token}": {
-    get: {
-      req: OrganizationGetInvitationByTokenData
-      res: {
-        /**
-         * Successful Response
-         */
-        200: OrgInvitationReadMinimal
+        200: InvitationTokenRead
         /**
          * Validation Error
          */
@@ -19819,6 +20617,105 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/organization/secret-stores": {
+    get: {
+      req: OrganizationSecretStoresListSecretStoresData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_SecretStoreRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    post: {
+      req: OrganizationSecretStoresCreateSecretStoreData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SecretStoreRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/secret-stores/{store_id}": {
+    get: {
+      req: OrganizationSecretStoresGetSecretStoreData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SecretStoreRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: OrganizationSecretStoresUpdateSecretStoreData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: OrganizationSecretStoresDeleteSecretStoreData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/secret-stores/{store_id}/authorizations": {
+    post: {
+      req: OrganizationSecretStoresAuthorizeSecretStoreWorkspaceData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SecretStoreAuthorizationRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/organization/secret-stores/{store_id}/authorizations/{workspace_id}": {
+    delete: {
+      req: OrganizationSecretStoresRevokeSecretStoreWorkspaceData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/tables": {
     get: {
       req: TablesListTablesData
@@ -20068,6 +20965,102 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: TableRowInsertBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tables/{table_id}/search": {
+    get: {
+      req: TablesGetTableSearchData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableSearchConfiguration
+        /**
+         * Not Found
+         */
+        404: TableSearchErrorResponse
+        /**
+         * Conflict
+         */
+        409: TableSearchErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tables/{table_id}/search/selection": {
+    patch: {
+      req: TablesSelectTableSearchColumnData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableSearchConfiguration
+        /**
+         * Not Found
+         */
+        404: TableSearchErrorResponse
+        /**
+         * Conflict
+         */
+        409: TableSearchErrorResponse
+        /**
+         * Unprocessable Entity
+         */
+        422: TableSearchSelectionErrorResponse
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tables/{table_id}/search/retry": {
+    post: {
+      req: TablesRetryTableSearchData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Not Found
+         */
+        404: TableSearchErrorResponse
+        /**
+         * Conflict
+         */
+        409: TableSearchErrorResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tables/{table_id}/search/documents": {
+    get: {
+      req: TablesGetTableSearchProgressData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: TableSearchProgressPage
+        /**
+         * Bad Request
+         */
+        400: TableSearchErrorResponse
+        /**
+         * Not Found
+         */
+        404: TableSearchErrorResponse
+        /**
+         * Conflict
+         */
+        409: TableSearchErrorResponse
         /**
          * Validation Error
          */
@@ -21578,6 +22571,72 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/organization/vcs/bitbucket/credentials": {
+    post: {
+      req: VcsSaveBitbucketTokenCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: BitbucketTokenCredentialsSaveResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/organization/vcs/bitbucket/credentials/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BitbucketTokenCredentialsStatus
+      }
+    }
+  }
+  "/organization/vcs/bitbucket-data-center/credentials": {
+    post: {
+      req: VcsSaveBitbucketDataCenterTokenCredentialsData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: BitbucketDataCenterTokenCredentialsSaveResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+      }
+    }
+  }
+  "/organization/vcs/bitbucket-data-center/credentials/status": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BitbucketDataCenterTokenCredentialsStatus
+      }
+    }
+  }
   "/users/me/scopes": {
     get: {
       req: UsersGetMyScopesData
@@ -21624,6 +22683,19 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: UserRoleAssignmentList
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    put: {
+      req: RbacReplaceUserAssignmentsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */
@@ -21678,6 +22750,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * User role assignment not found.
+         */
+        404: unknown
         /**
          * Validation Error
          */

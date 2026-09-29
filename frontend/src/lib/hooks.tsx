@@ -128,6 +128,7 @@ import {
   type IntegrationRead,
   type IntegrationReadMinimal,
   type IntegrationUpdate,
+  type InvitationCreate,
   integrationsConnectProvider,
   integrationsDeleteIntegration,
   integrationsDisconnectIntegration,
@@ -135,6 +136,9 @@ import {
   integrationsListIntegrations,
   integrationsTestConnection,
   integrationsUpdateIntegration,
+  invitationsCreateInvitation,
+  invitationsResendInvitation,
+  invitationsRevokeInvitation,
   listCatalog,
   listCustomProviders,
   listEnabledModels,
@@ -159,15 +163,11 @@ import {
   type OrganizationDeleteOrgMemberData,
   type OrganizationDeleteSessionData,
   type OrganizationUpdateOrgMemberData,
-  type OrgInvitationCreate,
   type OrgMemberRead,
-  organizationCreateInvitation,
   organizationDeleteOrgMember,
   organizationDeleteSession,
   organizationListOrgMembers,
   organizationListSessions,
-  organizationResendInvitation,
-  organizationRevokeInvitation,
   organizationSecretsCreateOrgSecret,
   organizationSecretsDeleteOrgSecretById,
   organizationSecretsListOrgSecrets,
@@ -2291,10 +2291,13 @@ export function useOrgMembers() {
     mutateAsync: createInvitation,
     isPending: createInvitationIsPending,
   } = useMutation({
-    mutationFn: async (params: OrgInvitationCreate) =>
-      await organizationCreateInvitation({ requestBody: params }),
+    mutationFn: async (params: InvitationCreate) =>
+      await invitationsCreateInvitation({ requestBody: params }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
+      queryClient.invalidateQueries({
+        queryKey: ["org-invitations", "pending"],
+      })
       toast({
         title: "Invitation created",
         description: "Invitation sent successfully.",
@@ -2313,9 +2316,12 @@ export function useOrgMembers() {
 
   const { mutateAsync: revokeInvitation } = useMutation({
     mutationFn: async (invitationId: string) =>
-      await organizationRevokeInvitation({ invitationId }),
+      await invitationsRevokeInvitation({ invitationId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
+      queryClient.invalidateQueries({
+        queryKey: ["org-invitations", "pending"],
+      })
       toast({
         title: "Invitation revoked",
         description: "Invitation has been revoked.",
@@ -2337,7 +2343,7 @@ export function useOrgMembers() {
     isPending: resendInvitationIsPending,
   } = useMutation({
     mutationFn: async (invitationId: string) =>
-      await organizationResendInvitation({ invitationId }),
+      await invitationsResendInvitation({ invitationId }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
     },
@@ -3271,6 +3277,9 @@ function invalidateTableDetailQuery(
   queryClient.invalidateQueries({
     queryKey: ["table", workspaceId, tableId],
   })
+  queryClient.invalidateQueries({
+    queryKey: ["table-search", workspaceId, tableId],
+  })
 }
 
 export function useCreateTable() {
@@ -3537,6 +3546,9 @@ export function useBatchInsertRows() {
       await tablesBatchInsertRows(params),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
+        queryKey: ["table-search", variables.workspaceId, variables.tableId],
+      })
+      queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
       queryClient.invalidateQueries({
@@ -3580,6 +3592,9 @@ export function useInsertRow() {
     mutationFn: async (params: TablesInsertRowData) =>
       await tablesInsertRow(params),
     onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["table-search", variables.workspaceId, variables.tableId],
+      })
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
@@ -3628,6 +3643,9 @@ export function useUpdateRow() {
     mutationFn: async (params: TablesUpdateRowData) =>
       await tablesUpdateRow(params),
     onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["table-search", variables.workspaceId, variables.tableId],
+      })
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })
@@ -3776,6 +3794,9 @@ export function useImportCsv() {
     mutationFn: async (params: TablesImportCsvData) =>
       await tablesImportCsv(params),
     onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["table-search", variables.workspaceId, variables.tableId],
+      })
       queryClient.invalidateQueries({
         queryKey: ["rows", variables.tableId],
       })

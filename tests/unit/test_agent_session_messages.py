@@ -10,6 +10,7 @@ import pytest
 from claude_agent_sdk.types import UserMessage
 
 from tracecat.agent.runtime.claude_code.session_lines import (
+    APPROVAL_CONTINUATION_PROMPT,
     MODEL_CONTEXT_PROMPT_PREFIX,
 )
 from tracecat.agent.session.history import prepare_session_history
@@ -358,7 +359,10 @@ async def test_load_session_history_omits_internal_rows_and_repairs_parent_chain
                 "type": "user",
                 "uuid": "prompt-uuid",
                 "parentUuid": "synthetic-uuid",
-                "message": {"role": "user", "content": "Continue."},
+                "message": {
+                    "role": "user",
+                    "content": APPROVAL_CONTINUATION_PROMPT,
+                },
             },
         ),
         SimpleNamespace(
@@ -424,7 +428,10 @@ async def test_list_messages_skips_misclassified_continuation_artifacts() -> Non
                 "type": "user",
                 "uuid": prompt_uuid,
                 "parentUuid": "synthetic-uuid",
-                "message": {"role": "user", "content": "Continue."},
+                "message": {
+                    "role": "user",
+                    "content": APPROVAL_CONTINUATION_PROMPT,
+                },
             },
         ),
         SimpleNamespace(

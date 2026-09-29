@@ -11,7 +11,7 @@ from asyncpg import DuplicateColumnError, DuplicateTableError
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from pydantic_core import to_jsonable_python
-from sqlalchemy.exc import DBAPIError, ProgrammingError
+from sqlalchemy.exc import ProgrammingError
 
 from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
@@ -23,6 +23,7 @@ from tracecat.expressions.functions import tabulate
 from tracecat.logger import logger
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.query.errors import TracecatQueryOverflowError
+from tracecat.search.router import router as semantic_search_router
 from tracecat.tables.common import coerce_optional_to_utc_datetime
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
@@ -42,6 +43,8 @@ from tracecat.tables.service import TablesService, validate_identifier
 router = APIRouter(
     prefix="/internal/tables", tags=["internal-tables"], include_in_schema=False
 )
+
+router.include_router(semantic_search_router)
 
 
 class TableCreateRequest(BaseModel):
@@ -573,12 +576,6 @@ async def insert_rows_batch(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
-        ) from exc
-    except DBAPIError as exc:
-        detail = str(exc.__cause__ or exc)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Database error: {detail}",
         ) from exc
 
 

@@ -112,6 +112,7 @@ from tracecat.observability.otel import (
     initialize_platform_tracing,
     shutdown_platform_tracing,
 )
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import (
@@ -2162,9 +2163,12 @@ class TestSandboxedAgentExecutorHelpers:
         tmp_path: Path,
     ) -> None:
         executor = SandboxedAgentExecutor(input=executor_input)
+        classification = agent_executor_timed_out(TimeoutError("secret"))
+        capture = PlatformErrorCapture.for_error("a" * 32, classification)
         executor._fatal_error = LLMProxyError(
             message="raw gateway timeout",
-            classification=agent_executor_timed_out(TimeoutError("secret")),
+            classification=classification,
+            sentry_capture=capture,
             diagnostic=LLMErrorDiagnostics(
                 route="managed", provider_configuration="custom"
             ),
@@ -2182,6 +2186,9 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
         assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
         assert "secret" not in result.classification.message
+        assert result.sentry_capture == capture
+        restored = AgentExecutorResult.model_validate_json(result.model_dump_json())
+        assert restored.sentry_capture == capture
         assert result.diagnostic == executor._fatal_error.diagnostic
         assert "llm" not in result.model_dump(mode="json")["classification"]
         assert result.terminal_stream_error_emitted is True
@@ -2509,6 +2516,61 @@ class TestSandboxedAgentExecutorCancellation:
         return result
 
     @pytest.mark.anyio
+    async def test_cancellation_after_turn_finishes_does_not_interrupt(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input)
+        executor._job_dir = tmp_path
+        executor._llm_proxy = AsyncMock()
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor_input.session_id,
+                workspace_id=executor_input.workspace_id,
+            )
+        )
+        interrupt = AsyncMock(side_effect=AssertionError("Turn already finished"))
+
+        class FakeBroker:
+            @asynccontextmanager
+            async def session_turn_lease(self, _session_id: str) -> AsyncIterator[None]:
+                yield
+                # Deliver Temporal cancellation after the broker task finishes
+                # but before the executor has returned from the turn lease.
+                task = asyncio.current_task()
+                assert task is not None
+                task.cancel()
+                await asyncio.sleep(0)
+
+            async def run_turn_in_session_lease(
+                self, _request: ClaudeTurnRequest, _handler: LoopbackHandler
+            ) -> None:
+                pass
+
+            interrupt_turn = interrupt
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker", FakeBroker
+        )
+        result = AgentExecutorResult(success=False, terminal_stream_error_emitted=False)
+        await executor._run_with_broker(
+            result=result,
+            handler=handler,
+            init_payload=executor._build_runtime_init_payload(),
+            socket_dir=tmp_path / "sockets",
+            llm_socket_path=tmp_path / "sockets" / "llm.sock",
+            artifact_working_set=None,
+            otel_socket_path=None,
+        )
+        interrupt.assert_not_awaited()
+        assert result.cancelled is True
+        assert result.success is True
+        assert result.error is None
+        assert result.sentry_capture is None
+
+    @pytest.mark.anyio
     async def test_cancellation_preserves_error_when_interrupted_turn_failed(
         self,
         executor_input: AgentExecutorInput,
@@ -2649,6 +2711,53 @@ class TestSandboxedAgentExecutorCancellation:
         )
         assert result.sentry_capture is None
         capture_failure.assert_not_called()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("outcome", ["success", "failed", "cancelled"])
+    async def test_cancel_signal_does_not_interrupt_finished_task(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        outcome: str,
+    ) -> None:
+        executor_input.curr_run_id = uuid.uuid4()
+        executor = SandboxedAgentExecutor(input=executor_input)
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor_input.session_id,
+                workspace_id=executor_input.workspace_id,
+            )
+        )
+        broker = MagicMock()
+        broker.interrupt_turn = AsyncMock()
+        broker.cancel_turn = AsyncMock()
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.read_turn_cancel_signal",
+            AsyncMock(return_value="user_cancel"),
+        )
+
+        async def finished_turn() -> None:
+            if outcome == "failed":
+                raise RuntimeError("synthetic runtime failure")
+            if outcome == "cancelled":
+                raise asyncio.CancelledError
+
+        broker_task = asyncio.create_task(finished_turn())
+        await asyncio.wait({broker_task})
+        await executor._watch_cancel_signal(
+            broker=broker, handler=handler, broker_task=broker_task
+        )
+        broker.interrupt_turn.assert_not_awaited()
+        broker.cancel_turn.assert_not_awaited()
+        # The watcher does not consume or replace the main wait loop's outcome.
+        if outcome == "failed":
+            with pytest.raises(RuntimeError, match="synthetic runtime failure"):
+                await broker_task
+        elif outcome == "cancelled":
+            with pytest.raises(asyncio.CancelledError):
+                await broker_task
+        else:
+            await broker_task
 
     @pytest.mark.anyio
     async def test_cancel_signal_interrupts_turn_without_task_cancellation(

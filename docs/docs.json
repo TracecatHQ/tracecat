@@ -38,6 +38,7 @@
                   "automations/tables",
                   "automations/core-concepts/expressions",
                   "automations/core-concepts/secrets",
+                  "automations/core-concepts/external-secret-stores",
                   "automations/core-concepts/variables",
                   "automations/core-concepts/workflow-metadata",
                   "automations/core-concepts/functions",

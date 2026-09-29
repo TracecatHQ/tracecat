@@ -3,9 +3,6 @@ import {
   type ApiError,
   type WorkspaceMember,
   type WorkspaceRead,
-  type WorkspacesCreateWorkspaceMembershipData,
-  type WorkspacesCreateWorkspaceMembershipResponse,
-  workspacesCreateWorkspaceMembership,
   workspacesDeleteWorkspaceMembership,
   workspacesGetWorkspace,
   workspacesListWorkspaceMembers,
@@ -41,22 +38,6 @@ export function useWorkspaceMutations() {
   const workspaceId = useWorkspaceId()
   const qc = useQueryClient()
 
-  const { mutateAsync: addMember, isPending: addPending } = useMutation<
-    WorkspacesCreateWorkspaceMembershipResponse,
-    Error,
-    WorkspacesCreateWorkspaceMembershipData
-  >({
-    mutationFn: workspacesCreateWorkspaceMembership,
-    onSuccess: async () => {
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["workspace", workspaceId] }),
-        qc.invalidateQueries({
-          queryKey: ["workspace", workspaceId, "members"],
-        }),
-      ])
-    },
-  })
-
   const { mutateAsync: removeMember, isPending: removePending } = useMutation<
     unknown,
     Error,
@@ -78,8 +59,6 @@ export function useWorkspaceMutations() {
   })
 
   return {
-    addMember,
-    addPending,
     removeMember,
     removePending,
   }

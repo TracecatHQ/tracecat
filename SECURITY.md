@@ -18,6 +18,12 @@ The following security features are available in Tracecat open source:
 - Workspaces to isolate resources
 - `nsjail` sandbox or `pid` runtime for isolated code and agent execution
 
+> [!WARNING]
+> The `direct` executor backend does not provide the supported `nsjail` boundary for ordinary workflow actions.
+> Setting `TRACECAT__DISABLE_NSJAIL=false` alone does not sandbox them.
+> Use `TRACECAT__EXECUTOR_BACKEND=ephemeral` together with `TRACECAT__DISABLE_NSJAIL=false` for supported `nsjail` action isolation.
+> See the [self-hosting security guide](https://docs.tracecat.com/self-hosting/security#nsjail-sandbox-recommended-for-production) for deployment requirements.
+
 ## Reporting Vulnerabilities
 
 > [!NOTE]

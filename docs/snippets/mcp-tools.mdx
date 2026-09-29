@@ -436,7 +436,7 @@
 <ResponseField name="create_agent_preset" type="tool">
   Create an agent preset in the selected workspace.
 
-  Use `skills` to attach published skills. Each binding contains `skill_id`.
+  Use `skills` to attach published skills. Each binding contains `skill_id` only; the preset always runs each skill's latest published version, so there is no version to pin.
 
   Attach tools via `actions`, `mcp_integration_ids`, or a skill's `metadata.tools`.
 </ResponseField>
@@ -444,7 +444,7 @@
 <ResponseField name="update_agent_preset" type="tool">
   Update an existing agent preset in the selected workspace.
 
-  Use `skills` to replace attached published skills. Each binding contains `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list to detach all skills.
+  Use `skills` to replace attached published skills. Each binding contains `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list to detach all skills. Attached skills always run at their latest published version, so do not call this after `publish_skill` just to refresh a skill version; only pass `skills` when adding or removing a skill.
 
   Attach tools via `actions`, `mcp_integration_ids`, or a skill's `metadata.tools`.
 
@@ -538,7 +538,7 @@
 <ResponseField name="publish_skill" type="tool">
   Publish a skill draft into an immutable skill version.
 
-  Only published skill versions can be attached to agent presets.
+  Only published skills can be attached to agent presets. Presets that already have this skill attached pick up the new version automatically on their next run; no `update_agent_preset` call is needed afterwards.
 </ResponseField>
 
 <ResponseField name="list_agent_presets" type="tool">

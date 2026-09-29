@@ -146,8 +146,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # extensions from this directory instead of autoinstalling over the network.
 ENV TRACECAT__DUCKDB_EXTENSION_DIRECTORY=/usr/local/lib/duckdb/extensions
 
-# Copy sandbox rootfs
-COPY --from=sandbox-rootfs /usr /var/lib/tracecat/sandbox-rootfs/usr
+# Copy sandbox rootfs. --chmod=755 normalizes every copied path and drops
+# setuid/setgid bits at copy time; a recursive chmod after the copy would store
+# a second full copy of the rootfs in its own layer.
+COPY --from=sandbox-rootfs --chmod=755 /usr /var/lib/tracecat/sandbox-rootfs/usr
 
 # Expose the single rootfs DuckDB copy to the executor host via symlinks, so the
 # host CLI and the in-process DuckDB Python package work without a second copy
@@ -159,13 +161,13 @@ RUN ln -s /var/lib/tracecat/sandbox-rootfs/usr/local/lib/duckdb /usr/local/lib/d
     ln -s /var/lib/tracecat/sandbox-rootfs/usr/local/bin/duckdb /usr/local/bin/duckdb && \
     jq --version && duckdb --version
 
-COPY --from=sandbox-rootfs /lib /var/lib/tracecat/sandbox-rootfs/lib
-COPY --from=sandbox-rootfs /bin /var/lib/tracecat/sandbox-rootfs/bin
-COPY --from=sandbox-rootfs /sbin /var/lib/tracecat/sandbox-rootfs/sbin
-COPY --from=sandbox-rootfs /etc/passwd /var/lib/tracecat/sandbox-rootfs/etc/passwd
-COPY --from=sandbox-rootfs /etc/group /var/lib/tracecat/sandbox-rootfs/etc/group
-COPY --from=sandbox-rootfs /etc/ssl /var/lib/tracecat/sandbox-rootfs/etc/ssl
-COPY --from=sandbox-rootfs /etc/ca-certificates /var/lib/tracecat/sandbox-rootfs/etc/ca-certificates
+COPY --from=sandbox-rootfs --chmod=755 /lib /var/lib/tracecat/sandbox-rootfs/lib
+COPY --from=sandbox-rootfs --chmod=755 /bin /var/lib/tracecat/sandbox-rootfs/bin
+COPY --from=sandbox-rootfs --chmod=755 /sbin /var/lib/tracecat/sandbox-rootfs/sbin
+COPY --from=sandbox-rootfs --chmod=755 /etc/passwd /var/lib/tracecat/sandbox-rootfs/etc/passwd
+COPY --from=sandbox-rootfs --chmod=755 /etc/group /var/lib/tracecat/sandbox-rootfs/etc/group
+COPY --from=sandbox-rootfs --chmod=755 /etc/ssl /var/lib/tracecat/sandbox-rootfs/etc/ssl
+COPY --from=sandbox-rootfs --chmod=755 /etc/ca-certificates /var/lib/tracecat/sandbox-rootfs/etc/ca-certificates
 RUN install -m 0644 /dev/null /var/lib/tracecat/sandbox-rootfs/etc/resolv.conf && \
     install -m 0644 /dev/null /var/lib/tracecat/sandbox-rootfs/etc/hosts && \
     install -m 0644 /dev/null /var/lib/tracecat/sandbox-rootfs/etc/nsswitch.conf
@@ -186,7 +188,6 @@ RUN mkdir -p /var/lib/tracecat/sandbox-rootfs/tmp \
     /var/lib/tracecat/sandbox-rootfs/home/sandbox \
     /var/lib/tracecat/sandbox-cache/packages \
     /var/lib/tracecat/sandbox-cache/uv-cache && \
-    chmod -R 755 /var/lib/tracecat/sandbox-rootfs && \
     chown -R 1000:1000 /var/lib/tracecat/sandbox-rootfs/work \
         /var/lib/tracecat/sandbox-rootfs/cache \
         /var/lib/tracecat/sandbox-rootfs/packages \
@@ -299,28 +300,29 @@ ENV TMPDIR="/home/apiuser/.cache/tmp" TEMP="/home/apiuser/.cache/tmp" TMP="/home
 RUN chown -R 1001:1001 /var/lib/tracecat/sandbox-cache && \
     chmod -R 755 /var/lib/tracecat/sandbox-cache
 
-# Prime uv cache (as root, before switching user)
-RUN --mount=type=cache,target=/root/.cache/uv \
+RUN chown apiuser:apiuser /app
+
+# Switch to the non-root user used in production before installing, so /app
+# never needs a recursive chown (which would store a second copy of the venv).
+USER apiuser
+
+# Install third-party dependencies only, so this layer is reused until uv.lock or
+# pyproject.toml change. --frozen because uv cannot validate the lockfile
+# without workspace member sources; the sync below runs with --locked.
+RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    --mount=type=bind,source=packages,target=packages \
-    uv sync --locked --no-install-project --no-dev --no-editable
+    uv sync --frozen --no-install-workspace --no-dev --no-editable
 
 COPY --from=development-source --chown=apiuser:apiuser /source/ /app/
 COPY --from=plugin-skills --chown=apiuser:apiuser /skills/ /var/lib/tracecat/copilot-skills/
 
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
-
-# Fix ownership of /app (uv sync creates .venv as root)
-RUN chown -R apiuser:apiuser /app
+RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 uv sync --locked --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/home/apiuser/.local"
 
 RUN mkdir -p /home/apiuser/.local/bin && ln -s $(which uv) /home/apiuser/.local/bin/uv
-
-# Switch to the non-root user used in production.
-USER apiuser
 
 EXPOSE $PORT
 CMD ["sh", "-c", "python3 -m uvicorn tracecat.api.app:app --host $HOST --port $PORT --reload"]
@@ -373,12 +375,13 @@ RUN mkdir -p /app/.scripts && chown -R apiuser:apiuser /app
 # Switch to non-root user
 USER apiuser
 
-# Install dependencies as apiuser
+# Install third-party dependencies only, so this layer is reused until uv.lock or
+# pyproject.toml change. --frozen because uv cannot validate the lockfile
+# without workspace member sources; the final sync below runs with --locked.
 RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    --mount=type=bind,source=packages,target=packages \
-    uv sync --locked --no-install-project --no-dev --no-editable
+    uv sync --frozen --no-install-workspace --no-dev --no-editable
 
 COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
 COPY --chown=apiuser:apiuser ./packages /app/packages

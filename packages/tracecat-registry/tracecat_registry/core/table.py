@@ -613,3 +613,37 @@ async def download(
     if limit is not None:
         params["limit"] = limit
     return await ctx.tables.aio.download(**params)
+
+
+@registry.register(
+    default_title="Search table by meaning",
+    description="Find distinct rows by meaning in selected TEXT columns. Returns short excerpts and similarity scores, not confidence. Requires a configured provider and a ready index by default.",
+    display_group="Tables",
+    namespace="core.table",
+)
+async def search(
+    table: Annotated[str, Doc("The workspace table name.")],
+    query: Annotated[
+        str,
+        Doc("Search text, limited to 512 tokens or the model's smaller input limit."),
+    ],
+    limit: Annotated[int, Doc("Rows per page, from 1 to 100.")] = 10,
+    cursor: Annotated[
+        str | None,
+        Doc(
+            "Next cursor from the previous page. Keep other inputs unchanged. Expires after five minutes; windows hold at most 100 rows."
+        ),
+    ] = None,
+    allow_partial: Annotated[
+        bool,
+        Doc("Allow an incomplete index; only fully indexed current rows can match."),
+    ] = False,
+) -> types.SemanticSearchPage:
+    """Search selected text without changing literal search_rows behavior."""
+    return await ctx.tables.aio.search(
+        table=table,
+        query=query,
+        limit=limit,
+        cursor=cursor,
+        allow_partial=allow_partial,
+    )
