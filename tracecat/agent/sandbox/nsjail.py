@@ -50,6 +50,7 @@ from tracecat.agent.runtime.session_paths import (
     JAILED_AGENT_WORK_DIR,
     job_uv_state_dir,
 )
+from tracecat.agent.sandbox.cgroup import sandbox_cgroup
 from tracecat.agent.sandbox.config import (
     JAILED_SHIM_ENTRYPOINT_PATH,
     AgentSandboxConfig,
@@ -458,6 +459,7 @@ async def _spawn_nsjail_runtime(
         await asyncio.to_thread(shutil.copy2, host_shim_path, jailed_shim_path)
 
         nsjail_config = build_agent_nsjail_config(
+            cgroup_mount=sandbox_cgroup(),
             rootfs=rootfs,
             job_dir=job_dir,
             socket_dir=socket_dir,
