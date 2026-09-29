@@ -1377,6 +1377,31 @@ async def test_user_rename_updates_the_account_email(
 
 
 @pytest.mark.anyio
+async def test_user_create_rejects_superuser(
+    client: httpx.AsyncClient, session: AsyncSession, org: Organization
+) -> None:
+    """One org's IdP cannot link or admit a platform superuser."""
+    superuser = User(
+        id=uuid.uuid4(),
+        email=f"super-{uuid.uuid4().hex[:8]}@tracecat.com",
+        hashed_password="x",
+        is_superuser=True,
+    )
+    session.add(superuser)
+    await session.commit()
+
+    response = await _post_user(client, superuser.email, externalId="idp-super")
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    assert (
+        await session.scalar(
+            select(ExternalUser.id).where(ExternalUser.user_id == superuser.id)
+        )
+    ) is None
+    assert not await _is_member(session, user_id=superuser.id, organization_id=org.id)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("method", ["PUT", "PATCH"])
 async def test_user_rename_rejects_superuser(
     client: httpx.AsyncClient, session: AsyncSession, method: str

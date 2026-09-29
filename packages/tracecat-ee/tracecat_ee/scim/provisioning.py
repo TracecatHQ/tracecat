@@ -95,6 +95,7 @@ class ScimProvisioningService(BaseOrgService):
             The provisioned user and whether the account was newly created.
 
         Raises:
+            TracecatAuthorizationError: The account is a platform superuser.
             TracecatValidationError: The email is not a usable address, or is
                 not at a domain this organization owns.
         """
@@ -117,6 +118,9 @@ class ScimProvisioningService(BaseOrgService):
         else:
             user = existing
             created = False
+        # A superuser is platform-wide; one org's IdP must not own it.
+        if user.is_superuser:
+            raise TracecatAuthorizationError("Cannot provision superuser")
 
         # Account creation may commit; acquire the directory lock afterwards.
         await lock_role_changes(self.session, self.organization_id)
