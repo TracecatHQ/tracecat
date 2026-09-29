@@ -88,6 +88,7 @@ async def test_rotation_invalidates_the_previous_token(
     first = await service.issue_token()
     first_token = first.token
     first_key_id = first.connection.key_id
+    first_updated_at = first.connection.updated_at
 
     second = await service.issue_token()
 
@@ -99,6 +100,7 @@ async def test_rotation_invalidates_the_previous_token(
     assert verify_api_key(
         second.token, second.connection.salt, second.connection.hashed
     )
+    assert second.connection.updated_at > first_updated_at
 
     # Rotation must not create a second row for the organization.
     rows = (

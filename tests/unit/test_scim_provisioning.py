@@ -85,9 +85,9 @@ async def org(session: AsyncSession) -> Organization:
     return org
 
 
-@pytest.fixture
-async def active_connection(session: AsyncSession, org: Organization) -> None:
-    """Activate the org's connection; a pending one admits nobody."""
+async def _seed_connection(
+    session: AsyncSession, org: Organization, status: ScimConnectionStatus
+) -> None:
     session.add(
         ScimConnection(
             id=uuid.uuid4(),
@@ -96,10 +96,22 @@ async def active_connection(session: AsyncSession, org: Organization) -> None:
             hashed="x",
             salt="y",
             preview="scim_...",
-            status=ScimConnectionStatus.ACTIVE,
+            status=status,
         )
     )
     await session.flush()
+
+
+@pytest.fixture
+async def active_connection(session: AsyncSession, org: Organization) -> None:
+    """Activate the org's connection; a pending one admits nobody."""
+    await _seed_connection(session, org, ScimConnectionStatus.ACTIVE)
+
+
+@pytest.fixture
+async def pending_connection(session: AsyncSession, org: Organization) -> None:
+    """A connection awaiting review: it collects the directory, admits nobody."""
+    await _seed_connection(session, org, ScimConnectionStatus.PENDING)
 
 
 @pytest.fixture
@@ -218,7 +230,10 @@ async def test_repeated_provision_is_idempotent(
 
 @pytest.mark.anyio
 async def test_inactive_user_is_linked_but_not_admitted(
-    session: AsyncSession, org: Organization, service: ScimProvisioningService
+    session: AsyncSession,
+    org: Organization,
+    service: ScimProvisioningService,
+    active_connection: None,
 ) -> None:
     """A user pushed inactive gets no role assignment, so no org presence."""
     email = f"inactive-{uuid.uuid4().hex[:8]}@tracecat.com"
@@ -444,7 +459,10 @@ async def test_non_email_username_is_rejected(
 
 @pytest.mark.anyio
 async def test_pending_connection_links_without_admitting(
-    session: AsyncSession, org: Organization, service: ScimProvisioningService
+    session: AsyncSession,
+    org: Organization,
+    service: ScimProvisioningService,
+    pending_connection: None,
 ) -> None:
     """A connection awaiting review collects the directory but grants nothing."""
     email = f"pending-{uuid.uuid4().hex[:8]}@tracecat.com"

@@ -77,7 +77,8 @@ class ScimConnectionService(BaseOrgService):
             .values(organization_id=self.organization_id, **credential)
             .on_conflict_do_update(
                 index_elements=[ScimConnection.organization_id],
-                set_=credential,
+                # An upsert skips the column's Python-side onupdate.
+                set_={**credential, "updated_at": datetime.now(UTC)},
             )
             .returning(ScimConnection)
         )

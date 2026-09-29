@@ -24,6 +24,7 @@ from tracecat.exceptions import (
     ScopeDeniedError,
     TracecatAuthorizationError,
     TracecatException,
+    TracecatNotFoundError,
     TracecatRLSViolationError,
     TracecatValidationError,
 )
@@ -254,6 +255,22 @@ def test_unexpected_scim_errors_are_sanitized(exc: Exception, scim: bool) -> Non
         }
     else:
         assert response.json() == {"message": detail}
+
+
+@pytest.mark.parametrize(
+    "request_path", ["/scim/v2/Users/missing", "/api/scim/v2/Users/missing"]
+)
+def test_scim_errors_keep_their_status_under_an_unstripped_root_path(
+    request_path: str,
+) -> None:
+    """The Helm ingress forwards ``/api``; a SCIM 404 must not become a 500."""
+    app = _build_app(TracecatNotFoundError("User not found"), "/scim/v2/Users/missing")
+    app.root_path = "/api"
+    _install_scim_exception_handlers(app)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(request_path)
+    assert response.status_code == 404
+    assert response.headers["content-type"] == "application/scim+json"
 
 
 @pytest.mark.parametrize("scim", [False, True])

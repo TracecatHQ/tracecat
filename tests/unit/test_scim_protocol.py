@@ -788,20 +788,34 @@ async def test_schemas_document(client: httpx.AsyncClient) -> None:
     assert username["mutability"] == "readWrite"
 
 
-def test_is_scim_path_only_matches_the_protocol_surface() -> None:
-    """The envelope must not rewrite errors for the rest of the API."""
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("/scim/v2/Users", True),
+        ("/api/scim/v2/Users", True),
+        ("/organization/members", False),
+        ("/scim/connection", False),
+        ("/api/scim/connection", False),
+    ],
+)
+def test_is_scim_path_only_matches_the_protocol_surface(
+    path: str, expected: bool
+) -> None:
+    """The envelope must not rewrite errors for the rest of the API.
 
-    class _URL:
-        def __init__(self, path: str) -> None:
-            self.path = path
+    The Helm ingress forwards ``/api`` unstripped, so the root path may lead.
+    """
+    request = Request(
+        {
+            "type": "http",
+            "path": path,
+            "root_path": "/api",
+            "headers": [],
+            "query_string": b"",
+        }
+    )
 
-    class _Request:
-        def __init__(self, path: str) -> None:
-            self.url = _URL(path)
-
-    assert is_scim_path(_Request("/scim/v2/Users"))  # pyright: ignore[reportArgumentType]
-    assert not is_scim_path(_Request("/organization/members"))  # pyright: ignore[reportArgumentType]
-    assert not is_scim_path(_Request("/scim/connection"))  # pyright: ignore[reportArgumentType]
+    assert is_scim_path(request) is expected
 
 
 # =============================================================================

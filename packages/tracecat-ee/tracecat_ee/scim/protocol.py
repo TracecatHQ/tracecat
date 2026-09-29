@@ -89,8 +89,13 @@ def scim_error_response(
 
 
 def is_scim_path(request: Request) -> bool:
-    """Whether a request targets the SCIM protocol surface."""
-    return request.url.path.startswith(SCIM_PREFIX)
+    """Whether a request targets the SCIM protocol surface.
+
+    A proxy that forwards the root path unstripped (the Helm ingress keeps
+    ``/api``) leaves it on the path, so match below it.
+    """
+    root_path = request.scope.get("root_path", "")
+    return request.url.path.removeprefix(root_path).startswith(SCIM_PREFIX)
 
 
 class ScimFilterError(HTTPException):
