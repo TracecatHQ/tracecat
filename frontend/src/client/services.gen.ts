@@ -14583,6 +14583,9 @@ export const scimDisconnectScim =
     return __request(OpenAPI, {
       method: "POST",
       url: "/scim/disconnect",
+      errors: {
+        404: "SCIM connection not found.",
+      },
     })
   }
 
@@ -14605,6 +14608,7 @@ export const scimReviewScimActivation = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      404: "SCIM connection, mapping, or group not found.",
       422: "Validation Error",
     },
   })
@@ -14627,6 +14631,8 @@ export const scimActivateScimConnection = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      404: "SCIM connection, external group, or group not found.",
+      409: "SCIM connection is not pending activation.",
       422: "Validation Error",
     },
   })
@@ -14696,6 +14702,8 @@ export const scimApplyScimMappingChanges = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      404: "Mapping, external group, or group not found.",
+      409: "SCIM connection is not active.",
       422: "Validation Error",
     },
   })

@@ -209,16 +209,18 @@ export function OrgSettingsScim() {
           onReviewChanges={() => openReview(false)}
         />
       )}
-      {connection?.status === "pending" && !connection.revoked_at && (
-        <div className="flex justify-end">
-          <Button
-            disabled={!canManage || reviewIsPending}
-            onClick={() => openReview(true)}
-          >
-            Review and activate
-          </Button>
-        </div>
-      )}
+      {!connectionError &&
+        connection?.status === "pending" &&
+        !connection.revoked_at && (
+          <div className="flex justify-end">
+            <Button
+              disabled={!canManage || reviewIsPending}
+              onClick={() => openReview(true)}
+            >
+              Review and activate
+            </Button>
+          </div>
+        )}
       {pendingReview && (
         <ScimReviewDialog
           review={pendingReview.review}

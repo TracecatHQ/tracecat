@@ -64,6 +64,12 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const [workspaceName, setWorkspaceName] = useState("")
   const [isCreating, setIsCreating] = useState(false)
 
+  // SCIM-only administrators land on SCIM, which needs the plan entitlement.
+  const canOpenScim =
+    canManageScim === true &&
+    hasEntitlementData &&
+    !entitlementsLoading &&
+    hasEntitlement("rbac_addons")
   const activeWorkspace = workspaces?.find((ws) => ws.id === workspaceId)
   const showOrganizationSelector = (organizations?.length ?? 0) > 1
   const canCreateAdditionalWorkspace =
@@ -253,7 +259,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
             )}
 
             <DropdownMenuSeparator />
-            {(canAdministerOrg || canManageScim) && (
+            {(canAdministerOrg || canOpenScim) && (
               <DropdownMenuItem asChild>
                 <Link
                   href={

@@ -236,7 +236,7 @@ See [Roles and permissions](/manage-platform/rbac) for each built-in role's scop
 An organization administrator can restrict the organization to named IP allowlists of IPv4 and IPv6 addresses and CIDR ranges. Enforcement is off by default. When it is on, Tracecat rejects with `403`:
 
 - Sign-in from a denied address after the credential is verified, for password, OIDC, and SAML.
-- Every REST API request scoped to the organization from a denied address, whether it carries a session cookie, a service account API key, or a SCIM token, before any tenant data is read.
+- Every REST API request scoped to the organization from a denied address, whether it carries a session cookie, a service account API key, or a SCIM token, after its credential is verified and before the endpoint runs.
 
 Tracecat resolves the client address from `X-Forwarded-For` and trusts only the hops in `TRACECAT__AUDIT_TRUSTED_PROXY_CIDRS`, so a client cannot forge its address past the proxy chain. Each API replica caches the compiled allowlist for 30 seconds and matches in memory, so the check adds no database round trip to the request path. Tracecat refuses to enable an allowlist that excludes the administrator's own address, and platform superusers bypass the allowlist as the break-glass path. The Tracecat MCP server authenticates with its own OAuth tokens and is outside the allowlist.
 

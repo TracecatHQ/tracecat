@@ -211,7 +211,7 @@ function reviewSummary(
   if (activation) {
     const joins = `${plural(joinCount, "person joins", "people join")} the organization`
     return loseCount > 0
-      ? `${joins} and ${plural(loseCount, "loses", "lose")} access.`
+      ? `${joins} and ${plural(loseCount, "person loses", "people lose")} access.`
       : `${joins}.`
   }
   if (loseCount > 0) {
@@ -308,9 +308,11 @@ export function ScimReviewDialog({
     },
   ].filter((move) => move.people.count > 0)
 
-  const missingLabels = [...loseLines, ...joining.items].some(
-    (line) => !line.email
-  )
+  const missingLabels = [
+    ...loseLines,
+    ...moves.flatMap((move) => move.people.items),
+    ...joining.items,
+  ].some((line) => !line.email)
   const changeCount = review.groups.reduce(
     (total, group) =>
       total + group.added_sources.length + group.removed_sources.length,
@@ -487,7 +489,7 @@ export function ScimReviewDialog({
             Cancel
           </Button>
           <Button
-            disabled={pending || missingLabels}
+            disabled={pending || loadingAll || missingLabels}
             onClick={() => {
               void onConfirm().catch(() => {})
             }}

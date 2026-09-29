@@ -716,9 +716,41 @@ test("activation discloses inactive members leaving the organization", async () 
   )
   expect(screen.getByText("leaver@example.com")).toBeInTheDocument()
   expect(
-    screen.getByText("1 person joins the organization and 1 loses access.")
+    screen.getByText(
+      "1 person joins the organization and 1 person loses access."
+    )
   ).toBeInTheDocument()
   expect(
     screen.getByRole("button", { name: "Activate for 1 user" })
   ).toBeInTheDocument()
+})
+
+test("activation is not offered while the connection fails to load", () => {
+  connectionError = { status: 500 }
+  renderScim()
+  expect(
+    screen.queryByRole("button", { name: "Review and activate" })
+  ).toBeNull()
+})
+
+test("confirmation waits for the full review to load", async () => {
+  const { rerender } = renderScim()
+  fireEvent.click(screen.getByRole("button", { name: "Review and activate" }))
+  const confirm = await screen.findByRole("button", {
+    name: "Activate for 1 user",
+  })
+  expect(confirm).toBeEnabled()
+  review.isPending = true
+  try {
+    rerender(
+      <TooltipProvider>
+        <OrgSettingsScim />
+      </TooltipProvider>
+    )
+    expect(
+      screen.getByRole("button", { name: "Activate for 1 user" })
+    ).toBeDisabled()
+  } finally {
+    review.isPending = false
+  }
 })

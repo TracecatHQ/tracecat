@@ -25,6 +25,7 @@ from sqlalchemy import (
     delete,
     func,
     select,
+    tuple_,
     update,
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -456,7 +457,7 @@ class SCIMService(BaseOrgService):
             )
         # The IdP owns a mapped group's membership, so hand-added rows would be
         # invisible in the UI yet still grant access.
-        await self._purge_manual_members(group_id)
+        await self._purge_manual_members({group_id})
         await self.session.flush()
         return mapping
 
@@ -491,11 +492,12 @@ class SCIMService(BaseOrgService):
         # Unmapping the last source would drop every member at once, so the
         # current IdP membership is frozen as manual rows first.
         if await self._is_last_mapping(group_id, mapping.external_group_id):
-            await self._freeze_idp_members_as_manual(group_id)
+            await self._freeze_idp_members_as_manual({group_id})
         await self.session.delete(mapping)
         await self.session.flush()
 
     @require_scope("org:scim:manage")
+    @audit_log(resource_type="scim_group_mapping", action="update")
     async def apply_mapping_changes(
         self,
         *,
@@ -506,7 +508,8 @@ class SCIMService(BaseOrgService):
 
         A group that loses every source keeps its full IdP membership as manual
         rows first, so the result does not depend on removal order. Removals run
-        before additions, and an addition purges a group's manual rows.
+        before additions, and an addition purges a group's manual rows. The work
+        is set-based, so the org lock is held for a fixed number of queries.
 
         Args:
             create: Mappings to add.
@@ -518,14 +521,109 @@ class SCIMService(BaseOrgService):
             TracecatConflictError: The connection is not active.
         """
         await lock_role_changes(self.session, self.organization_id)
-        await self._freeze_groups_losing_every_source(delete, create)
-        for mapping_id in delete:
-            await self.delete_mapping(mapping_id)
-        for mapping in create:
-            await self.create_mapping(
-                external_group_id=mapping.external_group_id,
-                group_id=mapping.group_id,
+        await self._change_mappings(additions=create, removals=delete)
+
+    async def _change_mappings(
+        self,
+        *,
+        additions: Sequence[ExternalGroupMappingCreate],
+        removals: Sequence[UUID],
+    ) -> None:
+        """Remove then add mappings, auditing each one. Callers hold the org lock."""
+        removal_ids = set(removals)
+        removed: Sequence[tuple[UUID, UUID]] = (
+            (
+                await self.session.execute(
+                    select(
+                        ExternalGroupMapping.id, ExternalGroupMapping.group_id
+                    ).where(
+                        ExternalGroupMapping.id.in_(removal_ids),
+                        ExternalGroupMapping.organization_id == self.organization_id,
+                    )
+                )
             )
+            .tuples()
+            .all()
+            if removal_ids
+            else []
+        )
+        if len(removed) != len(removal_ids):
+            raise TracecatNotFoundError("External group mapping not found")
+        pairs = {(m.external_group_id, m.group_id) for m in additions}
+        external_group_ids = {external_group_id for external_group_id, _ in pairs}
+        if external_group_ids:
+            found = set(
+                await self.session.scalars(
+                    select(ExternalGroup.id).where(
+                        ExternalGroup.id.in_(external_group_ids),
+                        ExternalGroup.organization_id == self.organization_id,
+                    )
+                )
+            )
+            if found != external_group_ids:
+                raise TracecatNotFoundError("External group not found")
+        gaining = {group_id for _, group_id in pairs}
+        await self._lock_groups({group_id for _, group_id in removed} | gaining)
+        if pairs and not await self._connection_is_active():
+            raise TracecatConflictError("Activate SCIM before creating group mappings")
+
+        await self._freeze_idp_members_as_manual(
+            await self._groups_losing_every_source(removed, gaining)
+        )
+        audit = AuditService(self.session, self.role)
+        if removed:
+            await self.session.execute(
+                delete(ExternalGroupMapping).where(
+                    ExternalGroupMapping.id.in_(removal_ids)
+                )
+            )
+            for mapping_id, _ in sorted(removed, key=str):
+                await audit.create_event(
+                    resource_type="scim_group_mapping",
+                    action="delete",
+                    resource_id=mapping_id,
+                )
+        if pairs:
+            ordered = sorted(pairs, key=str)
+            await self.session.execute(
+                pg_insert(ExternalGroupMapping)
+                .values(
+                    [
+                        {
+                            "organization_id": self.organization_id,
+                            "external_group_id": external_group_id,
+                            "group_id": group_id,
+                        }
+                        for external_group_id, group_id in ordered
+                    ]
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[
+                        ExternalGroupMapping.external_group_id,
+                        ExternalGroupMapping.group_id,
+                    ]
+                )
+            )
+            # An existing pair is audited too, matching create_mapping.
+            created = await self.session.scalars(
+                select(ExternalGroupMapping.id)
+                .where(
+                    tuple_(
+                        ExternalGroupMapping.external_group_id,
+                        ExternalGroupMapping.group_id,
+                    ).in_(ordered),
+                    ExternalGroupMapping.organization_id == self.organization_id,
+                )
+                .order_by(ExternalGroupMapping.id)
+            )
+            for mapping_id in created:
+                await audit.create_event(
+                    resource_type="scim_group_mapping",
+                    action="create",
+                    resource_id=mapping_id,
+                )
+            await self._purge_manual_members(gaining)
+        await self.session.flush()
 
     @require_scope("org:scim:manage")
     @audit_log(resource_type="scim_connection", action="revoke")
@@ -560,9 +658,7 @@ class SCIMService(BaseOrgService):
                 )
             ).scalars()
         )
-        await self._freeze_groups_losing_every_source(mapping_ids, [])
-        for mapping_id in mapping_ids:
-            await self.delete_mapping(mapping_id)
+        await self._change_mappings(additions=[], removals=mapping_ids)
         # Group membership rows cascade from both sides.
         await self.session.execute(
             delete(ExternalGroup).where(
@@ -604,9 +700,20 @@ class SCIMService(BaseOrgService):
 
         Returns:
             Counted people per outcome and a count summary per touched group.
+
+        Raises:
+            TracecatNotFoundError: No connection exists, or a mapping or either
+                side of one is not in this organization.
         """
         limit = None if full else REVIEW_PREVIEW_LIMIT
-        pending = await self._connection_is_pending()
+        status = await self.session.scalar(
+            select(ScimConnection.status).where(
+                ScimConnection.organization_id == self.organization_id
+            )
+        )
+        if status is None:
+            raise TracecatNotFoundError("SCIM connection not found")
+        pending = status == ScimConnectionStatus.PENDING
         transitions = await self._group_transitions(
             proposed,
             delete,
@@ -784,51 +891,25 @@ class SCIMService(BaseOrgService):
         joining, leaving = outcomes
         return joining, leaving
 
-    async def _freeze_groups_losing_every_source(
-        self,
-        delete: Sequence[UUID],
-        create: Sequence[ExternalGroupMappingCreate],
-    ) -> None:
-        """Keep full IdP membership as manual rows for groups losing every source."""
-        for group_id in await self._groups_losing_every_source(delete, create):
-            await self._lock_group(group_id)
-            await self._freeze_idp_members_as_manual(group_id)
-
     async def _groups_losing_every_source(
-        self,
-        delete: Sequence[UUID],
-        create: Sequence[ExternalGroupMappingCreate],
-    ) -> list[UUID]:
-        if not delete:
-            return []
-        removed = (
-            await self.session.execute(
-                select(ExternalGroupMapping.id, ExternalGroupMapping.group_id).where(
-                    ExternalGroupMapping.id.in_(delete),
+        self, removed: Sequence[tuple[UUID, UUID]], gaining: set[UUID]
+    ) -> set[UUID]:
+        """Groups whose every mapping is being removed and none added."""
+        candidates = {group_id for _, group_id in removed} - gaining
+        if not candidates:
+            return set()
+        kept = set(
+            await self.session.scalars(
+                select(ExternalGroupMapping.group_id)
+                .where(
+                    ExternalGroupMapping.group_id.in_(candidates),
                     ExternalGroupMapping.organization_id == self.organization_id,
+                    ExternalGroupMapping.id.not_in({m for m, _ in removed}),
                 )
+                .distinct()
             )
-        ).tuples()
-        removed_by_group: dict[UUID, set[UUID]] = {}
-        for mapping_id, group_id in removed:
-            removed_by_group.setdefault(group_id, set()).add(mapping_id)
-        gaining = {mapping.group_id for mapping in create}
-        losing: list[UUID] = []
-        for group_id, removed_ids in sorted(removed_by_group.items(), key=str):
-            if group_id in gaining:
-                continue
-            remaining = set(
-                (
-                    await self.session.execute(
-                        select(ExternalGroupMapping.id).where(
-                            ExternalGroupMapping.group_id == group_id
-                        )
-                    )
-                ).scalars()
-            )
-            if remaining <= removed_ids:
-                losing.append(group_id)
-        return losing
+        )
+        return candidates - kept
 
     async def _group_transitions(
         self,
@@ -1024,14 +1105,6 @@ class SCIMService(BaseOrgService):
         )
         return dict(rows.tuples().all())
 
-    async def _connection_is_pending(self) -> bool:
-        status = await self.session.scalar(
-            select(ScimConnection.status).where(
-                ScimConnection.organization_id == self.organization_id
-            )
-        )
-        return status == ScimConnectionStatus.PENDING
-
     # =========================================================================
     # Deprovisioning
     # =========================================================================
@@ -1161,17 +1234,28 @@ class SCIMService(BaseOrgService):
     # =========================================================================
 
     async def _lock_group(self, group_id: UUID) -> None:
-        """Lock the group so concurrent reconciles serialize on it.
+        await self._lock_groups({group_id})
+
+    async def _lock_groups(self, group_ids: set[UUID]) -> None:
+        """Lock the groups, in ID order, so concurrent reconciles serialize.
 
         Groups are locked before any user row, matching the order RBAC's
         ``_sync_group_memberships`` takes, so the two cannot deadlock.
         """
-        stmt = (
-            select(Group.id)
-            .where(Group.id == group_id, Group.organization_id == self.organization_id)
-            .with_for_update()
+        if not group_ids:
+            return
+        locked = set(
+            await self.session.scalars(
+                select(Group.id)
+                .where(
+                    Group.id.in_(group_ids),
+                    Group.organization_id == self.organization_id,
+                )
+                .order_by(Group.id)
+                .with_for_update()
+            )
         )
-        if (await self.session.execute(stmt)).scalar_one_or_none() is None:
+        if locked != group_ids:
             raise TracecatNotFoundError("Group not found")
 
     async def _get_external_group(
@@ -1217,8 +1301,8 @@ class SCIMService(BaseOrgService):
         )
         return (await self.session.execute(stmt)).first() is None
 
-    async def _freeze_idp_members_as_manual(self, group_id: UUID) -> None:
-        """Copy the group's current IdP members in as manual rows.
+    async def _freeze_idp_members_as_manual(self, group_ids: set[UUID]) -> None:
+        """Copy the groups' current IdP members in as manual rows.
 
         Losing its last mapping would otherwise revoke every member's access at
         once; the admin keeps the membership and can edit it by hand again.
@@ -1226,8 +1310,11 @@ class SCIMService(BaseOrgService):
         # Joined through the membership row: it is the aggregate root the
         # group_member insert below hangs off, and a user the provider pushed
         # while the connection was pending has none.
+        if not group_ids:
+            return
         members = (
-            select(ExternalUser.user_id)
+            select(ExternalGroupMapping.group_id, ExternalUser.user_id)
+            .select_from(ExternalUser)
             .join(
                 ExternalGroupMember,
                 ExternalGroupMember.external_user_id == ExternalUser.id,
@@ -1246,14 +1333,14 @@ class SCIMService(BaseOrgService):
                 ),
             )
             .where(
-                ExternalGroupMapping.group_id == group_id,
+                ExternalGroupMapping.group_id.in_(group_ids),
                 ExternalGroupMapping.organization_id == self.organization_id,
                 ExternalUser.active,
             )
             .distinct()
         )
-        user_ids = list((await self.session.execute(members)).scalars())
-        if not user_ids:
+        rows = (await self.session.execute(members)).tuples().all()
+        if not rows:
             return
         await self.session.execute(
             pg_insert(GroupMember)
@@ -1264,7 +1351,7 @@ class SCIMService(BaseOrgService):
                         "user_id": user_id,
                         "organization_id": self.organization_id,
                     }
-                    for user_id in sorted(user_ids, key=str)
+                    for group_id, user_id in sorted(rows, key=str)
                 ]
             )
             .on_conflict_do_nothing(
@@ -1273,7 +1360,7 @@ class SCIMService(BaseOrgService):
         )
         await self.session.flush()
 
-    async def _purge_manual_members(self, group_id: UUID) -> None:
+    async def _purge_manual_members(self, group_ids: set[UUID]) -> None:
         """Drop hand-added rows from a group the IdP now owns.
 
         Each removal is audited on its own: this revokes access an admin
@@ -1281,14 +1368,18 @@ class SCIMService(BaseOrgService):
         lost what.
         """
         removed = (
-            await self.session.execute(
-                delete(GroupMember)
-                .where(GroupMember.group_id == group_id)
-                .returning(GroupMember.user_id)
+            (
+                await self.session.execute(
+                    delete(GroupMember)
+                    .where(GroupMember.group_id.in_(group_ids))
+                    .returning(GroupMember.group_id, GroupMember.user_id)
+                )
             )
-        ).scalars()
+            .tuples()
+            .all()
+        )
         audit = AuditService(self.session, self.role)
-        for user_id in removed:
+        for group_id, user_id in sorted(removed, key=str):
             await audit.create_event(
                 resource_type="rbac_group_member",
                 action="delete",

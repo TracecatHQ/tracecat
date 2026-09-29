@@ -150,11 +150,14 @@ export function useScimDirectorySummary({ enabled }: { enabled: boolean }) {
     queryKey: SCIM_DIRECTORY_SUMMARY_KEY,
     queryFn: async () => await scimGetScimDirectorySummary(),
     enabled,
+    // The connection card renders the failure inline with a retry.
+    meta: { suppressErrorToast: true },
   })
   return {
     directorySummary: query.data,
     directorySummaryIsLoading: query.isLoading,
     directorySummaryError: query.error,
+    refetchDirectorySummary: query.refetch,
   }
 }
 

@@ -25,6 +25,7 @@ from tests.support.membership import (
     seed_external_user,
     seed_group_member,
 )
+from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.db.models import (
@@ -445,6 +446,89 @@ async def test_mapping_changes_remove_then_add_together(
     assert [(m.external_group_id, m.group_id) for m in listed] == [
         (external.id, new_group.id)
     ]
+
+
+@pytest.mark.anyio
+async def test_mapping_changes_use_constant_queries(
+    session: AsyncSession,
+    org: Organization,
+    service: SCIMService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A larger batch adds no round trips, and each mapping is still audited."""
+    events: list[tuple[str, str, uuid.UUID | None]] = []
+
+    async def capture_event(self: AuditService, **kwargs: object) -> None:
+        resource_id = kwargs.get("resource_id")
+        events.append(
+            (
+                str(kwargs["resource_type"]),
+                str(kwargs["action"]),
+                resource_id if isinstance(resource_id, uuid.UUID) else None,
+            )
+        )
+
+    monkeypatch.setattr(AuditService, "create_event", capture_event)
+
+    async def seed_change(
+        index: int,
+    ) -> tuple[ExternalGroupMappingCreate, uuid.UUID]:
+        old = await seed_external_group(
+            session, organization_id=org.id, external_id=f"idp-was-{index}"
+        )
+        new = await seed_external_group(
+            session, organization_id=org.id, external_id=f"idp-now-{index}"
+        )
+        await _pushed_member(session, org, old.id)
+        group = await _make_group(session, org)
+        mapping = await service.create_mapping(
+            external_group_id=old.id, group_id=group.id
+        )
+        return (
+            ExternalGroupMappingCreate(external_group_id=new.id, group_id=group.id),
+            mapping.id,
+        )
+
+    async def apply(changes: list[tuple[ExternalGroupMappingCreate, uuid.UUID]]) -> int:
+        events.clear()
+        queries: list[str] = []
+
+        def capture(
+            conn: object,
+            cursor: object,
+            statement: str,
+            parameters: object,
+            context: object,
+            executemany: bool,
+        ) -> None:
+            queries.append(statement)
+
+        bind = session.get_bind()
+        event.listen(bind, "before_cursor_execute", capture)
+        try:
+            await service.apply_mapping_changes(
+                create=[create for create, _ in changes],
+                delete=[mapping_id for _, mapping_id in changes],
+            )
+        finally:
+            event.remove(bind, "before_cursor_execute", capture)
+        mapping_events = [
+            (action, mapping_id)
+            for resource_type, action, mapping_id in events
+            if resource_type == "scim_group_mapping" and mapping_id is not None
+        ]
+        assert sorted(
+            str(mapping_id)
+            for action, mapping_id in mapping_events
+            if action == "delete"
+        ) == sorted(str(mapping_id) for _, mapping_id in changes)
+        assert sum(action == "create" for action, _ in mapping_events) == len(changes)
+        return len(queries)
+
+    one = [await seed_change(0)]
+    many = [await seed_change(i) for i in range(1, 5)]
+
+    assert await apply(many) == await apply(one)
 
 
 @pytest.mark.anyio
@@ -1093,6 +1177,17 @@ async def test_activation_review_marks_inactive_members(
     session: AsyncSession, org: Organization, service: SCIMService
 ) -> None:
     """Inactive pushed users who are already members are flagged for removal."""
+    session.add(
+        ScimConnection(
+            id=uuid.uuid4(),
+            organization_id=org.id,
+            key_id=uuid.uuid4().hex[:16],
+            hashed="x",
+            salt="y",
+            preview="scim_...",
+            status=ScimConnectionStatus.PENDING,
+        )
+    )
     member = await _make_user(session, org)
     await session.execute(
         update(ExternalUser)
@@ -1183,12 +1278,21 @@ async def test_activation_review_combines_sources_per_target(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("assume_admitted", [False, True])
-async def test_review_transitions_use_constant_queries(
+async def test_review_requires_a_connection(service: SCIMService) -> None:
+    """Without a connection there is nothing to review."""
+    with pytest.raises(TracecatNotFoundError, match="SCIM connection not found"):
+        await service.review_activation([])
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "state", [ScimConnectionStatus.ACTIVE, ScimConnectionStatus.PENDING]
+)
+async def test_review_uses_constant_queries(
     session: AsyncSession,
     org: Organization,
     service: SCIMService,
-    assume_admitted: bool,
+    state: ScimConnectionStatus,
 ) -> None:
     """Touching more groups adds no round trips to the review."""
 
@@ -1232,18 +1336,23 @@ async def test_review_transitions_use_constant_queries(
         bind = session.get_bind()
         event.listen(bind, "before_cursor_execute", capture)
         try:
-            transitions = await service._group_transitions(
+            review = await service.review_activation(
                 [create for create, _ in changes],
                 [mapping_id for _, mapping_id in changes],
-                assume_admitted=assume_admitted,
             )
         finally:
             event.remove(bind, "before_cursor_execute", capture)
-        assert len(transitions) == len(changes)
+        assert len(review.groups) == len(changes)
         return len(queries)
 
     one = [await seed_change(0)]
     many = [await seed_change(i) for i in range(1, 5)]
+    # Mappings are seeded under an active connection; review then runs in state.
+    await session.execute(
+        update(ScimConnection)
+        .where(ScimConnection.organization_id == org.id)
+        .values(status=state)
+    )
 
     assert await count_queries(many) == await count_queries(one)
 

@@ -116,7 +116,13 @@ async def get_scim_directory_summary(
     return await SCIMService(session, role=role).get_directory_summary()
 
 
-@mappings_router.post("/disconnect", status_code=status.HTTP_204_NO_CONTENT)
+@mappings_router.post(
+    "/disconnect",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "SCIM connection not found."},
+    },
+)
 async def disconnect_scim(
     *,
     role: OrgActorRole,
@@ -129,7 +135,15 @@ async def disconnect_scim(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
-@mappings_router.post("/activation/review", response_model=ScimActivationReviewRead)
+@mappings_router.post(
+    "/activation/review",
+    response_model=ScimActivationReviewRead,
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "description": "SCIM connection, mapping, or group not found."
+        },
+    },
+)
 async def review_scim_activation(
     *,
     role: OrgActorRole,
@@ -148,7 +162,18 @@ async def review_scim_activation(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
-@mappings_router.post("/activation", status_code=status.HTTP_204_NO_CONTENT)
+@mappings_router.post(
+    "/activation",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "description": "SCIM connection, external group, or group not found."
+        },
+        status.HTTP_409_CONFLICT: {
+            "description": "SCIM connection is not pending activation."
+        },
+    },
+)
 async def activate_scim_connection(
     *,
     role: OrgActorRole,
@@ -198,12 +223,21 @@ async def create_scim_mapping(
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatConflictError as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     await session.commit()
     return await service.get_mapping(mapping.id)
 
 
-@mappings_router.post("/mappings/batch", status_code=status.HTTP_204_NO_CONTENT)
+@mappings_router.post(
+    "/mappings/batch",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "description": "Mapping, external group, or group not found."
+        },
+        status.HTTP_409_CONFLICT: {"description": "SCIM connection is not active."},
+    },
+)
 async def apply_scim_mapping_changes(
     *,
     role: OrgActorRole,
@@ -218,7 +252,7 @@ async def apply_scim_mapping_changes(
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatConflictError as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     await session.commit()
 
 

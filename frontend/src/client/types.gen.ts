@@ -23551,6 +23551,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * SCIM connection not found.
+         */
+        404: unknown
       }
     }
   }
@@ -23562,6 +23566,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ScimActivationReviewRead
+        /**
+         * SCIM connection, mapping, or group not found.
+         */
+        404: unknown
         /**
          * Validation Error
          */
@@ -23577,6 +23585,14 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * SCIM connection, external group, or group not found.
+         */
+        404: unknown
+        /**
+         * SCIM connection is not pending activation.
+         */
+        409: unknown
         /**
          * Validation Error
          */
@@ -23620,6 +23636,14 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Mapping, external group, or group not found.
+         */
+        404: unknown
+        /**
+         * SCIM connection is not active.
+         */
+        409: unknown
         /**
          * Validation Error
          */

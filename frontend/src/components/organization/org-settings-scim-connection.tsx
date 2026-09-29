@@ -92,7 +92,8 @@ function ConnectionDetails({
   connection: ScimConnectionRead
   baseUrl: string | null
 }) {
-  const { directorySummary } = useScimDirectorySummary({ enabled: true })
+  const { directorySummary, directorySummaryError, refetchDirectorySummary } =
+    useScimDirectorySummary({ enabled: true })
   const users = directorySummary?.users
   const groups = directorySummary?.groups
   const state = STATE_COPY[connectionState(connection)]
@@ -139,6 +140,20 @@ function ConnectionDetails({
             <span>
               {groups.total} {groups.total === 1 ? "group" : "groups"}
             </span>
+          </>
+        ) : null}
+        {!directorySummary && directorySummaryError ? (
+          <>
+            <span className="text-muted-foreground">·</span>
+            <span className="text-muted-foreground">Counts unavailable</span>
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-xs"
+              onClick={() => void refetchDirectorySummary()}
+            >
+              Retry
+            </Button>
           </>
         ) : null}
       </dd>
