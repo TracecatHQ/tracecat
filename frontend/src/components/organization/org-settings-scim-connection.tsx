@@ -93,7 +93,10 @@ function ConnectionDetails({
   baseUrl: string | null
 }) {
   const { directorySummary, directorySummaryError, refetchDirectorySummary } =
-    useScimDirectorySummary({ enabled: true })
+    useScimDirectorySummary({
+      enabled: true,
+      poll: connectionState(connection) === "pending",
+    })
   const users = directorySummary?.users
   const groups = directorySummary?.groups
   const state = STATE_COPY[connectionState(connection)]

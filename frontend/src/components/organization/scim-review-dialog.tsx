@@ -235,7 +235,7 @@ export function ScimReviewDialog({
   activation,
   complete,
   loadingAll,
-  pushedAt,
+  lastRequestAt,
   pending,
   onShowAll,
   onClose,
@@ -245,7 +245,7 @@ export function ScimReviewDialog({
   activation: boolean
   complete: boolean
   loadingAll: boolean
-  pushedAt?: string | null
+  lastRequestAt?: string | null
   pending: boolean
   onShowAll: () => void
   onClose: () => void
@@ -318,7 +318,7 @@ export function ScimReviewDialog({
       total + group.added_sources.length + group.removed_sources.length,
     0
   )
-  const pushed = formatRelative(pushedAt)
+  const lastRequest = formatRelative(lastRequestAt)
   const summary = reviewSummary(activation, joining.count, loseCount)
   const confirmLabel = activation
     ? `Activate for ${plural(joining.count, "user", "users")}`
@@ -347,7 +347,9 @@ export function ScimReviewDialog({
             {summary}
           </DialogDescription>
           <p className="text-xs text-muted-foreground">
-            {pushed ? `Based on directory data pushed ${pushed}. ` : null}
+            {lastRequest
+              ? `Last request from your identity provider ${lastRequest}. `
+              : null}
             Access from other roles and groups is unchanged.
           </p>
         </DialogHeader>

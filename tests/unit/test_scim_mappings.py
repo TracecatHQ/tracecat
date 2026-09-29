@@ -1173,6 +1173,41 @@ async def test_review_discloses_losses_when_a_source_is_replaced(
 
 
 @pytest.mark.anyio
+async def test_review_survives_a_source_deleted_mid_read(
+    session: AsyncSession,
+    org: Organization,
+    service: SCIMService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The provider can delete a source between the review's reads."""
+    old_source = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-old"
+    )
+    new_source = await seed_external_group(
+        session, organization_id=org.id, external_id="idp-new"
+    )
+    group = await _make_group(session, org)
+    old = await service.create_mapping(
+        external_group_id=old_source.id, group_id=group.id
+    )
+    swap = [
+        ExternalGroupMappingCreate(external_group_id=new_source.id, group_id=group.id)
+    ]
+    real_names = service._external_group_names
+
+    async def names_after_delete(ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+        return {k: v for k, v in (await real_names(ids)).items() if k != old_source.id}
+
+    monkeypatch.setattr(service, "_external_group_names", names_after_delete)
+
+    review = await service.review_activation(swap, [old.id])
+
+    (transition,) = review.groups
+    assert transition.added_sources == ["idp-new"]
+    assert transition.removed_sources == []
+
+
+@pytest.mark.anyio
 async def test_activation_review_marks_inactive_members(
     session: AsyncSession, org: Organization, service: SCIMService
 ) -> None:

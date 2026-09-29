@@ -227,7 +227,7 @@ export function OrgSettingsScim() {
           activation={pendingReview.activation}
           complete={pendingReview.complete}
           loadingAll={review.isPending}
-          pushedAt={connection?.last_used_at}
+          lastRequestAt={connection?.last_used_at}
           pending={activate.isPending || applyMappingChangesIsPending}
           onShowAll={loadFullReview}
           onClose={() => setPendingReview(null)}

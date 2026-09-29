@@ -167,6 +167,50 @@ it("loads mappings only when requested and keeps existing pages after a failure"
   expect(result.current.mappingsHasNextPage).toBe(false)
 })
 
+it("polls the directory only while asked to", async () => {
+  jest.mocked(scimListExternalGroups).mockClear()
+  jest.mocked(scimGetScimDirectorySummary).mockClear()
+  jest.useFakeTimers()
+  try {
+    jest.mocked(scimListExternalGroups).mockResolvedValue({
+      items: [],
+      next_cursor: null,
+      prev_cursor: null,
+    })
+    jest.mocked(scimGetScimDirectorySummary).mockResolvedValue({
+      users: { total: 0, active: 0, inactive: 0 },
+      groups: { total: 0, unmapped: 0 },
+    })
+    const wrapper = createWrapper(createQueryClient())
+    const { rerender } = renderHook(
+      ({ poll }) => {
+        useScimExternalGroups({ poll })
+        useScimDirectorySummary({ enabled: true, poll })
+      },
+      { wrapper, initialProps: { poll: true } }
+    )
+    await waitFor(() => expect(scimListExternalGroups).toHaveBeenCalledTimes(1))
+    expect(scimGetScimDirectorySummary).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30_000)
+    })
+    expect(scimListExternalGroups).toHaveBeenCalledTimes(2)
+    expect(scimGetScimDirectorySummary).toHaveBeenCalledTimes(2)
+
+    rerender({ poll: false })
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(60_000)
+    })
+    expect(scimListExternalGroups).toHaveBeenCalledTimes(2)
+    expect(scimGetScimDirectorySummary).toHaveBeenCalledTimes(2)
+  } finally {
+    jest.useRealTimers()
+    jest.mocked(scimListExternalGroups).mockClear()
+    jest.mocked(scimGetScimDirectorySummary).mockClear()
+  }
+})
+
 it("reads the directory summary only when enabled", async () => {
   const summary = {
     users: { total: 3, active: 2, inactive: 1 },

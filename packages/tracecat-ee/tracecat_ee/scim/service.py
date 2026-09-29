@@ -1047,8 +1047,13 @@ class SCIMService(BaseOrgService):
                 _GroupTransition(
                     group_id=group_id,
                     group_name=group_names[group_id],
-                    added_sources=sorted(source_names[e] for e in added),
-                    removed_sources=sorted(source_names[e] for e in removed),
+                    # A group the provider deleted mid-review has no name left.
+                    added_sources=sorted(
+                        source_names[e] for e in added if e in source_names
+                    ),
+                    removed_sources=sorted(
+                        source_names[e] for e in removed if e in source_names
+                    ),
                     changes=changes,
                     takes_over=bool(added) and not sources_before,
                 )

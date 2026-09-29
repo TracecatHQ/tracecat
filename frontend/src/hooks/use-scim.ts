@@ -119,8 +119,15 @@ export function useScimConnection() {
   }
 }
 
+// Provider pushes arrive server-to-server and cannot invalidate the browser cache.
+const SCIM_DIRECTORY_POLL_MS = 30_000
+
 /** Fetch synced groups in bounded pages as the administrator requests them. */
-export function useScimExternalGroups() {
+export function useScimExternalGroups({
+  poll = false,
+}: {
+  poll?: boolean
+} = {}) {
   const query = useInfiniteQuery<
     ScimListExternalGroupsResponse,
     TracecatApiError
@@ -133,6 +140,7 @@ export function useScimExternalGroups() {
       }),
     initialPageParam: null,
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+    refetchInterval: poll ? SCIM_DIRECTORY_POLL_MS : false,
   })
   return {
     externalGroups: query.data?.pages.flatMap((page) => page.items),
@@ -145,11 +153,18 @@ export function useScimExternalGroups() {
 }
 
 /** Count the users and groups the provider has pushed. */
-export function useScimDirectorySummary({ enabled }: { enabled: boolean }) {
+export function useScimDirectorySummary({
+  enabled,
+  poll = false,
+}: {
+  enabled: boolean
+  poll?: boolean
+}) {
   const query = useQuery<ScimDirectorySummaryRead, TracecatApiError>({
     queryKey: SCIM_DIRECTORY_SUMMARY_KEY,
     queryFn: async () => await scimGetScimDirectorySummary(),
     enabled,
+    refetchInterval: poll ? SCIM_DIRECTORY_POLL_MS : false,
     // The connection card renders the failure inline with a retry.
     meta: { suppressErrorToast: true },
   })

@@ -117,7 +117,7 @@ export function OrgSettingsScimMappings({
     externalGroupsHasNextPage,
     externalGroupsIsFetchingNextPage,
     fetchNextExternalGroups,
-  } = useScimExternalGroups()
+  } = useScimExternalGroups({ poll: isPending && !revoked })
   const {
     mappings,
     mappingsIsLoading,
