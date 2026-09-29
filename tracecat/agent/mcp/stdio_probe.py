@@ -43,7 +43,7 @@ from tracecat.sandbox.types import (
     SandboxNetworkRequest,
     SandboxResult,
 )
-from tracecat.sandbox.utils import is_nsjail_available, pid_namespace_available
+from tracecat.sandbox.utils import pid_namespace_available
 
 __all__ = [
     "MCP_STDIO_PERSIST_ACTIVITY_NAME",
@@ -411,7 +411,7 @@ async def probe_stdio_mcp_tools_in_sandbox(
             )
             (job_dir / "input.json").write_bytes(orjson.dumps(payload))
 
-            if is_nsjail_available():
+            if config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
                 probe_limits = AgentResourceLimits(
                     memory_mb=min(1024, config.TRACECAT__AGENT_SANDBOX_MEMORY_MB)
                 )
