@@ -417,9 +417,7 @@ class SandboxedAgentExecutor:
             phase=phase,
             elapsed_ms=round((perf_counter() - self._turn_started_at) * 1000, 2),
             session_id=self.input.session_id,
-            sandbox_mode="nsjail"
-            if TRACECAT__EXECUTOR_BACKEND.uses_nsjail
-            else "direct",
+            sandbox_mode=TRACECAT__EXECUTOR_BACKEND.value,
             **extra,
         )
 
@@ -1488,9 +1486,9 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         }
     )
 
-    sandbox_mode = "nsjail" if TRACECAT__EXECUTOR_BACKEND.uses_nsjail else "direct"
     activity.heartbeat(
-        f"Starting agent execution ({sandbox_mode} mode): {input.session_id}"
+        f"Starting agent execution ({TRACECAT__EXECUTOR_BACKEND.value} mode): "
+        f"{input.session_id}"
     )
 
     with platform_span("tracecat.agent.prepare"):
