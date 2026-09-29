@@ -4,6 +4,7 @@ from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import (
     AddSearchAttributesRequest,
@@ -57,7 +58,9 @@ async def generic_exception_handler(request: Request, exc: Exception) -> Respons
 
 async def http_exception_handler(request: Request, exc: Exception) -> Response:
     """Log HTTP exceptions with tenant context for observability."""
-    http_exc = exc if isinstance(exc, HTTPException) else HTTPException(500, str(exc))
+    http_exc = (
+        exc if isinstance(exc, StarletteHTTPException) else HTTPException(500, str(exc))
+    )
     role = ctx_role.get()
     log_method = logger.warning if http_exc.status_code < 500 else logger.error
     log_method(

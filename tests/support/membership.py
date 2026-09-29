@@ -7,6 +7,7 @@ assignment that hangs off it.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -16,6 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.authz.membership import ensure_member
 from tracecat.authz.seeding import seed_system_roles_for_org
 from tracecat.db.models import (
+    ExternalGroup,
+    ExternalGroupMember,
+    ExternalUser,
     Group,
     GroupMember,
     GroupRoleAssignment,
@@ -152,3 +156,118 @@ async def grant_org_membership_via_group(
     )
     await session.flush()
     return group
+
+
+async def seed_external_user(
+    session: AsyncSession,
+    *,
+    organization_id: OrganizationID,
+    user_id: UserID,
+    external_id: str | None = None,
+    active: bool = True,
+) -> uuid.UUID:
+    """Link a user to this organization's identity provider."""
+    await session.execute(
+        pg_insert(ExternalUser)
+        .values(
+            organization_id=organization_id,
+            user_id=user_id,
+            external_id=external_id or f"idp-user-{uuid.uuid4().hex[:10]}",
+            active=active,
+        )
+        .on_conflict_do_nothing(
+            index_elements=[ExternalUser.organization_id, ExternalUser.user_id]
+        )
+    )
+    await session.flush()
+    return (
+        await session.execute(
+            select(ExternalUser.id).where(
+                ExternalUser.organization_id == organization_id,
+                ExternalUser.user_id == user_id,
+            )
+        )
+    ).scalar_one()
+
+
+async def seed_external_group(
+    session: AsyncSession,
+    *,
+    organization_id: OrganizationID,
+    external_id: str,
+    display_name: str | None = None,
+) -> ExternalGroup:
+    """Create or fetch a synced external group for the organization."""
+    stmt = (
+        pg_insert(ExternalGroup)
+        .values(
+            organization_id=organization_id,
+            external_id=external_id,
+            display_name=display_name or external_id,
+        )
+        .on_conflict_do_nothing(
+            index_elements=[ExternalGroup.organization_id, ExternalGroup.external_id]
+        )
+    )
+    await session.execute(stmt)
+    await session.flush()
+    select_stmt = select(ExternalGroup).where(
+        ExternalGroup.organization_id == organization_id,
+        ExternalGroup.external_id == external_id,
+    )
+    return (await session.execute(select_stmt)).scalar_one()
+
+
+async def seed_external_group_members(
+    session: AsyncSession,
+    *,
+    external_group_id: uuid.UUID,
+    external_user_ids: Sequence[uuid.UUID],
+) -> None:
+    """Add external users to an external group's shadow member list."""
+    if not external_user_ids:
+        return
+    organization_id = (
+        await session.execute(
+            select(ExternalGroup.organization_id).where(
+                ExternalGroup.id == external_group_id
+            )
+        )
+    ).scalar_one()
+    await session.execute(
+        pg_insert(ExternalGroupMember)
+        .values(
+            [
+                {
+                    "organization_id": organization_id,
+                    "external_group_id": external_group_id,
+                    "external_user_id": external_user_id,
+                }
+                for external_user_id in external_user_ids
+            ]
+        )
+        .on_conflict_do_nothing(
+            index_elements=[
+                ExternalGroupMember.external_group_id,
+                ExternalGroupMember.external_user_id,
+            ]
+        )
+    )
+    await session.flush()
+
+
+async def seed_group_member(
+    session: AsyncSession,
+    *,
+    group_id: uuid.UUID,
+    user_id: UserID,
+) -> None:
+    """Add a group_member row."""
+    await session.execute(
+        pg_insert(GroupMember)
+        .values(group_id=group_id, user_id=user_id)
+        .on_conflict_do_nothing(
+            index_elements=[GroupMember.user_id, GroupMember.group_id]
+        )
+    )
+    await session.flush()

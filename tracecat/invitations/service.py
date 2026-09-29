@@ -23,6 +23,7 @@ from sqlalchemy.orm import selectinload
 from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
 from tracecat.audit.service import AuditService
+from tracecat.auth.domain_policy import is_org_saml_enforced
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
 from tracecat.authz.membership import ensure_member, lock_role_changes
@@ -32,6 +33,7 @@ from tracecat.db.models import (
     Invitation,
     InvitationGrant,
     OrganizationMembership,
+    ScimConnection,
     User,
     UserRoleAssignment,
     Workspace,
@@ -283,16 +285,25 @@ async def accept_invitation_for_user(
     *,
     user_id: UserID,
     token: str,
+    via_sso: bool = False,
 ) -> Invitation:
     """Accept an invitation and apply its grants.
 
     A standalone function because acceptance carries no organization context:
     the user may not belong to any organization yet.
 
+    Args:
+        session: Database session.
+        user_id: The accepting user.
+        token: The invitation token.
+        via_sso: Whether the caller is the org's SSO callback. Under SAML
+            enforcement, that is the only path that may accept.
+
     Raises:
         TracecatNotFoundError: If the invitation doesn't exist.
         TracecatAuthorizationError: If the invitation is expired, revoked, already
-            accepted, or the user's email doesn't match the invitation email.
+            accepted, the user's email doesn't match the invitation email, or the
+            organization enforces SAML and the caller is not its SSO callback.
     """
     invitation = await find_invitation_by_token(session, token)
     if invitation is None:
@@ -312,6 +323,8 @@ async def accept_invitation_for_user(
     # A grant whose workspace or role was deleted is gone by foreign key.
     if not invitation.grants:
         raise TracecatAuthorizationError("Invitation is no longer valid")
+    if not via_sso and await is_org_saml_enforced(session, invitation.organization_id):
+        raise TracecatAuthorizationError("Sign in with SSO to accept this invitation")
 
     audit_role = Role(
         type="user",
@@ -328,6 +341,9 @@ async def accept_invitation_for_user(
         )
 
     try:
+        # SCIM activation locks the organization before revoking invitations.
+        # Match that order before claiming the invitation to avoid deadlocks.
+        await lock_role_changes(session, invitation.organization_id)
         await _claim_pending(session, invitation)
         await _apply_grants(
             session,
@@ -513,6 +529,10 @@ class InvitationService(BaseOrgService):
                 "User must be authenticated to create invitation"
             )
 
+        # SCIM activation revokes pending invitations under this lock, then
+        # admits the directory. Take it before validating so an invitation
+        # cannot commit into the window and outlive the sweep.
+        await lock_role_changes(self.session, self.organization_id)
         await validate_grants(self.session, self.role, self.organization_id, params)
         invitation = await create_invitation_row(
             self.session,
@@ -525,6 +545,18 @@ class InvitationService(BaseOrgService):
         )
         await self.session.commit()
         return invitation
+
+    async def is_scim_connected(self) -> bool:
+        """Check whether an identity provider provisions this organization."""
+        return bool(
+            await self.session.scalar(
+                select(
+                    select(ScimConnection.id)
+                    .where(ScimConnection.organization_id == self.organization_id)
+                    .exists()
+                )
+            )
+        )
 
     async def list_invitations(
         self, *, status: InvitationStatus | None = None

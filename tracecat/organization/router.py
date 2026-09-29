@@ -22,6 +22,7 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -30,6 +31,7 @@ from tracecat.invitations.enums import InvitationStatus
 from tracecat.invitations.schemas import InvitationGrant
 from tracecat.invitations.service import InvitationService
 from tracecat.organization.schemas import (
+    MemberAccessTrace,
     OrgDomainRead,
     OrgMemberDetail,
     OrgMemberRead,
@@ -365,7 +367,32 @@ async def list_org_members(
     return result
 
 
-@router.delete("/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.get("/members/{user_id}/access", response_model=MemberAccessTrace)
+@require_scope("org:member:read", "org:rbac:read")
+async def trace_org_member_access(
+    *,
+    role: OrgUserRole,
+    session: AsyncDBSession,
+    user_id: UserID,
+) -> MemberAccessTrace:
+    """Trace a member's roles to their direct and group sources."""
+    try:
+        return await OrgService(session, role=role).trace_member_access(user_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        ) from e
+
+
+@router.delete(
+    "/members/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "description": "The member is managed by the identity provider."
+        }
+    },
+)
 @require_scope("org:member:remove")
 async def delete_org_member(
     *,
@@ -389,6 +416,8 @@ async def delete_org_member(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden"
         ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
 
 
 @router.patch("/members/{user_id}", response_model=OrgMemberDetail)
