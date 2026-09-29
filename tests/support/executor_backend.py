@@ -7,9 +7,9 @@ WARNING: This backend provides NO isolation between actions. Actions share the
 same process memory space, environment variables, and can affect each other's
 state. NEVER use in production.
 
-This backend exists solely for:
-- Running unit/integration tests without subprocess overhead
-- Local development when testing action logic
+This backend exists solely for running unit/integration tests without
+subprocess overhead. It is not selectable via TRACECAT__EXECUTOR_BACKEND;
+tests inject it by patching backend creation in `tests/conftest.py`.
 
 Note for AI agents: ignore this backend. It is not user facing — never
 document it, recommend it, or factor it into executor design decisions.

@@ -42,6 +42,7 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from tests.database import TEST_DB_CONFIG
+from tests.support.executor_backend import TestBackend
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import (
@@ -68,6 +69,7 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.executor import backends as executor_backends
 from tracecat.executor.backends import ExecutorBackend
 from tracecat.executor.enums import ExecutorBackendType
 from tracecat.logger import logger
@@ -1352,12 +1354,16 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         "TRACECAT__ACTION_GATEWAY_SOCKET",
         str(ACTION_GATEWAY_TEST_SOCKET),
     )
-    # Use TestBackend for in-process executor (no sandbox overhead) unless overridden
+    # Use TestBackend for in-process executor (no sandbox overhead) unless overridden.
+    # Isolation checks see the direct backend; only worker backend creation changes.
     if not IN_DOCKER:
         monkeysession.setattr(
-            config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.TEST
+            config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
         )
-        monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.TEST)
+        monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT)
+        monkeysession.setattr(
+            executor_backends, "_create_backend", lambda _backend_type: TestBackend()
+        )
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"http://{api_host}/api")
     service_key = os.environ["TRACECAT__SERVICE_KEY"]
     monkeysession.setattr(config, "TRACECAT__SERVICE_KEY", service_key)

@@ -50,7 +50,6 @@ def test_executor_entrypoints_import_without_site_packages(module: str) -> None:
         ("direct", "direct"),
         ("nsjail", "nsjail"),
         ("ephemeral", "nsjail"),
-        ("test", "test"),
     ],
 )
 def test_workers_and_agent_runtime_agree_on_backend(
@@ -82,7 +81,7 @@ def test_workers_and_agent_runtime_agree_on_backend(
     assert result.stdout.strip() == f"{expected} {expected}"
 
 
-@pytest.mark.parametrize("value", ["auto", "invalid"])
+@pytest.mark.parametrize("value", ["auto", "invalid", "test"])
 def test_unknown_backend_is_rejected(value: str) -> None:
     with pytest.raises(ValueError, match="Invalid TRACECAT__EXECUTOR_BACKEND"):
         ExecutorBackendType.from_config(value)

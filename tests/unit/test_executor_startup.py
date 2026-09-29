@@ -37,7 +37,7 @@ def test_valid_sandbox_prerequisites(
     validate_execution_backend()
 
 
-@pytest.mark.parametrize("backend", ["direct", "test"])
+@pytest.mark.parametrize("backend", ["direct"])
 def test_other_backends_do_not_require_sandbox(
     backend: str,
     tmp_path: Path,

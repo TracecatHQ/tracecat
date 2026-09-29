@@ -49,10 +49,6 @@ def _create_backend(backend_type: ExecutorBackendType) -> ExecutorBackend:
             from tracecat.executor.backends.direct import DirectBackend
 
             return DirectBackend()
-        case ExecutorBackendType.TEST:
-            from tracecat.executor.backends.test import TestBackend
-
-            return TestBackend()
         case _:
             raise ValueError(f"Unknown executor backend: {backend_type!r}")
 

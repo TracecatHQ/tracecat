@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistrySecret
 
 from tests.shared import TEST_WF_ID, generate_test_exec_id
+from tests.support.executor_backend import TestBackend
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.db.models import RegistryRepository, RegistryVersion
@@ -32,7 +33,6 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.executor import service
-from tracecat.executor.backends.test import TestBackend
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.registry.actions.bound import BoundRegistryAction
 from tracecat.registry.actions.schemas import (

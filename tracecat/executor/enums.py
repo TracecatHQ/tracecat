@@ -6,11 +6,10 @@ from enum import StrEnum
 
 
 class ExecutorBackendType(StrEnum):
-    """Execution isolation mode; in-process execution is reserved for tests."""
+    """Execution isolation mode."""
 
     DIRECT = "direct"
     NSJAIL = "nsjail"
-    TEST = "test"
 
     @classmethod
     def _missing_(cls, value: object) -> ExecutorBackendType | None:
@@ -28,7 +27,7 @@ class ExecutorBackendType(StrEnum):
             raise ValueError(
                 f"Invalid TRACECAT__EXECUTOR_BACKEND: {value!r}. "
                 "Expected 'direct' or 'nsjail' ('ephemeral' is an alias for "
-                "'nsjail'); 'test' is reserved for tests."
+                "'nsjail')."
             ) from None
 
     @property
