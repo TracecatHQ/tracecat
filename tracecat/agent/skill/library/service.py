@@ -111,17 +111,37 @@ class SkillLibraryService(BaseWorkspaceService):
         """Opt this workspace into a library skill. Idempotent."""
 
         skill = self._get_skill(slug)
-        await self.session.execute(
-            insert(SkillLibraryInstall)
-            .values(workspace_id=self.workspace_id, library_slug=slug)
-            .on_conflict_do_nothing(
-                constraint="uq_skill_library_install_workspace_slug"
-            )
-        )
+        await self.install_many([slug])
         await self.session.commit()
         return LibrarySkillRead(
             slug=skill.slug, description=skill.description, installed=True
         )
+
+    @require_scope("agent:create")
+    @requires_entitlement(Entitlement.AGENT_ADDONS)
+    async def install_many(self, slugs: Sequence[str]) -> list[str]:
+        """Install known skills without committing the caller's transaction.
+
+        Returns the sorted slugs newly installed by this transaction.
+        """
+        normalized = normalize_library_slugs(slugs)
+        get_library_skills(normalized)
+        if not normalized:
+            return []
+        result = await self.session.execute(
+            insert(SkillLibraryInstall)
+            .values(
+                [
+                    {"workspace_id": self.workspace_id, "library_slug": slug}
+                    for slug in normalized
+                ]
+            )
+            .on_conflict_do_nothing(
+                constraint="uq_skill_library_install_workspace_slug"
+            )
+            .returning(SkillLibraryInstall.library_slug)
+        )
+        return sorted(result.scalars())
 
     @require_scope("agent:delete")
     async def uninstall(self, slug: str) -> None:

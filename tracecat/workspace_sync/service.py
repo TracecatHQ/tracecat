@@ -14,6 +14,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.skill.library.catalog import load_library
+from tracecat.agent.skill.library.service import (
+    SkillLibraryService,
+    normalize_library_slugs,
+)
 from tracecat.auth.types import Role
 from tracecat.authz.controls import get_missing_scopes, has_any_scope
 from tracecat.db.models import (
@@ -45,6 +50,7 @@ from tracecat.sync import (
     ResourcePullCount,
     SyncPreviewResource,
 )
+from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.store.import_service import WorkflowImportService
@@ -418,6 +424,7 @@ class WorkspaceSyncService(SyncMappingService):
                     mcp_integration_mapping_requirements=(
                         prepared.mcp_integration_mapping_requirements
                     ),
+                    library_skill_installs=prepared.library_skill_installs,
                 )
             return PullResult(
                 success=True,
@@ -433,6 +440,7 @@ class WorkspaceSyncService(SyncMappingService):
                 resource_diffs=resource_diffs,
                 files=sorted(snapshot.files),
                 resources=_sync_preview_resources_from_spec(snapshot.spec),
+                library_skill_installs=prepared.library_skill_installs,
             )
         # Real pull: reconcile the snapshot into the database.
         return await self._import_snapshot(
@@ -934,6 +942,20 @@ class WorkspaceSyncService(SyncMappingService):
                 self, correlated_mcp.presets
             )
         )
+        requested_library_skills = normalize_library_slugs(
+            slug
+            for spec in correlated_mcp.presets.values()
+            for slug in spec.library_skills
+        )
+        library_skill_installs: list[str] = []
+        if requested_library_skills:
+            library_service = SkillLibraryService(self.session, role=self.role)
+            await library_service.require_entitlement(Entitlement.AGENT_ADDONS)
+            library_skill_installs = await library_service.missing_installs(
+                sorted(set(requested_library_skills) & load_library().keys())
+            )
+            if library_skill_installs:
+                self._enforce_required_scopes(["agent:create"])
         correlated_spec = snapshot.spec.model_copy(
             update={
                 "agent_presets": correlated_mcp.presets,
@@ -949,6 +971,7 @@ class WorkspaceSyncService(SyncMappingService):
             ],
             catalog_mapping_requirements=correlated.requirements,
             mcp_integration_mapping_requirements=correlated_mcp.requirements,
+            library_skill_installs=library_skill_installs,
         )
 
     async def _import_snapshot(
@@ -982,6 +1005,7 @@ class WorkspaceSyncService(SyncMappingService):
                 mcp_integration_mapping_requirements=(
                     prepared.mcp_integration_mapping_requirements
                 ),
+                library_skill_installs=prepared.library_skill_installs,
             )
 
         remote_workflows, local_ids = await self._remote_workflows(snapshot)
@@ -1006,6 +1030,7 @@ class WorkspaceSyncService(SyncMappingService):
                     "error(s) found"
                 ),
                 resource_counts=self._resource_counts_from_spec(snapshot.spec),
+                library_skill_installs=prepared.library_skill_installs,
             )
 
         has_non_workflow_resources = self._has_non_workflow_resources(snapshot.spec)
@@ -1024,11 +1049,23 @@ class WorkspaceSyncService(SyncMappingService):
         # resources first (workflows may reference them), then workflows, then
         # refresh the sync mappings. Any failure rolls the whole batch back.
         imported_resources: list[ImportedResource] = []
+        library_skill_installs: list[str] = []
         queue = AfterCommitQueue.of(self.session)
         try:
             with queue.checkpointed():
                 with queue.deferred():
                     async with self.session.begin_nested():
+                        # Reconcile every required slug, including installs removed
+                        # after preview, before lock-validating the preset bindings.
+                        library_slugs = normalize_library_slugs(
+                            slug
+                            for spec in snapshot.spec.agent_presets.values()
+                            for slug in spec.library_skills
+                        )
+                        if library_slugs:
+                            library_skill_installs = await SkillLibraryService(
+                                self.session, role=self.role
+                            ).install_many(library_slugs)
                         if has_non_workflow_resources:
                             imported_resources = await WorkspaceResourceImportService(
                                 session=self.session,
@@ -1098,6 +1135,7 @@ class WorkspaceSyncService(SyncMappingService):
                 imported_resources,
                 imported_workflows=len(remote_workflows),
             ),
+            library_skill_installs=library_skill_installs,
         )
 
     async def _resource_diffs_for_pull(
@@ -1908,6 +1946,7 @@ class WorkspaceSyncService(SyncMappingService):
         mcp_integration_mapping_requirements: (
             list[McpIntegrationMappingRequirement] | None
         ) = None,
+        library_skill_installs: list[str] | None = None,
     ) -> PullResult:
         """Build a failed pull result for a validated workspace snapshot."""
         return PullResult(
@@ -1923,6 +1962,7 @@ class WorkspaceSyncService(SyncMappingService):
             resources=_sync_preview_resources_from_spec(snapshot.spec),
             catalog_mapping_requirements=catalog_mapping_requirements,
             mcp_integration_mapping_requirements=(mcp_integration_mapping_requirements),
+            library_skill_installs=library_skill_installs or [],
         )
 
     def _resource_counts_from_imported(

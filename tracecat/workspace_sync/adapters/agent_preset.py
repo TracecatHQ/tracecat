@@ -16,6 +16,7 @@ from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.catalog.types import ModelKey
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.preset.types import SkillBindingSpec
+from tracecat.agent.skill.library.catalog import load_library
 from tracecat.agent.skill.library.service import (
     SkillLibraryService,
     normalize_library_slugs,
@@ -848,16 +849,9 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         workspace_service: SyncMappingService,
         presets: dict[str, AgentPresetResourceSpec],
     ) -> list[PullDiagnostic]:
-        """Block pulls whose presets bind library skills not installed here.
-
-        Import still lock-validates each binding; this surfaces the gap in preview.
-        """
+        """Block pulls referencing skills absent from this deployment's catalog."""
         requested = {slug for spec in presets.values() for slug in spec.library_skills}
-        missing = set(
-            await SkillLibraryService(
-                workspace_service.session, role=workspace_service.role
-            ).missing_installs(sorted(requested))
-        )
+        missing = requested - load_library().keys()
         diagnostics: list[PullDiagnostic] = []
         for source_id, spec in sorted(presets.items()):
             if not (
@@ -870,11 +864,13 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                     workflow_title=spec.name,
                     error_type="dependency",
                     message=(
-                        "Install these Tracecat library skills in this workspace "
-                        f"before applying this pull: {', '.join(preset_missing)}"
+                        "This pull requires unavailable library skills: "
+                        f"{', '.join(preset_missing)}. Update the destination to a "
+                        "release containing these skills, or update the source "
+                        "agent to remove or replace the references."
                     ),
                     details={
-                        "code": "library_skill_not_installed",
+                        "code": "library_skill_not_found",
                         "slugs": preset_missing,
                     },
                 )

@@ -97,10 +97,12 @@ class CorrelatedMcpIntegrationRefs:
     requirements: list[McpIntegrationMappingRequirement]
 
 
-class PreparedSnapshot(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class PreparedSnapshot:
     """Snapshot with deployment-local references resolved, plus any diagnostics."""
 
     snapshot: WorkspaceRemoteSnapshot
     diagnostics: list[PullDiagnostic]
     catalog_mapping_requirements: list[CatalogMappingRequirement]
     mcp_integration_mapping_requirements: list[McpIntegrationMappingRequirement]
+    library_skill_installs: list[str]

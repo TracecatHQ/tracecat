@@ -23104,6 +23104,13 @@ export const $PullResult = {
       ],
       title: "Resources",
     },
+    library_skill_installs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Library Skill Installs",
+    },
     catalog_mapping_requirements: {
       anyOf: [
         {

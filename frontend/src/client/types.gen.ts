@@ -7010,6 +7010,7 @@ export type PullResult = {
   resource_diffs?: Array<PullResourceDiff> | null
   files?: Array<string> | null
   resources?: Array<SyncPreviewResource> | null
+  library_skill_installs?: Array<string>
   catalog_mapping_requirements?: Array<CatalogMappingRequirement> | null
   mcp_integration_mapping_requirements?: Array<McpIntegrationMappingRequirement> | null
 }

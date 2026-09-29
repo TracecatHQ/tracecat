@@ -36,14 +36,26 @@ from tracecat.agent.workflow_config import (
 )
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentPreset, SkillLibraryInstall, Workspace
-from tracecat.exceptions import EntitlementRequired, TracecatValidationError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    ScopeDeniedError,
+    TracecatValidationError,
+)
+from tracecat.git.types import GitUrl
 from tracecat.pagination import CursorPaginationParams
+from tracecat.sync import PullOptions
 from tracecat.workspace_sync.adapters import AGENT_PRESET_RESOURCE_ADAPTER
-from tracecat.workspace_sync.adapters import agent_preset as agent_preset_adapter
 from tracecat.workspace_sync.adapters.agent_preset import AgentPresetAdapter
 from tracecat.workspace_sync.adapters.base import SyncMappingService
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
-from tracecat.workspace_sync.schemas import AgentPresetResourceSpec, WorkspaceSpec
+from tracecat.workspace_sync.schemas import (
+    AgentPresetResourceSpec,
+    WorkspaceManifest,
+    WorkspaceRemoteSnapshot,
+    WorkspaceSpec,
+)
+from tracecat.workspace_sync.service import WorkspaceSyncService
+from tracecat.workspace_sync.transport import VcsTreeSnapshot
 
 SLUG = "phishing-triage"
 
@@ -108,22 +120,14 @@ def test_sync_import_dedupes_library_skills_like_api_saves() -> None:
 
 
 @pytest.mark.anyio
-async def test_sync_preview_blocks_uninstalled_library_skills(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    missing_installs = AsyncMock(return_value=["phishing-triage"])
-    monkeypatch.setattr(
-        agent_preset_adapter,
-        "SkillLibraryService",
-        lambda *_args, **_kwargs: SimpleNamespace(missing_installs=missing_installs),
-    )
+async def test_sync_preview_blocks_only_unknown_library_skills() -> None:
     presets = {
         source_id: AgentPresetResourceSpec(
             id=source_id, name=source_id, slug=source_id, library_skills=skills
         )
         for source_id, skills in {
-            "needs-install": ["incident-summary", "phishing-triage"],
-            "installed": ["incident-summary"],
+            "unavailable": ["incident-summary", "unknown-skill"],
+            "available": ["incident-summary", "phishing-triage"],
         }.items()
     }
     workspace_service = cast(
@@ -134,13 +138,12 @@ async def test_sync_preview_blocks_uninstalled_library_skills(
         workspace_service, presets
     )
 
-    missing_installs.assert_awaited_once_with(["incident-summary", "phishing-triage"])
     assert [(d.workflow_title, d.error_type) for d in diagnostics] == [
-        ("needs-install", "dependency")
+        ("unavailable", "dependency")
     ]
     assert diagnostics[0].details == {
-        "code": "library_skill_not_installed",
-        "slugs": ["phishing-triage"],
+        "code": "library_skill_not_found",
+        "slugs": ["unknown-skill"],
     }
 
 
@@ -425,3 +428,153 @@ async def test_workspace_sync_round_trips_library_skills(
             WorkspaceSpec(agent_presets={"copy": missing})
         )
     assert _code(exc_info) == SkillLibraryErrorCode.NOT_INSTALLED.value
+
+
+def _library_sync_snapshot(slugs: list[str]) -> WorkspaceRemoteSnapshot:
+    return WorkspaceRemoteSnapshot(
+        commit_sha="a" * 40,
+        files={},
+        spec=WorkspaceSpec(
+            agent_presets={
+                slug: AgentPresetResourceSpec(
+                    id=slug, slug=slug, name=slug, library_skills=slugs
+                )
+                for slug in ("sync-one", "sync-two")
+            }
+        ),
+    )
+
+
+@pytest.mark.anyio
+async def test_pull_previews_installs_without_writes_and_rechecks_on_apply(
+    session: AsyncSession,
+    svc_role: Role,
+    library_service: SkillLibraryService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await library_service.install("incident-summary")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = _library_sync_snapshot([SLUG, "incident-summary", SLUG])
+    files = service._files_from_spec(manifest=WorkspaceManifest(), spec=snapshot.spec)
+    monkeypatch.setattr(
+        service,
+        "_workspace_git_url",
+        AsyncMock(return_value=GitUrl(host="github.com", org="example", repo="sync")),
+    )
+    transport = SimpleNamespace(
+        read_files=AsyncMock(
+            return_value=VcsTreeSnapshot(
+                commit_sha=snapshot.commit_sha, tree_sha="b" * 40, files=files
+            )
+        )
+    )
+    monkeypatch.setattr(service, "_transport_for_provider", lambda: transport)
+
+    preview = await service.pull(
+        options=PullOptions(commit_sha=snapshot.commit_sha, dry_run=True)
+    )
+
+    assert preview.success, preview.diagnostics
+    assert preview.library_skill_installs == [SLUG]
+    assert await library_service.missing_installs([SLUG]) == [SLUG]
+    assert (
+        await session.scalar(sa.select(sa.func.count()).select_from(AgentPreset)) == 0
+    )
+    # An install can disappear after preview. Apply must reconcile the whole
+    # dependency set rather than trusting the preview's missing-only list.
+    await library_service.uninstall("incident-summary")
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert result.success, result.diagnostics
+    assert result.library_skill_installs == ["incident-summary", SLUG]
+    assert await library_service.missing_installs([SLUG, "incident-summary"]) == []
+    assert (
+        await session.scalar(
+            sa.select(sa.func.count()).select_from(SkillLibraryInstall)
+        )
+        == 2
+    )
+    presets = (await session.scalars(sa.select(AgentPreset))).all()
+    assert len(presets) == 2
+    assert all(p.library_skills == ["incident-summary", SLUG] for p in presets)
+    replay = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert replay.success, replay.diagnostics
+    assert replay.library_skill_installs == []
+
+
+@pytest.mark.anyio
+async def test_pull_unknown_library_skill_blocks_all_installs(
+    session: AsyncSession, svc_role: Role, library_service: SkillLibraryService
+) -> None:
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = _library_sync_snapshot([SLUG, "unknown-skill"])
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.library_skill_installs == [SLUG]
+    assert all(
+        d.details["code"] == "library_skill_not_found" for d in prepared.diagnostics
+    )
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert not result.success
+    assert await library_service.missing_installs([SLUG]) == [SLUG]
+    assert (
+        await session.scalar(sa.select(sa.func.count()).select_from(AgentPreset)) == 0
+    )
+
+
+@pytest.mark.anyio
+async def test_pull_rolls_back_library_installs_and_presets_on_late_failure(
+    session: AsyncSession,
+    svc_role: Role,
+    library_service: SkillLibraryService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await library_service.install("incident-summary")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    monkeypatch.setattr(
+        service,
+        "_upsert_mappings",
+        AsyncMock(side_effect=TracecatValidationError("Synthetic import failure")),
+    )
+
+    result = await service._import_snapshot(
+        _library_sync_snapshot([SLUG]), sync_schedules=False
+    )
+
+    assert not result.success
+    assert result.library_skill_installs == []
+    assert await library_service.missing_installs([SLUG, "incident-summary"]) == [SLUG]
+    assert (
+        await session.scalar(sa.select(sa.func.count()).select_from(AgentPreset)) == 0
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("denial", ["entitlement", "scope"])
+async def test_pull_library_installs_require_entitlement_and_create_scope(
+    session: AsyncSession,
+    svc_role: Role,
+    library_service: SkillLibraryService,
+    monkeypatch: pytest.MonkeyPatch,
+    denial: str,
+) -> None:
+    role = svc_role
+    if denial == "entitlement":
+        monkeypatch.setattr(
+            SkillLibraryService, "has_entitlement", AsyncMock(return_value=False)
+        )
+        expected_error = EntitlementRequired
+    else:
+        role = svc_role.model_copy(
+            update={"scopes": frozenset({"agent:read", "agent:update"})}
+        )
+        expected_error = ScopeDeniedError
+    service = WorkspaceSyncService(session=session, role=role)
+    snapshot = _library_sync_snapshot([SLUG])
+
+    with pytest.raises(expected_error):
+        await service._prepare_snapshot_for_import(snapshot)
+    with pytest.raises(expected_error):
+        await service._import_snapshot(snapshot, sync_schedules=False)
+    assert await library_service.missing_installs([SLUG]) == [SLUG]
