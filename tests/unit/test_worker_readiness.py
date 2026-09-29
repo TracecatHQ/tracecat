@@ -1,46 +1,95 @@
-"""Worker readiness requires a live listener after startup."""
+"""Readiness must bracket initialized workers and end before their drain."""
 
 import asyncio
-import socket
-import tempfile
-from collections.abc import Iterator
 from pathlib import Path
+from types import ModuleType
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from tracecat.temporal.worker_readiness import check_worker_ready, worker_readiness
+from tracecat.agent import executor_worker
+from tracecat.executor import worker
 
 
-@pytest.fixture
-def path() -> Iterator[Path]:
-    # macOS pytest temp directories can exceed the Unix socket path limit.
-    with tempfile.TemporaryDirectory(dir="/tmp", prefix="worker-ready-") as directory:
-        yield Path(directory) / "ready.sock"
+@pytest.fixture(params=[worker, executor_worker], ids=["executor", "agent"])
+def worker_module(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> ModuleType:
+    module: ModuleType = request.param
+    monkeypatch.setattr(module, "validate_execution_backend", Mock())
+    monkeypatch.setattr(module, "initialize_platform_tracing", Mock())
+    monkeypatch.setattr(module, "shutdown_platform_tracing", Mock())
+    monkeypatch.setattr(module, "close_storage_client_cache", AsyncMock())
+    if module is worker:
+        monkeypatch.setattr(
+            module, "initialize_executor_sentry_from_environment", Mock()
+        )
+        monkeypatch.setattr(module, "ActionGateway", Mock(return_value=AsyncMock()))
+        monkeypatch.setattr(
+            module,
+            "get_action_runner",
+            Mock(return_value=Mock(registry_artifacts=AsyncMock())),
+        )
+        monkeypatch.setattr(module, "initialize_executor_backend", AsyncMock())
+        monkeypatch.setattr(module, "shutdown_executor_backend", AsyncMock())
+        monkeypatch.setattr(module, "get_temporal_client", AsyncMock())
+    else:
+        monkeypatch.setattr(module, "sandbox_cgroup", Mock())
+        monkeypatch.setattr(module, "initialize_worker_sentry_from_environment", Mock())
+        monkeypatch.setattr(module, "_start_runtime_services", AsyncMock())
+        monkeypatch.setattr(module, "_stop_runtime_services", AsyncMock())
+    return module
 
 
 @pytest.mark.anyio
-async def test_ready_only_inside_worker_lifetime(path: Path) -> None:
-    assert not check_worker_ready(path)
-    async with worker_readiness(path):
-        assert await asyncio.to_thread(check_worker_ready, path)
-    assert not check_worker_ready(path)
-    assert not path.exists()
+@pytest.mark.parametrize("fail", [False, True], ids=["shutdown", "failure"])
+async def test_readiness_ends_before_worker_drain(
+    worker_module: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fail: bool,
+) -> None:
+    ready = tmp_path / "ready"
+    ready.touch()
+    monkeypatch.setattr(worker_module, "WORKER_READY_FILE", ready)
+    shutdown = asyncio.Event()
+    drained = False
 
+    class FakeWorker:
+        async def __aenter__(self) -> None:
+            assert not ready.exists()
 
-@pytest.mark.anyio
-async def test_stale_socket_is_not_ready_and_can_be_replaced(path: Path) -> None:
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stale:
-        stale.bind(str(path))
-    assert path.exists()
-    assert not check_worker_ready(path)
-    async with worker_readiness(path):
-        assert await asyncio.to_thread(check_worker_ready, path)
+        async def __aexit__(self, *args: object) -> None:
+            nonlocal drained
+            assert not ready.exists()
+            drained = True
 
-
-@pytest.mark.anyio
-async def test_worker_failure_removes_readiness(path: Path) -> None:
-    with pytest.raises(RuntimeError, match="worker failed"):
-        async with worker_readiness(path):
-            assert await asyncio.to_thread(check_worker_ready, path)
+    async def wait() -> bool:
+        assert ready.is_file()
+        if fail:
             raise RuntimeError("worker failed")
-    assert not check_worker_ready(path)
+        return True
+
+    monkeypatch.setattr(worker_module, "Worker", Mock(return_value=FakeWorker()))
+    monkeypatch.setattr(shutdown, "wait", wait)
+    if fail:
+        with pytest.raises(RuntimeError, match="worker failed"):
+            await worker_module.main(shutdown_event=shutdown)
+    else:
+        await worker_module.main(shutdown_event=shutdown)
+    assert drained
+    assert not ready.exists()
+
+
+@pytest.mark.anyio
+async def test_unremovable_ready_file_fails_before_initialization(
+    worker_module: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ready = tmp_path / "ready"
+    ready.mkdir()
+    monkeypatch.setattr(worker_module, "WORKER_READY_FILE", ready)
+    validate = Mock()
+    monkeypatch.setattr(worker_module, "validate_execution_backend", validate)
+    with pytest.raises(OSError):
+        await worker_module.main()
+    validate.assert_not_called()

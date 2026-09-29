@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from pathlib import Path
 from typing import cast
 from unittest.mock import AsyncMock, Mock
 
@@ -25,6 +26,16 @@ from tracecat.agent.worker import get_activities as get_agent_worker_activities
 from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities as get_dsl_worker_activities
 from tracecat.search import indexing_schedule
+
+
+@pytest.fixture(autouse=True)
+def worker_ready_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "tracecat.executor.worker.WORKER_READY_FILE", tmp_path / "executor-ready"
+    )
+    monkeypatch.setattr(
+        "tracecat.agent.executor_worker.WORKER_READY_FILE", tmp_path / "agent-ready"
+    )
 
 
 @pytest.fixture(scope="session")

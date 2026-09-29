@@ -34,8 +34,11 @@ from tracecat.observability.otel import (
 )
 from tracecat.observability.sentry import initialize_worker_sentry_from_environment
 from tracecat.storage.blob import close_storage_client_cache
-from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
-from tracecat.temporal.worker_readiness import worker_readiness
+from tracecat.temporal.worker_lifecycle import (
+    WORKER_READY_FILE,
+    run_worker_entrypoint,
+    worker_readiness,
+)
 
 if TYPE_CHECKING:
     from temporalio.client import Client
@@ -86,6 +89,7 @@ async def _stop_runtime_services() -> None:
 async def main(shutdown_event: asyncio.Event | None = None) -> None:
     """Run the AgentExecutorWorker."""
     global runtime_failure_reason
+    WORKER_READY_FILE.unlink(missing_ok=True)
     validate_execution_backend()
     if shutdown_event is None:
         shutdown_event = asyncio.Event()
@@ -137,7 +141,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                         seconds=config.TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT
                     ),
                 ),
-                worker_readiness(),
+                # LIFO exit removes readiness before Temporal drains activities.
+                worker_readiness(WORKER_READY_FILE),
             ):
                 logger.info("AgentExecutorWorker started, ctrl+c to exit")
                 await shutdown_event.wait()

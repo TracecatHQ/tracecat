@@ -70,9 +70,13 @@ def test_other_backends_do_not_require_sandbox(
 async def test_workers_reject_invalid_sandbox_before_starting_services(
     module: ModuleType,
     invalid: str,
+    tmp_path: Path,
     sandbox_paths: tuple[Path, Path],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    ready = tmp_path / "ready"
+    ready.touch()
+    monkeypatch.setattr(module, "WORKER_READY_FILE", ready)
     nsjail, rootfs = sandbox_paths
     if invalid == "missing_binary":
         nsjail.unlink()
@@ -96,3 +100,4 @@ async def test_workers_reject_invalid_sandbox_before_starting_services(
     ):
         await module.main()
     initialize_tracing.assert_not_called()
+    assert not ready.exists()

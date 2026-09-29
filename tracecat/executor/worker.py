@@ -79,8 +79,11 @@ with workflow.unsafe.imports_passed_through():
         RegistrySyncWorkflow,
     )
     from tracecat.storage.blob import close_storage_client_cache
-    from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
-    from tracecat.temporal.worker_readiness import worker_readiness
+    from tracecat.temporal.worker_lifecycle import (
+        WORKER_READY_FILE,
+        run_worker_entrypoint,
+        worker_readiness,
+    )
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
@@ -122,6 +125,7 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 
 async def main(shutdown_event: asyncio.Event | None = None) -> None:
     """Run the ExecutorWorker."""
+    WORKER_READY_FILE.unlink(missing_ok=True)
     validate_execution_backend()
     if shutdown_event is None:
         shutdown_event = asyncio.Event()
@@ -203,7 +207,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
                     interceptors=interceptors,
                     graceful_shutdown_timeout=timedelta(minutes=5),
                 ),
-                worker_readiness(),
+                # LIFO exit removes readiness before Temporal drains activities.
+                worker_readiness(WORKER_READY_FILE),
             ):
                 logger.info(
                     "ExecutorWorker started, ctrl+c to exit",
