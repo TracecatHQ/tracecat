@@ -4,7 +4,7 @@ This module defines the abstract base class for executor backends,
 enabling pluggable execution strategies for different deployment scenarios.
 
 Available backends:
-- ephemeral: Cold nsjail subprocess per action for multitenant workloads
+- nsjail (ephemeral alias): Cold nsjail subprocess per action for multitenant workloads
 - direct: Direct subprocess execution without warm workers
 - test: In-process execution for tests only
 """

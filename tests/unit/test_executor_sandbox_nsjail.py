@@ -86,7 +86,7 @@ class SmokeCase(StrEnum):
     NSJAIL_CURRENT_BUILTIN = "nsjail-current-builtin"
 
     @property
-    def force_sandbox(self) -> bool:
+    def use_sandbox(self) -> bool:
         return self not in {
             SmokeCase.DIRECT,
             SmokeCase.DIRECT_SQUASHFS,
@@ -134,7 +134,7 @@ def _skip_smoke(reason: str) -> NoReturn:
 
 
 def _missing_prerequisite(smoke_case: SmokeCase) -> str | None:
-    if not smoke_case.force_sandbox:
+    if not smoke_case.use_sandbox:
         if sys.platform != "linux":
             return (
                 "direct action subprocesses require Linux (setpriv + subreaper "
@@ -142,9 +142,9 @@ def _missing_prerequisite(smoke_case: SmokeCase) -> str | None:
             )
         if shutil.which("setpriv") is None:
             return "setpriv is unavailable"
-    if smoke_case.force_sandbox and not _executor_nsjail_available():
+    if smoke_case.use_sandbox and not _executor_nsjail_available():
         return "executor nsjail unavailable"
-    if smoke_case.force_sandbox and not Path("/dev/net/tun").exists():
+    if smoke_case.use_sandbox and not Path("/dev/net/tun").exists():
         return "/dev/net/tun is unavailable for nsjail NSTUN networking"
     if smoke_case == SmokeCase.NSJAIL_SQUASHFS:
         if shutil.which("mksquashfs") is None:
@@ -230,7 +230,7 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
                 f"      - {json.dumps(tests_mount)}",
                 "    environment:",
                 f'      {_DOCKER_CHILD_ENV}: "1"',
-                '      TRACECAT__DISABLE_NSJAIL: "false"',
+                '      TRACECAT__EXECUTOR_BACKEND: "nsjail"',
                 '      TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED: "true"',
                 '      TRACECAT__SANDBOX_NSJAIL_PATH: "/usr/local/bin/nsjail"',
                 '      TRACECAT__SANDBOX_ROOTFS_PATH: "/var/lib/tracecat/sandbox-rootfs"',
@@ -654,7 +654,7 @@ async def _run_executor_action_smoke_case(
     action_gateway_socket = Path("/tmp") / f"tc-action-gateway-{uuid.uuid4().hex}.sock"
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(config, "TRACECAT__API_URL", "http://127.0.0.1:8000")
-    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", True)
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "nsjail")
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED", True)
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 30.0)
     monkeypatch.setattr(
@@ -774,7 +774,7 @@ async def _run_executor_action_smoke_case(
                 resolved_context=resolved_context,
                 artifact_uris=[_SMOKE_URI],
                 timeout=30,
-                force_sandbox=smoke_case.force_sandbox,
+                use_sandbox=smoke_case.use_sandbox,
             )
 
             allowed_result: object | None = None
@@ -798,7 +798,7 @@ async def _run_executor_action_smoke_case(
                     resolved_context=resolved_context,
                     artifact_uris=[_SMOKE_URI],
                     timeout=30,
-                    force_sandbox=True,
+                    use_sandbox=True,
                 )
 
         if isinstance(result, ExecutorActionErrorInfo):
@@ -870,7 +870,9 @@ async def _run_current_builtin_smoke_case(
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(config, "TRACECAT__API_URL", "http://127.0.0.1:8000")
     monkeypatch.setattr(
-        config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", smoke_case.force_sandbox
+        config,
+        "TRACECAT__EXECUTOR_BACKEND",
+        "nsjail" if smoke_case.use_sandbox else "direct",
     )
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 30.0)
     monkeypatch.setattr(
@@ -895,10 +897,10 @@ async def _run_current_builtin_smoke_case(
     )
 
     runner = ActionRunner(cache_dir=tmp_path / "registry-cache")
-    backend = EphemeralBackend() if smoke_case.force_sandbox else DirectBackend()
+    backend = EphemeralBackend() if smoke_case.use_sandbox else DirectBackend()
     get_action_runner_path = (
         "tracecat.executor.backends.ephemeral.get_action_runner"
-        if smoke_case.force_sandbox
+        if smoke_case.use_sandbox
         else "tracecat.executor.backends.direct.get_action_runner"
     )
     action_gateway = ActionGateway()
@@ -1141,7 +1143,7 @@ async def test_action_runner_executes_registry_action_smoke(
     tmp_path: Path,
 ) -> None:
     if smoke_case in _CURRENT_BUILTIN_CASES:
-        if smoke_case.force_sandbox and _missing_prerequisite(smoke_case):
+        if smoke_case.use_sandbox and _missing_prerequisite(smoke_case):
             _run_executor_action_smoke_in_docker_or_skip(smoke_case)
             return
         await _run_current_builtin_smoke_case(
@@ -1151,7 +1153,7 @@ async def test_action_runner_executes_registry_action_smoke(
         )
         return
 
-    if smoke_case.force_sandbox and _missing_prerequisite(smoke_case):
+    if smoke_case.use_sandbox and _missing_prerequisite(smoke_case):
         _run_executor_action_smoke_in_docker_or_skip(smoke_case)
         return
 

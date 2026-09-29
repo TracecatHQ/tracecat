@@ -246,7 +246,7 @@ async def test_broker_hydrates_work_dir_while_session_is_active(
 def test_build_path_mapping_uses_runtime_mount_paths_when_nsjail_enabled(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", False)
+    monkeypatch.setattr(broker_module, "TRACECAT__EXECUTOR_BACKEND", "nsjail")
     monkeypatch.setattr(
         session_paths_module.tempfile, "gettempdir", lambda: str(tmp_path)
     )
@@ -267,7 +267,7 @@ def test_build_path_mapping_uses_runtime_mount_paths_when_nsjail_enabled(
 def test_build_path_mapping_uses_host_paths_in_direct_mode(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", True)
+    monkeypatch.setattr(broker_module, "TRACECAT__EXECUTOR_BACKEND", "direct")
     monkeypatch.setattr(
         session_paths_module.tempfile, "gettempdir", lambda: str(tmp_path)
     )
@@ -281,7 +281,7 @@ def test_build_path_mapping_uses_host_paths_in_direct_mode(
 def test_build_path_mapping_is_stable_per_session(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", True)
+    monkeypatch.setattr(broker_module, "TRACECAT__EXECUTOR_BACKEND", "direct")
     monkeypatch.setattr(
         session_paths_module.tempfile, "gettempdir", lambda: str(tmp_path)
     )

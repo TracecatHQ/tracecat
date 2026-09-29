@@ -178,7 +178,7 @@ class RegistrySyncRunner:
         self.clone_timeout = (
             clone_timeout or config.TRACECAT__REGISTRY_SYNC_CLONE_TIMEOUT
         )
-        if config.TRACECAT__DISABLE_NSJAIL:
+        if config.TRACECAT__EXECUTOR_BACKEND != "nsjail":
             self._backend: _RegistrySyncBackend = _UnsandboxedBackend()
         elif is_nsjail_available():
             self._backend = _SandboxedBackend()

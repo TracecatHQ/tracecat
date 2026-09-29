@@ -15,14 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from tracecat.config import (
-    TRACECAT__DISABLE_NSJAIL,
+    TRACECAT__EXECUTOR_BACKEND,
     TRACECAT__SANDBOX_CACHE_DIR,
     TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
     TRACECAT__SANDBOX_DEFAULT_TIMEOUT,
-    TRACECAT__SANDBOX_NSJAIL_PATH,
     TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES,
     TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES,
-    TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
 from tracecat.sandbox.exceptions import (
@@ -131,20 +129,6 @@ class SandboxService:
         # Initialize executors lazily based on availability
         self._nsjail_executor: NsjailExecutor | None = None
         self._unsafe_pid_executor: UnsafePidExecutor | None = None
-
-    def _is_nsjail_available(self) -> bool:
-        """Check if nsjail sandbox is available and configured.
-
-        Returns:
-            True if nsjail can be used, False otherwise.
-        """
-        if TRACECAT__DISABLE_NSJAIL:
-            return False
-
-        nsjail_path = Path(TRACECAT__SANDBOX_NSJAIL_PATH)
-        rootfs_path = Path(TRACECAT__SANDBOX_ROOTFS_PATH)
-
-        return nsjail_path.exists() and rootfs_path.is_dir()
 
     @property
     def nsjail_executor(self) -> NsjailExecutor:
@@ -475,8 +459,8 @@ class SandboxService:
             action_gateway_socket
         )
 
-        # Route to appropriate executor based on nsjail availability
-        if self._is_nsjail_available():
+        # The configured backend is authoritative; never fall back from nsjail.
+        if TRACECAT__EXECUTOR_BACKEND == "nsjail":
             logger.debug("Using nsjail executor for script execution")
             return await self._run_with_nsjail(
                 script=script,
@@ -491,9 +475,9 @@ class SandboxService:
             )
         else:
             logger.info(
-                "nsjail not available, using unsafe PID executor. "
+                "Using the direct backend with the unsafe PID executor. "
                 "Using PID namespace isolation when available. "
-                "For full OS-level isolation, set TRACECAT__DISABLE_NSJAIL=false "
+                "For full OS-level isolation, set TRACECAT__EXECUTOR_BACKEND=nsjail "
                 "and ensure nsjail is installed with the sandbox rootfs."
             )
             resolved_env_vars = self._with_action_gateway_socket_env(

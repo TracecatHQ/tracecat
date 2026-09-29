@@ -177,8 +177,7 @@ def _run_sync_artifact_sandbox_smoke_in_docker_or_skip(
     compose_env["TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED"] = "true"
     compose_env["TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES"] = "true"
     compose_env["TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED"] = "true"
-    compose_env["TRACECAT__DISABLE_NSJAIL"] = "false"
-    compose_env["TRACECAT__EXECUTOR_SANDBOX_ENABLED"] = "true"
+    compose_env["TRACECAT__EXECUTOR_BACKEND"] = "nsjail"
     compose_env["TRACECAT__SANDBOX_NSJAIL_PATH"] = "/usr/local/bin/nsjail"
     compose_env["TRACECAT__SANDBOX_ROOTFS_PATH"] = "/var/lib/tracecat/sandbox-rootfs"
     compose_env["TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH"] = (
@@ -216,8 +215,7 @@ def _run_sync_artifact_sandbox_smoke_in_docker_or_skip(
                 "      - TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED",
                 "      - TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES",
                 "      - TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED",
-                "      - TRACECAT__DISABLE_NSJAIL",
-                "      - TRACECAT__EXECUTOR_SANDBOX_ENABLED",
+                "      - TRACECAT__EXECUTOR_BACKEND",
                 "      - TRACECAT__SANDBOX_NSJAIL_PATH",
                 "      - TRACECAT__SANDBOX_ROOTFS_PATH",
                 "      - TRACECAT__BUILTIN_REGISTRY_SOURCE_PATH",
@@ -408,9 +406,8 @@ def configure_minio_for_tests(monkeypatch):
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", secret_key)
 
     # Disable nsjail for all tests (use subprocess mode for macOS/CI)
-    monkeypatch.setenv("TRACECAT__DISABLE_NSJAIL", "true")
-    monkeypatch.setattr(config, "TRACECAT__DISABLE_NSJAIL", True)
-    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False)
+    monkeypatch.setenv("TRACECAT__EXECUTOR_BACKEND", "direct")
+    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "direct")
 
     # Disable registry sync sandbox to use subprocess mode instead of Temporal workflow.
     # This ensures sync activities run in the same process and see the monkeypatched config.
@@ -888,9 +885,9 @@ class TestExecuteWithSyncedRegistry:
     ):
         """Verify action execution through EphemeralBackend with synced registry.
 
-        Note: This test runs with TRACECAT__DISABLE_NSJAIL=true to use subprocess
+        Note: This test runs with TRACECAT__EXECUTOR_BACKEND=direct to use subprocess
         mode instead of real nsjail, making it runnable on macOS/CI.
-        We mock the ActionRunner's execute_action to use force_sandbox=False.
+        We mock the ActionRunner's execute_action to use use_sandbox=False.
 
         Uses shared_synced_registry fixture (module-scoped) to avoid redundant sync.
         """
@@ -927,11 +924,11 @@ class TestExecuteWithSyncedRegistry:
         # Create test runner
         test_runner = ActionRunner(cache_dir=temp_cache_dir)
 
-        # Wrap execute_action to disable force_sandbox for testing (nsjail not available on macOS)
+        # Wrap execute_action to disable use_sandbox for testing (nsjail not available on macOS)
         original_execute = test_runner.execute_action
 
         async def execute_without_nsjail(**kwargs):
-            kwargs["force_sandbox"] = False  # Override to use direct subprocess
+            kwargs["use_sandbox"] = False  # Override to use direct subprocess
             return await original_execute(**kwargs)
 
         # Mock both the action runner and artifact resolution
@@ -1013,11 +1010,11 @@ class TestExecuteWithSyncedRegistry:
         # Create test runner
         test_runner = ActionRunner(cache_dir=temp_cache_dir)
 
-        # Wrap execute_action to disable force_sandbox for testing
+        # Wrap execute_action to disable use_sandbox for testing
         original_execute = test_runner.execute_action
 
         async def execute_without_nsjail(**kwargs):
-            kwargs["force_sandbox"] = False  # Override to use direct subprocess
+            kwargs["use_sandbox"] = False  # Override to use direct subprocess
             return await original_execute(**kwargs)
 
         with (
@@ -1143,11 +1140,11 @@ class TestFailureScenarios:
         # Create test runner
         test_runner = ActionRunner(cache_dir=temp_cache_dir)
 
-        # Wrap execute_action to disable force_sandbox for testing
+        # Wrap execute_action to disable use_sandbox for testing
         original_execute = test_runner.execute_action
 
         async def execute_without_nsjail(**kwargs):
-            kwargs["force_sandbox"] = False
+            kwargs["use_sandbox"] = False
             return await original_execute(**kwargs)
 
         with (
@@ -1334,11 +1331,11 @@ class TestMultitenantWorkloads:
         # Create test runner
         test_runner = ActionRunner(cache_dir=temp_cache_dir)
 
-        # Wrap execute_action to disable force_sandbox for testing
+        # Wrap execute_action to disable use_sandbox for testing
         original_execute = test_runner.execute_action
 
         async def execute_without_nsjail(**kwargs):
-            kwargs["force_sandbox"] = False  # Override to use direct subprocess
+            kwargs["use_sandbox"] = False  # Override to use direct subprocess
             return await original_execute(**kwargs)
 
         # Execute both workspaces concurrently
@@ -1431,11 +1428,11 @@ class TestMultitenantWorkloads:
         # Create test runner
         test_runner = ActionRunner(cache_dir=temp_cache_dir)
 
-        # Wrap execute_action to disable force_sandbox for testing
+        # Wrap execute_action to disable use_sandbox for testing
         original_execute = test_runner.execute_action
 
         async def execute_without_nsjail(**kwargs):
-            kwargs["force_sandbox"] = False  # Override to use direct subprocess
+            kwargs["use_sandbox"] = False  # Override to use direct subprocess
             return await original_execute(**kwargs)
 
         # Execute all requests concurrently
@@ -1556,11 +1553,11 @@ class TestMultitenantWorkloads:
         # Create test runner
         test_runner = ActionRunner(cache_dir=temp_cache_dir)
 
-        # Wrap execute_action to disable force_sandbox for testing
+        # Wrap execute_action to disable use_sandbox for testing
         original_execute = test_runner.execute_action
 
         async def execute_without_nsjail(**kwargs):
-            kwargs["force_sandbox"] = False  # Override to use direct subprocess
+            kwargs["use_sandbox"] = False  # Override to use direct subprocess
             return await original_execute(**kwargs)
 
         # Execute both workspaces concurrently with locked versions
@@ -1706,8 +1703,7 @@ async def _run_sync_artifact_sandbox_smoke_child() -> None:
     config.TRACECAT__REGISTRY_SYNC_SQUASHFS_ENABLED = True
     config.TRACECAT__REGISTRY_SYNC_BUILTIN_USE_INSTALLED_SITE_PACKAGES = True
     config.TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED = True
-    config.TRACECAT__EXECUTOR_SANDBOX_ENABLED = True
-    config.TRACECAT__DISABLE_NSJAIL = False
+    config.TRACECAT__EXECUTOR_BACKEND = config.ExecutorBackendType.NSJAIL
     reset_async_engine()
     importlib.reload(blob_module)
 

@@ -60,7 +60,7 @@ def _make_sandboxed_runner(
     discover_timeout: int | None = None,
     clone_timeout: int | None = None,
 ) -> RegistrySyncRunner:
-    mocker.patch.object(config, "TRACECAT__DISABLE_NSJAIL", False)
+    mocker.patch.object(config, "TRACECAT__EXECUTOR_BACKEND", "nsjail")
     mocker.patch(
         "tracecat.registry.sync.runner.is_nsjail_available",
         return_value=True,
@@ -288,7 +288,7 @@ async def test_runner_routes_git_clone_through_nsjail_when_available(
 async def test_runner_fails_closed_when_nsjail_enabled_but_unavailable(
     mocker,
 ) -> None:
-    mocker.patch.object(config, "TRACECAT__DISABLE_NSJAIL", False)
+    mocker.patch.object(config, "TRACECAT__EXECUTOR_BACKEND", "nsjail")
     mocker.patch(
         "tracecat.registry.sync.runner.is_nsjail_available",
         return_value=False,
@@ -331,7 +331,7 @@ async def test_runner_rejects_local_registry_when_disabled(
 
 
 def test_runner_selects_nsjail_when_enabled_and_available(mocker) -> None:
-    mocker.patch.object(config, "TRACECAT__DISABLE_NSJAIL", False)
+    mocker.patch.object(config, "TRACECAT__EXECUTOR_BACKEND", "nsjail")
     mocker.patch(
         "tracecat.registry.sync.runner.is_nsjail_available",
         return_value=True,
@@ -343,7 +343,7 @@ def test_runner_selects_nsjail_when_enabled_and_available(mocker) -> None:
 
 
 def test_runner_skips_nsjail_when_explicitly_disabled(mocker) -> None:
-    mocker.patch.object(config, "TRACECAT__DISABLE_NSJAIL", True)
+    mocker.patch.object(config, "TRACECAT__EXECUTOR_BACKEND", "direct")
     availability_check = mocker.patch(
         "tracecat.registry.sync.runner.is_nsjail_available",
         return_value=False,

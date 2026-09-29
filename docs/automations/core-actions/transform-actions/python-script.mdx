@@ -30,7 +30,7 @@ default value when its key may be absent from `inputs`.
 
 Set `allow_network: true` when your script makes outbound network
 requests. When the executor runs with
-`TRACECAT__EXECUTOR_SANDBOX_ENABLED=true`, deployment-wide
+`TRACECAT__EXECUTOR_BACKEND=nsjail`, deployment-wide
 [CA certificates](/self-hosting/tls#trust-an-internal-ca-for-outbound-connections)
 do not reach sandboxed scripts.
 

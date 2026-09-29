@@ -141,7 +141,7 @@ AGENT_SANDBOX_BASE_ENV = {
     "USER": "agent",
     # Keep UV caches, credentials, managed Pythons, and tools out of stable home.
     **build_agent_runtime_uv_env(JAILED_AGENT_UV_STATE_DIR),
-    "TRACECAT__DISABLE_NSJAIL": "false",
+    "TRACECAT__EXECUTOR_BACKEND": "nsjail",
     "PYTHONDONTWRITEBYTECODE": "1",
     "PYTHONUNBUFFERED": "1",
     "LANG": "C.UTF-8",

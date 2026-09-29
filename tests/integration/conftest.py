@@ -43,7 +43,7 @@ def monkeypatch_session():
 @pytest.fixture(scope="session", autouse=True)
 def disable_nsjail_for_tests(monkeypatch_session):
     """Disable nsjail sandbox for integration tests."""
-    monkeypatch_session.setenv("TRACECAT__DISABLE_NSJAIL", "true")
+    monkeypatch_session.setenv("TRACECAT__EXECUTOR_BACKEND", "direct")
 
     # Reload config to pick up the new value
     from tracecat import config as tracecat_config

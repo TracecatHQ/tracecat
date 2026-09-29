@@ -17,7 +17,7 @@ from pathlib import Path
 
 from tracecat.concurrency import rejoin_future_through_cancellation
 from tracecat.config import (
-    TRACECAT__DISABLE_NSJAIL,
+    TRACECAT__EXECUTOR_BACKEND,
     TRACECAT__SANDBOX_NSJAIL_PATH,
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
@@ -137,8 +137,8 @@ def is_nsjail_available() -> bool:
     Returns:
         True if nsjail can be used, False otherwise.
     """
-    # Check the appropriate disable flag
-    if TRACECAT__DISABLE_NSJAIL:
+    # Direct and test modes do not use nsjail.
+    if TRACECAT__EXECUTOR_BACKEND != "nsjail":
         return False
 
     nsjail_path = Path(TRACECAT__SANDBOX_NSJAIL_PATH)

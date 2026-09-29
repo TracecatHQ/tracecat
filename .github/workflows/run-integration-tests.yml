@@ -192,7 +192,7 @@ jobs:
             --security-opt systempaths=unconfined \
             --device /dev/net/tun \
             --mount "type=bind,source=$PWD/tests,target=/app/tests,readonly" \
-            -e TRACECAT__DISABLE_NSJAIL=false \
+            -e TRACECAT__EXECUTOR_BACKEND=nsjail \
             -e TRACECAT__EXECUTOR_ACTION_SMOKE_DOCKER_CHILD=1 \
             -e TRACECAT__AGENT_NSJAIL_DOCKER_FALLBACK_CHILD=1 \
             -e PYTHONDONTWRITEBYTECODE=1 \
@@ -278,7 +278,7 @@ jobs:
           TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "true"
           # Tests run on the host, so Temporal must be reachable via localhost
           TEMPORAL__CLUSTER_URL: "localhost:7233"
-          TRACECAT__DISABLE_NSJAIL: "true"
+          TRACECAT__EXECUTOR_BACKEND: "direct"
           # Privileged loop-device regression reuses the exact image built above.
           TRACECAT__REGISTRY_LOOP_HOTPLUG_IMAGE: tracecat-ci:integration-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
@@ -292,7 +292,7 @@ jobs:
           TRACECAT_TEST_API_MODE: "external"
           TRACECAT_TEST_EXTERNAL_API_URL: "http://localhost/api"
           TEMPORAL__CLUSTER_URL: "localhost:7233"
-          TRACECAT__DISABLE_NSJAIL: "true"
+          TRACECAT__EXECUTOR_BACKEND: "direct"
         run: |
           uv run --no-sync pytest tests/temporal -m "requires_api and not live_secret" -n auto -ra -v -o faulthandler_timeout=300
 

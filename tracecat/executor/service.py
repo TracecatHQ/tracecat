@@ -814,10 +814,9 @@ async def invoke_once(
     """Execute action using the configured backend.
 
     The backend is selected via TRACECAT__EXECUTOR_BACKEND config:
-    - 'ephemeral': Cold nsjail subprocess per action (multitenant, full isolation)
+    - 'nsjail' ('ephemeral' alias): Cold nsjail subprocess per action (multitenant, full isolation)
     - 'direct': Direct subprocess execution
     - 'test': In-process execution (tests only)
-    - 'auto': Auto-select based on environment
     """
     role = ctx.role
     action_name = input.task.action

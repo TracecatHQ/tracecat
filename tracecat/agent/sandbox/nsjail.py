@@ -14,7 +14,7 @@ Uses the same rootfs as the action sandbox (TRACECAT__SANDBOX_ROOTFS_PATH).
 The sandbox mounts only the standalone shim script and the Claude SDK package
 subtree needed to launch the bundled Claude executable.
 
-When TRACECAT__DISABLE_NSJAIL=true, the runtime is spawned as a direct
+When TRACECAT__EXECUTOR_BACKEND=direct, the runtime is spawned as a direct
 subprocess instead of through nsjail. This is useful for:
 - Testing on platforms without nsjail (macOS, Windows, CI)
 - Development workflows
@@ -36,7 +36,7 @@ from tracecat.agent.common.config import (
     CONTROL_SOCKET_NAME,
     JAILED_OTEL_SOCKET_PATH,
     TRACECAT__AGENT_MCP_SOCKET_PATH,
-    TRACECAT__DISABLE_NSJAIL,
+    TRACECAT__EXECUTOR_BACKEND,
     build_agent_runtime_uv_env,
 )
 from tracecat.agent.common.exceptions import (
@@ -158,7 +158,7 @@ async def spawn_jailed_runtime(
     - Starting the trusted MCP HTTP server on socket_dir/mcp.sock
     - Reading events from the shim stdout/stderr streams
 
-    When TRACECAT__DISABLE_NSJAIL=true, the runtime is spawned as a direct
+    When TRACECAT__EXECUTOR_BACKEND=direct, the runtime is spawned as a direct
     subprocess instead of through nsjail. This enables testing on platforms
     without nsjail (macOS, Windows, CI environments).
 
@@ -225,7 +225,7 @@ async def spawn_jailed_runtime(
         uv_state_dir.chmod(0o700)
 
         # Direct subprocess mode for testing (no nsjail)
-        if TRACECAT__DISABLE_NSJAIL:
+        if TRACECAT__EXECUTOR_BACKEND != "nsjail":
             process = await _spawn_direct_runtime(
                 socket_dir=socket_dir,
                 llm_socket_path=llm_socket_path,
@@ -315,7 +315,7 @@ async def _spawn_direct_runtime(
     """Spawn the Claude shim as a direct subprocess (for development/testing).
 
     This bypasses nsjail and runs the same standalone shim script in the current
-    Python environment. Used when TRACECAT__DISABLE_NSJAIL=true.
+    Python environment. Used when TRACECAT__EXECUTOR_BACKEND=direct.
 
     Security: Uses minimal base environment to prevent host secrets from
     leaking into the subprocess. Only passes socket paths and essential
@@ -347,7 +347,7 @@ async def _spawn_direct_runtime(
     env = {
         **AGENT_SANDBOX_BASE_ENV,
         # Override for direct mode
-        "TRACECAT__DISABLE_NSJAIL": "true",
+        "TRACECAT__EXECUTOR_BACKEND": "direct",
         # Point the runtime at the per-job init payload file without changing cwd.
         "TRACECAT__AGENT_INIT_PAYLOAD_PATH": str(init_payload_path),
     }

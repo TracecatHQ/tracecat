@@ -53,7 +53,7 @@ def run_smoke(module: str, *args: str) -> None:
 
 async def main() -> None:
     assert os.getuid() == 1001, "Exercise the production apiuser"
-    assert not config.TRACECAT__DISABLE_NSJAIL, "Real nsjail is required"
+    assert config.TRACECAT__EXECUTOR_BACKEND == "nsjail", "Real nsjail is required"
     assert Path(config.TRACECAT__SANDBOX_NSJAIL_PATH).is_file()
     assert Path("/dev/net/tun").exists()
     rootfs = Path(config.TRACECAT__SANDBOX_ROOTFS_PATH)

@@ -183,7 +183,7 @@ class TestActionRunner:
             patch("asyncio.create_subprocess_exec") as mock_subprocess,
         ):
             mock_config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT = 0.1
-            mock_config.TRACECAT__EXECUTOR_SANDBOX_ENABLED = False
+            mock_config.TRACECAT__EXECUTOR_BACKEND = "direct"
             mock_config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = str(temp_cache_dir)
 
             # Create a mock process that hangs
@@ -922,7 +922,7 @@ class TestActionRunner:
         await runner.registry_artifacts.ensure_swept()
 
         monkeypatch.setattr(
-            action_runner.config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False
+            action_runner.config, "TRACECAT__EXECUTOR_BACKEND", "direct"
         )
 
         success_response = orjson.dumps({"success": True, "result": {"data": "test"}})
@@ -1008,7 +1008,7 @@ class TestActionRunner:
         mounted = {paths.squashfs_mount_dir}
 
         monkeypatch.setattr(
-            action_runner.config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False
+            action_runner.config, "TRACECAT__EXECUTOR_BACKEND", "direct"
         )
 
         resolved_context = ResolvedContext(

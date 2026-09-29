@@ -13,7 +13,7 @@ from tracecat.agent.artifacts.working_set import (
     ArtifactWorkingSetContext,
     ArtifactWorkingSetInput,
 )
-from tracecat.agent.common.config import TRACECAT__DISABLE_NSJAIL
+from tracecat.agent.common.config import TRACECAT__EXECUTOR_BACKEND
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.executor.loopback import LoopbackHandler
 from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
@@ -175,7 +175,7 @@ class ClaudeRuntimeBroker:
                     job_dir=request.job_dir,
                     path_mapping=path_mapping,
                     enable_internet_access=request.enable_internet_access,
-                    use_jailed_paths=not TRACECAT__DISABLE_NSJAIL,
+                    use_jailed_paths=TRACECAT__EXECUTOR_BACKEND == "nsjail",
                     session_id=str(request.init_payload.session_id),
                     skills_dir=request.skills_dir,
                     otel_socket_path=request.otel_socket_path,
@@ -229,5 +229,5 @@ class ClaudeRuntimeBroker:
         """
         return build_agent_sandbox_path_mapping(
             session_id=session_id,
-            disable_nsjail=TRACECAT__DISABLE_NSJAIL,
+            disable_nsjail=TRACECAT__EXECUTOR_BACKEND != "nsjail",
         )

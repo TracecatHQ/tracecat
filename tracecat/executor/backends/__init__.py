@@ -19,10 +19,8 @@ from __future__ import annotations
 
 from tracecat import config
 from tracecat.executor.backends.base import ExecutorBackend
-from tracecat.executor.schemas import (
-    ExecutorBackendType,
-    resolve_backend_type,
-)
+from tracecat.executor.schemas import resolve_backend_type
+from tracecat.executor.types import ExecutorBackendType
 from tracecat.logger import logger
 
 __all__ = [
@@ -43,7 +41,7 @@ def _create_backend(backend_type: ExecutorBackendType) -> ExecutorBackend:
     Uses lazy imports to avoid circular dependencies with action_runner.
     """
     match backend_type:
-        case ExecutorBackendType.EPHEMERAL:
+        case ExecutorBackendType.NSJAIL:
             from tracecat.executor.backends.ephemeral import EphemeralBackend
 
             return EphemeralBackend()
