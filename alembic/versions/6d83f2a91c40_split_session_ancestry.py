@@ -1,7 +1,7 @@
 """Separate spawning ancestry from captured history forks.
 
 Revision ID: 6d83f2a91c40
-Revises: e847d14eeb86
+Revises: a667d946cca1
 """
 
 from collections.abc import Sequence
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "6d83f2a91c40"
-down_revision: str | None = "e847d14eeb86"
+down_revision: str | None = "a667d946cca1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

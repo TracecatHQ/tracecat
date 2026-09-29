@@ -26,6 +26,12 @@ from tracecat.agent.sandbox.nsjail import (
 )
 
 
+@pytest.fixture(autouse=True)
+def delegated_cgroup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # These tests mock process creation; kernel enforcement has a Docker smoke.
+    monkeypatch.setattr(nsjail_module, "sandbox_cgroup", lambda: tmp_path / "cgroup")
+
+
 @pytest.mark.anyio
 async def test_spawn_direct_runtime_sets_explicit_agent_session_paths(
     tmp_path: Path,

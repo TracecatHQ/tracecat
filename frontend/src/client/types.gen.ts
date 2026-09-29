@@ -7604,6 +7604,7 @@ export type RuntimeErrorKind =
   | "workflow.bootstrap.unavailable"
   | "workflow.expression.invalid"
   | "workflow.loop.limit_exceeded"
+  | "workflow.join.unreachable"
   | "workflow.runtime.invariant_violation"
   | "workflow.agent.input_invalid"
   | "workflow.agent.preparation_failed"

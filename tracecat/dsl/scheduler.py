@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
@@ -65,7 +65,6 @@ with workflow.unsafe.imports_passed_through():
         TaskExceptionInfo,
     )
     from tracecat.dsl.workflow_logging import WorkflowRuntimeLogger, workflow_logger
-    from tracecat.exceptions import TaskUnreachable
     from tracecat.expressions.common import ExprContext
     from tracecat.expressions.core import extract_expressions
     from tracecat.runtime.errors import (
@@ -113,6 +112,30 @@ def _loop_limit_error(message: str) -> ApplicationError:
     return application_error_from_classification(
         RuntimeErrorClassification.user(
             kind=RuntimeErrorKind.WORKFLOW_LOOP_LIMIT_EXCEEDED,
+            message=message,
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
+        )
+    )
+
+
+def _unreachable_task_error(
+    task: Task, stmt: ActionStatement, unsatisfied_deps: Sequence[str]
+) -> ApplicationError:
+    """Build a user-attributed failure for a task whose dependencies never all succeeded."""
+    deps = ", ".join(f"'{dep}'" for dep in unsatisfied_deps)
+    message = (
+        f"Action '{task.ref}' is unreachable: upstream action(s) {deps} did not "
+        "complete successfully (skipped by `run_if` or failed)."
+    )
+    if len(stmt.depends_on) > 1:
+        message += (
+            f" With `join_strategy: {stmt.join_strategy.value}`, every dependency "
+            f"must succeed. Set `join_strategy: any` on '{task.ref}' if it should "
+            "run when only some upstream branches complete."
+        )
+    return application_error_from_classification(
+        RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.WORKFLOW_JOIN_UNREACHABLE,
             message=message,
             retry_disposition=RetryDisposition.NON_RETRYABLE,
         )
@@ -803,7 +826,7 @@ class DSLScheduler:
             reference context that is not populated yet, such as a skipped or
             otherwise unavailable upstream result. In that case ``_task_should_skip``
             raises ``ApplicationError``. We defer that error until after the
-            reachability check so we do not replace a genuine ``TaskUnreachable``
+            reachability check so we do not replace a genuine unreachable-join
             outcome with a premature expression failure for a task that was never
             runnable.
         """
@@ -836,7 +859,9 @@ class DSLScheduler:
             # 3) Then we check if the task is reachable
             if not self._is_reachable(task, stmt):
                 self.logger.debug("Task cannot proceed, unreachable", task=task)
-                raise TaskUnreachable(f"Task {task} is unreachable")
+                raise _unreachable_task_error(
+                    task, stmt, self._unsatisfied_dependencies(task, stmt)
+                )
 
             if run_if_error is not None:
                 raise run_if_error
@@ -1044,6 +1069,16 @@ class DSLScheduler:
             if stmt.join_strategy == JoinStrategy.ALL:
                 return n_success_paths == n_deps
             raise ValueError(f"Invalid join strategy: {stmt.join_strategy}")
+
+    def _unsatisfied_dependencies(self, task: Task, stmt: ActionStatement) -> list[str]:
+        """Return the dependency refs that were not marked visited for this task."""
+        return [
+            dep_ref
+            for dep_ref in stmt.depends_on
+            if not self._edge_has_marker(
+                dep_ref, task.ref, EdgeMarker.VISITED, task.stream_id
+            )
+        ]
 
     def _edge_has_marker(
         self,

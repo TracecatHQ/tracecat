@@ -188,6 +188,8 @@ jobs:
           set -euo pipefail
           test "$(uname -m)" = x86_64
           docker run --rm --privileged \
+            --user 0:0 \
+            --cgroupns private \
             --security-opt seccomp=unconfined \
             --security-opt systempaths=unconfined \
             --device /dev/net/tun \
@@ -197,7 +199,7 @@ jobs:
             -e TRACECAT__AGENT_NSJAIL_DOCKER_FALLBACK_CHILD=1 \
             -e PYTHONDONTWRITEBYTECODE=1 \
             -e PYTHONPATH=/tmp/tracecat-smoke-deps:/app \
-            "$CI_IMAGE" /bin/sh -ec '
+            "$CI_IMAGE" python -m tracecat.agent.sandbox.cgroup /bin/sh -ec '
               uv pip install --target /tmp/tracecat-smoke-deps pytest==8.3.2
               exec /app/.venv/bin/python /app/tests/smoke_app_image.py
             '

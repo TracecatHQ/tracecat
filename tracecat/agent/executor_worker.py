@@ -23,6 +23,7 @@ from tracecat.agent.runtime_services import (
     stop_claude_runtime_broker,
     stop_mcp_server,
 )
+from tracecat.agent.sandbox.cgroup import sandbox_cgroup
 from tracecat.agent.worker import new_sandbox_runner
 from tracecat.dsl.client import get_temporal_client
 from tracecat.logger import logger
@@ -86,6 +87,8 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     if shutdown_event is None:
         shutdown_event = asyncio.Event()
     runtime_failure_reason = None
+    if not config.TRACECAT__DISABLE_NSJAIL:
+        sandbox_cgroup()
     max_concurrent = int(
         os.environ.get("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES") or 1
     )
