@@ -2179,7 +2179,7 @@ class TestOrganizationScimInviteWarning:
 
         assert response.warning is not None
         assert "manual@example.com" in response.warning
-        assert "deprovisioned" in response.warning
+        assert "also provisions this address" in response.warning
 
     @pytest.mark.anyio
     async def test_create_invitation_has_no_warning_without_scim(

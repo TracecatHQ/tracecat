@@ -90,9 +90,9 @@ async def create_invitation(
     if await service.is_scim_connected():
         read.warning = (
             f"{invitation.email} is invited manually into an organization "
-            "provisioned by an identity provider. They will not be projected "
-            "into mapped groups and will not be deprovisioned when the identity "
-            "provider removes them."
+            "provisioned by an identity provider. If the provider also "
+            "provisions this address, it manages their mapped groups and can "
+            "remove them."
         )
     return read
 
