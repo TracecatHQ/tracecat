@@ -1995,21 +1995,31 @@ async def _run_nproc_cap_case(
     # only thing that can bound the fork loop is the shim's RLIMIT_NPROC.
     expected = AgentResourceLimits().max_processes
     probe_lines = [
-        "import os, resource, json",
+        "import errno, os, resource, json",
         "soft, _hard = resource.getrlimit(resource.RLIMIT_NPROC)",
         "forked = 0",
+        "fork_errno = None",
         "try:",
         "    for _ in range(300):",
         "        pid = os.fork()",
         "        if pid == 0:",
         "            os._exit(0)",
         "        forked += 1",
-        "except OSError:",
-        "    pass",
-        f"capped = soft == {expected} and 0 < forked < 300",
+        "except OSError as exc:",
+        "    fork_errno = exc.errno",
         # Zombie children still count against RLIMIT_NPROC until reaped, so
-        # the un-reaped fork loop is exactly what makes the cap bind.
-        'print(json.dumps({"soft": soft, "forked": forked, "capped": capped}))',
+        # retain them until the cap binds, then reap them before Claude resumes.
+        # Otherwise the shim inherits zombies and the runtime can abort when
+        # it tries to create another thread or subprocess at the exhausted cap.
+        "finally:",
+        "    for _ in range(forked):",
+        "        os.waitpid(-1, 0)",
+        f"capped = soft == {expected} and 0 < forked < 300 and fork_errno == errno.EAGAIN",
+        "pid = os.fork()",
+        "if pid == 0:",
+        "    os._exit(0)",
+        "_, status = os.waitpid(pid, 0)",
+        'print(json.dumps({"soft": soft, "forked": forked, "capped": capped, "recovered": status == 0}))',
     ]
     bash_command = "python3 - <<'PYEOF'\n" + "\n".join(probe_lines) + "\nPYEOF"
 
@@ -2038,6 +2048,7 @@ async def _run_nproc_cap_case(
     probe = json.loads(probe_output)
     assert probe["soft"] == expected, bash_result
     assert probe["capped"] is True, bash_result
+    assert probe["recovered"] is True, bash_result
 
 
 def _run_nsjail_nproc_smoke_from_cli() -> None:
