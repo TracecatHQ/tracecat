@@ -128,6 +128,11 @@ TRACECAT__EXECUTOR_BACKEND=nsjail
 
 The legacy `ephemeral` value remains an alias for `nsjail`.
 
+<Warning>
+  The `direct` backend does not sandbox ordinary workflow actions.
+  Set `TRACECAT__EXECUTOR_BACKEND=nsjail` for supported action isolation.
+</Warning>
+
 nsjail requires:
 - Linux with kernel 4.6+
 - Docker privileged mode or `CAP_SYS_ADMIN` capability on the executor container
@@ -171,8 +176,8 @@ Review that code and pin those dependencies as you would any code with direct ac
 
 | Backend | Isolation | Latency | Use case |
 | :------ | :-------- | :------ | :------- |
-| `direct` | None | ~50ms | Trusted code, dependencies, and agents |
-| `ephemeral` | nsjail sandbox (cold per action) | ~4000ms | Untrusted code, dependencies, and agents |
+| `direct` | Does not support sandboxing | ~50ms | Trusted code, dependencies, and agents |
+| `nsjail` (`ephemeral` alias) | nsjail sandbox (cold per action) | ~4000ms | Untrusted code, dependencies, and agents |
 
 ## Authentication
 
