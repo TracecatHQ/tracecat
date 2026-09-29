@@ -8,7 +8,7 @@ import {
   useNodeId,
   useStore,
 } from "@xyflow/react"
-import { GitBranch, Merge } from "lucide-react"
+import { Merge } from "lucide-react"
 import type React from "react"
 import { useMemo } from "react"
 import type { ActionRead } from "@/client"
@@ -16,6 +16,7 @@ import {
   ForEachEffect,
   InteractionEffect,
 } from "@/components/builder/canvas/action-node-effect"
+import { RunIfBadge } from "@/components/builder/canvas/run-if-badge"
 import { Badge } from "@/components/ui/badge"
 import {
   Tooltip,
@@ -23,7 +24,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { compressActionsInString } from "@/lib/expressions"
 import { cn } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 
@@ -126,9 +126,11 @@ export function TriggerSourceHandle({
 export function ActionTargetHandle({
   action,
   indegree,
+  showFullCondition = false,
 }: {
   action?: ActionRead
   indegree?: number
+  showFullCondition?: boolean
 }) {
   const { actionPanelRef } = useWorkflowBuilder()
   const {
@@ -238,20 +240,12 @@ export function ActionTargetHandle({
               </Badge>
             )}
             {runIf && (
-              <Badge
-                className={cn(
-                  "border-0 px-2 text-xs shadow-none",
-                  "bg-teal-500/80 hover:bg-teal-600/80",
-                  hasJoin && "ml-0 rounded-l-none"
-                )}
-              >
-                <span className="flex items-center space-x-1">
-                  <GitBranch className="size-3" strokeWidth={2.5} />
-                  <pre className="text-xs tracking-tighter">
-                    {compressActionsInString(runIf.slice(3, -2).trim())}
-                  </pre>
-                </span>
-              </Badge>
+              <RunIfBadge
+                runIf={runIf}
+                compact
+                expanded={showFullCondition}
+                attachedToJoin={Boolean(hasJoin)}
+              />
             )}
           </div>
         </div>
