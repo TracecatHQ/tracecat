@@ -34,6 +34,9 @@ from tracecat.executor.action_gateway.server import ActionGateway
 from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.backends.ephemeral import EphemeralBackend
+from tracecat.executor.registry_artifact_storage import (
+    RegistryArtifactMaterializationContext,
+)
 from tracecat.executor.registry_artifacts import (
     SQUASHFS_MOUNT_OPTIONS,
     RegistryArtifactFormat,
@@ -694,6 +697,7 @@ async def _run_executor_action_smoke_case(
     _build_tar_gz(source_dir, tar_gz_path)
     if smoke_case in {SmokeCase.NSJAIL_SQUASHFS, SmokeCase.DIRECT_SQUASHFS}:
         _build_squashfs_image(source_dir, squashfs_path)
+    if smoke_case is SmokeCase.NSJAIL_SQUASHFS:
         if reason := _squashfs_mount_probe_failure(
             squashfs_path,
             tmp_path / "squashfs-mount-probe",
@@ -745,9 +749,10 @@ async def _run_executor_action_smoke_case(
             # Direct mode runs unprivileged; force the unsquashfs extraction
             # path instead of attempting a loopback mount.
             patches.append(
-                patch(
-                    "tracecat.executor.registry_artifacts.shutil.which",
-                    return_value=None,
+                patch.object(
+                    RegistryArtifactMaterializationContext,
+                    "can_mount_squashfs",
+                    return_value=False,
                 )
             )
         if parent_resolv_path is not None:
