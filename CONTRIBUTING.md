@@ -205,13 +205,13 @@ Release tags use one of three forms:
 ```
 
 The base is always the next stable version, so the first prerelease after
-`1.1.0-alpha.1.3` is `1.1.0-alpha.1.3`. Series numbers start at 1, and a prerelease sorts
+`1.1.0-alpha.1.4` is `1.1.0-alpha.1.4`. Series numbers start at 1, and a prerelease sorts
 before its stable release: `1.1.0-alpha.2 < 1.1.0-alpha.2.1 < 1.1.0-alpha.3 <
 1.1.0-beta.1 < 1.1.0`.
 
 Python package metadata uses the PEP 440 equivalent, written to
 `__pep440_version__`: `-alpha.N` becomes `aN`, `-beta.N` becomes `bN`, and a
-`.M` hotfix becomes `.postM` (`1.1.0-alpha.1.3` becomes `1.1.0a2.post6`).
+`.M` hotfix becomes `.postM` (`1.1.0-alpha.1.4` becomes `1.1.0a2.post6`).
 
 ## License
 
