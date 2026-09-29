@@ -165,7 +165,7 @@ Open the three-dot `Connection actions` menu in the Connection card.
 
 ## Limitations
 
-- Tracecat rejects changes to `userName` or `emails` for an existing user. Keep them unchanged in your IdP.
+- Changing `userName` renames the user's Tracecat sign-in email in every organization. The new address must be at a domain this organization owns and unused by another account, and any primary `emails` value must equal `userName`. Platform superusers cannot be renamed.
 - Bulk operations, sorting, ETags, and password changes are not supported.
 - Each organization has one SCIM connection.
 

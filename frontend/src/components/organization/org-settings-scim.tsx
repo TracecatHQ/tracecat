@@ -16,6 +16,7 @@ import {
 } from "@/components/organization/org-settings-scim-mappings"
 import { ScimReviewDialog } from "@/components/organization/scim-review-dialog"
 import { Button } from "@/components/ui/button"
+import { toast } from "@/components/ui/use-toast"
 import {
   useScimActivation,
   useScimConnection,
@@ -23,6 +24,15 @@ import {
 } from "@/hooks/use-scim"
 
 const DESCRIPTION = "Sync users and groups from your identity provider."
+// The review and apply endpoints each accept at most this many changes.
+const MAX_MAPPING_CHANGES = 100
+
+function warnChangeLimit() {
+  toast({
+    title: "Too many pending changes",
+    description: `Review up to ${MAX_MAPPING_CHANGES} additions and ${MAX_MAPPING_CHANGES} removals at a time.`,
+  })
+}
 
 /** Settings page header: title and description. */
 export function ScimPageHeader() {
@@ -119,11 +129,12 @@ export function OrgSettingsScim() {
       )
       return
     }
-    setDrafts((current) =>
-      current.some((item) => sameTarget(item, draft))
-        ? current
-        : [...current, draft]
-    )
+    if (drafts.some((item) => sameTarget(item, draft))) return
+    if (drafts.length >= MAX_MAPPING_CHANGES) {
+      warnChangeLimit()
+      return
+    }
+    setDrafts((current) => [...current, draft])
   }
 
   function handleRemove(
@@ -131,6 +142,10 @@ export function OrgSettingsScim() {
     mapping?: ExternalGroupMappingRead
   ) {
     if (mapping) {
+      if (removals.length >= MAX_MAPPING_CHANGES) {
+        warnChangeLimit()
+        return
+      }
       setRemovals((current) => [...current, mapping])
       return
     }

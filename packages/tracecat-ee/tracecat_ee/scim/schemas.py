@@ -155,7 +155,10 @@ class ScimReviewRequest(BaseModel):
 class ScimActivationRequest(BaseModel):
     """Mappings to install as the connection is activated."""
 
-    mappings: list[ExternalGroupMappingCreate] = Field(default_factory=list)
+    # Matches the review cap: activation applies exactly what was reviewed.
+    mappings: list[ExternalGroupMappingCreate] = Field(
+        default_factory=list, max_length=100
+    )
 
 
 # =============================================================================

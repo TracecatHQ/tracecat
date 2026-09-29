@@ -178,7 +178,12 @@ export function OrgSettingsScimMappings({
     )
   }
 
-  if (externalGroupsIsLoading || mappingsIsLoading || groupsIsLoading) {
+  // A pending connection edits drafts only, so live mappings cannot block it.
+  if (
+    externalGroupsIsLoading ||
+    (!isPending && mappingsIsLoading) ||
+    groupsIsLoading
+  ) {
     return (
       <div className="space-y-4">
         {header}
@@ -189,7 +194,7 @@ export function OrgSettingsScimMappings({
 
   if (
     (externalGroupsError && !externalGroups?.length) ||
-    (mappingsError && !mappings?.length) ||
+    (!isPending && mappingsError && !mappings?.length) ||
     groupsError
   ) {
     return (

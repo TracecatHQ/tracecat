@@ -25569,6 +25569,7 @@ export const $ScimActivationRequest = {
         $ref: "#/components/schemas/ExternalGroupMappingCreate",
       },
       type: "array",
+      maxItems: 100,
       title: "Mappings",
     },
   },

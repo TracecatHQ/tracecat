@@ -19,6 +19,7 @@ const fetchNextMappings = jest.fn()
 let mappingsHasNextPage = false
 let mappingsIsFetchingNextPage = false
 let mappingsError: Error | null = null
+let mappingsIsLoading = false
 const review = { mutateAsync: jest.fn(), isPending: false }
 const activate = { mutateAsync: jest.fn(), isPending: false }
 const refetchConnection = jest.fn()
@@ -76,6 +77,7 @@ jest.mock("@/hooks/use-scim", () => ({
     mappingsHasNextPage,
     mappingsIsFetchingNextPage,
     mappingsError,
+    mappingsIsLoading,
     fetchNextMappings,
   }),
   useScimActivation: () => ({ review, activate }),
@@ -151,6 +153,7 @@ beforeEach(() => {
   mappingsHasNextPage = false
   mappingsIsFetchingNextPage = false
   mappingsError = null
+  mappingsIsLoading = false
   allowedScopes = ["org:scim:manage"]
   hasEntitlementData = true
   entitled = true
@@ -217,6 +220,48 @@ test("pending mappings stay local until reviewed activation", async () => {
   )
   expect(applyMappingChanges).not.toHaveBeenCalled()
 })
+
+test("a pending connection drafts without waiting on live mappings", () => {
+  mappingsIsLoading = true
+  const { rerender } = renderScim()
+  expect(screen.getByRole("button", { name: PICKER })).toBeInTheDocument()
+  mappingsIsLoading = false
+  mappingsError = new Error("Unavailable")
+  rerender(
+    <TooltipProvider>
+      <OrgSettingsScim />
+    </TooltipProvider>
+  )
+  expect(screen.getByRole("button", { name: PICKER })).toBeInTheDocument()
+  expect(screen.queryByText("Unable to load group mappings")).toBeNull()
+})
+
+test("drafts stop at the review cap", () => {
+  externalGroups = Array.from({ length: 101 }, (_, i) => ({
+    ...sourceGroup,
+    id: `source-${i}`,
+    external_id: `idp-${i}`,
+    display_name: `IdP team ${String(i).padStart(3, "0")}`,
+  }))
+  renderScim()
+  for (const group of externalGroups) {
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `Tracecat groups for ${group.display_name}`,
+      })
+    )
+    fireEvent.click(screen.getByRole("option", { name: "Target team" }))
+    fireEvent.keyDown(document.activeElement ?? document.body, {
+      key: "Escape",
+    })
+  }
+  expect(
+    screen.getByText(/100 drafts apply when you activate/)
+  ).toBeInTheDocument()
+  expect(
+    screen.getByRole("button", { name: "Tracecat groups for IdP team 100" })
+  ).not.toHaveTextContent("Target team")
+}, 30_000)
 
 test("discarding drafts clears them without writing", async () => {
   const user = userEvent.setup()
