@@ -304,7 +304,7 @@ class ScimPatchOp(ScimModel):
 
     schemas: list[str] = Field(default_factory=lambda: [ScimSchema.PATCH_OP])
     operations: list[ScimPatchOperation] = Field(
-        alias="Operations", serialization_alias="Operations"
+        alias="Operations", serialization_alias="Operations", min_length=1
     )
 
 

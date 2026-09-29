@@ -17900,6 +17900,10 @@ export type $OpenApiTs = {
          */
         204: void
         /**
+         * The member is managed by the identity provider.
+         */
+        409: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError

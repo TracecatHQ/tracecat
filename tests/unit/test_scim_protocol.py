@@ -733,14 +733,13 @@ async def test_other_tenants_user_is_not_visible(
     await grant_org_membership(
         session, user_id=outsider.id, organization_id=other_org.id
     )
-    session.add(
-        ExternalUser(
-            organization_id=other_org.id, user_id=outsider.id, external_id="idp-out"
-        )
+    linked = ExternalUser(
+        organization_id=other_org.id, user_id=outsider.id, external_id="idp-out"
     )
+    session.add(linked)
     await session.flush()
 
-    response = await client.get(f"/scim/v2/Users/{outsider.id}")
+    response = await client.get(f"/scim/v2/Users/{linked.id}")
 
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
@@ -1414,6 +1413,20 @@ async def test_user_patch_rejects_an_unusable_external_id(
     response = await client.patch(
         f"/scim/v2/Users/{resource_id}",
         json={"Operations": [{"op": "replace", "path": "externalId", "value": value}]},
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.anyio
+async def test_user_patch_rejects_an_empty_operations_list(
+    client: httpx.AsyncClient,
+) -> None:
+    """RFC 7644 §3.5.2 requires at least one operation."""
+    created = await _post_user(client, f"patch-{uuid.uuid4().hex}@tracecat.com")
+
+    response = await client.patch(
+        f"/scim/v2/Users/{created.json()['id']}", json={"Operations": []}
     )
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST

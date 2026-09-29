@@ -4487,6 +4487,7 @@ export const organizationDeleteOrgMember = (
       user_id: data.userId,
     },
     errors: {
+      409: "The member is managed by the identity provider.",
       422: "Validation Error",
     },
   })

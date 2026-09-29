@@ -26093,6 +26093,7 @@ export const $ScimPatchOp = {
         $ref: "#/components/schemas/ScimPatchOperation",
       },
       type: "array",
+      minItems: 1,
       title: "Operations",
     },
   },

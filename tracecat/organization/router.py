@@ -384,7 +384,15 @@ async def trace_org_member_access(
         ) from e
 
 
-@router.delete("/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/members/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_409_CONFLICT: {
+            "description": "The member is managed by the identity provider."
+        }
+    },
+)
 @require_scope("org:member:remove")
 async def delete_org_member(
     *,
