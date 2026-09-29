@@ -30,3 +30,8 @@ class ExecutorBackendType(StrEnum):
                 "Expected 'direct' or 'nsjail' ('ephemeral' is an alias for "
                 "'nsjail'); 'test' is reserved for tests."
             ) from None
+
+    @property
+    def uses_nsjail(self) -> bool:
+        """Whether this backend runs workloads inside nsjail."""
+        return self is ExecutorBackendType.NSJAIL

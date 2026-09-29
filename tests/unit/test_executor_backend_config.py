@@ -112,7 +112,9 @@ async def test_action_runner_uses_selected_backend(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_BACKEND", backend)
+    monkeypatch.setattr(
+        config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType(backend)
+    )
     runner = ActionRunner(cache_dir=tmp_path)
     direct = AsyncMock(return_value="direct")
     jailed = AsyncMock(return_value="nsjail")
@@ -133,7 +135,9 @@ async def test_python_script_does_not_fall_back_when_nsjail_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(sandbox_service, "TRACECAT__EXECUTOR_BACKEND", "nsjail")
+    monkeypatch.setattr(
+        sandbox_service, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
     service = SandboxService(cache_dir=str(tmp_path))
     monkeypatch.setattr(
         service, "_require_action_gateway_socket", lambda _: tmp_path / "gateway.sock"

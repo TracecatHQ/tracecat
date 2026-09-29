@@ -25,6 +25,7 @@ from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.executor import action_runner
 from tracecat.executor.action_runner import ActionRunner
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.executor.registry_artifacts import compute_registry_artifact_cache_key
 from tracecat.executor.schemas import (
     ActionImplementation,
@@ -183,7 +184,7 @@ class TestActionRunner:
             patch("asyncio.create_subprocess_exec") as mock_subprocess,
         ):
             mock_config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT = 0.1
-            mock_config.TRACECAT__EXECUTOR_BACKEND = "direct"
+            mock_config.TRACECAT__EXECUTOR_BACKEND = ExecutorBackendType.DIRECT
             mock_config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = str(temp_cache_dir)
 
             # Create a mock process that hangs
@@ -922,7 +923,9 @@ class TestActionRunner:
         await runner.registry_artifacts.ensure_swept()
 
         monkeypatch.setattr(
-            action_runner.config, "TRACECAT__EXECUTOR_BACKEND", "direct"
+            action_runner.config,
+            "TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
         )
 
         success_response = orjson.dumps({"success": True, "result": {"data": "test"}})
@@ -1008,7 +1011,9 @@ class TestActionRunner:
         mounted = {paths.squashfs_mount_dir}
 
         monkeypatch.setattr(
-            action_runner.config, "TRACECAT__EXECUTOR_BACKEND", "direct"
+            action_runner.config,
+            "TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
         )
 
         resolved_context = ResolvedContext(

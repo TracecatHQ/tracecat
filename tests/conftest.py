@@ -69,6 +69,7 @@ from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.executor.backends import ExecutorBackend
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.logger import logger
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
@@ -1353,8 +1354,10 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
     )
     # Use TestBackend for in-process executor (no sandbox overhead) unless overridden
     if not IN_DOCKER:
-        monkeysession.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "test")
-        monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", "test")
+        monkeysession.setattr(
+            config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.TEST
+        )
+        monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.TEST)
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"http://{api_host}/api")
     service_key = os.environ["TRACECAT__SERVICE_KEY"]
     monkeysession.setattr(config, "TRACECAT__SERVICE_KEY", service_key)

@@ -24,6 +24,7 @@ from tracecat.agent.sandbox.nsjail import (
     cleanup_spawned_runtime,
     spawn_jailed_runtime,
 )
+from tracecat.executor.enums import ExecutorBackendType
 
 
 @pytest.fixture(autouse=True)
@@ -43,7 +44,10 @@ async def test_spawn_direct_runtime_sets_explicit_agent_session_paths(
     mock_process = MagicMock()
 
     with (
-        patch("tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND", "direct"),
+        patch(
+            "tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
+        ),
         patch(
             "tracecat.agent.sandbox.nsjail.asyncio.create_subprocess_exec",
             AsyncMock(return_value=mock_process),
@@ -89,7 +93,10 @@ async def test_spawn_direct_runtime_passes_inherited_fds(tmp_path: Path) -> None
     mock_process = MagicMock()
 
     with (
-        patch("tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND", "direct"),
+        patch(
+            "tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
+        ),
         patch(
             "tracecat.agent.sandbox.nsjail.asyncio.create_subprocess_exec",
             AsyncMock(return_value=mock_process),
@@ -122,7 +129,10 @@ async def test_spawn_direct_runtime_owns_implicit_job_directory(
     mock_process = MagicMock()
 
     with (
-        patch("tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND", "direct"),
+        patch(
+            "tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
+        ),
         patch(
             "tracecat.agent.sandbox.nsjail.asyncio.create_subprocess_exec",
             AsyncMock(return_value=mock_process),
@@ -161,7 +171,10 @@ async def test_spawn_direct_runtime_cleans_implicit_job_directory_on_failure(
         return str(owned_job_dir)
 
     with (
-        patch("tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND", "direct"),
+        patch(
+            "tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
+        ),
         patch(
             "tracecat.agent.sandbox.nsjail.tempfile.mkdtemp",
             side_effect=create_job_dir,
@@ -202,7 +215,10 @@ async def test_spawn_nsjail_runtime_mounts_job_scoped_uv_state(
     mock_process = MagicMock()
 
     with (
-        patch("tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND", "nsjail"),
+        patch(
+            "tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.NSJAIL,
+        ),
         patch(
             "tracecat.agent.sandbox.nsjail.asyncio.create_subprocess_exec",
             AsyncMock(return_value=mock_process),
@@ -246,7 +262,10 @@ async def test_direct_runtime_isolates_uv_state_across_two_jobs(
     mock_process = MagicMock()
 
     with (
-        patch("tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND", "direct"),
+        patch(
+            "tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
+        ),
         patch(
             "tracecat.agent.sandbox.nsjail.asyncio.create_subprocess_exec",
             AsyncMock(return_value=mock_process),
@@ -308,7 +327,10 @@ async def test_nsjail_runtime_isolates_two_jobs_by_uv_mount_source(
     mock_process = MagicMock()
 
     with (
-        patch("tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND", "nsjail"),
+        patch(
+            "tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.NSJAIL,
+        ),
         patch(
             "tracecat.agent.sandbox.nsjail.asyncio.create_subprocess_exec",
             AsyncMock(return_value=mock_process),
@@ -360,7 +382,10 @@ async def test_spawn_creates_uv_state_with_owner_only_permissions(
     job_dir = tmp_path / "job"
 
     with (
-        patch("tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND", "direct"),
+        patch(
+            "tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
+        ),
         patch(
             "tracecat.agent.sandbox.nsjail.asyncio.create_subprocess_exec",
             AsyncMock(return_value=MagicMock()),
@@ -390,7 +415,10 @@ async def test_spawn_normalizes_preexisting_uv_state_permissions(
     uv_state_dir.chmod(0o777)
 
     with (
-        patch("tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND", "direct"),
+        patch(
+            "tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
+        ),
         patch(
             "tracecat.agent.sandbox.nsjail.asyncio.create_subprocess_exec",
             AsyncMock(return_value=MagicMock()),
@@ -486,7 +514,10 @@ async def test_spawn_nsjail_runtime_uses_mounted_otel_socket_path(
     job_dir = tmp_path / "job"
 
     with (
-        patch("tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND", "nsjail"),
+        patch(
+            "tracecat.agent.sandbox.nsjail.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.NSJAIL,
+        ),
         patch(
             "tracecat.agent.sandbox.nsjail.asyncio.create_subprocess_exec",
             AsyncMock(return_value=MagicMock()),

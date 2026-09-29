@@ -175,7 +175,7 @@ class ClaudeRuntimeBroker:
                     job_dir=request.job_dir,
                     path_mapping=path_mapping,
                     enable_internet_access=request.enable_internet_access,
-                    use_jailed_paths=TRACECAT__EXECUTOR_BACKEND == "nsjail",
+                    use_jailed_paths=TRACECAT__EXECUTOR_BACKEND.uses_nsjail,
                     session_id=str(request.init_payload.session_id),
                     skills_dir=request.skills_dir,
                     otel_socket_path=request.otel_socket_path,
@@ -229,5 +229,5 @@ class ClaudeRuntimeBroker:
         """
         return build_agent_sandbox_path_mapping(
             session_id=session_id,
-            disable_nsjail=TRACECAT__EXECUTOR_BACKEND != "nsjail",
+            disable_nsjail=not TRACECAT__EXECUTOR_BACKEND.uses_nsjail,
         )

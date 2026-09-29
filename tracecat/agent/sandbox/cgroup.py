@@ -70,7 +70,7 @@ def main() -> None:
         raise RuntimeError(
             "Run as root: python -m tracecat.agent.sandbox.cgroup COMMAND..."
         )
-    nsjail_enabled = config.TRACECAT__EXECUTOR_BACKEND == "nsjail"
+    nsjail_enabled = config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail
     if nsjail_enabled and not os.environ.get(CGROUP_PATH_ENV):
         root = delegate_cgroup(APIUSER_ID, APIUSER_ID)
         os.environ[CGROUP_PATH_ENV] = str(root)

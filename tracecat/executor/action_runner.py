@@ -210,7 +210,7 @@ class ActionRunner:
 
         # Both execution modes treat registry artifacts as shared import inputs.
         if use_sandbox is None:
-            use_sandbox = config.TRACECAT__EXECUTOR_BACKEND == "nsjail"
+            use_sandbox = config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail
 
         # Materialize each registry artifact, collect paths in deterministic order.
         # The lease is held for the whole subprocess execution so cache eviction

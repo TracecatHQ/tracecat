@@ -57,6 +57,7 @@ from tracecat.dsl.schemas import (
 from tracecat.dsl.worker import new_sandbox_runner
 from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.backends.ephemeral import EphemeralBackend
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorResultSuccess,
@@ -406,8 +407,10 @@ def configure_minio_for_tests(monkeypatch):
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", secret_key)
 
     # Disable nsjail for all tests (use subprocess mode for macOS/CI)
-    monkeypatch.setenv("TRACECAT__EXECUTOR_BACKEND", "direct")
-    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "direct")
+    monkeypatch.setenv("TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT)
+    monkeypatch.setattr(
+        config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
+    )
 
     # Disable registry sync sandbox to use subprocess mode instead of Temporal workflow.
     # This ensures sync activities run in the same process and see the monkeypatched config.

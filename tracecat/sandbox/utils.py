@@ -138,7 +138,7 @@ def is_nsjail_available() -> bool:
         True if nsjail can be used, False otherwise.
     """
     # Direct and test modes do not use nsjail.
-    if TRACECAT__EXECUTOR_BACKEND != "nsjail":
+    if not TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
         return False
 
     nsjail_path = Path(TRACECAT__SANDBOX_NSJAIL_PATH)

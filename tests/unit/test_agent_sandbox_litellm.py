@@ -84,6 +84,7 @@ from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import (
     RetryDisposition,
@@ -358,22 +359,22 @@ def _set_disable_nsjail_mode(
     monkeypatch.setattr(
         executor_activity,
         "TRACECAT__EXECUTOR_BACKEND",
-        "direct" if disable_nsjail else "nsjail",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
     )
     monkeypatch.setattr(
         broker_module,
         "TRACECAT__EXECUTOR_BACKEND",
-        "direct" if disable_nsjail else "nsjail",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
     )
     monkeypatch.setattr(
         nsjail_module,
         "TRACECAT__EXECUTOR_BACKEND",
-        "direct" if disable_nsjail else "nsjail",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
     )
     monkeypatch.setattr(
         runtime_module,
         "TRACECAT__EXECUTOR_BACKEND",
-        "direct" if disable_nsjail else "nsjail",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
     )
 
 

@@ -460,7 +460,7 @@ class SandboxService:
         )
 
         # The configured backend is authoritative; never fall back from nsjail.
-        if TRACECAT__EXECUTOR_BACKEND == "nsjail":
+        if TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
             logger.debug("Using nsjail executor for script execution")
             return await self._run_with_nsjail(
                 script=script,

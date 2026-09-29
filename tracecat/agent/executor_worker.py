@@ -90,7 +90,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
     if shutdown_event is None:
         shutdown_event = asyncio.Event()
     runtime_failure_reason = None
-    if config.TRACECAT__EXECUTOR_BACKEND == "nsjail":
+    if config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
         sandbox_cgroup()
     max_concurrent = int(
         os.environ.get("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES") or 1

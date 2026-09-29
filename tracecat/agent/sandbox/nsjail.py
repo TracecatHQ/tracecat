@@ -226,7 +226,7 @@ async def spawn_jailed_runtime(
         uv_state_dir.chmod(0o700)
 
         # Direct subprocess mode for testing (no nsjail)
-        if TRACECAT__EXECUTOR_BACKEND != "nsjail":
+        if not TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
             process = await _spawn_direct_runtime(
                 socket_dir=socket_dir,
                 llm_socket_path=llm_socket_path,

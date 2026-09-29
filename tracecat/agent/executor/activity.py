@@ -418,7 +418,7 @@ class SandboxedAgentExecutor:
             elapsed_ms=round((perf_counter() - self._turn_started_at) * 1000, 2),
             session_id=self.input.session_id,
             sandbox_mode="nsjail"
-            if TRACECAT__EXECUTOR_BACKEND == "nsjail"
+            if TRACECAT__EXECUTOR_BACKEND.uses_nsjail
             else "direct",
             **extra,
         )
@@ -964,7 +964,7 @@ class SandboxedAgentExecutor:
                         else:
                             path_mapping = build_agent_sandbox_path_mapping(
                                 session_id=str(self.input.session_id),
-                                disable_nsjail=TRACECAT__EXECUTOR_BACKEND != "nsjail",
+                                disable_nsjail=not TRACECAT__EXECUTOR_BACKEND.uses_nsjail,
                             )
                             await self._persist_agent_filesystem(
                                 path_mapping.host_work_dir
@@ -1488,7 +1488,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         }
     )
 
-    sandbox_mode = "nsjail" if TRACECAT__EXECUTOR_BACKEND == "nsjail" else "direct"
+    sandbox_mode = "nsjail" if TRACECAT__EXECUTOR_BACKEND.uses_nsjail else "direct"
     activity.heartbeat(
         f"Starting agent execution ({sandbox_mode} mode): {input.session_id}"
     )

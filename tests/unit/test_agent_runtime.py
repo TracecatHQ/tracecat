@@ -61,6 +61,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.runtime.errors import RuntimeErrorKind
 from tracecat.sandbox.exceptions import SandboxFileSafetyError
 
@@ -1852,7 +1853,9 @@ class TestClaudeAgentRuntimeRun:
         monkeypatch.setattr(
             runtime_module,
             "TRACECAT__EXECUTOR_BACKEND",
-            "direct" if disable_nsjail else "nsjail",
+            ExecutorBackendType.DIRECT
+            if disable_nsjail
+            else ExecutorBackendType.NSJAIL,
         )
         captured_options: list[Any] = []
 
@@ -1959,7 +1962,9 @@ class TestClaudeAgentRuntimeRun:
         monkeypatch.setattr(
             runtime_module,
             "TRACECAT__EXECUTOR_BACKEND",
-            "direct" if disable_nsjail else "nsjail",
+            ExecutorBackendType.DIRECT
+            if disable_nsjail
+            else ExecutorBackendType.NSJAIL,
         )
         captured_options: list[Any] = []
 
@@ -2120,7 +2125,9 @@ class TestClaudeAgentRuntimeRun:
         monkeypatch.setattr(
             runtime_module,
             "TRACECAT__EXECUTOR_BACKEND",
-            "direct" if disable_nsjail else "nsjail",
+            ExecutorBackendType.DIRECT
+            if disable_nsjail
+            else ExecutorBackendType.NSJAIL,
         )
         captured_options: list[Any] = []
 
@@ -3781,7 +3788,9 @@ async def test_run_rebuilds_sandbox_process_exit_from_transport_exit_code(
     resource-limit classification, and the typed error is what propagates.
     Attribution requires a jail, so nsjail is enabled explicitly here.
     """
-    monkeypatch.setattr(runtime_module, "TRACECAT__EXECUTOR_BACKEND", "nsjail")
+    monkeypatch.setattr(
+        runtime_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
     mock_claude_sdk_client.query = AsyncMock(
         side_effect=Exception("Sandbox shim failed with exit code 134")
     )
@@ -3834,7 +3843,9 @@ async def test_run_does_not_attribute_process_exit_when_nsjail_is_disabled(
     aborts or is OOM-killed by the host must stay platform-owned rather than
     blaming the caller for a cap this deployment never enforced.
     """
-    monkeypatch.setattr(runtime_module, "TRACECAT__EXECUTOR_BACKEND", "direct")
+    monkeypatch.setattr(
+        runtime_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
+    )
     mock_claude_sdk_client.query = AsyncMock(side_effect=ValueError("Test error"))
     transport = MagicMock(spec=SandboxedCLITransport)
     transport.exit_code = 137
@@ -3871,7 +3882,9 @@ async def test_run_keeps_original_error_for_non_resource_limit_exit_code(
     so a failure that carries its own attribution would reach the activity as
     a process exit and lose it.
     """
-    monkeypatch.setattr(runtime_module, "TRACECAT__EXECUTOR_BACKEND", "nsjail")
+    monkeypatch.setattr(
+        runtime_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
     mock_claude_sdk_client.query = AsyncMock(
         side_effect=AgentSandboxValidationError("Bad agent config")
     )

@@ -4,12 +4,11 @@ import os
 from pathlib import Path
 
 from tracecat import config
-from tracecat.executor.enums import ExecutorBackendType
 
 
 def validate_execution_backend() -> None:
     """Reject missing nsjail prerequisites for explicitly sandboxed workers."""
-    if config.TRACECAT__EXECUTOR_BACKEND != ExecutorBackendType.NSJAIL:
+    if not config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
         return
 
     nsjail = Path(config.TRACECAT__SANDBOX_NSJAIL_PATH)

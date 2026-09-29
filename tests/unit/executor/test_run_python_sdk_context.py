@@ -37,6 +37,7 @@ from tracecat.executor.action_gateway.server import ActionGateway
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.backends.ephemeral import EphemeralBackend
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
@@ -242,7 +243,7 @@ def _set_run_python_nsjail_mode(
     monkeypatch.setattr(
         sandbox_service_module,
         "TRACECAT__EXECUTOR_BACKEND",
-        "direct" if disable_nsjail else "nsjail",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
     )
 
 
@@ -919,7 +920,9 @@ async def test_run_python_nsjail_rejects_missing_action_gateway_socket(
     service = SandboxService(cache_dir=str(tmp_path / "sandbox-cache"))
     nsjail_executor = _CapturingNsjailExecutor()
     monkeypatch.setattr(service, "_nsjail_executor", nsjail_executor)
-    monkeypatch.setattr(sandbox_service_module, "TRACECAT__EXECUTOR_BACKEND", "nsjail")
+    monkeypatch.setattr(
+        sandbox_service_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
 
     with pytest.raises(SandboxInfrastructureError, match="socket is unavailable"):
         await service.run_python(
@@ -1347,7 +1350,9 @@ async def test_run_python_subprocess_can_import_registry_ctx(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(sandbox_service_module, "TRACECAT__EXECUTOR_BACKEND", "direct")
+    monkeypatch.setattr(
+        sandbox_service_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
+    )
 
     result = await _run_sandbox_registry_ctx_smoke(
         cache_dir=tmp_path / "sandbox-cache",

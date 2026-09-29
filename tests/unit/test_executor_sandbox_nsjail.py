@@ -34,6 +34,7 @@ from tracecat.executor.action_gateway.server import ActionGateway
 from tracecat.executor.action_runner import ActionRunner
 from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.backends.ephemeral import EphemeralBackend
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.executor.registry_artifact_storage import (
     RegistryArtifactMaterializationContext,
 )
@@ -657,7 +658,9 @@ async def _run_executor_action_smoke_case(
     action_gateway_socket = Path("/tmp") / f"tc-action-gateway-{uuid.uuid4().hex}.sock"
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
     monkeypatch.setattr(config, "TRACECAT__API_URL", "http://127.0.0.1:8000")
-    monkeypatch.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "nsjail")
+    monkeypatch.setattr(
+        config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_REGISTRY_SQUASHFS_ENABLED", True)
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 30.0)
     monkeypatch.setattr(
@@ -877,7 +880,9 @@ async def _run_current_builtin_smoke_case(
     monkeypatch.setattr(
         config,
         "TRACECAT__EXECUTOR_BACKEND",
-        "nsjail" if smoke_case.use_sandbox else "direct",
+        ExecutorBackendType.NSJAIL
+        if smoke_case.use_sandbox
+        else ExecutorBackendType.DIRECT,
     )
     monkeypatch.setattr(config, "TRACECAT__EXECUTOR_CLIENT_TIMEOUT", 30.0)
     monkeypatch.setattr(
