@@ -59,6 +59,12 @@ curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.1/Ca
 curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.1/docker-compose.yml
 ```
 
+<Warning>
+  Docker Compose defaults to the `direct` executor backend, which does not sandbox ordinary workflow actions.
+  Setting `TRACECAT__DISABLE_NSJAIL=false` alone does not change that backend or sandbox those actions.
+  For supported `nsjail` action isolation, set `TRACECAT__EXECUTOR_BACKEND=ephemeral` and `TRACECAT__DISABLE_NSJAIL=false`, then enable the container permissions described in [Security](/self-hosting/security#nsjail-sandbox-recommended-for-production).
+</Warning>
+
 ## Start Tracecat
 
 Run the command below to start Tracecat and all related services.
