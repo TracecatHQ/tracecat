@@ -4,6 +4,7 @@ import uuid
 from typing import Any, cast
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -17,8 +18,8 @@ from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionForkR
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentSession
-from tracecat.exceptions import EntitlementRequired
+from tracecat.db.models import AgentSession, Workspace
+from tracecat.exceptions import EntitlementRequired, TracecatNotFoundError
 from tracecat.tiers import defaults
 
 pytestmark = [pytest.mark.anyio, pytest.mark.integration, pytest.mark.usefixtures("db")]
@@ -133,3 +134,69 @@ async def test_entitlement_loss_keeps_ancestry_readable_but_blocks_execution(
     )
     results = await service.list_sessions(include_children=True)
     assert all(not result.is_readonly for result in results)
+
+
+async def test_ancestry_rejects_references_to_existing_sessions_in_another_workspace(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    assert svc_role.organization_id is not None
+    assert svc_role.workspace_id is not None
+    other_workspace = Workspace(
+        id=uuid.uuid4(),
+        name="Other ancestry test workspace",
+        organization_id=svc_role.organization_id,
+    )
+    session.add(other_workspace)
+    await session.flush()
+    own_source = AgentSession(
+        id=uuid.uuid4(),
+        workspace_id=svc_role.workspace_id,
+        title="Local source",
+        entity_type="workflow",
+        entity_id=uuid.uuid4(),
+    )
+    other_source = AgentSession(
+        id=uuid.uuid4(),
+        workspace_id=other_workspace.id,
+        title="Other workspace source",
+        entity_type="copilot",
+        entity_id=other_workspace.id,
+    )
+    session.add_all([own_source, other_source])
+    await session.commit()
+    service = AgentSessionService(session, svc_role)
+    assert await service.get_session(other_source.id) is None
+
+    with pytest.raises(TracecatNotFoundError, match="Parent session not found"):
+        await service.create_session(
+            AgentSessionCreate(
+                entity_type=AgentSessionEntity.WORKSPACE_CHAT,
+                entity_id=svc_role.workspace_id,
+                spawned_by_session_id=other_source.id,
+            )
+        )
+    with pytest.raises(TracecatNotFoundError, match="Source session"):
+        await service.fork_session(other_source.id)
+    with pytest.raises(TracecatNotFoundError, match="Parent session not found"):
+        await service.fork_session(own_source.id, spawned_by_session_id=other_source.id)
+    # Rejected creates and forks must not leave any child rows behind.
+    assert set((await session.scalars(select(AgentSession.id))).all()) == {
+        own_source.id,
+        other_source.id,
+    }
+
+    # Existing malformed links must not expose another workspace's history.
+    malformed_fork = AgentSession(
+        id=uuid.uuid4(),
+        workspace_id=svc_role.workspace_id,
+        title="Fork with an invalid source",
+        entity_type="workflow",
+        entity_id=uuid.uuid4(),
+        forked_from_session_id=other_source.id,
+    )
+    session.add(malformed_fork)
+    await session.commit()
+    with pytest.raises(TracecatNotFoundError, match="Fork source session not found"):
+        await service.list_messages(malformed_fork.id)
+    assert await service.get_workspace_chat_session_ids([malformed_fork.id]) == set()
