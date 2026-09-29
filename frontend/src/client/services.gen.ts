@@ -7354,6 +7354,7 @@ export const agentSessionsListSessions = (
       parent_session_id: data.parentSessionId,
     },
     errors: {
+      400: "Conflicting parent_session_id and forked_from_session_id filters",
       422: "Validation Error",
     },
   })

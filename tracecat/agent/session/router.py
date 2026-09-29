@@ -237,7 +237,14 @@ async def _resolve_fork_source(
     return forked_from_session_id or parent_session_id
 
 
-@router.get("")
+@router.get(
+    "",
+    responses={
+        400: {
+            "description": "Conflicting parent_session_id and forked_from_session_id filters"
+        }
+    },
+)
 @require_scope("agent:read")
 async def list_sessions(
     role: WorkspaceActorRouteRole,

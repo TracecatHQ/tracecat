@@ -19147,6 +19147,10 @@ export type $OpenApiTs = {
          */
         200: Array<AgentSessionRead | ChatReadMinimal>
         /**
+         * Conflicting parent_session_id and forked_from_session_id filters
+         */
+        400: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
