@@ -108,9 +108,18 @@ async def test_fork_creation_rejects_reference_outside_authorized_workspace(
         None if missing_reference == "source" else (source, None)
     )
     db.execute.return_value = result
-    with patch.object(service, "get_session", AsyncMock(return_value=None)):
+    parent_id = uuid.uuid4()
+    with patch.object(
+        service, "get_session", AsyncMock(return_value=None)
+    ) as get_session:
         with pytest.raises(TracecatNotFoundError):
-            await service.fork_session(source_id, spawned_by_session_id=uuid.uuid4())
+            await service.fork_session(source_id, spawned_by_session_id=parent_id)
+    db.execute.assert_awaited_once()
+    result.tuples.return_value.one_or_none.assert_called_once()
+    if missing_reference == "source":
+        get_session.assert_not_awaited()
+    else:
+        get_session.assert_awaited_once_with(parent_id)
     db.add.assert_not_called()
     db.commit.assert_not_awaited()
 
