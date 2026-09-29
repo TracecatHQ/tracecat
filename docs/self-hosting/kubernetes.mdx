@@ -420,15 +420,27 @@ Run the chart upgrade command after updating `values.yaml`. If you set `migratio
 
 ### Execution sandboxing
 
-The chart enables nsjail by default (`tracecat.sandbox.disableNsjail: false`). nsjail isolates user-defined Python scripts and custom actions inside the executor.
+Choose the backend independently for the executor and agent-executor. Both default to `nsjail`:
 
 ```yaml
-tracecat:
-  sandbox:
-    disableNsjail: false  # default
+executor:
+  backend: nsjail
+agentExecutor:
+  backend: nsjail
 ```
 
-nsjail requires privileged pods with `SYS_ADMIN` capability and an `Unconfined` seccomp profile. The chart sets these automatically on executor and agent-executor containers.
+nsjail requires privileged pods with `SYS_ADMIN` capability and an `Unconfined` seccomp profile. The chart applies these settings to each service configured with `nsjail`.
+
+To run both services without nsjail isolation, set:
+
+```yaml
+executor:
+  backend: direct
+agentExecutor:
+  backend: direct
+```
+
+You can also select different backends for the two services. Remove `tracecat.sandbox.disableNsjail` from your Helm values when upgrading; the chart rejects this removed setting even when it is `false`. Replace a previous `true` value with `direct` on both services.
 
 See [Security](/self-hosting/security) for backend choices (`nsjail`, `direct`) and isolation tradeoffs.
 
