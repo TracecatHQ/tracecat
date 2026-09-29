@@ -25,6 +25,7 @@ const appFormSchema = z.object({
   app_workflow_export_enabled: z.boolean(),
   app_create_workspace_on_register: z.boolean(),
   app_action_form_mode_enabled: z.boolean(),
+  app_workflow_compact_conditions_enabled: z.boolean(),
 })
 
 type AppFormValues = z.infer<typeof appFormSchema>
@@ -52,6 +53,8 @@ export function OrgSettingsAppForm() {
         appSettings?.app_create_workspace_on_register ?? false,
       app_action_form_mode_enabled:
         appSettings?.app_action_form_mode_enabled ?? true,
+      app_workflow_compact_conditions_enabled:
+        appSettings?.app_workflow_compact_conditions_enabled ?? true,
     },
   })
 
@@ -66,6 +69,8 @@ export function OrgSettingsAppForm() {
           app_create_workspace_on_register:
             data.app_create_workspace_on_register,
           app_action_form_mode_enabled: data.app_action_form_mode_enabled,
+          app_workflow_compact_conditions_enabled:
+            data.app_workflow_compact_conditions_enabled,
         },
       })
     } catch {
@@ -207,6 +212,28 @@ export function OrgSettingsAppForm() {
                 <FormDescription>
                   Allow form mode for action inputs. When disabled, only YAML
                   mode is available.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="app_workflow_compact_conditions_enabled"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>Compact run if conditions</FormLabel>
+                <FormDescription>
+                  Show run if conditions on the workflow canvas as an icon.
+                  Hover or select an action to see the full condition.
                 </FormDescription>
               </div>
               <FormControl>

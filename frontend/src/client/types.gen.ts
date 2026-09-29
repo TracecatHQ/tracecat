@@ -1302,6 +1302,7 @@ export type AppSettingsRead = {
   app_workflow_export_enabled: boolean
   app_create_workspace_on_register: boolean
   app_action_form_mode_enabled: boolean
+  app_workflow_compact_conditions_enabled?: boolean
   app_unsafe_disable_secret_error_withholding_workspace_ids?: Array<string>
 }
 
@@ -1333,6 +1334,10 @@ export type AppSettingsUpdate = {
    * Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.
    */
   app_action_form_mode_enabled?: boolean
+  /**
+   * Whether the workflow canvas shows run_if conditions as a compact icon that expands to the full expression on hover or selection.
+   */
+  app_workflow_compact_conditions_enabled?: boolean
   /**
    * Legacy allow-list, ignored by action execution. Error diagnostics always mask known secrets and observed secret-derived values.
    */

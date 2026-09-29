@@ -104,6 +104,7 @@ class AppSettingsRead(BaseSettingsGroup):
     app_workflow_export_enabled: bool
     app_create_workspace_on_register: bool
     app_action_form_mode_enabled: bool
+    app_workflow_compact_conditions_enabled: bool = Field(default=True)
     app_unsafe_disable_secret_error_withholding_workspace_ids: list[WorkspaceID] = (
         Field(default_factory=list)
     )
@@ -134,6 +135,13 @@ class AppSettingsUpdate(BaseSettingsGroup):
     app_action_form_mode_enabled: bool = Field(
         default=True,
         description="Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
+    )
+    app_workflow_compact_conditions_enabled: bool = Field(
+        default=True,
+        description=(
+            "Whether the workflow canvas shows run_if conditions as a compact "
+            "icon that expands to the full expression on hover or selection."
+        ),
     )
     app_unsafe_disable_secret_error_withholding_workspace_ids: list[WorkspaceID] = (
         Field(

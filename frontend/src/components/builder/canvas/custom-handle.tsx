@@ -24,6 +24,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { useOrgAppSettings } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 
@@ -133,6 +134,9 @@ export function ActionTargetHandle({
   showFullCondition?: boolean
 }) {
   const { actionPanelRef } = useWorkflowBuilder()
+  const { appSettings } = useOrgAppSettings()
+  const compactConditions =
+    appSettings?.app_workflow_compact_conditions_enabled ?? true
   const {
     join_strategy: joinStrategy,
     for_each: forEach,
@@ -242,7 +246,7 @@ export function ActionTargetHandle({
             {runIf && (
               <RunIfBadge
                 runIf={runIf}
-                compact
+                compact={compactConditions}
                 expanded={showFullCondition}
                 attachedToJoin={Boolean(hasJoin)}
               />
