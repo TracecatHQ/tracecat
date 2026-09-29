@@ -8589,7 +8589,7 @@ export type SkillDraftFileRead = {
   download_url?: string | null
 }
 
-export type kind = "inline" | "download"
+export type kind2 = "inline" | "download"
 
 /**
  * Move (rename) a draft file to a new path while preserving its blob.
@@ -10505,7 +10505,7 @@ export type WebhookStoredObjectDownloadResponse = {
   size_bytes: number
 }
 
-export type kind2 = "download_file" | "download_export"
+export type kind3 = "download_file" | "download_export"
 
 export type WebhookStoredObjectInlineResponse = {
   kind: "value"
