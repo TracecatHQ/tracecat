@@ -159,7 +159,8 @@ from tracecat.db.models import (
     Workflow,
     WorkflowDefinition,
 )
-from tracecat.dsl.common import DSLInput
+from tracecat.dsl.common import DSLInput, build_action_statements_from_actions
+from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.validation import (
     format_input_schema_validation_error,
     normalize_trigger_inputs,
@@ -207,6 +208,9 @@ from tracecat.mcp.middleware import (
 )
 from tracecat.mcp.schemas import (
     JsonPatchOperation,
+    LayoutActionPosition,
+    LayoutPosition,
+    LayoutViewport,
     MCPPaginatedResponse,
     MCPTruncationInfo,
     MCPTruncationSummary,
@@ -217,9 +221,11 @@ from tracecat.mcp.schemas import (
     WorkflowActionSummary,
     WorkflowEditDocument,
     WorkflowEditResponse,
+    WorkflowGraphResponse,
     WorkflowLayout,
     WorkflowYamlPayload,
 )
+from tracecat.mcp.workflow_graph import build_workflow_graph
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.actions.schemas import TemplateAction
 from tracecat.registry.actions.service import (
@@ -308,6 +314,7 @@ from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.layout import (
     WorkflowActionLayoutInput,
     auto_generate_layout,
+    graph_requires_relayout,
 )
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowCreate, WorkflowUpdate
@@ -1972,13 +1979,12 @@ def _build_import_data_from_workflow_yaml(
     if "description" not in definition and description:
         definition["description"] = description
 
-    layout = normalized.get("layout")
-    if not layout:
-        actions = definition.get("actions", [])
-        if actions:
-            normalized["layout"] = auto_generate_layout(
-                _validate_actions_for_layout(actions)
-            )
+    actions = definition.get("actions", [])
+    if actions:
+        generated = auto_generate_layout(_validate_actions_for_layout(actions))
+        layout = normalized.get("layout")
+        viewport = layout.get("viewport") if isinstance(layout, Mapping) else None
+        normalized["layout"] = {**generated, "viewport": viewport}
     return normalized
 
 
@@ -2025,6 +2031,84 @@ def _workflow_yaml_update_audit_details(
     return AuditEventDetails(data={"changed_fields": sorted(changed_fields)})
 
 
+def _layout_inputs_from_statements(
+    actions: Sequence[ActionStatement],
+) -> list[WorkflowActionLayoutInput]:
+    return [
+        WorkflowActionLayoutInput(ref=action.ref, depends_on=list(action.depends_on))
+        for action in actions
+    ]
+
+
+def _generated_workflow_layout(
+    actions: Sequence[ActionStatement],
+    *,
+    viewport: LayoutViewport | None,
+) -> WorkflowLayout:
+    generated = auto_generate_layout(_layout_inputs_from_statements(actions))
+    return WorkflowLayout(
+        trigger=LayoutPosition.model_validate(generated["trigger"]),
+        viewport=viewport,
+        actions=[
+            LayoutActionPosition.model_validate(action)
+            for action in generated["actions"]
+        ],
+    )
+
+
+def _relayout_edit_document_if_graph_changed(
+    original: WorkflowEditDocument,
+    updated: WorkflowEditDocument,
+) -> WorkflowEditDocument:
+    """Re-run auto-layout when an edit adds actions or rewires ``depends_on``."""
+    if not graph_requires_relayout(
+        _layout_inputs_from_statements(original.definition.actions),
+        _layout_inputs_from_statements(updated.definition.actions),
+    ):
+        return updated
+    layout = _generated_workflow_layout(
+        updated.definition.actions,
+        viewport=updated.layout.viewport,
+    )
+    return updated.model_copy(update={"layout": layout})
+
+
+def _resolve_workflow_yaml_update_layout(
+    *,
+    workflow: Workflow,
+    definition: DSLInput,
+    layout: WorkflowLayout | None,
+) -> WorkflowLayout | None:
+    """Pick the layout to persist alongside a replaced YAML definition.
+
+    Graph changes always get a fresh auto-layout. Otherwise an explicit layout
+    wins, and without one the current positions are kept.
+    """
+    current_actions = build_action_statements_from_actions(workflow.actions or [])
+    if not definition.actions:
+        return layout
+    if graph_requires_relayout(
+        _layout_inputs_from_statements(current_actions),
+        _layout_inputs_from_statements(definition.actions),
+    ):
+        return _generated_workflow_layout(
+            definition.actions,
+            viewport=layout.viewport if layout is not None else None,
+        )
+    if layout is not None and layout.actions:
+        return layout
+    return WorkflowLayout(
+        trigger=layout.trigger if layout is not None else None,
+        viewport=layout.viewport if layout is not None else None,
+        actions=[
+            LayoutActionPosition(
+                ref=action.ref, x=action.position_x, y=action.position_y
+            )
+            for action in workflow.actions or []
+        ],
+    )
+
+
 @audit_log(
     resource_type="workflow",
     action="update",
@@ -2042,24 +2126,6 @@ async def _apply_workflow_yaml_update(
     update_mode: Literal["replace", "patch"],
 ) -> None:
     """Apply workflow YAML sections and metadata updates."""
-    if (
-        yaml_payload is not None
-        and yaml_payload.definition is not None
-        and (yaml_payload.layout is None or not yaml_payload.layout.actions)
-    ):
-        raw = yaml.safe_load(definition_yaml) if definition_yaml else {}
-        defn_raw = raw.get("definition", raw) if isinstance(raw, dict) else {}
-        actions_raw = defn_raw.get("actions", [])
-        if actions_raw:
-            auto_layout = auto_generate_layout(
-                _validate_actions_for_layout(actions_raw)
-            )
-            yaml_payload.layout = WorkflowLayout.model_validate(auto_layout)
-
-    update_action_positions: dict[str, tuple[float, float]] | None = None
-    if yaml_payload is not None and yaml_payload.layout is not None:
-        _, _, update_action_positions = extract_layout_positions(yaml_payload.layout)
-
     if yaml_payload is not None and yaml_payload.definition is not None:
         validation_results = await validate_dsl(
             session=service.session,
@@ -2067,6 +2133,17 @@ async def _apply_workflow_yaml_update(
             role=role,
         )
         _raise_dsl_validation_tool_error(validation_results)
+        yaml_payload.layout = _resolve_workflow_yaml_update_layout(
+            workflow=workflow,
+            definition=yaml_payload.definition,
+            layout=yaml_payload.layout,
+        )
+
+    update_action_positions: dict[str, tuple[float, float]] | None = None
+    if yaml_payload is not None and yaml_payload.layout is not None:
+        _, _, update_action_positions = extract_layout_positions(yaml_payload.layout)
+
+    if yaml_payload is not None and yaml_payload.definition is not None:
         # The action graph is being rewritten. Bump graph_version so a builder
         # holding a stale base_version gets a 409 from the graph API instead of
         # silently applying graph operations against the old action graph. The
@@ -2273,6 +2350,8 @@ show candidate integrations first.
 `model_name`/`model_provider` only when requested.
 - For `ai.preset_agent`, tools come from the preset and its skills; the \
 `actions` input swaps the preset's registry actions for one run.
+- Leave `output_type` unset on `ai.*` actions unless structured output is \
+explicitly requested.
 
 ## Expression syntax (used in action `args:` values)
 - `${{ TRIGGER.<field> }}` — workflow trigger input
@@ -2337,24 +2416,25 @@ scheduler.
 the next iteration depends on prior action output.
 
 ## Graph shape
-`depends_on` is execution order, not data wiring. An action can read
-`ACTIONS.<ref>.result` from any upstream ancestor, not just its direct parents, so
-add an edge only when the action must wait. Fewer edges is better.
-- Default to one linear chain. Branch only for work that is genuinely independent,
-  and rejoin only when a later step needs both.
-- A skipped or failed parent already stops dependents on the default success edge,
-  so do not re-assert an upstream condition in `run_if`.
-- A join is different. Default `join_strategy: all` needs every parent visited, so
-  one skipped branch makes the join unreachable and fails the workflow. Give a join
-  over a conditional branch `join_strategy: any`, or repeat the branch's `run_if`
-  on the join so it self-skips first.
-- One parent is the norm. Multiple parents mean a deliberate join.
+`depends_on` is execution order, not data wiring: an action can read any upstream
+ancestor's `ACTIONS.<ref>.result`, so add an edge only when it must wait.
+- Prefer operational readability over parallelism: one linear chain ordered the
+  way the process reads. Branch only for independent work; rejoin only when a
+  later step needs both. Multiple parents mean a deliberate join.
+- A skipped or failed parent already stops its success-edge dependents. Before
+  adding or editing any `run_if`, call `get_workflow_graph` and inspect every
+  upstream action. State only the new condition; never `&&`/`||` a `gated_by`
+  condition back in. Keep it short.
+- Joins differ: default `join_strategy: all` needs every parent visited, so a
+  skipped branch makes the join unreachable. Use `join_strategy: any`, or
+  repeat the branch's `run_if` on the join.
+- Canvas layout is automatic; omit `layout`.
 
 ## Key DSL fields (inside each action under `actions:`)
 - `ref` — unique slug identifier for the action
 - `action` — action type (e.g. `core.http_request`)
 - `args` — action arguments as key-value pairs
-- `depends_on` — refs this action waits for (execution order, not data access)
+- `depends_on` — refs this action waits for
 - `run_if` — conditional expression to skip execution
 - `for_each` — iterate over a list
 - `retry_policy` — {max_attempts, timeout}
@@ -2917,6 +2997,37 @@ changing what runs.
   the branch's condition in the join's own `run_if` so it self-skips before the
   reachability check.
 - One parent is the norm. Multiple parents should mean a deliberate join.
+- Prefer a readable operational sequence over maximum parallelism. Two lookups
+  that could run concurrently are still clearer as a chain when the reader
+  thinks of them as steps of one process.
+
+### Before writing a `run_if`
+
+Walk every upstream ancestor first. `get_workflow_graph` returns a Mermaid
+diagram of refs and conditions plus a `gated_by` list for each action. A
+condition that appears in `gated_by` is already enforced: state only the new
+condition at this step, and keep it to one readable comparison.
+
+Too long, and it repeats an upstream gate:
+
+```yaml
+  - ref: run_recurred
+    depends_on:
+      - existing_case
+    run_if: >-
+      ${{ ACTIONS.hit.result && FN.length(FN.compact(ACTIONS.existing_case.result.fields)) > 0
+      && ACTIONS.existing_case.result.last_seen != TRIGGER.seen_at }}
+```
+
+Readable. `existing_case` already runs only on a hit, and the recurrence check is
+computed once by the step that fetched the data:
+
+```yaml
+  - ref: run_recurred
+    depends_on:
+      - existing_case
+    run_if: ${{ ACTIONS.existing_case.result.is_recurrence }}
+```
 
 ### Worked example
 
@@ -3615,6 +3726,8 @@ async def create_workflow(
         title: Workflow title (3-100 characters).
         description: Optional workflow description (up to 1000 characters).
         definition_yaml: Optional inline workflow YAML up to the MCP input limit.
+            The canvas is auto-formatted from `definition.actions`; any
+            `layout` action or trigger positions are ignored.
 
     Returns JSON with the new workflow's id, title, description, and status.
     """
@@ -3792,6 +3905,52 @@ async def list_workflow_actions(
 
 
 @mcp.tool()
+async def get_workflow_graph(
+    workspace_id: uuid.UUID,
+    workflow_id: MCPWorkflowUUID,
+) -> WorkflowGraphResponse:
+    """Get a draft workflow's control flow as a compact Mermaid flowchart.
+
+    Call this before adding or editing any `run_if`, `depends_on`, or
+    `join_strategy`. Each node shows the action ref, action type, `for_each`,
+    `join: any`, and its `run_if`; error-path edges are dotted. No `args` are
+    returned.
+
+    Use `gated_by` to see which upstream conditions already guard an action:
+    a skipped ancestor skips everything below it on the success path, so do
+    not restate those conditions in a downstream `run_if`. Only an `any` join
+    with another surviving parent can run after a gated branch is skipped.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_id: The workflow ID (short or full format).
+
+    Returns JSON with `draft_revision`, `mermaid` (a `flowchart TD` diagram),
+    and `actions`, each with `ref`, `depends_on`, `run_if`, `join_strategy`,
+    and `gated_by`.
+    """
+
+    try:
+        wf_id, document = await _load_workflow_edit_document(workspace_id, workflow_id)
+        mermaid, graph_actions = build_workflow_graph(document.definition.actions)
+        return WorkflowGraphResponse(
+            workflow_id=str(wf_id),
+            draft_revision=compute_workflow_edit_revision(document),
+            mermaid=mermaid,
+            actions=graph_actions,
+        )
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_tool_error(e) from e
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to get workflow graph", error=str(e))
+        raise ToolError(f"Failed to get workflow graph: {e}") from None
+
+
+@mcp.tool()
 async def get_workflow_action(
     workspace_id: uuid.UUID,
     workflow_id: MCPWorkflowUUID,
@@ -3917,15 +4076,14 @@ async def edit_workflow(
               "payload": {"owner": "${{ ACTIONS.parse_event.result.owner }}"}
             }
           }
-        },
-        {
-          "op": "add",
-          "path": "/layout/actions/@notify_owner",
-          "value": {"ref": "notify_owner", "x": 600, "y": 120}
         }
       ]
     }
     ```
+
+    The server re-runs auto-layout whenever a patch adds actions or changes
+    any `depends_on`, so do not patch `/layout` alongside graph edits. A
+    patch that only touches `/layout` is applied as given.
 
     Returns JSON with the workflow id, the new `draft_revision`, and `actions`
     (`[{index, ref}]`) as stored after the patch and the server's re-sort, so
@@ -3962,7 +4120,10 @@ async def edit_workflow(
                 document=workflow_edit_document_payload(draft_document),
                 patch_ops=request.patch_ops,
             )
-            updated_document = validate_workflow_patch_payload(patched_payload)
+            updated_document = _relayout_edit_document_if_graph_changed(
+                draft_document,
+                validate_workflow_patch_payload(patched_payload),
+            )
             changed_sections = workflow_edit_document_changed_sections(
                 draft_document,
                 updated_document,
@@ -4054,6 +4215,11 @@ async def update_workflow(
         definition_yaml: Optional inline workflow YAML up to the MCP input limit.
         update_mode: "patch" to update provided YAML sections, or "replace" to
             replace provided YAML state sections.
+
+    When `definition` adds actions or changes any `depends_on`, the canvas is
+    auto-formatted and any supplied `layout` positions are ignored. Otherwise a
+    supplied `layout` is applied, and without one current positions are kept.
+
     Returns a confirmation message.
     """
 

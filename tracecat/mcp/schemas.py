@@ -342,6 +342,30 @@ class WorkflowEditResponse(BaseModel):
     actions: list[WorkflowActionIndexEntry] = Field(default_factory=list)
 
 
+class WorkflowGraphAction(BaseModel):
+    """Control-flow view of one action returned by ``get_workflow_graph``."""
+
+    ref: str
+    depends_on: list[str] = Field(default_factory=list)
+    run_if: str | None = None
+    join_strategy: Literal["all", "any"] = "all"
+    gated_by: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Upstream ancestor refs that carry their own `run_if`. When one of "
+            "them is skipped, this action is skipped too unless it is an `any` "
+            "join with another surviving parent."
+        ),
+    )
+
+
+class WorkflowGraphResponse(BaseModel):
+    workflow_id: str
+    draft_revision: str
+    mermaid: str
+    actions: list[WorkflowGraphAction] = Field(default_factory=list)
+
+
 class WorkflowAuthoringContextRequest(BaseModel):
     """Request body for authoring-context lookup.
 

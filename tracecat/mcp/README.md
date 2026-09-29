@@ -15,6 +15,7 @@ own embedded collection truncation behavior below.
 - `get_workflow(workspace_id, workflow_id, include_definition_yaml=False)`
 - `list_workflow_actions(workspace_id, workflow_id)`
 - `get_workflow_action(workspace_id, workflow_id, ref)`
+- `get_workflow_graph(workspace_id, workflow_id)`
 - `update_workflow(workspace_id, workflow_id, title=None, description=None, status=None, alias=None, error_handler=None, definition_yaml=None, update_mode="patch")`
 - `edit_workflow(workspace_id, workflow_id, base_revision, patch_ops, validate_only=False)`
 - `list_workflows(workspace_id, status=None, limit=50, search=None, cursor=None)`
@@ -47,6 +48,13 @@ own embedded collection truncation behavior below.
   re-sorts actions by ref on save.
 - Both `validate_only` and applied `edit_workflow` responses include
   `actions: [{index, ref}]` in post-save order.
+- Call `get_workflow_graph` before adding or editing `run_if`, `depends_on`,
+  or joins. It returns a Mermaid `flowchart TD` with refs, action types, loops,
+  joins, and conditions (no `args`), plus a per-action `gated_by` list of
+  upstream refs whose `run_if` already guards that action.
+- The canvas is auto-formatted after `create_workflow` with YAML, and after
+  `edit_workflow` or `update_workflow` changes that add actions or change any
+  `depends_on`. Supplied layout positions are ignored for those changes.
 - Use `update_workflow` without `definition_yaml` for metadata-only updates.
 - Use inline YAML on `create_workflow` and `update_workflow` only when creating
   a workflow from YAML or intentionally replacing/bulk-updating the definition.
