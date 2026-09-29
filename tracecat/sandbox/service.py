@@ -126,7 +126,7 @@ class SandboxService:
         # Ensure cache directories exist
         self.package_cache.mkdir(parents=True, exist_ok=True)
 
-        # Initialize executors lazily based on availability
+        # Initialize executors lazily when selected by the configured backend.
         self._nsjail_executor: NsjailExecutor | None = None
         self._unsafe_pid_executor: UnsafePidExecutor | None = None
 
@@ -424,10 +424,10 @@ class SandboxService:
     ) -> Any:
         """Execute a Python script in a sandbox.
 
-        This is the main entry point for script execution. It automatically
-        selects the appropriate executor based on nsjail availability:
-        - If nsjail is available: Uses full OS-level isolation
-        - If nsjail is unavailable: Uses fallback executor with PID isolation
+        TRACECAT__EXECUTOR_BACKEND selects the executor:
+        - nsjail: Uses OS-level isolation and propagates nsjail failures.
+        - direct: Uses the unsafe PID executor with PID namespace isolation
+          when available.
 
         Args:
             script: Python script content to execute.
