@@ -30,14 +30,13 @@ def validate_execution_backend() -> None:
 
 
 @contextmanager
-def executor_lifecycle(
-    path: Path = WORKER_READY_FILE,
-) -> Iterator[AbstractAsyncContextManager[None]]:
+def executor_lifecycle() -> Iterator[AbstractAsyncContextManager[None]]:
     """Validate startup and provide readiness for the initialized worker.
 
     Enter the yielded context after the Temporal worker so readiness is removed
     before Temporal drains. The outer context also cleans up on startup failure.
     """
+    path = WORKER_READY_FILE
     path.unlink(missing_ok=True)
     validate_execution_backend()
     try:

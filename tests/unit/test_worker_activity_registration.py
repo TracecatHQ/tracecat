@@ -31,10 +31,7 @@ from tracecat.search import indexing_schedule
 @pytest.fixture(autouse=True)
 def worker_ready_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "tracecat.executor.worker.WORKER_READY_FILE", tmp_path / "executor-ready"
-    )
-    monkeypatch.setattr(
-        "tracecat.agent.executor_worker.WORKER_READY_FILE", tmp_path / "agent-ready"
+        "tracecat.executor.startup.WORKER_READY_FILE", tmp_path / "ready"
     )
 
 

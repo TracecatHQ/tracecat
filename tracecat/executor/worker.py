@@ -79,10 +79,7 @@ with workflow.unsafe.imports_passed_through():
         RegistrySyncWorkflow,
     )
     from tracecat.storage.blob import close_storage_client_cache
-    from tracecat.temporal.worker_lifecycle import (
-        WORKER_READY_FILE,
-        run_worker_entrypoint,
-    )
+    from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
@@ -124,7 +121,7 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 
 async def main(shutdown_event: asyncio.Event | None = None) -> None:
     """Run the ExecutorWorker."""
-    with executor_lifecycle(WORKER_READY_FILE) as readiness:
+    with executor_lifecycle() as readiness:
         if shutdown_event is None:
             shutdown_event = asyncio.Event()
 

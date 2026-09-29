@@ -34,10 +34,7 @@ from tracecat.observability.otel import (
 )
 from tracecat.observability.sentry import initialize_worker_sentry_from_environment
 from tracecat.storage.blob import close_storage_client_cache
-from tracecat.temporal.worker_lifecycle import (
-    WORKER_READY_FILE,
-    run_worker_entrypoint,
-)
+from tracecat.temporal.worker_lifecycle import run_worker_entrypoint
 
 if TYPE_CHECKING:
     from temporalio.client import Client
@@ -88,7 +85,7 @@ async def _stop_runtime_services() -> None:
 async def main(shutdown_event: asyncio.Event | None = None) -> None:
     """Run the AgentExecutorWorker."""
     global runtime_failure_reason
-    with executor_lifecycle(WORKER_READY_FILE) as readiness:
+    with executor_lifecycle() as readiness:
         if shutdown_event is None:
             shutdown_event = asyncio.Event()
         runtime_failure_reason = None

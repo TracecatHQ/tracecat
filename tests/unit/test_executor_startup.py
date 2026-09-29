@@ -76,7 +76,7 @@ async def test_workers_reject_invalid_sandbox_before_starting_services(
 ) -> None:
     ready = tmp_path / "ready"
     ready.touch()
-    monkeypatch.setattr(module, "WORKER_READY_FILE", ready)
+    monkeypatch.setattr("tracecat.executor.startup.WORKER_READY_FILE", ready)
     nsjail, rootfs = sandbox_paths
     if invalid == "missing_binary":
         nsjail.unlink()

@@ -51,7 +51,7 @@ async def test_readiness_ends_before_worker_drain(
 ) -> None:
     ready = tmp_path / "ready"
     ready.touch()
-    monkeypatch.setattr(worker_module, "WORKER_READY_FILE", ready)
+    monkeypatch.setattr("tracecat.executor.startup.WORKER_READY_FILE", ready)
     shutdown = asyncio.Event()
     drained = False
 
@@ -87,7 +87,7 @@ async def test_unremovable_ready_file_fails_before_initialization(
 ) -> None:
     ready = tmp_path / "ready"
     ready.mkdir()
-    monkeypatch.setattr(worker_module, "WORKER_READY_FILE", ready)
+    monkeypatch.setattr("tracecat.executor.startup.WORKER_READY_FILE", ready)
     validate = Mock()
     monkeypatch.setattr(
         "tracecat.executor.startup.validate_execution_backend", validate
