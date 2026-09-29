@@ -857,6 +857,7 @@ async def test_requests_without_a_valid_token_are_rejected(
     response = await unauthenticated_client.get("/scim/v2/Users", headers=headers)
 
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    assert response.headers["WWW-Authenticate"] == "Bearer"
 
 
 @pytest.mark.anyio

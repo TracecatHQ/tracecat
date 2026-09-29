@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import Depends, Security
+from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 
@@ -21,7 +21,6 @@ from tracecat.auth.api_keys import (
     parse_managed_api_key,
     verify_api_key,
 )
-from tracecat.auth.credentials import UNAUTHORIZED_EXCEPTION
 from tracecat.auth.ip_allowlist_enforcement import enforce_org_ip_allowlist
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
@@ -32,6 +31,13 @@ from tracecat.tiers.enums import Entitlement
 
 # The only scope the SCIM paths require, via deprovision_user -> delete_member.
 SCIM_ROLE_SCOPES = frozenset({"org:member:remove"})
+
+# SCIM clients authenticate with a bearer token, not the session cookie.
+UNAUTHORIZED_EXCEPTION = HTTPException(
+    status_code=status.HTTP_401_UNAUTHORIZED,
+    detail="Unauthorized",
+    headers={"WWW-Authenticate": "Bearer"},
+)
 
 scim_bearer_scheme = HTTPBearer(
     scheme_name="ScimConnectionBearer",
