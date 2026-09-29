@@ -862,8 +862,18 @@ class SCIMService(BaseOrgService):
         )
         if len(removed_rows) != len(set(delete)):
             raise TracecatNotFoundError("External group mapping not found")
-        for mapping in create:
-            await self._get_external_group(mapping.external_group_id)
+        added_ids = {mapping.external_group_id for mapping in create}
+        if added_ids:
+            found = set(
+                await self.session.scalars(
+                    select(ExternalGroup.id).where(
+                        ExternalGroup.id.in_(added_ids),
+                        ExternalGroup.organization_id == self.organization_id,
+                    )
+                )
+            )
+            if found != added_ids:
+                raise TracecatNotFoundError("External group not found")
 
         removed_by_group: dict[UUID, set[UUID]] = {}
         for _, group_id, external_group_id in removed_rows:
@@ -873,40 +883,67 @@ class SCIMService(BaseOrgService):
             added_by_group.setdefault(mapping.group_id, set()).add(
                 mapping.external_group_id
             )
-
-        transitions: list[_GroupTransition] = []
         touched = set(removed_by_group) | set(added_by_group)
-        for group_id in sorted(touched, key=str):
-            group_name = (
+        if not touched:
+            return []
+
+        # Batched across touched groups so a review's query count is constant.
+        group_names = dict(
+            (
                 await self.session.execute(
-                    select(Group.name).where(
-                        Group.id == group_id,
+                    select(Group.id, Group.name).where(
+                        Group.id.in_(touched),
                         Group.organization_id == self.organization_id,
                     )
                 )
-            ).scalar_one_or_none()
-            if group_name is None:
-                raise TracecatNotFoundError("Group not found")
+            )
+            .tuples()
+            .all()
+        )
+        if len(group_names) != len(touched):
+            raise TracecatNotFoundError("Group not found")
+        sources_before_by_group: dict[UUID, set[UUID]] = {}
+        for group_id, external_group_id in (
+            await self.session.execute(
+                select(
+                    ExternalGroupMapping.group_id,
+                    ExternalGroupMapping.external_group_id,
+                ).where(
+                    ExternalGroupMapping.group_id.in_(touched),
+                    ExternalGroupMapping.organization_id == self.organization_id,
+                )
+            )
+        ).tuples():
+            sources_before_by_group.setdefault(group_id, set()).add(external_group_id)
+        manual_by_group: dict[UUID, set[UUID]] = {}
+        for group_id, user_id in (
+            await self.session.execute(
+                select(GroupMember.group_id, GroupMember.user_id).where(
+                    GroupMember.group_id.in_(touched)
+                )
+            )
+        ).tuples():
+            manual_by_group.setdefault(group_id, set()).add(user_id)
+        members_by_source = await self._idp_members_by_source(
+            set().union(*sources_before_by_group.values(), *added_by_group.values()),
+            admitted_only=not assume_admitted,
+        )
+        source_names = await self._external_group_names(
+            set().union(*removed_by_group.values(), *added_by_group.values())
+        )
+
+        def idp_members(sources: set[UUID]) -> set[UUID]:
+            return set().union(*(members_by_source.get(s, set()) for s in sources))
+
+        transitions: list[_GroupTransition] = []
+        for group_id in sorted(touched, key=str):
             removed = removed_by_group.get(group_id, set())
             added = added_by_group.get(group_id, set())
-            sources_before = set(
-                (
-                    await self.session.execute(
-                        select(ExternalGroupMapping.external_group_id).where(
-                            ExternalGroupMapping.group_id == group_id
-                        )
-                    )
-                ).scalars()
-            )
+            sources_before = sources_before_by_group.get(group_id, set())
             sources_after = (sources_before - removed) | added
-            members = (
-                self._external_group_members
-                if assume_admitted
-                else self._admitted_idp_members
-            )
-            manual_before = await self._manual_member_ids(group_id)
-            idp_before = await members(sources_before)
-            idp_after = await members(sources_after)
+            manual_before = manual_by_group.get(group_id, set())
+            idp_before = idp_members(sources_before)
+            idp_after = idp_members(sources_after)
             manual_after = set(manual_before)
             if removed and not sources_before - removed and not added:
                 manual_after |= idp_before
@@ -925,11 +962,10 @@ class SCIMService(BaseOrgService):
                     changes.append((user_id, "lose"))
                 elif was != now:
                     changes.append((user_id, "to_idp" if now == "idp" else "to_manual"))
-            source_names = await self._external_group_names(removed | added)
             transitions.append(
                 _GroupTransition(
                     group_id=group_id,
-                    group_name=group_name,
+                    group_name=group_names[group_id],
                     added_sources=sorted(source_names[e] for e in added),
                     removed_sources=sorted(source_names[e] for e in removed),
                     changes=changes,
@@ -938,11 +974,33 @@ class SCIMService(BaseOrgService):
             )
         return transitions
 
-    async def _external_group_members(self, external_group_ids: set[UUID]) -> set[UUID]:
-        """Active users the provider lists in any of these groups."""
-        members: set[UUID] = set()
-        for external_group_id in external_group_ids:
-            members |= await self._external_group_user_ids(external_group_id)
+    async def _idp_members_by_source(
+        self, external_group_ids: set[UUID], *, admitted_only: bool
+    ) -> dict[UUID, set[UUID]]:
+        """Active users each external group lists, optionally only admitted ones."""
+        if not external_group_ids:
+            return {}
+        stmt = (
+            select(ExternalGroupMember.external_group_id, ExternalUser.user_id)
+            .join(ExternalUser, ExternalUser.id == ExternalGroupMember.external_user_id)
+            .where(
+                ExternalGroupMember.external_group_id.in_(external_group_ids),
+                ExternalUser.organization_id == self.organization_id,
+                ExternalUser.active,
+            )
+        )
+        if admitted_only:
+            stmt = stmt.join(
+                OrganizationMembership,
+                and_(
+                    OrganizationMembership.user_id == ExternalUser.user_id,
+                    OrganizationMembership.organization_id
+                    == ExternalUser.organization_id,
+                ),
+            )
+        members: dict[UUID, set[UUID]] = {}
+        for external_group_id, user_id in (await self.session.execute(stmt)).tuples():
+            members.setdefault(external_group_id, set()).add(user_id)
         return members
 
     async def _external_group_names(self, ids: set[UUID]) -> dict[UUID, str]:
@@ -973,52 +1031,6 @@ class SCIMService(BaseOrgService):
             )
         )
         return status == ScimConnectionStatus.PENDING
-
-    async def _admitted_idp_members(self, external_group_ids: set[UUID]) -> set[UUID]:
-        """Active, admitted users the provider lists in any of these groups."""
-        if not external_group_ids:
-            return set()
-        stmt = (
-            select(ExternalUser.user_id)
-            .join(
-                ExternalGroupMember,
-                ExternalGroupMember.external_user_id == ExternalUser.id,
-            )
-            .join(
-                OrganizationMembership,
-                and_(
-                    OrganizationMembership.user_id == ExternalUser.user_id,
-                    OrganizationMembership.organization_id
-                    == ExternalUser.organization_id,
-                ),
-            )
-            .where(
-                ExternalGroupMember.external_group_id.in_(external_group_ids),
-                ExternalUser.organization_id == self.organization_id,
-                ExternalUser.active,
-            )
-        )
-        return set((await self.session.execute(stmt)).scalars())
-
-    async def _manual_member_ids(self, group_id: UUID) -> set[UUID]:
-        """Users held by a stored group_member row."""
-        stmt = select(GroupMember.user_id).where(GroupMember.group_id == group_id)
-        return set((await self.session.execute(stmt)).scalars())
-
-    async def _external_group_user_ids(self, external_group_id: UUID) -> set[UUID]:
-        """Active users the provider lists in one external group."""
-        stmt = (
-            select(ExternalUser.user_id)
-            .join(
-                ExternalGroupMember,
-                ExternalGroupMember.external_user_id == ExternalUser.id,
-            )
-            .where(
-                ExternalGroupMember.external_group_id == external_group_id,
-                ExternalUser.active,
-            )
-        )
-        return set((await self.session.execute(stmt)).scalars())
 
     # =========================================================================
     # Deprovisioning

@@ -1183,6 +1183,72 @@ async def test_activation_review_combines_sources_per_target(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("assume_admitted", [False, True])
+async def test_review_transitions_use_constant_queries(
+    session: AsyncSession,
+    org: Organization,
+    service: SCIMService,
+    assume_admitted: bool,
+) -> None:
+    """Touching more groups adds no round trips to the review."""
+
+    async def seed_change(
+        index: int,
+    ) -> tuple[ExternalGroupMappingCreate, uuid.UUID]:
+        old = await seed_external_group(
+            session, organization_id=org.id, external_id=f"idp-old-{index}"
+        )
+        new = await seed_external_group(
+            session, organization_id=org.id, external_id=f"idp-new-{index}"
+        )
+        await _pushed_member(session, org, old.id)
+        await _pushed_member(session, org, new.id)
+        group = await _make_group(session, org)
+        mapping = await service.create_mapping(
+            external_group_id=old.id, group_id=group.id
+        )
+        manual = await _make_user(session, org)
+        await seed_group_member(session, group_id=group.id, user_id=manual.id)
+        return (
+            ExternalGroupMappingCreate(external_group_id=new.id, group_id=group.id),
+            mapping.id,
+        )
+
+    async def count_queries(
+        changes: list[tuple[ExternalGroupMappingCreate, uuid.UUID]],
+    ) -> int:
+        queries: list[str] = []
+
+        def capture(
+            conn: object,
+            cursor: object,
+            statement: str,
+            parameters: object,
+            context: object,
+            executemany: bool,
+        ) -> None:
+            queries.append(statement)
+
+        bind = session.get_bind()
+        event.listen(bind, "before_cursor_execute", capture)
+        try:
+            transitions = await service._group_transitions(
+                [create for create, _ in changes],
+                [mapping_id for _, mapping_id in changes],
+                assume_admitted=assume_admitted,
+            )
+        finally:
+            event.remove(bind, "before_cursor_execute", capture)
+        assert len(transitions) == len(changes)
+        return len(queries)
+
+    one = [await seed_change(0)]
+    many = [await seed_change(i) for i in range(1, 5)]
+
+    assert await count_queries(many) == await count_queries(one)
+
+
+@pytest.mark.anyio
 async def test_review_previews_each_outcome_unless_full(
     session: AsyncSession, org: Organization, service: SCIMService
 ) -> None:
