@@ -121,3 +121,17 @@ def test_platform_catalog_includes_claude_opus_and_sonnet_5_5() -> None:
     assert sonnet.metadata["input_cost_per_token"] == 2e-06
     assert sonnet.metadata["cache_read_input_token_cost"] == 2e-07
     assert sonnet.metadata["max_output_tokens"] == 128000
+
+
+def test_platform_catalog_includes_gpt_6_sol_luna_and_gpt_6_1_sol() -> None:
+    entries = {
+        entry.model_name: entry
+        for entry in loader.get_platform_catalog_models()
+        if entry.model_provider == "openai"
+    }
+
+    assert {"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"}.issubset(entries)
+    assert entries["gpt-6-sol"].metadata["cache_read_input_token_cost"] == 2e-07
+    assert entries["gpt-6-luna"].metadata["input_cost_per_token"] == 1e-07
+    assert entries["gpt-6.1-sol"].metadata["cache_read_input_token_cost"] == 1e-07
+    assert entries["gpt-6.1-sol"].metadata["max_input_tokens"] == 922000
