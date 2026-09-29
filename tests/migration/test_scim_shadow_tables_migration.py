@@ -62,14 +62,6 @@ def _fresh_database(prefix: str) -> Iterator[str]:
 
 
 @pytest.fixture(scope="function")
-def previous_db() -> Iterator[str]:
-    """An empty database at the revision before the one under test."""
-    for url in _fresh_database("test_scim_previous"):
-        _run_alembic(url, "upgrade", PREVIOUS_REVISION)
-        yield url
-
-
-@pytest.fixture(scope="function")
 def migration_db() -> Iterator[str]:
     """An empty database migrated up to the revision under test."""
     for url in _fresh_database("test_scim_shadow"):
@@ -79,6 +71,12 @@ def migration_db() -> Iterator[str]:
 
 def _engine(url: str) -> Engine:
     return create_engine(url)
+
+
+def _rls_enabled(conn: Connection, name: str) -> bool:
+    return conn.execute(
+        text("SELECT relrowsecurity FROM pg_class WHERE relname = :t"), {"t": name}
+    ).scalar_one()
 
 
 def _table_exists(conn: Connection, name: str) -> bool:
@@ -160,6 +158,7 @@ def test_upgrade_creates_shadow_tables(migration_db: str) -> None:
         with engine.connect() as conn:
             for name in NEW_TABLES:
                 assert _table_exists(conn, name), f"{name} was not created"
+                assert _rls_enabled(conn, name), f"{name} has no row security"
             assert _column_exists(conn, "external_user", "active")
     finally:
         engine.dispose()
@@ -418,5 +417,6 @@ def test_downgrade_removes_everything_the_upgrade_added(migration_db: str) -> No
         with engine.connect() as conn:
             for name in NEW_TABLES:
                 assert _table_exists(conn, name), f"{name} was not restored"
+                assert _rls_enabled(conn, name), f"{name} lost row security"
     finally:
         engine.dispose()
