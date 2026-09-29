@@ -692,11 +692,11 @@ async def test_fork_delegates_to_required_backend_operation(preparation_fails):
 
     db.flush.side_effect = flush_fork
     provider.prepare_fork = AsyncMock(side_effect=prepare_fork)
-    with (
-        patch.object(service, "get_session", return_value=ctx.session),
-        patch(
-            "tracecat.agent.session.service.get_agent_backend", return_value=provider
-        ),
+    result = Mock()
+    result.tuples.return_value.one_or_none.return_value = (ctx.session, None)
+    db.execute.return_value = result
+    with patch(
+        "tracecat.agent.session.service.get_agent_backend", return_value=provider
     ):
         if not preparation_fails:
             fork = await service.fork_session(ctx.session.id)
@@ -736,12 +736,12 @@ async def test_builtin_fork_copies_snapshot_without_mutating_parent():
     assert isinstance(ctx.db, AsyncMock)
     ctx.session.work_dir_snapshot = {"files": {"example.txt": "original"}}
     service = AgentSessionService(ctx.db, ctx.role)
-    with (
-        patch.object(service, "get_session", return_value=ctx.session),
-        patch(
-            "tracecat.agent.session.service.get_agent_backend",
-            return_value=DefaultBackend(),
-        ),
+    result = Mock()
+    result.tuples.return_value.one_or_none.return_value = (ctx.session, None)
+    ctx.db.execute.return_value = result
+    with patch(
+        "tracecat.agent.session.service.get_agent_backend",
+        return_value=DefaultBackend(),
     ):
         fork = await service.fork_session(ctx.session.id)
     assert fork.work_dir_snapshot == ctx.session.work_dir_snapshot

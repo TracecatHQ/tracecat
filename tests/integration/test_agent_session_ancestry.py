@@ -4,9 +4,10 @@ import uuid
 from typing import Any, cast
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from tests.database import TEST_DB_CONFIG
 from tracecat import config
 from tracecat.agent.session.router import (
     create_session,
@@ -18,11 +19,90 @@ from tracecat.agent.session.schemas import AgentSessionCreate, AgentSessionForkR
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
-from tracecat.db.models import AgentSession, Workspace
+from tracecat.db.models import (
+    AgentSession,
+    AgentSessionHistory,
+    Organization,
+    Workspace,
+)
 from tracecat.exceptions import EntitlementRequired, TracecatNotFoundError
 from tracecat.tiers import defaults
 
 pytestmark = [pytest.mark.anyio, pytest.mark.integration, pytest.mark.usefixtures("db")]
+
+
+async def test_fork_captures_committed_history_and_sdk_identity_together() -> None:
+    # Use independent transactions at production isolation; the session fixture
+    # uses SERIALIZABLE isolation and an outer transaction that never commits.
+    engine = create_async_engine(
+        TEST_DB_CONFIG.test_url, isolation_level="READ COMMITTED"
+    )
+    organization_id, workspace_id, source_id = (uuid.uuid4() for _ in range(3))
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        workspace_id=workspace_id,
+    )
+    try:
+        async with AsyncSession(engine, expire_on_commit=False) as writer:
+            writer.add(
+                Organization(
+                    id=organization_id,
+                    name="Fork snapshot test",
+                    slug=f"fork-snapshot-{organization_id.hex}",
+                )
+            )
+            await writer.flush()
+            writer.add(
+                Workspace(
+                    id=workspace_id,
+                    name="Fork snapshot workspace",
+                    organization_id=organization_id,
+                )
+            )
+            await writer.flush()
+            source = AgentSession(
+                id=source_id,
+                workspace_id=workspace_id,
+                title="Source awaiting its first message",
+                entity_type="workflow",
+                entity_id=uuid.uuid4(),
+            )
+            writer.add(source)
+            await writer.commit()
+
+            async with AsyncSession(engine, expire_on_commit=False) as reader:
+                service = AgentSessionService(reader, role)
+                # The route's authorization checks may already have loaded A.
+                cached_source = await service.get_session(source_id)
+                assert cached_source is not None
+                assert cached_source.sdk_session_id is None
+
+                # The executor publishes the SDK ID and first message together
+                # while the fork request still holds its earlier source object.
+                source.sdk_session_id = "sdk-first-message"
+                first_message = AgentSessionHistory(
+                    session_id=source_id,
+                    workspace_id=workspace_id,
+                    kind="chat-message",
+                    content={"type": "user", "message": {"content": "Hello"}},
+                )
+                writer.add(first_message)
+                await writer.commit()
+                assert cached_source.sdk_session_id is None
+
+                fork = await service.fork_session(source_id)
+                assert fork.forked_from_history_id == first_message.surrogate_id
+                assert fork.forked_from_sdk_session_id == "sdk-first-message"
+    finally:
+        async with AsyncSession(engine) as cleanup:
+            await cleanup.execute(delete(Workspace).where(Workspace.id == workspace_id))
+            await cleanup.execute(
+                delete(Organization).where(Organization.id == organization_id)
+            )
+            await cleanup.commit()
+        await engine.dispose()
 
 
 @pytest.mark.parametrize(

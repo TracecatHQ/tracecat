@@ -3477,22 +3477,32 @@ class AgentSessionService(BaseWorkspaceService):
         Raises:
             TracecatNotFoundError: If the parent session is not found.
         """
-        source = await self.get_session(source_session_id)
-        if source is None:
+        history_boundary = (
+            select(func.max(AgentSessionHistory.surrogate_id))
+            .where(AgentSessionHistory.session_id == AgentSession.id)
+            .scalar_subquery()
+        )
+        # Capture identity and history from one database snapshot. Refresh any
+        # source object loaded earlier by the route's authorization checks too.
+        result = await self.session.execute(
+            select(AgentSession, history_boundary)
+            .where(
+                AgentSession.id == source_session_id,
+                AgentSession.workspace_id == self.workspace_id,
+            )
+            .execution_options(populate_existing=True)
+        )
+        captured = result.tuples().one_or_none()
+        if captured is None:
             raise TracecatNotFoundError(
                 f"Source session with ID {source_session_id} not found"
             )
+        source, boundary = captured
         if (
             spawned_by_session_id is not None
             and await self.get_session(spawned_by_session_id) is None
         ):
             raise TracecatNotFoundError("Parent session not found in this workspace")
-
-        boundary = await self.session.scalar(
-            select(func.max(AgentSessionHistory.surrogate_id)).where(
-                AgentSessionHistory.session_id == source_session_id
-            )
-        )
 
         backend = get_agent_backend(source.backend_id, harness_type=source.harness_type)
 
