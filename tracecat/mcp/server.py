@@ -2997,10 +2997,10 @@ changing what runs.
   the branch's condition in the join's own `run_if` so it self-skips before the
   reachability check.
 - `join_strategy: any` means any. The join runs as soon as one parent succeeds,
-  even when another parent was skipped by its own `run_if`. Its `gated_by` still
-  lists every upstream condition, but only a condition on every path into it
-  actually guards it; state any other condition the join needs in its own
-  `run_if`.
+  even when another parent was skipped by its own `run_if`, so an upstream
+  condition only guards an `any` join when it sits on every path into it.
+  `gated_by` already accounts for this; state any other condition the join
+  needs in its own `run_if`.
 - One parent is the norm. Multiple parents should mean a deliberate join.
 - Prefer a readable operational sequence over maximum parallelism. Two lookups
   that could run concurrently are still clearer as a chain when the reader
@@ -3924,8 +3924,8 @@ async def get_workflow_graph(
     Use `gated_by` to see which upstream conditions already guard an action:
     a skipped ancestor skips everything below it on the success path, so do
     not restate those conditions in a downstream `run_if`. `join: any` means
-    any: it runs once one parent succeeds, even if another parent was skipped
-    by a `gated_by` condition, so an `any` join may need its own `run_if`.
+    any: it runs once one parent succeeds, even if another parent was skipped,
+    so its `gated_by` keeps only conditions on every path into it.
 
     Args:
         workspace_id: The workspace ID.

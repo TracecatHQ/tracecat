@@ -352,9 +352,9 @@ class WorkflowGraphAction(BaseModel):
     gated_by: list[str] = Field(
         default_factory=list,
         description=(
-            "Upstream ancestor refs that carry their own `run_if`. When one of "
-            "them is skipped, this action is skipped too unless it is an `any` "
-            "join with another surviving parent."
+            "Upstream ancestor refs with their own `run_if` that must have run "
+            "for this action to run. An `any` join runs when one parent "
+            "succeeds, so it keeps only conditions on every path into it."
         ),
     )
 

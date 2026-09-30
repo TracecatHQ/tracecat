@@ -66,21 +66,44 @@ def _node_label(action: ActionStatement) -> str:
     return "<br/>".join(_escape_label(line) for line in lines)
 
 
-def _ancestors(
-    ref: str,
+def _upstream_gates(
+    actions: Sequence[ActionStatement],
     parents: Mapping[str, Sequence[str]],
-) -> list[str]:
-    seen: set[str] = set()
-    stack = list(parents.get(ref, []))
-    ordered: list[str] = []
-    while stack:
-        current = stack.pop()
-        if current in seen or current == ref:
-            continue
-        seen.add(current)
-        ordered.append(current)
-        stack.extend(parents.get(current, []))
-    return ordered
+    conditional: set[str],
+) -> dict[str, set[str]]:
+    """Map each ref to the conditional ancestors that must have run for it to run.
+
+    A single-parent action or an ``all`` join inherits every parent's gates. An
+    ``any`` join runs when one parent succeeds, so it keeps only the gates
+    shared by all of its parents.
+    """
+    join_any = {
+        action.ref for action in actions if action.join_strategy == JoinStrategy.ANY
+    }
+    gates: dict[str, set[str]] = {}
+
+    def resolve(ref: str, visiting: frozenset[str]) -> set[str]:
+        if ref in gates:
+            return gates[ref]
+        parent_gates: list[set[str]] = []
+        for parent in parents.get(ref, []):
+            if parent in visiting:
+                continue
+            inherited = resolve(parent, visiting | {ref})
+            own = {parent} if parent in conditional else set()
+            parent_gates.append(inherited | own)
+        if not parent_gates:
+            result: set[str] = set()
+        elif ref in join_any:
+            result = set.intersection(*parent_gates)
+        else:
+            result = set.union(*parent_gates)
+        gates[ref] = result
+        return result
+
+    for action in actions:
+        resolve(action.ref, frozenset())
+    return gates
 
 
 def build_workflow_graph(
@@ -100,6 +123,7 @@ def build_workflow_graph(
             if source in refs
         ]
     conditional = {action.ref for action in actions if action.run_if is not None}
+    gates = _upstream_gates(actions, parents, conditional)
 
     lines = ["flowchart TD", f"  {_TRIGGER_NODE_ID}([trigger])"]
     for action in actions:
@@ -124,11 +148,7 @@ def build_workflow_graph(
             depends_on=list(action.depends_on),
             run_if=action.run_if,
             join_strategy=action.join_strategy.value,
-            gated_by=sorted(
-                ancestor
-                for ancestor in _ancestors(action.ref, parents)
-                if ancestor in conditional
-            ),
+            gated_by=sorted(gates[action.ref]),
         )
         for action in actions
     ]
