@@ -9,7 +9,12 @@ definition:
   secrets:
   - type: oauth
     provider_id: github
+    grant_type: client_credentials
+    optional: true
+  - type: oauth
+    provider_id: github
     grant_type: authorization_code
+    optional: true
   expects:
     owner:
       type: str
@@ -68,7 +73,7 @@ definition:
       url: ${{ inputs.base_url }}/repos/${{ FN.url_encode(inputs.owner) }}/${{ FN.url_encode(inputs.repo) }}/actions/runs
       method: GET
       headers:
-        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_SERVICE_TOKEN || SECRETS.github_oauth.GITHUB_USER_TOKEN }}
         Accept: application/vnd.github+json
         X-GitHub-Api-Version: '2022-11-28'
       params:

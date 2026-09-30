@@ -5,6 +5,7 @@ from tracecat.integrations.providers.databricks import (
     DatabricksACProvider,
     DatabricksCCProvider,
 )
+from tracecat.integrations.providers.github.app import GitHubAppProvider
 from tracecat.integrations.providers.github.mcp import GitHubMCPProvider
 from tracecat.integrations.providers.github.oauth import GitHubOAuthProvider
 from tracecat.integrations.providers.google import (
@@ -71,6 +72,7 @@ from tracecat.integrations.schemas import ProviderKey
 
 _PROVIDER_CLASSES: list[type[BaseOAuthProvider]] = [
     GitHubOAuthProvider,
+    GitHubAppProvider,
     GitHubMCPProvider,
     DatabricksACProvider,
     DatabricksCCProvider,

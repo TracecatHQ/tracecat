@@ -21,3 +21,44 @@ export function isCustomProvider(provider: ProviderRead): boolean {
     (providerId.startsWith("custom_") || providerId.startsWith("custom-"))
   )
 }
+
+export interface CredentialInputOverride {
+  label: string
+  description: string
+  placeholder: string
+  multiline?: boolean
+}
+
+export interface ProviderCredentialInputs {
+  clientId: CredentialInputOverride
+  clientSecret: CredentialInputOverride
+}
+
+/**
+ * Client credential input overrides for providers whose credentials are not
+ * a standard OAuth client ID and secret.
+ */
+export function getProviderCredentialInputs(
+  provider: ProviderRead | undefined
+): ProviderCredentialInputs | undefined {
+  if (
+    provider?.metadata.id === "github" &&
+    provider.grant_type === "client_credentials"
+  ) {
+    return {
+      clientId: {
+        label: "Client ID or App ID",
+        description: "Found on the GitHub App's settings page.",
+        placeholder: "Iv23li... or 123456",
+      },
+      clientSecret: {
+        label: "Private key",
+        description:
+          "Paste the PEM private key generated for the GitHub App. Leave blank to keep the existing key.",
+        placeholder: "-----BEGIN RSA PRIVATE KEY-----",
+        multiline: true,
+      },
+    }
+  }
+  return undefined
+}
