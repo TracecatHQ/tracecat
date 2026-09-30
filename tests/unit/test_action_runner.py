@@ -45,6 +45,17 @@ def _empty_secret_projection() -> SecretEnvProjection:
 
 
 @pytest.fixture
+def delegated_cgroup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Provide cgroup metadata for tests that mock nsjail execution."""
+    root = tmp_path / "cgroup"
+    root.mkdir()
+    (root / "cgroup.subtree_control").write_text("memory")
+    (root / "cgroup.procs").touch()
+    monkeypatch.setenv("TRACECAT__SANDBOX_CGROUP_PATH", str(root))
+    return root
+
+
+@pytest.fixture
 def mock_role() -> Role:
     """Create a mock role for testing."""
     return Role(
@@ -506,6 +517,7 @@ class TestActionRunner:
     @pytest.mark.anyio
     async def test_sandbox_preserves_attested_executor_token(
         self,
+        delegated_cgroup: Path,
         temp_cache_dir: Path,
         mock_run_action_input: RunActionInput,
         mock_role: Role,
@@ -534,6 +546,7 @@ class TestActionRunner:
             _job_dir: Path,
             sandbox_config: action_runner.ActionSandboxConfig,
         ) -> SandboxResult:
+            assert _executor.cgroup_mount == delegated_cgroup
             captured_env.update(sandbox_config.env_vars)
             return SandboxResult(success=True, output={"data": "test"})
 
@@ -559,6 +572,7 @@ class TestActionRunner:
     @pytest.mark.anyio
     async def test_sandbox_infrastructure_result_raises_typed_error(
         self,
+        delegated_cgroup: Path,
         temp_cache_dir: Path,
         mock_run_action_input: RunActionInput,
         mock_role: Role,
@@ -620,6 +634,7 @@ class TestActionRunner:
     )
     async def test_sandbox_workload_result_raises_typed_user_error(
         self,
+        delegated_cgroup: Path,
         temp_cache_dir: Path,
         mock_run_action_input: RunActionInput,
         mock_role: Role,
@@ -683,6 +698,7 @@ class TestActionRunner:
     )
     async def test_sandbox_workload_error_message_carries_masked_stderr_tail(
         self,
+        delegated_cgroup: Path,
         temp_cache_dir: Path,
         mock_run_action_input: RunActionInput,
         mock_role: Role,
