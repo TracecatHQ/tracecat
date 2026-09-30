@@ -1386,7 +1386,10 @@ def test_build_workflow_graph_renders_error_edges_joins_and_reserved_refs():
         '<br/>if: TRIGGER.kind == #quot;alert#quot;"]'
     ) in mermaid
     assert "  call_api -. error .-> end_" in mermaid
-    assert '  merge["merge<br/>core.transform.reshape<br/>join: any"]' in mermaid
+    assert (
+        '  merge["merge<br/>core.transform.reshape'
+        '<br/>join: any (one parent is enough)"]'
+    ) in mermaid
     assert "  end_ --> merge" in mermaid
     assert [action.gated_by for action in actions] == [
         [],
