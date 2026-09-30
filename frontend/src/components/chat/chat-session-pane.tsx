@@ -1840,9 +1840,11 @@ function SubagentToolPart({
   const outputSessionId =
     getSubagentSessionId(part.output) ?? getSubagentSessionId(errorText)
   const lastSessionIdRef = useRef<string | null>(null)
-  if (outputSessionId) {
-    lastSessionIdRef.current = outputSessionId
-  }
+  useEffect(() => {
+    if (outputSessionId) {
+      lastSessionIdRef.current = outputSessionId
+    }
+  }, [outputSessionId])
   const sessionId = outputSessionId ?? lastSessionIdRef.current
 
   return (
