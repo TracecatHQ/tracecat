@@ -140,7 +140,7 @@ export function useScimExternalGroups({
       }),
     initialPageParam: null,
     getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
-    // Each tick refetches every loaded page; poll only the first.
+    // A tick refetches every loaded page, so stop once more than one loads.
     refetchInterval: (query) =>
       poll && (query.state.data?.pages.length ?? 0) <= 1
         ? SCIM_DIRECTORY_POLL_MS
