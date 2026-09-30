@@ -95,6 +95,12 @@ SYSTEM_SCOPE_DEFINITIONS: list[ScopeDefinition] = [
         "Delete roles, scopes, groups, and assignments",
     ),
     ScopeDefinition(
+        "org:scim:manage",
+        "org:scim",
+        "manage",
+        "Manage SCIM connections and mappings, including granting and revoking IdP-managed access",
+    ),
+    ScopeDefinition(
         "org:service_account:read",
         "org:service_account",
         "read",

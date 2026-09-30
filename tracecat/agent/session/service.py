@@ -490,8 +490,8 @@ class AgentSessionService(BaseWorkspaceService):
             The created AgentSession model.
         """
         backend = get_agent_backend(args.backend_id, harness_type=args.harness_type)
-        if args.parent_session_id is not None:
-            if await self.get_session(args.parent_session_id) is None:
+        if args.spawned_by_session_id is not None:
+            if await self.get_session(args.spawned_by_session_id) is None:
                 raise TracecatNotFoundError(
                     "Parent session not found in this workspace"
                 )
@@ -544,7 +544,7 @@ class AgentSessionService(BaseWorkspaceService):
             # Harness
             backend_id=args.backend_id,
             harness_type=args.harness_type or backend.default_harness,
-            parent_session_id=args.parent_session_id,
+            spawned_by_session_id=args.spawned_by_session_id,
         )
         # Use provided ID if given, otherwise DB default generates one
         if args.id:
@@ -640,6 +640,51 @@ class AgentSessionService(BaseWorkspaceService):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_workspace_chat_session_ids(
+        self, session_ids: Sequence[uuid.UUID]
+    ) -> set[uuid.UUID]:
+        """Find sessions whose own type or ancestry requires Workspace Chat."""
+        if not session_ids:
+            return set()
+        ancestry = (
+            select(
+                AgentSession.id.label("root_id"),
+                AgentSession.id,
+                AgentSession.entity_type,
+                AgentSession.spawned_by_session_id,
+                AgentSession.forked_from_session_id,
+            )
+            .where(
+                AgentSession.workspace_id == self.workspace_id,
+                AgentSession.id.in_(session_ids),
+            )
+            .cte("session_ancestry", recursive=True)
+        )
+        # UNION deduplicates visited (root, ancestor) pairs, including cycles.
+        ancestry = ancestry.union(
+            select(
+                ancestry.c.root_id,
+                AgentSession.id,
+                AgentSession.entity_type,
+                AgentSession.spawned_by_session_id,
+                AgentSession.forked_from_session_id,
+            )
+            .join(
+                ancestry,
+                or_(
+                    AgentSession.id == ancestry.c.spawned_by_session_id,
+                    AgentSession.id == ancestry.c.forked_from_session_id,
+                ),
+            )
+            .where(AgentSession.workspace_id == self.workspace_id)
+        )
+        result = await self.session.scalars(
+            select(ancestry.c.root_id)
+            .where(ancestry.c.entity_type == AgentSessionEntity.WORKSPACE_CHAT.value)
+            .distinct()
+        )
+        return set(result.all())
 
     async def is_legacy_session(self, session_id: uuid.UUID) -> bool:
         """Return whether a session ID belongs to a legacy chat."""
@@ -803,7 +848,7 @@ class AgentSessionService(BaseWorkspaceService):
         entity_type: AgentSessionEntity | None = None,
         entity_id: uuid.UUID | None = None,
         exclude_entity_types: list[AgentSessionEntity] | None = None,
-        parent_session_id: uuid.UUID | None = None,
+        spawned_by_session_id: uuid.UUID | None = None,
         forked_from_session_id: uuid.UUID | None = None,
         include_children: bool = False,
         limit: int = 100,
@@ -816,7 +861,7 @@ class AgentSessionService(BaseWorkspaceService):
             entity_type: Filter by entity type.
             entity_id: Filter by entity ID.
             exclude_entity_types: Entity types to exclude from results.
-            parent_session_id: Filter by spawning parent session ID.
+            spawned_by_session_id: Filter by spawning parent session ID.
             forked_from_session_id: Filter by history source session ID.
             include_children: Include spawned children without a parent filter.
             limit: Maximum number of results.
@@ -844,12 +889,14 @@ class AgentSessionService(BaseWorkspaceService):
             )
         if entity_id is not None:
             session_stmt = session_stmt.where(AgentSession.entity_id == entity_id)
-        if parent_session_id is not None:
+        if spawned_by_session_id is not None:
             session_stmt = session_stmt.where(
-                AgentSession.parent_session_id == parent_session_id
+                AgentSession.spawned_by_session_id == spawned_by_session_id
             )
         elif not include_children:
-            session_stmt = session_stmt.where(AgentSession.parent_session_id.is_(None))
+            session_stmt = session_stmt.where(
+                AgentSession.spawned_by_session_id.is_(None)
+            )
         if forked_from_session_id is not None:
             session_stmt = session_stmt.where(
                 AgentSession.forked_from_session_id == forked_from_session_id
@@ -864,7 +911,7 @@ class AgentSessionService(BaseWorkspaceService):
 
         legacy_chats: list[Chat] = []
         if (
-            parent_session_id is None
+            spawned_by_session_id is None
             and forked_from_session_id is None
             and not filter_created_by_none
         ):
@@ -883,8 +930,14 @@ class AgentSessionService(BaseWorkspaceService):
             chat_result = await self.session.execute(chat_stmt)
             legacy_chats = list(chat_result.scalars().all())
 
+        readonly_ids: set[uuid.UUID] = set()
+        if not await is_workspace_chat_entitled(self.session, self.role):
+            readonly_ids = await self.get_workspace_chat_session_ids(
+                [s.id for s in sessions]
+            )
         items: list[AgentSessionRead | ChatReadMinimal] = [
-            build_session_read(s, self.role) for s in sessions
+            build_session_read(s, self.role, readonly=s.id in readonly_ids)
+            for s in sessions
         ]
         items.extend(
             ChatReadMinimal.model_validate(chat, from_attributes=True)
@@ -2176,7 +2229,7 @@ class AgentSessionService(BaseWorkspaceService):
             raise TracecatNotFoundError(f"Session with ID {session_id} not found")
         # Only the parent's runtime executes a spawned child; a direct turn would
         # target a harness binding it does not own.
-        if agent_session.parent_session_id is not None:
+        if agent_session.spawned_by_session_id is not None:
             raise ValueError(
                 "Subagent sessions are read-only; message the parent session instead"
             )
@@ -3410,7 +3463,7 @@ class AgentSessionService(BaseWorkspaceService):
         source_session_id: uuid.UUID,
         *,
         entity_type: AgentSessionEntity | None = None,
-        parent_session_id: uuid.UUID | None = None,
+        spawned_by_session_id: uuid.UUID | None = None,
     ) -> AgentSession:
         """Create a forked session from a parent session.
 
@@ -3419,7 +3472,7 @@ class AgentSessionService(BaseWorkspaceService):
 
         Args:
             source_session_id: The ID of the session whose history is forked.
-            parent_session_id: Optional session that spawned the forked child.
+            spawned_by_session_id: Optional session that spawned the forked child.
             entity_type: Override entity type for the forked session. If None,
                 inherits from parent. Use APPROVAL for inbox forks to hide
                 from main chat list.
@@ -3430,22 +3483,32 @@ class AgentSessionService(BaseWorkspaceService):
         Raises:
             TracecatNotFoundError: If the parent session is not found.
         """
-        source = await self.get_session(source_session_id)
-        if source is None:
+        history_boundary = (
+            select(func.max(AgentSessionHistory.surrogate_id))
+            .where(AgentSessionHistory.session_id == AgentSession.id)
+            .scalar_subquery()
+        )
+        # Capture identity and history from one database snapshot. Refresh any
+        # source object loaded earlier by the route's authorization checks too.
+        result = await self.session.execute(
+            select(AgentSession, history_boundary)
+            .where(
+                AgentSession.id == source_session_id,
+                AgentSession.workspace_id == self.workspace_id,
+            )
+            .execution_options(populate_existing=True)
+        )
+        captured = result.tuples().one_or_none()
+        if captured is None:
             raise TracecatNotFoundError(
                 f"Source session with ID {source_session_id} not found"
             )
+        source, boundary = captured
         if (
-            parent_session_id is not None
-            and await self.get_session(parent_session_id) is None
+            spawned_by_session_id is not None
+            and await self.get_session(spawned_by_session_id) is None
         ):
             raise TracecatNotFoundError("Parent session not found in this workspace")
-
-        boundary = await self.session.scalar(
-            select(func.max(AgentSessionHistory.surrogate_id)).where(
-                AgentSessionHistory.session_id == source_session_id
-            )
-        )
 
         backend = get_agent_backend(source.backend_id, harness_type=source.harness_type)
 
@@ -3464,7 +3527,8 @@ class AgentSessionService(BaseWorkspaceService):
             backend_id=source.backend_id,
             harness_type=source.harness_type,
             # Fork reference
-            parent_session_id=parent_session_id,
+            spawned_by_session_id=spawned_by_session_id,
+            parent_session_id=source_session_id,  # Dual-write for older app versions.
             forked_from_session_id=source_session_id,
             forked_from_history_id=boundary,
             forked_from_sdk_session_id=source.sdk_session_id,
@@ -3483,7 +3547,7 @@ class AgentSessionService(BaseWorkspaceService):
             "Created forked session",
             forked_session_id=forked_session.id,
             forked_from_session_id=source_session_id,
-            parent_session_id=parent_session_id,
+            spawned_by_session_id=spawned_by_session_id,
         )
 
         return forked_session

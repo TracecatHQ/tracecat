@@ -605,6 +605,9 @@ class AuditService(BaseService):
     async def _get_actor_label(self) -> str | None:
         if self.role is None:
             return None
+        # A scim connection has no name of its own; the connection id is the label.
+        if isinstance(self.role, Role) and self.role.type == "scim":
+            return None
         if isinstance(self.role, Role) and self.role.type == "service_account":
             service_account_id = self.role.service_account_id
             if service_account_id is None:
@@ -658,11 +661,12 @@ class AuditService(BaseService):
             self.role.organization_id if isinstance(self.role, Role) else None
         )
         workspace_id = self.role.workspace_id if isinstance(self.role, Role) else None
-        actor_type = (
-            AuditEventActor.SERVICE_ACCOUNT
-            if isinstance(self.role, Role) and self.role.type == "service_account"
-            else AuditEventActor.USER
-        )
+        actor_type = AuditEventActor.USER
+        if isinstance(self.role, Role):
+            if self.role.type == "service_account":
+                actor_type = AuditEventActor.SERVICE_ACCOUNT
+            elif self.role.type == "scim":
+                actor_type = AuditEventActor.SCIM
         return AuditEvent(
             organization_id=organization_id,
             workspace_id=workspace_id,

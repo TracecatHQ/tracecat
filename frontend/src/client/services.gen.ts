@@ -566,6 +566,8 @@ import type {
   OrganizationSecretsListOrgSecretsResponse,
   OrganizationSecretsUpdateOrgSecretByIdData,
   OrganizationSecretsUpdateOrgSecretByIdResponse,
+  OrganizationTraceOrgMemberAccessData,
+  OrganizationTraceOrgMemberAccessResponse,
   OrganizationUpdateOrgMemberData,
   OrganizationUpdateOrgMemberResponse,
   ProvidersCreateCustomProviderData,
@@ -682,6 +684,51 @@ import type {
   SchedulesSearchSchedulesResponse,
   SchedulesUpdateScheduleData,
   SchedulesUpdateScheduleResponse,
+  ScimActivateScimConnectionData,
+  ScimActivateScimConnectionResponse,
+  ScimApplyScimMappingChangesData,
+  ScimApplyScimMappingChangesResponse,
+  ScimCreateGroupData,
+  ScimCreateGroupResponse,
+  ScimCreateScimMappingData,
+  ScimCreateScimMappingResponse,
+  ScimCreateUserData,
+  ScimCreateUserResponse,
+  ScimDeleteGroupData,
+  ScimDeleteGroupResponse,
+  ScimDeleteScimMappingData,
+  ScimDeleteScimMappingResponse,
+  ScimDeleteUserData,
+  ScimDeleteUserResponse,
+  ScimDisconnectScimResponse,
+  ScimGetGroupData,
+  ScimGetGroupResponse,
+  ScimGetScimConnectionResponse,
+  ScimGetScimDirectorySummaryResponse,
+  ScimGetUserData,
+  ScimGetUserResponse,
+  ScimIssueScimTokenResponse,
+  ScimListExternalGroupsData,
+  ScimListExternalGroupsResponse,
+  ScimListGroupsData,
+  ScimListGroupsResponse,
+  ScimListScimMappingsData,
+  ScimListScimMappingsResponse,
+  ScimListUsersData,
+  ScimListUsersResponse,
+  ScimPatchGroupData,
+  ScimPatchGroupResponse,
+  ScimPatchUserData,
+  ScimPatchUserResponse,
+  ScimReplaceGroupData,
+  ScimReplaceGroupResponse,
+  ScimReplaceUserData,
+  ScimReplaceUserResponse,
+  ScimResourceTypesResponse,
+  ScimReviewScimActivationData,
+  ScimReviewScimActivationResponse,
+  ScimSchemasDocumentResponse,
+  ScimServiceProviderConfigResponse,
   SearchGetEmbeddingConfigurationData,
   SearchGetEmbeddingConfigurationResponse,
   SecretsCheckAwsSecretReferenceData,
@@ -4404,6 +4451,29 @@ export const organizationListOrgMembers =
   }
 
 /**
+ * Trace Org Member Access
+ * Trace a member's roles to their direct and group sources.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns MemberAccessTrace Successful Response
+ * @throws ApiError
+ */
+export const organizationTraceOrgMemberAccess = (
+  data: OrganizationTraceOrgMemberAccessData
+): CancelablePromise<OrganizationTraceOrgMemberAccessResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/members/{user_id}/access",
+    path: {
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Delete Org Member
  * @param data The data for the request.
  * @param data.userId
@@ -4420,6 +4490,7 @@ export const organizationDeleteOrgMember = (
       user_id: data.userId,
     },
     errors: {
+      409: "The member is managed by the identity provider.",
       422: "Validation Error",
     },
   })
@@ -7305,6 +7376,8 @@ export const agentSessionsCreateSession = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      403: "Workspace Chat entitlement or parent session write access required",
+      404: "Parent session not found in this workspace",
       422: "Validation Error",
     },
   })
@@ -7315,7 +7388,7 @@ export const agentSessionsCreateSession = (
  * List agent sessions for the current workspace with optional filtering.
  *
  * Returns root sessions by default, including standalone history forks and
- * legacy chats. Filter by parent_session_id to find spawned children.
+ * legacy chats. Filter by spawned_by_session_id to find spawned children.
  * Legacy chats have is_readonly=True.
  * @param data The data for the request.
  * @param data.workspaceId
@@ -7323,10 +7396,11 @@ export const agentSessionsCreateSession = (
  * @param data.entityId Filter by entity ID
  * @param data.createdBy Filter by session creator. Omit to list the entire workspace.
  * @param data.excludeEntityTypes Entity types to exclude from results
- * @param data.parentSessionId Filter by spawning parent session ID
- * @param data.forkedFromSessionId Filter by history source session ID
+ * @param data.spawnedBySessionId Filter by spawning parent session ID
  * @param data.includeChildren Include spawned children without a parent filter
  * @param data.limit Maximum number of sessions to return
+ * @param data.forkedFromSessionId Filter by history source session ID
+ * @param data.parentSessionId Legacy alias for forked_from_session_id
  * @returns unknown Successful Response
  * @throws ApiError
  */
@@ -7344,12 +7418,14 @@ export const agentSessionsListSessions = (
       entity_id: data.entityId,
       created_by: data.createdBy,
       exclude_entity_types: data.excludeEntityTypes,
-      parent_session_id: data.parentSessionId,
-      forked_from_session_id: data.forkedFromSessionId,
+      spawned_by_session_id: data.spawnedBySessionId,
       include_children: data.includeChildren,
       limit: data.limit,
+      forked_from_session_id: data.forkedFromSessionId,
+      parent_session_id: data.parentSessionId,
     },
     errors: {
+      400: "Conflicting parent_session_id and forked_from_session_id filters",
       422: "Validation Error",
     },
   })
@@ -14132,7 +14208,7 @@ export const rbacDeleteRole = (
  * List Groups
  * List groups for the organization.
  *
- * Requires: org:rbac:read scope
+ * Requires: org:rbac:read or org:scim:manage to select mapping targets.
  * @returns GroupList Successful Response
  * @throws ApiError
  */
@@ -14436,6 +14512,581 @@ export const rbacDeleteAssignment = (
     },
   })
 }
+
+/**
+ * Get Scim Connection
+ * Read the SCIM connection status. Never returns the token.
+ * @returns ScimConnectionRead Successful Response
+ * @throws ApiError
+ */
+export const scimGetScimConnection =
+  (): CancelablePromise<ScimGetScimConnectionResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/connection",
+    })
+  }
+
+/**
+ * Issue Scim Token
+ * Create or rotate the SCIM connection token.
+ *
+ * The raw token is returned only in this response.
+ * @returns ScimConnectionTokenRead Successful Response
+ * @throws ApiError
+ */
+export const scimIssueScimToken =
+  (): CancelablePromise<ScimIssueScimTokenResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/scim/connection",
+    })
+  }
+
+/**
+ * List External Groups
+ * List synced IdP groups available as mapping sources.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_ExternalGroupRead_ Successful Response
+ * @throws ApiError
+ */
+export const scimListExternalGroups = (
+  data: ScimListExternalGroupsData = {}
+): CancelablePromise<ScimListExternalGroupsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/external-groups",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Scim Directory Summary
+ * Count the users and groups the provider has pushed.
+ * @returns ScimDirectorySummaryRead Successful Response
+ * @throws ApiError
+ */
+export const scimGetScimDirectorySummary =
+  (): CancelablePromise<ScimGetScimDirectorySummaryResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/directory/summary",
+    })
+  }
+
+/**
+ * Disconnect Scim
+ * Remove all mappings, revoke the token, and disable the connection.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimDisconnectScim =
+  (): CancelablePromise<ScimDisconnectScimResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/scim/disconnect",
+      errors: {
+        404: "SCIM connection not found.",
+      },
+    })
+  }
+
+/**
+ * Review Scim Activation
+ * Report what the provider pushed and what activating would change.
+ *
+ * A read: the returned plan is not stored, so activation recomputes it.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ScimActivationReviewRead Successful Response
+ * @throws ApiError
+ */
+export const scimReviewScimActivation = (
+  data: ScimReviewScimActivationData
+): CancelablePromise<ScimReviewScimActivationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/activation/review",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      404: "SCIM connection, mapping, or group not found.",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Activate Scim Connection
+ * Admit the pushed directory and install the reviewed mappings.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimActivateScimConnection = (
+  data: ScimActivateScimConnectionData
+): CancelablePromise<ScimActivateScimConnectionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/activation",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      404: "SCIM connection, external group, or group not found.",
+      409: "SCIM connection is not pending activation.",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Scim Mappings
+ * List group mappings with both sides joined in.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_ExternalGroupMappingRead_ Successful Response
+ * @throws ApiError
+ */
+export const scimListScimMappings = (
+  data: ScimListScimMappingsData = {}
+): CancelablePromise<ScimListScimMappingsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/mappings",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Scim Mapping
+ * Map an external group into a Tracecat group and reconcile immediately.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ExternalGroupMappingRead Successful Response
+ * @throws ApiError
+ */
+export const scimCreateScimMapping = (
+  data: ScimCreateScimMappingData
+): CancelablePromise<ScimCreateScimMappingResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/mappings",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Apply Scim Mapping Changes
+ * Remove and add mappings together; any failure applies none of them.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimApplyScimMappingChanges = (
+  data: ScimApplyScimMappingChangesData
+): CancelablePromise<ScimApplyScimMappingChangesResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/mappings/batch",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      404: "Mapping, external group, or group not found.",
+      409: "SCIM connection is not active.",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Scim Mapping
+ * Remove a mapping and revoke the membership only it supplied.
+ * @param data The data for the request.
+ * @param data.mappingId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimDeleteScimMapping = (
+  data: ScimDeleteScimMappingData
+): CancelablePromise<ScimDeleteScimMappingResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/scim/mappings/{mapping_id}",
+    path: {
+      mapping_id: data.mappingId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Users
+ * List provisioned users, optionally filtered by ``userName``.
+ *
+ * The filter matches case-insensitively: Okta queries with whatever casing
+ * the directory holds, and a case-sensitive match would make it create a
+ * duplicate.
+ * @param data The data for the request.
+ * @param data.filter
+ * @param data.startIndex
+ * @param data.count
+ * @returns ScimListResponse Successful Response
+ * @throws ApiError
+ */
+export const scimListUsers = (
+  data: ScimListUsersData = {}
+): CancelablePromise<ScimListUsersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/v2/Users",
+    query: {
+      filter: data.filter,
+      startIndex: data.startIndex,
+      count: data.count,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create User
+ * Provision a user, linking an existing account rather than conflicting.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ScimUserResource Successful Response
+ * @throws ApiError
+ */
+export const scimCreateUser = (
+  data: ScimCreateUserData
+): CancelablePromise<ScimCreateUserResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/v2/Users",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get User
+ * Read one provisioned user.
+ * @param data The data for the request.
+ * @param data.resourceId
+ * @returns ScimUserResource Successful Response
+ * @throws ApiError
+ */
+export const scimGetUser = (
+  data: ScimGetUserData
+): CancelablePromise<ScimGetUserResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/v2/Users/{resource_id}",
+    path: {
+      resource_id: data.resourceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Replace User
+ * Replace the login, provider identifier, and active state of a user.
+ * @param data The data for the request.
+ * @param data.resourceId
+ * @param data.requestBody
+ * @returns ScimUserResource Successful Response
+ * @throws ApiError
+ */
+export const scimReplaceUser = (
+  data: ScimReplaceUserData
+): CancelablePromise<ScimReplaceUserResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/scim/v2/Users/{resource_id}",
+    path: {
+      resource_id: data.resourceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Patch User
+ * Apply a PatchOp to the login, the provider identifier, or ``active``.
+ * @param data The data for the request.
+ * @param data.resourceId
+ * @param data.requestBody
+ * @returns ScimUserResource Successful Response
+ * @throws ApiError
+ */
+export const scimPatchUser = (
+  data: ScimPatchUserData
+): CancelablePromise<ScimPatchUserResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/scim/v2/Users/{resource_id}",
+    path: {
+      resource_id: data.resourceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete User
+ * Deprovision a user. Already-removed is success, not an error.
+ *
+ * Known identities remain addressable and inactive. Unknown resource IDs
+ * return the same idempotent success without changing another tenant.
+ * @param data The data for the request.
+ * @param data.resourceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimDeleteUser = (
+  data: ScimDeleteUserData
+): CancelablePromise<ScimDeleteUserResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/scim/v2/Users/{resource_id}",
+    path: {
+      resource_id: data.resourceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Groups
+ * List synced external groups.
+ * @param data The data for the request.
+ * @param data.filter
+ * @param data.startIndex
+ * @param data.count
+ * @returns ScimListResponse Successful Response
+ * @throws ApiError
+ */
+export const scimListGroups = (
+  data: ScimListGroupsData = {}
+): CancelablePromise<ScimListGroupsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/v2/Groups",
+    query: {
+      filter: data.filter,
+      startIndex: data.startIndex,
+      count: data.count,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Group
+ * Create or rename a synced external group and set its members.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ScimGroupResource Successful Response
+ * @throws ApiError
+ */
+export const scimCreateGroup = (
+  data: ScimCreateGroupData
+): CancelablePromise<ScimCreateGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/v2/Groups",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Group
+ * Read one synced external group.
+ * @param data The data for the request.
+ * @param data.groupId
+ * @returns ScimGroupResource Successful Response
+ * @throws ApiError
+ */
+export const scimGetGroup = (
+  data: ScimGetGroupData
+): CancelablePromise<ScimGetGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/v2/Groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Replace Group
+ * Replace a group's name and its complete member list.
+ * @param data The data for the request.
+ * @param data.groupId
+ * @param data.requestBody
+ * @returns ScimGroupResource Successful Response
+ * @throws ApiError
+ */
+export const scimReplaceGroup = (
+  data: ScimReplaceGroupData
+): CancelablePromise<ScimReplaceGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/scim/v2/Groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Patch Group
+ * Add or remove members, or rename the group.
+ *
+ * The projection reconciles against a complete member list, so each operation
+ * is folded into the current set and the result replaces it wholesale.
+ * @param data The data for the request.
+ * @param data.groupId
+ * @param data.requestBody
+ * @returns ScimGroupResource Successful Response
+ * @throws ApiError
+ */
+export const scimPatchGroup = (
+  data: ScimPatchGroupData
+): CancelablePromise<ScimPatchGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/scim/v2/Groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Group
+ * Delete a synced group and drop the membership it supplied.
+ * @param data The data for the request.
+ * @param data.groupId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimDeleteGroup = (
+  data: ScimDeleteGroupData
+): CancelablePromise<ScimDeleteGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/scim/v2/Groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Service Provider Config
+ * Advertise the subset of the specification this surface implements.
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const scimServiceProviderConfig =
+  (): CancelablePromise<ScimServiceProviderConfigResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/v2/ServiceProviderConfig",
+    })
+  }
+
+/**
+ * Resource Types
+ * List the resource types this surface serves.
+ * @returns ScimListResponse Successful Response
+ * @throws ApiError
+ */
+export const scimResourceTypes =
+  (): CancelablePromise<ScimResourceTypesResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/v2/ResourceTypes",
+    })
+  }
+
+/**
+ * Schemas Document
+ * List the resource schemas this surface understands.
+ * @returns ScimListResponse Successful Response
+ * @throws ApiError
+ */
+export const scimSchemasDocument =
+  (): CancelablePromise<ScimSchemasDocumentResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/v2/Schemas",
+    })
+  }
 
 /**
  * Users:Current User

@@ -246,11 +246,11 @@ async def test_root_resolution_rejects_session_lineage_cycle(
         title="Second cyclic session",
         entity_type="approval",
         entity_id=uuid.uuid4(),
-        parent_session_id=first_session.id,
+        spawned_by_session_id=first_session.id,
     )
     session.add(second_session)
     await session.commit()
-    first_session.parent_session_id = second_session.id
+    first_session.spawned_by_session_id = second_session.id
     await session.commit()
     service = CaseAgentSessionInteractionService(session, svc_role)
 

@@ -151,7 +151,7 @@ describe("ChatSessionPane optimistic first send", () => {
         title: "Child",
         created_by: "user-1",
         is_readonly: true,
-        parent_session_id: "parent-session",
+        spawned_by_session_id: "parent-session",
         entity_type: "agent_preset",
         entity_id: "preset-1",
         channel_context: null,

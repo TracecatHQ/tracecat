@@ -100,6 +100,11 @@ POST_RLS_ORG_SCOPED_TABLES = (
     "mcp_refresh_token",
     "agent_custom_provider",
     "organization_secret_store",
+    "external_user",
+    "external_group",
+    "external_group_mapping",
+    "external_group_member",
+    "scim_connection",
 )
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (

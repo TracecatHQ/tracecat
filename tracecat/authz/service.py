@@ -21,7 +21,6 @@ from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
     Group,
-    GroupMember,
     GroupRoleAssignment,
     Membership,
     OrganizationMembership,
@@ -30,7 +29,8 @@ from tracecat.db.models import (
     User,
     UserRoleAssignment,
     Workspace,
-    role_paths,
+    _role_paths,
+    effective_group_members,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
@@ -88,15 +88,18 @@ async def query_effective_scopes(
         )
     )
 
-    # Group role assignments → GroupMember → GroupRoleAssignment → Role → RoleScope → Scope
+    # Manual and IdP members inherit the same group role scopes.
     group_scopes = (
         select(Scope.name)
         .join(RoleScope, RoleScope.scope_id == Scope.id)
         .join(DBRole, DBRole.id == RoleScope.role_id)
         .join(GroupRoleAssignment, GroupRoleAssignment.role_id == DBRole.id)
-        .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
+        .join(
+            effective_group_members,
+            effective_group_members.c.group_id == GroupRoleAssignment.group_id,
+        )
         .where(
-            GroupMember.user_id == user_id,
+            effective_group_members.c.user_id == user_id,
             GroupRoleAssignment.organization_id == organization_id,
             group_workspace_condition,
         )
@@ -139,7 +142,7 @@ async def workspace_membership_exists(
 ) -> bool:
     """Check whether a user holds any role path into a workspace.
 
-    Reads the role-path union directly, so arms added to ``role_paths`` are
+    Reads the role-path union directly, so arms added to ``_role_paths`` are
     covered without changing this helper.
 
     Args:
@@ -153,10 +156,10 @@ async def workspace_membership_exists(
     stmt = select(
         exists(
             select(1)
-            .select_from(role_paths)
+            .select_from(_role_paths)
             .where(
-                role_paths.c.user_id == user_id,
-                role_paths.c.workspace_id == workspace_id,
+                _role_paths.c.user_id == user_id,
+                _role_paths.c.workspace_id == workspace_id,
             )
         )
     )
@@ -258,14 +261,14 @@ class MembershipService(BaseService):
                 literal(0).label("via_group"),
             ).where(UserRoleAssignment.workspace_id == workspace_id),
             select(
-                GroupMember.user_id,
+                effective_group_members.c.user_id,
                 GroupRoleAssignment.role_id,
                 literal(1).label("via_group"),
             )
             .join_from(
                 GroupRoleAssignment,
-                GroupMember,
-                GroupMember.group_id == GroupRoleAssignment.group_id,
+                effective_group_members,
+                effective_group_members.c.group_id == GroupRoleAssignment.group_id,
             )
             .where(GroupRoleAssignment.workspace_id == workspace_id),
         ).subquery("paths")
@@ -384,13 +387,17 @@ class MembershipService(BaseService):
         group_name = (
             await self.session.execute(
                 select(Group.name)
-                .join(GroupMember, GroupMember.group_id == Group.id)
+                .join(
+                    effective_group_members,
+                    effective_group_members.c.group_id == Group.id,
+                )
                 .join(
                     GroupRoleAssignment,
                     GroupRoleAssignment.group_id == Group.id,
                 )
                 .where(
-                    GroupMember.user_id == user_id,
+                    effective_group_members.c.user_id == user_id,
+                    Group.organization_id == organization_id,
                     GroupRoleAssignment.workspace_id == workspace_id,
                 )
                 .limit(1)

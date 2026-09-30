@@ -38,6 +38,7 @@ from tracecat.agent.error_policy import (
     agent_llm_budget_exceeded,
     agent_llm_gateway_auth_failed,
     agent_llm_provider_auth_failed,
+    agent_llm_provider_rejected_request,
     agent_llm_rate_limited,
     agent_llm_read_timeout,
     invalid_agent_configuration,
@@ -49,6 +50,11 @@ from tracecat.agent.gateway_providers import (
 )
 from tracecat.agent.observability import get_load_tracker
 from tracecat.agent.sandbox.shim_entrypoint import HTTPRequestError, read_http_request
+from tracecat.agent.sandbox.tool_use_rewrite import (
+    MESSAGES_PATH,
+    ToolUseStreamRewriter,
+    sanitize_messages_response_body,
+)
 from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
@@ -69,6 +75,7 @@ from tracecat.runtime.errors import RuntimeErrorClassification
 # to avoid producing ``/v1/v1/messages``, which the upstream rejects with
 # a 404 "model not found".
 _PASSTHROUGH_VERSION_SUFFIX_RE = re.compile(r"/v\d+/?$")
+_SAFE_ERROR_TOKEN_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
 
 # Socket filename (created in job's socket directory)
 LLM_SOCKET_NAME = "llm.sock"
@@ -234,11 +241,18 @@ def _error_object_strings(body: bytes) -> tuple[str | None, str | None]:
     )
 
 
+def _safe_error_token(value: str | None) -> str | None:
+    if value is not None and _SAFE_ERROR_TOKEN_RE.fullmatch(value):
+        return value
+    return None
+
+
 def _http_error_classification(
     status_code: int,
     *,
     route_is_direct: bool,
     body: bytes = b"",
+    model: str | None = None,
 ) -> RuntimeErrorClassification:
     # Only machine-readable fields participate in classification. Never infer
     # budget or auth origin from provider messages (which can contain secrets).
@@ -263,12 +277,23 @@ def _http_error_classification(
     if status_code == 429:
         return agent_llm_rate_limited(route_is_direct=route_is_direct)
     if route_is_direct:
-        return user_agent_execution_failed(retryable=status_code in {408, 504})
+        return agent_llm_provider_rejected_request(
+            status_code=status_code,
+            model=model,
+            error_type=_safe_error_token(error_type),
+            error_code=_safe_error_token(error_code),
+            retryable=status_code in {408, 504},
+        )
     if status_code in {408, 504}:
         return agent_executor_timed_out()
     if status_code >= 500:
         return agent_executor_unavailable()
-    return user_agent_execution_failed()
+    return agent_llm_provider_rejected_request(
+        status_code=status_code,
+        model=model,
+        error_type=_safe_error_token(error_type),
+        error_code=_safe_error_token(error_code),
+    )
 
 
 def _transport_error_classification(
@@ -711,6 +736,37 @@ def _normalize_direct_route(route: LLMRoute) -> LLMRoute:
         authorization=route.authorization,
         local_provider_cleanup=route.local_provider_cleanup,
     )
+
+
+async def _rewrite_json_body(
+    chunks: AsyncIterable[bytes],
+) -> AsyncIterable[bytes]:
+    """Buffer a JSON response up to ``MAX_BODY_SIZE`` and rewrite it.
+
+    Larger bodies are passed through untouched: everything buffered so far is
+    flushed and the remaining chunks stream as they arrive.
+    """
+    body = bytearray()
+    iterator = aiter(chunks)
+    async for chunk in iterator:
+        body.extend(chunk)
+        if len(body) > MAX_BODY_SIZE:
+            yield bytes(body)
+            async for rest in iterator:
+                yield rest
+            return
+    yield sanitize_messages_response_body(bytes(body))
+
+
+async def _rewrite_sse_stream(
+    chunks: AsyncIterable[bytes],
+) -> AsyncIterable[bytes]:
+    rewriter = ToolUseStreamRewriter()
+    async for chunk in chunks:
+        if out := rewriter.feed(chunk):
+            yield out
+    if out := rewriter.flush():
+        yield out
 
 
 def _load_fields() -> dict[str, int]:
@@ -1179,6 +1235,12 @@ class LLMSocketProxy:
                         response.status_code,
                         route_is_direct=route.is_direct,
                         body=error_body,
+                        model=(
+                            request_model
+                            if isinstance(request_model, str)
+                            and len(request_model) <= 128
+                            else None
+                        ),
                     )
                     # Error bodies may echo credentials, budgets or request data.
                     # Keep durable failure text source-owned and privacy-safe.
@@ -1197,14 +1259,17 @@ class LLMSocketProxy:
                             ),
                         )
                     body_chunks = [error_body]
+                    response_headers = dict(response.headers)
                 else:
-                    body_chunks = response.aiter_bytes()
+                    body_chunks, response_headers = await self._rewrite_tool_use(
+                        response, method=method, path=path
+                    )
 
                 await self._write_response(
                     writer,
                     status_code=response.status_code,
                     reason_phrase=response.reason_phrase,
-                    headers=dict(response.headers),
+                    headers=response_headers,
                     body_chunks=body_chunks,
                     trace_request_id=trace_request_id,
                     started_at=started_at,
@@ -1258,6 +1323,40 @@ class LLMSocketProxy:
                         route="direct" if route.is_direct else "managed"
                     ),
                 )
+
+    async def _rewrite_tool_use(
+        self,
+        response: httpx.Response,
+        *,
+        method: str,
+        path: str,
+    ) -> tuple[AsyncIterable[bytes] | list[bytes], dict[str, str]]:
+        """Return body chunks and headers with tool_use inputs normalized.
+
+        Only successful ``POST /v1/messages`` responses are inspected. Streaming
+        responses are rewritten frame-by-frame. JSON responses are buffered
+        before the rewrite, so their ``Content-Length`` is dropped; each socket
+        connection carries one response and is closed afterwards, which
+        delimits the body.
+        """
+        headers = dict(response.headers)
+        if (
+            method != "POST"
+            or path.split("?", 1)[0] != MESSAGES_PATH
+            or response.status_code >= 300
+        ):
+            return response.aiter_bytes(), headers
+        content_type = response.headers.get("content-type", "").lower()
+        if "text/event-stream" in content_type:
+            return _rewrite_sse_stream(response.aiter_bytes()), headers
+        if "application/json" not in content_type:
+            return response.aiter_bytes(), headers
+        headers = {
+            key: value
+            for key, value in headers.items()
+            if key.lower() not in ("content-length", "content-encoding")
+        }
+        return _rewrite_json_body(response.aiter_bytes()), headers
 
     async def _write_response(
         self,

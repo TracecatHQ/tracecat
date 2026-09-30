@@ -57,10 +57,11 @@ async def test_fresh_child_has_only_spawning_parent() -> None:
                 title="Child",
                 entity_type=AgentSessionEntity.WORKSPACE_CHAT,
                 entity_id=role.workspace_id,
-                parent_session_id=parent_id,
+                spawned_by_session_id=parent_id,
             )
         )
-    assert child.parent_session_id == parent_id
+    assert child.spawned_by_session_id == parent_id
+    assert child.parent_session_id is None
     assert child.forked_from_session_id is None
     assert child.sdk_session_id is None
     db.commit.assert_awaited_once()
@@ -76,7 +77,7 @@ async def test_child_rejects_parent_outside_authorized_workspace() -> None:
                 AgentSessionCreate(
                     entity_type=AgentSessionEntity.WORKSPACE_CHAT,
                     entity_id=role.workspace_id,
-                    parent_session_id=uuid.uuid4(),
+                    spawned_by_session_id=uuid.uuid4(),
                 )
             )
     db.add.assert_not_called()
@@ -118,10 +119,23 @@ async def test_fork_creation_rejects_reference_outside_authorized_workspace(
         backend_id="oss",
         harness_type="claude_code",
     )
-    references = [None] if missing_reference == "source" else [source, None]
-    with patch.object(service, "get_session", AsyncMock(side_effect=references)):
+    result = Mock()
+    result.tuples.return_value.one_or_none.return_value = (
+        None if missing_reference == "source" else (source, None)
+    )
+    db.execute.return_value = result
+    parent_id = uuid.uuid4()
+    with patch.object(
+        service, "get_session", AsyncMock(return_value=None)
+    ) as get_session:
         with pytest.raises(TracecatNotFoundError):
-            await service.fork_session(source_id, parent_session_id=uuid.uuid4())
+            await service.fork_session(source_id, spawned_by_session_id=parent_id)
+    db.execute.assert_awaited_once()
+    result.tuples.return_value.one_or_none.assert_called_once()
+    if missing_reference == "source":
+        get_session.assert_not_awaited()
+    else:
+        get_session.assert_awaited_once_with(parent_id)
     db.add.assert_not_called()
     db.commit.assert_not_awaited()
 
@@ -188,10 +202,13 @@ async def test_fork_captures_source_and_optional_spawning_parent(
         sdk_session_id="source-sdk-id",
     )
     parent_id = uuid.uuid4() if spawned else None
-    db.scalar.return_value = 42
+    result = Mock()
+    result.tuples.return_value.one_or_none.return_value = (source, 42)
+    db.execute.return_value = result
     with patch.object(service, "get_session", AsyncMock(return_value=source)):
-        fork = await service.fork_session(source_id, parent_session_id=parent_id)
-    assert fork.parent_session_id == parent_id
+        fork = await service.fork_session(source_id, spawned_by_session_id=parent_id)
+    assert fork.spawned_by_session_id == parent_id
+    assert fork.parent_session_id == source_id
     assert fork.forked_from_session_id == source_id
     assert fork.forked_from_history_id == 42
     assert fork.forked_from_sdk_session_id == "source-sdk-id"
@@ -235,18 +252,14 @@ def test_legacy_forks_migrate_to_captured_history_ancestry() -> None:
                 ('source', 2, '2026-01-05')
         """)
         conn.execute(text(migration.BACKFILL_SQL))
-        conn.exec_driver_sql(
-            "UPDATE agent_session SET parent_session_id = NULL "
-            "WHERE parent_session_id IS NOT NULL"
-        )
         rows = conn.exec_driver_sql("""
             SELECT id, parent_session_id, forked_from_session_id,
                    forked_from_history_id, forked_from_sdk_session_id
             FROM agent_session ORDER BY id
         """).all()
     assert rows == [
-        ("legacy-fork", None, "source", 1, "sdk"),
-        ("other-workspace", None, None, None, None),
+        ("legacy-fork", "source", "source", 1, "sdk"),
+        ("other-workspace", "source", None, None, None),
         ("source", None, None, None, None),
     ]
 
@@ -294,7 +307,9 @@ async def test_child_sessions_reject_direct_turns(
 ) -> None:
     service, db, role = _service()
     # An owned run would otherwise admit an approval continuation.
-    child = _session_row(role, parent_session_id=uuid.uuid4(), curr_run_id=uuid.uuid4())
+    child = _session_row(
+        role, spawned_by_session_id=uuid.uuid4(), curr_run_id=uuid.uuid4()
+    )
     with (
         patch.object(service, "get_session", AsyncMock(return_value=child)),
         patch("tracecat.agent.session.service.get_agent_backend") as resolve,
@@ -309,7 +324,7 @@ async def test_child_sessions_reject_direct_turns(
 @pytest.mark.anyio
 async def test_child_sessions_reject_caller_owned_turns() -> None:
     service, db, role = _service()
-    child = _session_row(role, parent_session_id=uuid.uuid4())
+    child = _session_row(role, spawned_by_session_id=uuid.uuid4())
     with patch.object(service, "get_session", AsyncMock(return_value=child)):
         with pytest.raises(ValueError, match=CHILD_TURN_REJECTION):
             await service.prepare_new_turn(child.id, "Hi")
@@ -320,7 +335,7 @@ async def test_child_sessions_reject_caller_owned_turns() -> None:
 @pytest.mark.anyio
 async def test_send_message_to_child_session_is_bad_request() -> None:
     service, db, role = _service()
-    child = _session_row(role, parent_session_id=uuid.uuid4())
+    child = _session_row(role, spawned_by_session_id=uuid.uuid4())
 
     class _Context:
         async def __aenter__(self) -> AgentSessionService:
@@ -358,7 +373,7 @@ async def test_send_message_to_child_session_is_bad_request() -> None:
 async def test_child_session_messages_remain_readable() -> None:
     _, db, role = _service()
     parent = _session_row(role)
-    child = _session_row(role, parent_session_id=parent.id)
+    child = _session_row(role, spawned_by_session_id=parent.id)
     sessions = {parent.id: parent, child.id: child}
     entry = SimpleNamespace(
         id=uuid.uuid4(),
@@ -394,6 +409,6 @@ async def test_child_session_messages_remain_readable() -> None:
         )
 
     payload = response.model_dump(mode="json")
-    assert payload["parent_session_id"] == str(parent.id)
+    assert payload["spawned_by_session_id"] == str(parent.id)
     assert [message["role"] for message in payload["messages"]] == ["user"]
     assert "Summarize the alerts" in str(payload["messages"])

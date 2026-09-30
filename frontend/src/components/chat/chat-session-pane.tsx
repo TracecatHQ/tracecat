@@ -373,13 +373,13 @@ export function ChatSessionPane({
     enabled: toolsEnabled && sessionMcpEnabled,
   })
 
-  // Read-only sessions retain their transcript without a composer.
+  // Read-only state includes ownership, backend availability, and entitlements.
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
   let readonlyDescription =
     chat && "user_id" in chat
       ? "This legacy conversation is read-only."
-      : "This conversation belongs to a teammate."
-  if (chat && "parent_session_id" in chat && chat.parent_session_id) {
+      : "This conversation is read-only."
+  if (chat && "spawned_by_session_id" in chat && chat.spawned_by_session_id) {
     readonlyDescription =
       "This subagent conversation is read-only. Message the parent conversation instead."
   }
