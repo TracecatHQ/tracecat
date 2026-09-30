@@ -1918,9 +1918,11 @@ class ClaudeAgentRuntime:
                                 first_stream_event_logged = True
                                 log_benchmark_phase("runtime_first_stream_event")
 
-                            # Partial streaming delta - forward to UI
-                            unified = self._stream_adapter.to_unified_event(message)
-                            await self._event_writer.send_stream_event(unified)
+                            # Partial streaming delta - forward to UI.
+                            # ping events are upstream keep-alives with no content
+                            if message.event.get("type") != "ping":
+                                unified = self._stream_adapter.to_unified_event(message)
+                                await self._event_writer.send_stream_event(unified)
                             self._session_flush_event.set()
 
                         elif isinstance(message, ResultMessage):

@@ -397,6 +397,44 @@ class TestClaudeAgentRuntimeRun:
         mock_socket_writer.send_stream_event.assert_awaited()
 
     @pytest.mark.anyio
+    async def test_ping_stream_event_is_filtered(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Keep-alive ping events are dropped before adapter conversion."""
+
+        async def mock_receive() -> Any:
+            yield StreamEvent(
+                uuid="ping-event-uuid",
+                session_id="test-sdk-session",
+                event={"type": "ping"},
+            )
+
+        mock_claude_sdk_client.receive_response = mock_receive
+
+        mock_adapter = MagicMock()
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_claude_sdk_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
+                return_value=mock_adapter,
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(sample_init_payload)
+
+        mock_adapter.to_unified_event.assert_not_called()
+        mock_socket_writer.send_stream_event.assert_not_awaited()
+
+    @pytest.mark.anyio
     async def test_stream_events_flush_new_session_lines(
         self,
         mock_socket_writer: MagicMock,
