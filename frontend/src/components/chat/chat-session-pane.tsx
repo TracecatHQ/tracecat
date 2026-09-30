@@ -1728,17 +1728,9 @@ export function MessagePart({
     // Derive an error state for streaming when servers send
     // a tool output that encodes validation feedback in `output`
     // rather than `errorText`.
-    const outputAsAny = part.output as unknown
     const partErrorText =
-      typeof part === "object" && part !== null && "errorText" in part
-        ? (part as { errorText?: string }).errorText
-        : undefined
-    const outputErrorText =
-      outputAsAny &&
-      typeof outputAsAny === "object" &&
-      "errorText" in outputAsAny
-        ? (outputAsAny as { errorText?: string }).errorText
-        : undefined
+      part.state === "output-error" ? part.errorText : undefined
+    const outputErrorText = asInputRecord(part.output)?.errorText
     const derivedErrorText = partErrorText ?? outputErrorText
     // In a turn the user stopped, tool calls that never completed (still
     // pending) or that only "failed" because the SDK aborted them are
@@ -1792,7 +1784,14 @@ export function MessagePart({
               Stopped before completion
             </div>
           ) : (
-            <ToolOutput output={part.output} errorText={derivedErrorText} />
+            <ToolOutput
+              output={part.output}
+              errorText={
+                typeof derivedErrorText === "string"
+                  ? derivedErrorText
+                  : undefined
+              }
+            />
           )}
         </ToolContent>
       </Tool>

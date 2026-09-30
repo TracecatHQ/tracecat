@@ -35,8 +35,20 @@ jest.mock("@/components/ai-elements/tool", () => ({
     </div>
   ),
   ToolInput: () => null,
-  ToolOutput: ({ errorText }: { errorText?: string }) =>
-    errorText ? <div>{errorText}</div> : null,
+  ToolOutput: ({
+    errorText,
+    output,
+  }: {
+    errorText?: string
+    output?: unknown
+  }) => (
+    <>
+      {errorText ? <div>{errorText}</div> : null}
+      {output !== undefined ? (
+        <pre data-testid="tool-output">{JSON.stringify(output)}</pre>
+      ) : null}
+    </>
+  ),
 }))
 
 jest.mock("@/components/icons", () => ({
@@ -150,6 +162,24 @@ describe("subagent tool part", () => {
       expect(screen.getByText("Subagent failed")).toBeInTheDocument()
     }
   )
+
+  it("keeps structured generic tool errors in the output renderer", () => {
+    renderPart(
+      subagentPart({
+        type: "tool-example",
+        toolCallId: "call_example",
+        state: "output-available",
+        input: {},
+        output: { errorText: { reason: "Request failed" } },
+      }),
+      (node) => node
+    )
+
+    expect(screen.getByTestId("tool-state")).toHaveTextContent("output-error")
+    expect(screen.getByTestId("tool-output")).toHaveTextContent(
+      "Request failed"
+    )
+  })
 
   it("renders the live child transcript while the output is preliminary", async () => {
     const store = new SubagentStreamStore()
