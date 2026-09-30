@@ -574,6 +574,9 @@ async def test_default_backend_releases_terminal_turn_and_dispatches():
     [
         (WorkflowExecutionStatus.COMPLETED, True),
         (WorkflowExecutionStatus.CANCELED, True),
+        (WorkflowExecutionStatus.FAILED, True),
+        (WorkflowExecutionStatus.TERMINATED, True),
+        (WorkflowExecutionStatus.TIMED_OUT, True),
         (WorkflowExecutionStatus.RUNNING, False),
     ],
 )
