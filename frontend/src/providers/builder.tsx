@@ -126,6 +126,12 @@ interface ReactFlowContextType {
   actionDrafts: Record<string, unknown>
   setActionDraft: (actionId: string, draft: unknown) => void
   clearActionDraft: (actionId: string) => void
+  /**
+   * Canvas-wide override for `run_if` badges: `true` shows every condition,
+   * `false` collapses them, `null` follows the org compact-conditions setting.
+   */
+  showAllConditions: boolean | null
+  setShowAllConditions: React.Dispatch<SetStateAction<boolean | null>>
 }
 
 const ReactFlowInteractionsContext = createContext<
@@ -165,6 +171,9 @@ export const WorkflowBuilderProvider: React.FC<
   // This lets the action panel restore unsaved edits when the user
   // switches between nodes without touching the backend.
   const [actionDrafts, setActionDrafts] = useState<Record<string, unknown>>({})
+  const [showAllConditions, setShowAllConditions] = useState<boolean | null>(
+    null
+  )
   const canvasRef = useRef<WorkflowCanvasRef>(null)
   const sidebarRef = useRef<EventsSidebarRef>(null)
   const actionPanelRef = useRef<ActionPanelRef>(null)
@@ -443,6 +452,8 @@ export const WorkflowBuilderProvider: React.FC<
       actionDrafts,
       setActionDraft,
       clearActionDraft,
+      showAllConditions,
+      setShowAllConditions,
     }),
     [
       workflowId,
@@ -471,6 +482,7 @@ export const WorkflowBuilderProvider: React.FC<
       actionDrafts,
       setActionDraft,
       clearActionDraft,
+      showAllConditions,
     ]
   )
 

@@ -394,6 +394,7 @@ export default React.memo(function ActionNode({
             <ActionTargetHandle
               action={action}
               indegree={incomingEdges.length}
+              showFullCondition={selected || isMouseOverNode}
             />
             <ActionSoruceSuccessHandle type="source" />
             <ActionSourceErrorHandle type="source" />

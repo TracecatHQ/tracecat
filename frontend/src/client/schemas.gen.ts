@@ -5122,6 +5122,11 @@ export const $AppSettingsRead = {
       type: "boolean",
       title: "App Action Form Mode Enabled",
     },
+    app_workflow_compact_conditions_enabled: {
+      type: "boolean",
+      title: "App Workflow Compact Conditions Enabled",
+      default: true,
+    },
     app_unsafe_disable_secret_error_withholding_workspace_ids: {
       items: {
         type: "string",
@@ -5183,6 +5188,13 @@ export const $AppSettingsUpdate = {
       title: "App Action Form Mode Enabled",
       description:
         "Whether to enable form mode for action inputs. When disabled, only YAML mode is available, preserving raw YAML formatting.",
+      default: true,
+    },
+    app_workflow_compact_conditions_enabled: {
+      type: "boolean",
+      title: "App Workflow Compact Conditions Enabled",
+      description:
+        "Whether the workflow canvas shows run_if conditions as a compact icon that expands to the full expression on hover or selection.",
       default: true,
     },
     app_unsafe_disable_secret_error_withholding_workspace_ids: {
@@ -16229,6 +16241,7 @@ export const $GraphOperationType = {
     "move_nodes",
     "update_trigger_position",
     "update_viewport",
+    "auto_layout",
   ],
   title: "GraphOperationType",
   description: "Graph operation types.",

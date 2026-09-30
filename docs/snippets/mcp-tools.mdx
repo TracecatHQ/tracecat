@@ -20,6 +20,14 @@
   Use this instead of `get_workflow` when you only need to know which actions exist, their order, their `depends_on` wiring, or the current array index of a ref for `edit_workflow`. It returns one small row per action and no `args`, so it stays cheap on large workflows. Follow up with `get_workflow_action` to read one action in full, or `get_workflow` when you need the whole `draft_document`.
 </ResponseField>
 
+<ResponseField name="get_workflow_graph" type="tool">
+  Get a draft workflow's control flow as a compact Mermaid flowchart.
+
+  Call this before adding or editing any `run_if`, `depends_on`, or `join_strategy`. Each node shows the action ref, action type, `for_each`, `join: any`, and its `run_if`; error-path edges are dotted. No `args` are returned.
+
+  Use `gated_by` to see which upstream conditions already guard an action: a skipped ancestor skips everything below it on the success path, so do not restate those conditions in a downstream `run_if`. `join: any` means any: it runs once one parent succeeds, even if another parent was skipped, so its `gated_by` keeps only conditions on every path into it.
+</ResponseField>
+
 <ResponseField name="get_workflow_action" type="tool">
   Get one action from a draft workflow by its `ref`.
 

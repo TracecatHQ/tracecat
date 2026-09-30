@@ -48,7 +48,8 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
 from tracecat.db.models import Schedule, Workflow
-from tracecat.dsl.schemas import ROOT_STREAM, StreamID
+from tracecat.dsl.enums import JoinStrategy
+from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, StreamID
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
@@ -91,6 +92,7 @@ try:
 finally:
     mcp_auth.create_mcp_auth = _original_create_mcp_auth
 
+from tracecat.mcp.workflow_graph import build_workflow_graph  # noqa: E402
 from tracecat.workflow.management import draft  # noqa: E402
 
 
@@ -606,6 +608,237 @@ def test_auto_generate_layout_handles_cycles():
     assert len(layout["actions"]) == 3
 
 
+def _layout_by_ref(
+    actions: list[layout_module.WorkflowActionLayoutInput],
+) -> dict[str, tuple[float, float]]:
+    layout = layout_module.auto_generate_layout(actions)
+    return {item["ref"]: (item["x"], item["y"]) for item in layout["actions"]}
+
+
+def test_auto_generate_layout_keeps_linear_chain_vertical():
+    positions = _layout_by_ref(
+        [
+            {"ref": "fetch", "depends_on": []},
+            {"ref": "enrich", "depends_on": ["fetch"]},
+            {"ref": "notify", "depends_on": ["enrich"]},
+        ]
+    )
+
+    assert {x for x, _ in positions.values()} == {0.0}
+    assert [positions[ref][1] for ref in ("fetch", "enrich", "notify")] == [
+        300.0,
+        600.0,
+        900.0,
+    ]
+
+
+def test_auto_generate_layout_centers_fan_out_and_join():
+    positions = _layout_by_ref(
+        [
+            {"ref": "lookup", "depends_on": []},
+            {"ref": "found", "depends_on": ["lookup"]},
+            {"ref": "missing", "depends_on": ["lookup"]},
+            {"ref": "close", "depends_on": ["found", "missing"]},
+        ]
+    )
+
+    left, right = sorted(positions[ref][0] for ref in ("found", "missing"))
+    assert right - left >= layout_module.NODE_WIDTH
+    assert positions["lookup"][0] == pytest.approx((left + right) / 2, abs=1)
+    assert positions["close"][0] == pytest.approx(positions["lookup"][0], abs=1)
+    assert positions["close"][1] > positions["found"][1]
+
+
+def test_auto_generate_layout_keeps_branches_local_without_crossings():
+    positions = _layout_by_ref(
+        [
+            {"ref": "root", "depends_on": []},
+            {"ref": "a", "depends_on": ["root"]},
+            {"ref": "z", "depends_on": ["root"]},
+            {"ref": "a_next", "depends_on": ["a"]},
+            {"ref": "z_next", "depends_on": ["z"]},
+        ]
+    )
+
+    assert positions["a_next"][0] == positions["a"][0]
+    assert positions["z_next"][0] == positions["z"][0]
+
+
+def test_auto_generate_layout_places_error_path_below_source():
+    positions = _layout_by_ref(
+        [
+            {"ref": "call_api", "depends_on": []},
+            {"ref": "on_error", "depends_on": ["call_api.error"]},
+        ]
+    )
+
+    assert positions["on_error"] == (positions["call_api"][0], 600.0)
+
+
+def test_auto_generate_layout_orders_success_before_error_paths():
+    positions = _layout_by_ref(
+        [
+            {"ref": "normalize", "depends_on": []},
+            {"ref": "on_error", "depends_on": ["normalize.error"]},
+            {"ref": "cleanup", "depends_on": ["normalize", "normalize.error"]},
+            {"ref": "guarded", "depends_on": ["normalize"]},
+            {"ref": "other", "depends_on": ["normalize"]},
+        ]
+    )
+
+    xs = [positions[ref][0] for ref in ("guarded", "other", "cleanup", "on_error")]
+    assert xs == sorted(xs)
+    assert len(set(xs)) == 4
+
+
+def test_auto_generate_layout_orders_error_paths_regardless_of_action_order():
+    positions = _layout_by_ref(
+        [
+            {"ref": "on_error", "depends_on": ["call_api.error"]},
+            {"ref": "parse", "depends_on": ["call_api"]},
+            {"ref": "call_api", "depends_on": []},
+        ]
+    )
+
+    assert positions["parse"][0] < positions["on_error"][0]
+
+
+def test_auto_generate_layout_keeps_error_handler_right_of_success_chain():
+    positions = _layout_by_ref(
+        [
+            {"ref": "call_api", "depends_on": []},
+            {"ref": "on_error", "depends_on": ["call_api.error"]},
+            {"ref": "parse", "depends_on": ["call_api"]},
+            {"ref": "notify", "depends_on": ["parse"]},
+        ]
+    )
+
+    assert positions["parse"][0] < positions["on_error"][0]
+    assert positions["notify"][0] == positions["parse"][0]
+
+
+@pytest.mark.parametrize(
+    ("previous", "updated", "expected"),
+    [
+        pytest.param(
+            [{"ref": "a", "depends_on": []}, {"ref": "b", "depends_on": ["a"]}],
+            [{"ref": "b", "depends_on": ["a"]}, {"ref": "a", "depends_on": []}],
+            False,
+            id="reordered",
+        ),
+        pytest.param(
+            [{"ref": "a", "depends_on": []}, {"ref": "b", "depends_on": ["a"]}],
+            [{"ref": "a", "depends_on": []}],
+            False,
+            id="leaf-removed",
+        ),
+        pytest.param(
+            [{"ref": "a", "depends_on": []}],
+            [{"ref": "a", "depends_on": []}, {"ref": "b", "depends_on": ["a"]}],
+            True,
+            id="action-added",
+        ),
+        pytest.param(
+            [
+                {"ref": "a", "depends_on": []},
+                {"ref": "b", "depends_on": ["a"]},
+                {"ref": "c", "depends_on": ["a"]},
+            ],
+            [
+                {"ref": "a", "depends_on": []},
+                {"ref": "b", "depends_on": ["a"]},
+                {"ref": "c", "depends_on": ["b"]},
+            ],
+            True,
+            id="rewired",
+        ),
+    ],
+)
+def test_graph_requires_relayout(
+    previous: list[layout_module.WorkflowActionLayoutInput],
+    updated: list[layout_module.WorkflowActionLayoutInput],
+    expected: bool,
+):
+    assert layout_module.graph_requires_relayout(previous, updated) is expected
+
+
+def test_build_import_data_from_workflow_yaml_replaces_supplied_layout():
+    import_data = mcp_server._build_import_data_from_workflow_yaml(
+        definition_yaml=yaml.safe_dump(
+            {
+                "definition": {
+                    "title": "Example",
+                    "description": "Example workflow",
+                    "entrypoint": {"ref": "fetch"},
+                    "actions": [
+                        {
+                            "ref": "fetch",
+                            "action": "core.transform.reshape",
+                            "args": {"value": 1},
+                        },
+                        {
+                            "ref": "notify",
+                            "action": "core.transform.reshape",
+                            "depends_on": ["fetch"],
+                            "args": {"value": 2},
+                        },
+                    ],
+                },
+                "layout": {
+                    "trigger": {"x": 5, "y": 5},
+                    "viewport": {"x": 1, "y": 2, "zoom": 0.5},
+                    "actions": [
+                        {"ref": "fetch", "x": 10, "y": 10},
+                        {"ref": "notify", "x": 12, "y": 12},
+                    ],
+                },
+            }
+        )
+    )
+
+    assert import_data["layout"] == {
+        "trigger": {"x": 0, "y": 0},
+        "viewport": {"x": 1, "y": 2, "zoom": 0.5},
+        "actions": [
+            {"ref": "fetch", "x": 0.0, "y": 300.0},
+            {"ref": "notify", "x": 0.0, "y": 600.0},
+        ],
+    }
+
+
+def test_relayout_edit_document_only_when_graph_changes():
+    workflow = _chained_workflow_stub(uuid.uuid4())
+    original = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
+    )
+
+    args_only = original.model_copy(deep=True)
+    args_only.definition.actions[0].args = {"value": "changed"}
+    assert (
+        mcp_server._relayout_edit_document_if_graph_changed(original, args_only)
+        is args_only
+    )
+
+    added = original.model_copy(deep=True)
+    added.definition.actions.append(
+        ActionStatement(
+            ref="notify_owner",
+            action="core.transform.reshape",
+            depends_on=["build_alert"],
+        )
+    )
+    relaid = mcp_server._relayout_edit_document_if_graph_changed(original, added)
+
+    positions = {item.ref: (item.x, item.y) for item in relaid.layout.actions}
+    assert positions == {
+        "fetch_events": (0.0, 300.0),
+        "classify": (0.0, 600.0),
+        "build_alert": (0.0, 900.0),
+        "notify_owner": (0.0, 1200.0),
+    }
+    assert relaid.layout.viewport == original.layout.viewport
+
+
 def test_extract_layout_positions_full():
     layout_data = {
         "trigger": {"x": 10, "y": 20},
@@ -1089,6 +1322,118 @@ async def test_get_workflow_action_returns_full_action_and_layout(monkeypatch):
         "position": None,
     }
     assert payload["draft_revision"]
+
+
+@pytest.mark.anyio
+async def test_get_workflow_graph_returns_mermaid_and_upstream_gates(monkeypatch):
+    workflow_id = uuid.uuid4()
+    workflow = _chained_workflow_stub(workflow_id)
+    _patch_workflow_read(monkeypatch, workflow)
+
+    payload = _payload(
+        await _tool(mcp_server.get_workflow_graph)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+        )
+    )
+
+    assert payload["mermaid"].splitlines() == [
+        "flowchart TD",
+        "  trigger([trigger])",
+        '  build_alert["build_alert<br/>core.transform.reshape'
+        '<br/>for_each: for var.item in ACTIONS.classify.result"]',
+        '  classify["classify<br/>core.transform.reshape'
+        '<br/>if: FN.length(ACTIONS.fetch_events.result) #gt; 0"]',
+        '  fetch_events["fetch_events<br/>core.http_request"]',
+        "  classify --> build_alert",
+        "  fetch_events --> classify",
+        "  trigger --> fetch_events",
+    ]
+    gates = {action["ref"]: action["gated_by"] for action in payload["actions"]}
+    assert gates == {
+        "build_alert": ["classify"],
+        "classify": [],
+        "fetch_events": [],
+    }
+    assert "args" not in json.dumps(payload)
+    assert payload["draft_revision"]
+
+
+def test_build_workflow_graph_renders_error_edges_joins_and_reserved_refs():
+    mermaid, actions = build_workflow_graph(
+        [
+            ActionStatement(
+                ref="call_api",
+                action="core.http_request",
+                run_if='${{ TRIGGER.kind == "alert" }}',
+            ),
+            ActionStatement(
+                ref="end",
+                action="core.transform.reshape",
+                depends_on=["call_api.error"],
+            ),
+            ActionStatement(
+                ref="merge",
+                action="core.transform.reshape",
+                depends_on=["call_api", "end"],
+                join_strategy=JoinStrategy.ANY,
+            ),
+        ]
+    )
+
+    assert (
+        '  call_api["call_api<br/>core.http_request'
+        '<br/>if: TRIGGER.kind == #quot;alert#quot;"]'
+    ) in mermaid
+    assert "  call_api -. error .-> end_" in mermaid
+    assert (
+        '  merge["merge<br/>core.transform.reshape'
+        '<br/>join: any (one parent is enough)"]'
+    ) in mermaid
+    assert "  end_ --> merge" in mermaid
+    assert [action.gated_by for action in actions] == [
+        [],
+        ["call_api"],
+        ["call_api"],
+    ]
+
+
+def test_build_workflow_graph_any_join_keeps_only_gates_on_every_path():
+    _, actions = build_workflow_graph(
+        [
+            ActionStatement(
+                ref="enrich",
+                action="core.http_request",
+                run_if="${{ TRIGGER.enrich }}",
+            ),
+            ActionStatement(ref="lookup", action="core.http_request"),
+            ActionStatement(
+                ref="any_merge",
+                action="core.transform.reshape",
+                depends_on=["enrich", "lookup"],
+                join_strategy=JoinStrategy.ANY,
+            ),
+            ActionStatement(
+                ref="all_merge",
+                action="core.transform.reshape",
+                depends_on=["enrich", "lookup"],
+            ),
+            ActionStatement(
+                ref="notify",
+                action="core.transform.reshape",
+                depends_on=["any_merge"],
+            ),
+        ]
+    )
+
+    gates = {action.ref: action.gated_by for action in actions}
+    assert gates == {
+        "enrich": [],
+        "lookup": [],
+        "any_merge": [],
+        "all_merge": ["enrich"],
+        "notify": [],
+    }
 
 
 @pytest.mark.anyio

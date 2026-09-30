@@ -8,7 +8,7 @@ import {
   useNodeId,
   useStore,
 } from "@xyflow/react"
-import { GitBranch, Merge } from "lucide-react"
+import { Merge } from "lucide-react"
 import type React from "react"
 import { useMemo } from "react"
 import type { ActionRead } from "@/client"
@@ -16,6 +16,10 @@ import {
   ForEachEffect,
   InteractionEffect,
 } from "@/components/builder/canvas/action-node-effect"
+import {
+  isStackedRunIf,
+  RunIfBadge,
+} from "@/components/builder/canvas/run-if-badge"
 import { Badge } from "@/components/ui/badge"
 import {
   Tooltip,
@@ -23,7 +27,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { compressActionsInString } from "@/lib/expressions"
+import { useRunIfDisplay } from "@/hooks/use-run-if-display"
 import { cn } from "@/lib/utils"
 import { useWorkflowBuilder } from "@/providers/builder"
 
@@ -126,11 +130,14 @@ export function TriggerSourceHandle({
 export function ActionTargetHandle({
   action,
   indegree,
+  showFullCondition = false,
 }: {
   action?: ActionRead
   indegree?: number
+  showFullCondition?: boolean
 }) {
   const { actionPanelRef } = useWorkflowBuilder()
+  const { showAll: showAllConditions } = useRunIfDisplay()
   const {
     join_strategy: joinStrategy,
     for_each: forEach,
@@ -142,6 +149,9 @@ export function ActionTargetHandle({
     (typeof forEach === "string" && forEach.length > 0) ||
     (Array.isArray(forEach) && forEach.length > 0)
   const hasRunIf = !!runIf
+  const runIfStacked =
+    !!runIf && (showAllConditions || showFullCondition) && isStackedRunIf(runIf)
+  const attachRunIfToJoin = Boolean(hasJoin) && !runIfStacked
 
   // Determine if there are no effects based on the conditions - exclude forEach since it's moved
   const hasEffects = hasRunIf || hasJoin
@@ -205,8 +215,9 @@ export function ActionTargetHandle({
           {/* Badges container that fades in */}
           <div
             className={cn(
-              "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-md shadow-sm",
-              "flex items-center justify-center transition-all duration-200",
+              "absolute bottom-1.5 left-1/2 -translate-x-1/2 rounded-md",
+              "flex items-end justify-center transition-all duration-200",
+              runIfStacked && "gap-1",
               "group-hover:cursor-pointer",
               hasEffects ? "scale-100 opacity-100" : "scale-75 opacity-0"
             )}
@@ -228,7 +239,7 @@ export function ActionTargetHandle({
                     "bg-blue-500/80 hover:bg-blue-600/80",
                   joinStrategy === "any" &&
                     "bg-amber-500/80 hover:bg-amber-600/80",
-                  runIf && "mr-0 rounded-r-none"
+                  runIf && attachRunIfToJoin && "mr-0 rounded-r-none"
                 )}
               >
                 <span className="flex items-center space-x-1">
@@ -238,20 +249,12 @@ export function ActionTargetHandle({
               </Badge>
             )}
             {runIf && (
-              <Badge
-                className={cn(
-                  "border-0 px-2 text-xs shadow-none",
-                  "bg-teal-500/80 hover:bg-teal-600/80",
-                  hasJoin && "ml-0 rounded-l-none"
-                )}
-              >
-                <span className="flex items-center space-x-1">
-                  <GitBranch className="size-3" strokeWidth={2.5} />
-                  <pre className="text-xs tracking-tighter">
-                    {compressActionsInString(runIf.slice(3, -2).trim())}
-                  </pre>
-                </span>
-              </Badge>
+              <RunIfBadge
+                runIf={runIf}
+                compact={!showAllConditions}
+                expanded={showFullCondition}
+                attachedToJoin={attachRunIfToJoin}
+              />
             )}
           </div>
         </div>
