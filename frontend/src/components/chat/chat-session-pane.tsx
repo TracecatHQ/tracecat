@@ -1818,11 +1818,16 @@ function SubagentToolPart({
 }: {
   part: ToolUIPart
   state: ToolHeaderProps["state"]
-  errorText?: string
+  errorText?: unknown
 }) {
   const input = asInputRecord(part.input)
   const alias = getNonEmptyString(input?.alias) ?? "Subagent"
   const task = getNonEmptyString(input?.task)
+  // Live failures wrap the child result in errorText; its output is the reason.
+  const errorMessage =
+    typeof errorText === "string"
+      ? errorText
+      : getNonEmptyString(asInputRecord(errorText)?.output)
   // A preliminary output only links the child session; the child is running.
   const isPreliminary =
     part.state === "output-available" && part.preliminary === true
@@ -1870,8 +1875,8 @@ function SubagentToolPart({
             Stopped before completion
           </div>
         ) : null}
-        {cardState === "output-error" && typeof errorText === "string" ? (
-          <ToolOutput output={undefined} errorText={errorText} />
+        {cardState === "output-error" && errorMessage ? (
+          <ToolOutput output={undefined} errorText={errorMessage} />
         ) : null}
       </ToolContent>
     </Tool>

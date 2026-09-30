@@ -91,6 +91,44 @@ describe("subagent tool part", () => {
     })
   })
 
+  it.each([
+    {
+      name: "structured child failure",
+      errorText: {
+        session_id: CHILD_ID,
+        status: "failed",
+        output: "Subagent exceeded its turn limit",
+      },
+      sessionId: CHILD_ID,
+    },
+    {
+      name: "plain text failure",
+      errorText: "Subagent exceeded its turn limit",
+      sessionId: undefined,
+    },
+  ])("displays the reason for a $name", ({ errorText, sessionId }) => {
+    renderPart(
+      subagentPart({
+        state: "output-available",
+        output: { errorText },
+      }),
+      (node) => (
+        <WorkspaceIdProvider workspaceId="workspace-1">
+          {node}
+        </WorkspaceIdProvider>
+      )
+    )
+
+    expect(screen.getByTestId("tool-state")).toHaveTextContent("output-error")
+    expect(
+      screen.getByText("Subagent exceeded its turn limit")
+    ).toBeInTheDocument()
+    expect(mockUseGetChatVercel).toHaveBeenLastCalledWith({
+      chatId: sessionId,
+      workspaceId: "workspace-1",
+    })
+  })
+
   it("renders the live child transcript while the output is preliminary", async () => {
     const store = new SubagentStreamStore()
     for (const [index, chunk] of [
