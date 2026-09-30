@@ -26,6 +26,7 @@ from tracecat.audit.service import AuditService
 from tracecat.auth.domain_policy import is_org_saml_enforced
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
+from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import ensure_member, lock_role_changes
 from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG
 from tracecat.authz.service import resolve_granter_scopes
@@ -552,7 +553,11 @@ class InvitationService(BaseOrgService):
             await self.session.scalar(
                 select(
                     select(ScimConnection.id)
-                    .where(ScimConnection.organization_id == self.organization_id)
+                    .where(
+                        ScimConnection.organization_id == self.organization_id,
+                        # A disconnected directory keeps its row but provisions nothing.
+                        ScimConnection.status != ScimConnectionStatus.DISABLED,
+                    )
                     .exists()
                 )
             )

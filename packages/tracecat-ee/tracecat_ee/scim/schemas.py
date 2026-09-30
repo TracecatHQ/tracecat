@@ -51,6 +51,28 @@ class ExternalGroupRead(Schema):
     member_count: int
 
 
+class ScimDirectoryUserCounts(Schema):
+    """Pushed users, split by the provider's active flag."""
+
+    total: int
+    active: int
+    inactive: int
+
+
+class ScimDirectoryGroupCounts(Schema):
+    """Synced groups, and how many no mapping reads."""
+
+    total: int
+    unmapped: int
+
+
+class ScimDirectorySummaryRead(Schema):
+    """What the provider has pushed into this organization."""
+
+    users: ScimDirectoryUserCounts
+    groups: ScimDirectoryGroupCounts
+
+
 class ExternalGroupMappingRead(Schema):
     """A mapping joined with both sides, so a list renders without refetching."""
 
@@ -69,39 +91,74 @@ class ExternalGroupMappingCreate(BaseModel):
     group_id: UUID
 
 
-class ScimDirectoryUserRead(Schema):
-    """A user the provider has pushed into this organization."""
+class ScimReviewPerson(Schema):
+    """One person a review lists, with the Tracecat groups the change touches."""
 
-    id: UUID
+    user_id: UUID
     email: str
-    external_id: str
-    active: bool
+    groups: list[str] = Field(default_factory=list)
 
 
-class ScimMappingPlanRead(Schema):
-    """What activating one proposed mapping would do to a Tracecat group."""
+class ScimReviewPeople(Schema):
+    """A counted list of people; ``items`` is a preview unless ``full`` was asked."""
 
-    external_group_id: UUID
-    external_group_display_name: str
+    count: int
+    items: list[ScimReviewPerson]
+
+
+class ScimGroupTransitionRead(Schema):
+    """The combined effect of every proposed change on one Tracecat group."""
+
     group_id: UUID
     group_name: str
-    manual_members_purged: list[UUID]
-    manual_member_emails: dict[UUID, str]
-    users_gaining_access: list[UUID]
-    users_losing_access: list[UUID]
+    added_sources: list[str]
+    removed_sources: list[str]
+    gained: int
+    lost: int
+    # The IdP replaces the group's manual membership.
+    takes_over: bool = False
 
 
 class ScimActivationReviewRead(Schema):
-    """What arrived while the connection was pending, and the effect of each mapping."""
+    """Who a proposed activation or mapping change affects, by outcome."""
 
-    users: list[ScimDirectoryUserRead]
-    plans: list[ScimMappingPlanRead]
+    # Active pushed users activation admits.
+    joining: ScimReviewPeople
+    # Inactive pushed users activation removes from the organization.
+    leaving: ScimReviewPeople
+    losing: ScimReviewPeople
+    to_idp: ScimReviewPeople
+    to_manual: ScimReviewPeople
+    groups: list[ScimGroupTransitionRead]
+
+
+class ScimMappingChangesRequest(BaseModel):
+    """Mapping removals and additions to apply in one transaction."""
+
+    create: list[ExternalGroupMappingCreate] = Field(
+        default_factory=list, max_length=100
+    )
+    delete: list[UUID] = Field(default_factory=list, max_length=100)
+
+
+class ScimReviewRequest(BaseModel):
+    """Mapping additions and removals to preview without applying them."""
+
+    mappings: list[ExternalGroupMappingCreate] = Field(
+        default_factory=list, max_length=100
+    )
+    delete: list[UUID] = Field(default_factory=list, max_length=100)
+    # Every person instead of a preview per list.
+    full: bool = False
 
 
 class ScimActivationRequest(BaseModel):
     """Mappings to install as the connection is activated."""
 
-    mappings: list[ExternalGroupMappingCreate] = Field(default_factory=list)
+    # Matches the review cap: activation applies exactly what was reviewed.
+    mappings: list[ExternalGroupMappingCreate] = Field(
+        default_factory=list, max_length=100
+    )
 
 
 # =============================================================================

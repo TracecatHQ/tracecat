@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from tracecat.audit.logger import audit_log
@@ -20,6 +20,7 @@ from tracecat.auth.api_keys import (
     make_api_key_preview,
 )
 from tracecat.authz.controls import require_scope
+from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.db.models import ScimConnection
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.service import BaseOrgService
@@ -77,8 +78,20 @@ class ScimConnectionService(BaseOrgService):
             .values(organization_id=self.organization_id, **credential)
             .on_conflict_do_update(
                 index_elements=[ScimConnection.organization_id],
-                # An upsert skips the column's Python-side onupdate.
-                set_={**credential, "updated_at": datetime.now(UTC)},
+                # A disconnected directory reconnects as pending, so the admin
+                # reviews and activates it again. An upsert skips the column's
+                # Python-side onupdate.
+                set_={
+                    **credential,
+                    "status": case(
+                        (
+                            ScimConnection.status == ScimConnectionStatus.DISABLED,
+                            ScimConnectionStatus.PENDING,
+                        ),
+                        else_=ScimConnection.status,
+                    ),
+                    "updated_at": datetime.now(UTC),
+                },
             )
             .returning(ScimConnection)
         )
@@ -98,22 +111,6 @@ class ScimConnectionService(BaseOrgService):
         if connection is None:
             raise TracecatNotFoundError("SCIM connection not found")
         return connection
-
-    @require_scope("org:scim:manage")
-    @audit_log(resource_type="scim_connection", action="revoke")
-    async def revoke(self) -> None:
-        """Revoke the organization's connection token.
-
-        Raises:
-            TracecatNotFoundError: No connection has been created.
-        """
-        connection = await self._get()
-        if connection is None:
-            raise TracecatNotFoundError("SCIM connection not found")
-        if connection.revoked_at is None:
-            connection.revoked_at = datetime.now(UTC)
-            self.session.add(connection)
-            await self.session.commit()
 
     async def _get(self) -> ScimConnection | None:
         stmt = select(ScimConnection).where(

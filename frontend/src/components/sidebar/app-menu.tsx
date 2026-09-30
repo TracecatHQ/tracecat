@@ -53,6 +53,7 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const { organization: activeOrganization } = useOrganization()
   const { organizations } = useOrganizationMemberships()
   const canAdministerOrg = useScopeCheck("org:update")
+  const canManageScim = useScopeCheck("org:scim:manage")
   const canCreateWorkspace = useScopeCheck("workspace:create")
   const {
     hasEntitlement,
@@ -63,6 +64,12 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
   const [workspaceName, setWorkspaceName] = useState("")
   const [isCreating, setIsCreating] = useState(false)
 
+  // SCIM-only administrators land on SCIM, which needs the plan entitlement.
+  const canOpenScim =
+    canManageScim === true &&
+    hasEntitlementData &&
+    !entitlementsLoading &&
+    hasEntitlement("rbac_addons")
   const activeWorkspace = workspaces?.find((ws) => ws.id === workspaceId)
   const showOrganizationSelector = (organizations?.length ?? 0) > 1
   const canCreateAdditionalWorkspace =
@@ -252,10 +259,14 @@ export function AppMenu({ workspaceId }: { workspaceId: string }) {
             )}
 
             <DropdownMenuSeparator />
-            {canAdministerOrg && (
+            {(canAdministerOrg || canOpenScim) && (
               <DropdownMenuItem asChild>
                 <Link
-                  href="/organization"
+                  href={
+                    canAdministerOrg
+                      ? "/organization"
+                      : "/organization/settings/scim"
+                  }
                   className="flex items-center gap-2 py-1 px-2 cursor-default"
                 >
                   <div className="flex size-6 items-center justify-center">

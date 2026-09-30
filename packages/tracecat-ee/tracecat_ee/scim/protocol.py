@@ -27,15 +27,22 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from tracecat import config
 from tracecat.auth.types import Role
+from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import lock_role_changes
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.db.models import ExternalGroup, ExternalGroupMember, ExternalUser, User
+from tracecat.db.models import (
+    ExternalGroup,
+    ExternalGroupMember,
+    ExternalUser,
+    ScimConnection,
+    User,
+)
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
-from tracecat_ee.scim.credentials import ScimConnectionRole
+from tracecat_ee.scim.credentials import UNAUTHORIZED_EXCEPTION, ScimConnectionRole
 from tracecat_ee.scim.provisioning import ScimProvisioningService
 from tracecat_ee.scim.schemas import (
     DISPLAY_NAME_MAX_LENGTH,
@@ -294,7 +301,7 @@ async def create_user(
         email=params.user_name,
         active=params.active,
     )
-    await session.commit()
+    await _commit_if_connected(session, role)
     if not provisioned.created:
         # The account already existed and is now linked. A 409 here is what
         # makes Entra give up, so the link is reported as a normal creation.
@@ -341,7 +348,7 @@ async def replace_user(
     await _apply_active(
         session, role=role, external_user=external_user, active=params.active
     )
-    await session.commit()
+    await _commit_if_connected(session, role)
     return _user_resource(external_user, user)
 
 
@@ -410,7 +417,7 @@ async def patch_user(
         await service.rename_user(user_id=user.id, email=user_name)
     await service.update_external_id(external_user, external_id)
     await _apply_active(session, role=role, external_user=external_user, active=active)
-    await session.commit()
+    await _commit_if_connected(session, role)
     return _user_resource(external_user, user)
 
 
@@ -477,7 +484,7 @@ async def delete_user(
         # A resource this tenant never had is already in the desired state.
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     await _apply_active(session, role=role, external_user=external_user, active=False)
-    await session.commit()
+    await _commit_if_connected(session, role)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -610,7 +617,7 @@ async def create_group(
         )
         await service.replace_external_group_members(group.id, external_user_ids)
     result = _group_resource(group, members=await _group_members(session, group.id))
-    await session.commit()
+    await _commit_if_connected(session, role)
     response.headers["Location"] = _resource_location("Groups", group.id)
     return result
 
@@ -651,7 +658,7 @@ async def replace_group(
     await session.flush()
     await session.refresh(group)
     result = _group_resource(group, members=await _group_members(session, group.id))
-    await session.commit()
+    await _commit_if_connected(session, role)
     return result
 
 
@@ -746,7 +753,7 @@ async def patch_group(
     await session.flush()
     await session.refresh(group)
     result = _group_resource(group, members=await _group_members(session, group.id))
-    await session.commit()
+    await _commit_if_connected(session, role)
     return result
 
 
@@ -795,7 +802,7 @@ async def delete_group(
     organization_id = _organization_id(role)
     await _get_group(session, organization_id=organization_id, group_id=group_id)
     await SCIMService(session, role).delete_external_group(group_id)
-    await session.commit()
+    await _commit_if_connected(session, role)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -915,6 +922,27 @@ async def schemas_document() -> ScimListResponse:
         itemsPerPage=len(resources),
         Resources=resources,
     )
+
+
+async def _commit_if_connected(session: AsyncSession, role: Role) -> None:
+    """Commit a provider write unless the connection was disconnected meanwhile.
+
+    A request authenticated before disconnect can reach its writes afterwards.
+    Disconnect holds the organization lock, so checking under it is final.
+    """
+    organization_id = _organization_id(role)
+    await lock_role_changes(session, organization_id)
+    connected = await session.scalar(
+        select(ScimConnection.id).where(
+            ScimConnection.organization_id == organization_id,
+            ScimConnection.revoked_at.is_(None),
+            ScimConnection.status != ScimConnectionStatus.DISABLED,
+        )
+    )
+    if connected is None:
+        await session.rollback()
+        raise UNAUTHORIZED_EXCEPTION
+    await session.commit()
 
 
 def _organization_id(role: Role) -> UUID:

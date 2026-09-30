@@ -79,19 +79,36 @@ async def authenticate_scim_connection(
             session, connection.organization_id, Entitlement.RBAC_ADDONS
         ):
             raise UNAUTHORIZED_EXCEPTION
-        await enforce_org_ip_allowlist(connection.organization_id)
 
+        connection_id = connection.id
+        organization_id = connection.organization_id
+
+    # The allowlist loader uses the auth pool on a cache miss. Close the token
+    # lookup session first so the loader does not acquire a nested auth session.
+    await enforce_org_ip_allowlist(organization_id)
+
+    async with get_async_session_auth_context_manager() as session:
+        connection = (
+            await session.execute(
+                select(ScimConnection).where(ScimConnection.id == connection_id)
+            )
+        ).scalar_one_or_none()
+        if (
+            connection is None
+            or connection.revoked_at is not None
+            or connection.key_id != parsed.key_id
+        ):
+            raise UNAUTHORIZED_EXCEPTION
         connection.last_used_at = datetime.now(UTC)
-        session.add(connection)
         await session.commit()
 
-        role = Role(
-            type="scim",
-            service_id="tracecat-api",
-            organization_id=connection.organization_id,
-            scim_connection_id=connection.id,
-            scopes=SCIM_ROLE_SCOPES,
-        )
+    role = Role(
+        type="scim",
+        service_id="tracecat-api",
+        organization_id=organization_id,
+        scim_connection_id=connection_id,
+        scopes=SCIM_ROLE_SCOPES,
+    )
 
     ctx_role.set(role)
     return role

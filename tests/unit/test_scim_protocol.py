@@ -1486,6 +1486,51 @@ async def test_blank_group_external_id_on_put_is_treated_as_absent(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("method", ["POST", "PATCH"])
+async def test_writes_after_disconnect_are_rejected(
+    client: httpx.AsyncClient,
+    session: AsyncSession,
+    org: Organization,
+    method: str,
+) -> None:
+    """A request authenticated before disconnect cannot write after it."""
+    # The rejected write rolls the shared session back, expiring loaded rows.
+    org_id = org.id
+    existing = (
+        await client.post("/scim/v2/Groups", json={"displayName": "Before"})
+    ).json()
+    # The token was already verified; disconnect commits before the write.
+    await session.execute(
+        update(ScimConnection)
+        .where(ScimConnection.organization_id == org_id)
+        .values(status=ScimConnectionStatus.DISABLED, revoked_at=func.now())
+    )
+    await session.commit()
+
+    if method == "POST":
+        response = await client.post("/scim/v2/Groups", json={"displayName": "After"})
+    else:
+        response = await client.patch(
+            f"/scim/v2/Groups/{existing['id']}",
+            json={
+                "Operations": [
+                    {"op": "replace", "path": "displayName", "value": "After"}
+                ]
+            },
+        )
+
+    assert response.status_code == status.HTTP_401_UNAUTHORIZED
+    names = set(
+        await session.scalars(
+            select(ExternalGroup.display_name).where(
+                ExternalGroup.organization_id == org_id
+            )
+        )
+    )
+    assert names == {"Before"}
+
+
+@pytest.mark.anyio
 async def test_user_create_rejects_superuser(
     client: httpx.AsyncClient, session: AsyncSession, org: Organization
 ) -> None:

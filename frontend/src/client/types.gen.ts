@@ -7824,11 +7824,15 @@ export type ScimActivationRequest = {
 }
 
 /**
- * What arrived while the connection was pending, and the effect of each mapping.
+ * Who a proposed activation or mapping change affects, by outcome.
  */
 export type ScimActivationReviewRead = {
-  users: Array<ScimDirectoryUserRead>
-  plans: Array<ScimMappingPlanRead>
+  joining: ScimReviewPeople
+  leaving: ScimReviewPeople
+  losing: ScimReviewPeople
+  to_idp: ScimReviewPeople
+  to_manual: ScimReviewPeople
+  groups: Array<ScimGroupTransitionRead>
 }
 
 /**
@@ -7859,13 +7863,28 @@ export type ScimConnectionTokenRead = {
 }
 
 /**
- * A user the provider has pushed into this organization.
+ * Synced groups, and how many no mapping reads.
  */
-export type ScimDirectoryUserRead = {
-  id: string
-  email: string
-  external_id: string
-  active: boolean
+export type ScimDirectoryGroupCounts = {
+  total: number
+  unmapped: number
+}
+
+/**
+ * What the provider has pushed into this organization.
+ */
+export type ScimDirectorySummaryRead = {
+  users: ScimDirectoryUserCounts
+  groups: ScimDirectoryGroupCounts
+}
+
+/**
+ * Pushed users, split by the provider's active flag.
+ */
+export type ScimDirectoryUserCounts = {
+  total: number
+  active: number
+  inactive: number
 }
 
 /**
@@ -7908,6 +7927,19 @@ export type ScimGroupResource = {
 }
 
 /**
+ * The combined effect of every proposed change on one Tracecat group.
+ */
+export type ScimGroupTransitionRead = {
+  group_id: string
+  group_name: string
+  added_sources: Array<string>
+  removed_sources: Array<string>
+  gained: number
+  lost: number
+  takes_over?: boolean
+}
+
+/**
  * The envelope every SCIM query returns, paginated 1-based.
  */
 export type ScimListResponse = {
@@ -7921,19 +7953,11 @@ export type ScimListResponse = {
 }
 
 /**
- * What activating one proposed mapping would do to a Tracecat group.
+ * Mapping removals and additions to apply in one transaction.
  */
-export type ScimMappingPlanRead = {
-  external_group_id: string
-  external_group_display_name: string
-  group_id: string
-  group_name: string
-  manual_members_purged: Array<string>
-  manual_member_emails: {
-    [key: string]: string
-  }
-  users_gaining_access: Array<string>
-  users_losing_access: Array<string>
+export type ScimMappingChangesRequest = {
+  create?: Array<ExternalGroupMappingCreate>
+  delete?: Array<string>
 }
 
 /**
@@ -7976,6 +8000,32 @@ export type ScimPatchOperation = {
 }
 
 export type op = "add" | "remove" | "replace"
+
+/**
+ * A counted list of people; ``items`` is a preview unless ``full`` was asked.
+ */
+export type ScimReviewPeople = {
+  count: number
+  items: Array<ScimReviewPerson>
+}
+
+/**
+ * One person a review lists, with the Tracecat groups the change touches.
+ */
+export type ScimReviewPerson = {
+  user_id: string
+  email: string
+  groups?: Array<string>
+}
+
+/**
+ * Mapping additions and removals to preview without applying them.
+ */
+export type ScimReviewRequest = {
+  mappings?: Array<ExternalGroupMappingCreate>
+  delete?: Array<string>
+  full?: boolean
+}
 
 /**
  * An inbound User resource on POST or PUT.
@@ -15851,8 +15901,6 @@ export type ScimGetScimConnectionResponse = ScimConnectionRead
 
 export type ScimIssueScimTokenResponse = ScimConnectionTokenRead
 
-export type ScimRevokeScimTokenResponse = void
-
 export type ScimListExternalGroupsData = {
   cursor?: string | null
   limit?: number
@@ -15860,8 +15908,12 @@ export type ScimListExternalGroupsData = {
 
 export type ScimListExternalGroupsResponse = Page_ExternalGroupRead_
 
+export type ScimGetScimDirectorySummaryResponse = ScimDirectorySummaryRead
+
+export type ScimDisconnectScimResponse = void
+
 export type ScimReviewScimActivationData = {
-  requestBody: ScimActivationRequest
+  requestBody: ScimReviewRequest
 }
 
 export type ScimReviewScimActivationResponse = ScimActivationReviewRead
@@ -15884,6 +15936,12 @@ export type ScimCreateScimMappingData = {
 }
 
 export type ScimCreateScimMappingResponse = ExternalGroupMappingRead
+
+export type ScimApplyScimMappingChangesData = {
+  requestBody: ScimMappingChangesRequest
+}
+
+export type ScimApplyScimMappingChangesResponse = void
 
 export type ScimDeleteScimMappingData = {
   mappingId: string
@@ -23460,14 +23518,6 @@ export type $OpenApiTs = {
         200: ScimConnectionTokenRead
       }
     }
-    delete: {
-      res: {
-        /**
-         * Successful Response
-         */
-        204: void
-      }
-    }
   }
   "/scim/external-groups": {
     get: {
@@ -23484,6 +23534,30 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/scim/directory/summary": {
+    get: {
+      res: {
+        /**
+         * Successful Response
+         */
+        200: ScimDirectorySummaryRead
+      }
+    }
+  }
+  "/scim/disconnect": {
+    post: {
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * SCIM connection not found.
+         */
+        404: unknown
+      }
+    }
+  }
   "/scim/activation/review": {
     post: {
       req: ScimReviewScimActivationData
@@ -23492,6 +23566,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ScimActivationReviewRead
+        /**
+         * SCIM connection, mapping, or group not found.
+         */
+        404: unknown
         /**
          * Validation Error
          */
@@ -23507,6 +23585,14 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * SCIM connection, external group, or group not found.
+         */
+        404: unknown
+        /**
+         * SCIM connection is not pending activation.
+         */
+        409: unknown
         /**
          * Validation Error
          */
@@ -23535,6 +23621,29 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: ExternalGroupMappingRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/scim/mappings/batch": {
+    post: {
+      req: ScimApplyScimMappingChangesData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Mapping, external group, or group not found.
+         */
+        404: unknown
+        /**
+         * SCIM connection is not active.
+         */
+        409: unknown
         /**
          * Validation Error
          */
