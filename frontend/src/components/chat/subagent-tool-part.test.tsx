@@ -207,7 +207,7 @@ describe("subagent tool part", () => {
       }),
       (node) => (
         <SubagentStreamContext.Provider
-          value={{ store, workspaceId: "workspace-1" }}
+          value={{ store, workspaceId: "workspace-1", status: "streaming" }}
         >
           {node}
         </SubagentStreamContext.Provider>
@@ -309,7 +309,7 @@ describe("subagent tool part", () => {
     })
     const view = renderPart(finalPart, (node) => (
       <SubagentStreamContext.Provider
-        value={{ store, workspaceId: "workspace-1" }}
+        value={{ store, workspaceId: "workspace-1", status: "ready" }}
       >
         {node}
       </SubagentStreamContext.Provider>

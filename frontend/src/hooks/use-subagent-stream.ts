@@ -1,12 +1,14 @@
-import type { UIMessage } from "ai"
+import type { ChatStatus, UIMessage } from "ai"
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
   useMemo,
+  useState,
   useSyncExternalStore,
 } from "react"
+import type { AgentSessionsGetSessionVercelResponse } from "@/client"
 import { useGetChatVercel } from "@/hooks/use-chat"
 import { toUIMessage, transformMessages } from "@/lib/chat"
 import type { SubagentStreamStore } from "@/lib/subagent-stream"
@@ -16,6 +18,7 @@ import { useOptionalWorkspaceId } from "@/providers/workspace-id"
 export type SubagentStreamContextValue = {
   store: SubagentStreamStore
   workspaceId: string
+  status: ChatStatus
 }
 
 /**
@@ -26,6 +29,17 @@ export const SubagentStreamContext =
   createContext<SubagentStreamContextValue | null>(null)
 
 function noop() {}
+
+function hasSavedChildTranscript(
+  chat: AgentSessionsGetSessionVercelResponse | undefined
+): boolean {
+  // Child sessions checkpoint their history when they settle. A prompt alone
+  // (or an empty response) can still belong to a running child.
+  return Boolean(
+    chat?.messages?.some((message) => message.role === "assistant") ||
+      (chat && "last_error" in chat && chat.last_error)
+  )
+}
 
 /** Subscribe to the live transcript of a child session, if one is streaming. */
 export function useSubagentLiveMessage(
@@ -47,8 +61,9 @@ export function useSubagentLiveMessage(
 /**
  * Transcript for a subagent card.
  *
- * Keeps live text visible until a completed child's persisted history loads,
- * then releases the streaming snapshot and its reader.
+ * Keeps live text visible until a completed child's persisted history loads.
+ * If the parent connection stops early, poll for the settled child's history
+ * without treating the interrupted snapshot as a live stream.
  */
 export function useSubagentTranscript({
   sessionId,
@@ -66,19 +81,31 @@ export function useSubagentTranscript({
   const fallbackWorkspaceId = useOptionalWorkspaceId()
   const workspaceId = context?.workspaceId ?? fallbackWorkspaceId
   const liveMessage = useSubagentLiveMessage(sessionId)
+  const [adoptedSessionId, setAdoptedSessionId] = useState<string | null>(null)
+  const parentStreaming =
+    context?.status === "streaming" || context?.status === "submitted"
+  const recovering =
+    !finished && !parentStreaming && adoptedSessionId !== sessionId
   const persistedSessionId =
-    finished && sessionId && workspaceId ? sessionId : undefined
+    (finished || recovering || adoptedSessionId === sessionId) &&
+    sessionId &&
+    workspaceId
+      ? sessionId
+      : undefined
   const { chat, chatLoading, chatFetching, chatError } = useGetChatVercel({
     chatId: persistedSessionId,
     workspaceId: workspaceId ?? "",
+    ...(recovering ? { refetchInterval: 3_000 } : {}),
   })
   const hasPersistedHistory =
     persistedSessionId !== undefined &&
     chat !== undefined &&
     !chatFetching &&
-    !chatError
+    !chatError &&
+    (finished || hasSavedChildTranscript(chat))
   useEffect(() => {
     if (hasPersistedHistory && persistedSessionId) {
+      setAdoptedSessionId(persistedSessionId)
       context?.store.release(persistedSessionId)
     }
   }, [context?.store, hasPersistedHistory, persistedSessionId])
@@ -98,7 +125,8 @@ export function useSubagentTranscript({
 
   return {
     messages,
-    isLive: !hasPersistedHistory && liveMessage !== undefined,
+    isLive:
+      parentStreaming && !hasPersistedHistory && liveMessage !== undefined,
     isLoading: persistedSessionId !== undefined && chatLoading,
     isError: persistedSessionId !== undefined && chatError != null,
   }

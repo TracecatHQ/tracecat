@@ -416,8 +416,9 @@ export function ChatSessionPane({
     resume,
   })
   const subagentStreamContext = useMemo(
-    () => (subagentStore ? { store: subagentStore, workspaceId } : null),
-    [subagentStore, workspaceId]
+    () =>
+      subagentStore ? { store: subagentStore, workspaceId, status } : null,
+    [subagentStore, workspaceId, status]
   )
 
   // Prefer the live streaming error; fall back to the persisted last_error so a

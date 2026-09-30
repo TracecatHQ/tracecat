@@ -476,9 +476,11 @@ export function useCancelChatTurn(workspaceId: string) {
 export function useGetChatVercel({
   chatId,
   workspaceId,
+  refetchInterval,
 }: {
   chatId?: string
   workspaceId: string
+  refetchInterval?: number | false
 }) {
   const {
     data: chat,
@@ -501,6 +503,7 @@ export function useGetChatVercel({
     // transcript: always refetch so the pane adopts the current server copy
     // (e.g. after an approval was resolved from another surface).
     refetchOnMount: "always",
+    refetchInterval,
   })
   return { chat, chatLoading, chatFetching, chatError }
 }
