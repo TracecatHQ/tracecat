@@ -147,6 +147,9 @@ class ClaudeSDKAdapter(BaseHarnessAdapter):
                 error=f"{error_type}: {error_message}",
                 is_error=True,
             )
+        elif event_type == "ping":
+            # Keep-alive event with no content
+            return UnifiedStreamEvent(type=StreamEventType.MESSAGE_START)
         else:
             raise ValueError(f"Unknown event type: {event_type}")
 
