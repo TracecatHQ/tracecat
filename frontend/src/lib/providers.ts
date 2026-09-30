@@ -54,7 +54,7 @@ export function getProviderCredentialInputs(
       clientSecret: {
         label: "Private key",
         description:
-          "Paste the PEM private key generated for the GitHub App. Leave blank to keep the existing key.",
+          "Paste the private key (.pem) generated on the GitHub App's settings page. Leave blank to keep the existing key.",
         placeholder: "-----BEGIN RSA PRIVATE KEY-----",
         multiline: true,
       },

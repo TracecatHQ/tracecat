@@ -74,18 +74,19 @@ class GitHubAppInstallationProvider(ClientCredentialsOAuthProvider):
         id=GITHUB_APP_PROVIDER_ID,
         name="GitHub App (Service account)",
         description=(
-            "Authenticate as a GitHub App installation with short-lived "
-            "installation access tokens."
+            "Authenticate as a GitHub App installation. Activity is attributed "
+            "to the app, not a user."
         ),
         setup_instructions=(
-            "Create a GitHub App, install it on the organization or repositories "
+            "Register a GitHub App, install it on the organization or repositories "
             "to automate, and generate a private key. Enter the app's client ID "
-            "(or App ID) and paste the private key. Leave the token endpoint as "
-            "https://api.github.com/app/installations when the app has a single "
-            "installation; otherwise set it to "
+            "(or App ID) and paste the private key (.pem). Tracecat signs a JWT "
+            "with the key to request short-lived installation access tokens. "
+            "Leave the token endpoint as https://api.github.com/app/installations "
+            "when the app has one installation; otherwise set it to "
             "https://api.github.com/app/installations/<installation_id>/access_tokens. "
-            "Optionally restrict the token with scopes such as 'issues:write' or "
-            "'contents:read'."
+            "Optionally limit the token's permissions with scopes such as "
+            "'issues:write' or 'contents:read'."
         ),
         requires_config=True,
         enabled=True,
@@ -245,13 +246,15 @@ class GitHubAppUserProvider(AuthorizationCodeOAuthProvider):
         id=GITHUB_APP_PROVIDER_ID,
         name="GitHub App (Delegated)",
         description=(
-            "Authenticate as a GitHub user through a GitHub App with expiring, "
-            "refreshable user access tokens."
+            "Authenticate on behalf of a user through a GitHub App. Activity is "
+            "attributed to the user."
         ),
         setup_instructions=(
-            "Use the client ID and a client secret from the GitHub App's settings "
-            "page, and add Tracecat's redirect URL as a callback URL on the app. "
-            "Keep 'Expire user authorization tokens' enabled so tokens refresh."
+            "Enter the GitHub App's client ID and a client secret, and add "
+            "Tracecat's redirect URL as a callback URL on the app. User access "
+            "tokens are limited to the app's permissions and what the user can "
+            "access; scopes are ignored. Keep user access token expiration "
+            "enabled on the app so Tracecat can refresh tokens."
         ),
         requires_config=True,
         enabled=True,
