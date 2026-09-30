@@ -21,6 +21,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.graph.service import EdgeDedupKey, WorkflowGraphService
 from tracecat.workflow.management.schemas import (
     AddEdgePayload,
+    AddNodePayload,
     DeleteEdgePayload,
     GraphOperation,
     GraphOperationType,
@@ -406,3 +407,41 @@ async def test_auto_layout_orders_success_before_error(
     assert action_a.position_x == pytest.approx(
         (action_b.position_x + on_error.position_x) / 2
     )
+
+
+@pytest.mark.anyio
+async def test_auto_layout_includes_changes_from_same_batch(
+    session: AsyncSession,
+    svc_role: Role,
+    workflow_pair: tuple[Workflow, Action, Action],
+) -> None:
+    """Auto-layout sees nodes and edges added earlier in the same batch."""
+    workflow, action_a, action_b = workflow_pair
+    service = WorkflowGraphService(session, role=svc_role)
+
+    await service.apply_operations(
+        WorkflowUUID.new(workflow.id),
+        workflow.graph_version,
+        [
+            GraphOperation(
+                type=GraphOperationType.ADD_NODE,
+                payload=AddNodePayload(
+                    type="core.transform.reshape",
+                    title="Added in batch",
+                    position_x=5000,
+                    position_y=5000,
+                ).model_dump(mode="json"),
+            ),
+            _add_edge_op(action_a.id, action_b.id, "success"),
+            GraphOperation(type=GraphOperationType.AUTO_LAYOUT, payload={}),
+        ],
+    )
+
+    await session.refresh(workflow, ["actions"])
+    positions = {
+        action.title: (action.position_x, action.position_y)
+        for action in workflow.actions
+    }
+    assert positions["Added in batch"] != (5000, 5000)
+    assert positions["Action B"][1] > positions["Action A"][1]
+    assert positions["Added in batch"][1] == positions["Action A"][1]

@@ -285,7 +285,7 @@ class WorkflowGraphService(BaseWorkspaceService):
                     workflow, UpdateViewportPayload(**op.payload)
                 )
             case "auto_layout":
-                self._auto_layout(workflow)
+                await self._auto_layout(workflow)
             case _:
                 raise ValueError(f"Unknown operation type: {op.type}")
 
@@ -569,11 +569,25 @@ class WorkflowGraphService(BaseWorkspaceService):
                 depends_on.append(source_id)
         return {"ref": str(action.id), "depends_on": depends_on}
 
-    def _auto_layout(self, workflow: Workflow) -> None:
-        """Re-position the trigger and every action with the shared auto-layout."""
-        actions_by_id = {str(action.id): action for action in workflow.actions}
+    async def _auto_layout(self, workflow: Workflow) -> None:
+        """Re-position the trigger and every action with the shared auto-layout.
+
+        Actions are re-read from the database so nodes and edges changed by
+        earlier operations in the same batch are included.
+        """
+        await self.session.flush()
+        result = await self.session.execute(
+            select(Action)
+            .where(
+                Action.workspace_id == self.workspace_id,
+                Action.workflow_id == workflow.id,
+            )
+            .execution_options(populate_existing=True)
+        )
+        actions = result.scalars().all()
+        actions_by_id = {str(action.id): action for action in actions}
         layout = auto_generate_layout(
-            [self._layout_input(action) for action in workflow.actions]
+            [self._layout_input(action) for action in actions]
         )
         for position in layout["actions"]:
             action = actions_by_id[position["ref"]]
