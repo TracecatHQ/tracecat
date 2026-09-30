@@ -55,14 +55,19 @@ export function useSubagentTranscript({
 }: {
   sessionId: string | null
   finished: boolean
-}): { messages: UIMessage[]; isLive: boolean; isLoading: boolean } {
+}): {
+  messages: UIMessage[]
+  isLive: boolean
+  isLoading: boolean
+  isError: boolean
+} {
   const context = useContext(SubagentStreamContext)
   const fallbackWorkspaceId = useOptionalWorkspaceId()
   const workspaceId = context?.workspaceId ?? fallbackWorkspaceId
   const liveMessage = useSubagentLiveMessage(sessionId)
   const persistedSessionId =
     finished && !liveMessage && sessionId && workspaceId ? sessionId : undefined
-  const { chat, chatLoading } = useGetChatVercel({
+  const { chat, chatLoading, chatError } = useGetChatVercel({
     chatId: persistedSessionId,
     workspaceId: workspaceId ?? "",
   })
@@ -84,5 +89,6 @@ export function useSubagentTranscript({
     messages,
     isLive: liveMessage !== undefined,
     isLoading: persistedSessionId !== undefined && chatLoading,
+    isError: persistedSessionId !== undefined && chatError != null,
   }
 }

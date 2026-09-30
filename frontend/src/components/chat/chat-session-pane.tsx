@@ -1890,14 +1890,16 @@ function SubagentTranscript({
   sessionId: string | null
   finished: boolean
 }) {
-  const { messages, isLive, isLoading } = useSubagentTranscript({
+  const { messages, isLive, isLoading, isError } = useSubagentTranscript({
     sessionId,
     finished,
   })
 
   if (messages.length === 0) {
     let placeholder = "Waiting for the agent to start..."
-    if (isLoading) {
+    if (isError) {
+      placeholder = "Could not load transcript"
+    } else if (isLoading) {
       placeholder = "Loading transcript..."
     } else if (finished) {
       placeholder = "No transcript available"

@@ -222,4 +222,34 @@ describe("subagent tool part", () => {
       })
     )
   })
+
+  it.each([
+    { failed: true, placeholder: "Could not load transcript" },
+    { failed: false, placeholder: "No transcript available" },
+  ])(
+    "distinguishes a history request failure ($failed) from empty history",
+    ({ failed, placeholder }) => {
+      mockUseGetChatVercel.mockReturnValue({
+        chat: failed ? undefined : { id: CHILD_ID, messages: [] },
+        chatLoading: false,
+        chatError: failed ? new Error("History request failed") : null,
+      })
+      renderPart(
+        subagentPart({
+          state: "output-available",
+          output: { session_id: CHILD_ID, status: "completed" },
+        }),
+        (node) => (
+          <WorkspaceIdProvider workspaceId="workspace-1">
+            {node}
+          </WorkspaceIdProvider>
+        )
+      )
+
+      expect(screen.getByText(placeholder)).toBeInTheDocument()
+      expect(
+        screen.queryByText("History request failed")
+      ).not.toBeInTheDocument()
+    }
+  )
 })
