@@ -742,6 +742,35 @@ class TestBuildPresetAgentArgsActivity:
         assert result.user_prompt == "Analyze this alert"
 
     @pytest.mark.anyio
+    async def test_output_type_passes_through(self, role: Role):
+        """Structured output overrides should evaluate into preset agent args."""
+        schema = {
+            "type": "object",
+            "properties": {"verdict": {"type": "string"}},
+            "required": ["verdict"],
+        }
+        input = BuildAgentArgsActivityInput(
+            args={
+                "preset": "my-preset",
+                "user_prompt": "Hello",
+                "output_type": schema,
+            },
+            operand=_make_context(),
+            role=role,
+            task_environment=None,
+            default_environment="default",
+        )
+
+        with patch(
+            "tracecat.dsl.action.get_workspace_variables",
+            new_callable=AsyncMock,
+            return_value={},
+        ):
+            result = await DSLActivities.build_preset_agent_args_activity(input)
+
+        assert result.output_type == schema
+
+    @pytest.mark.anyio
     async def test_no_vars_works(self, role: Role):
         """When no VARS are present, static values pass through."""
         args = {

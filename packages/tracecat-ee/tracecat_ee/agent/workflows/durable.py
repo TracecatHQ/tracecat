@@ -672,6 +672,9 @@ class DurableAgentWorkflow:
                     else:
                         preset_config.instructions = override_cfg.instructions
 
+                if override_cfg.output_type is not None:
+                    preset_config.output_type = override_cfg.output_type
+
             cfg = preset_config
         else:
             if args.agent_args.config is None:
