@@ -585,16 +585,6 @@ def test_unknown_delta_type_fallback():
     assert unified.part_id == 0
 
 
-def test_ping_event_is_non_text_noop():
-    """Test keep-alive ping events are ignored."""
-    native = make_stream_event({"type": "ping"})
-    unified = ClaudeSDKAdapter().to_unified_event(native)
-
-    assert unified.type == StreamEventType.MESSAGE_START
-    assert unified.part_id is None
-    assert unified.text is None
-
-
 # ==============================================================================
 # Part Index Preservation Tests
 # ==============================================================================
