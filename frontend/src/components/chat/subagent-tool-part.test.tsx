@@ -169,6 +169,10 @@ describe("subagent tool part", () => {
       chatId: undefined,
       workspaceId: "workspace-1",
     })
+    expect(mockUseGetChatVercel).not.toHaveBeenCalledWith({
+      chatId: CHILD_ID,
+      workspaceId: "workspace-1",
+    })
   })
 
   it("loads the persisted child transcript once the call has finished", async () => {
