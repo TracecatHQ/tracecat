@@ -1506,6 +1506,7 @@ async def sse_vercel(
     # per-entry frame counter. emit() omits id: when redis_id is None.
     redis_id: str | None = None
     frame_index = 0
+    end_event_id: str | None = None
 
     def emit(
         payload: VercelSSEPayload, source: VercelStreamContext = context
@@ -1564,9 +1565,10 @@ async def sse_vercel(
                     yield format_sse(TextDeltaEventPayload(id=error_part_id, delta=msg))
                     yield format_sse(TextEndEventPayload(id=error_part_id))
                     yield format_sse(ErrorEventPayload(errorText=msg))
-                case StreamEnd():
+                case StreamEnd(id=end_id):
                     # End of stream marker from Redis
                     logger.debug("End-of-stream marker from Redis")
+                    end_event_id = f"tracecat:end:{end_id}"
                     break
 
         # 3. Finalize any open parts at the end of the stream.
@@ -1577,6 +1579,26 @@ async def sse_vercel(
         for message in context.collect_current_part_end_events():
             if frame := emit(message):
                 yield frame
+
+        # Use the same finalization as the root, but only after an explicit end
+        # marker. A disconnected reader must leave child parts open for replay.
+        # Synthetic closing chunks have no cursor; the marker supplies stable
+        # dedupe keys so a full replay closes each child part exactly once.
+        if end_event_id is not None:
+            for session_id, child_context in child_contexts.items():
+                for index, chunk in enumerate(
+                    child_context.collect_current_part_end_events()
+                ):
+                    yield format_sse(
+                        AgentChunkEventPayload(
+                            data=AgentChunkData(
+                                session_id=str(session_id),
+                                event_id=end_event_id,
+                                index=index,
+                                chunk=chunk,
+                            )
+                        )
+                    )
 
     except Exception as e:
         # 4. Handle errors

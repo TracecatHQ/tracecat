@@ -243,3 +243,43 @@ async def test_child_chunk_keys_are_stable_and_unique_across_replay() -> None:
         (str(CHILD_B), "b-1", 1),
         (str(CHILD_B), "b-1", 2),
     ]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("terminal", [True, False])
+async def test_child_open_parts_close_only_on_explicit_stream_end(
+    terminal: bool,
+) -> None:
+    events: list[StreamEvent] = [
+        _child("1-0", CHILD_A, "a-1", _text(StreamEventType.TEXT_START, "partial")),
+        _child(
+            "2-0",
+            CHILD_A,
+            "a-2",
+            UnifiedStreamEvent(
+                type=StreamEventType.THINKING_START, part_id=1, thinking="reasoning"
+            ),
+        ),
+    ]
+    if terminal:
+        events.append(StreamEnd(id="3-0"))
+
+    first = await _frames(events)
+    replay = await _frames(events)
+    chunks = _child_chunks(first, CHILD_A)
+    assert chunks == _child_chunks(replay, CHILD_A)
+    endings = [data for data in chunks if data["chunk"]["type"].endswith("-end")]
+    if not terminal:
+        assert endings == []
+        return
+
+    assert [data["chunk"] for data in endings] == [
+        {"type": "text-end", "id": "msg_a-1:0"},
+        {"type": "reasoning-end", "id": "msg_a-2:1"},
+    ]
+    assert [(data["event_id"], data["index"]) for data in endings] == [
+        ("tracecat:end:3-0", 0),
+        ("tracecat:end:3-0", 1),
+    ]
+    keys = [(data["event_id"], data["index"]) for data in chunks]
+    assert len(keys) == len(set(keys))
