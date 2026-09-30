@@ -1,5 +1,6 @@
 """Reject invalid sandbox deployments before either worker starts services."""
 
+import shutil
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import Mock
@@ -19,7 +20,12 @@ def sandbox_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
     nsjail.write_text("#!/bin/sh\nexit 0\n")
     nsjail.chmod(0o755)
     rootfs = tmp_path / "rootfs"
-    rootfs.mkdir()
+    for directory in ("usr/local/bin", "lib", "bin", "etc"):
+        (rootfs / directory).mkdir(parents=True)
+    python = rootfs / "usr/local/bin/python3.12"
+    python.write_text("#!/bin/sh\nexit 0\n")
+    python.chmod(0o755)
+    python.with_name("python3").symlink_to(python.name)
     monkeypatch.setattr(config, "TRACECAT__SANDBOX_NSJAIL_PATH", str(nsjail))
     monkeypatch.setattr(config, "TRACECAT__SANDBOX_ROOTFS_PATH", str(rootfs))
     return nsjail, rootfs
@@ -58,17 +64,31 @@ def test_other_backends_do_not_require_sandbox(
 @pytest.mark.anyio
 @pytest.mark.parametrize("module", [worker, executor_worker], ids=["executor", "agent"])
 @pytest.mark.parametrize(
-    "invalid",
+    ("relative_path", "invalid"),
     [
-        "missing_binary",
-        "binary_directory",
-        "not_executable",
-        "missing_rootfs",
-        "rootfs_file",
+        ("nsjail", "missing"),
+        ("nsjail", "directory"),
+        ("nsjail", "not_executable"),
+        ("rootfs", "missing"),
+        ("rootfs", "file"),
+        ("rootfs", "directory"),
+        ("rootfs/usr", "missing"),
+        ("rootfs/usr", "file"),
+        ("rootfs/lib", "missing"),
+        ("rootfs/lib", "file"),
+        ("rootfs/bin", "missing"),
+        ("rootfs/bin", "file"),
+        ("rootfs/etc", "missing"),
+        ("rootfs/etc", "file"),
+        ("rootfs/usr/local/bin/python3", "missing"),
+        ("rootfs/usr/local/bin/python3", "directory"),
+        ("rootfs/usr/local/bin/python3", "not_executable"),
+        ("rootfs/usr/local/bin/python3.12", "missing"),
     ],
 )
 async def test_workers_reject_invalid_sandbox_before_starting_services(
     module: ModuleType,
+    relative_path: str,
     invalid: str,
     tmp_path: Path,
     sandbox_paths: tuple[Path, Path],
@@ -77,19 +97,18 @@ async def test_workers_reject_invalid_sandbox_before_starting_services(
     ready = tmp_path / "ready"
     ready.touch()
     monkeypatch.setattr("tracecat.executor.startup.WORKER_READY_FILE", ready)
-    nsjail, rootfs = sandbox_paths
-    if invalid == "missing_binary":
-        nsjail.unlink()
-    elif invalid == "binary_directory":
-        nsjail.unlink()
-        nsjail.mkdir()
-    elif invalid == "not_executable":
-        nsjail.chmod(0o644)
-    elif invalid == "missing_rootfs":
-        rootfs.rmdir()
+    path = tmp_path / relative_path
+    if invalid == "not_executable":
+        path.chmod(0o644)
     else:
-        rootfs.rmdir()
-        rootfs.write_text("not a directory")
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        if invalid == "directory":
+            path.mkdir()
+        elif invalid == "file":
+            path.write_text("not a directory")
     monkeypatch.setattr(
         config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
     )

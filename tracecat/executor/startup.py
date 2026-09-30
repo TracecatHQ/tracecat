@@ -28,6 +28,22 @@ def validate_execution_backend() -> None:
             f"directory at {rootfs}. Check TRACECAT__SANDBOX_ROOTFS_PATH."
         )
 
+    for directory in ("usr", "lib", "bin", "etc"):
+        mount_source = rootfs / directory
+        if not mount_source.is_dir():
+            raise RuntimeError(
+                "TRACECAT__EXECUTOR_BACKEND=nsjail requires a sandbox rootfs "
+                f"mount directory at {mount_source}. "
+                "Check TRACECAT__SANDBOX_ROOTFS_PATH."
+            )
+
+    python = rootfs / "usr/local/bin/python3"
+    if not python.is_file() or not os.access(python, os.X_OK):
+        raise RuntimeError(
+            "TRACECAT__EXECUTOR_BACKEND=nsjail requires an executable Python "
+            f"binary at {python}. Check TRACECAT__SANDBOX_ROOTFS_PATH."
+        )
+
 
 @contextmanager
 def executor_lifecycle() -> Iterator[AbstractAsyncContextManager[None]]:
