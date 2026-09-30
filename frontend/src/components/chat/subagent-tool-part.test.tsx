@@ -129,6 +129,28 @@ describe("subagent tool part", () => {
     })
   })
 
+  it.each([undefined, null, "", "   ", 42])(
+    "shows a fallback when the child failure reason is %p",
+    (output) => {
+      renderPart(
+        subagentPart({
+          state: "output-available",
+          output: {
+            errorText: { session_id: CHILD_ID, status: "failed", output },
+          },
+        }),
+        (node) => (
+          <WorkspaceIdProvider workspaceId="workspace-1">
+            {node}
+          </WorkspaceIdProvider>
+        )
+      )
+
+      expect(screen.getByTestId("tool-state")).toHaveTextContent("output-error")
+      expect(screen.getByText("Subagent failed")).toBeInTheDocument()
+    }
+  )
+
   it("renders the live child transcript while the output is preliminary", async () => {
     const store = new SubagentStreamStore()
     for (const [index, chunk] of [

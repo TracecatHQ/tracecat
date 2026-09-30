@@ -1877,8 +1877,11 @@ function SubagentToolPart({
             Stopped before completion
           </div>
         ) : null}
-        {cardState === "output-error" && errorMessage ? (
-          <ToolOutput output={undefined} errorText={errorMessage} />
+        {cardState === "output-error" ? (
+          <ToolOutput
+            output={undefined}
+            errorText={errorMessage || "Subagent failed"}
+          />
         ) : null}
       </ToolContent>
     </Tool>
