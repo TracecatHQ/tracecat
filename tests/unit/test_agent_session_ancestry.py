@@ -370,9 +370,14 @@ async def test_send_message_to_child_session_is_bad_request() -> None:
 
 
 @pytest.mark.anyio
-async def test_child_session_messages_remain_readable() -> None:
+@pytest.mark.parametrize("entitled", [True, False])
+async def test_child_session_messages_remain_readable(entitled: bool) -> None:
     _, db, role = _service()
-    parent = _session_row(role)
+    parent = _session_row(
+        role,
+        entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
+        entity_id=role.workspace_id,
+    )
     child = _session_row(role, spawned_by_session_id=parent.id)
     sessions = {parent.id: parent, child.id: child}
     entry = SimpleNamespace(
@@ -399,9 +404,14 @@ async def test_child_session_messages_remain_readable() -> None:
             AsyncMock(side_effect=lambda session_id: sessions.get(session_id)),
         ),
         patch(
-            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
-            AsyncMock(return_value=None),
-        ),
+            "tracecat.agent.session.router.is_workspace_chat_entitled",
+            AsyncMock(return_value=entitled),
+        ) as check_entitlement,
+        patch.object(
+            AgentSessionService,
+            "get_workspace_chat_session_ids",
+            AsyncMock(return_value={child.id}),
+        ) as workspace_chat_ids,
     ):
         raw_get_session_vercel = cast(Any, get_session_vercel).__wrapped__
         response = await raw_get_session_vercel(
@@ -409,6 +419,12 @@ async def test_child_session_messages_remain_readable() -> None:
         )
 
     payload = response.model_dump(mode="json")
+    check_entitlement.assert_awaited_once_with(db, role)
+    if entitled:
+        workspace_chat_ids.assert_not_awaited()
+    else:
+        workspace_chat_ids.assert_awaited_once_with([child.id])
+    assert payload["is_readonly"] is True
     assert payload["spawned_by_session_id"] == str(parent.id)
     assert [message["role"] for message in payload["messages"]] == ["user"]
     assert "Summarize the alerts" in str(payload["messages"])
