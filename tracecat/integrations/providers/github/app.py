@@ -72,7 +72,7 @@ class GitHubAppInstallationProvider(ClientCredentialsOAuthProvider):
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=[])
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id=GITHUB_APP_PROVIDER_ID,
-        name="GitHub App (Installation)",
+        name="GitHub App (Service account)",
         description=(
             "Authenticate as a GitHub App installation with short-lived "
             "installation access tokens."
@@ -243,7 +243,7 @@ class GitHubAppUserProvider(AuthorizationCodeOAuthProvider):
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=[])
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
         id=GITHUB_APP_PROVIDER_ID,
-        name="GitHub App (User)",
+        name="GitHub App (Delegated)",
         description=(
             "Authenticate as a GitHub user through a GitHub App with expiring, "
             "refreshable user access tokens."
