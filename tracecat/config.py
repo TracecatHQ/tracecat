@@ -865,7 +865,6 @@ TRACECAT__EXECUTOR_BACKEND = ExecutorBackendType.from_config(
 - 'nsjail': Require nsjail isolation. Requires Linux, the nsjail binary,
   sandbox rootfs, and the required container capabilities.
 - 'ephemeral': Compatibility alias for 'nsjail'.
-- 'test': In-process action execution for tests only, without isolation.
 """
 
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(

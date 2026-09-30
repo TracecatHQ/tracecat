@@ -71,7 +71,7 @@ def test_other_backends_do_not_require_sandbox(
         ("nsjail", "not_executable"),
         ("rootfs", "missing"),
         ("rootfs", "file"),
-        ("rootfs", "directory"),
+        ("rootfs", "empty"),
         ("rootfs/usr", "missing"),
         ("rootfs/usr", "file"),
         ("rootfs/lib", "missing"),
@@ -105,7 +105,7 @@ async def test_workers_reject_invalid_sandbox_before_starting_services(
             shutil.rmtree(path)
         else:
             path.unlink()
-        if invalid == "directory":
+        if invalid in ("directory", "empty"):
             path.mkdir()
         elif invalid == "file":
             path.write_text("not a directory")

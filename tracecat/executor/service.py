@@ -816,7 +816,6 @@ async def invoke_once(
     The backend is selected via TRACECAT__EXECUTOR_BACKEND config:
     - 'nsjail' ('ephemeral' alias): Cold nsjail subprocess per action (multitenant, full isolation)
     - 'direct': Direct subprocess execution
-    - 'test': In-process execution (tests only)
     """
     role = ctx.role
     action_name = input.task.action

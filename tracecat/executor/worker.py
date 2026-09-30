@@ -7,7 +7,6 @@ This worker listens on the 'shared-action-queue' and executes:
 Supported backends (via TRACECAT__EXECUTOR_BACKEND):
 - nsjail (ephemeral alias): Cold nsjail subprocess per action (multitenant, full isolation)
 - direct: Direct subprocess execution
-- test: In-process execution (tests only)
 
 Architecture:
     DSLWorkflow (tracecat-task-queue)
