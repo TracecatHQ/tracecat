@@ -8,8 +8,17 @@ definition:
   name: dispatch_workflow
   secrets:
   - type: oauth
+    provider_id: github_app
+    grant_type: client_credentials
+    optional: true
+  - type: oauth
+    provider_id: github_app
+    grant_type: authorization_code
+    optional: true
+  - type: oauth
     provider_id: github
     grant_type: authorization_code
+    optional: true
   expects:
     owner:
       type: str
@@ -37,7 +46,7 @@ definition:
       url: ${{ inputs.base_url }}/repos/${{ FN.url_encode(inputs.owner) }}/${{ FN.url_encode(inputs.repo) }}/actions/workflows/${{ FN.url_encode(inputs.workflow_id) }}/dispatches
       method: POST
       headers:
-        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Authorization: Bearer ${{ SECRETS.github_app_oauth.GITHUB_APP_SERVICE_TOKEN || SECRETS.github_app_oauth.GITHUB_APP_USER_TOKEN || SECRETS.github_oauth.GITHUB_USER_TOKEN }}
         Accept: application/vnd.github+json
         X-GitHub-Api-Version: '2022-11-28'
       payload: ${{ inputs.payload }}

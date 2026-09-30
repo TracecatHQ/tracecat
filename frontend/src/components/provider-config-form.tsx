@@ -21,8 +21,9 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { useIntegrationProvider } from "@/lib/hooks"
-import { isMCPProvider } from "@/lib/providers"
+import { getProviderCredentialInputs, isMCPProvider } from "@/lib/providers"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 type EndpointHelp = ProviderRead["authorization_endpoint_help"]
@@ -130,7 +131,12 @@ export function ProviderConfigForm({
   } = provider
 
   const isServiceAccountProvider = serviceAccountJson ?? false
-  const clientSecretMaxLength = isServiceAccountProvider ? 16384 : 512
+  const credentialInputs = getProviderCredentialInputs(provider)
+  const clientIdInput = credentialInputs?.clientId
+  const clientSecretInput = credentialInputs?.clientSecret
+  const isMultilineSecret = clientSecretInput?.multiline ?? false
+  const clientSecretMaxLength =
+    isServiceAccountProvider || isMultilineSecret ? 16384 : 512
   const validationSchema = useMemo(
     () => createOAuthSchema(clientSecretMaxLength),
     [clientSecretMaxLength]
@@ -271,25 +277,35 @@ export function ProviderConfigForm({
     void form.trigger("token_endpoint")
   }, [defaultAuthEndpoint, defaultTokenEndpoint, form, isAtDefaultEndpoints])
 
-  const clientIdLabel = isServiceAccountProvider
-    ? "Service account email (optional)"
-    : "Client ID"
-  const clientIdPlaceholder = isServiceAccountProvider
-    ? "service-account@project.iam.gserviceaccount.com"
-    : "Enter client ID"
-  const clientIdDescription = isServiceAccountProvider
-    ? "Leave blank to use the service account email from the uploaded key."
-    : "The OAuth application's client identifier. Leave blank to remove stored credentials."
+  const clientIdLabel =
+    clientIdInput?.label ??
+    (isServiceAccountProvider
+      ? "Service account email (optional)"
+      : "Client ID")
+  const clientIdPlaceholder =
+    clientIdInput?.placeholder ??
+    (isServiceAccountProvider
+      ? "service-account@project.iam.gserviceaccount.com"
+      : "Enter client ID")
+  const clientIdDescription =
+    clientIdInput?.description ??
+    (isServiceAccountProvider
+      ? "Leave blank to use the service account email from the uploaded key."
+      : "The OAuth application's client identifier. Leave blank to remove stored credentials.")
 
-  const clientSecretLabel = isServiceAccountProvider
-    ? "Service account JSON key"
-    : "Client secret"
-  const clientSecretPlaceholder = isServiceAccountProvider
-    ? "Drag & drop the JSON key (.json) or choose a file"
-    : "Enter client secret"
-  const clientSecretDescription = isServiceAccountProvider
-    ? "Provide the JSON key downloaded from Google Cloud. Leave blank to keep the existing key."
-    : "Add or rotate the OAuth client secret. Submit an empty value to keep the existing secret unchanged."
+  const clientSecretLabel =
+    clientSecretInput?.label ??
+    (isServiceAccountProvider ? "Service account JSON key" : "Client secret")
+  const clientSecretPlaceholder =
+    clientSecretInput?.placeholder ??
+    (isServiceAccountProvider
+      ? "Drag & drop the JSON key (.json) or choose a file"
+      : "Enter client secret")
+  const clientSecretDescription =
+    clientSecretInput?.description ??
+    (isServiceAccountProvider
+      ? "Provide the JSON key downloaded from Google Cloud. Leave blank to keep the existing key."
+      : "Add or rotate the OAuth client secret. Submit an empty value to keep the existing secret unchanged.")
   const hasExistingSecret =
     integration?.status !== undefined
       ? integration.status !== "not_configured"
@@ -372,6 +388,15 @@ export function ProviderConfigForm({
                           hasError={Boolean(
                             form.formState.errors.client_secret
                           )}
+                        />
+                      ) : isMultilineSecret ? (
+                        <Textarea
+                          {...field}
+                          value={field.value ?? ""}
+                          placeholder={clientSecretPlaceholder}
+                          className="min-h-32 font-mono text-xs"
+                          autoComplete="off"
+                          spellCheck={false}
                         />
                       ) : (
                         <Input

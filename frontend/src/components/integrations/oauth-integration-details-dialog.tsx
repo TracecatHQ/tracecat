@@ -38,6 +38,7 @@ import {
 } from "@/hooks/use-integration-actions"
 import { useIntegrationProvider } from "@/lib/hooks"
 import { isCustomOAuthProvider } from "@/lib/integrations"
+import { getProviderCredentialInputs } from "@/lib/providers"
 import { formatRelative } from "@/lib/time"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -98,9 +99,12 @@ export function OAuthIntegrationDetailsDialog({
 
   const isServiceAccountProvider =
     provider?.metadata.service_account_json ?? false
-  const clientIdLabel = isServiceAccountProvider
-    ? "Service account email"
-    : "Client ID"
+  const credentialInputs = getProviderCredentialInputs(provider)
+  const clientIdLabel =
+    credentialInputs?.clientId.label ??
+    (isServiceAccountProvider ? "Service account email" : "Client ID")
+  const clientSecretLabel =
+    credentialInputs?.clientSecret.label ?? "Client secret"
 
   const requestedScopes = integration?.requested_scopes ?? []
   const grantedScopes = integration?.granted_scopes ?? []
@@ -314,7 +318,7 @@ export function OAuthIntegrationDetailsDialog({
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <span className="font-medium text-muted-foreground">
-                        Client secret
+                        {clientSecretLabel}
                       </span>
                       <span className="text-xs text-foreground">
                         {integration.status !== "not_configured"
