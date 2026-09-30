@@ -1398,6 +1398,44 @@ def test_build_workflow_graph_renders_error_edges_joins_and_reserved_refs():
     ]
 
 
+def test_build_workflow_graph_any_join_keeps_only_gates_on_every_path():
+    _, actions = build_workflow_graph(
+        [
+            ActionStatement(
+                ref="enrich",
+                action="core.http_request",
+                run_if="${{ TRIGGER.enrich }}",
+            ),
+            ActionStatement(ref="lookup", action="core.http_request"),
+            ActionStatement(
+                ref="any_merge",
+                action="core.transform.reshape",
+                depends_on=["enrich", "lookup"],
+                join_strategy=JoinStrategy.ANY,
+            ),
+            ActionStatement(
+                ref="all_merge",
+                action="core.transform.reshape",
+                depends_on=["enrich", "lookup"],
+            ),
+            ActionStatement(
+                ref="notify",
+                action="core.transform.reshape",
+                depends_on=["any_merge"],
+            ),
+        ]
+    )
+
+    gates = {action.ref: action.gated_by for action in actions}
+    assert gates == {
+        "enrich": [],
+        "lookup": [],
+        "any_merge": [],
+        "all_merge": ["enrich"],
+        "notify": [],
+    }
+
+
 @pytest.mark.anyio
 async def test_get_workflow_action_unknown_ref_lists_valid_refs(monkeypatch):
     workflow_id = uuid.uuid4()
