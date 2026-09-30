@@ -48,7 +48,9 @@ jest.mock("@/components/json-viewer", () => ({
 
 jest.mock("@/hooks/use-chat", () => ({
   makeContinueMessage: jest.fn(),
-  useAdoptServerTranscript: jest.fn(),
+  useAdoptServerTranscript:
+    jest.requireActual<typeof import("@/hooks/use-chat")>("@/hooks/use-chat")
+      .useAdoptServerTranscript,
   parseChatError: (error: unknown) =>
     error instanceof Error ? error.message : "Chat error",
   useUpdateChat: () => ({
@@ -59,7 +61,15 @@ jest.mock("@/hooks/use-chat", () => ({
     cancelChatTurn: jest.fn(),
     isCancellingChatTurn: false,
   }),
-  useVercelChat: () => mockUseVercelChatResult,
+  useVercelChat: () => {
+    const { useState } = jest.requireActual<typeof import("react")>("react")
+    const [adoptedMessages, setMessages] = useState<UIMessage[] | null>(null)
+    return {
+      ...mockUseVercelChatResult,
+      messages: adoptedMessages ?? mockUseVercelChatResult.messages,
+      setMessages,
+    }
+  },
 }))
 
 jest.mock("@/lib/hooks", () => ({
@@ -135,7 +145,7 @@ describe("ChatSessionPane optimistic first send", () => {
     mockUseVercelChatResult.status = "ready"
   })
 
-  it("keeps child history readable and disables direct messages", () => {
+  it("adopts persisted child history and disables direct messages", async () => {
     const description =
       "This subagent conversation is read-only. Message the parent conversation instead."
     const message: UIMessage = {
@@ -143,7 +153,6 @@ describe("ChatSessionPane optimistic first send", () => {
       role: "assistant",
       parts: [{ type: "text", text: "Child result" }],
     }
-    mockUseVercelChatResult.messages = [message]
     renderChatSessionPane({
       chat: {
         id: "child-session",
@@ -165,7 +174,7 @@ describe("ChatSessionPane optimistic first send", () => {
         messages: [message],
       },
     })
-    expect(screen.getByText("Child result")).toBeInTheDocument()
+    expect(await screen.findByText("Child result")).toBeInTheDocument()
     expect(screen.getByText(description)).toBeInTheDocument()
     expect(screen.getByPlaceholderText(description)).toBeDisabled()
     expect(screen.getByRole("button", { name: "Submit" })).toBeDisabled()
