@@ -42,7 +42,7 @@ def _agent_session_row(
     *,
     workspace_id: uuid.UUID,
     user_id: uuid.UUID | None,
-    parent_session_id: uuid.UUID | None,
+    spawned_by_session_id: uuid.UUID | None,
 ) -> SimpleNamespace:
     now = datetime.now(UTC)
     return SimpleNamespace(
@@ -63,7 +63,9 @@ def _agent_session_row(
         artifacts=[],
         harness_type=None,
         last_stream_id=None,
-        parent_session_id=parent_session_id,
+        parent_session_id=None,
+        spawned_by_session_id=spawned_by_session_id,
+        forked_from_session_id=None,
         created_at=now,
         updated_at=now,
     )
@@ -74,21 +76,23 @@ async def test_list_sessions_parent_session_filter_excludes_legacy_chats() -> No
     service, session, role = _build_service()
     assert role.workspace_id is not None
     assert role.user_id is not None
-    parent_session_id = uuid.uuid4()
+    spawned_by_session_id = uuid.uuid4()
     child_session = _agent_session_row(
         workspace_id=role.workspace_id,
         user_id=role.user_id,
-        parent_session_id=parent_session_id,
+        spawned_by_session_id=spawned_by_session_id,
     )
     session.execute.return_value = _mock_scalar_result([child_session])
 
     results = await service.list_sessions(
         created_by=role.user_id,
-        parent_session_id=parent_session_id,
+        spawned_by_session_id=spawned_by_session_id,
         limit=1,
     )
 
     session.execute.assert_awaited_once()
+    query = str(session.execute.await_args.args[0])
+    assert "agent_session.spawned_by_session_id =" in query
     assert results == [AgentSessionRead.model_validate(child_session)]
 
 
@@ -99,7 +103,7 @@ async def test_list_sessions_filter_created_by_none_excludes_legacy_chats() -> N
     session_row = _agent_session_row(
         workspace_id=role.workspace_id,
         user_id=None,
-        parent_session_id=None,
+        spawned_by_session_id=None,
     )
     session.execute.return_value = _mock_scalar_result([session_row])
 
@@ -111,6 +115,7 @@ async def test_list_sessions_filter_created_by_none_excludes_legacy_chats() -> N
     session.execute.assert_awaited_once()
     executed_stmt = session.execute.await_args.args[0]
     assert "agent_session.created_by IS NULL" in str(executed_stmt)
+    assert "agent_session.spawned_by_session_id IS NULL" in str(executed_stmt)
     assert results == [
         AgentSessionRead.model_validate(session_row).model_copy(
             update={"is_readonly": True}
@@ -125,12 +130,12 @@ async def test_list_sessions_marks_teammate_sessions_read_only() -> None:
     teammate_session = _agent_session_row(
         workspace_id=role.workspace_id,
         user_id=uuid.uuid4(),
-        parent_session_id=uuid.uuid4(),
+        spawned_by_session_id=uuid.uuid4(),
     )
     session.execute.return_value = _mock_scalar_result([teammate_session])
 
     results = await service.list_sessions(
-        parent_session_id=teammate_session.parent_session_id,
+        spawned_by_session_id=teammate_session.spawned_by_session_id,
         limit=1,
     )
 
@@ -150,7 +155,7 @@ async def test_list_sessions_derives_readonly_from_backend_state(
     row = _agent_session_row(
         workspace_id=role.workspace_id,
         user_id=role.user_id,
-        parent_session_id=uuid.uuid4(),
+        spawned_by_session_id=uuid.uuid4(),
     )
     row.backend_id = "external"
     row.harness_type = (
@@ -166,7 +171,9 @@ async def test_list_sessions_derives_readonly_from_backend_state(
         ),
         patch.object(provider, "is_enabled", return_value=backend_state != "disabled"),
     ):
-        results = await service.list_sessions(parent_session_id=row.parent_session_id)
+        results = await service.list_sessions(
+            spawned_by_session_id=row.spawned_by_session_id
+        )
     assert len(results) == 1
     assert isinstance(results[0], AgentSessionRead)
     assert results[0].is_readonly is (backend_state != "enabled")
@@ -191,3 +198,47 @@ async def test_list_sessions_excludes_legacy_workspace_chats() -> None:
     assert session.execute.await_count == 2
     chat_stmt = session.execute.await_args_list[1].args[0]
     assert "chat.entity_type NOT IN" in str(chat_stmt)
+
+
+@pytest.mark.anyio
+async def test_list_sessions_fork_source_filter_can_return_forked_children() -> None:
+    service, db, role = _build_service()
+    assert role.workspace_id is not None
+    source_id = uuid.uuid4()
+    child = _agent_session_row(
+        workspace_id=role.workspace_id,
+        user_id=role.user_id,
+        spawned_by_session_id=uuid.uuid4(),
+    )
+    child.forked_from_session_id = source_id
+    db.execute.return_value = _mock_scalar_result([child])
+
+    results = await service.list_sessions(
+        forked_from_session_id=source_id, include_children=True
+    )
+
+    assert len(results) == 1
+    query = str(db.execute.await_args.args[0])
+    assert "agent_session.forked_from_session_id =" in query
+    assert "agent_session.spawned_by_session_id IS NULL" not in query
+
+
+@pytest.mark.anyio
+async def test_list_sessions_fork_source_filter_defaults_to_standalone_forks() -> None:
+    service, db, role = _build_service()
+    assert role.workspace_id is not None
+    standalone_fork = _agent_session_row(
+        workspace_id=role.workspace_id,
+        user_id=role.user_id,
+        spawned_by_session_id=None,
+    )
+    source_id = uuid.uuid4()
+    standalone_fork.forked_from_session_id = source_id
+    db.execute.return_value = _mock_scalar_result([standalone_fork])
+
+    results = await service.list_sessions(forked_from_session_id=source_id)
+
+    assert len(results) == 1
+    query = str(db.execute.await_args.args[0])
+    assert "agent_session.forked_from_session_id =" in query
+    assert "agent_session.spawned_by_session_id IS NULL" in query

@@ -3,12 +3,13 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, cast, get_args
 from unittest.mock import AsyncMock, Mock, call, patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import Response, StreamingResponse
+from fastapi.testclient import TestClient
 from starlette import status
 
 from tracecat.agent.adapter.vercel import UIMessage
@@ -28,6 +29,7 @@ from tracecat.agent.session.router import (
     get_session_vercel,
     list_sessions,
     remove_session_artifact,
+    router,
     send_message,
     stream_session_events,
     update_session,
@@ -40,6 +42,7 @@ from tracecat.agent.session.schemas import (
 )
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.artifacts.schemas import CaseArtifact
+from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseSeverity, CaseStatus
 from tracecat.chat.schemas import (
@@ -48,6 +51,7 @@ from tracecat.chat.schemas import (
     ContinueRunRequest,
     VercelChatRequest,
 )
+from tracecat.db.engine import get_async_session
 from tracecat.exceptions import (
     EntitlementRequired,
     TracecatConflictError,
@@ -91,6 +95,8 @@ def _agent_session_stub(**overrides: Any) -> SimpleNamespace:
         "last_error": None,
         "artifacts": [],
         "parent_session_id": None,
+        "spawned_by_session_id": None,
+        "forked_from_session_id": None,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -142,6 +148,59 @@ def _without_workspace_chat_entitlement() -> Any:
     )
 
 
+@pytest.mark.parametrize(
+    ("filter_names", "conflicting", "expected_status"),
+    [
+        ((), False, 200),
+        (("parent_session_id",), False, 200),
+        (("forked_from_session_id",), False, 200),
+        (("parent_session_id", "forked_from_session_id"), False, 200),
+        (("parent_session_id", "forked_from_session_id"), True, 400),
+    ],
+)
+def test_list_sessions_http_fork_filter_compatibility(
+    filter_names: tuple[str, ...], conflicting: bool, expected_status: int
+) -> None:
+    """Old and new Inbox requests must retain their history-source filter."""
+    role = _read_role(uuid.uuid4())
+    source_id = uuid.uuid4()
+    user_id = uuid.uuid4()
+    params = {"created_by": str(user_id), "limit": "1"}
+    params.update({name: str(source_id) for name in filter_names})
+    if conflicting:
+        params["forked_from_session_id"] = str(uuid.uuid4())
+
+    app = FastAPI()
+    app.include_router(router)
+    role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
+    app.dependency_overrides[role_dependency] = lambda: role
+    app.dependency_overrides[get_async_session] = lambda: AsyncMock()
+    fake_svc = SimpleNamespace(list_sessions=AsyncMock(return_value=[]))
+    with (
+        patch(
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
+        ),
+        _without_workspace_chat_entitlement(),
+        TestClient(app) as client,
+    ):
+        response = client.get("/agent/sessions", params=params)
+
+    assert response.status_code == expected_status
+    if conflicting:
+        fake_svc.list_sessions.assert_not_awaited()
+        return
+    fake_svc.list_sessions.assert_awaited_once_with(
+        created_by=user_id,
+        entity_type=None,
+        entity_id=None,
+        exclude_entity_types=None,
+        spawned_by_session_id=None,
+        forked_from_session_id=source_id if filter_names else None,
+        include_children=False,
+        limit=1,
+    )
+
+
 @pytest.mark.anyio
 async def test_list_sessions_service_account_defaults_to_workspace_sessions() -> None:
     workspace_id = uuid.uuid4()
@@ -162,7 +221,9 @@ async def test_list_sessions_service_account_defaults_to_workspace_sessions() ->
             entity_id=None,
             created_by=None,
             exclude_entity_types=None,
-            parent_session_id=None,
+            spawned_by_session_id=None,
+            forked_from_session_id=None,
+            include_children=False,
             limit=100,
         )
 
@@ -171,8 +232,10 @@ async def test_list_sessions_service_account_defaults_to_workspace_sessions() ->
         created_by=None,
         entity_type=None,
         entity_id=None,
-        exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
-        parent_session_id=None,
+        exclude_entity_types=None,
+        spawned_by_session_id=None,
+        forked_from_session_id=None,
+        include_children=False,
         limit=100,
     )
 
@@ -205,7 +268,9 @@ async def test_list_sessions_user_filters_by_explicit_user_id() -> None:
             entity_id=None,
             created_by=user_id,
             exclude_entity_types=None,
-            parent_session_id=None,
+            spawned_by_session_id=None,
+            forked_from_session_id=None,
+            include_children=False,
             limit=100,
         )
 
@@ -214,8 +279,10 @@ async def test_list_sessions_user_filters_by_explicit_user_id() -> None:
         created_by=user_id,
         entity_type=None,
         entity_id=None,
-        exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
-        parent_session_id=None,
+        exclude_entity_types=None,
+        spawned_by_session_id=None,
+        forked_from_session_id=None,
+        include_children=False,
         limit=100,
     )
 
@@ -238,7 +305,9 @@ async def test_list_sessions_keeps_workspace_chat_when_entitled() -> None:
             entity_id=None,
             created_by=None,
             exclude_entity_types=None,
-            parent_session_id=None,
+            spawned_by_session_id=None,
+            forked_from_session_id=None,
+            include_children=False,
             limit=100,
         )
 
@@ -248,7 +317,9 @@ async def test_list_sessions_keeps_workspace_chat_when_entitled() -> None:
         entity_type=None,
         entity_id=None,
         exclude_entity_types=None,
-        parent_session_id=None,
+        spawned_by_session_id=None,
+        forked_from_session_id=None,
+        include_children=False,
         limit=100,
     )
 
@@ -280,7 +351,9 @@ async def test_list_sessions_user_defaults_to_workspace_sessions() -> None:
             entity_id=None,
             created_by=None,
             exclude_entity_types=None,
-            parent_session_id=None,
+            spawned_by_session_id=None,
+            forked_from_session_id=None,
+            include_children=False,
             limit=100,
         )
 
@@ -289,8 +362,10 @@ async def test_list_sessions_user_defaults_to_workspace_sessions() -> None:
         created_by=None,
         entity_type=None,
         entity_id=None,
-        exclude_entity_types=[AgentSessionEntity.WORKSPACE_CHAT],
-        parent_session_id=None,
+        exclude_entity_types=None,
+        spawned_by_session_id=None,
+        forked_from_session_id=None,
+        include_children=False,
         limit=100,
     )
 
@@ -429,65 +504,38 @@ async def test_get_session_vercel_includes_persisted_artifacts() -> None:
 
 
 @pytest.mark.anyio
-async def test_get_workspace_chat_session_requires_entitlement() -> None:
-    session_stub = _agent_session_stub(entity_type=AgentSessionEntity.WORKSPACE_CHAT)
+@pytest.mark.parametrize("endpoint", [get_session, get_session_vercel])
+@pytest.mark.parametrize("related", [False, True])
+async def test_session_history_remains_readable_without_entitlement(
+    endpoint: Any, related: bool
+) -> None:
+    session_stub = _agent_session_stub(
+        entity_type=(
+            AgentSessionEntity.APPROVAL
+            if related
+            else AgentSessionEntity.WORKSPACE_CHAT
+        ),
+        forked_from_session_id=uuid.uuid4() if related else None,
+    )
     fake_svc = SimpleNamespace(
         get_session=AsyncMock(return_value=session_stub),
+        get_workspace_chat_session_ids=AsyncMock(return_value={session_stub.id}),
         list_messages=AsyncMock(return_value=[]),
-        list_artifacts=Mock(return_value=[]),
     )
-
     with (
         patch(
-            "tracecat.agent.session.router.AgentSessionService",
-            return_value=fake_svc,
+            "tracecat.agent.session.router.AgentSessionService", return_value=fake_svc
         ),
-        patch(
-            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
-            AsyncMock(side_effect=EntitlementRequired("workspace_chat")),
-        ),
+        _without_workspace_chat_entitlement(),
     ):
-        raw_get_session = cast(Any, get_session).__wrapped__
-        with pytest.raises(EntitlementRequired):
-            await raw_get_session(
-                session_id=session_stub.id,
-                role=_read_role(session_stub.workspace_id),
-                session=AsyncMock(),
-            )
-
-
-@pytest.mark.anyio
-async def test_get_session_requires_entitlement_for_workspace_chat_parent() -> None:
-    parent_session = _agent_session_stub(entity_type=AgentSessionEntity.WORKSPACE_CHAT)
-    child_session = _agent_session_stub(
-        entity_type=AgentSessionEntity.APPROVAL,
-        parent_session_id=parent_session.id,
-    )
-    fake_svc = SimpleNamespace(
-        get_session=AsyncMock(side_effect=[child_session, parent_session]),
-        list_messages=AsyncMock(return_value=[]),
-        list_artifacts=Mock(return_value=[]),
-    )
-
-    with (
-        patch(
-            "tracecat.agent.session.router.AgentSessionService",
-            return_value=fake_svc,
-        ),
-        patch(
-            "tracecat.agent.session.router.require_workspace_chat_entitlement_for_entity",
-            AsyncMock(side_effect=_deny_workspace_chat_entitlement),
-        ),
-    ):
-        raw_get_session = cast(Any, get_session).__wrapped__
-        with pytest.raises(EntitlementRequired):
-            await raw_get_session(
-                session_id=child_session.id,
-                role=_read_role(child_session.workspace_id),
-                session=AsyncMock(),
-            )
-
-    fake_svc.list_messages.assert_not_awaited()
+        response = await endpoint.__wrapped__(
+            session_id=session_stub.id,
+            role=_read_role(session_stub.workspace_id),
+            session=AsyncMock(),
+        )
+    assert response.is_readonly is True
+    fake_svc.list_messages.assert_awaited_once_with(session_stub.id)
+    fake_svc.get_workspace_chat_session_ids.assert_awaited_once_with([session_stub.id])
 
 
 @pytest.mark.anyio
@@ -1327,7 +1375,12 @@ async def test_send_message_does_not_reset_stream_when_validation_fails() -> Non
 
 
 @pytest.mark.anyio
-async def test_send_message_requires_entitlement_for_workspace_chat_parent() -> None:
+@pytest.mark.parametrize(
+    "relationship", ["spawned_by_session_id", "forked_from_session_id"]
+)
+async def test_send_message_requires_entitlement_for_workspace_chat_parent(
+    relationship: str,
+) -> None:
     session_id = uuid.uuid4()
     workspace_id = uuid.uuid4()
     parent_session = _agent_session_stub(
@@ -1338,7 +1391,7 @@ async def test_send_message_requires_entitlement_for_workspace_chat_parent() -> 
         id=session_id,
         workspace_id=workspace_id,
         entity_type=AgentSessionEntity.APPROVAL,
-        parent_session_id=parent_session.id,
+        **{relationship: parent_session.id},
     )
     role = Role(
         type="service",
@@ -1511,6 +1564,10 @@ async def test_stream_session_events_returns_204_when_no_turn() -> None:
     role = _make_stream_role(workspace_id)
 
     fake_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        spawned_by_session_id=None,
+        forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
         active_stream_id=None,
@@ -1562,6 +1619,10 @@ async def test_stream_session_events_returns_204_when_completed() -> None:
     role = _make_stream_role(workspace_id)
 
     fake_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        spawned_by_session_id=None,
+        forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
         active_stream_id=None,
@@ -1613,6 +1674,10 @@ async def test_stream_session_events_emits_terminal_frame_when_failed() -> None:
     role = _make_stream_role(workspace_id)
 
     fake_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        spawned_by_session_id=None,
+        forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
         active_stream_id=stream_id,
@@ -1666,6 +1731,10 @@ async def test_stream_session_events_attaches_when_running_no_cursor() -> None:
     role = _make_stream_role(workspace_id)
 
     fake_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        spawned_by_session_id=None,
+        forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
         active_stream_id=stream_id,
@@ -1730,6 +1799,10 @@ async def test_stream_session_events_returns_204_when_pending_approvals() -> Non
     role = _make_stream_role(workspace_id)
 
     fake_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        spawned_by_session_id=None,
+        forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
         active_stream_id=stream_id,
@@ -1789,6 +1862,10 @@ async def test_stream_session_events_running_always_replays_from_start() -> None
     role = _make_stream_role(workspace_id)
 
     fake_session = SimpleNamespace(
+        id=session_id,
+        parent_session_id=None,
+        spawned_by_session_id=None,
+        forked_from_session_id=None,
         entity_type=AgentSessionEntity.AGENT_PRESET,
         last_stream_id=None,
         active_stream_id=stream_id,
@@ -1838,7 +1915,7 @@ async def test_stream_session_events_running_always_replays_from_start() -> None
 
 
 @pytest.mark.anyio
-async def test_stream_session_events_requires_entitlement_for_legacy_workspace_chat() -> (
+async def test_stream_session_events_reads_legacy_workspace_chat_without_entitlement() -> (
     None
 ):
     session_id = uuid.uuid4()
@@ -1871,17 +1948,17 @@ async def test_stream_session_events_requires_entitlement_for_legacy_workspace_c
         ),
     ):
         raw = cast(Any, stream_session_events).__wrapped__
-        with pytest.raises(EntitlementRequired):
-            await raw(
-                role=role,
-                request=SimpleNamespace(
-                    headers={"Last-Event-ID": "1234-0"},
-                    is_disconnected=AsyncMock(return_value=False),
-                ),
-                session_id=session_id,
-            )
+        response = await raw(
+            role=role,
+            request=SimpleNamespace(
+                headers={"Last-Event-ID": "1234-0"},
+                is_disconnected=AsyncMock(return_value=False),
+            ),
+            session_id=session_id,
+        )
 
-    fake_stream.sse.assert_not_called()
+    assert isinstance(response, StreamingResponse)
+    fake_stream.sse.assert_called_once()
 
 
 @pytest.mark.anyio
