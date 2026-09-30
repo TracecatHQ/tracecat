@@ -778,6 +778,9 @@ class DurableAgentWorkflow:
             name=ROOT_AGENT_SCOPE,
             config=cfg,
             internal_tool_context=internal_tool_context,
+            fail_on_mcp_discovery_error=workflow.patched(
+                DurableAgentWorkflowPatch.FAIL_ON_ROOT_MCP_DISCOVERY_ERROR
+            ),
         )
         if not workflow.patched(DurableAgentWorkflowPatch.BUILD_AGENT_TOOL_DEFINITIONS):
             try:
@@ -792,6 +795,7 @@ class DurableAgentWorkflow:
                         tool_approvals=cfg.tool_approvals,
                         mcp_servers=cfg.mcp_servers,
                         internal_tool_context=internal_tool_context,
+                        fail_on_mcp_discovery_error=root_spec.fail_on_mcp_discovery_error,
                     ),
                     start_to_close_timeout=timedelta(seconds=120),
                     retry_policy=RETRY_POLICIES["activity:fail_fast"],
