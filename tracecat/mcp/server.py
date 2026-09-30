@@ -2425,9 +2425,9 @@ ancestor's `ACTIONS.<ref>.result`, so add an edge only when it must wait.
   adding or editing any `run_if`, call `get_workflow_graph` and inspect every
   upstream action. State only the new condition; never `&&`/`||` a `gated_by`
   condition back in. Keep it short.
-- Joins differ: default `join_strategy: all` needs every parent visited, so a
-  skipped branch makes the join unreachable. Use `join_strategy: any`, or
-  repeat the branch's `run_if` on the join.
+- Joins: `join_strategy: all` (default) needs all parents run; a skipped
+  branch makes it unreachable unless the join repeats its `run_if`. `any`
+  runs if any parent succeeds, even if others skip.
 - Canvas layout is automatic; omit `layout`.
 
 ## Key DSL fields (inside each action under `actions:`)
@@ -2996,6 +2996,11 @@ changing what runs.
   workflow rather than skipping it. Either set `join_strategy: any`, or repeat
   the branch's condition in the join's own `run_if` so it self-skips before the
   reachability check.
+- `join_strategy: any` means any. The join runs as soon as one parent succeeds,
+  even when another parent was skipped by its own `run_if`. Its `gated_by` still
+  lists every upstream condition, but only a condition on every path into it
+  actually guards it; state any other condition the join needs in its own
+  `run_if`.
 - One parent is the norm. Multiple parents should mean a deliberate join.
 - Prefer a readable operational sequence over maximum parallelism. Two lookups
   that could run concurrently are still clearer as a chain when the reader
@@ -3918,8 +3923,9 @@ async def get_workflow_graph(
 
     Use `gated_by` to see which upstream conditions already guard an action:
     a skipped ancestor skips everything below it on the success path, so do
-    not restate those conditions in a downstream `run_if`. Only an `any` join
-    with another surviving parent can run after a gated branch is skipped.
+    not restate those conditions in a downstream `run_if`. `join: any` means
+    any: it runs once one parent succeeds, even if another parent was skipped
+    by a `gated_by` condition, so an `any` join may need its own `run_if`.
 
     Args:
         workspace_id: The workspace ID.

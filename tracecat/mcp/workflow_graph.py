@@ -60,7 +60,7 @@ def _node_label(action: ActionStatement) -> str:
         )
         lines.extend(f"for_each: {_strip_template(loop)}" for loop in loops)
     if action.join_strategy == JoinStrategy.ANY:
-        lines.append("join: any")
+        lines.append("join: any (one parent is enough)")
     if action.run_if is not None:
         lines.append(f"if: {_strip_template(action.run_if)}")
     return "<br/>".join(_escape_label(line) for line in lines)
