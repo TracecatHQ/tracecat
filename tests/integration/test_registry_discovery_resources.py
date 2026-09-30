@@ -6,7 +6,8 @@ NsJail::
     uv run pytest --noconftest tests/integration/test_registry_discovery_resources.py -m integration -s
 
 The test is skipped unless Linux and the configured NsJail sandbox rootfs are
-available.
+available. Start the container through ``python -m tracecat.sandbox.bootstrap``
+to delegate its cgroup before running pytest.
 """
 
 from __future__ import annotations

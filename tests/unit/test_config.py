@@ -691,3 +691,33 @@ def test_platform_otel_operator_settings_are_not_advertised_in_env_example() -> 
     assert "TRACECAT__PLATFORM_OTEL_ENABLED" not in source
     assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in source
     assert "OTEL_EXPORTER_OTLP_HEADERS" not in source
+
+
+@pytest.mark.parametrize("raw,expected", [("", None), ("8192", 8192)])
+def test_sandbox_address_space_override(
+    monkeypatch: pytest.MonkeyPatch, raw: str, expected: int | None
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__SANDBOX_ADDRESS_SPACE_MB", raw)
+            reloaded_config = importlib.reload(tracecat_config)
+            assert reloaded_config.TRACECAT__SANDBOX_ADDRESS_SPACE_MB == expected
+    finally:
+        importlib.reload(tracecat_config)
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["TRACECAT__SANDBOX_DEFAULT_MEMORY_MB", "TRACECAT__SANDBOX_ADDRESS_SPACE_MB"],
+)
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_sandbox_memory_limits_must_be_positive(
+    monkeypatch: pytest.MonkeyPatch, name: str, value: str
+) -> None:
+    try:
+        with monkeypatch.context() as env:
+            env.setenv(name, value)
+            with pytest.raises(ValueError, match=name):
+                importlib.reload(tracecat_config)
+    finally:
+        importlib.reload(tracecat_config)

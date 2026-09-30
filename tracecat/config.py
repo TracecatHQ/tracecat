@@ -696,7 +696,20 @@ TRACECAT__SANDBOX_DEFAULT_TIMEOUT = int(
 TRACECAT__SANDBOX_DEFAULT_MEMORY_MB = int(
     os.environ.get("TRACECAT__SANDBOX_DEFAULT_MEMORY_MB") or 2048
 )
-"""Default memory limit for sandbox execution in megabytes (2 GiB)."""
+"""Aggregate cgroup memory budget for action and Python sandboxes in MiB."""
+if TRACECAT__SANDBOX_DEFAULT_MEMORY_MB <= 0:
+    raise ValueError("TRACECAT__SANDBOX_DEFAULT_MEMORY_MB must be positive")
+
+_sandbox_address_space_mb = os.environ.get("TRACECAT__SANDBOX_ADDRESS_SPACE_MB")
+TRACECAT__SANDBOX_ADDRESS_SPACE_MB = (
+    int(_sandbox_address_space_mb) if _sandbox_address_space_mb else None
+)
+"""Per-process address-space cap in MiB; defaults to twice the memory budget."""
+if (
+    TRACECAT__SANDBOX_ADDRESS_SPACE_MB is not None
+    and TRACECAT__SANDBOX_ADDRESS_SPACE_MB <= 0
+):
+    raise ValueError("TRACECAT__SANDBOX_ADDRESS_SPACE_MB must be positive")
 
 TRACECAT__SANDBOX_PYPI_INDEX_URL = os.environ.get(
     "TRACECAT__SANDBOX_PYPI_INDEX_URL", "https://pypi.org/simple"

@@ -218,6 +218,8 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
             [
                 "services:",
                 "  executor:",
+                '    user: "0:0"',
+                "    cgroup: private",
                 "    build:",
                 "      target: test",
                 "    privileged: true",
@@ -254,9 +256,12 @@ def _run_executor_action_smoke_in_docker_or_skip(smoke_case: SmokeCase) -> None:
                 "--build",
                 "-T",
                 "--entrypoint",
-                "sh",
+                "python",
                 "executor",
-                "-lc",
+                "-m",
+                "tracecat.sandbox.bootstrap",
+                "sh",
+                "-c",
                 "uv run python -m tests.unit.test_executor_sandbox_nsjail "
                 f"--run-smoke {smoke_case.value}",
             ],

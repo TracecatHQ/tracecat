@@ -45,6 +45,7 @@ from tracecat.executor.secret_preprocessors import (
     project_secret_env,
 )
 from tracecat.logger import logger
+from tracecat.sandbox.cgroup import sandbox_cgroup
 from tracecat.sandbox.exceptions import (
     raise_for_sandbox_error_code,
     sandbox_resource_limit_message,
@@ -357,6 +358,7 @@ class ActionRunner:
                 action_gateway_socket_mount_path=ACTION_GATEWAY_SANDBOX_SOCKET,
                 resources=ResourceLimits(
                     memory_mb=config.TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
+                    address_space_mb=config.TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
                     timeout_seconds=int(timeout),
                 ),
                 timeout_seconds=timeout,
@@ -371,7 +373,7 @@ class ActionRunner:
 
             # Execute in sandbox
             start_time = time.monotonic()
-            executor = NsjailExecutor()
+            executor = NsjailExecutor(cgroup_mount=sandbox_cgroup())
             result = await executor.execute_action(job_dir, sandbox_config)
             elapsed_ms = (time.monotonic() - start_time) * 1000
             logger.info(

@@ -32,6 +32,7 @@ from tracecat.registry.sync.schemas import (
     SyncResultError,
     SyncResultSuccess,
 )
+from tracecat.sandbox.cgroup import sandbox_cgroup
 from tracecat.sandbox.exceptions import SandboxTimeoutError
 from tracecat.sandbox.executor import NsjailExecutor
 from tracecat.sandbox.types import (
@@ -386,7 +387,7 @@ class RegistrySyncSandbox:
         )
 
         try:
-            result = await NsjailExecutor().execute(
+            result = await NsjailExecutor(cgroup_mount=sandbox_cgroup()).execute(
                 keyscan_dir,
                 SandboxConfig(
                     network=SandboxNetworkRequest(SandboxNetworkPurpose.REGISTRY),
@@ -521,7 +522,7 @@ class RegistrySyncSandbox:
                 env_vars[f"GIT_CONFIG_KEY_{index}"] = key
                 env_vars[f"GIT_CONFIG_VALUE_{index}"] = value
 
-            executor = NsjailExecutor()
+            executor = NsjailExecutor(cgroup_mount=sandbox_cgroup())
             result = await executor.execute(
                 job_dir,
                 SandboxConfig(
@@ -588,7 +589,9 @@ class RegistrySyncSandbox:
         )
         (job_dir / "install.py").write_text(INSTALL_SCRIPT, encoding="utf-8")
 
-        executor = NsjailExecutor(cache_dir=str(private_cache))
+        executor = NsjailExecutor(
+            cache_dir=str(private_cache), cgroup_mount=sandbox_cgroup()
+        )
         result = await executor.execute_install(
             job_dir,
             _INSTALL_CACHE_KEY,
@@ -634,7 +637,7 @@ class RegistrySyncSandbox:
             encoding="utf-8",
         )
 
-        executor = NsjailExecutor()
+        executor = NsjailExecutor(cgroup_mount=sandbox_cgroup())
         result = await executor.execute(
             job_dir,
             SandboxConfig(
@@ -729,7 +732,7 @@ class RegistrySyncSandbox:
             (job_dir / "wrapper.py").write_text(WRAPPER_SCRIPT, encoding="utf-8")
             (job_dir / "inputs.json").write_text(json.dumps(inputs), encoding="utf-8")
 
-            executor = NsjailExecutor()
+            executor = NsjailExecutor(cgroup_mount=sandbox_cgroup())
             trusted_tracecat_root, *other_trusted_roots = trusted_package_roots
             result = await executor.execute(
                 job_dir,

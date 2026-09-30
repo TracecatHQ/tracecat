@@ -150,8 +150,8 @@ def test_nsjail_configs_use_resource_limit_megabyte_units(tmp_path: Path) -> Non
     )
 
     for config_text, address_space_mb in (
-        (python_config, 321),
-        (action_config, 321),
+        (python_config, 642),
+        (action_config, 642),
         (agent_config, 642),
     ):
         assert f"rlimit_as: {address_space_mb}" in config_text

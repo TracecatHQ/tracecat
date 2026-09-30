@@ -6,6 +6,9 @@
 
 services:
   executor:
+    user: "0:0"
+    cgroup: private
+    entrypoint: ["python", "-m", "tracecat.sandbox.bootstrap"]
     environment:
       TRACECAT__DISABLE_NSJAIL: ${TRACECAT__DISABLE_NSJAIL:-false}
     # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable

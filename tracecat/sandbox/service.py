@@ -16,6 +16,7 @@ from typing import Any
 
 from tracecat.config import (
     TRACECAT__DISABLE_NSJAIL,
+    TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
     TRACECAT__SANDBOX_CACHE_DIR,
     TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
     TRACECAT__SANDBOX_DEFAULT_TIMEOUT,
@@ -25,6 +26,7 @@ from tracecat.config import (
     TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
+from tracecat.sandbox.cgroup import sandbox_cgroup
 from tracecat.sandbox.exceptions import (
     PackageInstallError,
     SandboxExecutionError,
@@ -150,7 +152,7 @@ class SandboxService:
     def nsjail_executor(self) -> NsjailExecutor:
         """Get the nsjail executor, creating it if needed."""
         if self._nsjail_executor is None:
-            self._nsjail_executor = NsjailExecutor()
+            self._nsjail_executor = NsjailExecutor(cgroup_mount=sandbox_cgroup())
         return self._nsjail_executor
 
     @property
@@ -613,6 +615,7 @@ class SandboxService:
                 resources=ResourceLimits(
                     timeout_seconds=timeout_seconds,
                     memory_mb=TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
+                    address_space_mb=TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
                 ),
                 env_vars=self._with_action_gateway_socket_env(
                     env_vars,

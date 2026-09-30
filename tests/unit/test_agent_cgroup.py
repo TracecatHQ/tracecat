@@ -5,9 +5,11 @@ from unittest.mock import Mock, call
 
 import pytest
 
-from tracecat.agent import executor_worker
-from tracecat.agent.sandbox import cgroup
-from tracecat.agent.sandbox.cgroup import CGROUP_PATH_ENV, sandbox_cgroup
+from tracecat.agent import executor_worker as agent_worker
+from tracecat.agent.sandbox import cgroup as agent_cgroup
+from tracecat.executor import worker as executor_worker
+from tracecat.sandbox import cgroup
+from tracecat.sandbox.cgroup import CGROUP_PATH_ENV, sandbox_cgroup
 
 
 def test_missing_delegation_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -22,8 +24,11 @@ async def test_worker_rejects_missing_delegation(
 ) -> None:
     monkeypatch.setattr(executor_worker.config, "TRACECAT__DISABLE_NSJAIL", False)
     monkeypatch.delenv(CGROUP_PATH_ENV, raising=False)
+    monkeypatch.delenv(agent_cgroup.CGROUP_PATH_ENV, raising=False)
     with pytest.raises(RuntimeError, match="requires cgroup v2 delegation"):
         await executor_worker.main()
+    with pytest.raises(RuntimeError, match="requires cgroup v2 delegation"):
+        await agent_worker.main()
 
 
 def test_memory_controller_is_required(
@@ -49,7 +54,7 @@ def bootstrap_process(monkeypatch: pytest.MonkeyPatch) -> Mock:
     monkeypatch.setattr(cgroup, "sandbox_cgroup", validation)
     monkeypatch.setattr(cgroup.sys, "argv", ["cgroup", "python", "-m", "worker"])
     monkeypatch.setenv("TRACECAT__DISABLE_NSJAIL", "false")
-    monkeypatch.delenv(CGROUP_PATH_ENV, raising=False)
+    monkeypatch.setenv(CGROUP_PATH_ENV, "")
     for name in ("HOME", "USER", "LOGNAME"):
         monkeypatch.setenv(name, "original")
     return process
@@ -80,7 +85,7 @@ def test_bootstrap_selects_and_validates_subtree_as_apiuser(
         call.setgroups([]),
         call.setgid(cgroup.APIUSER_ID),
         call.setuid(cgroup.APIUSER_ID),
-        call.validate(),
+        call.validate(CGROUP_PATH_ENV),
         call.execvp("python", ["python", "-m", "worker"]),
     ]
 
@@ -110,7 +115,7 @@ def test_bootstrap_rejects_unusable_explicit_subtree(
         call.setgroups([]),
         call.setgid(cgroup.APIUSER_ID),
         call.setuid(cgroup.APIUSER_ID),
-        call.validate(),
+        call.validate(CGROUP_PATH_ENV),
     ]
 
 
@@ -125,6 +130,21 @@ def test_bootstrap_skips_cgroups_in_direct_mode(
 
     delegate.assert_not_called()
     bootstrap_process.validate.assert_not_called()
+    bootstrap_process.execvp.assert_called_once_with(
+        "python", ["python", "-m", "worker"]
+    )
+
+
+def test_agent_bootstrap_preserves_its_delegation_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bootstrap_process: Mock
+) -> None:
+    monkeypatch.setenv(agent_cgroup.CGROUP_PATH_ENV, "")
+    (tmp_path / "cgroup.subtree_control").write_text("memory")
+    (tmp_path / "cgroup.procs").touch()
+    monkeypatch.setattr(cgroup, "delegate_cgroup", Mock(return_value=tmp_path))
+    agent_cgroup.main()
+    assert agent_cgroup.sandbox_cgroup() == tmp_path
+    assert sandbox_cgroup() == tmp_path
     bootstrap_process.execvp.assert_called_once_with(
         "python", ["python", "-m", "worker"]
     )
