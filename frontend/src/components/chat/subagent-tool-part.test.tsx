@@ -78,19 +78,22 @@ function subagentPart(overrides: Record<string, unknown>): Part {
 }
 
 function renderPart(part: Part, wrap: (node: ReactNode) => ReactNode) {
-  return render(
-    <>
-      {wrap(
-        <MessagePart
-          part={part}
-          partIdx={0}
-          id="parent-message"
-          role="assistant"
-          isLastMessage
-        />
-      )}
-    </>
-  )
+  function content(currentPart: Part) {
+    return wrap(
+      <MessagePart
+        part={currentPart}
+        partIdx={0}
+        id="parent-message"
+        role="assistant"
+        isLastMessage
+      />
+    )
+  }
+  const view = render(content(part))
+  return {
+    ...view,
+    rerenderPart: (nextPart: Part) => view.rerender(content(nextPart)),
+  }
 }
 
 describe("subagent tool part", () => {
@@ -277,6 +280,62 @@ describe("subagent tool part", () => {
         workspaceId: "workspace-1",
       })
     )
+  })
+
+  it("keeps completed live text until fresh history loads, then releases it", async () => {
+    const store = new SubagentStreamStore()
+    for (const [index, chunk] of [
+      { type: "start", messageId: CHILD_ID },
+      { type: "text-start", id: "t1" },
+      { type: "text-delta", id: "t1", delta: "Live reply" },
+    ].entries()) {
+      store.ingest({
+        session_id: CHILD_ID,
+        event_id: "e1",
+        index,
+        chunk: chunk as never,
+      })
+    }
+    const finalPart = subagentPart({
+      state: "output-available",
+      output: { session_id: CHILD_ID, status: "completed" },
+    })
+    // A cached response is not authoritative while the completion fetch runs.
+    mockUseGetChatVercel.mockReturnValue({
+      chat: { id: CHILD_ID, messages: [] },
+      chatLoading: false,
+      chatFetching: true,
+      chatError: null,
+    })
+    const view = renderPart(finalPart, (node) => (
+      <SubagentStreamContext.Provider
+        value={{ store, workspaceId: "workspace-1" }}
+      >
+        {node}
+      </SubagentStreamContext.Provider>
+    ))
+    expect(await screen.findByText("Live reply")).toBeInTheDocument()
+    expect(store.getMessage(CHILD_ID)).toBeDefined()
+
+    mockUseGetChatVercel.mockReturnValue({
+      chat: {
+        id: CHILD_ID,
+        messages: [
+          {
+            id: "persisted-reply",
+            role: "assistant",
+            parts: [{ type: "text", text: "Persisted reply" }],
+          },
+        ],
+      },
+      chatLoading: false,
+      chatFetching: false,
+      chatError: null,
+    })
+    view.rerenderPart(finalPart)
+    expect(await screen.findByText("Persisted reply")).toBeInTheDocument()
+    expect(screen.queryByText("Live reply")).not.toBeInTheDocument()
+    expect(store.getMessage(CHILD_ID)).toBeUndefined()
   })
 
   it.each([

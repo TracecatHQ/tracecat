@@ -97,9 +97,9 @@ type SubagentSession = {
   seenKeys: Set<string>
   /** Null until the first chunk arrives, and again once the reader stops. */
   controller: ReadableStreamDefaultController<UIMessageChunk> | null
-  started: boolean
+  reader: Promise<void> | null
+  closed: boolean
   message: UIMessage | undefined
-  listeners: Set<() => void>
 }
 
 function normalizeSessionId(sessionId: string): string {
@@ -116,17 +116,23 @@ function normalizeSessionId(sessionId: string): string {
  */
 export class SubagentStreamStore {
   private readonly sessions = new Map<string, SubagentSession>()
+  private readonly listeners = new Map<string, Set<() => void>>()
+  // Completed children can replay while their parent is still running. Keep
+  // only their identities until that turn ends, rather than rehydrate readers.
+  private readonly releasedSessions = new Set<string>()
 
   /** Route one child chunk into its session's stream, dropping replays. */
   ingest(data: AgentChunkData): void {
+    if (this.releasedSessions.has(normalizeSessionId(data.session_id))) return
     const session = this.getOrCreateSession(data.session_id)
+    if (session.closed) return
     const key = `${data.index}:${data.event_id}`
     if (session.seenKeys.has(key)) {
       return
     }
     session.seenKeys.add(key)
-    if (!session.started) {
-      this.startReader(session)
+    if (!session.reader) {
+      this.startReader(data.session_id, session)
     }
     try {
       session.controller?.enqueue(data.chunk)
@@ -144,11 +150,64 @@ export class SubagentStreamStore {
 
   /** Subscribe to live message updates for a child session. */
   subscribe(sessionId: string, listener: () => void): () => void {
-    const session = this.getOrCreateSession(sessionId)
-    session.listeners.add(listener)
-    return () => {
-      session.listeners.delete(listener)
+    const key = normalizeSessionId(sessionId)
+    let listeners = this.listeners.get(key)
+    if (!listeners) {
+      listeners = new Set()
+      this.listeners.set(key, listeners)
     }
+    const subscribers = listeners
+    subscribers.add(listener)
+    return () => {
+      subscribers.delete(listener)
+      if (subscribers.size === 0) {
+        this.listeners.delete(key)
+        if (this.sessions.get(key)?.closed) this.release(key)
+      }
+    }
+  }
+
+  /** Drain completed readers, retaining displayed snapshots until history loads. */
+  async complete(): Promise<void> {
+    this.releasedSessions.clear()
+    await Promise.all(
+      [...this.sessions].map(async ([key, session]) => {
+        this.closeReader(session)
+        await session.reader
+        session.seenKeys.clear()
+        if (!this.listeners.has(key) && this.sessions.get(key) === session) {
+          this.sessions.delete(key)
+        }
+      })
+    )
+  }
+
+  /** Release a live snapshot after the caller has adopted persisted history. */
+  release(sessionId: string): void {
+    const key = normalizeSessionId(sessionId)
+    const session = this.sessions.get(key)
+    if (!session) return
+    this.sessions.delete(key)
+    this.releasedSessions.add(key)
+    this.closeReader(session)
+    session.seenKeys.clear()
+    this.notify(key)
+  }
+
+  /** Close readers and discard snapshots when the owning chat changes or unmounts. */
+  dispose(): void {
+    for (const key of this.sessions.keys()) this.release(key)
+    this.releasedSessions.clear()
+  }
+
+  private closeReader(session: SubagentSession): void {
+    session.closed = true
+    session.controller?.close()
+    session.controller = null
+  }
+
+  private notify(key: string): void {
+    for (const listener of this.listeners.get(key) ?? []) listener()
   }
 
   private getOrCreateSession(sessionId: string): SubagentSession {
@@ -160,28 +219,35 @@ export class SubagentStreamStore {
     const session: SubagentSession = {
       seenKeys: new Set(),
       controller: null,
-      started: false,
+      reader: null,
+      closed: false,
       message: undefined,
-      listeners: new Set(),
     }
     this.sessions.set(key, session)
     return session
   }
 
-  private startReader(session: SubagentSession): void {
-    session.started = true
+  private startReader(sessionId: string, session: SubagentSession): void {
+    const key = normalizeSessionId(sessionId)
     const stream = new ReadableStream<UIMessageChunk>({
       start(controller) {
         session.controller = controller
       },
+      cancel() {
+        session.controller = null
+      },
     })
-    void readSession(session, stream)
+    session.reader = readSession(session, stream, () => {
+      // A disposed reader can finish draining after a new chat has subscribed.
+      if (this.sessions.get(key) === session) this.notify(key)
+    })
   }
 }
 
 async function readSession(
   session: SubagentSession,
-  stream: ReadableStream<UIMessageChunk>
+  stream: ReadableStream<UIMessageChunk>,
+  onMessage: () => void
 ): Promise<void> {
   try {
     for await (const message of readUIMessageStream({
@@ -190,9 +256,7 @@ async function readSession(
         console.error("Failed to process subagent stream", error),
     })) {
       session.message = message
-      for (const listener of session.listeners) {
-        listener()
-      }
+      onMessage()
     }
   } catch (error) {
     console.error("Subagent stream ended unexpectedly", error)

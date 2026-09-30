@@ -102,6 +102,67 @@ describe("SubagentStreamStore", () => {
     expect(listener).toHaveBeenCalled()
     unsubscribe()
   })
+
+  it("drains completed readers and releases snapshots after history adoption", async () => {
+    const store = new SubagentStreamStore()
+    const listener = jest.fn()
+    const unsubscribe = store.subscribe(CHILD_A, listener)
+    const chunks = [
+      chunk(CHILD_A, "e0", 0, { type: "start", messageId: CHILD_A }),
+      ...textChunks(CHILD_A, "e1", "complete reply"),
+    ]
+    for (const data of chunks) store.ingest(data)
+
+    // Completion waits for queued chunks, even though there is no child finish.
+    await store.complete()
+    expect(messageText(store.getMessage(CHILD_A))).toBe("complete reply")
+    store.release(CHILD_A)
+    expect(store.getMessage(CHILD_A)).toBeUndefined()
+
+    // A parent reconnect cannot resurrect a child already replaced by history.
+    listener.mockClear()
+    for (const data of chunks) store.ingest(data)
+    expect(store.getMessage(CHILD_A)).toBeUndefined()
+    expect(listener).not.toHaveBeenCalled()
+    await store.complete()
+
+    // The next turn can use the store, with mounted subscribers still attached.
+    for (const data of chunks) store.ingest(data)
+    await store.complete()
+    expect(messageText(store.getMessage(CHILD_A))).toBe("complete reply")
+    expect(listener).toHaveBeenCalled()
+    unsubscribe()
+    expect(store.getMessage(CHILD_A)).toBeUndefined()
+  })
+
+  it("evicts completed children that have no subscribers", async () => {
+    const store = new SubagentStreamStore()
+    for (const data of textChunks(CHILD_A, "e1", "complete reply")) {
+      store.ingest(data)
+    }
+    await store.complete()
+    expect(store.getMessage(CHILD_A)).toBeUndefined()
+  })
+
+  it("does not publish queued updates after disposal", async () => {
+    const store = new SubagentStreamStore()
+    const listener = jest.fn()
+    const unsubscribe = store.subscribe(CHILD_A, listener)
+    for (const data of textChunks(CHILD_A, "e1", "old reply"))
+      store.ingest(data)
+    store.dispose()
+    listener.mockClear()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(store.getMessage(CHILD_A)).toBeUndefined()
+    expect(listener).not.toHaveBeenCalled()
+    // StrictMode may dispose and reuse the same store on its initial mount.
+    for (const data of textChunks(CHILD_A, "e2", "new reply"))
+      store.ingest(data)
+    await store.complete()
+    expect(messageText(store.getMessage(CHILD_A))).toBe("new reply")
+    unsubscribe()
+  })
 })
 
 describe("parseAgentChunkData", () => {

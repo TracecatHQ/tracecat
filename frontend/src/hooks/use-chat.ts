@@ -483,6 +483,7 @@ export function useGetChatVercel({
   const {
     data: chat,
     isLoading: chatLoading,
+    isFetching: chatFetching,
     error: chatError,
   } = useQuery<AgentSessionsGetSessionVercelResponse, ApiError>({
     queryKey: ["chat", chatId, workspaceId, "vercel"],
@@ -501,7 +502,7 @@ export function useGetChatVercel({
     // (e.g. after an approval was resolved from another surface).
     refetchOnMount: "always",
   })
-  return { chat, chatLoading, chatError }
+  return { chat, chatLoading, chatFetching, chatError }
 }
 
 function applyArtifactsToVercelChat(
@@ -601,7 +602,11 @@ export function useVercelChat({
   } | null>(null)
   // Live child-session transcripts. Child chunks are transient data parts, so
   // they never enter `messages`; they are routed here instead.
-  const [subagentStore] = useState(() => new SubagentStreamStore())
+  const subagentStore = useMemo(
+    () => new SubagentStreamStore(),
+    [chatId, workspaceId]
+  )
+  useEffect(() => () => subagentStore.dispose(), [subagentStore])
 
   // Build the Vercel streaming endpoint URL
   const apiEndpoint = useMemo(() => {
@@ -667,7 +672,10 @@ export function useVercelChat({
         description: friendlyMessage,
       })
     },
-    onFinish: () => {
+    onFinish: ({ isAbort, isDisconnect, isError }) => {
+      if (!isAbort && !isDisconnect && !isError) {
+        void subagentStore.complete()
+      }
       setLastError(null)
       invalidateChatTurnQueries(queryClient, { chatId, workspaceId })
       // First-prompt auto-titling runs as a detached backend task that can

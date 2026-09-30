@@ -3,6 +3,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useSyncExternalStore,
 } from "react"
@@ -46,8 +47,8 @@ export function useSubagentLiveMessage(
 /**
  * Transcript for a subagent card.
  *
- * Uses the live child stream when this page received it. Otherwise, once the
- * child has finished, loads its persisted history (e.g. after a refresh).
+ * Keeps live text visible until a completed child's persisted history loads,
+ * then releases the streaming snapshot and its reader.
  */
 export function useSubagentTranscript({
   sessionId,
@@ -66,14 +67,24 @@ export function useSubagentTranscript({
   const workspaceId = context?.workspaceId ?? fallbackWorkspaceId
   const liveMessage = useSubagentLiveMessage(sessionId)
   const persistedSessionId =
-    finished && !liveMessage && sessionId && workspaceId ? sessionId : undefined
-  const { chat, chatLoading, chatError } = useGetChatVercel({
+    finished && sessionId && workspaceId ? sessionId : undefined
+  const { chat, chatLoading, chatFetching, chatError } = useGetChatVercel({
     chatId: persistedSessionId,
     workspaceId: workspaceId ?? "",
   })
+  const hasPersistedHistory =
+    persistedSessionId !== undefined &&
+    chat !== undefined &&
+    !chatFetching &&
+    !chatError
+  useEffect(() => {
+    if (hasPersistedHistory && persistedSessionId) {
+      context?.store.release(persistedSessionId)
+    }
+  }, [context?.store, hasPersistedHistory, persistedSessionId])
 
   const messages = useMemo(() => {
-    if (liveMessage) {
+    if (!hasPersistedHistory && liveMessage) {
       return transformMessages([liveMessage])
     }
     if (!persistedSessionId || !chat) {
@@ -83,11 +94,11 @@ export function useSubagentTranscript({
     return transformMessages((chat.messages ?? []).map(toUIMessage)).filter(
       (message) => message.role !== "user"
     )
-  }, [chat, liveMessage, persistedSessionId])
+  }, [chat, liveMessage, hasPersistedHistory, persistedSessionId])
 
   return {
     messages,
-    isLive: liveMessage !== undefined,
+    isLive: !hasPersistedHistory && liveMessage !== undefined,
     isLoading: persistedSessionId !== undefined && chatLoading,
     isError: persistedSessionId !== undefined && chatError != null,
   }
