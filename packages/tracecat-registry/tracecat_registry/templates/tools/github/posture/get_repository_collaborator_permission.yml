@@ -8,8 +8,12 @@ definition:
   name: get_repository_collaborator_permission
   secrets:
   - type: oauth
-    provider_id: github
+    provider_id: github_app
     grant_type: client_credentials
+    optional: true
+  - type: oauth
+    provider_id: github_app
+    grant_type: authorization_code
     optional: true
   - type: oauth
     provider_id: github
@@ -36,7 +40,7 @@ definition:
       url: ${{ inputs.base_url }}/repos/${{ FN.url_encode(inputs.owner) }}/${{ FN.url_encode(inputs.repo) }}/collaborators/${{ FN.url_encode(inputs.username) }}/permission
       method: GET
       headers:
-        Authorization: Bearer ${{ SECRETS.github_oauth.GITHUB_SERVICE_TOKEN || SECRETS.github_oauth.GITHUB_USER_TOKEN }}
+        Authorization: Bearer ${{ SECRETS.github_app_oauth.GITHUB_APP_SERVICE_TOKEN || SECRETS.github_app_oauth.GITHUB_APP_USER_TOKEN || SECRETS.github_oauth.GITHUB_USER_TOKEN }}
         Accept: application/vnd.github+json
         X-GitHub-Api-Version: '2022-11-28'
   returns: ${{ steps.request.result }}

@@ -15,7 +15,8 @@ from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.providers import PROVIDER_REGISTRY
 from tracecat.integrations.providers.github import app as github_app
 from tracecat.integrations.providers.github.app import (
-    GitHubAppProvider,
+    GitHubAppInstallationProvider,
+    GitHubAppUserProvider,
     parse_github_app_permissions,
 )
 from tracecat.integrations.schemas import ProviderKey
@@ -55,26 +56,41 @@ def _mock_github(
     )
 
 
-def test_github_registers_app_and_oauth_grants() -> None:
-    registered = {key.grant_type for key in PROVIDER_REGISTRY if key.id == "github"}
+def test_github_app_registers_installation_and_user_grants() -> None:
+    registered = {key.grant_type for key in PROVIDER_REGISTRY if key.id == "github_app"}
     assert registered == {
         OAuthGrantType.AUTHORIZATION_CODE,
         OAuthGrantType.CLIENT_CREDENTIALS,
     }
-    cls = PROVIDER_REGISTRY[
-        ProviderKey(id="github", grant_type=OAuthGrantType.CLIENT_CREDENTIALS)
+    installation_cls = PROVIDER_REGISTRY[
+        ProviderKey(id="github_app", grant_type=OAuthGrantType.CLIENT_CREDENTIALS)
     ]
-    assert cls is GitHubAppProvider
+    user_cls = PROVIDER_REGISTRY[
+        ProviderKey(id="github_app", grant_type=OAuthGrantType.AUTHORIZATION_CODE)
+    ]
+    assert installation_cls is GitHubAppInstallationProvider
+    assert user_cls is GitHubAppUserProvider
+    assert user_cls.default_authorization_endpoint == (
+        "https://github.com/login/oauth/authorize"
+    )
+    assert user_cls.default_token_endpoint == (
+        "https://github.com/login/oauth/access_token"
+    )
+
+
+def test_github_oauth_provider_is_unchanged() -> None:
+    registered = {key.grant_type for key in PROVIDER_REGISTRY if key.id == "github"}
+    assert registered == {OAuthGrantType.AUTHORIZATION_CODE}
 
 
 def test_rejects_invalid_private_key() -> None:
     with pytest.raises(ValueError, match="PEM private key"):
-        GitHubAppProvider(client_id="123", client_secret="not-a-key")
+        GitHubAppInstallationProvider(client_id="123", client_secret="not-a-key")
 
 
 def test_normalizes_escaped_private_key(private_key_pem: str) -> None:
     escaped = private_key_pem.strip().replace("\n", "\\n")
-    provider = GitHubAppProvider(client_id=" 123 ", client_secret=escaped)
+    provider = GitHubAppInstallationProvider(client_id=" 123 ", client_secret=escaped)
     assert provider.client_id == "123"
     assert provider.client_secret == private_key_pem
 
@@ -117,7 +133,7 @@ async def test_mints_token_for_single_installation(
         )
 
     _mock_github(monkeypatch, httpx.MockTransport(handler))
-    provider = GitHubAppProvider(
+    provider = GitHubAppInstallationProvider(
         client_id="Iv23liAppClient",
         client_secret=private_key_pem,
         scopes=["issues:write"],
@@ -144,7 +160,7 @@ async def test_uses_explicit_installation_endpoint(
 
     _mock_github(monkeypatch, httpx.MockTransport(handler))
     endpoint = "https://ghe.example.com/api/v3/app/installations/7/access_tokens"
-    provider = GitHubAppProvider(
+    provider = GitHubAppInstallationProvider(
         client_id="123",
         client_secret=private_key_pem,
         authorization_endpoint=endpoint,
@@ -173,7 +189,9 @@ async def test_multiple_installations_require_explicit_endpoint(
         )
 
     _mock_github(monkeypatch, httpx.MockTransport(handler))
-    provider = GitHubAppProvider(client_id="123", client_secret=private_key_pem)
+    provider = GitHubAppInstallationProvider(
+        client_id="123", client_secret=private_key_pem
+    )
 
     with pytest.raises(ValueError, match=r"2 installations: acme \(1\), globex \(2\)"):
         await provider.get_client_credentials_token()
@@ -184,22 +202,24 @@ async def test_multiple_installations_require_explicit_endpoint(
     GITHUB_TEMPLATES,
     ids=lambda p: str(p.relative_to(p.parents[1])),
 )
-def test_github_template_prefers_app_token(path: Path) -> None:
+def test_github_template_credential_priority(path: Path) -> None:
     definition = TemplateAction.from_yaml(path).definition
     secrets = definition.secrets or []
+    assert len(secrets) == 3
     assert [
         (s.provider_id, s.grant_type, s.optional)
         for s in secrets
         if isinstance(s, RegistryOAuthSecret)
     ] == [
-        ("github", "client_credentials", True),
+        ("github_app", "client_credentials", True),
+        ("github_app", "authorization_code", True),
         ("github", "authorization_code", True),
     ]
-    assert len(secrets) == 2
 
     raw = path.read_text()
     assert (
-        "Bearer ${{ SECRETS.github_oauth.GITHUB_SERVICE_TOKEN || SECRETS.github_oauth.GITHUB_USER_TOKEN }}"
-        in raw
-    )
-    assert raw.count("SECRETS.") == 2
+        "Bearer ${{ SECRETS.github_app_oauth.GITHUB_APP_SERVICE_TOKEN"
+        " || SECRETS.github_app_oauth.GITHUB_APP_USER_TOKEN"
+        " || SECRETS.github_oauth.GITHUB_USER_TOKEN }}"
+    ) in raw
+    assert raw.count("SECRETS.") == 3

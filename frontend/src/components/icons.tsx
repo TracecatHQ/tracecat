@@ -1016,6 +1016,11 @@ export const providerIcons: Record<
       <GitHubIcon {...rest} />
     </div>
   ),
+  github_app: ({ className, ...rest }) => (
+    <div className={className}>
+      <GitHubIcon {...rest} />
+    </div>
+  ),
   servicenow: ({ className, ...rest }) => (
     <div className={className}>
       <ServiceNowIcon {...rest} />

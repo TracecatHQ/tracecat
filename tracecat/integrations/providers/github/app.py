@@ -1,4 +1,4 @@
-"""GitHub App provider that mints installation access tokens."""
+"""GitHub App providers for installation and user access tokens."""
 
 import re
 import time
@@ -12,13 +12,17 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from pydantic import SecretStr
 
 from tracecat.integrations.providers.base import (
+    AuthorizationCodeOAuthProvider,
     ClientCredentials,
     ClientCredentialsOAuthProvider,
 )
 from tracecat.integrations.schemas import ProviderMetadata, ProviderScopes
 from tracecat.integrations.types import TokenResponse
 
+GITHUB_APP_PROVIDER_ID = "github_app"
 GITHUB_APP_INSTALLATIONS_ENDPOINT = "https://api.github.com/app/installations"
+GITHUB_OAUTH_AUTHORIZATION_ENDPOINT = "https://github.com/login/oauth/authorize"
+GITHUB_OAUTH_TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token"
 GITHUB_API_VERSION = "2022-11-28"
 
 _JWT_BACKDATE_SECONDS = 60
@@ -55,7 +59,7 @@ def parse_github_app_permissions(scopes: list[str]) -> dict[str, str]:
     return permissions
 
 
-class GitHubAppProvider(ClientCredentialsOAuthProvider):
+class GitHubAppInstallationProvider(ClientCredentialsOAuthProvider):
     """GitHub App provider that authenticates as an app installation.
 
     The client ID is the GitHub App client ID (or numeric App ID) and the client
@@ -64,11 +68,11 @@ class GitHubAppProvider(ClientCredentialsOAuthProvider):
     ``/app/installations`` URL to use the app's only installation.
     """
 
-    id: ClassVar[str] = "github"
+    id: ClassVar[str] = GITHUB_APP_PROVIDER_ID
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=[])
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
-        id="github",
-        name="GitHub App",
+        id=GITHUB_APP_PROVIDER_ID,
+        name="GitHub App (Installation)",
         description=(
             "Authenticate as a GitHub App installation with short-lived "
             "installation access tokens."
@@ -226,3 +230,36 @@ class GitHubAppProvider(ClientCredentialsOAuthProvider):
             return 3600
         expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
         return max(int((expiry - datetime.now(UTC)).total_seconds()), 0)
+
+
+class GitHubAppUserProvider(AuthorizationCodeOAuthProvider):
+    """GitHub App provider that acts on behalf of a signed-in user.
+
+    User access tokens carry the intersection of the app's permissions and the
+    user's access. GitHub ignores OAuth scopes for GitHub Apps.
+    """
+
+    id: ClassVar[str] = GITHUB_APP_PROVIDER_ID
+    scopes: ClassVar[ProviderScopes] = ProviderScopes(default=[])
+    metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
+        id=GITHUB_APP_PROVIDER_ID,
+        name="GitHub App (User)",
+        description=(
+            "Authenticate as a GitHub user through a GitHub App with expiring, "
+            "refreshable user access tokens."
+        ),
+        setup_instructions=(
+            "Use the client ID and a client secret from the GitHub App's settings "
+            "page, and add Tracecat's redirect URL as a callback URL on the app. "
+            "Keep 'Expire user authorization tokens' enabled so tokens refresh."
+        ),
+        requires_config=True,
+        enabled=True,
+        api_docs_url="https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app",
+        setup_guide_url="https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app",
+        troubleshooting_url="https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens",
+    )
+    default_authorization_endpoint: ClassVar[str | None] = (
+        GITHUB_OAUTH_AUTHORIZATION_ENDPOINT
+    )
+    default_token_endpoint: ClassVar[str | None] = GITHUB_OAUTH_TOKEN_ENDPOINT

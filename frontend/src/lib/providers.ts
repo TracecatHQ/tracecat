@@ -42,7 +42,7 @@ export function getProviderCredentialInputs(
   provider: ProviderRead | undefined
 ): ProviderCredentialInputs | undefined {
   if (
-    provider?.metadata.id === "github" &&
+    provider?.metadata.id === "github_app" &&
     provider.grant_type === "client_credentials"
   ) {
     return {
