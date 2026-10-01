@@ -66,7 +66,7 @@ def _validate_identity(
             raise ReferenceURIError(ReferenceDiagnosticCode.INVALID_IDENTITY)
     if kind == ReferenceKind.MCP_TOOL:
         # Same tool-name alphabet as the existing SKILL.md MCP declaration.
-        if tool_name is None or not re.fullmatch(r"[A-Za-z0-9_-]+", tool_name):
+        if tool_name is None or not re.fullmatch(r"[A-Za-z0-9_-]{1,255}", tool_name):
             raise ReferenceURIError(ReferenceDiagnosticCode.INVALID_IDENTITY)
     elif tool_name is not None:
         raise ReferenceURIError(ReferenceDiagnosticCode.INVALID_IDENTITY)
@@ -97,6 +97,8 @@ def parse_reference_uri(value: str) -> ReferenceTarget:
     ):
         raise ReferenceURIError(ReferenceDiagnosticCode.INVALID_URI)
     parts = value[len("tracecat-ref://") :].split("/")
+    if not parts[0]:
+        raise ReferenceURIError(ReferenceDiagnosticCode.INVALID_URI)
     if parts[0] != "v1":
         raise ReferenceURIError(ReferenceDiagnosticCode.UNSUPPORTED_VERSION)
     if len(parts) not in (3, 4):

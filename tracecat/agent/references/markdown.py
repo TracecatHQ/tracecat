@@ -41,10 +41,14 @@ def _located(rule: InlineRule) -> InlineRule:
 def _without_frontmatter(text: str) -> str:
     """Mask YAML without moving source lines; an unclosed header grants nothing."""
     lines = text.splitlines(keepends=True)
-    if not lines or lines[0].strip() != "---":
+    if not lines or not re.fullmatch(r"---[ \t]*\n?", lines[0]):
         return text
     end = next(
-        (i for i in range(1, len(lines)) if lines[i].strip() in {"---", "..."}),
+        (
+            i
+            for i in range(1, len(lines))
+            if re.fullmatch(r"(?:---|\.\.\.)[ \t]*\n?", lines[i])
+        ),
         len(lines) - 1,
     )
     for i in range(end + 1):

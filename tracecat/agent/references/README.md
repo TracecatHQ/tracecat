@@ -25,6 +25,7 @@ The seven destinations are:
 UUIDs use lowercase, hyphenated spelling. URI segments are decoded once. Encoded
 separators, double encoding, controls, queries, fragments, unsupported versions,
 and invalid identities are errors. Serialization returns the canonical spelling.
+Registry action keys and MCP tool names are limited to 255 characters.
 No URI is fetched as a network address.
 
 `parse_markdown_references` uses CommonMark link tokens, including reference-style
@@ -59,6 +60,9 @@ preparation work.
 These messages contain no credentials, Claude SDK objects, native history, or
 sandbox installation paths. Their wire schema version is explicit; unknown
 fields and unsupported versions are rejected. Logical artifact paths are relative.
+Callable schemas and snapshot registry maps are recursively immutable in memory;
+serialization produces ordinary JSON objects and arrays. `ReferenceRegistryLock`
+reuses registry binding validation without retaining a mutable execution lock.
 An `AgentBackend` advertises optional capabilities per harness. The inherited
 empty capability tuple means unsupported, including for existing backends.
 

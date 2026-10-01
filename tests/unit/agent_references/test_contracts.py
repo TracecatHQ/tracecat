@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from typing import cast
 from uuid import UUID
 
 import pytest
@@ -14,6 +15,8 @@ from tracecat.agent.references.contracts import (
     LogicalArtifact,
     ReferenceCapabilities,
     ReferencePreparationInput,
+    ResolvedReferenceSnapshot,
+    SkillManifest,
 )
 from tracecat.agent.references.markdown import (
     parse_markdown_references,
@@ -58,6 +61,10 @@ def test_markdown_conformance(case):
         "locations"
     ]
     assert all(r.location.path == "references/guide.md" for r in result.references)
+    assert [[d.location.line, d.location.column] for d in result.diagnostics] == case[
+        "diagnostic_locations"
+    ]
+    assert all(d.location.path == "references/guide.md" for d in result.diagnostics)
 
 
 def test_all_markdown_files_and_binary_rejection():
@@ -171,3 +178,134 @@ def test_capabilities_are_explicit_and_default_to_no_native_readiness():
     )
     assert not capability.eager_callable_readiness
     assert not capability.direct_child_delegation
+
+
+@pytest.mark.parametrize(
+    "kind", [kind for kind in ReferenceKind if kind != ReferenceKind.SKILL]
+)
+def test_skill_manifest_rejects_other_reference_kinds(kind):
+    target = ReferenceTarget(
+        kind,
+        "core.http_request"
+        if kind == ReferenceKind.TOOL
+        else "11111111-1111-4111-8111-111111111111",
+        "lookup" if kind == ReferenceKind.MCP_TOOL else None,
+    )
+    with pytest.raises(
+        ValidationError, match="Skill manifests require a skill reference"
+    ):
+        SkillManifest.model_validate(
+            {
+                "skill": {
+                    "target": target,
+                    "version_id": "11111111-1111-4111-8111-111111111111",
+                },
+                "manifest_hash": "0" * 64,
+                "files": [],
+            }
+        )
+
+
+def snapshot_data():
+    uid = "11111111-1111-4111-8111-111111111111"
+    return {
+        "snapshot_id": uid,
+        "workspace_id": uid,
+        "logical_turn_id": uid,
+        "backend_id": "other",
+        "harness_type": "independent",
+        "input_hash": "0" * 64,
+        "scopes": [
+            {
+                "key": "root",
+                "selected": [],
+                "edges": [],
+                "required_tool_keys": ["lookup"],
+                "policy_hash": "0" * 64,
+                "registry_lock": {
+                    "origins": {"synthetic": "v1"},
+                    "actions": {"core.http_request": "synthetic"},
+                },
+                "callables": [
+                    {
+                        "key": "lookup",
+                        "target": {
+                            "target": {"kind": "tool", "identity": "core.http_request"}
+                        },
+                        "description": "Synthetic lookup",
+                        "requires_approval": True,
+                        "input_schema": {
+                            "type": "object",
+                            "properties": {"name": {"enum": ["original"]}},
+                        },
+                        "output_schema": {"type": "array", "items": {"type": "string"}},
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_snapshot_owns_deeply_immutable_serializable_values():
+    data = snapshot_data()
+    snapshot = ResolvedReferenceSnapshot.model_validate(data)
+    original_json = snapshot.model_dump_json()
+    source_scope = data["scopes"][0]
+    source_scope["callables"][0]["input_schema"]["properties"]["name"]["enum"].append(
+        "changed"
+    )
+    source_scope["registry_lock"]["origins"]["synthetic"] = "v2"
+    scope = snapshot.scopes[0]
+    # Deliberately try mutations that the public read-only types also forbid.
+    input_schema = cast(
+        dict[str, dict[str, dict[str, list[str]]]], scope.callables[0].input_schema
+    )
+    output_schema = cast(dict[str, dict[str, str]], scope.callables[0].output_schema)
+    with pytest.raises(TypeError):
+        input_schema["properties"]["name"]["enum"][0] = "changed"
+    with pytest.raises(TypeError):
+        input_schema["properties"]["name"]["enum"] = ["changed"]
+    with pytest.raises(TypeError):
+        output_schema["items"]["type"] = "number"
+    with pytest.raises(TypeError):
+        cast(dict[str, str], scope.registry_lock.origins)["synthetic"] = "v3"
+    with pytest.raises(TypeError):
+        cast(dict[str, str], scope.registry_lock.origin_fingerprints)["synthetic"] = (
+            "changed"
+        )
+    with pytest.raises(ValidationError):
+        scope.registry_lock.origins = {"synthetic": "v4"}
+    assert snapshot.model_dump_json() == original_json
+    restored = ResolvedReferenceSnapshot.model_validate_json(original_json)
+    assert restored == snapshot
+    with pytest.raises(TypeError):
+        cast(dict[str, str], restored.scopes[0].registry_lock.actions)[
+            "core.http_request"
+        ] = "changed"
+    wire = snapshot.model_dump(mode="json")
+    wire["scopes"][0]["callables"][0]["input_schema"]["properties"]["name"][
+        "enum"
+    ].append("changed")
+    assert snapshot.model_dump_json() == original_json
+
+
+@pytest.mark.parametrize("invalid", ["extra", "origin", "fingerprint"])
+def test_snapshot_rejects_invalid_registry_locks(invalid):
+    data = snapshot_data()
+    lock = data["scopes"][0]["registry_lock"]
+    if invalid == "extra":
+        lock["unexpected"] = "value"
+    elif invalid == "origin":
+        lock["actions"]["core.http_request"] = "missing"
+    else:
+        lock["origin_fingerprints"] = {"missing": "fingerprint"}
+    with pytest.raises(ValidationError):
+        ResolvedReferenceSnapshot.model_validate(data)
+
+
+@pytest.mark.parametrize("value", [b"text", {1, 2}, (1, 2), object()])
+def test_callable_schemas_reject_non_json_python_values(value):
+    data = snapshot_data()
+    data["scopes"][0]["callables"][0]["input_schema"]["invalid"] = value
+    with pytest.raises(ValidationError):
+        ResolvedReferenceSnapshot.model_validate(data)

@@ -61,7 +61,7 @@ function validateTarget(target: ReferenceTarget): void {
     throw new ReferenceURIError("invalid_identity")
   }
   if (kind === "mcp-tool") {
-    if (!toolName || !/^[A-Za-z0-9_-]+$/.test(toolName))
+    if (!toolName || !/^[A-Za-z0-9_-]{1,255}$/.test(toolName))
       throw new ReferenceURIError("invalid_identity")
   } else if (toolName !== undefined) {
     throw new ReferenceURIError("invalid_identity")
@@ -77,6 +77,7 @@ export function parseReferenceURI(value: string): ReferenceTarget {
     throw new ReferenceURIError("invalid_uri")
   }
   const parts = value.slice("tracecat-ref://".length).split("/")
+  if (!parts[0]) throw new ReferenceURIError("invalid_uri")
   if (parts[0] !== "v1") throw new ReferenceURIError("unsupported_version")
   if (![3, 4].includes(parts.length) || !KINDS.has(parts[1]))
     throw new ReferenceURIError("invalid_uri")

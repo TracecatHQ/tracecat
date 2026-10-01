@@ -13,11 +13,11 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    JsonValue,
     StringConstraints,
     model_validator,
 )
 
+from tracecat.agent.references.immutable import FrozenJSONObject, FrozenMap
 from tracecat.agent.references.types import ReferenceDiagnostic, SourceLocation
 from tracecat.agent.references.uri import ReferenceKind, ReferenceTarget
 from tracecat.registry.lock.types import RegistryLock
@@ -169,6 +169,12 @@ class SkillManifest(ReferenceContract):
     manifest_hash: Digest
     files: tuple[LogicalArtifact, ...]
 
+    @model_validator(mode="after")
+    def require_skill_target(self) -> Self:
+        if self.skill.target.kind != ReferenceKind.SKILL:
+            raise ValueError("Skill manifests require a skill reference")
+        return self
+
 
 class CallableBinding(ReferenceContract):
     """Canonical callable contract; native names and eager flags are runtime-owned."""
@@ -178,9 +184,29 @@ class CallableBinding(ReferenceContract):
     action: str | None = Field(default=None)
     description: str
     # JSON Schema is an open recursive vocabulary, not an untyped payload.
-    input_schema: dict[str, JsonValue]
-    output_schema: dict[str, JsonValue] | None = Field(default=None)
+    input_schema: FrozenJSONObject
+    output_schema: FrozenJSONObject | None = Field(default=None)
     requires_approval: bool
+
+
+class ReferenceRegistryLock(ReferenceContract):
+    """Snapshot-owned registry lock; copied, immutable, and strict on the wire."""
+
+    origins: FrozenMap[str]
+    actions: FrozenMap[str]
+    origin_fingerprints: FrozenMap[str] = Field(
+        default_factory=dict, validate_default=True
+    )
+
+    @model_validator(mode="after")
+    def validate_bindings(self) -> Self:
+        # Reuse the registry's semantic validation without retaining mutable state.
+        RegistryLock(
+            origins=dict(self.origins),
+            actions=dict(self.actions),
+            origin_fingerprints=dict(self.origin_fingerprints),
+        )
+        return self
 
 
 class ReferenceScope(ReferenceContract):
@@ -192,7 +218,7 @@ class ReferenceScope(ReferenceContract):
     edges: tuple[ReferenceEdge, ...]
     callables: tuple[CallableBinding, ...]
     required_tool_keys: tuple[str, ...]
-    registry_lock: RegistryLock
+    registry_lock: ReferenceRegistryLock
     skills: tuple[SkillManifest, ...] = ()
     artifacts: tuple[LogicalArtifact, ...] = ()
     policy_hash: Digest
