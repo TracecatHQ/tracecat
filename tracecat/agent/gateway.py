@@ -470,6 +470,7 @@ class TracecatCallbackHandler(CustomLogger):
             if original_exception.type in {
                 "tracecat_llm_token_invalid",
                 "tracecat_llm_provider_auth_failed",
+                "tracecat_llm_model_not_enabled",
                 "budget_exceeded",
             }:
                 original_exception.message = _anthropic_error_message(
