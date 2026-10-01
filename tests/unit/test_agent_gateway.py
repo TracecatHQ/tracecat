@@ -37,7 +37,7 @@ from tracecat.agent.gateway import (
 )
 from tracecat.agent.sandbox.llm_proxy import _http_error_classification
 from tracecat.agent.tokens import verify_llm_token
-from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.exceptions import AgentModelNotEnabledError, TracecatAuthorizationError
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -408,23 +408,31 @@ def test_missing_provider_credentials_have_distinct_wire_code(provider: str) -> 
     assert classification.owner is RuntimeErrorOwner.USER
 
 
-@pytest.mark.anyio
-async def test_disabled_catalog_model_has_distinct_wire_code(
-    monkeypatch: pytest.MonkeyPatch,
+def _patch_catalog_credentials_error(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
 ) -> None:
-    class _DisabledCatalogService:
+    class _FailingCatalogService:
         async def get_catalog_credentials(self, catalog_id: uuid.UUID) -> None:
-            raise TracecatAuthorizationError(
-                f"Catalog row {catalog_id!s} is not enabled for this workspace"
-            )
+            del catalog_id
+            raise error
 
     @asynccontextmanager
-    async def _with_session(**_: object) -> AsyncIterator[_DisabledCatalogService]:
-        yield _DisabledCatalogService()
+    async def _with_session(**_: object) -> AsyncIterator[_FailingCatalogService]:
+        yield _FailingCatalogService()
 
     monkeypatch.setattr(
         "tracecat.agent.gateway.AgentManagementService.with_session",
         _with_session,
+    )
+
+
+@pytest.mark.anyio
+async def test_disabled_catalog_model_has_distinct_wire_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_catalog_credentials_error(
+        monkeypatch,
+        AgentModelNotEnabledError("Catalog row is not enabled for this workspace"),
     )
 
     with pytest.raises(ProxyException) as exc_info:
@@ -445,6 +453,23 @@ async def test_disabled_catalog_model_has_distinct_wire_code(
     assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
     assert classification.owner is RuntimeErrorOwner.USER
     assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_other_catalog_authorization_errors_are_not_model_not_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_catalog_credentials_error(
+        monkeypatch, TracecatAuthorizationError("Synthetic authorization failure")
+    )
+
+    with pytest.raises(TracecatAuthorizationError):
+        await get_provider_credentials(
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            provider="anthropic",
+            catalog_id=uuid.uuid4(),
+        )
 
 
 @pytest.mark.anyio

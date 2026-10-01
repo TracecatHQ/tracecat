@@ -59,7 +59,11 @@ from tracecat.db.models import (
     OrganizationSecret,
     Secret,
 )
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    AgentModelNotEnabledError,
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+)
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
@@ -700,7 +704,7 @@ class AgentManagementService(BaseOrgService):
             catalog_id,
             workspace_id=self.role.workspace_id,
         ):
-            raise TracecatAuthorizationError(
+            raise AgentModelNotEnabledError(
                 f"Catalog row {catalog_id!s} is not enabled for this workspace"
             )
 
