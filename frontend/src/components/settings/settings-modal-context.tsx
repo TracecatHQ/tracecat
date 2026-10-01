@@ -6,6 +6,7 @@ export type SettingsSection =
   | "profile"
   | "appearance"
   | "workspace-general"
+  | "workspace-chat"
   | "workspace-runtime"
   | "workspace-models"
   | "workspace-files"

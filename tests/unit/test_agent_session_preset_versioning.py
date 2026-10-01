@@ -17,7 +17,6 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
-from tracecat.chat.tools import WORKSPACE_CHAT_DEFAULT_TOOLS
 from tracecat.db.models import AgentSession
 from tracecat.exceptions import TracecatValidationError
 from tracecat.tiers.enums import Entitlement
@@ -45,8 +44,7 @@ def _build_service() -> tuple[_TestAgentSessionService, SimpleNamespace, Role]:
         service_id="tracecat-api",
         workspace_id=workspace_id,
         organization_id=uuid.uuid4(),
-        # action:*:execute lets _resolve_workspace_chat_actions keep the full
-        # default tool set; per-action scope filtering is covered independently
+        # Broad action scopes retain every eligible tool; filtering is covered
         # in test_chat_tools.py.
         scopes=frozenset({"agent:execute", "action:*:execute"}),
     )
@@ -57,35 +55,6 @@ def _build_service() -> tuple[_TestAgentSessionService, SimpleNamespace, Role]:
     )
     service = _TestAgentSessionService(cast(Any, session), role)
     return service, session, role
-
-
-def _workspace_chat_session(
-    workspace_id: uuid.UUID, mcp_integrations: list[str]
-) -> AgentSession:
-    """A workspace-chat session with MCP servers attached."""
-    return AgentSession(
-        workspace_id=workspace_id,
-        entity_type=AgentSessionEntity.WORKSPACE_CHAT.value,
-        entity_id=workspace_id,
-        mcp_integrations=mcp_integrations,
-    )
-
-
-def _mcp_resolver() -> tuple[AsyncMock, SimpleNamespace]:
-    """An agent service whose preset resolver returns one server ref."""
-    resolver = AsyncMock(
-        return_value=[
-            {
-                "type": "http",
-                "name": "RunReveal",
-                "url": "https://mcp.example.test",
-            }
-        ]
-    )
-    agent_svc = SimpleNamespace(
-        presets=SimpleNamespace(resolve_mcp_integration_refs=resolver)
-    )
-    return resolver, agent_svc
 
 
 def test_execution_role_adds_only_agent_runtime_scopes() -> None:
@@ -147,7 +116,9 @@ async def test_create_session_preserves_null_preset_version_for_current() -> Non
 
 
 @pytest.mark.anyio
-async def test_create_workspace_chat_session_applies_current_default_tools() -> None:
+async def test_create_workspace_chat_session_inherits_current_workspace_settings() -> (
+    None
+):
     service, session, _role = _build_service()
     validate_mock = AsyncMock(return_value=None)
     agents_binding_mock = AsyncMock(return_value=None)
@@ -162,35 +133,11 @@ async def test_create_workspace_chat_session_applies_current_default_tools() -> 
         )
     )
 
-    # Workspace chat no longer freezes defaults into the session; they are
-    # merged at runtime so the session always reflects the current defaults.
     assert created.tools is None
-    assert (
-        await service._resolve_workspace_chat_actions(created)
-        == WORKSPACE_CHAT_DEFAULT_TOOLS
-    )
+    assert created.workspace_chat_overrides is None
     session.add.assert_called_once_with(created)
     session.commit.assert_awaited_once()
     session.refresh.assert_awaited_once_with(created)
-
-
-@pytest.mark.anyio
-async def test_resolve_session_mcp_servers_resolves_all_attached_ids() -> None:
-    """Catalog and workspace MCP servers resolve alike; no entitlement is consulted."""
-    service, _session, role = _build_service()
-    assert role.workspace_id is not None
-    mcp_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
-    agent_session = _workspace_chat_session(role.workspace_id, mcp_ids)
-    resolver, agent_svc = _mcp_resolver()
-
-    result = await service._resolve_session_mcp_servers(
-        agent_session,
-        cast(Any, agent_svc),
-    )
-
-    assert result == resolver.return_value
-    resolver.assert_awaited_once_with(mcp_ids)
-    assert Entitlement.AGENT_ADDONS not in service.entitlement_checks
 
 
 @pytest.mark.anyio

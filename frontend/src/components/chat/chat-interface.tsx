@@ -9,6 +9,7 @@ import type {
   AgentPresetRead,
   AgentSessionEntity,
   AgentSessionsGetSessionVercelResponse,
+  WorkspaceChatOverrides,
 } from "@/client"
 import {
   PromptInput,
@@ -342,7 +343,8 @@ export function ChatInterface({
   const handleCreateSessionOnFirstSend = async (
     messageText: string,
     selectedTools?: string[],
-    selectedMcpIntegrations?: string[]
+    selectedMcpIntegrations?: string[],
+    workspaceChatOverrides?: WorkspaceChatOverrides | null
   ) => {
     if (!deferSessionCreation || !backendSelectionReady || createChatPending) {
       return null
@@ -360,6 +362,7 @@ export function ChatInterface({
         backend_id: backendOverride,
         tools: selectedTools,
         mcp_integrations: selectedMcpIntegrations,
+        workspace_chat_overrides: workspaceChatOverrides,
         agent_preset_id: pendingPreset.presetId,
         agent_preset_version_id: pendingPreset.versionId,
       })
@@ -664,7 +667,8 @@ interface ChatBodyProps {
   onCreateSessionBeforeSend?: (
     messageText: string,
     selectedTools?: string[],
-    selectedMcpIntegrations?: string[]
+    selectedMcpIntegrations?: string[],
+    workspaceChatOverrides?: WorkspaceChatOverrides | null
   ) => Promise<string | null>
   draftInputDisabled: boolean
   pendingMessage: string | null

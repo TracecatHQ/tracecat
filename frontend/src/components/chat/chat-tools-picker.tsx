@@ -4,14 +4,20 @@ import fuzzysort from "fuzzysort"
 import {
   ArrowRightIcon,
   ChevronRightIcon,
+  MousePointerClickIcon,
   PlugZapIcon,
   SearchIcon,
   SlidersHorizontalIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { useMemo, useState } from "react"
-import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
+import type {
+  AgentPresetReadMinimal,
+  MCPIntegrationRead,
+  RegistryActionReadMinimal,
+} from "@/client"
 import { PromptInputButton } from "@/components/ai-elements/prompt-input"
+import { Button } from "@/components/ui/button"
 import {
   Popover,
   PopoverContent,
@@ -30,7 +36,13 @@ interface ChatToolsPickerProps {
   mcpIntegrations: MCPIntegrationRead[]
   selectedMcpIntegrations: string[]
   onMcpChange: (next: string[]) => void
+  subagents?: AgentPresetReadMinimal[]
+  selectedSubagents?: string[]
+  onSubagentsChange?: (next: string[]) => void
   mcpEnabled?: boolean
+  workspaceManaged?: boolean
+  hasOverrides?: boolean
+  onReset?: () => void
   disabled?: boolean
   /** Selects which chat surface-specific default capabilities are read-only. */
   surface?: ChatSurface
@@ -169,10 +181,8 @@ function toolCountLabel(count: number): string {
 }
 
 /**
- * Unified picker for inspecting always-on capabilities and attaching extra
- * registry tools and MCP integrations to a chat session. Tracecat platform
- * defaults are always on and merged at runtime; this control surfaces them
- * read-only and manages additions on top of that baseline.
+ * Configure tools, MCP servers, and saved subagents within workspace limits.
+ * Legacy surfaces show their always-on tools alongside selectable extras.
  */
 export function ChatToolsPicker({
   registryActions,
@@ -181,34 +191,43 @@ export function ChatToolsPicker({
   mcpIntegrations,
   selectedMcpIntegrations,
   onMcpChange,
+  subagents = [],
+  selectedSubagents = [],
+  onSubagentsChange,
   mcpEnabled = true,
+  workspaceManaged = false,
+  hasOverrides = false,
+  onReset,
   disabled = false,
   surface = "regular",
   mcpIntegrationsHref,
 }: ChatToolsPickerProps) {
   const [query, setQuery] = useState("")
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const isWorkspaceChat = surface === "workspace-chat"
+  const isWorkspaceChat = surface === "workspace-chat" && !workspaceManaged
+  const maxSelectable = workspaceManaged ? 10000 : MAX_SELECTABLE_TOOLS
   const defaultToolValues = isWorkspaceChat
     ? DEFAULT_TOOL_VALUES
     : EMPTY_DEFAULT_TOOL_VALUES
 
   const addedCount =
-    selectedTools.length + (mcpEnabled ? selectedMcpIntegrations.length : 0)
+    selectedTools.length +
+    (mcpEnabled ? selectedMcpIntegrations.length : 0) +
+    (workspaceManaged ? selectedSubagents.length : 0)
 
-  // The backend caps `tools` (and `mcp_integrations`) at MAX_SELECTABLE_TOOLS
+  // The backend caps `tools` (and `mcp_integrations`) at maxSelectable
   // each. Track when either list is full so the picker can block additions and
   // disable the relevant toggles instead of letting the update 422.
-  const toolsAtLimit = selectedTools.length >= MAX_SELECTABLE_TOOLS
+  const toolsAtLimit = selectedTools.length >= maxSelectable
   const mcpAtLimit =
-    mcpEnabled && selectedMcpIntegrations.length >= MAX_SELECTABLE_TOOLS
+    mcpEnabled && selectedMcpIntegrations.length >= maxSelectable
 
   // Only surface a limit message when it matters — at the cap — rather than a
   // persistent counter that duplicates the trigger button and group counts.
   const limitMessage = toolsAtLimit
-    ? `You've reached the ${MAX_SELECTABLE_TOOLS}-tool limit. Remove a tool to add another.`
+    ? `You've reached the ${maxSelectable}-tool limit. Remove a tool to add another.`
     : mcpAtLimit
-      ? `You've reached the ${MAX_SELECTABLE_TOOLS}-integration limit. Remove one to add another.`
+      ? `You've reached the ${maxSelectable}-integration limit. Remove one to add another.`
       : null
 
   const toggleExpanded = (key: string) => {
@@ -358,14 +377,15 @@ export function ChatToolsPicker({
   )
 
   const toggleTool = (value: string) => {
+    if (disabled) return
     if (selectedTools.includes(value)) {
       onToolsChange(selectedTools.filter((tool) => tool !== value))
       return
     }
-    if (selectedTools.length >= MAX_SELECTABLE_TOOLS) {
+    if (selectedTools.length >= maxSelectable) {
       toast({
         title: "Tool limit reached",
-        description: `You can add at most ${MAX_SELECTABLE_TOOLS} tools. Remove one before adding another.`,
+        description: `You can add at most ${maxSelectable} tools. Remove one before adding another.`,
       })
       return
     }
@@ -373,6 +393,7 @@ export function ChatToolsPicker({
   }
 
   const toggleGroup = (tools: ToolOption[]) => {
+    if (disabled) return
     const values = tools.map((tool) => tool.value)
     const allSelected = values.every((value) => selectedTools.includes(value))
     if (allSelected) {
@@ -386,11 +407,11 @@ export function ChatToolsPicker({
     }
     // Adding a group is all-or-nothing: if it would push past the cap, add none
     // and tell the user how many they'd need to make room for.
-    if (next.size > MAX_SELECTABLE_TOOLS) {
+    if (next.size > maxSelectable) {
       const additional = next.size - selectedTools.length
       toast({
         title: "Tool limit reached",
-        description: `Adding these ${additional} tools would exceed the ${MAX_SELECTABLE_TOOLS}-tool limit. Remove some tools first.`,
+        description: `Adding these ${additional} tools would exceed the ${maxSelectable}-tool limit. Remove some tools first.`,
       })
       return
     }
@@ -398,14 +419,15 @@ export function ChatToolsPicker({
   }
 
   const toggleMcp = (id: string) => {
+    if (disabled) return
     if (selectedMcpIntegrations.includes(id)) {
       onMcpChange(selectedMcpIntegrations.filter((value) => value !== id))
       return
     }
-    if (selectedMcpIntegrations.length >= MAX_SELECTABLE_TOOLS) {
+    if (selectedMcpIntegrations.length >= maxSelectable) {
       toast({
         title: "MCP integration limit reached",
-        description: `You can add at most ${MAX_SELECTABLE_TOOLS} MCP integrations. Remove one before adding another.`,
+        description: `You can add at most ${maxSelectable} MCP integrations. Remove one before adding another.`,
       })
       return
     }
@@ -413,6 +435,16 @@ export function ChatToolsPicker({
   }
 
   const isSearching = query.trim().length > 0
+  const showTools =
+    !workspaceManaged ||
+    addableGroups.length > 0 ||
+    selectedDefaultTools.length > 0 ||
+    staleSelectedTools.length > 0
+  const visibleSubagents = subagents.filter((preset) =>
+    `${preset.name} ${preset.description ?? ""}`
+      .toLowerCase()
+      .includes(query.trim().toLowerCase())
+  )
 
   return (
     <Popover>
@@ -437,30 +469,78 @@ export function ChatToolsPicker({
         </div>
 
         <div className="max-h-80 overflow-y-auto py-1.5">
-          {isSearching ? (
+          {workspaceManaged && subagents.length > 0 && (
             <>
-              <GroupLabel>Add tools</GroupLabel>
-              {searchResults.length > 0 ? (
-                searchResults.map((tool) => {
-                  const isSelected = selectedTools.includes(tool.value)
+              <GroupLabel>Subagents</GroupLabel>
+              {visibleSubagents.length > 0 ? (
+                visibleSubagents.map((preset) => {
+                  const eligibility =
+                    preset.current_version_subagent_eligibility
+                  const isSelected = selectedSubagents.includes(preset.id)
+                  const unavailable = eligibility?.eligible === false
                   return (
                     <Row
-                      key={tool.value}
-                      dotClassName={
-                        tool.stale ? "bg-muted-foreground" : "bg-amber-500"
+                      key={preset.id}
+                      icon={
+                        <MousePointerClickIcon className="size-3.5 shrink-0 text-muted-foreground" />
                       }
-                      title={tool.label}
-                      subtitle={tool.group}
+                      title={preset.name}
+                      subtitle={
+                        unavailable
+                          ? (eligibility.message ??
+                            "This agent cannot be used as a subagent.")
+                          : (preset.description ?? "Saved agent")
+                      }
                       checked={isSelected}
-                      disabled={!isSelected && toolsAtLimit}
-                      onToggle={() => toggleTool(tool.value)}
+                      disabled={
+                        disabled ||
+                        unavailable ||
+                        (!isSelected &&
+                          selectedSubagents.length >= maxSelectable)
+                      }
+                      onToggle={() =>
+                        onSubagentsChange?.(
+                          isSelected
+                            ? selectedSubagents.filter((id) => id !== preset.id)
+                            : [...selectedSubagents, preset.id]
+                        )
+                      }
                     />
                   )
                 })
               ) : (
-                <EmptyHint>No tools found.</EmptyHint>
+                <EmptyHint>No matching subagents.</EmptyHint>
               )}
             </>
+          )}
+          {isSearching ? (
+            showTools && (
+              <>
+                <GroupLabel>
+                  {workspaceManaged ? "Tools" : "Add tools"}
+                </GroupLabel>
+                {searchResults.length > 0 ? (
+                  searchResults.map((tool) => {
+                    const isSelected = selectedTools.includes(tool.value)
+                    return (
+                      <Row
+                        key={tool.value}
+                        dotClassName={
+                          tool.stale ? "bg-muted-foreground" : "bg-amber-500"
+                        }
+                        title={tool.label}
+                        subtitle={tool.group}
+                        checked={isSelected}
+                        disabled={!isSelected && toolsAtLimit}
+                        onToggle={() => toggleTool(tool.value)}
+                      />
+                    )
+                  })
+                ) : (
+                  <EmptyHint>No tools found.</EmptyHint>
+                )}
+              </>
+            )
           ) : (
             <>
               {isWorkspaceChat ? (
@@ -478,57 +558,62 @@ export function ChatToolsPicker({
                 </>
               ) : null}
 
-              {mcpEnabled && (
-                <>
-                  <GroupLabel>MCP integrations</GroupLabel>
-                  {visibleMcpIntegrations.length > 0 ? (
-                    visibleMcpIntegrations.map((integration) => {
-                      const isSelected = selectedMcpIntegrations.includes(
-                        integration.id
-                      )
-                      return (
-                        <Row
-                          key={integration.id}
-                          dotClassName={
-                            integration.stale
-                              ? "bg-muted-foreground"
-                              : "bg-sky-500"
-                          }
-                          title={integration.name}
-                          subtitle={integration.description}
-                          checked={isSelected}
-                          disabled={!isSelected && mcpAtLimit}
-                          onToggle={() => toggleMcp(integration.id)}
-                        />
-                      )
-                    })
-                  ) : mcpIntegrationsHref ? (
-                    <Link
-                      href={mcpIntegrationsHref}
-                      className="mx-2.5 my-1 flex items-center gap-3 rounded-md border border-dashed px-3 py-2.5 text-foreground hover:bg-muted"
-                    >
-                      <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
-                        <PlugZapIcon className="size-4" />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[13px] font-medium">
-                          Connect an MCP server
+              {mcpEnabled &&
+                (!workspaceManaged || visibleMcpIntegrations.length > 0) && (
+                  <>
+                    <GroupLabel>MCP integrations</GroupLabel>
+                    {visibleMcpIntegrations.length > 0 ? (
+                      visibleMcpIntegrations.map((integration) => {
+                        const isSelected = selectedMcpIntegrations.includes(
+                          integration.id
+                        )
+                        return (
+                          <Row
+                            key={integration.id}
+                            dotClassName={
+                              integration.stale
+                                ? "bg-muted-foreground"
+                                : "bg-sky-500"
+                            }
+                            title={integration.name}
+                            subtitle={integration.description}
+                            checked={isSelected}
+                            disabled={!isSelected && mcpAtLimit}
+                            onToggle={() => toggleMcp(integration.id)}
+                          />
+                        )
+                      })
+                    ) : mcpIntegrationsHref ? (
+                      <Link
+                        href={mcpIntegrationsHref}
+                        className="mx-2.5 my-1 flex items-center gap-3 rounded-md border border-dashed px-3 py-2.5 text-foreground hover:bg-muted"
+                      >
+                        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+                          <PlugZapIcon className="size-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[13px] font-medium">
+                            Connect an MCP server
+                          </div>
+                          <p className="truncate text-[11px] text-muted-foreground">
+                            Bring your own tools into chat.
+                          </p>
                         </div>
-                        <p className="truncate text-[11px] text-muted-foreground">
-                          Bring your own tools into chat.
-                        </p>
-                      </div>
-                      <ArrowRightIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                    </Link>
-                  ) : (
-                    <EmptyHint>
-                      No MCP integrations connected in this workspace.
-                    </EmptyHint>
-                  )}
-                </>
-              )}
+                        <ArrowRightIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                      </Link>
+                    ) : (
+                      <EmptyHint>
+                        No MCP integrations connected in this workspace.
+                      </EmptyHint>
+                    )}
+                  </>
+                )}
 
-              <GroupLabel>Add tools</GroupLabel>
+              {showTools && (
+                <GroupLabel>
+                  {workspaceManaged ? "Tools" : "Add tools"}
+                </GroupLabel>
+              )}
               {selectedDefaultTools.map((tool) => (
                 <Row
                   key={tool.value}
@@ -571,7 +656,8 @@ export function ChatToolsPicker({
                     />
                   )
                 })
-              ) : staleSelectedTools.length === 0 &&
+              ) : !workspaceManaged &&
+                staleSelectedTools.length === 0 &&
                 selectedDefaultTools.length === 0 ? (
                 <EmptyHint>No registry tools available.</EmptyHint>
               ) : null}
@@ -579,6 +665,33 @@ export function ChatToolsPicker({
           )}
         </div>
 
+        {workspaceManaged && (
+          <div className="space-y-1 border-t px-3 py-2 text-[11px] text-muted-foreground">
+            <p>Choices apply only to this chat, within workspace limits.</p>
+            {showTools && (
+              <Button
+                variant="link"
+                size="sm"
+                className="mr-3 h-auto p-0 text-xs"
+                disabled={disabled || selectedTools.length === 0}
+                onClick={() => onToolsChange([])}
+              >
+                Clear tools
+              </Button>
+            )}
+            {hasOverrides && (
+              <Button
+                variant="link"
+                size="sm"
+                className="h-auto p-0 text-xs"
+                disabled={disabled}
+                onClick={onReset}
+              >
+                Use workspace defaults
+              </Button>
+            )}
+          </div>
+        )}
         {limitMessage ? (
           <div className="border-t px-3 py-2 text-[11px] text-muted-foreground">
             {limitMessage}
@@ -602,7 +715,7 @@ function GroupLabel({
 }) {
   return (
     <div className="flex items-center gap-2 px-3 pb-1 pt-2">
-      <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+      <span className="text-[11px] font-medium text-muted-foreground">
         {children}
       </span>
       {pill ? (
@@ -635,13 +748,15 @@ function EmptyHint({ children }: { children: React.ReactNode }) {
 
 function Row({
   dotClassName,
+  icon,
   title,
   subtitle,
   checked,
   onToggle,
   disabled = false,
 }: {
-  dotClassName: string
+  dotClassName?: string
+  icon?: React.ReactNode
   title: string
   subtitle?: string
   checked: boolean
@@ -657,11 +772,16 @@ function Row({
           : "cursor-pointer hover:bg-muted"
       )}
     >
-      <Dot className={dotClassName} />
+      {icon ?? <Dot className={dotClassName} />}
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] text-foreground/70">{title}</div>
         {subtitle ? (
-          <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
+          <p
+            className="truncate text-xs text-muted-foreground"
+            title={subtitle}
+          >
+            {subtitle}
+          </p>
         ) : null}
       </div>
       <Switch

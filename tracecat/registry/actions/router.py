@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, status
 from tracecat_registry import RegistrySecret
 
+from tracecat.agent.authoring_context import filter_configured_actions
 from tracecat.auth.credentials import RoleACL
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_scope
@@ -22,17 +23,36 @@ async def list_registry_actions(
     role: Role = RoleACL(
         allow_user=True,
         allow_service=False,
-        require_workspace="no",
+        require_workspace="optional",
     ),
     session: AsyncDBSession,
     include_locked: bool = Query(
         default=False,
         description="Include actions locked by missing entitlements",
     ),
+    configured_only: bool = Query(
+        default=False,
+        description="Only actions with configured credentials in the selected workspace",
+    ),
 ) -> list[RegistryActionReadMinimal]:
     """List all actions from registry index."""
     service = RegistryActionsService(session, role)
     index_entries = await service.list_actions_from_index(include_locked=include_locked)
+    if configured_only:
+        if role.workspace_id is None:
+            raise HTTPException(status_code=400, detail="workspace_id is required")
+        configured = set(
+            await filter_configured_actions(
+                [f"{entry.namespace}.{entry.name}" for entry, _ in index_entries],
+                registry=service,
+                role=role,
+            )
+        )
+        index_entries = [
+            (entry, origin)
+            for entry, origin in index_entries
+            if f"{entry.namespace}.{entry.name}" in configured
+        ]
     return [
         RegistryActionReadMinimal.from_index(entry, origin)
         for entry, origin in index_entries

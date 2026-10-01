@@ -78,6 +78,7 @@ from tracecat.cases.enums import (
     CaseTaskStatus,
     CaseVersionField,
 )
+from tracecat.chat.types import WorkspaceChatOverridesData
 from tracecat.identifiers import (
     OrganizationID,
     OwnerID,
@@ -3222,6 +3223,11 @@ class AgentSession(WorkspaceModel):
         default=None,
         nullable=True,
         doc="MCP integration IDs attached to this session",
+    )
+    workspace_chat_overrides: Mapped[WorkspaceChatOverridesData | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Per-chat choices within workspace limits; null inherits workspace defaults",
     )
     agent_preset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,

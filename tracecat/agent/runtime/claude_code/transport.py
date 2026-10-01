@@ -393,6 +393,21 @@ class SandboxedCLITransport(Transport):
         if not os.environ.get("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK"):
             await helper._check_claude_version()
         command = helper._build_command()
+        if "--mcp-config" in command:
+            config_index = command.index("--mcp-config") + 1
+            mcp_config = command[config_index]
+            if mcp_config.startswith("{"):
+                # A catalog-sized signed allowlist exceeds Linux's per-argument
+                # limit. The CLI accepts this exact JSON via a file instead.
+                config_path = self._job_dir / "claude-mcp.json"
+                config_path.touch(mode=0o600, exist_ok=True)
+                await asyncio.to_thread(config_path.write_text, mcp_config)
+                runtime_config_path = (
+                    JAILED_AGENT_JOB_DIR / config_path.name
+                    if self._use_jailed_paths
+                    else config_path
+                )
+                command[config_index] = str(runtime_config_path)
         return self._prepare_command_for_runtime(
             command,
             use_jailed_paths=self._use_jailed_paths,

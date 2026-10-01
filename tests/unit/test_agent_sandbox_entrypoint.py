@@ -797,3 +797,50 @@ def test_forward_exit_code_maps_signal_death_to_nsjail_contract(
     observe which signal killed the jailed runtime.
     """
     assert _forward_exit_code(return_code) == expected
+
+
+@pytest.mark.anyio
+async def test_mcp_bridge_forwards_catalog_sized_auth_header(
+    short_socket_dir: Path,
+) -> None:
+    socket_path = short_socket_dir / "catalog.sock"
+    request = (
+        b"POST /mcp HTTP/1.1\r\nAuthorization: Bearer "
+        + b"x" * 200_000
+        + b"\r\nContent-Length: 0\r\n\r\n"
+    )
+    received: list[bytes] = []
+
+    async def upstream(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        received.append(await reader.readexactly(len(request)))
+        writer.write(
+            b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+        )
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+
+    server = await asyncio.start_unix_server(upstream, path=str(socket_path))
+    bridge = SandboxSocketBridge(
+        socket_path=socket_path,
+        max_body_size=LLM_MAX_BODY_SIZE,
+        max_header_size=1024 * 1024,
+        on_uds_failure="error",
+        log_label="MCP bridge",
+    )
+    try:
+        port = await bridge.start()
+        async with asyncio.timeout(5):
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.write(request)
+            await writer.drain()
+            assert (await reader.read()).endswith(b"ok")
+            writer.close()
+            await writer.wait_closed()
+        assert received == [request]
+    finally:
+        await bridge.stop()
+        server.close()
+        await server.wait_closed()

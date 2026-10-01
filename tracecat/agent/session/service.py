@@ -41,6 +41,7 @@ from tracecat.agent.approvals.types import (
     ToolApprovedDecision,
     ToolDeniedDecision,
 )
+from tracecat.agent.authoring_context import filter_configured_actions
 from tracecat.agent.backends.base import AgentBackend
 from tracecat.agent.backends.registry import (
     find_agent_backend,
@@ -84,6 +85,7 @@ from tracecat.agent.session.schemas import (
     AgentSessionCreate,
     AgentSessionRead,
     AgentSessionUpdate,
+    WorkspaceChatOverrides,
 )
 from tracecat.agent.session.title_generator import generate_session_title
 from tracecat.agent.session.types import (
@@ -96,8 +98,11 @@ from tracecat.agent.session.views import build_session_read
 from tracecat.agent.skill.builtin import BUILTIN_WORKSPACE_CHAT_SKILLS
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.subagents import (
+    AgentSubagentsConfig,
+    AttachedSubagentRef,
     ResolvedAgentsConfig,
 )
+from tracecat.agent.tools import EXCLUDED_AGENT_ACTIONS
 from tracecat.agent.types import (
     AgentConfig,
     ClaudeSDKMessageTA,
@@ -125,6 +130,7 @@ from tracecat.chat.service import ChatService
 from tracecat.chat.tools import (
     filter_workspace_chat_tools_for_scopes,
     get_default_tools,
+    select_workspace_chat_capabilities,
 )
 from tracecat.db.models import (
     APPROVAL_STATUS_ENUM,
@@ -135,6 +141,7 @@ from tracecat.db.models import (
     Chat,
     User,
     Workflow,
+    Workspace,
 )
 from tracecat.exceptions import (
     TracecatConflictError,
@@ -143,12 +150,15 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.identifiers import UserID
+from tracecat.integrations.service import IntegrationService
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.service import BaseWorkspaceService
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
+from tracecat.workspaces.schemas import WorkspaceSettingsRead
 
 if TYPE_CHECKING:
     from tracecat_ee.agent.approvals.service import ApprovalMap, ApprovalResult
@@ -427,37 +437,82 @@ class AgentSessionService(BaseWorkspaceService):
             return None
         return list(BUILTIN_WORKSPACE_CHAT_SKILLS)
 
-    async def _resolve_workspace_chat_actions(
-        self,
-        agent_session: AgentSession,
-    ) -> list[str] | None:
-        """Merge always-on Workspace chat defaults with the session's extras.
-
-        Defaults are derived at runtime (never frozen per session), so they stay
-        current and are always present. ``agent_session.tools`` holds only the
-        extra tools the user added in the chat tools dialog.
-        """
-        defaults = await self._get_default_tools(AgentSessionEntity.WORKSPACE_CHAT)
-        extras = agent_session.tools or []
-        merged = list(dict.fromkeys([*defaults, *extras]))
-        # Chat tools execute under the executor service principal, which the
-        # internal API routes authorize against the service allowlist rather than
-        # the chat user's RBAC. Enforce the caller's action scopes here -- the
-        # last point where the user's real role is available -- so `agent:execute`
-        # alone cannot grant workflow create/edit or case delete via these tools.
-        return filter_workspace_chat_tools_for_scopes(merged, role=self.role)
-
-    async def _resolve_session_mcp_servers(
-        self,
-        agent_session: AgentSession,
-        agent_svc: AgentManagementService,
-    ) -> list[MCPServerConfig] | None:
-        """Resolve attached MCP integration IDs into boundary-safe server refs."""
-        if not agent_session.mcp_integrations or agent_svc.presets is None:
-            return None
-        return await agent_svc.presets.resolve_mcp_integration_refs(
-            agent_session.mcp_integrations
+    async def _resolve_workspace_chat_capabilities(
+        self, agent_session: AgentSession
+    ) -> tuple[list[str], list[MCPServerConfig] | None, AgentSubagentsConfig]:
+        """Re-evaluate workspace limits and caller scopes for each new turn."""
+        settings = await self.session.scalar(
+            select(Workspace.settings).where(
+                Workspace.id == self.workspace_id,
+                Workspace.organization_id == self.organization_id,
+            )
         )
+        limits = WorkspaceSettingsRead.model_validate(settings or {}).chat
+        overrides = WorkspaceChatOverrides.model_validate(
+            agent_session.workspace_chat_overrides or {}
+        )
+        registry = RegistryActionsService(self.session, self.role)
+        entries = await registry.list_actions_from_index()
+        available_actions = [
+            f"{entry.namespace}.{entry.name}"
+            for entry, _ in entries
+            if f"{entry.namespace}.{entry.name}" not in EXCLUDED_AGENT_ACTIONS
+        ]
+        # Tools run as the executor principal. Apply the caller's real scopes
+        # before compilation so trusted orchestration cannot widen access.
+        actions = filter_workspace_chat_tools_for_scopes(
+            select_workspace_chat_capabilities(
+                available_actions, limits.tools, overrides.tools
+            ),
+            role=self.role,
+        )
+        actions = await filter_configured_actions(
+            actions, registry=registry, role=self.role
+        )
+        integrations = await IntegrationService(
+            self.session, self.execution_role
+        ).list_mcp_integrations_with_state()
+        mcp_ids = select_workspace_chat_capabilities(
+            [
+                str(item.integration.id)
+                for item in integrations
+                if item.state == "connected"
+            ],
+            limits.mcp,
+            overrides.mcp_integrations,
+        )
+        presets_service = AgentPresetService(self.session, self.execution_role)
+        mcp_servers = (
+            await presets_service.resolve_mcp_integration_refs(mcp_ids)
+            if mcp_ids
+            else None
+        )
+        presets = await presets_service.build_preset_list_reads(
+            await presets_service.list_presets()
+        )
+        allowed_presets = set(
+            select_workspace_chat_capabilities(
+                [
+                    str(preset.id)
+                    for preset in presets
+                    if preset.current_version_subagent_eligibility.eligible
+                ],
+                limits.subagents,
+                overrides.subagents,
+            )
+        )
+        agents = AgentSubagentsConfig(
+            subagents=[
+                AttachedSubagentRef(
+                    preset=preset.slug,
+                    name=f"saved-{preset.id.hex}",
+                    description=(preset.description or preset.name)[:1000],
+                )
+                for preset in presets
+                if str(preset.id) in allowed_presets
+            ]
+        )
+        return actions, mcp_servers, agents
 
     async def _validate_session_mcp_integrations(
         self, mcp_integrations: list[str] | None
@@ -496,8 +551,8 @@ class AgentSessionService(BaseWorkspaceService):
                     "Parent session not found in this workspace"
                 )
         # Apply default tools based on entity type if tools not provided.
-        # Workspace chat merges its always-on defaults at runtime instead, so
-        # ``tools`` stores only the extras the user added (never the defaults).
+        # Workspace chat resolves current limits at runtime and stores one-chat
+        # choices separately; legacy extras remain readable by older clients.
         tools = args.tools
         if (
             not tools
@@ -538,6 +593,11 @@ class AgentSessionService(BaseWorkspaceService):
             channel_context=channel_context,
             tools=tools,
             mcp_integrations=args.mcp_integrations,
+            workspace_chat_overrides=(
+                args.workspace_chat_overrides.model_dump()
+                if args.workspace_chat_overrides is not None
+                else None
+            ),
             agent_preset_id=logical_preset_id,
             agent_preset_version_id=pinned_preset_version_id,
             agents_binding=resolved_agents_binding,
@@ -973,6 +1033,13 @@ class AgentSessionService(BaseWorkspaceService):
         ):
             raise TracecatValidationError("Start a new chat to change its backend")
         set_fields = params.model_dump(exclude_unset=True)
+        if (
+            "workspace_chat_overrides" in set_fields
+            and params.workspace_chat_overrides is not None
+        ):
+            set_fields["workspace_chat_overrides"] = (
+                params.workspace_chat_overrides.model_dump()
+            )
         preset_id_updated = "agent_preset_id" in set_fields
         version_id_updated = "agent_preset_version_id" in set_fields
         requested_preset_id = set_fields.pop(
@@ -2690,13 +2757,13 @@ class AgentSessionService(BaseWorkspaceService):
                     yield config
             else:
                 # Copilot without preset uses org-level credentials (default).
-                # Always-on defaults merge with session extras at runtime, and
-                # any attached MCP integrations resolve into mcp_servers.
+                # Resolve current workspace limits independently of legacy extras.
                 async with agent_svc.with_model_config() as model_config:
-                    actions = await self._resolve_workspace_chat_actions(agent_session)
-                    mcp_servers = await self._resolve_session_mcp_servers(
-                        agent_session, agent_svc
-                    )
+                    (
+                        actions,
+                        mcp_servers,
+                        agents,
+                    ) = await self._resolve_workspace_chat_capabilities(agent_session)
                     yield AgentConfig(
                         instructions=entity_instructions,
                         model_name=model_config.name,
@@ -2704,6 +2771,7 @@ class AgentSessionService(BaseWorkspaceService):
                         catalog_id=model_config.catalog_id,
                         actions=actions,
                         mcp_servers=mcp_servers,
+                        agents=agents,
                         builtin_skills=builtin_skills,
                     )
         elif session_entity in (

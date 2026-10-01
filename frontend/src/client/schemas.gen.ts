@@ -4052,6 +4052,16 @@ export const $AgentSessionCreate = {
       title: "Mcp Integrations",
       description: "MCP integration IDs attached to this session",
     },
+    workspace_chat_overrides: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceChatOverrides",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     agent_preset_id: {
       anyOf: [
         {
@@ -4249,6 +4259,16 @@ export const $AgentSessionRead = {
         },
       ],
       title: "Mcp Integrations",
+    },
+    workspace_chat_overrides: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceChatOverrides",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     agent_preset_id: {
       anyOf: [
@@ -4478,6 +4498,16 @@ export const $AgentSessionReadVercel = {
         },
       ],
       title: "Mcp Integrations",
+    },
+    workspace_chat_overrides: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceChatOverrides",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     agent_preset_id: {
       anyOf: [
@@ -4716,6 +4746,16 @@ export const $AgentSessionReadWithMessages = {
       ],
       title: "Mcp Integrations",
     },
+    workspace_chat_overrides: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceChatOverrides",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
     agent_preset_id: {
       anyOf: [
         {
@@ -4917,6 +4957,16 @@ export const $AgentSessionUpdate = {
       ],
       title: "Mcp Integrations",
       description: "MCP integration IDs attached to this session",
+    },
+    workspace_chat_overrides: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceChatOverrides",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     agent_preset_id: {
       anyOf: [
@@ -11237,6 +11287,32 @@ export const $ChannelType = {
   enum: ["slack"],
   title: "ChannelType",
   description: "Supported external channel types.",
+} as const
+
+export const $ChatCapabilitySelection = {
+  properties: {
+    mode: {
+      type: "string",
+      enum: ["all", "selected", "none"],
+      title: "Mode",
+      default: "all",
+    },
+    selected: {
+      items: {
+        type: "string",
+        maxLength: 255,
+        minLength: 1,
+      },
+      type: "array",
+      maxItems: 10000,
+      title: "Selected",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "ChatCapabilitySelection",
+  description:
+    "Workspace chat access; selected is an explicit, non-expanding allowlist.",
 } as const
 
 export const $ChatMessage = {
@@ -38092,6 +38168,79 @@ export const $WorkflowUpdate = {
   title: "WorkflowUpdate",
 } as const
 
+export const $WorkspaceChatOverrides = {
+  properties: {
+    tools: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tools",
+    },
+    mcp_integrations: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integrations",
+    },
+    subagents: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+          maxItems: 10000,
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Subagents",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "WorkspaceChatOverrides",
+  description:
+    "One-chat selections, always intersected with current workspace limits.",
+} as const
+
+export const $WorkspaceChatSettings = {
+  properties: {
+    tools: {
+      $ref: "#/components/schemas/ChatCapabilitySelection",
+    },
+    mcp: {
+      $ref: "#/components/schemas/ChatCapabilitySelection",
+    },
+    subagents: {
+      $ref: "#/components/schemas/ChatCapabilitySelection",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  title: "WorkspaceChatSettings",
+  description: "Limits for workspace chat without a selected agent preset.",
+} as const
+
 export const $WorkspaceCreate = {
   properties: {
     name: {
@@ -38313,6 +38462,9 @@ export const $WorkspaceSecretStoreRead = {
 
 export const $WorkspaceSettingsRead = {
   properties: {
+    chat: {
+      $ref: "#/components/schemas/WorkspaceChatSettings",
+    },
     git_provider: {
       anyOf: [
         {
@@ -38426,6 +38578,18 @@ export const $WorkspaceSettingsRead = {
 
 export const $WorkspaceSettingsUpdate = {
   properties: {
+    chat: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceChatSettings",
+        },
+        {
+          type: "null",
+        },
+      ],
+      description:
+        "Replace default workspace chat limits. Null restores unrestricted defaults.",
+    },
     git_provider: {
       anyOf: [
         {

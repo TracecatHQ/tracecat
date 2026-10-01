@@ -9576,6 +9576,8 @@ export const registryRepositoriesGetPreviousRegistryVersion = (
  * List all actions from registry index.
  * @param data The data for the request.
  * @param data.includeLocked Include actions locked by missing entitlements
+ * @param data.configuredOnly Only actions with configured credentials in the selected workspace
+ * @param data.workspaceId
  * @returns RegistryActionReadMinimal Successful Response
  * @throws ApiError
  */
@@ -9587,6 +9589,8 @@ export const registryActionsListRegistryActions = (
     url: "/registry/actions",
     query: {
       include_locked: data.includeLocked,
+      configured_only: data.configuredOnly,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

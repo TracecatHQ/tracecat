@@ -4,6 +4,7 @@ import { ArrowUpRight, Loader2 } from "lucide-react"
 import { workspacesGetWorkspace } from "@/client"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import type { SettingsSection } from "@/components/settings/settings-modal-context"
+import { WorkspaceChatSettings } from "@/components/settings/workspace-chat-settings"
 import { WorkspaceFilesSettings } from "@/components/settings/workspace-files-settings"
 import { WorkspaceGeneralSettings } from "@/components/settings/workspace-general-settings"
 import { WorkspaceModelSettings } from "@/components/settings/workspace-model-settings"
@@ -51,6 +52,8 @@ export function WorkspaceSettingsContainer({
   switch (activeSection) {
     case "workspace-general":
       return <WorkspaceGeneralSettings workspace={workspace} />
+    case "workspace-chat":
+      return <WorkspaceChatSettings key={workspace.id} workspace={workspace} />
     case "workspace-runtime":
       return <WorkspaceRuntimeSettings workspace={workspace} />
     case "workspace-models":

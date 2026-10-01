@@ -11,6 +11,7 @@ from contextlib import AsyncExitStack
 from datetime import timedelta
 
 from temporalio import workflow
+from temporalio.client import Client
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import (
     SandboxedWorkflowRunner,
@@ -44,6 +45,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.cases.agent_invocations.workflows import (
         CaseCommentAgentInvocationWorkflow,
     )
+    from tracecat.dsl._converter import get_data_converter
     from tracecat.dsl.client import get_temporal_client
     from tracecat.dsl.interceptor import (
         RuntimeErrorAttributionInterceptor,
@@ -130,6 +132,12 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
         cleanup.push_async_callback(close_storage_client_cache)
 
         client = await get_temporal_client()
+        # The full workspace catalog exceeds Temporal's result-size limit.
+        # Reuse the existing codec for agent activity results and run inputs;
+        # clients already decode compressed payloads when compression is off.
+        client_config = client.config()
+        client_config["data_converter"] = get_data_converter(compression_enabled=True)
+        client = Client(**client_config)
 
         initialize_worker_sentry_from_environment()
         interceptors = [RuntimeErrorAttributionInterceptor()]
