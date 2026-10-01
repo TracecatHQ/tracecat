@@ -29,7 +29,7 @@ from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import ensure_member, lock_role_changes
 from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG
-from tracecat.authz.service import resolve_granter_scopes
+from tracecat.authz.service import ensure_role_fits_scope, resolve_granter_scopes
 from tracecat.db.models import (
     Invitation,
     InvitationGrant,
@@ -187,6 +187,9 @@ async def validate_grants(
         raise TracecatValidationError("Invalid role ID for this organization")
     if any(granted_role.slug == ORG_MEMBER_ROLE_SLUG for granted_role in granted_roles):
         raise TracecatValidationError("organization-member is granted implicitly")
+    roles_by_id = {granted_role.id: granted_role for granted_role in granted_roles}
+    for grant in grants:
+        ensure_role_fits_scope(roles_by_id[grant.role_id], grant.workspace_id)
 
     if not role.is_platform_superuser:
         # Read live permissions once for this batch, never the cached Role.scopes.

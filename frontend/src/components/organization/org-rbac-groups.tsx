@@ -74,6 +74,7 @@ import {
   useRbacRoles,
   useWorkspaceManager,
 } from "@/lib/hooks"
+import { rolesForScope } from "@/lib/rbac"
 
 export function OrgRbacGroups() {
   const [selectedGroup, setSelectedGroup] =
@@ -798,7 +799,12 @@ function GroupManageDialog({
                     <SelectValue placeholder="Select a role" />
                   </SelectTrigger>
                   <SelectContent>
-                    {roles.map((role) => (
+                    {rolesForScope(
+                      roles,
+                      selectedWorkspaceId === "org-wide"
+                        ? null
+                        : selectedWorkspaceId
+                    ).map((role) => (
                       <SelectItem key={role.id} value={role.id}>
                         {role.name}
                       </SelectItem>
@@ -807,7 +813,10 @@ function GroupManageDialog({
                 </Select>
                 <Select
                   value={selectedWorkspaceId}
-                  onValueChange={setSelectedWorkspaceId}
+                  onValueChange={(value) => {
+                    setSelectedWorkspaceId(value)
+                    setSelectedRoleId("")
+                  }}
                 >
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="Scope" />

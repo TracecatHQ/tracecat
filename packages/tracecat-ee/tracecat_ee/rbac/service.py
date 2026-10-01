@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
@@ -22,8 +22,16 @@ from tracecat.authz.membership import (
     lock_role_changes,
     mirror_workspace_membership,
 )
-from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG, PRESET_ROLE_SCOPES
-from tracecat.authz.service import resolve_grantable_role, resolve_granter_scopes
+from tracecat.authz.scopes import (
+    ORG_MEMBER_ROLE_SLUG,
+    PRESET_ROLE_SCOPES,
+    is_org_level_role,
+)
+from tracecat.authz.service import (
+    ensure_role_fits_scope,
+    resolve_grantable_role,
+    resolve_granter_scopes,
+)
 from tracecat.db.models import (
     ExternalGroupMapping,
     Group,
@@ -262,7 +270,15 @@ class RBACService(BaseOrgService):
             role.description = description
 
         if scope_ids is not None:
-            await self._set_role_scopes(role.id, scope_ids)
+            was_org_level = is_org_level_role(scope.name for scope in role.scopes)
+            scopes = await self._set_role_scopes(role.id, scope_ids)
+            if is_org_level_role(
+                scope.name for scope in scopes
+            ) != was_org_level and await self._role_has_assignments(role.id):
+                await self.session.rollback()
+                raise TracecatConflictError(
+                    "Remove this role's assignments before switching it between organization and workspace level"
+                )
 
         await self.session.commit()
         await self.session.refresh(role, ["updated_at", "scopes"])
@@ -304,7 +320,9 @@ class RBACService(BaseOrgService):
         await self.session.delete(role)
         await self.session.commit()
 
-    async def _set_role_scopes(self, role_id: UUID, scope_ids: list[UUID]) -> None:
+    async def _set_role_scopes(
+        self, role_id: UUID, scope_ids: list[UUID]
+    ) -> Sequence[Scope]:
         """Set the scopes for a role (replaces existing)."""
         stmt = select(Scope).where(
             Scope.id.in_(scope_ids),
@@ -325,6 +343,15 @@ class RBACService(BaseOrgService):
         for scope in scopes:
             role_scope = RoleScope(role_id=role_id, scope_id=scope.id)
             self.session.add(role_scope)
+        return scopes
+
+    async def _role_has_assignments(self, role_id: UUID) -> bool:
+        """Check whether any user or group holds the role."""
+        stmt = select(
+            exists().where(UserRoleAssignment.role_id == role_id)
+            | exists().where(GroupRoleAssignment.role_id == role_id)
+        )
+        return bool(await self.session.scalar(stmt))
 
     async def _assert_group_exists(self, group_id: UUID) -> None:
         """Assert a group exists and belongs to the organization."""
@@ -356,11 +383,14 @@ class RBACService(BaseOrgService):
         granter_scopes = await resolve_granter_scopes(self.session, self.role)
         ensure_can_grant_scopes(granter_scopes, [scope.name for scope in scopes])
 
-    async def _ensure_role_assignable(self, role_id: UUID) -> None:
-        """Reject role grants containing scopes the caller does not hold."""
-        await resolve_grantable_role(
+    async def _ensure_role_assignable(
+        self, role_id: UUID, workspace_id: WorkspaceID | None
+    ) -> None:
+        """Reject grants above the caller's scopes or at the wrong role level."""
+        role = await resolve_grantable_role(
             self.session, self.role, self.organization_id, role_id
         )
+        ensure_role_fits_scope(role, workspace_id)
 
     async def _ensure_group_membership_assignable(self, group_id: UUID) -> None:
         """Reject membership grants containing scopes the caller does not hold."""
@@ -659,7 +689,7 @@ class RBACService(BaseOrgService):
         await lock_role_changes(self.session, self.organization_id)
         # Verify role and group exist
         await self._assert_group_exists(group_id)
-        await self._ensure_role_assignable(role_id)
+        await self._ensure_role_assignable(role_id, workspace_id)
 
         # Verify workspace exists if provided
         if workspace_id is not None:
@@ -700,7 +730,7 @@ class RBACService(BaseOrgService):
         assignment = await self.get_group_role_assignment(assignment_id)
 
         # Verify new role exists
-        await self._ensure_role_assignable(role_id)
+        await self._ensure_role_assignable(role_id, assignment.workspace_id)
 
         assignment.role_id = role_id
         await self.session.commit()
@@ -797,7 +827,7 @@ class RBACService(BaseOrgService):
                     "org:rbac:update" if scope in existing else "org:rbac:create",
                 )
                 # Check every grant against the actor's pre-edit permissions.
-                await self._ensure_role_assignable(role_id)
+                await self._ensure_role_assignable(role_id, scope)
                 if (
                     scope is not None
                     and await self.session.scalar(
@@ -887,7 +917,7 @@ class RBACService(BaseOrgService):
             raise TracecatNotFoundError("User not found in organization")
 
         # Verify role exists
-        await self._ensure_role_assignable(role_id)
+        await self._ensure_role_assignable(role_id, workspace_id)
 
         # Verify workspace exists if provided
         if workspace_id is not None:
@@ -916,7 +946,7 @@ class RBACService(BaseOrgService):
             await self.session.commit()
         except IntegrityError as e:
             await self.session.rollback()
-            raise TracecatValidationError(
+            raise TracecatConflictError(
                 "User already has an assignment for this workspace"
             ) from e
         await self.session.refresh(assignment, ["user", "role", "workspace"])
@@ -939,7 +969,7 @@ class RBACService(BaseOrgService):
         assignment = await self.get_user_assignment(assignment_id)
 
         # Verify new role exists
-        await self._ensure_role_assignable(role_id)
+        await self._ensure_role_assignable(role_id, assignment.workspace_id)
 
         assignment.role_id = role_id
         await self.session.commit()

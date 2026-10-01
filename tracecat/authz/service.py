@@ -16,7 +16,11 @@ from tracecat.authz.membership import (
     lock_role_changes,
     mirror_workspace_membership,
 )
-from tracecat.authz.scopes import ORG_MEMBER_FLOOR_SCOPES, ORG_MEMBER_ROLE_SLUG
+from tracecat.authz.scopes import (
+    ORG_MEMBER_FLOOR_SCOPES,
+    ORG_MEMBER_ROLE_SLUG,
+    is_org_level_role,
+)
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
@@ -185,6 +189,27 @@ async def resolve_grantable_role(
     return await _resolve_grantable(
         session, granter, organization_id, DBRole.id == role_id, "Role not found"
     )
+
+
+def ensure_role_fits_scope(role: DBRole, workspace_id: WorkspaceID | None) -> None:
+    """Reject org roles granted on a workspace and workspace roles granted org-wide.
+
+    Args:
+        role: Role with ``scopes`` loaded.
+        workspace_id: Target workspace, or None for an org-wide grant.
+
+    Raises:
+        TracecatValidationError: If the role's level does not match the target.
+    """
+    org_level = is_org_level_role(scope.name for scope in role.scopes)
+    if org_level and workspace_id is not None:
+        raise TracecatValidationError(
+            f"{role.name} is an organization role and can only be assigned organization-wide"
+        )
+    if not org_level and workspace_id is None:
+        raise TracecatValidationError(
+            f"{role.name} is a workspace role and can only be assigned on a workspace"
+        )
 
 
 async def resolve_grantable_role_by_slug(

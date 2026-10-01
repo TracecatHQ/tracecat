@@ -62,6 +62,7 @@ import {
   useRbacRoles,
   useWorkspaceManager,
 } from "@/lib/hooks"
+import { rolesForScope } from "@/lib/rbac"
 
 export function OrgRbacAssignments() {
   const [selectedAssignment, setSelectedAssignment] =
@@ -460,7 +461,10 @@ function AssignmentFormDialog({
                 <SelectValue placeholder="Select a role" />
               </SelectTrigger>
               <SelectContent>
-                {roles.map((role) => (
+                {rolesForScope(
+                  roles,
+                  workspaceId === "org-wide" ? null : workspaceId
+                ).map((role) => (
                   <SelectItem key={role.id} value={role.id}>
                     {role.name}
                   </SelectItem>
@@ -471,7 +475,13 @@ function AssignmentFormDialog({
 
           <div className="space-y-2">
             <Label htmlFor="assignment-workspace">Scope</Label>
-            <Select value={workspaceId} onValueChange={setWorkspaceId}>
+            <Select
+              value={workspaceId}
+              onValueChange={(value) => {
+                setWorkspaceId(value)
+                setRoleId("")
+              }}
+            >
               <SelectTrigger id="assignment-workspace">
                 <SelectValue placeholder="Select scope" />
               </SelectTrigger>
@@ -557,11 +567,13 @@ function AssignmentEditDialog({
                 <SelectValue placeholder="Select a role" />
               </SelectTrigger>
               <SelectContent>
-                {roles.map((role) => (
-                  <SelectItem key={role.id} value={role.id}>
-                    {role.name}
-                  </SelectItem>
-                ))}
+                {rolesForScope(roles, assignment.workspace_id ?? null).map(
+                  (role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      {role.name}
+                    </SelectItem>
+                  )
+                )}
               </SelectContent>
             </Select>
           </div>

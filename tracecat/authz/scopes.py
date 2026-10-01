@@ -14,6 +14,7 @@ Standard actions (ordered by privilege):
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, cast, get_args
 
 from tracecat.authz.enums import OrgRole, WorkspaceRole
@@ -345,6 +346,16 @@ PRESET_ROLE_SCOPES: dict[str, frozenset[str]] = {
     "organization-admin": ORG_ADMIN_SCOPES,
     "organization-member": ORG_MEMBER_SCOPES,
 }
+
+
+def is_org_level_role(scope_names: Iterable[str]) -> bool:
+    """Return whether a role's scopes make it an organization-level role.
+
+    Any ``org:*`` scope pins a role to org-wide grants; every other role is
+    granted per workspace.
+    """
+    return any(name.startswith("org:") for name in scope_names)
+
 
 # =============================================================================
 # Service Principal Scope Allowlist

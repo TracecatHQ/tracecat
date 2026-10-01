@@ -30,6 +30,8 @@ The Scopes column counts the current definition. Startup seeding adds scopes a b
 
 An assignment binds one role to one user or one group, either organization-wide or for a single workspace. An organization-wide assignment applies in every workspace, and a workspace assignment grants nothing outside that workspace.
 
+A role that holds any `org:*` scope is an organization role and can only be assigned organization-wide. Every other role is a workspace role and can only be assigned on a workspace. Tracecat rejects a role edit that would switch a role between the two while it is assigned.
+
 A user's effective scopes are the union of their direct assignments and the assignments of every group they belong to. A user with `workspace-viewer` directly and a group assignment of `workspace-editor` in the same workspace holds every `workspace-editor` scope there.
 
 Each user holds at most one direct assignment per workspace and at most one organization-wide direct assignment, and the same limit applies to each group. Tracecat refuses a second assignment for the same user and workspace with `User already has an assignment for this workspace`, and for the same group with `Group already has an assignment for this workspace` — change the role on the existing assignment instead.

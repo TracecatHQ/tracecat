@@ -246,10 +246,11 @@ async def create_user_assignment(
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except TracecatValidationError as e:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(e),
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
     return _assignment_to_read(a)
 
@@ -274,6 +275,10 @@ async def update_user_assignment(
         a = await service.update_user_assignment(assignment_id, role_id=params.role_id)
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
     return _assignment_to_read(a)
 
 

@@ -271,6 +271,8 @@ async def update_role(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatAuthorizationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -692,6 +694,10 @@ async def create_assignment(
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -733,6 +739,10 @@ async def update_assignment(
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
 
 
 @assignments_router.delete("/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT)

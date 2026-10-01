@@ -264,3 +264,16 @@ export function groupScopesByResource(
     {} as Record<string, ScopeRead[]>
   )
 }
+
+/** Mirrors `is_org_level_role` in tracecat/authz/scopes.py. */
+export function isOrgLevelRole(role: { scopes?: ScopeRead[] }): boolean {
+  return (role.scopes ?? []).some((scope) => scope.name.startsWith("org:"))
+}
+
+/** Roles assignable at a scope: org roles org-wide, others per workspace. */
+export function rolesForScope<T extends { scopes?: ScopeRead[] }>(
+  roles: T[],
+  workspaceId: string | null
+): T[] {
+  return roles.filter((role) => isOrgLevelRole(role) === (workspaceId === null))
+}

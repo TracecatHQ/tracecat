@@ -53,7 +53,19 @@ const roles: RoleReadWithScopes[] = [
   is_system: true,
   created_at: "2026-01-01",
   updated_at: "2026-01-01",
-  scopes: [],
+  scopes: role.slug.startsWith("organization-")
+    ? [
+        {
+          id: "org-read",
+          name: "org:read",
+          resource: "org",
+          action: "read",
+          source: "platform" as const,
+          created_at: "2026-01-01",
+          updated_at: "2026-01-01",
+        },
+      ]
+    : [],
 }))
 function assignment(
   id: string,
@@ -127,12 +139,12 @@ async function addRole(
   roleName: string,
   workspaceName?: string
 ) {
-  await user.click(screen.getByRole("combobox", { name: "Role" }))
-  await user.click(screen.getByRole("option", { name: roleName }))
   if (workspaceName) {
     await user.click(screen.getByRole("combobox", { name: "Scope" }))
     await user.click(screen.getByRole("option", { name: workspaceName }))
   }
+  await user.click(screen.getByRole("combobox", { name: "Role" }))
+  await user.click(screen.getByRole("option", { name: roleName }))
   await user.click(screen.getByRole("button", { name: "Add role" }))
 }
 
@@ -235,6 +247,27 @@ it("shows the baseline role and stages edits until Done; Cancel writes nothing",
   await user.click(screen.getByRole("button", { name: "Cancel" }))
   expect(onOpenChange).toHaveBeenCalledWith(false)
   expect(operationOrder).toEqual([])
+})
+
+it("offers only roles valid for the selected scope", async () => {
+  const { user } = await renderDialog()
+  await user.click(screen.getByRole("combobox", { name: "Role" }))
+  expect(
+    screen.getByRole("option", { name: "Organization Admin" })
+  ).toBeInTheDocument()
+  expect(
+    screen.queryByRole("option", { name: "Workspace Editor" })
+  ).not.toBeInTheDocument()
+  await user.keyboard("{Escape}")
+  await user.click(screen.getByRole("combobox", { name: "Scope" }))
+  await user.click(screen.getByRole("option", { name: "Workspace B" }))
+  await user.click(screen.getByRole("combobox", { name: "Role" }))
+  expect(
+    screen.getByRole("option", { name: "Workspace Editor" })
+  ).toBeInTheDocument()
+  expect(
+    screen.queryByRole("option", { name: "Organization Admin" })
+  ).not.toBeInTheDocument()
 })
 
 it("promotes the hidden baseline by update with update-only permission", async () => {
