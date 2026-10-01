@@ -86,7 +86,7 @@ def get_library_skills(slugs: Sequence[str]) -> list[LibrarySkill]:
     library = load_library()
     if missing := sorted(set(slugs) - library.keys()):
         raise TracecatValidationError(
-            f"Library skills not found: {missing}",
+            f"Unknown library skills: {', '.join(missing)}",
             detail={"code": "library_skill_not_found", "slugs": missing},
         )
     return [library[slug] for slug in slugs]

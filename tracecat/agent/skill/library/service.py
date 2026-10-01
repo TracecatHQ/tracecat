@@ -157,19 +157,25 @@ class SkillLibraryService(BaseWorkspaceService):
         )
         if install_id is None:
             raise TracecatNotFoundError(f"Library skill '{slug}' is not installed")
-        bound = (
-            await self.session.execute(
-                select(AgentPreset.slug).where(
-                    AgentPreset.workspace_id == self.workspace_id,
-                    AgentPreset.deleted_at.is_(None),
-                    AgentPreset.library_skills.contains([slug]),
-                )
+        bound_stmt = (
+            select(AgentPreset.slug, AgentPreset.name)
+            .where(
+                AgentPreset.workspace_id == self.workspace_id,
+                AgentPreset.deleted_at.is_(None),
+                AgentPreset.library_skills.contains([slug]),
             )
-        ).scalars()
-        if presets := sorted(bound):
+            .order_by(AgentPreset.name)
+        )
+        bound = (await self.session.execute(bound_stmt)).tuples().all()
+        if bound:
+            noun = "agent" if len(bound) == 1 else "agents"
+            names = ", ".join(f"'{name}'" for _, name in bound)
             raise TracecatValidationError(
-                f"Library skill '{slug}' is used by presets: {presets}",
-                detail={"code": SkillLibraryErrorCode.IN_USE.value, "presets": presets},
+                f"Remove '{slug}' from {noun} {names} before uninstalling it.",
+                detail={
+                    "code": SkillLibraryErrorCode.IN_USE.value,
+                    "presets": sorted(preset_slug for preset_slug, _ in bound),
+                },
             )
         await self.session.execute(
             delete(SkillLibraryInstall).where(SkillLibraryInstall.id == install_id)
@@ -225,7 +231,7 @@ class SkillLibraryService(BaseWorkspaceService):
         installed = await self._installed(slugs, lock=True)
         if missing := sorted(set(slugs) - installed):
             raise TracecatValidationError(
-                f"Library skills are not installed in this workspace: {missing}",
+                f"Install {', '.join(missing)} from the skill library first.",
                 detail={
                     "code": SkillLibraryErrorCode.NOT_INSTALLED.value,
                     "slugs": missing,
