@@ -1,0 +1,173 @@
+"""Pure contract conformance, including a consumer with no native runtime imports."""
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+from uuid import UUID
+
+import pytest
+from pydantic import ValidationError
+
+from tracecat.agent.references.contracts import (
+    ExecutionAuthority,
+    LogicalArtifact,
+    ReferenceCapabilities,
+    ReferencePreparationInput,
+)
+from tracecat.agent.references.markdown import (
+    parse_markdown_references,
+    scan_markdown_files,
+)
+from tracecat.agent.references.uri import (
+    ReferenceKind,
+    ReferenceTarget,
+    ReferenceURIError,
+    parse_reference_uri,
+    serialize_reference_uri,
+)
+
+FIXTURES = json.loads(
+    (
+        Path(__file__).parents[2] / "fixtures/agent_references/conformance.json"
+    ).read_text()
+)
+
+
+@pytest.mark.parametrize("case", FIXTURES["uris"], ids=lambda c: c["name"])
+def test_uri_conformance(case):
+    if case["error"]:
+        with pytest.raises(ReferenceURIError) as exc:
+            parse_reference_uri(case["uri"])
+        assert exc.value.code == case["error"]
+    else:
+        assert (
+            serialize_reference_uri(parse_reference_uri(case["uri"]))
+            == case["canonical"]
+        )
+
+
+@pytest.mark.parametrize("case", FIXTURES["markdown"], ids=lambda c: c["name"])
+def test_markdown_conformance(case):
+    result = parse_markdown_references(case["source"], path="references/guide.md")
+    assert [serialize_reference_uri(r.target) for r in result.references] == case[
+        "targets"
+    ]
+    assert [d.code.value for d in result.diagnostics] == case["errors"]
+    assert [[r.location.line, r.location.column] for r in result.references] == case[
+        "locations"
+    ]
+    assert all(r.location.path == "references/guide.md" for r in result.references)
+
+
+def test_all_markdown_files_and_binary_rejection():
+    link = b"[x](tracecat-ref://v1/tool/core.http_request)"
+    result = scan_markdown_files(
+        {
+            "SKILL.md": b"plain",
+            "references/nested.MD": link,
+            "example.py": link,
+            "bad.md": b"\xff",
+        }
+    )
+    assert len(result.references) == 1
+    assert result.references[0].location.path == "references/nested.MD"
+    assert result.diagnostics[0].code == "invalid_source"
+
+
+def test_multiple_links_and_multiline_locations():
+    t = "tracecat-ref://v1/tool/core.http_request"
+    result = parse_markdown_references(f"é😀 [one]({t}) [two]({t})\r\n> [three]({t})")
+    assert [(r.location.line, r.location.column) for r in result.references] == [
+        (1, 4),
+        (1, 4 + len(f"[one]({t}) ")),
+        (2, 3),
+    ]
+
+
+def test_tool_free_authority_cannot_activate_references():
+    with pytest.raises(ValidationError):
+        ExecutionAuthority(
+            actor_id=None,
+            session_mode="tool_free",
+            activate_references=True,
+            action_scope_ceiling=(),
+            namespace_ceiling=None,
+            admission_policy_hash="0" * 64,
+        )
+
+
+@pytest.mark.parametrize("path", ["/tmp/skill", "../skill", "a/../b", "a\\b", "a//b"])
+def test_artifact_paths_are_logical(path):
+    with pytest.raises(ValidationError):
+        LogicalArtifact(
+            key="bundle/key",
+            path=path,
+            content_hash="0" * 64,
+            size_bytes=1,
+            media_type="text/markdown",
+        )
+
+
+def test_preparation_roundtrip_and_context_separation():
+    uid = UUID("11111111-1111-4111-8111-111111111111")
+    data = {
+        "organization_id": uid,
+        "workspace_id": uid,
+        "session_id": uid,
+        "logical_turn_id": uid,
+        "backend_id": "other",
+        "harness_type": "independent",
+        "authored": {
+            "root": {
+                "origin": "agent_instructions",
+                "owner": ReferenceTarget(ReferenceKind.AGENT, str(uid)),
+                "version_id": uid,
+                "path": "instructions.md",
+                "content_hash": "0" * 64,
+                "markdown": "Hello",
+            },
+            "explicit": {},
+        },
+        "authority": {
+            "actor_id": uid,
+            "session_mode": "delegated_preset",
+            "activate_references": True,
+            "action_scope_ceiling": None,
+            "namespace_ceiling": None,
+            "admission_policy_hash": "0" * 64,
+        },
+        "input_hash": "0" * 64,
+    }
+    request = ReferencePreparationInput.model_validate(data)
+    assert (
+        ReferencePreparationInput.model_validate_json(request.model_dump_json())
+        == request
+    )
+    for invalid in ["instructions", "actions", "role", "prompt_context", "credential"]:
+        with pytest.raises(ValidationError):
+            ReferencePreparationInput.model_validate({**data, invalid: "untrusted"})
+    with pytest.raises(ValidationError):
+        ReferencePreparationInput.model_validate({**data, "schema_version": 2})
+
+
+def test_independent_consumer_imports_no_workflow_or_native_sdk():
+    # A new interpreter avoids imports by the repository-wide pytest fixtures.
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from tracecat.agent.references.contracts import ReferenceSnapshotRef, RuntimeReferenceBinding; import sys; assert not any(k.startswith(('claude_agent_sdk', 'tracecat_ee.agent.workflows', 'tracecat.agent.runtime')) for k in sys.modules)",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_capabilities_are_explicit_and_default_to_no_native_readiness():
+    capability = ReferenceCapabilities(
+        harness_type="independent", kinds=frozenset({ReferenceKind.SKILL})
+    )
+    assert not capability.eager_callable_readiness
+    assert not capability.direct_child_delegation

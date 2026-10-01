@@ -1,0 +1,459 @@
+{
+  "uris": [
+    {
+      "name": "tool",
+      "uri": "tracecat-ref://v1/tool/core.http_request",
+      "canonical": "tracecat-ref://v1/tool/core.http_request",
+      "error": null
+    },
+    {
+      "name": "mcp-server",
+      "uri": "tracecat-ref://v1/mcp-server/11111111-1111-4111-8111-111111111111",
+      "canonical": "tracecat-ref://v1/mcp-server/11111111-1111-4111-8111-111111111111",
+      "error": null
+    },
+    {
+      "name": "mcp-tool",
+      "uri": "tracecat-ref://v1/mcp-tool/11111111-1111-4111-8111-111111111111/get_Device-1",
+      "canonical": "tracecat-ref://v1/mcp-tool/11111111-1111-4111-8111-111111111111/get_Device-1",
+      "error": null
+    },
+    {
+      "name": "table",
+      "uri": "tracecat-ref://v1/table/11111111-1111-4111-8111-111111111111",
+      "canonical": "tracecat-ref://v1/table/11111111-1111-4111-8111-111111111111",
+      "error": null
+    },
+    {
+      "name": "workflow",
+      "uri": "tracecat-ref://v1/workflow/11111111-1111-4111-8111-111111111111",
+      "canonical": "tracecat-ref://v1/workflow/11111111-1111-4111-8111-111111111111",
+      "error": null
+    },
+    {
+      "name": "skill",
+      "uri": "tracecat-ref://v1/skill/11111111-1111-4111-8111-111111111111",
+      "canonical": "tracecat-ref://v1/skill/11111111-1111-4111-8111-111111111111",
+      "error": null
+    },
+    {
+      "name": "agent",
+      "uri": "tracecat-ref://v1/agent/11111111-1111-4111-8111-111111111111",
+      "canonical": "tracecat-ref://v1/agent/11111111-1111-4111-8111-111111111111",
+      "error": null
+    },
+    {
+      "name": "encoded-unreserved",
+      "uri": "tracecat-ref://v1/tool/core%2Ehttp_request",
+      "canonical": "tracecat-ref://v1/tool/core.http_request",
+      "error": null
+    },
+    {
+      "name": "version",
+      "uri": "tracecat-ref://v2/table/11111111-1111-4111-8111-111111111111",
+      "canonical": null,
+      "error": "unsupported_version"
+    },
+    {
+      "name": "uppercase-scheme",
+      "uri": "TRACECAT-REF://v1/table/11111111-1111-4111-8111-111111111111",
+      "canonical": null,
+      "error": "invalid_uri"
+    },
+    {
+      "name": "query",
+      "uri": "tracecat-ref://v1/table/11111111-1111-4111-8111-111111111111?x=1",
+      "canonical": null,
+      "error": "invalid_uri"
+    },
+    {
+      "name": "fragment",
+      "uri": "tracecat-ref://v1/table/11111111-1111-4111-8111-111111111111#x",
+      "canonical": null,
+      "error": "invalid_uri"
+    },
+    {
+      "name": "extra-path",
+      "uri": "tracecat-ref://v1/table/11111111-1111-4111-8111-111111111111/x",
+      "canonical": null,
+      "error": "invalid_uri"
+    },
+    {
+      "name": "encoded-separator",
+      "uri": "tracecat-ref://v1/tool/core%2Fhttp_request",
+      "canonical": null,
+      "error": "invalid_uri"
+    },
+    {
+      "name": "encoded-backslash",
+      "uri": "tracecat-ref://v1/tool/core%5Chttp_request",
+      "canonical": null,
+      "error": "invalid_uri"
+    },
+    {
+      "name": "double-encoding",
+      "uri": "tracecat-ref://v1/tool/core%252Ehttp_request",
+      "canonical": null,
+      "error": "invalid_uri"
+    },
+    {
+      "name": "encoded-control",
+      "uri": "tracecat-ref://v1/tool/core%00http_request",
+      "canonical": null,
+      "error": "invalid_uri"
+    },
+    {
+      "name": "bad-percent",
+      "uri": "tracecat-ref://v1/tool/core%GG",
+      "canonical": null,
+      "error": "invalid_uri"
+    },
+    {
+      "name": "bad-utf8",
+      "uri": "tracecat-ref://v1/tool/core%FF",
+      "canonical": null,
+      "error": "invalid_uri"
+    },
+    {
+      "name": "unknown-kind",
+      "uri": "tracecat-ref://v1/unknown/11111111-1111-4111-8111-111111111111",
+      "canonical": null,
+      "error": "invalid_uri"
+    },
+    {
+      "name": "uppercase-uuid",
+      "uri": "tracecat-ref://v1/table/AAAAAAAA-1111-4111-8111-111111111111",
+      "canonical": null,
+      "error": "invalid_identity"
+    },
+    {
+      "name": "compact-uuid",
+      "uri": "tracecat-ref://v1/table/11111111111141118111111111111111",
+      "canonical": null,
+      "error": "invalid_identity"
+    },
+    {
+      "name": "registry-reserved-mcp",
+      "uri": "tracecat-ref://v1/tool/mcp.server.tool",
+      "canonical": null,
+      "error": "invalid_identity"
+    },
+    {
+      "name": "mcp-invalid-name",
+      "uri": "tracecat-ref://v1/mcp-tool/11111111-1111-4111-8111-111111111111/bad.name",
+      "canonical": null,
+      "error": "invalid_identity"
+    },
+    {
+      "name": "unicode-identity",
+      "uri": "tracecat-ref://v1/tool/core.é",
+      "canonical": null,
+      "error": "invalid_identity"
+    }
+  ],
+  "markdown": [
+    {
+      "name": "inline",
+      "source": "Use [@tool](tracecat-ref://v1/tool/core.http_request).",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          5
+        ]
+      ]
+    },
+    {
+      "name": "unicode-crlf",
+      "source": "é😀\r\nUse [@tool](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          2,
+          5
+        ]
+      ]
+    },
+    {
+      "name": "escaped-label",
+      "source": "[a\\]b](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "label-not-identity",
+      "source": "[different name](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "reference-style",
+      "source": "Use [@tool][chosen].\n\n[chosen]: tracecat-ref://v1/tool/core.http_request",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          5
+        ]
+      ]
+    },
+    {
+      "name": "collapsed",
+      "source": "[@tool][]\n\n[@tool]: tracecat-ref://v1/tool/core.http_request",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "blockquote",
+      "source": "> [@tool](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          3
+        ]
+      ]
+    },
+    {
+      "name": "list",
+      "source": "- [@tool](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          3
+        ]
+      ]
+    },
+    {
+      "name": "inline-code",
+      "source": "`[@tool](tracecat-ref://v1/tool/core.http_request)`",
+      "targets": [],
+      "errors": [],
+      "locations": []
+    },
+    {
+      "name": "fenced-code",
+      "source": "```md\n[@tool](tracecat-ref://v1/tool/core.http_request)\n```",
+      "targets": [],
+      "errors": [],
+      "locations": []
+    },
+    {
+      "name": "indented-code",
+      "source": "    [@tool](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [],
+      "errors": [],
+      "locations": []
+    },
+    {
+      "name": "image",
+      "source": "![@tool](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [],
+      "errors": [],
+      "locations": []
+    },
+    {
+      "name": "html-block",
+      "source": "<div>\n[@tool](tracecat-ref://v1/tool/core.http_request)\n</div>",
+      "targets": [],
+      "errors": [],
+      "locations": []
+    },
+    {
+      "name": "html-inline",
+      "source": "hello <span>[@tool](tracecat-ref://v1/tool/core.http_request)</span>",
+      "targets": [],
+      "errors": [],
+      "locations": []
+    },
+    {
+      "name": "frontmatter",
+      "source": "---\nexample: [@tool](tracecat-ref://v1/tool/core.http_request)\n---\n[@tool](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          4,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "plain-text",
+      "source": "@tool user@example.com",
+      "targets": [],
+      "errors": [],
+      "locations": []
+    },
+    {
+      "name": "ordinary-link",
+      "source": "[other](https://example.com)",
+      "targets": [],
+      "errors": [],
+      "locations": []
+    },
+    {
+      "name": "malformed-version",
+      "source": "[@x](tracecat-ref://v2/tool/core.http_request)",
+      "targets": [],
+      "errors": [
+        "unsupported_version"
+      ],
+      "locations": []
+    },
+    {
+      "name": "encoded-separator",
+      "source": "[@x](tracecat-ref://v1/tool/core%2Fhttp_request)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": []
+    },
+    {
+      "name": "html-followed-by-markdown",
+      "source": "<div>\n[go](tracecat-ref://v1/tool/core.http_request)\n</div>\n\n[go](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          5,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "inline-html-followed-by-markdown",
+      "source": "<span>[go](tracecat-ref://v1/tool/core.http_request)</span> [go](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          61
+        ]
+      ]
+    },
+    {
+      "name": "html-void-tag",
+      "source": "<br> [go](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          6
+        ]
+      ]
+    },
+    {
+      "name": "autolink",
+      "source": "<tracecat-ref://v1/tool/core.http_request>",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "image-with-reference-alt",
+      "source": "![[go](tracecat-ref://v1/tool/core.http_request)](image.png)",
+      "targets": [],
+      "errors": [],
+      "locations": []
+    },
+    {
+      "name": "bom",
+      "source": "﻿[go](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "unclosed-frontmatter",
+      "source": "---\ntext: [go](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [],
+      "errors": [],
+      "locations": []
+    },
+    {
+      "name": "html-block-ends-at-blank-line",
+      "source": "<span>\n\n[go](tracecat-ref://v1/tool/core.http_request)\n\n</span>\n\n[go](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request",
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          3,
+          1
+        ],
+        [
+          7,
+          1
+        ]
+      ]
+    }
+  ]
+}
