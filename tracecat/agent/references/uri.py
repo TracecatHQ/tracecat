@@ -44,7 +44,14 @@ class ReferenceURIError(ValueError):
 
 def is_reference_uri(value: str) -> bool:
     """Recognize the reserved scheme, including malformed/case-varied forms."""
-    return value.lower().startswith("tracecat-ref:")
+    # Match Python/Unicode whitespace explicitly on both sides of the wire.
+    # Classification may recognize malformed padding; parsing must retain it.
+    return bool(
+        re.match(
+            r"^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*tracecat-ref:",
+            value.lower(),
+        )
+    )
 
 
 def _validate_identity(

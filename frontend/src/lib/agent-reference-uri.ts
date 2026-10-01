@@ -43,7 +43,11 @@ const UUID_PATTERN =
 
 /** Recognize the reserved scheme even if its spelling or version is invalid. */
 export function isReferenceURI(value: string): boolean {
-  return value.toLowerCase().startsWith("tracecat-ref:")
+  // Keep this whitespace set identical to Python. Do not trim the destination
+  // passed to parseReferenceURI: malformed padding must never grant a tool.
+  return /^[\u0009-\u000d\u001c-\u0020\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]*tracecat-ref:/.test(
+    value.toLowerCase()
+  )
 }
 
 function validateTarget(target: ReferenceTarget): void {
@@ -72,7 +76,9 @@ function validateTarget(target: ReferenceTarget): void {
 export function parseReferenceURI(value: string): ReferenceTarget {
   if (
     !value.startsWith("tracecat-ref://") ||
-    /[\s\x00-\x1f\x7f?#\\]/.test(value)
+    /[\x00-\x20\x7f\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000?#\\]/.test(
+      value
+    )
   ) {
     throw new ReferenceURIError("invalid_uri")
   }

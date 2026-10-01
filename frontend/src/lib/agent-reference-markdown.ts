@@ -17,13 +17,36 @@ interface MarkdownToken {
   items?: MarkdownToken[]
 }
 
+function decodeMarkdownEntity(entity: string): string {
+  const numeric = /^&#(x[\da-f]+|\d+);$/i.exec(entity)?.[1]
+  if (!numeric) return decodeHTMLStrict(entity)
+  const code = numeric.toLowerCase().startsWith("x")
+    ? Number.parseInt(numeric.slice(1), 16)
+    : Number.parseInt(numeric, 10)
+  // Match the pinned MarkdownIt decoder, which keeps invalid numeric entities
+  // literal instead of applying HTML's legacy control-code replacements.
+  if (
+    code > 0x10ffff ||
+    (code >= 0xd800 && code <= 0xdfff) ||
+    (code >= 0xfdd0 && code <= 0xfdef) ||
+    (code & 0xffff) === 0xffff ||
+    (code & 0xffff) === 0xfffe ||
+    code <= 8 ||
+    code === 11 ||
+    (code >= 14 && code <= 31) ||
+    (code >= 127 && code <= 159)
+  )
+    return entity
+  return String.fromCodePoint(code)
+}
+
 function decodeMarkdownDestination(destination: string): string {
   // Decode escapes and entities together: an escaped ampersand stays literal,
   // and an entity that produces another entity is never decoded twice.
   return destination.replace(
-    /\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])|&(?:#\d{1,7}|#[xX][\da-fA-F]{1,6}|[A-Za-z][A-Za-z\d]{1,31});/g,
+    /\\([!"#$%&'()*+,\-./:;<=>?@[\\\]^_`{|}~])|&(?:#\d{1,8}|#[xX][\da-fA-F]{1,8}|[A-Za-z][A-Za-z\d]{1,31});/g,
     (match: string, escaped: string | undefined) =>
-      escaped ?? decodeHTMLStrict(match)
+      escaped ?? decodeMarkdownEntity(match)
   )
 }
 
@@ -74,9 +97,21 @@ export function parseMarkdownReferences(markdown: string): {
     return token
   }
   tokenizer.def = function def(source) {
-    const token = nativeTokenizer.def.call(this, source)
+    // JavaScript's dot excludes U+2028/U+2029, but CommonMark destinations
+    // exclude only actual newlines. Keep the native definition grammar otherwise.
+    const rule = this.rules.block.def
+    const definitionRule = new RegExp(
+      rule.source.replace("<.*?>", "<[^\\n]*?>"),
+      rule.flags
+    )
+    const definitionTokenizer = new manager.instance.Tokenizer()
+    definitionTokenizer.rules = {
+      ...this.rules,
+      block: { ...this.rules.block, def: definitionRule },
+    }
+    const token = definitionTokenizer.def(source)
     if (!token) return token
-    const match = this.rules.block.def.exec(token.raw)
+    const match = definitionRule.exec(token.raw)
     if (match?.[2]) {
       const destination = match[2].replace(/^<([\s\S]*)>$/, "$1")
       token.href = decodeMarkdownDestination(destination)

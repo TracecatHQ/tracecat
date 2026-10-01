@@ -26,6 +26,8 @@ UUIDs use lowercase, hyphenated spelling. URI segments are decoded once. Encoded
 separators, double encoding, controls, queries, fragments, unsupported versions,
 and invalid identities are errors. Serialization returns the canonical spelling.
 Registry action keys and MCP tool names are limited to 255 characters.
+Boundary whitespace in a reserved Markdown destination is a diagnostic, even
+when encoded as an entity; normalization must not turn it into a grant.
 No URI is fetched as a network address.
 
 `parse_markdown_references` uses CommonMark link tokens, including reference-style

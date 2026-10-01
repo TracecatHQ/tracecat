@@ -146,7 +146,7 @@
     },
     {
       "name": "unicode-identity",
-      "uri": "tracecat-ref://v1/tool/core.é",
+      "uri": "tracecat-ref://v1/tool/core.\u00e9",
       "canonical": null,
       "error": "invalid_identity"
     },
@@ -193,7 +193,7 @@
     },
     {
       "name": "unicode-crlf",
-      "source": "é😀\r\nUse [@tool](tracecat-ref://v1/tool/core.http_request)",
+      "source": "\u00e9\ud83d\ude00\r\nUse [@tool](tracecat-ref://v1/tool/core.http_request)",
       "targets": [
         "tracecat-ref://v1/tool/core.http_request"
       ],
@@ -475,7 +475,7 @@
     },
     {
       "name": "bom",
-      "source": "﻿[go](tracecat-ref://v1/tool/core.http_request)",
+      "source": "\ufeff[go](tracecat-ref://v1/tool/core.http_request)",
       "targets": [
         "tracecat-ref://v1/tool/core.http_request"
       ],
@@ -608,7 +608,7 @@
     },
     {
       "name": "diagnostic-bom-crlf",
-      "source": "﻿intro\r\n[x](tracecat-ref://v2/tool/core.http_request)",
+      "source": "\ufeffintro\r\n[x](tracecat-ref://v2/tool/core.http_request)",
       "targets": [],
       "errors": [
         "unsupported_version"
@@ -653,7 +653,7 @@
     },
     {
       "name": "diagnostic-unicode",
-      "source": "é😀 [x](tracecat-ref://v2/tool/core.http_request)",
+      "source": "\u00e9\ud83d\ude00 [x](tracecat-ref://v2/tool/core.http_request)",
       "targets": [],
       "errors": [
         "unsupported_version"
@@ -985,6 +985,537 @@
           48
         ]
       ]
+    },
+    {
+      "name": "inline-destination-leading-space",
+      "source": "[x](< tracecat-ref://v1/tool/core.http_request>)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-leading-space",
+      "source": "[x][r]\n\n[r]: < tracecat-ref://v1/tool/core.http_request>",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "inline-destination-trailing-space",
+      "source": "[x](<tracecat-ref://v1/tool/core.http_request >)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-trailing-space",
+      "source": "[x][r]\n\n[r]: <tracecat-ref://v1/tool/core.http_request >",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "inline-destination-boundary-tabs",
+      "source": "[x](<\ttracecat-ref://v1/tool/core.http_request\t>)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-boundary-tabs",
+      "source": "[x][r]\n\n[r]: <\ttracecat-ref://v1/tool/core.http_request\t>",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "inline-destination-entity-leading-space",
+      "source": "[x](<&#32;tracecat-ref://v1/tool/core.http_request>)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-entity-leading-space",
+      "source": "[x][r]\n\n[r]: <&#32;tracecat-ref://v1/tool/core.http_request>",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "inline-destination-entity-trailing-space",
+      "source": "[x](<tracecat-ref://v1/tool/core.http_request&#32;>)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-entity-trailing-space",
+      "source": "[x][r]\n\n[r]: <tracecat-ref://v1/tool/core.http_request&#32;>",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "inline-destination-entity-leading-tab",
+      "source": "[x](<&Tab;tracecat-ref://v1/tool/core.http_request>)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-entity-leading-tab",
+      "source": "[x][r]\n\n[r]: <&Tab;tracecat-ref://v1/tool/core.http_request>",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "inline-destination-entity-nbsp",
+      "source": "[x](<&nbsp;tracecat-ref://v1/tool/core.http_request>)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-entity-nbsp",
+      "source": "[x][r]\n\n[r]: <&nbsp;tracecat-ref://v1/tool/core.http_request>",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "inline-destination-entity-next-line",
+      "source": "[x](<&#133;tracecat-ref://v1/tool/core.http_request>)",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-destination-entity-next-line",
+      "source": "[x][r]\n\n[r]: <&#133;tracecat-ref://v1/tool/core.http_request>",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "inline-destination-entity-file-separator",
+      "source": "[x](<&#28;tracecat-ref://v1/tool/core.http_request>)",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-destination-entity-file-separator",
+      "source": "[x][r]\n\n[r]: <&#28;tracecat-ref://v1/tool/core.http_request>",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "inline-destination-entity-bom",
+      "source": "[x](<&#65279;tracecat-ref://v1/tool/core.http_request>)",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-destination-entity-bom",
+      "source": "[x][r]\n\n[r]: <&#65279;tracecat-ref://v1/tool/core.http_request>",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "inline-destination-escaped-tab-entity",
+      "source": "[x](<\\&Tab;tracecat-ref://v1/tool/core.http_request>)",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-destination-escaped-tab-entity",
+      "source": "[x][r]\n\n[r]: <\\&Tab;tracecat-ref://v1/tool/core.http_request>",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "inline-destination-percent-space",
+      "source": "[x](<%20tracecat-ref://v1/tool/core.http_request>)",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-destination-percent-space",
+      "source": "[x][r]\n\n[r]: <%20tracecat-ref://v1/tool/core.http_request>",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "eight-digit-decimal-colon",
+      "source": "[x](tracecat-ref&#00000058;//v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "eight-digit-hex-colon",
+      "source": "[x](tracecat-ref&#x0000003a;//v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "invalid-control-entity-in-uri",
+      "source": "[x](tracecat-ref://v1/tool/core&#28;.http_request)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "inline-destination-trailing-next-line",
+      "source": "[x](<tracecat-ref://v1/tool/core.http_request\u0085>)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-trailing-next-line",
+      "source": "[x][r]\n\n[r]: <tracecat-ref://v1/tool/core.http_request\u0085>",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "inline-destination-trailing-bom",
+      "source": "[x](<tracecat-ref://v1/tool/core.http_request\ufeff>)",
+      "targets": [],
+      "errors": [
+        "invalid_identity"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-trailing-bom",
+      "source": "[x][r]\n\n[r]: <tracecat-ref://v1/tool/core.http_request\ufeff>",
+      "targets": [],
+      "errors": [
+        "invalid_identity"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "inline-destination-trailing-entity-bom",
+      "source": "[x](<tracecat-ref://v1/tool/core.http_request&#65279;>)",
+      "targets": [],
+      "errors": [
+        "invalid_identity"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-trailing-entity-bom",
+      "source": "[x][r]\n\n[r]: <tracecat-ref://v1/tool/core.http_request&#65279;>",
+      "targets": [],
+      "errors": [
+        "invalid_identity"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-leading-line-separator",
+      "source": "[x][r]\n\n[r]: <\u2028tracecat-ref://v1/tool/core.http_request>",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-trailing-line-separator",
+      "source": "[x][r]\n\n[r]: <tracecat-ref://v1/tool/core.http_request\u2028>",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-boundary-line-separator",
+      "source": "[x][r]\n\n[r]: <\u2028tracecat-ref://v1/tool/core.http_request\u2028>",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-leading-paragraph-separator",
+      "source": "[x][r]\n\n[r]: <\u2029tracecat-ref://v1/tool/core.http_request>",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-trailing-paragraph-separator",
+      "source": "[x][r]\n\n[r]: <tracecat-ref://v1/tool/core.http_request\u2029>",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-boundary-paragraph-separator",
+      "source": "[x][r]\n\n[r]: <\u2029tracecat-ref://v1/tool/core.http_request\u2029>",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-destination-rejects-lf",
+      "source": "[x][r]\n\n[r]: <\ntracecat-ref://v1/tool/core.http_request>",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-destination-rejects-crlf",
+      "source": "[x][r]\n\n[r]: <\r\ntracecat-ref://v1/tool/core.http_request>",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
     }
   ]
 }
