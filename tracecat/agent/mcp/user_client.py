@@ -9,6 +9,7 @@ allowing the sandboxed runtime to access user tools via the Unix socket proxy.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -25,6 +26,13 @@ from tenacity import (
     wait_exponential,
 )
 
+from tracecat.agent.common.exceptions import (
+    UserMCPDiscoveryAuthError,
+    UserMCPDiscoveryBudgetExceededError,
+    UserMCPDiscoveryError,
+    UserMCPDiscoveryTimeoutError,
+    UserMCPDiscoveryUnavailableError,
+)
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
 from tracecat.agent.mcp.http_limits import (
     MCPResponseTooLargeError,
@@ -36,6 +44,15 @@ from tracecat.agent.mcp.utils import (
 )
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.logger import logger
+
+# Discovery must finish before the 120-second preparation budget per scope.
+# These cover retries too; execution timeouts for tools remain independent.
+MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS = 20.0
+MCP_DISCOVERY_TIMEOUT_SECONDS = 60.0
+# Client errors that can clear on a later attempt.
+_RETRYABLE_DISCOVERY_STATUS_CODES = frozenset(
+    {int(httpx.codes.REQUEST_TIMEOUT), int(httpx.codes.TOO_MANY_REQUESTS)}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,22 +148,13 @@ async def list_remote_mcp_tools(
 
 
 def _iter_exception_chain(exc: BaseException) -> list[BaseException]:
-    """Return an exception and its explicit cause/context chain."""
-    chain: list[BaseException] = []
-    current: BaseException | None = exc
-    while current is not None and current not in chain:
-        chain.append(current)
-        current = current.__cause__ or current.__context__
-    return chain
+    """Return an exception, its cause/context links, and ExceptionGroup members.
 
-
-def _contains_response_too_large(exc: BaseException) -> bool:
-    """Walk cause/context and ExceptionGroup members for the byte-cap error.
-
-    The cap raise surfaces differently by path: bare on tools/call, wrapped in
-    a connect RuntimeError on the handshake, and nested inside an anyio
+    Failures surface differently by path: bare on tools/call, wrapped in a
+    connect RuntimeError on the handshake, and nested inside an anyio
     ExceptionGroup in either case.
     """
+    chain: list[BaseException] = []
     seen: set[int] = set()
     stack: list[BaseException] = [exc]
     while stack:
@@ -154,20 +162,28 @@ def _contains_response_too_large(exc: BaseException) -> bool:
         if id(current) in seen:
             continue
         seen.add(id(current))
-        if isinstance(current, MCPResponseTooLargeError):
-            return True
+        chain.append(current)
         if isinstance(current, BaseExceptionGroup):
             stack.extend(current.exceptions)
         for linked in (current.__cause__, current.__context__):
             if linked is not None:
                 stack.append(linked)
-    return False
+    return chain
+
+
+def _contains_response_too_large(exc: BaseException) -> bool:
+    """Return whether the byte-cap error appears anywhere in the failure."""
+    return any(
+        isinstance(chained, MCPResponseTooLargeError)
+        for chained in _iter_exception_chain(exc)
+    )
 
 
 def _is_retryable_discovery_error_leaf(exc: BaseException) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code >= 500
-    if isinstance(exc, httpx.TransportError | httpx.TimeoutException):
+        status_code = exc.response.status_code
+        return status_code >= 500 or status_code in _RETRYABLE_DISCOVERY_STATUS_CODES
+    if isinstance(exc, httpx.TransportError | httpx.TimeoutException | TimeoutError):
         return True
     if isinstance(exc, McpError):
         return exc.error.code == int(httpx.codes.REQUEST_TIMEOUT)
@@ -180,6 +196,42 @@ def _is_retryable_discovery_error(exc: BaseException) -> bool:
         _is_retryable_discovery_error_leaf(chained)
         for chained in _iter_exception_chain(exc)
     )
+
+
+def _discovery_error_status_codes(exc: BaseException) -> set[int]:
+    return {
+        chained.response.status_code
+        for chained in _iter_exception_chain(exc)
+        if isinstance(chained, httpx.HTTPStatusError)
+    }
+
+
+def _typed_discovery_error(
+    server_name: str,
+    exc: BaseException,
+) -> UserMCPDiscoveryError:
+    """Map a discovery failure onto the typed error that carries its owner."""
+    status_codes = _discovery_error_status_codes(exc)
+    if status_codes & {
+        int(httpx.codes.UNAUTHORIZED),
+        int(httpx.codes.FORBIDDEN),
+    }:
+        return UserMCPDiscoveryAuthError(server_name)
+    if any(
+        isinstance(chained, TimeoutError | httpx.TimeoutException)
+        for chained in _iter_exception_chain(exc)
+    ):
+        return UserMCPDiscoveryTimeoutError(server_name)
+    if _is_retryable_discovery_error(exc):
+        return UserMCPDiscoveryUnavailableError(server_name, retryable=True)
+    # Oversized responses and JSON-RPC errors both come from the user's server.
+    if (
+        any(400 <= code < 500 for code in status_codes)
+        or _contains_response_too_large(exc)
+        or any(isinstance(chained, McpError) for chained in _iter_exception_chain(exc))
+    ):
+        return UserMCPDiscoveryUnavailableError(server_name, retryable=False)
+    return UserMCPDiscoveryError(server_name)
 
 
 def _safe_discovery_error_summary(exc: BaseException) -> str:
@@ -238,10 +290,31 @@ class UserMCPClient:
         """Connect to all configured servers and report per-server failures."""
         tools: dict[str, MCPToolDefinition] = {}
         failed_servers: dict[str, str] = {}
+        loop = asyncio.get_running_loop()
+        discovery_deadline = loop.time() + MCP_DISCOVERY_TIMEOUT_SECONDS
 
         for server_name, config in self._configs.items():
+            # Never start another connection after the shared budget expires.
+            if loop.time() >= discovery_deadline:
+                budget_error = UserMCPDiscoveryBudgetExceededError(server_name)
+                logger.error(
+                    "Skipped user MCP server after the discovery budget expired",
+                    server_name=server_name,
+                )
+                failed_servers[server_name] = type(budget_error).__name__
+                if fail_on_error:
+                    raise budget_error
+                continue
             try:
-                server_tools = await self._discover_server_tools(server_name, config)
+                server_timeout = min(
+                    config.get("timeout") or MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS,
+                    MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS,
+                )
+                server_deadline = min(loop.time() + server_timeout, discovery_deadline)
+                async with asyncio.timeout_at(server_deadline):
+                    server_tools = await self._discover_server_tools(
+                        server_name, config
+                    )
                 tools.update(server_tools)
             except Exception as e:
                 error_summary = _safe_discovery_error_summary(e)
@@ -252,9 +325,7 @@ class UserMCPClient:
                 )
                 failed_servers[server_name] = error_summary
                 if fail_on_error:
-                    raise RuntimeError(
-                        f"Failed to discover tools from user MCP server '{server_name}'"
-                    ) from e
+                    raise _typed_discovery_error(server_name, e) from e
 
         logger.info(
             "Discovered user MCP tools",
@@ -305,7 +376,12 @@ class UserMCPClient:
         transport = _create_transport(url, transport_type, headers, timeout)
         tools: dict[str, MCPToolDefinition] = {}
 
-        async with Client(transport) as client:
+        async with Client(
+            transport,
+            # The outer discovery deadline also bounds initialization. FastMCP's
+            # timer can discard TimeoutError when collapsing transport groups.
+            init_timeout=0,
+        ) as client:
             # List tools from the server
             server_tools = await client.list_tools()
 

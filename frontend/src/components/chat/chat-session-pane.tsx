@@ -1287,11 +1287,7 @@ export function ChatSessionPane({
             <ConversationContent className={chatContentCenterClass}>
               {displayedError && (
                 <Alert variant="destructive" className="mb-4">
-                  <AlertTitle>
-                    {lastError
-                      ? "Unable to continue with this model"
-                      : "Last run failed"}
-                  </AlertTitle>
+                  <AlertTitle>Last run failed</AlertTitle>
                   <AlertDescription>{displayedError}</AlertDescription>
                 </Alert>
               )}

@@ -56,8 +56,8 @@ from tracecat.agent.common.config import (
     TRACECAT__EXECUTOR_BACKEND,
 )
 from tracecat.agent.common.exceptions import (
+    AgentPreparationError,
     AgentSandboxProcessExitError,
-    AgentSandboxValidationError,
 )
 from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
@@ -131,7 +131,7 @@ def _claude_project_dir_name(cwd: Path) -> str:
     """
     sanitized = CLAUDE_PROJECT_DIR_SANITIZE_RE.sub("-", str(cwd))
     if len(sanitized) > CLAUDE_PROJECT_DIR_MAX_LENGTH:
-        raise AgentSandboxValidationError(
+        raise AgentPreparationError(
             "Claude runtime cwd is too long for deterministic session persistence: "
             f"sanitized path length {len(sanitized)} exceeds "
             f"{CLAUDE_PROJECT_DIR_MAX_LENGTH}. Shorten TMPDIR or the runtime cwd."
@@ -731,14 +731,14 @@ class ClaudeAgentRuntime:
         ~/.claude/projects/{encoded-cwd}/{session_id}.jsonl
 
         Raises:
-            AgentSandboxValidationError: If sdk_session_id contains path traversal.
+            AgentPreparationError: If sdk_session_id contains path traversal.
         """
         # Validate session ID to prevent path traversal
         # Only allow alphanumeric, hyphens, and underscores
         if not sdk_session_id or not all(
             c.isalnum() or c in "-_" for c in sdk_session_id
         ):
-            raise AgentSandboxValidationError(
+            raise AgentPreparationError(
                 f"Invalid sdk_session_id: must be alphanumeric with hyphens/underscores only, got {sdk_session_id!r}"
             )
 
@@ -784,7 +784,6 @@ class ClaudeAgentRuntime:
         resume_session_id: str | None = None
         fork_session = False
         mcp_servers: dict[str, McpServerConfig] = {}
-        session_file_task: asyncio.Task[Path] | None = None
 
         if payload.sdk_session_id and payload.sdk_session_data:
             resume_session_id = payload.sdk_session_id
@@ -794,20 +793,11 @@ class ClaudeAgentRuntime:
                 self._last_seen_byte_offset = len(session_data.encode("utf-8"))
                 self._sdk_session_id = resume_session_id
 
-        async with asyncio.TaskGroup() as tg:
-            if (
-                write_session_file
-                and payload.sdk_session_id
-                and payload.sdk_session_data
-            ):
-                session_file_task = tg.create_task(
-                    self._write_session_file(
-                        payload.sdk_session_id, payload.sdk_session_data
-                    )
-                )
-
-        if session_file_task is not None:
-            _ = session_file_task.result()
+        # Await directly: a TaskGroup would wrap typed failures in an ExceptionGroup.
+        if write_session_file and payload.sdk_session_id and payload.sdk_session_data:
+            await self._write_session_file(
+                payload.sdk_session_id, payload.sdk_session_data
+            )
 
         if self.registry_tools:
             mcp_servers[REGISTRY_MCP_SERVER_NAME] = self._trusted_mcp_server_config(

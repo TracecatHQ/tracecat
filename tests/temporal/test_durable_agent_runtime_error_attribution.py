@@ -11,9 +11,11 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 
 from tests.temporal import durable_agent_failure_harness as harness
+from tracecat.agent.common.exceptions import UserMCPDiscoveryTimeoutError
 from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
+    mcp_discovery_failure,
     tenant_entitlement_denied,
     user_agent_execution_failed,
 )
@@ -59,14 +61,30 @@ class _FailureScenario:
 
 _WORKFLOW_FAILURE_SCENARIOS: tuple[_FailureScenario, ...] = (
     _FailureScenario(
+        id="preparation.mcp_timeout",
+        fault="MCP discovery reaches its deadline before the activity timeout",
+        injection=harness.FailureInjection(
+            harness.FaultPoint.TOOL_DEFINITIONS_ACTIVITY,
+            classification=mcp_discovery_failure(
+                UserMCPDiscoveryTimeoutError("synthetic-mcp")
+            ),
+        ),
+        status=_FAILED,
+        owner=RuntimeErrorOwner.USER,
+        kind=RuntimeErrorKind.AGENT_MCP_UNAVAILABLE,
+        retry_disposition=RetryDisposition.RETRYABLE,
+        should_stream=True,
+        diagnostic_absent_from_history=True,
+    ),
+    _FailureScenario(
         id="initialization.workspace_context_missing",
         fault="workflow role has no workspace context",
         injection=harness.FailureInjection(
             harness.FaultPoint.WORKSPACE_CONTEXT_MISSING
         ),
         status=_FAILED,
-        owner=RuntimeErrorOwner.USER,
-        kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+        owner=RuntimeErrorOwner.PLATFORM,
+        kind=RuntimeErrorKind.AGENT_WORKFLOW_INTERNAL_ERROR,
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         should_stream=False,
         fault_calls=0,
@@ -80,8 +98,8 @@ _WORKFLOW_FAILURE_SCENARIOS: tuple[_FailureScenario, ...] = (
             harness.FaultPoint.ORGANIZATION_CONTEXT_MISSING
         ),
         status=_FAILED,
-        owner=RuntimeErrorOwner.USER,
-        kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+        owner=RuntimeErrorOwner.PLATFORM,
+        kind=RuntimeErrorKind.AGENT_WORKFLOW_INTERNAL_ERROR,
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         should_stream=False,
         fault_calls=0,
@@ -538,6 +556,8 @@ async def test_durable_agent_failure_attribution(
     assert classification.owner is scenario.owner
     assert classification.kind is scenario.kind
     assert classification.retry_disposition is scenario.retry_disposition
+    if expected := scenario.injection.classification:
+        assert classification.message == expected.message
     assert "llm" not in classification.model_dump(mode="json")
     if gateway := scenario.injection.gateway_failure:
         assert extract_error_diagnostics(observation.failure, classification) == (

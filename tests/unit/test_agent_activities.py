@@ -45,6 +45,11 @@ from tracecat_ee.agent.activities import (
 
 from tracecat import config
 from tracecat.agent.common.config import build_agent_runtime_uv_env
+from tracecat.agent.common.exceptions import (
+    AgentToolLimitExceededError,
+    UserMCPDiscoveryAuthError,
+    UserMCPDiscoveryTimeoutError,
+)
 from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
@@ -339,7 +344,7 @@ class TestBuildToolDefinitionsActivity:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
-            raise ValueError("Cannot request more than 100 tools")
+            raise AgentToolLimitExceededError(requested=101, limit=100)
 
         monkeypatch.setattr(
             agent_activities, "build_agent_tools", mock_build_agent_tools
@@ -359,8 +364,7 @@ class TestBuildToolDefinitionsActivity:
         assert classification.owner is RuntimeErrorOwner.USER
         assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
         assert app_error.non_retryable is True
-        assert app_error.message == "Agent configuration is invalid"
-        assert "Cannot request more than 100 tools" not in str(app_error)
+        assert app_error.message == "Agent requests 101 tools; the limit is 100"
 
     @pytest.mark.anyio
     async def test_maps_builtin_sync_pending_to_application_error(
@@ -551,9 +555,11 @@ class TestBuildToolDefinitionsActivity:
         assert exc_info.value.non_retryable is True
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize("timed_out", [False, True])
     async def test_strict_mcp_discovery_failure_fails_scope_compilation(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        timed_out: bool,
     ) -> None:
         from tracecat.agent.mcp import user_client
 
@@ -568,7 +574,9 @@ class TestBuildToolDefinitionsActivity:
             fail_on_error: bool = False,
         ) -> dict[str, Any]:
             discover_fail_flags.append(fail_on_error)
-            raise RuntimeError("server unavailable")
+            if timed_out:
+                raise UserMCPDiscoveryTimeoutError("broken")
+            raise UserMCPDiscoveryAuthError("broken")
 
         class _LockService:
             async def resolve_lock_with_bindings(
@@ -620,9 +628,22 @@ class TestBuildToolDefinitionsActivity:
         classification = extract_error_classification(exc_info.value)
         assert classification is not None
         assert classification.owner is RuntimeErrorOwner.USER
-        assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
-        assert exc_info.value.message == "Agent configuration is invalid"
-        assert exc_info.value.non_retryable is True
+        assert classification.kind is (
+            RuntimeErrorKind.AGENT_MCP_UNAVAILABLE
+            if timed_out
+            else RuntimeErrorKind.AGENT_MCP_AUTH_FAILED
+        )
+        assert exc_info.value.message == (
+            "MCP server 'broken' timed out during tool discovery; "
+            "check availability and retry"
+            if timed_out
+            else "MCP server 'broken' rejected the configured credentials; "
+            "reconnect the integration"
+        )
+        assert classification.retry_disposition is (
+            RetryDisposition.RETRYABLE if timed_out else RetryDisposition.NON_RETRYABLE
+        )
+        assert exc_info.value.non_retryable is (not timed_out)
 
     @pytest.mark.anyio
     async def test_mcp_tool_policy_filters_and_maps_approvals(

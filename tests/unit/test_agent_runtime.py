@@ -30,6 +30,7 @@ from claude_agent_sdk.types import (
 
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
 from tracecat.agent.common.exceptions import (
+    AgentPreparationError,
     AgentSandboxProcessExitError,
     AgentSandboxValidationError,
 )
@@ -42,6 +43,7 @@ from tracecat.agent.common.types import (
     SandboxAgentConfig,
     SandboxSubagentConfig,
 )
+from tracecat.agent.error_policy import agent_runtime_failure
 from tracecat.agent.llm_routing import (
     get_litellm_route_model,
 )
@@ -62,7 +64,7 @@ from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
 from tracecat.executor.enums import ExecutorBackendType
-from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.runtime.errors import RetryDisposition, RuntimeErrorKind
 from tracecat.sandbox.exceptions import SandboxFileSafetyError
 
 
@@ -3518,7 +3520,7 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
     ) -> None:
         """Long paths are rejected instead of guessing Claude's hash suffix."""
         with pytest.raises(
-            AgentSandboxValidationError,
+            AgentPreparationError,
             match="runtime cwd is too long",
         ):
             _claude_project_dir_name(cwd)
@@ -3536,7 +3538,7 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
         )
 
         with pytest.raises(
-            AgentSandboxValidationError,
+            AgentPreparationError,
             match="runtime cwd is too long",
         ):
             runtime._ensure_working_directory(uuid.uuid4())
@@ -3809,6 +3811,35 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
             internal=False,
         )
         assert runtime._last_seen_byte_offset == len(child_bytes)
+
+    @pytest.mark.anyio
+    async def test_resume_preparation_error_is_not_wrapped(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+    ) -> None:
+        """An ExceptionGroup wrapper would hide the typed error from attribution."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        payload = replace(
+            sample_init_payload,
+            sdk_session_id="../escape",
+            sdk_session_data="{}",
+        )
+
+        with pytest.raises(AgentPreparationError) as raised:
+            await runtime._prepare_resume_and_mcp(payload, write_session_file=True)
+
+        classification = agent_runtime_failure(
+            raised.value, fallback_message="unused"
+        ).classification
+        assert classification.kind is RuntimeErrorKind.AGENT_PREPARATION_FAILED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
 
 
 @pytest.mark.anyio

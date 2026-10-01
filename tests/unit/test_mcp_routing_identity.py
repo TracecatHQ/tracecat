@@ -142,7 +142,7 @@ async def test_duplicate_display_names_keep_subsets_and_endpoints_separate(
     calls: list[tuple[str, str]] = []
 
     class RemoteClient:
-        def __init__(self, url: str) -> None:
+        def __init__(self, url: str, *, init_timeout: float | None = None) -> None:
             self.url = url
 
         async def __aenter__(self) -> "RemoteClient":
