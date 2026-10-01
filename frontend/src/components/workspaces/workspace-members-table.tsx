@@ -2,7 +2,7 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useState } from "react"
-import type { WorkspaceMember, WorkspaceRead } from "@/client"
+import { ApiError, type WorkspaceMember, type WorkspaceRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
@@ -193,10 +193,16 @@ export function WorkspaceMembersTable({
                 try {
                   await removeMember(selectedUser.user_id)
                 } catch (error) {
+                  const detail =
+                    error instanceof ApiError
+                      ? (error.body as { detail?: unknown }).detail
+                      : undefined
                   const description =
-                    error instanceof Error
-                      ? error.message
-                      : "The request could not be completed."
+                    typeof detail === "string"
+                      ? detail
+                      : error instanceof Error
+                        ? error.message
+                        : "The request could not be completed."
                   console.error("Failed to remove member", error)
                   toast({
                     title: "Failed to remove member",

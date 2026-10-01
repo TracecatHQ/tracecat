@@ -34,12 +34,15 @@ from sqlalchemy import (
     LargeBinary,
     MetaData,
     PrimaryKeyConstraint,
+    Select,
     String,
     Text,
     UniqueConstraint,
     and_,
+    cast,
     exists,
     func,
+    literal,
     null,
     select,
     text,
@@ -52,6 +55,7 @@ from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
+    QueryableAttribute,
     mapped_column,
     relationship,
 )
@@ -6482,63 +6486,69 @@ effective_group_members = (
 
 # Workspace membership is derived, never stored: a user is present in a
 # workspace iff they hold a role path there, directly or through a group. An
-# org-wide workspace-level role (no org:* scope) reaches every workspace.
+# org-wide workspace-level role (no org:* scope) reaches every workspace. This
+# is the single source of that policy; read it rather than re-deriving it.
 # type_coerce strips the source columns' foreign keys: the composite one to
 # organization_membership would otherwise propagate into the subquery and the
 # mapper would try to resolve it as a real table.
-_role_paths = union_all(
-    select(
+_holds_no_org_scope_user = ~exists().where(
+    RoleScope.role_id == UserRoleAssignment.role_id,
+    RoleScope.scope_id == Scope.id,
+    Scope.name.startswith("org:"),
+)
+_holds_no_org_scope_group = ~exists().where(
+    RoleScope.role_id == GroupRoleAssignment.role_id,
+    RoleScope.scope_id == Scope.id,
+    Scope.name.startswith("org:"),
+)
+
+
+def _user_path(workspace_id: QueryableAttribute[Any], *, org_wide: bool) -> Select[Any]:
+    """One direct-assignment arm of ``_role_paths``."""
+    return select(
         type_coerce(UserRoleAssignment.user_id, UUID).label("user_id"),
         type_coerce(UserRoleAssignment.organization_id, UUID).label("organization_id"),
-        type_coerce(UserRoleAssignment.workspace_id, UUID).label("workspace_id"),
-    ),
-    # Manual and IdP group members reach roles by the same path.
-    select(
+        type_coerce(workspace_id, UUID).label("workspace_id"),
+        type_coerce(UserRoleAssignment.role_id, UUID).label("role_id"),
+        cast(null(), UUID).label("group_id"),
+        literal(False).label("via_group"),
+        literal(org_wide).label("org_wide"),
+    )
+
+
+def _group_path(
+    workspace_id: QueryableAttribute[Any], *, org_wide: bool
+) -> Select[Any]:
+    """One group-assignment arm of ``_role_paths``."""
+    return select(
         type_coerce(effective_group_members.c.user_id, UUID).label("user_id"),
         type_coerce(GroupRoleAssignment.organization_id, UUID).label("organization_id"),
-        type_coerce(GroupRoleAssignment.workspace_id, UUID).label("workspace_id"),
+        type_coerce(workspace_id, UUID).label("workspace_id"),
+        type_coerce(GroupRoleAssignment.role_id, UUID).label("role_id"),
+        type_coerce(GroupRoleAssignment.group_id, UUID).label("group_id"),
+        literal(True).label("via_group"),
+        literal(org_wide).label("org_wide"),
     ).join_from(
         GroupRoleAssignment,
         effective_group_members,
         effective_group_members.c.group_id == GroupRoleAssignment.group_id,
+    )
+
+
+_role_paths = union_all(
+    _user_path(UserRoleAssignment.workspace_id, org_wide=False).where(
+        UserRoleAssignment.workspace_id.is_not(None)
     ),
-    select(
-        type_coerce(UserRoleAssignment.user_id, UUID).label("user_id"),
-        type_coerce(UserRoleAssignment.organization_id, UUID).label("organization_id"),
-        type_coerce(Workspace.id, UUID).label("workspace_id"),
-    )
-    .join_from(
-        UserRoleAssignment,
-        Workspace,
-        Workspace.organization_id == UserRoleAssignment.organization_id,
-    )
-    .where(
-        UserRoleAssignment.workspace_id.is_(None),
-        ~exists().where(
-            RoleScope.role_id == UserRoleAssignment.role_id,
-            RoleScope.scope_id == Scope.id,
-            Scope.name.startswith("org:"),
-        ),
+    # Manual and IdP group members reach roles by the same path.
+    _group_path(GroupRoleAssignment.workspace_id, org_wide=False).where(
+        GroupRoleAssignment.workspace_id.is_not(None)
     ),
-    select(
-        type_coerce(effective_group_members.c.user_id, UUID).label("user_id"),
-        type_coerce(GroupRoleAssignment.organization_id, UUID).label("organization_id"),
-        type_coerce(Workspace.id, UUID).label("workspace_id"),
-    )
-    .join_from(
-        GroupRoleAssignment,
-        effective_group_members,
-        effective_group_members.c.group_id == GroupRoleAssignment.group_id,
-    )
+    _user_path(Workspace.id, org_wide=True)
+    .join(Workspace, Workspace.organization_id == UserRoleAssignment.organization_id)
+    .where(UserRoleAssignment.workspace_id.is_(None), _holds_no_org_scope_user),
+    _group_path(Workspace.id, org_wide=True)
     .join(Workspace, Workspace.organization_id == GroupRoleAssignment.organization_id)
-    .where(
-        GroupRoleAssignment.workspace_id.is_(None),
-        ~exists().where(
-            RoleScope.role_id == GroupRoleAssignment.role_id,
-            RoleScope.scope_id == Scope.id,
-            Scope.name.startswith("org:"),
-        ),
-    ),
+    .where(GroupRoleAssignment.workspace_id.is_(None), _holds_no_org_scope_group),
 ).subquery("role_paths")
 
 # Workspace rows only: org presence is the stored OrganizationMembership row.

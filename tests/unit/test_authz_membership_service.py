@@ -620,3 +620,73 @@ async def test_delete_membership_rejects_when_group_grant_remains(
 
     assert assignment is not None
     assert legacy is not None
+
+
+@pytest.mark.parametrize("via_group", [False, True])
+async def test_delete_membership_rejects_when_org_wide_workspace_role_remains(
+    via_group: bool,
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """An org-wide workspace role keeps presence, so the delete is refused."""
+    await ensure_member(session, organization.id, member_user.id)
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+            assigned_by=actor_user.id,
+        )
+    )
+    if via_group:
+        group = Group(name="Everywhere", organization_id=organization.id)
+        session.add(group)
+        await session.flush()
+        session.add_all(
+            [
+                GroupMember(
+                    group_id=group.id,
+                    user_id=member_user.id,
+                    organization_id=organization.id,
+                ),
+                GroupRoleAssignment(
+                    organization_id=organization.id,
+                    group_id=group.id,
+                    workspace_id=None,
+                    role_id=workspace_editor_role.id,
+                ),
+            ]
+        )
+    else:
+        session.add(
+            UserRoleAssignment(
+                organization_id=organization.id,
+                user_id=member_user.id,
+                workspace_id=None,
+                role_id=workspace_editor_role.id,
+            )
+        )
+    await session.commit()
+    workspace_id, user_id = workspace.id, member_user.id
+
+    with pytest.raises(
+        TracecatConflictError,
+        match="Everywhere" if via_group else "organization-wide role",
+    ):
+        await membership_service.delete_membership(
+            workspace_id=workspace_id, user_id=user_id
+        )
+    await session.rollback()
+
+    assert await session.scalar(
+        select(UserRoleAssignment.id).where(
+            UserRoleAssignment.workspace_id == workspace_id,
+            UserRoleAssignment.user_id == user_id,
+        )
+    )
