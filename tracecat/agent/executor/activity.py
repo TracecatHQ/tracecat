@@ -32,6 +32,7 @@ from tracecat.agent.common.config import (
     TRACECAT__EXECUTOR_BACKEND,
 )
 from tracecat.agent.common.exceptions import (
+    AgentPreparationError,
     AgentSandboxExecutionError,
     AgentSandboxValidationError,
 )
@@ -535,11 +536,11 @@ class SandboxedAgentExecutor:
             Direct route for the model config.
 
         Raises:
-            AgentSandboxValidationError: If passthrough is enabled without a
+            AgentPreparationError: If passthrough is enabled without a
                 resolved base URL.
         """
         if base_url is None:
-            raise AgentSandboxValidationError(
+            raise AgentPreparationError(
                 "Model provider passthrough requires a resolved base_url."
             )
         return LLMRoute(

@@ -5,7 +5,7 @@ from collections.abc import Sequence
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -59,6 +59,7 @@ async def _seed_platform_registry(
     origin: str,
     version: str,
     action_names: list[str],
+    options: dict | None = None,
 ) -> PlatformRegistryRepository:
     repo = await session.scalar(
         select(PlatformRegistryRepository).where(
@@ -91,7 +92,7 @@ async def _seed_platform_registry(
                 name=name,
                 action_type="udf",
                 description=f"Platform action {action_name}",
-                options={"include_in_schema": True},
+                options=options or {"include_in_schema": True},
             )
         )
     await session.commit()
@@ -439,3 +440,146 @@ async def test_search_actions_from_index_hides_custom_actions_without_entitlemen
     }
     assert actions_to_origin[shared_action] == DEFAULT_REGISTRY_ORIGIN
     assert custom_only_action not in actions_to_origin
+
+
+@pytest.mark.anyio
+async def test_classify_missing_actions_separates_entitlement_gaps(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-1.0",
+        action_names=["acme.platform.retired", "acme.platform.gated"],
+    )
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-2.0",
+        action_names=["acme.platform.gated"],
+        options={"required_entitlements": ["agent_addons"]},
+    )
+
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(
+        service, "_get_enabled_entitlements", new=AsyncMock(return_value=set())
+    ):
+        missing = await service.classify_missing_actions(
+            [
+                "acme.platform.retired",
+                "acme.platform.gated",
+                "acme.custom.only",
+                "malformed",
+            ]
+        )
+
+    assert missing.platform == frozenset({"acme.platform.retired"})
+    assert missing.entitlement_denied == frozenset({"acme.platform.gated"})
+
+
+@pytest.mark.anyio
+async def test_classify_missing_actions_denies_custom_registry_without_entitlement(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin="git+ssh://git@github.com/acme/custom-registry.git",
+        version="org-1.0",
+        action_names=["acme.custom.only"],
+    )
+
+    service = RegistryActionsService(session, role=svc_role)
+    with patch.object(service, "has_entitlement", new=AsyncMock(return_value=False)):
+        missing = await service.classify_missing_actions(["acme.custom.only"])
+
+    assert missing.platform == frozenset()
+    assert missing.entitlement_denied == frozenset({"acme.custom.only"})
+
+
+@pytest.mark.anyio
+async def test_classify_missing_actions_requires_every_current_row_gated(
+    svc_role: Role,
+    session: AsyncSession,
+) -> None:
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-1.0",
+        action_names=["acme.platform.shared"],
+        options={"required_entitlements": ["agent_addons"]},
+    )
+    await _seed_platform_registry(
+        session,
+        origin="git+ssh://git@github.com/acme/platform-extra.git",
+        version="extra-1.0",
+        action_names=["acme.platform.shared"],
+    )
+
+    service = RegistryActionsService(session, role=svc_role)
+    with (
+        patch.object(service, "has_entitlement", new=AsyncMock(return_value=True)),
+        patch.object(
+            service, "_get_enabled_entitlements", new=AsyncMock(return_value=set())
+        ),
+    ):
+        missing = await service.classify_missing_actions(["acme.platform.shared"])
+
+    assert missing.platform == frozenset({"acme.platform.shared"})
+    assert missing.entitlement_denied == frozenset()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("custom_enabled", "org_gated", "platform_gated"),
+    [
+        # A gated org override shadows the ungated platform action.
+        (True, True, False),
+        # The custom registry is off, so the gated platform row is selected.
+        (False, False, True),
+    ],
+)
+async def test_classify_missing_actions_follows_lookup_precedence(
+    svc_role: Role,
+    session: AsyncSession,
+    custom_enabled: bool,
+    org_gated: bool,
+    platform_gated: bool,
+) -> None:
+    action = "acme.shared.action"
+    gate = {"required_entitlements": ["agent_addons"]}
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-1.0",
+        action_names=[action],
+        options=gate if platform_gated else None,
+    )
+    await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin="git+ssh://git@github.com/acme/custom-registry.git",
+        version="org-1.0",
+        action_names=[action],
+    )
+    if org_gated:
+        await session.execute(update(RegistryIndex).values(options=gate))
+        await session.commit()
+
+    service = RegistryActionsService(session, role=svc_role)
+    with (
+        patch.object(
+            service, "has_entitlement", new=AsyncMock(return_value=custom_enabled)
+        ),
+        patch.object(
+            service, "_get_enabled_entitlements", new=AsyncMock(return_value=set())
+        ),
+    ):
+        found = await service.get_actions_from_index([action])
+        missing = await service.classify_missing_actions([action])
+
+    assert found == {}
+    assert missing.platform == frozenset()
+    assert missing.entitlement_denied == frozenset({action})
