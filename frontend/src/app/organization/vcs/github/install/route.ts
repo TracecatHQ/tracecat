@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 
+import { forwardClientAttributionHeaders } from "@/lib/forwarded-request-headers"
 import { buildUrl } from "@/lib/ss-utils"
 
 export const GET = async (request: NextRequest) => {
@@ -14,10 +15,11 @@ export const GET = async (request: NextRequest) => {
     return NextResponse.redirect(new URL(buildUrl("/auth/error")))
   }
 
+  const headers = new Headers({ Cookie: cookie })
+  forwardClientAttributionHeaders(request.headers, headers)
+
   const response = await fetch(url.toString(), {
-    headers: {
-      Cookie: cookie,
-    },
+    headers,
     redirect: "manual", // We want to handle the redirect manually
   })
 
