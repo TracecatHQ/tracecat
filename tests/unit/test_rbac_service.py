@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -39,6 +40,8 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
+    Invitation,
+    InvitationGrant,
     LegacyMembership,
     Organization,
     OrganizationMembership,
@@ -56,6 +59,7 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.invitations.enums import InvitationStatus
 
 
 async def create_org_role(service: RBACService, name: str) -> DBRole:
@@ -1979,3 +1983,48 @@ class TestRoleLevelGuard:
         assert org_read
         updated = await service.update_role(target.id, scope_ids=[org_read])
         assert [scope.name for scope in updated.scopes] == ["org:read"]
+
+    @pytest.mark.parametrize(
+        ("status", "blocked"),
+        [(InvitationStatus.PENDING, True), (InvitationStatus.REVOKED, False)],
+    )
+    async def test_role_edit_cannot_flip_level_with_pending_invitation(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+        status: InvitationStatus,
+        blocked: bool,
+    ):
+        service = RBACService(session, role=role)
+        target = await service.create_role(name="Invited Role")
+        target_id = target.id
+        invitation = Invitation(
+            organization_id=org.id,
+            email="invitee@example.com",
+            status=status,
+            token=uuid.uuid4().hex * 2,
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        invitation.grants = [
+            InvitationGrant(
+                organization_id=org.id, workspace_id=workspace.id, role_id=target_id
+            )
+        ]
+        session.add(invitation)
+        await session.commit()
+        org_read = await session.scalar(
+            select(Scope.id).where(
+                Scope.name == "org:read", Scope.organization_id.is_(None)
+            )
+        )
+        assert org_read
+
+        if blocked:
+            with pytest.raises(TracecatConflictError, match="pending invitations"):
+                await service.update_role(target_id, scope_ids=[org_read])
+            assert (await service.get_role(target_id)).scopes == []
+        else:
+            updated = await service.update_role(target_id, scope_ids=[org_read])
+            assert [scope.name for scope in updated.scopes] == ["org:read"]

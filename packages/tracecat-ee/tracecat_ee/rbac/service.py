@@ -37,6 +37,8 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
+    Invitation,
+    InvitationGrant,
     OrganizationMembership,
     RoleScope,
     Scope,
@@ -55,6 +57,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.identifiers import WorkspaceID
+from tracecat.invitations.enums import InvitationStatus
 from tracecat.service import BaseOrgService
 from tracecat_ee.rbac.schemas import GroupMemberRead, UserRoleAssignmentsReplace
 
@@ -236,7 +239,9 @@ class RBACService(BaseOrgService):
 
         # Add scopes if provided
         if scope_ids:
-            await self._set_role_scopes(role.id, scope_ids)
+            await self._write_role_scopes(
+                role.id, await self._load_grantable_scopes(scope_ids)
+            )
 
         await self.session.commit()
         await self.session.refresh(role, ["scopes"])
@@ -270,15 +275,14 @@ class RBACService(BaseOrgService):
             role.description = description
 
         if scope_ids is not None:
-            was_org_level = is_org_level_role(scope.name for scope in role.scopes)
-            scopes = await self._set_role_scopes(role.id, scope_ids)
-            if is_org_level_role(
-                scope.name for scope in scopes
-            ) != was_org_level and await self._role_has_assignments(role.id):
-                await self.session.rollback()
+            scopes = await self._load_grantable_scopes(scope_ids)
+            if is_org_level_role(scope.name for scope in scopes) != is_org_level_role(
+                scope.name for scope in role.scopes
+            ) and await self._role_in_use(role.id):
                 raise TracecatConflictError(
-                    "Remove this role's assignments before switching it between organization and workspace level"
+                    "Remove this role's assignments and pending invitations before switching it between organization and workspace level"
                 )
+            await self._write_role_scopes(role.id, scopes)
 
         await self.session.commit()
         await self.session.refresh(role, ["updated_at", "scopes"])
@@ -320,10 +324,8 @@ class RBACService(BaseOrgService):
         await self.session.delete(role)
         await self.session.commit()
 
-    async def _set_role_scopes(
-        self, role_id: UUID, scope_ids: list[UUID]
-    ) -> Sequence[Scope]:
-        """Set the scopes for a role (replaces existing)."""
+    async def _load_grantable_scopes(self, scope_ids: list[UUID]) -> Sequence[Scope]:
+        """Load scopes visible to the org that the caller may grant."""
         stmt = select(Scope).where(
             Scope.id.in_(scope_ids),
             (Scope.organization_id == self.organization_id)
@@ -333,7 +335,10 @@ class RBACService(BaseOrgService):
         if len(scopes) != len(set(scope_ids)):
             raise TracecatNotFoundError("Scope not found")
         await self._ensure_can_grant_scopes(scopes)
+        return scopes
 
+    async def _write_role_scopes(self, role_id: UUID, scopes: Sequence[Scope]) -> None:
+        """Replace a role's scopes."""
         # Delete existing role-scope associations
         await self.session.execute(
             delete(RoleScope).where(RoleScope.role_id == role_id)
@@ -343,13 +348,16 @@ class RBACService(BaseOrgService):
         for scope in scopes:
             role_scope = RoleScope(role_id=role_id, scope_id=scope.id)
             self.session.add(role_scope)
-        return scopes
 
-    async def _role_has_assignments(self, role_id: UUID) -> bool:
-        """Check whether any user or group holds the role."""
+    async def _role_in_use(self, role_id: UUID) -> bool:
+        """Check whether a user, group, or pending invitation holds the role."""
         stmt = select(
             exists().where(UserRoleAssignment.role_id == role_id)
             | exists().where(GroupRoleAssignment.role_id == role_id)
+            | exists()
+            .where(InvitationGrant.role_id == role_id)
+            .where(InvitationGrant.invitation_id == Invitation.id)
+            .where(Invitation.status == InvitationStatus.PENDING)
         )
         return bool(await self.session.scalar(stmt))
 

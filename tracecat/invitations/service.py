@@ -231,9 +231,33 @@ async def _apply_grants(
             DBRole.slug == ORG_MEMBER_ROLE_SLUG,
         )
     )
-    for grant in grants:
-        if grant.workspace_id is None and grant.role_id == member_role_id:
-            continue
+    explicit = [
+        grant
+        for grant in grants
+        if not (grant.workspace_id is None and grant.role_id == member_role_id)
+    ]
+    roles = (
+        (
+            await session.execute(
+                select(DBRole)
+                .where(DBRole.id.in_({grant.role_id for grant in explicit}))
+                .options(selectinload(DBRole.scopes))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    roles_by_id = {role.id: role for role in roles}
+    # Grants made before roles were pinned to a level may no longer fit.
+    for grant in explicit:
+        try:
+            ensure_role_fits_scope(roles_by_id[grant.role_id], grant.workspace_id)
+        except TracecatValidationError as e:
+            raise TracecatAuthorizationError(
+                f"Invitation is no longer valid: {e}"
+            ) from e
+
+    for grant in explicit:
         stmt = pg_insert(UserRoleAssignment).values(
             organization_id=organization_id,
             user_id=user_id,
