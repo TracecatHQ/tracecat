@@ -1373,6 +1373,14 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             await self._replace_agent_tags(workspace_service, preset, spec.tags)
             preset_by_source_id[source_id] = preset
 
+        # Validate and lock every bound library install once, not per preset.
+        if library_slugs := sorted(
+            {slug for spec in presets.values() for slug in spec.library_skills}
+        ):
+            await SkillLibraryService(
+                workspace_service.session, role=workspace_service.role
+            ).validate_bindable(library_slugs)
+
         # Pass 2: walk presets in topological order so every subagent child has
         # already been upserted by the time its parent resolves references.
         for source_id in import_order:
@@ -1380,10 +1388,6 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             preset = preset_by_source_id[source_id]
 
             # Apply desired config and topology after every child head exists.
-            if spec.library_skills:
-                await SkillLibraryService(
-                    workspace_service.session, role=workspace_service.role
-                ).validate_bindable(spec.library_skills)
             self._apply_preset_head_spec(preset, spec)
             resolved_subagents = await self._resolved_subagents_config(
                 workspace_service, spec
