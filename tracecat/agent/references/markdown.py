@@ -95,23 +95,37 @@ def parse_markdown_references(
     for block in parser.parse(_without_frontmatter(normalized)):
         if block.type != "inline" or not block.children or block.map is None:
             continue
-        html_depth = 0
+        html_tags: list[str] = []
         for token in block.children:
             if token.type == "html_inline":
-                if re.match(r"</[A-Za-z]", token.content):
-                    html_depth = max(0, html_depth - 1)
-                elif (
-                    re.match(r"<[A-Za-z]", token.content)
-                    and not re.match(
-                        r"<(?:area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\b",
-                        token.content,
-                        re.I,
-                    )
-                    and not token.content.endswith("/>")
-                ):
-                    html_depth += 1
+                tag_match = re.match(
+                    r"</?([A-Za-z][A-Za-z0-9-]*)(?=[\s/>])", token.content
+                )
+                if tag_match is None:
+                    continue
+                tag = tag_match.group(1).lower()
+                if token.content.startswith("</"):
+                    if html_tags and html_tags[-1] == tag:
+                        html_tags.pop()
+                elif tag not in {
+                    "area",
+                    "base",
+                    "br",
+                    "col",
+                    "embed",
+                    "hr",
+                    "img",
+                    "input",
+                    "link",
+                    "meta",
+                    "param",
+                    "source",
+                    "track",
+                    "wbr",
+                } and not token.content.endswith("/>"):
+                    html_tags.append(tag)
                 continue
-            if token.type != "link_open" or html_depth:
+            if token.type != "link_open" or html_tags:
                 continue
             destination = token.attrGet("href")
             if not isinstance(destination, str):

@@ -14,7 +14,9 @@ test("real TipTap Markdown parser agrees with backend reference fixtures", () =>
     write: false,
   })
   expect(
-    execFileSync(process.execPath, ["-e", outputFiles[0].text], {
+    // The bundle exceeds Linux's per-argument limit; send it over stdin.
+    execFileSync(process.execPath, ["--input-type=commonjs"], {
+      input: outputFiles[0].text,
       encoding: "utf8",
     })
   ).toContain("TipTap Markdown conformance fixtures passed")

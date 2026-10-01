@@ -454,6 +454,90 @@
           1
         ]
       ]
+    },
+    {
+      "name": "unmatched-html-close",
+      "source": "<span></bogus>[x](tracecat-ref://v1/tool/core.http_request)</span> [x](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          68
+        ]
+      ]
+    },
+    {
+      "name": "nested-unmatched-html-close",
+      "source": "<span><em></bogus>[x](tracecat-ref://v1/tool/core.http_request)</em>[x](tracecat-ref://v1/tool/core.http_request)</span> [x](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          122
+        ]
+      ]
+    },
+    {
+      "name": "case-insensitive-html-close",
+      "source": "<SPAN>[x](tracecat-ref://v1/tool/core.http_request)</span> [x](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          60
+        ]
+      ]
+    },
+    {
+      "name": "mismatched-ancestor-close",
+      "source": "<span><em></span>[x](tracecat-ref://v1/tool/core.http_request)</em></span> [x](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          76
+        ]
+      ]
+    },
+    {
+      "name": "html-open-inside-emphasis",
+      "source": "*<span>*[x](tracecat-ref://v1/tool/core.http_request)</span> [x](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          62
+        ]
+      ]
+    },
+    {
+      "name": "html-close-inside-emphasis",
+      "source": "<span>*</span>*[x](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          16
+        ]
+      ]
     }
   ]
 }

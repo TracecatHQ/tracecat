@@ -40,26 +40,46 @@ export function parseMarkdownReferences(markdown: string): {
   })
   const references: ReferenceTarget[] = []
   const diagnostics: ReferenceURIErrorCode[] = []
-  function walk(tokens: MarkdownToken[]): void {
-    let htmlDepth = 0
+  function walk(tokens: MarkdownToken[], htmlTags: string[] = []): void {
     for (const token of tokens) {
       if (["code", "codespan", "image"].includes(token.type)) continue
       if (token.type === "html") {
         if (token.block) continue
-        if (/^<\/[A-Za-z]/.test(token.raw))
-          htmlDepth = Math.max(0, htmlDepth - 1)
-        else if (
-          /^<[A-Za-z]/.test(token.raw) &&
-          !/^<(?:area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\b/i.test(
-            token.raw
-          ) &&
+        const tag = /^<\/?([A-Za-z][A-Za-z0-9-]*)(?=[\s/>])/
+          .exec(token.raw)?.[1]
+          ?.toLowerCase()
+        if (!tag) continue
+        if (token.raw.startsWith("</")) {
+          if (htmlTags.at(-1) === tag) htmlTags.pop()
+        } else if (
+          ![
+            "area",
+            "base",
+            "br",
+            "col",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr",
+          ].includes(tag) &&
           !token.raw.endsWith("/>")
-        )
-          htmlDepth += 1
+        ) {
+          htmlTags.push(tag)
+        }
         continue
       }
-      if (htmlDepth) continue
-      if (token.type === "link" && token.href && isReferenceURI(token.href)) {
+      if (
+        !htmlTags.length &&
+        token.type === "link" &&
+        token.href &&
+        isReferenceURI(token.href)
+      ) {
         try {
           references.push(parseReferenceURI(token.href))
         } catch (error) {
@@ -67,7 +87,13 @@ export function parseMarkdownReferences(markdown: string): {
           diagnostics.push(error.code)
         }
       }
-      if (token.tokens) walk(token.tokens)
+      if (token.tokens) {
+        // Inline formatting does not close an HTML span. Block boundaries do.
+        const inlineContainer = ["em", "strong", "del", "link"].includes(
+          token.type
+        )
+        walk(token.tokens, inlineContainer ? htmlTags : [])
+      }
       if (token.items) walk(token.items)
     }
   }
