@@ -797,6 +797,73 @@ async def test_build_config_prefers_pinned_preset_version_id() -> None:
     assert cfg.instructions == "base instructions\nappend this"
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("preset_output_type", "override_output_type", "expected"),
+    [
+        (None, None, None),
+        ("str", None, "str"),
+        (None, "int", "int"),
+        (
+            "str",
+            {"type": "object", "properties": {"verdict": {"type": "string"}}},
+            {"type": "object", "properties": {"verdict": {"type": "string"}}},
+        ),
+    ],
+    ids=["unset", "preset-only", "override-only", "override-replaces-preset"],
+)
+async def test_build_config_applies_preset_output_type_override(
+    preset_output_type: str | dict[str, Any] | None,
+    override_output_type: str | dict[str, Any] | None,
+    expected: str | dict[str, Any] | None,
+) -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        scopes=frozenset({"agent:execute", "secret:read"}),
+    )
+    workflow_args = AgentWorkflowArgs(
+        role=role,
+        agent_args=RunAgentArgs(
+            session_id=uuid.uuid4(),
+            user_prompt="hello",
+            preset_slug="triage-agent",
+            config=cast(
+                Any,
+                AgentConfig(
+                    model_name="preset-override",
+                    model_provider="preset-override",
+                    output_type=override_output_type,
+                ),
+            ),
+        ),
+        entity_type=AgentSessionEntity.WORKFLOW,
+        entity_id=uuid.uuid4(),
+    )
+    workflow_instance = DurableAgentWorkflow(workflow_args)
+    preset_config = AgentConfig(
+        model_name="claude-3-5-sonnet-20241022",
+        model_provider="anthropic",
+        instructions="base instructions",
+        actions=["core.http_request"],
+        output_type=preset_output_type,
+    )
+
+    with patch(
+        "tracecat_ee.agent.workflows.durable.workflow.execute_activity",
+        AsyncMock(return_value=agent_config_to_payload(preset_config)),
+    ):
+        cfg = await workflow_instance._build_config(workflow_args)
+
+    assert cfg.output_type == expected
+    assert cfg.model_name == preset_config.model_name
+    assert cfg.instructions == "base instructions"
+    assert cfg.actions == ["core.http_request"]
+
+
 def test_approved_user_mcp_tool_name_from_normalized_approval() -> None:
     assert _approved_user_mcp_tool_name("mcp.Jira.getIssue") == ("mcp__Jira__getIssue")
     assert (

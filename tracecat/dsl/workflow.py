@@ -1164,12 +1164,17 @@ class DSLWorkflow:
                     # These will be ignored by DurableAgentWorkflow when preset_slug is present
                     # but are required by AgentConfig schema.
                     override_config = None
-                    if preset_action_args.actions or preset_action_args.instructions:
+                    if (
+                        preset_action_args.actions
+                        or preset_action_args.instructions
+                        or preset_action_args.output_type is not None
+                    ):
                         override_config = AgentConfig(
                             model_name="preset-override",
                             model_provider="preset-override",
                             actions=preset_action_args.actions,
                             instructions=preset_action_args.instructions,
+                            output_type=preset_action_args.output_type,
                         )
 
                     wf_info = workflow.info()

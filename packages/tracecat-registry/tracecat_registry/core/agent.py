@@ -159,6 +159,13 @@ async def preset_agent(
         ),
         TextArea(),
     ] = None,
+    output_type: Annotated[
+        OutputType | None,
+        Doc(
+            "Optional. Replaces the preset's output type for this run. Select from "
+            "a list of supported types or provide a JSONSchema."
+        ),
+    ] = None,
     session_id: Annotated[
         str | None,
         Doc(

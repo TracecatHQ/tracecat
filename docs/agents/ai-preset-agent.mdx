@@ -40,6 +40,9 @@ test or an eval.
 
 Leave `output_type` unset unless you specifically need structured output for a downstream step.
 
+To get structured output from a single workflow step without changing the preset, set
+`output_type` on the `ai.preset_agent` action. It replaces the preset's output type for that run.
+
 ## Availability
 
 Open source includes presets, [skills](/agents/skills), [secrets and variables](/agents/secrets-variables) in preset instructions, and the MCP catalog connectors.
