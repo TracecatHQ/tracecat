@@ -203,6 +203,18 @@ def agent_llm_provider_auth_failed() -> RuntimeErrorClassification:
     )
 
 
+def agent_llm_model_not_enabled() -> RuntimeErrorClassification:
+    """Classify a managed-route model that workspace model access disallows."""
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+        message=(
+            "The selected model is not enabled for this workspace; "
+            "enable it in model access settings or choose another model"
+        ),
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
 def agent_llm_budget_exceeded() -> RuntimeErrorClassification:
     """Classify an explicit budget denial that needs a limit or billing change."""
     return RuntimeErrorClassification.user(

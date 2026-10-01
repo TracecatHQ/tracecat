@@ -1,4 +1,7 @@
 import json
+import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -29,10 +32,12 @@ from tracecat.agent.gateway import (
     _filter_allowed_model_settings,
     _inject_provider_credentials,
     _resolve_bedrock_runtime_credentials,
+    get_provider_credentials,
     user_api_key_auth,
 )
 from tracecat.agent.sandbox.llm_proxy import _http_error_classification
 from tracecat.agent.tokens import verify_llm_token
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -401,6 +406,45 @@ def test_missing_provider_credentials_have_distinct_wire_code(provider: str) -> 
     )
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED
     assert classification.owner is RuntimeErrorOwner.USER
+
+
+@pytest.mark.anyio
+async def test_disabled_catalog_model_has_distinct_wire_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _DisabledCatalogService:
+        async def get_catalog_credentials(self, catalog_id: uuid.UUID) -> None:
+            raise TracecatAuthorizationError(
+                f"Catalog row {catalog_id!s} is not enabled for this workspace"
+            )
+
+    @asynccontextmanager
+    async def _with_session(**_: object) -> AsyncIterator[_DisabledCatalogService]:
+        yield _DisabledCatalogService()
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.AgentManagementService.with_session",
+        _with_session,
+    )
+
+    with pytest.raises(ProxyException) as exc_info:
+        await get_provider_credentials(
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            provider="anthropic",
+            catalog_id=uuid.uuid4(),
+        )
+
+    assert exc_info.value.code == "403"
+    assert exc_info.value.to_dict()["type"] == "tracecat_llm_model_not_enabled"
+    classification = _http_error_classification(
+        int(exc_info.value.code),
+        route_is_direct=False,
+        body=json.dumps({"error": exc_info.value.to_dict()}).encode(),
+    )
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
 
 
 @pytest.mark.anyio
