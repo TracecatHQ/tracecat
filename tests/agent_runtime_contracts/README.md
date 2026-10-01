@@ -99,3 +99,7 @@ current eager behavior of non-search and explicit-child configurations. Treat
 schema availability, authorization, approval, and successful execution as
 separate checks. Keep reference activation gated until runtime binding and the
 remaining preparation/replay work are implemented and qualified.
+
+Each embedded HTTP fixture starts a fresh SSE shutdown lifecycle. A regression
+seeds the previous server's process-wide shutdown flag before starting a new case.
+Writer assertions check awaited delivery, including approval and session history.

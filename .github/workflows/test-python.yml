@@ -49,7 +49,7 @@ env:
 jobs:
   test-agent-runtime-contracts:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:

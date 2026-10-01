@@ -13,6 +13,7 @@ from pathlib import Path
 import claude_agent_sdk
 import orjson
 import pytest
+from sse_starlette.sse import AppStatus
 
 from tests.agent_runtime_contracts.runtime_fixture import runtime_case
 
@@ -53,7 +54,7 @@ async def test_required_tool_is_callable_without_search(
     ) as (runtime, payload, writer, model):
         async with asyncio.timeout(45):
             await runtime.run(payload)
-    assert not writer.send_error.called, writer.send_error.call_args_list
+    writer.send_error.assert_not_called()
     assert len(model.requests) >= 2
     requests = [
         r
@@ -80,8 +81,8 @@ async def test_required_tool_is_callable_without_search(
             in orjson.dumps(requests[0]["messages"]).decode()
         )
     assert "fixture-device:device-123" in orjson.dumps(requests[1]["messages"]).decode()
-    assert writer.send_result.called
-    assert writer.send_stream_event.called
+    writer.send_result.assert_awaited()
+    writer.send_stream_event.assert_awaited()
 
 
 @pytest.mark.anyio
@@ -98,7 +99,7 @@ async def test_server_loading_and_unmarked_control(
     ) as (runtime, payload, writer, model):
         async with asyncio.timeout(45):
             await runtime.run(payload)
-    assert not writer.send_error.called, writer.send_error.call_args_list
+    writer.send_error.assert_not_called()
     tools = {t["name"]: t for t in model.requests[0]["tools"]}
     required = f"mcp__{model.server}__required_lookup"
     unrelated = f"mcp__{model.server}__unrelated_lookup"
@@ -128,13 +129,13 @@ async def test_eager_tool_still_requires_approval(
             await runtime.run(payload)
     approvals = [
         item
-        for call in writer.send_stream_event.call_args_list
+        for call in writer.send_stream_event.await_args_list
         for item in (call.args[0].approval_items or [])
     ]
     assert [item.id for item in approvals] == ["fixture_call"]
     assert "fixture-device:device-123" not in orjson.dumps(model.requests).decode()
-    assert not writer.send_error.called, writer.send_error.call_args_list
-    assert writer.send_done.called
+    writer.send_error.assert_not_called()
+    writer.send_done.assert_awaited()
 
 
 @pytest.mark.anyio
@@ -144,7 +145,7 @@ async def test_native_session_continuation(
     async with runtime_case(tmp_path, monkeypatch) as (runtime, payload, writer, model):
         async with asyncio.timeout(45):
             await runtime.run(payload)
-        calls = writer.send_session_line.call_args_list
+        calls = writer.send_session_line.await_args_list
         assert calls, "CLI session history must be emitted for continuation"
         resumed = replace(
             payload,
@@ -155,12 +156,12 @@ async def test_native_session_continuation(
         before = len(model.requests)
         async with asyncio.timeout(45):
             await runtime.run(resumed)
-    assert not writer.send_error.called, writer.send_error.call_args_list
+    writer.send_error.assert_not_called()
     assert len(model.requests) > before
     history = orjson.dumps(model.requests[before]["messages"]).decode()
     assert "fixture-device:device-123" in history
     assert "Continue the synthetic fixture." in history
-    assert writer.send_result.call_count == 2
+    assert writer.send_result.await_count == 2
 
 
 @pytest.mark.anyio
@@ -187,8 +188,8 @@ async def test_cancel_while_model_request_is_pending(
                 task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
-    assert writer.send_done.called
-    assert not writer.send_error.called, writer.send_error.call_args_list
+    writer.send_done.assert_awaited()
+    writer.send_error.assert_not_called()
     assert "fixture-device:device-123" not in orjson.dumps(model.requests).decode()
 
 
@@ -199,3 +200,17 @@ def test_pinned_runtime_versions():
         subprocess.check_output([str(cli), "--version"], text=True, timeout=10).strip()
         == "2.1.283 (Claude Code)"
     )
+
+
+@pytest.mark.anyio
+async def test_http_fixture_resets_previous_server_shutdown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # The SSE watcher can leave this global set after an earlier server exits.
+    monkeypatch.setattr(AppStatus, "should_exit", True)
+    async with runtime_case(tmp_path, monkeypatch) as (runtime, payload, writer, model):
+        async with asyncio.timeout(45):
+            await runtime.run(payload)
+    writer.send_error.assert_not_called()
+    assert "fixture-device:device-123" in orjson.dumps(model.requests).decode()
+    writer.send_result.assert_awaited()

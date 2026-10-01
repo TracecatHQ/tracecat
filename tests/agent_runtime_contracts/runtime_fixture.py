@@ -15,6 +15,7 @@ import uvicorn
 from claude_agent_sdk import ClaudeAgentOptions
 from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
 from claude_agent_sdk.types import McpHttpServerConfig
+from sse_starlette.sse import AppStatus
 
 from tests.agent_runtime_contracts.mcp_fixture import make_server
 from tests.agent_runtime_contracts.model_fixture import ModelFixture
@@ -68,6 +69,9 @@ async def runtime_case(
     child: bool = False,
     eager_mode: str = "tool",
 ):
+    # SSE shutdown state is process-global. A previous embedded Uvicorn server
+    # may set it while draining, but every case starts a fresh server lifecycle.
+    monkeypatch.setattr(AppStatus, "should_exit", False)
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
