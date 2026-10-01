@@ -2464,11 +2464,12 @@ docstring carries the full RFC 6902 patch rules.
 - {_SKILL_FILE_WARNING}
 - Call `prepare_skill_upload` with file metadata, upload the raw bytes to each
   returned URL, then call `complete_skill_upload` with the upload IDs.
-- Skill versions cannot be pinned on agent presets. Bindings carry only
-  `skill_id`; the preset always runs, and `get_agent_preset` always reports,
-  the skill's latest published version. After `publish_skill`, do NOT call
-  `update_agent_preset` (or re-send `skills`); only touch `skills` to attach
-  or detach a skill.
+
+## Agent preset versions
+- Always use the latest subagent and skill. Do NOT pin agent preset versions
+  (`subagents[].preset_version`) unless the user explicitly asks to.
+- Skills always run their latest published version. After `publish_skill`,
+  do NOT call `update_agent_preset`; touch `skills` only to attach/detach.
 
 ## Structured argument quick reference
 Tool docstrings are the source of truth for every other argument shape.
@@ -3192,6 +3193,17 @@ group of tools several agents share.
 actions for one run — MCP tools stay, an empty list is ignored — which is handy
 for a test or an eval.
 - Set an `output_type` only when the user explicitly asks for structured output.
+
+### Subagent and skill versions
+- Always use the latest subagent and skill. This is the default and the best
+practice: fixes and improvements to a child preset or skill reach every parent
+preset without re-editing it.
+- Do NOT pin agent preset versions unless the user explicitly asks to pin a
+specific version. Leave `preset_version` out of `subagents` refs, including
+when you copy refs from `get_agent_preset` into an update.
+- Skills cannot be pinned: bindings carry only `skill_id`.
+- If the user does ask to pin, confirm which version, set `preset_version` on
+that one ref only, and tell them the subagent will no longer pick up updates.
 """
 
 
@@ -8730,10 +8742,11 @@ async def create_agent_preset(
     `metadata.tools`.
 
     Use `subagents` to attach other presets as subagents. Each ref contains
-    `preset` (the child preset slug) and optional `preset_version`, `name`
-    (runtime alias), `description`, and `max_turns`. Omit `preset_version`
-    to follow the child's latest version. A child preset cannot have its own
-    subagents or tools that require manual approval.
+    `preset` (the child preset slug) and optional `name` (runtime alias),
+    `description`, and `max_turns`. Always omit `preset_version` so the
+    subagent follows the child preset's latest version; set it only when the
+    user explicitly asks to pin a specific version. A child preset cannot have
+    its own subagents or tools that require manual approval.
     """
 
     try:
@@ -8831,9 +8844,13 @@ async def update_agent_preset(
     `metadata.tools`.
 
     Use `subagents` to replace attached preset-backed subagents. Each ref
-    contains `preset` (the child preset slug) and optional `preset_version`,
-    `name` (runtime alias), `description`, and `max_turns`. Omit `subagents`
-    to leave them unchanged, or pass an empty list to detach all subagents.
+    contains `preset` (the child preset slug) and optional `name` (runtime
+    alias), `description`, and `max_turns`. Always omit `preset_version` so
+    the subagent follows the child preset's latest version; set it only when
+    the user explicitly asks to pin a specific version. When re-sending
+    existing subagents, drop any `preset_version` the user did not ask for.
+    Omit `subagents` to leave them unchanged, or pass an empty list to detach
+    all subagents.
     A child preset cannot have its own subagents or tools that require
     manual approval.
 
@@ -10144,8 +10161,8 @@ async def run_agent_preset(
         workspace_id: The workspace ID (from list_workspaces).
         preset_slug: Slug of the agent preset to run (from list_agent_presets).
         prompt: The user prompt to send to the agent.
-        preset_version: Deprecated compatibility input. The server accepts but
-            ignores this value and always resolves the current preset head.
+        preset_version: Deprecated compatibility input. Do not pass it. The
+            server ignores this value and always resolves the latest preset.
         timeout_seconds: Max seconds to wait for response (default 120, max 300).
 
     Returns:
