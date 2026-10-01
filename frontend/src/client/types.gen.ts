@@ -4646,6 +4646,7 @@ export type FeatureFlag =
   | "agent-channels"
   | "agent-fs-persistence"
   | "agent-runtime"
+  | "workspace-sync-github-archive"
 
 /**
  * Response model for feature flags.
