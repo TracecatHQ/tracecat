@@ -31,6 +31,7 @@ Digest = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")]
 def _relative_logical_path(path: str) -> str:
     if (
         path.startswith("/")
+        or any(ord(char) < 32 or ord(char) == 127 for char in path)
         or "\\" in path
         or any(part in {"", ".", ".."} for part in path.split("/"))
     ):

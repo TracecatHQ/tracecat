@@ -113,7 +113,17 @@ def test_tool_free_authority_cannot_activate_references():
         )
 
 
-@pytest.mark.parametrize("path", ["/tmp/skill", "../skill", "a/../b", "a\\b", "a//b"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/tmp/skill",
+        "../skill",
+        "a/../b",
+        "a\\b",
+        "a//b",
+        *[f"a/{char}b" for char in "\x00\n\r\t\x1f\x7f"],
+    ],
+)
 def test_artifact_paths_are_logical(path):
     with pytest.raises(ValidationError):
         LogicalArtifact(
@@ -320,7 +330,17 @@ def test_callable_schemas_reject_non_json_python_values(value):
         ResolvedReferenceSnapshot.model_validate(data)
 
 
-@pytest.mark.parametrize("path", ["/tmp/skill", "../skill", "a/../b", "a\\b", "a//b"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/tmp/skill",
+        "../skill",
+        "a/../b",
+        "a\\b",
+        "a//b",
+        *[f"a/{char}b" for char in "\x00\n\r\t\x1f\x7f"],
+    ],
+)
 def test_authored_source_paths_are_logical(path):
     uid = "11111111-1111-4111-8111-111111111111"
     with pytest.raises(ValidationError):
@@ -413,3 +433,15 @@ def test_callable_wire_requires_boolean_approval():
     data["scopes"][0]["callables"][0]["requires_approval"] = "false"
     with pytest.raises(ValidationError):
         ResolvedReferenceSnapshot.model_validate_json(json.dumps(data))
+
+
+def test_logical_paths_preserve_spaces_and_unicode():
+    path = "references/日本語 guide.md"
+    artifact = LogicalArtifact(
+        key="synthetic",
+        path=path,
+        content_hash="0" * 64,
+        size_bytes=0,
+        media_type="text/markdown",
+    )
+    assert artifact.path == path
