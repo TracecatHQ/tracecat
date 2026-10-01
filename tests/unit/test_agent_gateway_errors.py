@@ -376,6 +376,11 @@ async def test_retry_does_not_inherit_an_earlier_provider_quota_failure(
             401,
             RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
         ),
+        (
+            "tracecat_llm_model_not_enabled",
+            403,
+            RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+        ),
         ("budget_exceeded", 429, RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED),
     ],
 )

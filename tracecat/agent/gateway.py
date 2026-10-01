@@ -44,6 +44,7 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.exceptions import AgentModelNotEnabledError
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.temporal.error_chain import iter_error_chain
@@ -303,6 +304,13 @@ async def get_provider_credentials(
                         provider,
                         creds,
                     )
+        except AgentModelNotEnabledError as exc:
+            raise ProxyException(
+                message="The selected model is not enabled for this workspace.",
+                type="tracecat_llm_model_not_enabled",
+                param=None,
+                code=403,
+            ) from exc
         except ValueError as exc:
             raise ProxyException(
                 message=str(exc),
@@ -462,6 +470,7 @@ class TracecatCallbackHandler(CustomLogger):
             if original_exception.type in {
                 "tracecat_llm_token_invalid",
                 "tracecat_llm_provider_auth_failed",
+                "tracecat_llm_model_not_enabled",
                 "budget_exceeded",
             }:
                 original_exception.message = _anthropic_error_message(
