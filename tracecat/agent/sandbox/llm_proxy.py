@@ -37,6 +37,7 @@ from tracecat.agent.error_policy import (
     agent_executor_unavailable,
     agent_llm_budget_exceeded,
     agent_llm_gateway_auth_failed,
+    agent_llm_model_not_enabled,
     agent_llm_provider_auth_failed,
     agent_llm_provider_rejected_request,
     agent_llm_rate_limited,
@@ -263,6 +264,8 @@ def _http_error_classification(
             return agent_llm_gateway_auth_failed()
         if error_type == "tracecat_llm_provider_auth_failed":
             return agent_llm_provider_auth_failed()
+        if error_type == "tracecat_llm_model_not_enabled":
+            return agent_llm_model_not_enabled()
     if status_code in {400, 429} and error_type in {
         "budget_exceeded",
         "insufficient_quota",

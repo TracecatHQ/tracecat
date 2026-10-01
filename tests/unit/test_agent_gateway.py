@@ -1,4 +1,5 @@
 import json
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -6,6 +7,7 @@ from unittest.mock import AsyncMock, Mock
 
 import httpx
 import litellm
+import orjson
 import pytest
 import yaml
 from litellm.caching.dual_cache import DualCache
@@ -29,10 +31,12 @@ from tracecat.agent.gateway import (
     _filter_allowed_model_settings,
     _inject_provider_credentials,
     _resolve_bedrock_runtime_credentials,
+    get_provider_credentials,
     user_api_key_auth,
 )
 from tracecat.agent.sandbox.llm_proxy import _http_error_classification
 from tracecat.agent.tokens import verify_llm_token
+from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -938,3 +942,36 @@ async def test_throttling_callback_uses_safe_message_without_provider_response(
     assert classification.owner is RuntimeErrorOwner.PLATFORM
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
     assert b"synthetic-sensitive-detail" not in wire_body
+
+
+@pytest.mark.anyio
+async def test_get_provider_credentials_maps_disabled_catalog_to_model_not_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    catalog_id = uuid.uuid4()
+    service = AsyncMock()
+    service.get_catalog_credentials.side_effect = TracecatAuthorizationError(
+        f"Catalog row {catalog_id} is not enabled for this workspace"
+    )
+    session_ctx = AsyncMock()
+    session_ctx.__aenter__.return_value = service
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.AgentManagementService.with_session",
+        Mock(return_value=session_ctx),
+    )
+
+    with pytest.raises(ProxyException) as failure:
+        await get_provider_credentials(
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            provider="anthropic",
+            catalog_id=catalog_id,
+        )
+
+    assert failure.value.type == "tracecat_llm_model_not_enabled"
+    assert failure.value.code == "403"
+    body = orjson.dumps({"error": {"type": failure.value.type}})
+    classification = _http_error_classification(403, route_is_direct=False, body=body)
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE

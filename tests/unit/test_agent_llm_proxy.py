@@ -1701,6 +1701,22 @@ async def test_read_timeout_before_headers_records_route(
             False,
         ),
         (
+            403,
+            "tracecat_llm_model_not_enabled",
+            False,
+            RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
+            403,
+            "tracecat_llm_model_not_enabled",
+            True,
+            RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
             429,
             "budget_exceeded",
             False,
