@@ -191,16 +191,7 @@ async def test_claim_rechecks_expiry_after_wait(expires_during_claim: bool) -> N
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("scope_name", "on_workspace", "level"),
-    [
-        ("org:read", True, "an organization role"),
-        ("workflow:read", False, "a workspace role"),
-    ],
-)
-async def test_validate_grants_rejects_role_at_wrong_level(
-    scope_name: str, on_workspace: bool, level: str
-) -> None:
+async def test_validate_grants_rejects_org_role_on_workspace() -> None:
     organization_id = uuid.uuid4()
     granter = Role(
         type="user",
@@ -212,9 +203,9 @@ async def test_validate_grants_rejects_role_at_wrong_level(
         id=uuid.uuid4(),
         organization_id=organization_id,
         name="Target",
-        scopes=[Scope(name=scope_name)],
+        scopes=[Scope(name="org:read")],
     )
-    workspace_id = uuid.uuid4() if on_workspace else None
+    workspace_id = uuid.uuid4()
     params = InvitationCreate(
         email="invitee@example.com",
         grants=[InvitationGrant(workspace_id=workspace_id, role_id=target.id)],
@@ -224,9 +215,7 @@ async def test_validate_grants_rejects_role_at_wrong_level(
     role_result = MagicMock()
     role_result.scalars.return_value.all.return_value = [target]
     session = AsyncMock()
-    session.execute.side_effect = (
-        [workspace_result, role_result] if on_workspace else [role_result]
-    )
+    session.execute.side_effect = [workspace_result, role_result]
 
-    with pytest.raises(TracecatValidationError, match=f"Target is {level}"):
+    with pytest.raises(TracecatValidationError, match="Target is an organization role"):
         await validate_grants(session, granter, organization_id, params)

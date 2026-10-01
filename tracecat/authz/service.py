@@ -192,23 +192,22 @@ async def resolve_grantable_role(
 
 
 def ensure_role_fits_scope(role: DBRole, workspace_id: WorkspaceID | None) -> None:
-    """Reject org roles granted on a workspace and workspace roles granted org-wide.
+    """Reject an organization role granted on a single workspace.
+
+    A workspace role granted org-wide applies in every workspace.
 
     Args:
         role: Role with ``scopes`` loaded.
         workspace_id: Target workspace, or None for an org-wide grant.
 
     Raises:
-        TracecatValidationError: If the role's level does not match the target.
+        TracecatValidationError: If an org-level role targets a workspace.
     """
-    org_level = is_org_level_role(scope.name for scope in role.scopes)
-    if org_level and workspace_id is not None:
+    if workspace_id is not None and is_org_level_role(
+        scope.name for scope in role.scopes
+    ):
         raise TracecatValidationError(
             f"{role.name} is an organization role and can only be assigned organization-wide"
-        )
-    if not org_level and workspace_id is None:
-        raise TracecatValidationError(
-            f"{role.name} is a workspace role and can only be assigned on a workspace"
         )
 
 
@@ -277,18 +276,27 @@ class MembershipService(BaseService):
         self, workspace_id: WorkspaceID
     ) -> list[WorkspaceMember]:
         """List workspace members with the role each holds there."""
-        # Membership is the role paths, so read them directly rather than
-        # deriving Membership and joining back to the same tables.
+        workspace_org = (
+            select(Workspace.organization_id)
+            .where(Workspace.id == workspace_id)
+            .scalar_subquery()
+        )
+        workspace_level = ~exists().where(
+            RoleScope.role_id == DBRole.id,
+            RoleScope.scope_id == Scope.id,
+            Scope.name.startswith("org:"),
+        )
+        # Rank: workspace direct, workspace group, org-wide direct, org-wide group.
         paths = union_all(
             select(
                 UserRoleAssignment.user_id,
                 UserRoleAssignment.role_id,
-                literal(0).label("via_group"),
+                literal(0).label("rank"),
             ).where(UserRoleAssignment.workspace_id == workspace_id),
             select(
                 effective_group_members.c.user_id,
                 GroupRoleAssignment.role_id,
-                literal(1).label("via_group"),
+                literal(1).label("rank"),
             )
             .join_from(
                 GroupRoleAssignment,
@@ -296,15 +304,39 @@ class MembershipService(BaseService):
                 effective_group_members.c.group_id == GroupRoleAssignment.group_id,
             )
             .where(GroupRoleAssignment.workspace_id == workspace_id),
+            select(
+                UserRoleAssignment.user_id,
+                UserRoleAssignment.role_id,
+                literal(2).label("rank"),
+            ).where(
+                UserRoleAssignment.workspace_id.is_(None),
+                UserRoleAssignment.organization_id == workspace_org,
+            ),
+            select(
+                effective_group_members.c.user_id,
+                GroupRoleAssignment.role_id,
+                literal(3).label("rank"),
+            )
+            .join_from(
+                GroupRoleAssignment,
+                effective_group_members,
+                effective_group_members.c.group_id == GroupRoleAssignment.group_id,
+            )
+            .where(
+                GroupRoleAssignment.workspace_id.is_(None),
+                GroupRoleAssignment.organization_id == workspace_org,
+            ),
         ).subquery("paths")
-        # One row per member; a direct assignment wins over group grants.
+        # One row per member; the most specific grant wins.
         statement = (
-            select(User, DBRole.name, paths.c.via_group)
+            select(User, DBRole.name, paths.c.rank)
             .select_from(paths)
             .join(User, User.id == paths.c.user_id)  # pyright: ignore[reportArgumentType]
             .join(DBRole, DBRole.id == paths.c.role_id)
+            # Org-wide org roles grant no workspace presence.
+            .where(or_(paths.c.rank < 2, workspace_level))
             .distinct(paths.c.user_id)
-            .order_by(paths.c.user_id, paths.c.via_group, DBRole.name)
+            .order_by(paths.c.user_id, paths.c.rank, DBRole.name)
         )
         rows = (await self.session.execute(statement)).tuples().all()
         return [
@@ -314,9 +346,9 @@ class MembershipService(BaseService):
                 last_name=user.last_name,
                 email=user.email,
                 role_name=role_name,
-                via_group=bool(via_group),
+                via_group=rank in (1, 3),
             )
-            for user, role_name, via_group in rows
+            for user, role_name, rank in rows
         ]
 
     async def get_membership(

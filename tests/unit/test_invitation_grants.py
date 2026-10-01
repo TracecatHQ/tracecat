@@ -913,10 +913,11 @@ async def test_accept_rejects_grant_at_wrong_role_level(
     session: AsyncSession,
     org: Organization,
     invitee: User,
+    workspace_a: Workspace,
 ):
     """A pending grant from before roles were pinned to a level is refused."""
-    editor_role_id = await _role_id(session, org.id, "workspace-editor")
-    # Written directly: creation now rejects a workspace role granted org-wide.
+    admin_role_id = await _role_id(session, org.id, "organization-admin")
+    # Written directly: creation now rejects an org role on a workspace.
     invitation = Invitation(
         organization_id=org.id,
         email=invitee.email,
@@ -925,7 +926,11 @@ async def test_accept_rejects_grant_at_wrong_role_level(
         expires_at=datetime.now(UTC) + timedelta(days=7),
     )
     invitation.grants = [
-        InvitationGrantRow(organization_id=org.id, role_id=editor_role_id)
+        InvitationGrantRow(
+            organization_id=org.id,
+            workspace_id=workspace_a.id,
+            role_id=admin_role_id,
+        )
     ]
     session.add(invitation)
     await session.commit()

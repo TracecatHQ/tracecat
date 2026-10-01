@@ -38,6 +38,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     and_,
+    exists,
     func,
     null,
     select,
@@ -6480,7 +6481,8 @@ effective_group_members = (
 
 
 # Workspace membership is derived, never stored: a user is present in a
-# workspace iff they hold a role path there, directly or through a group.
+# workspace iff they hold a role path there, directly or through a group. An
+# org-wide workspace-level role (no org:* scope) reaches every workspace.
 # type_coerce strips the source columns' foreign keys: the composite one to
 # organization_membership would otherwise propagate into the subquery and the
 # mapper would try to resolve it as a real table.
@@ -6499,6 +6501,43 @@ _role_paths = union_all(
         GroupRoleAssignment,
         effective_group_members,
         effective_group_members.c.group_id == GroupRoleAssignment.group_id,
+    ),
+    select(
+        type_coerce(UserRoleAssignment.user_id, UUID).label("user_id"),
+        type_coerce(UserRoleAssignment.organization_id, UUID).label("organization_id"),
+        type_coerce(Workspace.id, UUID).label("workspace_id"),
+    )
+    .join_from(
+        UserRoleAssignment,
+        Workspace,
+        Workspace.organization_id == UserRoleAssignment.organization_id,
+    )
+    .where(
+        UserRoleAssignment.workspace_id.is_(None),
+        ~exists().where(
+            RoleScope.role_id == UserRoleAssignment.role_id,
+            RoleScope.scope_id == Scope.id,
+            Scope.name.startswith("org:"),
+        ),
+    ),
+    select(
+        type_coerce(effective_group_members.c.user_id, UUID).label("user_id"),
+        type_coerce(GroupRoleAssignment.organization_id, UUID).label("organization_id"),
+        type_coerce(Workspace.id, UUID).label("workspace_id"),
+    )
+    .join_from(
+        GroupRoleAssignment,
+        effective_group_members,
+        effective_group_members.c.group_id == GroupRoleAssignment.group_id,
+    )
+    .join(Workspace, Workspace.organization_id == GroupRoleAssignment.organization_id)
+    .where(
+        GroupRoleAssignment.workspace_id.is_(None),
+        ~exists().where(
+            RoleScope.role_id == GroupRoleAssignment.role_id,
+            RoleScope.scope_id == Scope.id,
+            Scope.name.startswith("org:"),
+        ),
     ),
 ).subquery("role_paths")
 

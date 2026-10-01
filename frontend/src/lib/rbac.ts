@@ -270,10 +270,12 @@ export function isOrgLevelRole(role: { scopes?: ScopeRead[] }): boolean {
   return (role.scopes ?? []).some((scope) => scope.name.startsWith("org:"))
 }
 
-/** Roles assignable at a scope: org roles org-wide, others per workspace. */
+/** Roles assignable at a scope: org roles only org-wide; workspace roles anywhere. */
 export function rolesForScope<T extends { scopes?: ScopeRead[] }>(
   roles: T[],
   workspaceId: string | null
 ): T[] {
-  return roles.filter((role) => isOrgLevelRole(role) === (workspaceId === null))
+  return workspaceId === null
+    ? roles
+    : roles.filter((role) => !isOrgLevelRole(role))
 }

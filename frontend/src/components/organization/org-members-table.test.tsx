@@ -256,8 +256,8 @@ it("offers only roles valid for the selected scope", async () => {
     screen.getByRole("option", { name: "Organization Admin" })
   ).toBeInTheDocument()
   expect(
-    screen.queryByRole("option", { name: "Workspace Editor" })
-  ).not.toBeInTheDocument()
+    screen.getByRole("option", { name: "Workspace Editor" })
+  ).toBeInTheDocument()
   await user.keyboard("{Escape}")
   await user.click(screen.getByRole("combobox", { name: "Scope" }))
   await user.click(screen.getByRole("option", { name: "Workspace B" }))

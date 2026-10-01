@@ -32,7 +32,11 @@ from tracecat.authz.scopes import (
     ORG_MEMBER_FLOOR_SCOPES,
 )
 from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
-from tracecat.authz.service import query_effective_scopes
+from tracecat.authz.service import (
+    MembershipService,
+    query_effective_scopes,
+    workspace_membership_exists,
+)
 from tracecat.db.models import (
     AccessToken,
     ExternalGroupMapping,
@@ -1866,49 +1870,118 @@ class TestImplicitMemberRoleIsHidden:
 
 @pytest.mark.anyio
 class TestRoleLevelGuard:
-    """Org roles are granted only org-wide; workspace roles only per workspace."""
+    """Org roles are granted only org-wide; workspace roles anywhere."""
 
-    @pytest.mark.parametrize("org_level", [True, False])
-    async def test_user_assignment_rejects_wrong_level(
+    async def test_user_assignment_rejects_org_role_on_workspace(
         self,
         session: AsyncSession,
         role: Role,
         user: User,
         workspace: Workspace,
-        org_level: bool,
     ):
         service = RBACService(session, role=role)
-        if org_level:
-            target = await create_org_role(service, name="Org Role")
-        else:
-            target = await service.create_role(name="Workspace Role")
-        with pytest.raises(TracecatValidationError, match="can only be assigned"):
+        target = await create_org_role(service, name="Org Role")
+        with pytest.raises(TracecatValidationError, match="organization role"):
             await service.create_user_assignment(
-                user_id=user.id,
-                role_id=target.id,
-                workspace_id=workspace.id if org_level else None,
+                user_id=user.id, role_id=target.id, workspace_id=workspace.id
             )
 
-    @pytest.mark.parametrize("org_level", [True, False])
-    async def test_group_assignment_rejects_wrong_level(
+    async def test_group_assignment_rejects_org_role_on_workspace(
         self,
         session: AsyncSession,
         role: Role,
         workspace: Workspace,
-        org_level: bool,
     ):
         service = RBACService(session, role=role)
         group = await service.create_group(name="Level Group")
-        if org_level:
-            target = await create_org_role(service, name="Org Role")
-        else:
-            target = await service.create_role(name="Workspace Role")
-        with pytest.raises(TracecatValidationError, match="can only be assigned"):
+        target = await create_org_role(service, name="Org Role")
+        with pytest.raises(TracecatValidationError, match="organization role"):
             await service.create_group_role_assignment(
-                group_id=group.id,
-                role_id=target.id,
-                workspace_id=workspace.id if org_level else None,
+                group_id=group.id, role_id=target.id, workspace_id=workspace.id
             )
+
+    async def test_org_wide_workspace_role_reaches_every_workspace(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        user: User,
+        workspace: Workspace,
+    ):
+        service = RBACService(session, role=role)
+        other_org = Organization(name="Other", slug=uuid.uuid4().hex)
+        session.add(other_org)
+        await session.flush()
+        foreign = Workspace(name="Foreign", organization_id=other_org.id)
+        second = Workspace(name="Second", organization_id=org.id)
+        session.add_all([foreign, second])
+        await session.commit()
+        editor = await service.create_role(name="All Workspaces Editor")
+
+        await service.create_user_assignment(user_id=user.id, role_id=editor.id)
+
+        for ws, present in ((workspace, True), (second, True), (foreign, False)):
+            assert (
+                await workspace_membership_exists(
+                    session, user_id=user.id, workspace_id=ws.id
+                )
+                is present
+            )
+        members = await MembershipService(session, role=role).list_workspace_members(
+            second.id
+        )
+        listed = next(m for m in members if m.user_id == user.id)
+        assert listed.role_name == "All Workspaces Editor" and not listed.via_group
+
+    async def test_org_wide_group_workspace_role_reaches_every_workspace(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+    ):
+        service = RBACService(session, role=role)
+        group = await service.create_group(name="All Workspaces Group")
+        await service.add_group_member(group.id, user.id)
+        editor = await service.create_role(name="Group Editor")
+        await service.create_group_role_assignment(group_id=group.id, role_id=editor.id)
+
+        assert await workspace_membership_exists(
+            session, user_id=user.id, workspace_id=workspace.id
+        )
+        members = await MembershipService(session, role=role).list_workspace_members(
+            workspace.id
+        )
+        listed = next(m for m in members if m.user_id == user.id)
+        assert listed.via_group
+
+    async def test_org_wide_org_role_grants_no_workspace_presence(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        # Bare membership: the shared fixture's presence role would itself expand.
+        member = User(
+            id=uuid.uuid4(), email="org-reader@example.com", hashed_password="x"
+        )
+        session.add(member)
+        await session.flush()
+        await ensure_member(session, org.id, member.id)
+        await session.commit()
+        member_id = member.id
+        service = RBACService(session, role=role)
+        org_role = await create_org_role(service, name="Org Reader")
+        await service.create_user_assignment(user_id=member_id, role_id=org_role.id)
+
+        assert not await workspace_membership_exists(
+            session, user_id=member_id, workspace_id=workspace.id
+        )
+        members = await MembershipService(session, role=role).list_workspace_members(
+            workspace.id
+        )
+        assert member_id not in {m.user_id for m in members}
 
     async def test_update_assignment_rejects_wrong_level(
         self,
