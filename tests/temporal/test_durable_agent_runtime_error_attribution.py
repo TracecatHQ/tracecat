@@ -153,7 +153,7 @@ _WORKFLOW_FAILURE_SCENARIOS: tuple[_FailureScenario, ...] = (
         injection=harness.FailureInjection(harness.FaultPoint.EXECUTOR_ACTIVITY),
         status=_FAILED,
         owner=RuntimeErrorOwner.PLATFORM,
-        kind=RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+        kind=RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
         retry_disposition=RetryDisposition.RETRYABLE,
         should_stream=True,
     ),
@@ -305,7 +305,7 @@ def _gateway_scenario(expectation: _GatewayExpectation) -> _FailureScenario:
 _USER = RuntimeErrorOwner.USER
 _PLATFORM = RuntimeErrorOwner.PLATFORM
 _EXECUTION_FAILED = RuntimeErrorKind.AGENT_EXECUTION_FAILED
-_UNAVAILABLE = RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+_UNCLASSIFIED = RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 _TIMED_OUT = RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
 _LLM_READ_TIMEOUT = RuntimeErrorKind.AGENT_LLM_READ_TIMEOUT
 _LLM_PROVIDER_AUTH_FAILED = RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED
@@ -442,7 +442,7 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
         harness.GatewayRoute.MANAGED_LITELLM,
         harness.GatewayFailureMode.HTTP_401,
         _PLATFORM,
-        _UNAVAILABLE,
+        _UNCLASSIFIED,
         _RETRYABLE,
     ),
     _GatewayExpectation(
@@ -456,7 +456,7 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
         harness.GatewayRoute.MANAGED_LITELLM,
         harness.GatewayFailureMode.HTTP_503,
         _PLATFORM,
-        _UNAVAILABLE,
+        _UNCLASSIFIED,
         _RETRYABLE,
     ),
     _GatewayExpectation(
@@ -470,7 +470,7 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
         harness.GatewayRoute.MANAGED_LITELLM,
         harness.GatewayFailureMode.CONNECT,
         _PLATFORM,
-        _UNAVAILABLE,
+        _UNCLASSIFIED,
         _RETRYABLE,
     ),
     _GatewayExpectation(
@@ -492,7 +492,7 @@ _GATEWAY_EXPECTATIONS: tuple[_GatewayExpectation, ...] = (
         harness.GatewayRoute.MANAGED_LITELLM,
         harness.GatewayFailureMode.STREAM_DISCONNECT,
         _PLATFORM,
-        _UNAVAILABLE,
+        _UNCLASSIFIED,
         _RETRYABLE,
     ),
 )
@@ -548,13 +548,17 @@ async def test_durable_agent_failure_attribution(
                 provider_configuration=gateway.provider_configuration,
             ).model_dump(mode="json"),
         )
-    assert _DIAGNOSTIC not in classification.message
+    # Unclassified failures keep the redacted underlying error for triage.
+    keeps_underlying_error = classification.kind is _UNCLASSIFIED
+    if not keeps_underlying_error:
+        assert _DIAGNOSTIC not in classification.message
 
     assert isinstance(observation.failure.cause, ApplicationError)
     assert observation.failure.cause.non_retryable is (
         scenario.retry_disposition is RetryDisposition.NON_RETRYABLE
     )
-    assert _DIAGNOSTIC not in str(observation.failure.cause)
+    if not keeps_underlying_error:
+        assert _DIAGNOSTIC not in str(observation.failure.cause)
     assert observation.fault_calls == scenario.fault_calls
 
     assert len(observation.emitted_errors) == scenario.emitted_error_count
@@ -562,14 +566,15 @@ async def test_durable_agent_failure_attribution(
     for emitted_error in observation.emitted_errors:
         assert emitted_error.message == classification.message
         assert emitted_error.should_stream is scenario.should_stream
-        assert _DIAGNOSTIC not in emitted_error.message
+        if not keeps_underlying_error:
+            assert _DIAGNOSTIC not in emitted_error.message
 
     assert len(observation.finalized_turns) == scenario.finalized_turn_count
     for finalized_turn in observation.finalized_turns:
         assert finalized_turn.emit_terminal_done is True
     assert observation.emitted_done == ()
 
-    if scenario.diagnostic_absent_from_history:
+    if scenario.diagnostic_absent_from_history and not keeps_underlying_error:
         assert _DIAGNOSTIC not in observation.history.to_json()
 
     await harness.replay_scenario_history(temporal_env, observation.history)

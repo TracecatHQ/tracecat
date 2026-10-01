@@ -22,7 +22,7 @@ from tracecat.agent.common.stream_types import (
     UnifiedStreamEvent,
 )
 from tracecat.agent.error_policy import (
-    agent_executor_unavailable,
+    agent_executor_unclassified,
     user_agent_execution_failed,
 )
 from tracecat.agent.executor.loopback import (
@@ -180,7 +180,7 @@ async def test_emit_terminal_error_uses_redis_when_external_lookup_errors(
 
     emitted = await handler.emit_terminal_error(
         "runtime exited before connect",
-        classification=agent_executor_unavailable(),
+        classification=agent_executor_unclassified(),
     )
 
     assert emitted is True
@@ -214,7 +214,7 @@ async def test_emit_terminal_error_emits_failed_compaction_when_pending(
 
     emitted = await handler.emit_terminal_error(
         "runtime exited before connect",
-        classification=agent_executor_unavailable(),
+        classification=agent_executor_unclassified(),
     )
 
     assert emitted is True
@@ -246,7 +246,7 @@ async def test_emit_terminal_error_bounds_stalled_stream_sink(
     fake_stream.error.side_effect = stalled_error
     handler._stream_sink = fake_stream
 
-    classification = agent_executor_unavailable()
+    classification = agent_executor_unclassified()
     emitted = await handler.emit_terminal_error(
         "provider request failed",
         classification=classification,
@@ -269,7 +269,7 @@ async def test_emit_terminal_error_retains_state_when_stream_sink_fails(
     fake_stream = _FakeStream()
     fake_stream.error.side_effect = OSError("stream unavailable")
     handler._stream_sink = fake_stream
-    classification = agent_executor_unavailable()
+    classification = agent_executor_unclassified()
 
     emitted = await handler.emit_terminal_error(
         "provider request failed",
@@ -301,7 +301,7 @@ async def test_emit_terminal_error_bounds_stalled_stream_sink_initialization(
     initialize_stream_sink = AsyncMock(side_effect=stalled_initialization)
     monkeypatch.setattr(handler, "_initialize_stream_sink", initialize_stream_sink)
 
-    classification = agent_executor_unavailable()
+    classification = agent_executor_unclassified()
     emitted = await handler.emit_terminal_error(
         "provider request failed",
         classification=classification,
@@ -679,7 +679,7 @@ async def test_terminal_error_streams_error_and_closes_only_external_sink() -> N
     assert handler._result.classification.owner is RuntimeErrorOwner.PLATFORM
     assert (
         handler._result.classification.kind
-        is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     )
     assert (
         handler._result.classification.retry_disposition is RetryDisposition.RETRYABLE
@@ -837,7 +837,7 @@ async def test_process_runtime_events_emits_failed_compaction_on_runtime_error()
     assert handler._result.classification.owner is RuntimeErrorOwner.PLATFORM
     assert (
         handler._result.classification.kind
-        is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     )
     assert (
         handler._result.classification.retry_disposition is RetryDisposition.RETRYABLE
@@ -941,7 +941,7 @@ async def test_process_runtime_events_classifies_disconnect_and_marks_streamed(
     stream = _FakeStream()
     handler._stream_sink = stream
 
-    receipt = PlatformErrorCapture.for_error("a" * 32, agent_executor_unavailable())
+    receipt = PlatformErrorCapture.for_error("a" * 32, agent_executor_unclassified())
     capture = MagicMock(return_value=receipt)
     monkeypatch.setattr(loopback_module, "capture_activity_failure", capture)
 
@@ -957,7 +957,7 @@ async def test_process_runtime_events_classifies_disconnect_and_marks_streamed(
     assert handler._result.classification.owner is RuntimeErrorOwner.PLATFORM
     assert (
         handler._result.classification.kind
-        is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     )
     assert handler._result.terminal_stream_error_emitted is True
     stream.error.assert_awaited_once_with("Runtime disconnected during execution")
@@ -1374,7 +1374,7 @@ async def test_emit_terminal_error_preserves_state_when_runtime_sends_done(
     capture = MagicMock()
     monkeypatch.setattr(loopback_module, "capture_activity_failure", capture)
     error = "provider request failed"
-    classification = agent_executor_unavailable()
+    classification = agent_executor_unclassified()
 
     emitted = await handler.emit_terminal_error(
         error,

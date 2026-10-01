@@ -7711,7 +7711,7 @@ export type RuntimeErrorKind =
   | "agent.llm.rate_limited"
   | "agent.llm.read_timeout"
   | "agent.execution.failed"
-  | "agent.executor.unavailable"
+  | "agent.executor.unclassified"
   | "agent.executor.timed_out"
   | "agent.executor.protocol_failed"
   | "agent.workflow.internal_error"

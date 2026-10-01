@@ -34,7 +34,7 @@ from tracecat.agent.diagnostics import (
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
     agent_executor_timed_out,
-    agent_executor_unavailable,
+    agent_executor_unclassified,
     agent_llm_budget_exceeded,
     agent_llm_gateway_auth_failed,
     agent_llm_provider_auth_failed,
@@ -241,6 +241,25 @@ def _error_object_strings(body: bytes) -> tuple[str | None, str | None]:
     )
 
 
+def _error_object_message(body: bytes) -> str | None:
+    """Read the human-readable ``error.message`` of a body, if present."""
+    payload = parse_bounded_error_body(body)
+    if not isinstance(payload, dict):
+        return None
+    error = payload.get("error")
+    if not isinstance(error, dict):
+        return None
+    message = error.get("message")
+    return message if isinstance(message, str) else None
+
+
+def _managed_unclassified(status_code: int, body: bytes) -> RuntimeErrorClassification:
+    detail = f"LLM gateway returned HTTP {status_code}"
+    if message := _error_object_message(body):
+        detail = f"{detail}: {message}"
+    return agent_executor_unclassified(detail=detail)
+
+
 def _safe_error_token(value: str | None) -> str | None:
     if value is not None and _SAFE_ERROR_TOKEN_RE.fullmatch(value):
         return value
@@ -273,7 +292,7 @@ def _http_error_classification(
     if is_auth_status:
         if route_is_direct:
             return agent_llm_provider_auth_failed()
-        return agent_executor_unavailable()
+        return _managed_unclassified(status_code, body)
     if status_code == 429:
         return agent_llm_rate_limited(route_is_direct=route_is_direct)
     if route_is_direct:
@@ -287,7 +306,7 @@ def _http_error_classification(
     if status_code in {408, 504}:
         return agent_executor_timed_out()
     if status_code >= 500:
-        return agent_executor_unavailable()
+        return _managed_unclassified(status_code, body)
     return agent_llm_provider_rejected_request(
         status_code=status_code,
         model=model,
@@ -307,7 +326,7 @@ def _transport_error_classification(
         return user_agent_execution_failed(error, retryable=True)
     if isinstance(error, httpx.TimeoutException):
         return agent_executor_timed_out(error)
-    return agent_executor_unavailable(error)
+    return agent_executor_unclassified(error)
 
 
 def _transport_proxy_error(
@@ -1177,7 +1196,7 @@ class LLMSocketProxy:
             if not _is_non_critical_request(request["method"], request["path"]):
                 self._emit_error(
                     "LLM proxy not initialized",
-                    agent_executor_unavailable(),
+                    agent_executor_unclassified(detail="LLM proxy not initialized"),
                 )
             return
 
