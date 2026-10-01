@@ -147,7 +147,20 @@ function createRole(
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     created_by: null,
-    scopes: [],
+    // The picker reads the role level from org:* scopes, not the slug.
+    scopes: slug?.startsWith("organization-")
+      ? [
+          {
+            id: "scope-org-read",
+            name: "org:read",
+            resource: "org",
+            action: "read",
+            source: "platform",
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z",
+          },
+        ]
+      : [],
     is_system: true,
   }
 }
@@ -194,7 +207,7 @@ afterEach(() => {
 })
 
 describe("InviteMemberDialog", () => {
-  it("offers each scope only its own preset roles, plus custom roles", async () => {
+  it("offers org roles only org-wide and workspace roles on every scope", async () => {
     const user = userEvent.setup()
     render(<InviteMemberDialog open={true} onOpenChange={() => {}} />)
 
@@ -203,10 +216,10 @@ describe("InviteMemberDialog", () => {
         (option) => option.getAttribute("value")
       )
 
-    // Grant 1 defaults to org-wide: a workspace role there would apply its
-    // scopes across every workspace.
+    // Grant 1 defaults to org-wide: a workspace role there applies in every
+    // workspace.
     expect(optionsFor("Grant 1 role")).toContain(ORG_ADMIN_ROLE_ID)
-    expect(optionsFor("Grant 1 role")).not.toContain(WORKSPACE_EDITOR_ROLE_ID)
+    expect(optionsFor("Grant 1 role")).toContain(WORKSPACE_EDITOR_ROLE_ID)
     expect(optionsFor("Grant 1 role")).toContain(CUSTOM_ROLE_ID)
 
     await user.click(screen.getByRole("button", { name: /Add grant/ }))
