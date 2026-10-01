@@ -9280,12 +9280,10 @@ async def test_get_agent_preset_returns_full_configuration(
         (None, "0-0"),
     ],
 )
-@pytest.mark.parametrize("requested_preset_version", [3, None])
 async def test_run_agent_preset_uses_session_stream_cursor(
     monkeypatch: pytest.MonkeyPatch,
     last_stream_id: str | None,
     expected_start_id: str,
-    requested_preset_version: int | None,
 ) -> None:
     workspace_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
@@ -9305,10 +9303,8 @@ async def test_run_agent_preset_uses_session_stream_cursor(
             self,
             *,
             slug: str,
-            preset_version: int | None = None,
         ) -> SimpleNamespace:
             assert slug == "triage"
-            assert preset_version == requested_preset_version
             return version
 
     class _SessionService:
@@ -9355,16 +9351,10 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     )
     monkeypatch.setattr(mcp_server, "_collect_agent_response", _collect)
 
-    version_kwargs = (
-        {"preset_version": requested_preset_version}
-        if requested_preset_version is not None
-        else {}
-    )
     result = await _tool(mcp_server.run_agent_preset)(
         workspace_id=str(workspace_id),
         preset_slug="triage",
         prompt="check alerts",
-        **version_kwargs,
     )
 
     assert result == "agent response"
@@ -9380,18 +9370,14 @@ async def test_run_agent_preset_uses_session_stream_cursor(
 
 
 @pytest.mark.anyio
-async def test_run_agent_preset_marks_numeric_version_deprecated() -> None:
+async def test_run_agent_preset_does_not_expose_preset_version() -> None:
     tool = next(
         tool
         for tool in await mcp_server.mcp.list_tools()
         if tool.name == "run_agent_preset"
     )
 
-    preset_version_schema = tool.parameters["properties"]["preset_version"]
-
-    assert preset_version_schema["deprecated"] is True
-    assert "Deprecated compatibility input" in preset_version_schema["description"]
-    assert "current head" in preset_version_schema["description"]
+    assert "preset_version" not in tool.parameters["properties"]
 
 
 @pytest.mark.anyio
