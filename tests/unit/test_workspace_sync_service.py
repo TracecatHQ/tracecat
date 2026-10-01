@@ -158,6 +158,64 @@ async def test_pull_does_not_sync_schedules_by_default(
 
 
 @pytest.mark.anyio
+async def test_pull_reports_import_transaction_failure(
+    workspace_sync_service: WorkspaceSyncService,
+    sample_dsl: DSLInput,
+) -> None:
+    spec = WorkflowResourceSpec(
+        id="sync-me",
+        alias="sync-me",
+        definition=sample_dsl,
+    )
+    files = {
+        "tracecat.json": canonical_json_text(WorkspaceManifest()),
+        workflow_source_path(spec.id): serialize_workflow_spec(spec),
+    }
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="a" * 40,
+        tree_sha="tree-sha",
+        files=files,
+    )
+    import_error = RuntimeError("boom")
+    import_service = AsyncMock()
+    import_service.validate_workflows.return_value = []
+    import_service.import_workflows.side_effect = import_error
+    workspace_sync_service._workspace_git_url = AsyncMock(
+        return_value=GitUrl(host="github.com", org="tracecat", repo="sync")
+    )
+    workspace_sync_service._resolve_local_workflow_id = AsyncMock(
+        return_value=WorkflowUUID.new_uuid4()
+    )
+    workspace_sync_service._upsert_mappings = AsyncMock()
+
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        patch(
+            "tracecat.workspace_sync.service.WorkflowImportService",
+            return_value=import_service,
+        ),
+        patch("tracecat.workspace_sync.service.logger") as logger_mock,
+        patch("tracecat.workspace_sync.service.capture_api_exception") as capture_mock,
+    ):
+        result = await workspace_sync_service.pull(
+            options=PullOptions(commit_sha="a" * 40),
+        )
+
+    assert result.success is False
+    assert result.message == "Workspace import transaction failed"
+    session = cast(AsyncMock, workspace_sync_service.session)
+    session.rollback.assert_awaited_once()
+    logger_mock.exception.assert_called_once()
+    assert logger_mock.exception.call_args.kwargs["commit_sha"] == "a" * 40
+    capture_mock.assert_called_once()
+    assert capture_mock.call_args.args[0] is import_error
+
+
+@pytest.mark.anyio
 async def test_pull_dry_run_returns_resource_diffs_without_import(
     workspace_sync_service: WorkspaceSyncService,
     sample_dsl: DSLInput,

@@ -34,6 +34,9 @@ from tracecat.exceptions import (
 from tracecat.git.types import GitUrl
 from tracecat.git.utils import parse_git_url
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.logger import logger
+from tracecat.observability.sentry import capture_api_exception
+from tracecat.observability.types import AlertPriority
 from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
 from tracecat.sync import (
     CatalogMappingRequirement,
@@ -1055,6 +1058,12 @@ class WorkspaceSyncService(SyncMappingService):
                 await self.session.commit()
         except Exception as e:
             await self.session.rollback()
+            logger.exception(
+                "Workspace import transaction failed",
+                workspace_id=str(self.workspace_id),
+                commit_sha=snapshot.commit_sha,
+            )
+            capture_api_exception(e, priority=AlertPriority.LOW)
             return PullResult(
                 success=False,
                 commit_sha=snapshot.commit_sha,
