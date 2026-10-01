@@ -31,7 +31,7 @@ class ReferenceDiagnostic:
     """Stable error classification and source without resource lookup or disclosure."""
 
     code: ReferenceDiagnosticCode
-    location: SourceLocation
+    location: SourceLocation | None = None
 
 
 @dataclass(frozen=True, slots=True)

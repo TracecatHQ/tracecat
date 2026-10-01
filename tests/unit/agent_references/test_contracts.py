@@ -11,9 +11,11 @@ import pytest
 from pydantic import ValidationError
 
 from tracecat.agent.references.contracts import (
+    AuthoredSource,
     ExecutionAuthority,
     LogicalArtifact,
     ReferenceCapabilities,
+    ReferencePreparationFailure,
     ReferencePreparationInput,
     ResolvedReferenceSnapshot,
     SkillManifest,
@@ -22,7 +24,9 @@ from tracecat.agent.references.markdown import (
     parse_markdown_references,
     scan_markdown_files,
 )
+from tracecat.agent.references.types import ReferenceDiagnostic
 from tracecat.agent.references.uri import (
+    ReferenceDiagnosticCode,
     ReferenceKind,
     ReferenceTarget,
     ReferenceURIError,
@@ -39,6 +43,7 @@ FIXTURES = json.loads(
 
 @pytest.mark.parametrize("case", FIXTURES["uris"], ids=lambda c: c["name"])
 def test_uri_conformance(case):
+    assert (case["error"] is None) != (case["canonical"] is None)
     if case["error"]:
         with pytest.raises(ReferenceURIError) as exc:
             parse_reference_uri(case["uri"])
@@ -61,10 +66,14 @@ def test_markdown_conformance(case):
         "locations"
     ]
     assert all(r.location.path == "references/guide.md" for r in result.references)
-    assert [[d.location.line, d.location.column] for d in result.diagnostics] == case[
-        "diagnostic_locations"
-    ]
-    assert all(d.location.path == "references/guide.md" for d in result.diagnostics)
+    assert all(d.location is not None for d in result.diagnostics)
+    assert [
+        [d.location.line, d.location.column] for d in result.diagnostics if d.location
+    ] == case["diagnostic_locations"]
+    assert all(
+        d.location and d.location.path == "references/guide.md"
+        for d in result.diagnostics
+    )
 
 
 def test_all_markdown_files_and_binary_rejection():
@@ -309,3 +318,51 @@ def test_callable_schemas_reject_non_json_python_values(value):
     data["scopes"][0]["callables"][0]["input_schema"]["invalid"] = value
     with pytest.raises(ValidationError):
         ResolvedReferenceSnapshot.model_validate(data)
+
+
+@pytest.mark.parametrize("path", ["/tmp/skill", "../skill", "a/../b", "a\\b", "a//b"])
+def test_authored_source_paths_are_logical(path):
+    uid = "11111111-1111-4111-8111-111111111111"
+    with pytest.raises(ValidationError):
+        AuthoredSource.model_validate(
+            {
+                "origin": "skill_file",
+                "owner": {"kind": "skill", "identity": uid},
+                "version_id": uid,
+                "path": path,
+                "content_hash": "0" * 64,
+                "markdown": "text",
+            }
+        )
+
+
+def test_preparation_failure_without_authored_source_location():
+    failure = ReferencePreparationFailure(
+        diagnostics=(ReferenceDiagnostic(ReferenceDiagnosticCode.NOT_READY),)
+    )
+    assert failure.diagnostics[0].location is None
+    assert (
+        ReferencePreparationFailure.model_validate_json(failure.model_dump_json())
+        == failure
+    )
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("field", ["input_schema", "output_schema"])
+def test_callable_schemas_reject_nested_nonfinite_numbers(value, field):
+    data = snapshot_data()
+    data["scopes"][0]["callables"][0][field] = {"nested": {"enum": [value]}}
+    with pytest.raises(ValidationError):
+        ResolvedReferenceSnapshot.model_validate(data)
+
+
+def test_callable_finite_numbers_roundtrip():
+    data = snapshot_data()
+    data["scopes"][0]["callables"][0]["input_schema"] = {
+        "enum": [0, -2, 1.25, 1e100, True, None]
+    }
+    snapshot = ResolvedReferenceSnapshot.model_validate(data)
+    assert (
+        ResolvedReferenceSnapshot.model_validate_json(snapshot.model_dump_json())
+        == snapshot
+    )

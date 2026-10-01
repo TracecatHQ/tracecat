@@ -7,6 +7,7 @@ from typing import Annotated
 from pydantic import (
     AfterValidator,
     BeforeValidator,
+    FiniteFloat,
     JsonValue,
     PlainSerializer,
     TypeAdapter,
@@ -31,7 +32,13 @@ type FrozenMap[V] = Annotated[
     PlainSerializer(_json_value, return_type=JsonValue),
 ]
 type FrozenJSON = (
-    FrozenMap[FrozenJSON] | tuple[FrozenJSON, ...] | str | bool | int | float | None
+    FrozenMap[FrozenJSON]
+    | tuple[FrozenJSON, ...]
+    | str
+    | bool
+    | int
+    | FiniteFloat
+    | None
 )
 
 

@@ -8,6 +8,7 @@ import fixtures from "../../../tests/fixtures/agent_references/conformance.json"
 describe("reference URI conformance shared with Python", () => {
   for (const fixture of fixtures.uris) {
     it(fixture.name, () => {
+      expect(fixture.error === null).not.toBe(fixture.canonical === null)
       if (fixture.error) {
         try {
           parseReferenceURI(fixture.uri)

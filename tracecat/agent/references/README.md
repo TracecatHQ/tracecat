@@ -39,6 +39,7 @@ Occurrences retain their source path and one-based line and column. CRLF and CR
 are normalized and an initial BOM is removed. Columns count Unicode code points,
 not UTF-16 units or display cells. Syntax failures produce typed diagnostics;
 consumers must reject executable preparation when diagnostics are present.
+Preparation/readiness failures without an authored occurrence may omit the location.
 Resource lookup, authorization, cycle detection, and graph limits are separate
 preparation work.
 
@@ -69,7 +70,9 @@ empty capability tuple means unsupported, including for existing backends.
 The shared corpus lives in `tests/fixtures/agent_references/conformance.json`.
 Python tests verify syntax, diagnostics, and locations. Jest runs the TypeScript
 URI implementation and bundles the actual TipTap Markdown lexer against the same
-corpus. The editor is not wired to these helpers in this change.
+corpus. The frontend helper returns syntax identities and error codes for parity;
+source locations remain server-owned and reach the future editor through generated
+preview API schemas. The editor is not wired to these helpers in this change.
 
 ```sh
 uv run python -m pytest --confcutdir=tests/unit/agent_references tests/unit/agent_references

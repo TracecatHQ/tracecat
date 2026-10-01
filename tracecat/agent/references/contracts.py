@@ -10,6 +10,7 @@ from typing import Annotated, Literal, Self
 from uuid import UUID
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -23,7 +24,21 @@ from tracecat.agent.references.uri import ReferenceKind, ReferenceTarget
 from tracecat.registry.lock.types import RegistryLock
 
 Digest = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{64}$")]
-LogicalPath = Annotated[str, StringConstraints(min_length=1)]
+
+
+def _relative_logical_path(path: str) -> str:
+    if (
+        path.startswith("/")
+        or "\\" in path
+        or any(part in {"", ".", ".."} for part in path.split("/"))
+    ):
+        raise ValueError("Path must be a relative logical path")
+    return path
+
+
+LogicalPath = Annotated[
+    str, StringConstraints(min_length=1), AfterValidator(_relative_logical_path)
+]
 ScopeKey = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_-]+$")]
 
 
@@ -150,16 +165,6 @@ class LogicalArtifact(ReferenceContract):
     content_hash: Digest
     size_bytes: int = Field(ge=0)
     media_type: str
-
-    @model_validator(mode="after")
-    def validate_relative_path(self) -> Self:
-        if (
-            self.path.startswith("/")
-            or "\\" in self.path
-            or any(p in {"", ".", ".."} for p in self.path.split("/"))
-        ):
-            raise ValueError("Artifact path must be a relative logical path")
-        return self
 
 
 class SkillManifest(ReferenceContract):

@@ -945,6 +945,46 @@
         ]
       ],
       "diagnostic_locations": []
+    },
+    {
+      "name": "tab-continuation-repeated-links",
+      "source": "- a\n\t[x](tracecat-ref://v1/tool/core.http_request) [x](tracecat-ref://v1/tool/core.http_request)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request",
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          2,
+          2
+        ],
+        [
+          2,
+          48
+        ]
+      ],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "tab-continuation-repeated-diagnostics",
+      "source": "- a\n\t[x](tracecat-ref://v2/tool/core.http_request) [x](tracecat-ref://v2/tool/core.http_request)",
+      "targets": [],
+      "errors": [
+        "unsupported_version",
+        "unsupported_version"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          2,
+          2
+        ],
+        [
+          2,
+          48
+        ]
+      ]
     }
   ]
 }

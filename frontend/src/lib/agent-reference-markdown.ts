@@ -29,6 +29,8 @@ function decodeMarkdownDestination(destination: string): string {
 
 /** Extract syntax-only references using TipTap's actual Markdown lexer.
  * Server preparation must still resolve and authorize every target.
+ * Source-bearing editor diagnostics will come from the server preview API;
+ * this helper compares syntax identities and codes, not editor positions.
  */
 export function parseMarkdownReferences(markdown: string): {
   references: ReferenceTarget[]

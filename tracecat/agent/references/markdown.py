@@ -67,11 +67,15 @@ def _location(
     line = start + relative_line
     indent = source[line].find(inline_line)
     if indent < 0:
-        # Tabs are expanded by CommonMark in indentation; the link marker still
-        # supplies an exact anchor on this original line.
-        marker = inline_line[column:]
-        anchor = source[line].find(marker)
-        return SourceLocation(path, line + 1, max(anchor, 0) + 1)
+        # CommonMark can expand part of a leading tab in list continuations.
+        # Anchor the entire non-indented content, not the link suffix: repeated
+        # identical links must retain their distinct columns on the same line.
+        content_line = inline_line.lstrip(" \t")
+        inline_indent = len(inline_line) - len(content_line)
+        anchor = source[line].find(content_line)
+        return SourceLocation(
+            path, line + 1, max(anchor, 0) + column - inline_indent + 1
+        )
     return SourceLocation(path, line + 1, indent + column + 1)
 
 
