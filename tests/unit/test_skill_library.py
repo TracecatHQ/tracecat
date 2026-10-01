@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -13,6 +14,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_CONFIG
+from tracecat import config
 from tracecat.agent.common.types import SandboxAgentConfig
 from tracecat.agent.executor.activity import SandboxedAgentExecutor
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
@@ -71,11 +73,35 @@ def _write_skill(root: Path, slug: str, frontmatter: str) -> None:
     (skill_dir / "SKILL.md").write_text(f"---\n{frontmatter}\n---\nBody")
 
 
-def test_bundled_library_is_valid() -> None:
-    library = load_library()
-    assert SLUG in library
-    reserved = {name for s in PLATFORM_SKILLS for name in (s.skill_name, s.asset_name)}
-    assert not reserved & library.keys()
+VENDORED_LIBRARY_ROOT = Path(config.TRACECAT__SKILL_LIBRARY_DIR)
+FIXTURE_LIBRARY_SLUGS = (SLUG, "incident-summary")
+
+
+@pytest.fixture(autouse=True)
+def fixture_library(
+    tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Serve a fixture library; the real one is vendored only into images."""
+    root = tmp_path_factory.mktemp("skill-library")
+    for slug in FIXTURE_LIBRARY_SLUGS:
+        _write_skill(root, slug, f"name: {slug}\ndescription: Fixture {slug}.")
+    monkeypatch.setattr(config, "TRACECAT__SKILL_LIBRARY_DIR", str(root))
+    load_library.cache_clear()
+    yield
+    load_library.cache_clear()
+
+
+def test_vendored_library_is_valid() -> None:
+    if not VENDORED_LIBRARY_ROOT.is_dir():
+        pytest.skip(
+            f"No vendored skill library at {VENDORED_LIBRARY_ROOT}. The "
+            "`plugin-skills` Dockerfile stage copies it in at image build time."
+        )
+    assert load_library_from(VENDORED_LIBRARY_ROOT)
+
+
+def test_load_library_reads_configured_dir() -> None:
+    assert sorted(load_library()) == sorted(FIXTURE_LIBRARY_SLUGS)
 
 
 @pytest.mark.parametrize(

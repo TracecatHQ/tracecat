@@ -1,24 +1,22 @@
-"""Load the platform skill library bundled with this package.
+"""Load the platform skill library vendored into the image.
 
-Each directory under ``skills/`` is one library skill. Content is repo-owned
-and immutable per image, so a malformed entry fails loudly instead of being
-skipped; a bundled-catalog test keeps the shipped entries valid.
+Each directory under ``TRACECAT__SKILL_LIBRARY_DIR`` is one library skill,
+authored in ``tracecat-plugins`` and pinned at image build time. Content is
+immutable per image, so a malformed entry fails loudly instead of being skipped.
 """
 
 from __future__ import annotations
 
-import importlib.resources as resources
 from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
 
+from tracecat import config
 from tracecat.agent.skill.builtin import PLATFORM_SKILLS
 from tracecat.agent.skill.frontmatter import parse_skill_markdown
 from tracecat.agent.skill.library.types import LibrarySkill
 from tracecat.exceptions import TracecatValidationError
 
-_LIBRARY_PACKAGE = "tracecat.agent.skill.library"
-_LIBRARY_DIR = "skills"
 # Library skills stage into the same plugin as platform skills.
 _RESERVED_NAMES = frozenset(
     name for skill in PLATFORM_SKILLS for name in (skill.skill_name, skill.asset_name)
@@ -70,10 +68,9 @@ def load_library_from(root: Path) -> dict[str, LibrarySkill]:
 
 @lru_cache(maxsize=1)
 def load_library() -> dict[str, LibrarySkill]:
-    """Return the bundled library, loaded once per process."""
+    """Return the vendored library, loaded once per process."""
 
-    root = Path(str(resources.files(_LIBRARY_PACKAGE).joinpath(_LIBRARY_DIR)))
-    return load_library_from(root)
+    return load_library_from(Path(config.TRACECAT__SKILL_LIBRARY_DIR))
 
 
 def get_library_skills(slugs: Sequence[str]) -> list[LibrarySkill]:

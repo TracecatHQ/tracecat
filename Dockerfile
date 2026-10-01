@@ -215,7 +215,7 @@ RUN chmod u-s /usr/bin/mount /usr/bin/umount && \
 WORKDIR /app
 
 # ====================
-# Stage 4: Fetch workspace-chat copilot skills
+# Stage 4: Fetch platform skills and the skill library
 # ====================
 FROM base AS plugin-skills
 
@@ -244,6 +244,8 @@ RUN set -eux; \
         cp -a "${source}" /skills/; \
     done; \
     test "$(find /skills -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 3; \
+    test -d /tmp/tracecat-plugins/library; \
+    cp -a /tmp/tracecat-plugins/library /library-skills; \
     rm -rf /tmp/tracecat-plugins /tmp/tracecat-plugins.tar.gz
 
 # Workspace Chat reads platform guidance from docs built from this same commit.
@@ -316,6 +318,7 @@ RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
 
 COPY --from=development-source --chown=apiuser:apiuser /source/ /app/
 COPY --from=plugin-skills --chown=apiuser:apiuser /skills/ /var/lib/tracecat/copilot-skills/
+COPY --from=plugin-skills --chown=apiuser:apiuser /library-skills/ /var/lib/tracecat/skill-library/
 
 RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 uv sync --locked --no-dev
 
@@ -386,6 +389,7 @@ RUN --mount=type=cache,target=/home/apiuser/.cache/uv,uid=1001,gid=1001 \
 COPY --chown=apiuser:apiuser ./tracecat /app/tracecat
 COPY --chown=apiuser:apiuser ./packages /app/packages
 COPY --from=plugin-skills --chown=apiuser:apiuser /skills/ /var/lib/tracecat/copilot-skills/
+COPY --from=plugin-skills --chown=apiuser:apiuser /library-skills/ /var/lib/tracecat/skill-library/
 COPY --chown=apiuser:apiuser ./pyproject.toml ./uv.lock ./.python-version ./README.md ./LICENSE ./alembic.ini /app/
 COPY --chown=apiuser:apiuser ./alembic /app/alembic
 

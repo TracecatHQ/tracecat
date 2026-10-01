@@ -251,6 +251,12 @@ Deliberately outside the Python package tree. These are markdown the agent reads
 not code that gets imported, and keeping them out of `packages/` means neither the
 wheel build nor a development bind mount can serve a stale copy."""
 
+TRACECAT__SKILL_LIBRARY_DIR = (
+    os.environ.get("TRACECAT__SKILL_LIBRARY_DIR") or "/var/lib/tracecat/skill-library"
+)
+"""Directory holding the prebuilt skill library vendored from the `library/`
+directory of `tracecat-plugins` at image build time."""
+
 TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS = int(
     os.environ.get("TRACECAT__AGENT_SKILL_CACHE_MAX_CONCURRENT_DOWNLOADS") or 8
 )
