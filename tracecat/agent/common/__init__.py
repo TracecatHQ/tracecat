@@ -16,7 +16,7 @@ from tracecat.agent.common.config import (
     JAILED_LLM_SOCKET_PATH,
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
     TRACECAT__AGENT_SANDBOX_TIMEOUT,
-    TRACECAT__DISABLE_NSJAIL,
+    TRACECAT__EXECUTOR_BACKEND,
 )
 from tracecat.agent.common.exceptions import (
     AgentSandboxError,
@@ -57,7 +57,7 @@ __all__ = [
     "JAILED_LLM_SOCKET_PATH",
     "TRACECAT__AGENT_SANDBOX_MEMORY_MB",
     "TRACECAT__AGENT_SANDBOX_TIMEOUT",
-    "TRACECAT__DISABLE_NSJAIL",
+    "TRACECAT__EXECUTOR_BACKEND",
     # Exceptions
     "AgentSandboxError",
     "AgentSandboxExecutionError",

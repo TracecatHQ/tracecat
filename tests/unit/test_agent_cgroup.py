@@ -8,6 +8,7 @@ import pytest
 from tracecat.agent import executor_worker
 from tracecat.agent.sandbox import cgroup
 from tracecat.agent.sandbox.cgroup import CGROUP_PATH_ENV, sandbox_cgroup
+from tracecat.executor.enums import ExecutorBackendType
 
 
 def test_missing_delegation_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -20,7 +21,12 @@ def test_missing_delegation_fails_closed(monkeypatch: pytest.MonkeyPatch) -> Non
 async def test_worker_rejects_missing_delegation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(executor_worker.config, "TRACECAT__DISABLE_NSJAIL", False)
+    monkeypatch.setattr(
+        "tracecat.executor.startup.validate_execution_backend", lambda: None
+    )
+    monkeypatch.setattr(
+        executor_worker.config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
     monkeypatch.delenv(CGROUP_PATH_ENV, raising=False)
     with pytest.raises(RuntimeError, match="requires cgroup v2 delegation"):
         await executor_worker.main()
@@ -48,20 +54,31 @@ def bootstrap_process(monkeypatch: pytest.MonkeyPatch) -> Mock:
     process.attach_mock(validation, "validate")
     monkeypatch.setattr(cgroup, "sandbox_cgroup", validation)
     monkeypatch.setattr(cgroup.sys, "argv", ["cgroup", "python", "-m", "worker"])
-    monkeypatch.setenv("TRACECAT__DISABLE_NSJAIL", "false")
+    monkeypatch.setattr(
+        cgroup.config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
+    # The removed flag must not disable cgroup delegation.
+    monkeypatch.setenv("TRACECAT__DISABLE_NSJAIL", "true")
     monkeypatch.delenv(CGROUP_PATH_ENV, raising=False)
     for name in ("HOME", "USER", "LOGNAME"):
         monkeypatch.setenv(name, "original")
     return process
 
 
+@pytest.mark.parametrize("backend", ["nsjail", "ephemeral"])
 @pytest.mark.parametrize("configured", [None, "", "explicit"])
 def test_bootstrap_selects_and_validates_subtree_as_apiuser(
+    backend: str,
     configured: str | None,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     bootstrap_process: Mock,
 ) -> None:
+    monkeypatch.setattr(
+        cgroup.config,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.from_config(backend),
+    )
     (tmp_path / "cgroup.subtree_control").write_text("memory")
     (tmp_path / "cgroup.procs").touch()
     if configured is not None:
@@ -117,7 +134,10 @@ def test_bootstrap_rejects_unusable_explicit_subtree(
 def test_bootstrap_skips_cgroups_in_direct_mode(
     monkeypatch: pytest.MonkeyPatch, bootstrap_process: Mock
 ) -> None:
-    monkeypatch.setenv("TRACECAT__DISABLE_NSJAIL", "true")
+    monkeypatch.setattr(
+        cgroup.config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
+    )
+    monkeypatch.setenv("TRACECAT__DISABLE_NSJAIL", "false")
     delegate = Mock()
     monkeypatch.setattr(cgroup, "delegate_cgroup", delegate)
 

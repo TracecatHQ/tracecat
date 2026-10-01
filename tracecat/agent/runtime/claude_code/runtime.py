@@ -53,7 +53,7 @@ from claude_agent_sdk.types import (
 from tracecat.agent.common.config import (
     AGENT_RUNTIME_PROTECTED_ENV_VARS,
     TRACECAT__AGENT_MCP_BRIDGE_PORT,
-    TRACECAT__DISABLE_NSJAIL,
+    TRACECAT__EXECUTOR_BACKEND,
 )
 from tracecat.agent.common.exceptions import (
     AgentSandboxProcessExitError,
@@ -197,7 +197,7 @@ def _sandbox_process_exit_error(
     ``AgentSandboxValidationError``, say -- would reach the activity as a
     process exit and lose its own attribution.
     """
-    if TRACECAT__DISABLE_NSJAIL:
+    if not TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
         # Without a jail no rlimit was installed, so the exit code carries no
         # resource-limit meaning. A direct process that aborts or that the host
         # OOM-kills is a platform failure, and attributing it to the caller
@@ -1588,8 +1588,10 @@ class ClaudeAgentRuntime:
     @staticmethod
     def _sandbox_settings() -> SandboxSettings:
         """Build Claude SDK sandbox settings for direct mode."""
-        sandbox_settings = SandboxSettings(enabled=TRACECAT__DISABLE_NSJAIL)
-        if TRACECAT__DISABLE_NSJAIL:
+        sandbox_settings = SandboxSettings(
+            enabled=not TRACECAT__EXECUTOR_BACKEND.uses_nsjail
+        )
+        if not TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
             sandbox_settings["enableWeakerNestedSandbox"] = True
             sandbox_settings["allowUnsandboxedCommands"] = False
         return sandbox_settings

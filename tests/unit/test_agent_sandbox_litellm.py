@@ -84,6 +84,7 @@ from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import (
     RetryDisposition,
@@ -355,10 +356,26 @@ def _set_disable_nsjail_mode(
     monkeypatch: pytest.MonkeyPatch,
     disable_nsjail: bool,
 ) -> None:
-    monkeypatch.setattr(executor_activity, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
-    monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
-    monkeypatch.setattr(nsjail_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
-    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+    monkeypatch.setattr(
+        executor_activity,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
+    )
+    monkeypatch.setattr(
+        broker_module,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
+    )
+    monkeypatch.setattr(
+        nsjail_module,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
+    )
 
 
 def _docker_nsjail_fallback_enabled() -> bool:
@@ -1776,7 +1793,7 @@ def _run_nsjail_harness_in_docker_or_skip(
                 f"      - {json.dumps(tests_mount)}",
                 "    environment:",
                 '      TRACECAT__AGENT_NSJAIL_DOCKER_FALLBACK_CHILD: "1"',
-                '      TRACECAT__DISABLE_NSJAIL: "false"',
+                '      TRACECAT__EXECUTOR_BACKEND: "nsjail"',
                 '      TRACECAT__SANDBOX_NSJAIL_PATH: "/usr/local/bin/nsjail"',
                 '      TRACECAT__SANDBOX_ROOTFS_PATH: "/var/lib/tracecat/sandbox-rootfs"',
                 '      PYTHONDONTWRITEBYTECODE: "1"',

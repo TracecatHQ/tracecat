@@ -10,6 +10,7 @@ from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, SecretNotFoundError
 
+from tests.support.executor_backend import TestBackend
 from tracecat import config
 from tracecat.auth.executor_tokens import verify_executor_token
 from tracecat.auth.types import Role
@@ -18,7 +19,6 @@ from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.exceptions import ExecutionError, LoopExecutionError
 from tracecat.executor import service as executor_service
-from tracecat.executor.backends.test import TestBackend
 from tracecat.executor.schemas import ActionImplementation, ExecutorActionErrorInfo
 from tracecat.executor.service import (
     dispatch_action,
@@ -770,7 +770,7 @@ async def test_direct_backend_execute(
     test_role: Role, mock_run_context: RunContext, monkeypatch: pytest.MonkeyPatch
 ):
     """Test that the test backend properly handles async operations."""
-    from tracecat.executor.backends.test import TestBackend
+    from tests.support.executor_backend import TestBackend
     from tracecat.executor.schemas import ExecutorResultSuccess, ResolvedContext
 
     # Mock _execute_with_context to return a simple result
@@ -821,7 +821,7 @@ async def test_direct_backend_returns_wrapped_error(
     test_role: Role, mock_run_context: RunContext, monkeypatch: pytest.MonkeyPatch
 ):
     """Test that the test backend properly handles wrapped errors."""
-    from tracecat.executor.backends.test import TestBackend
+    from tests.support.executor_backend import TestBackend
     from tracecat.executor.schemas import ExecutorResultFailure, ResolvedContext
 
     # Create a test input with an action that will raise an error
@@ -875,8 +875,8 @@ async def test_dispatcher(
     We will execute everything in the current thread.
     1. Add mock package with a function that will raise an error
     """
+    from tests.support.executor_backend import TestBackend
     from tracecat.contexts import ctx_role
-    from tracecat.executor.backends.test import TestBackend
 
     # Set up the role context for dispatch_action
     token = ctx_role.set(test_role)

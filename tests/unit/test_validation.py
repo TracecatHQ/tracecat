@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat_registry import RegistryOAuthSecret, registry
 from typing_extensions import Doc
 
+from tests.support.executor_backend import TestBackend
 from tracecat.db.models import RegistryRepository, RegistryVersion
 from tracecat.dsl.common import (
     DSLEntrypoint,
@@ -22,7 +23,6 @@ from tracecat.exceptions import (
     ExecutionError,
     RegistryValidationError,
 )
-from tracecat.executor.backends.test import TestBackend
 from tracecat.executor.service import dispatch_action
 from tracecat.expressions.expectations import ExpectedField
 

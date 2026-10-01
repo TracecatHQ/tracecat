@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 from tracecat_registry import secrets as registry_secrets
 
+from tests.support.executor_backend import TestBackend
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.schemas import (
@@ -28,7 +29,6 @@ from tracecat.dsl.schemas import (
     RunActionInput,
     RunContext,
 )
-from tracecat.executor.backends.test import TestBackend
 from tracecat.executor.schemas import (
     ActionImplementation,
     ExecutorResult,
@@ -139,7 +139,7 @@ class TestTestBackendNoRegistryAction:
 
         # Also patch in the backend module in case of any direct imports
         # (though we've removed them, this ensures the test catches any regression)
-        import tracecat.executor.backends.test as test_module
+        import tests.support.executor_backend as test_module
 
         # Verify the import was removed (should raise AttributeError)
         assert not hasattr(test_module, "RegistryActionsService"), (
@@ -299,12 +299,12 @@ class TestTestBackendNoRegistryAction:
 
         try:
             monkeypatch.setattr(
-                "tracecat.executor.backends.test.config"
+                "tests.support.executor_backend.config"
                 ".TRACECAT__LOCAL_REPOSITORY_ENABLED",
                 False,
             )
             monkeypatch.setattr(
-                "tracecat.executor.backends.test.get_action_runner",
+                "tests.support.executor_backend.get_action_runner",
                 lambda: fake_runner,
             )
             monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
@@ -386,12 +386,12 @@ class TestTestBackendNoRegistryAction:
         execution: asyncio.Task[ExecutorResult] | None = None
         try:
             monkeypatch.setattr(
-                "tracecat.executor.backends.test.config"
+                "tests.support.executor_backend.config"
                 ".TRACECAT__LOCAL_REPOSITORY_ENABLED",
                 False,
             )
             monkeypatch.setattr(
-                "tracecat.executor.backends.test.get_action_runner",
+                "tests.support.executor_backend.get_action_runner",
                 lambda: fake_runner,
             )
             monkeypatch.setattr(backend, "_get_artifact_uris", _get_artifact_uris)
@@ -452,7 +452,7 @@ class TestTestBackendNoRegistryAction:
 
         try:
             monkeypatch.setattr(
-                "tracecat.executor.backends.test.project_secret_env",
+                "tests.support.executor_backend.project_secret_env",
                 _unexpected_project_secret_env,
             )
             monkeypatch.setattr(

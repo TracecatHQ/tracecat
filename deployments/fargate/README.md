@@ -30,7 +30,6 @@ Terraform stack for Tracecat on AWS ECS Fargate (`>1.0.0-beta.xx`).
 > As a result, script execution uses subprocess isolation without nsjail-level mount/network/cgroup controls.
 > If you need highest isolation for untrusted code execution, deploy Tracecat on Kubernetes with the Helm chart, where `nsjail` is enabled by default.
 
-- `TRACECAT__DISABLE_NSJAIL=true`
 - `TRACECAT__EXECUTOR_BACKEND=direct` (executor + agent-executor)
 
 ## Default sizing

@@ -26,6 +26,7 @@ from tracecat.agent.runtime_services import (
 from tracecat.agent.sandbox.cgroup import sandbox_cgroup
 from tracecat.agent.worker import new_sandbox_runner
 from tracecat.dsl.client import get_temporal_client
+from tracecat.executor.startup import executor_lifecycle
 from tracecat.logger import logger
 from tracecat.observability.otel import (
     initialize_platform_tracing,
@@ -84,61 +85,66 @@ async def _stop_runtime_services() -> None:
 async def main(shutdown_event: asyncio.Event | None = None) -> None:
     """Run the AgentExecutorWorker."""
     global runtime_failure_reason
-    if shutdown_event is None:
-        shutdown_event = asyncio.Event()
-    runtime_failure_reason = None
-    if not config.TRACECAT__DISABLE_NSJAIL:
-        sandbox_cgroup()
-    max_concurrent = int(
-        os.environ.get("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES") or 1
-    )
-    threadpool_max_workers = int(
-        os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS") or 100
-    )
+    with executor_lifecycle() as readiness:
+        if shutdown_event is None:
+            shutdown_event = asyncio.Event()
+        runtime_failure_reason = None
+        if config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
+            sandbox_cgroup()
+        max_concurrent = int(
+            os.environ.get("TRACECAT__AGENT_EXECUTOR_MAX_CONCURRENT_ACTIVITIES") or 1
+        )
+        threadpool_max_workers = int(
+            os.environ.get("TEMPORAL__THREADPOOL_MAX_WORKERS") or 100
+        )
 
-    logger.info(
-        "Starting AgentExecutorWorker",
-        task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
-        max_concurrent_activities=max_concurrent,
-    )
-    initialize_platform_tracing("tracecat-agent-executor")
-    initialize_worker_sentry_from_environment()
+        logger.info(
+            "Starting AgentExecutorWorker",
+            task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
+            max_concurrent_activities=max_concurrent,
+        )
+        initialize_platform_tracing("tracecat-agent-executor")
+        initialize_worker_sentry_from_environment()
 
-    # LIFO teardown: storage cache, then runtime services, then tracing. The
-    # stack still runs later callbacks when an earlier one raises.
-    async with AsyncExitStack() as cleanup:
-        cleanup.callback(shutdown_platform_tracing)
-        cleanup.push_async_callback(_stop_runtime_services)
-        cleanup.push_async_callback(close_storage_client_cache)
+        # LIFO teardown: storage cache, then runtime services, then tracing. The
+        # stack still runs later callbacks when an earlier one raises.
+        async with AsyncExitStack() as cleanup:
+            cleanup.callback(shutdown_platform_tracing)
+            cleanup.push_async_callback(_stop_runtime_services)
+            cleanup.push_async_callback(close_storage_client_cache)
 
-        client = await _start_runtime_services()
-        with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-            async with Worker(
-                client,
-                task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
-                activities=get_activities(),
-                workflow_runner=new_sandbox_runner(),
-                max_concurrent_activities=max_concurrent,
-                disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
-                activity_executor=executor,
-                # Activity cancellation is only delivered to a running activity
-                # via heartbeat RPC responses, and the SDK throttles those to
-                # 80% of the heartbeat timeout (48s at our 60s timeout) by
-                # default. Cap the throttle so Temporal-driven cancellation
-                # reaches long agent turns promptly; the Redis cancel signal
-                # (tracecat/agent/cancellation.py) remains the primary path.
-                max_heartbeat_throttle_interval=timedelta(seconds=5),
-                default_heartbeat_throttle_interval=timedelta(seconds=5),
-                graceful_shutdown_timeout=timedelta(
-                    seconds=config.TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT
-                ),
-            ):
-                logger.info("AgentExecutorWorker started, ctrl+c to exit")
-                await shutdown_event.wait()
-                logger.info("AgentExecutorWorker shutdown requested")
-            logger.info("Temporal Worker context exited")
-    if runtime_failure_reason is not None:
-        raise RuntimeError(runtime_failure_reason)
+            client = await _start_runtime_services()
+            with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
+                async with (
+                    Worker(
+                        client,
+                        task_queue=config.TRACECAT__AGENT_EXECUTOR_QUEUE,
+                        activities=get_activities(),
+                        workflow_runner=new_sandbox_runner(),
+                        max_concurrent_activities=max_concurrent,
+                        disable_eager_activity_execution=config.TEMPORAL__DISABLE_EAGER_ACTIVITY_EXECUTION,
+                        activity_executor=executor,
+                        # Activity cancellation is only delivered to a running activity
+                        # via heartbeat RPC responses, and the SDK throttles those to
+                        # 80% of the heartbeat timeout (48s at our 60s timeout) by
+                        # default. Cap the throttle so Temporal-driven cancellation
+                        # reaches long agent turns promptly; the Redis cancel signal
+                        # (tracecat/agent/cancellation.py) remains the primary path.
+                        max_heartbeat_throttle_interval=timedelta(seconds=5),
+                        default_heartbeat_throttle_interval=timedelta(seconds=5),
+                        graceful_shutdown_timeout=timedelta(
+                            seconds=config.TRACECAT__AGENT_EXECUTOR_GRACEFUL_SHUTDOWN_TIMEOUT
+                        ),
+                    ),
+                    # LIFO exit removes readiness before Temporal drains activities.
+                    readiness,
+                ):
+                    logger.info("AgentExecutorWorker started, ctrl+c to exit")
+                    await shutdown_event.wait()
+                    logger.info("AgentExecutorWorker shutdown requested")
+                logger.info("Temporal Worker context exited")
+        if runtime_failure_reason is not None:
+            raise RuntimeError(runtime_failure_reason)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 Core fixtures for benchmarking and testing executor backends:
 - `backend_type` - Parametrized fixture running tests across all backends
 - `executor_backend` - Creates/yields/shuts down backend based on type
-- `sandboxed_backend_type` - For isolation-only tests (EPHEMERAL)
+- `sandboxed_backend_type` - For isolation-only tests (NSJAIL)
 - `simple_action_input_factory` - Factory for test RunActionInput objects
 - `resolved_context_factory` - Factory for ResolvedContext objects
 
@@ -12,7 +12,7 @@ Prerequisites for running benchmarks with real action execution:
 2. Sync the registry to build tarball: via UI or API
 3. Run benchmarks inside Docker: `just bench`
 
-Note: The sandboxed backend (ephemeral) requires nsjail which only
+Note: The sandboxed backend (nsjail) requires nsjail which only
 runs on Linux. Use `just bench` to run benchmarks inside Docker on macOS.
 """
 
@@ -33,7 +33,6 @@ from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl.schemas import ExecutionContext
 from tracecat.executor.schemas import (
     ActionImplementation,
-    ExecutorBackendType,
     ResolvedContext,
 )
 
@@ -90,7 +89,7 @@ async def _check_registry_synced() -> bool:
 # =============================================================================
 
 
-@pytest.fixture(params=["test", "direct", "ephemeral"])
+@pytest.fixture(params=["test", "direct", "nsjail"])
 def backend_type(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> str:
@@ -100,15 +99,18 @@ def backend_type(
     sandboxed backends when nsjail is not available.
 
     Yields:
-        The backend type string (test, direct, or ephemeral)
+        The backend type string (test, direct, or nsjail)
     """
     backend = request.param
 
-    # Set environment variables
-    monkeypatch.setenv("TRACECAT__EXECUTOR_BACKEND", backend)
+    # Set environment variables. The in-process test backend is not a
+    # configurable backend, so it runs with the direct backend's config.
+    monkeypatch.setenv(
+        "TRACECAT__EXECUTOR_BACKEND", "direct" if backend == "test" else backend
+    )
 
     # Skip sandboxed backends if nsjail not available
-    if backend == "ephemeral":
+    if backend == "nsjail":
         if not _check_nsjail_available():
             pytest.skip(f"nsjail not available for {backend} backend")
 
@@ -120,7 +122,7 @@ def backend_type(
     return backend
 
 
-@pytest.fixture(params=["ephemeral"])
+@pytest.fixture(params=["nsjail"])
 def sandboxed_backend_type(
     request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
 ) -> str:
@@ -130,7 +132,7 @@ def sandboxed_backend_type(
     Skips if nsjail is not available.
 
     Yields:
-        The backend type string (ephemeral)
+        The backend type string (nsjail)
     """
     backend = request.param
 
@@ -153,8 +155,7 @@ def test_backend_type(monkeypatch: pytest.MonkeyPatch) -> str:
     Use this for tests that specifically test the in-process test backend
     without sandbox overhead.
     """
-    monkeypatch.setenv("TRACECAT__EXECUTOR_BACKEND", "test")
-    monkeypatch.setenv("TRACECAT__DISABLE_NSJAIL", "true")
+    monkeypatch.setenv("TRACECAT__EXECUTOR_BACKEND", "direct")
 
     from tracecat import config as tracecat_config
 
@@ -171,7 +172,6 @@ def direct_backend_type(monkeypatch: pytest.MonkeyPatch) -> str:
     without sandbox overhead.
     """
     monkeypatch.setenv("TRACECAT__EXECUTOR_BACKEND", "direct")
-    monkeypatch.setenv("TRACECAT__DISABLE_NSJAIL", "true")
 
     from tracecat import config as tracecat_config
 
@@ -236,10 +236,16 @@ async def executor_backend(
     Yields:
         The initialized ExecutorBackend instance
     """
-    from tracecat.executor.backends import _create_backend
+    from tests.support.executor_backend import TestBackend
+    from tracecat.executor.backends.direct import DirectBackend
+    from tracecat.executor.backends.ephemeral import EphemeralBackend
 
-    backend_enum = ExecutorBackendType(backend_type)
-    backend = _create_backend(backend_enum)
+    backend_classes: dict[str, type[ExecutorBackend]] = {
+        "test": TestBackend,
+        "direct": DirectBackend,
+        "nsjail": EphemeralBackend,
+    }
+    backend = backend_classes[backend_type]()
 
     await backend.start()
     try:
@@ -255,7 +261,7 @@ async def test_backend() -> AsyncIterator[ExecutorBackend]:
     This is useful for benchmarks that want to measure in-process backend
     performance without the overhead of parametrization.
     """
-    from tracecat.executor.backends.test import TestBackend
+    from tests.support.executor_backend import TestBackend
 
     backend = TestBackend()
     await backend.start()
@@ -410,12 +416,12 @@ def setup_benchmark_environment(monkeypatch_session):
     Does NOT enable test mode - benchmarks run with real action execution
     when the registry is synced.
 
-    nsjail is enabled by default for the sandboxed backend (ephemeral).
+    nsjail is enabled by default for the sandboxed backend (nsjail).
     Tests will skip on platforms where nsjail is not available (macOS).
     """
-    # Default to test backend if not specified
+    # Default to direct backend if not specified
     if not os.environ.get("TRACECAT__EXECUTOR_BACKEND"):
-        monkeypatch_session.setenv("TRACECAT__EXECUTOR_BACKEND", "test")
+        monkeypatch_session.setenv("TRACECAT__EXECUTOR_BACKEND", "direct")
 
     from tracecat import config as tracecat_config
 

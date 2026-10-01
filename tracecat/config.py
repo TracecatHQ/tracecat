@@ -7,6 +7,7 @@ from typing import Literal, cast
 
 from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
 from tracecat.auth.enums import AuthType
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.feature_flags.enums import FeatureFlag
 
 # === Logger === #
@@ -854,37 +855,16 @@ TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS = env_bool(
 )
 """Allow filtered sandboxes to reach public IPv6 destinations."""
 
-TRACECAT__DISABLE_NSJAIL = env_bool("TRACECAT__DISABLE_NSJAIL", default=True)
-"""Disable nsjail sandbox and use the unsafe PID executor instead.
+# === Execution isolation === #
+TRACECAT__EXECUTOR_BACKEND = ExecutorBackendType.from_config(
+    os.environ.get("TRACECAT__EXECUTOR_BACKEND")
+)
+"""Execution mode for actions, agents, registry sync, and Python scripts.
 
-When True (default), uses UnsafePidExecutor with best-effort PID namespace
-isolation. This mode works without privileged Docker mode but has less isolation.
-
-When False, uses nsjail sandbox for full OS-level isolation. Requires:
-- Linux with kernel >= 4.6
-- Docker privileged mode or CAP_SYS_ADMIN capability
-- nsjail binary at TRACECAT__SANDBOX_NSJAIL_PATH
-- Sandbox rootfs at TRACECAT__SANDBOX_ROOTFS_PATH
-"""
-
-# === Action Executor === #
-TRACECAT__EXECUTOR_BACKEND = os.environ.get("TRACECAT__EXECUTOR_BACKEND", "direct")
-"""Executor backend for running actions.
-
-Supported values:
-- 'ephemeral': Cold nsjail subprocess per action (multitenant, full isolation, ~4000ms)
-- 'direct': Direct subprocess execution (no warm workers, no in-process state sharing)
-- 'test': In-process execution for tests only (no isolation, no subprocess overhead)
-- 'auto': Auto-select based on environment (ephemeral if nsjail available, else direct)
-
-Trust mode is derived from the backend type:
-- ephemeral: untrusted (secrets pre-resolved, no DB creds)
-- direct: untrusted subprocess execution (secrets pre-resolved, no DB creds)
-- test: trusted in-process execution (no sandbox)
-
-WARNING: 'test' backend provides NO isolation between actions. Actions share
-the same process memory, env vars can leak, and crashes affect the whole worker.
-Only use 'test' for tests.
+- 'direct' (default): Run subprocesses without nsjail.
+- 'nsjail': Require nsjail isolation. Requires Linux, the nsjail binary,
+  sandbox rootfs, and the required container capabilities.
+- 'ephemeral': Compatibility alias for 'nsjail'.
 """
 
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
@@ -900,24 +880,6 @@ TRACECAT__ACTION_GATEWAY_SOCKET = (
 """Unix socket path for the executor-local action gateway."""
 
 # === Action Executor Sandbox === #
-TRACECAT__EXECUTOR_SANDBOX_ENABLED = env_bool(
-    "TRACECAT__EXECUTOR_SANDBOX_ENABLED", default=False
-)
-"""Enable nsjail sandbox for action execution in subprocess mode.
-
-When True, actions run in an nsjail sandbox with:
-- Filesystem isolation (tmpdir VFS)
-- Resource limits (CPU, memory, file size, processes)
-- Network access (for DB, S3, external APIs)
-
-When False (default), actions run in direct subprocesses without sandboxing.
-
-Requires:
-- TRACECAT__EXECUTOR_BACKEND=ephemeral or direct
-- nsjail binary at TRACECAT__SANDBOX_NSJAIL_PATH
-- Sandbox rootfs at TRACECAT__SANDBOX_ROOTFS_PATH
-"""
-
 TRACECAT__EXECUTOR_TRACECAT_APP_DIR = os.environ.get(
     "TRACECAT__EXECUTOR_TRACECAT_APP_DIR", ""
 )
@@ -1489,7 +1451,7 @@ TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED = env_bool(
 
 When True (default), registry sync operations run on the ExecutorWorker.
 NsJail isolation on that worker is controlled separately by
-TRACECAT__DISABLE_NSJAIL.
+TRACECAT__EXECUTOR_BACKEND.
 
 When False, uses the existing subprocess approach from the API service.
 """

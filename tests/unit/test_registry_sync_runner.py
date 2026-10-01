@@ -10,6 +10,7 @@ from pydantic import SecretStr
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.exceptions import RegistryError, RegistrySyncContentError
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.registry.actions.enums import TemplateActionValidationErrorType
 from tracecat.registry.actions.schemas import (
     RegistryActionCreate,
@@ -60,10 +61,8 @@ def _make_sandboxed_runner(
     discover_timeout: int | None = None,
     clone_timeout: int | None = None,
 ) -> RegistrySyncRunner:
-    mocker.patch.object(config, "TRACECAT__DISABLE_NSJAIL", False)
-    mocker.patch(
-        "tracecat.registry.sync.runner.is_nsjail_available",
-        return_value=True,
+    mocker.patch.object(
+        config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
     )
     runner = RegistrySyncRunner(
         install_timeout=install_timeout,
@@ -285,26 +284,6 @@ async def test_runner_routes_git_clone_through_nsjail_when_available(
 
 
 @pytest.mark.anyio
-async def test_runner_fails_closed_when_nsjail_enabled_but_unavailable(
-    mocker,
-) -> None:
-    mocker.patch.object(config, "TRACECAT__DISABLE_NSJAIL", False)
-    mocker.patch(
-        "tracecat.registry.sync.runner.is_nsjail_available",
-        return_value=False,
-    )
-    runner = RegistrySyncRunner()
-    request = RegistrySyncRequest(
-        repository_id=uuid4(),
-        origin="tracecat_registry",
-        origin_type="builtin",
-    )
-
-    with pytest.raises(RegistrySyncRunnerError, match="requires nsjail"):
-        await runner.run(request)
-
-
-@pytest.mark.anyio
 async def test_runner_rejects_local_registry_when_disabled(
     mocker,
     monkeypatch: pytest.MonkeyPatch,
@@ -330,11 +309,9 @@ async def test_runner_rejects_local_registry_when_disabled(
     build_execution_artifact.assert_not_awaited()
 
 
-def test_runner_selects_nsjail_when_enabled_and_available(mocker) -> None:
-    mocker.patch.object(config, "TRACECAT__DISABLE_NSJAIL", False)
-    mocker.patch(
-        "tracecat.registry.sync.runner.is_nsjail_available",
-        return_value=True,
+def test_runner_selects_nsjail_when_enabled(mocker) -> None:
+    mocker.patch.object(
+        config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
     )
 
     runner = RegistrySyncRunner()
@@ -343,15 +320,12 @@ def test_runner_selects_nsjail_when_enabled_and_available(mocker) -> None:
 
 
 def test_runner_skips_nsjail_when_explicitly_disabled(mocker) -> None:
-    mocker.patch.object(config, "TRACECAT__DISABLE_NSJAIL", True)
-    availability_check = mocker.patch(
-        "tracecat.registry.sync.runner.is_nsjail_available",
-        return_value=False,
+    mocker.patch.object(
+        config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
     )
 
     runner = RegistrySyncRunner()
 
-    availability_check.assert_not_called()
     assert isinstance(runner._backend, _UnsandboxedBackend)
 
 

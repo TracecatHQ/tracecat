@@ -714,11 +714,9 @@ build_env() {
     export BASE_DOMAIN=":${PUBLIC_APP_PORT}"
 
     if [[ "$CLUSTER_USE_SANDBOX_COMPOSE" == "true" ]]; then
-        export TRACECAT__DISABLE_NSJAIL=false
-        export TRACECAT__EXECUTOR_BACKEND=ephemeral
+        export TRACECAT__EXECUTOR_BACKEND=nsjail
     else
         # Default to direct executor backend for development
-        export TRACECAT__DISABLE_NSJAIL=true
         export TRACECAT__EXECUTOR_BACKEND=direct
     fi
 
