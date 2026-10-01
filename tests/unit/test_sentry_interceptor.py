@@ -42,7 +42,7 @@ from temporalio.worker import (
 
 from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
-    agent_executor_unavailable,
+    agent_executor_unclassified,
     invalid_agent_configuration,
     user_agent_execution_failed,
 )
@@ -855,7 +855,7 @@ async def test_platform_agent_executor_failure_emits_one_sanitized_sentry_event(
 ) -> None:
     del workflow_runtime
     error = application_error_from_classification(
-        agent_executor_unavailable(RuntimeError(_SENSITIVE_VALUE))
+        agent_executor_unclassified(RuntimeError(_SENSITIVE_VALUE))
     )
     attribution = _RuntimeErrorAttributionWorkflowInterceptor(_RaisingInbound(error))
 
@@ -868,7 +868,7 @@ async def test_platform_agent_executor_failure_emits_one_sanitized_sentry_event(
     assert "tags" in event
     tags = event["tags"]
     assert tags[SentryTag.ERROR_KIND.value] == (
-        RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE.value
+        RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED.value
     )
     assert tags[SentryTag.ERROR_OWNER.value] == "platform"
     assert SentryTag.LLM_ROUTE.value not in tags
@@ -1398,7 +1398,7 @@ async def test_activity_capture_preserves_source_stack_across_temporal_transport
     environment.info = replace(
         environment.info, activity_type="execute_action", attempt=2
     )
-    classification = agent_executor_unavailable(RuntimeError())
+    classification = agent_executor_unclassified(RuntimeError())
 
     async def source_failure() -> None:
         with activity_error_boundary(lambda _: classification):
@@ -1446,7 +1446,7 @@ async def test_activity_capture_failure_keeps_terminal_fallback(
     failure_mode: str,
 ) -> None:
     del workflow_runtime
-    classification = agent_executor_unavailable(RuntimeError())
+    classification = agent_executor_unclassified(RuntimeError())
     environment = ActivityEnvironment()
     with monkeypatch.context() as patch:
         if failure_mode == "disabled":
@@ -1486,7 +1486,7 @@ def test_activity_attempts_share_group_but_different_roots_do_not(
     sentry_events: list[Event],
 ) -> None:
     environment = ActivityEnvironment()
-    classification = agent_executor_unavailable()
+    classification = agent_executor_unclassified()
     for attempt in (1, 2):
         environment.info = replace(environment.info, attempt=attempt)
         environment.run(capture_activity_failure, RuntimeError(), classification)
@@ -1501,7 +1501,7 @@ def test_activity_receipt_deduplicates_only_matching_source(
     sentry_events: list[Event],
 ) -> None:
     environment = ActivityEnvironment()
-    classification = agent_executor_unavailable()
+    classification = agent_executor_unclassified()
     receipt = environment.run(capture_activity_failure, RuntimeError(), classification)
     assert receipt is not None
     repeated = environment.run(
@@ -1535,7 +1535,7 @@ async def test_llm_dimensions_survive_activity_and_workflow_sentry_sanitization(
     provider_configuration: Literal["builtin", "custom"] | None,
 ) -> None:
     del workflow_runtime
-    classification = agent_executor_unavailable()
+    classification = agent_executor_unclassified()
     diagnostic = LLMErrorDiagnostics(
         route="managed", provider_configuration=provider_configuration
     )
@@ -1581,7 +1581,7 @@ async def test_invalid_domain_diagnostics_do_not_change_terminal_reporting(
     diagnostic: object,
 ) -> None:
     del workflow_runtime
-    classification = agent_executor_unavailable()
+    classification = agent_executor_unclassified()
     error = application_error_from_classification(
         classification, build_error_transport_detail(classification, diagnostic)
     )

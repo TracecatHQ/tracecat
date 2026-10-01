@@ -21,9 +21,10 @@ from tracecat_ee.agent.workflows.durable import (
 from tracecat.agent.common.exceptions import AgentSandboxProcessExitError
 from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
+    MAX_UNCLASSIFIED_DETAIL_CHARS,
     agent_executor_protocol_failed,
     agent_executor_timed_out,
-    agent_executor_unavailable,
+    agent_executor_unclassified,
     agent_llm_read_timeout,
     agent_preparation_failed,
     agent_runtime_failure,
@@ -70,6 +71,50 @@ def _activity_error(cause: BaseException) -> ActivityError:
     return error
 
 
+def test_agent_executor_unclassified_keeps_redacted_underlying_error() -> None:
+    classification = agent_executor_unclassified(
+        ValueError("catalog lookup failed\nAuthorization: Bearer abc.def.ghi")
+    )
+
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert classification.cause_type == "ValueError"
+    assert classification.message.startswith(
+        "Unclassified agent executor error: ValueError: catalog lookup failed "
+    )
+    assert "abc.def.ghi" not in classification.message
+
+
+def test_agent_executor_unclassified_detail_overrides_and_is_bounded() -> None:
+    classification = agent_executor_unclassified(
+        RuntimeError("ignored"), detail="x" * 5000
+    )
+
+    assert "ignored" not in classification.message
+    assert len(classification.message) <= (
+        len("Unclassified agent executor error: ") + MAX_UNCLASSIFIED_DETAIL_CHARS
+    )
+    assert classification.message.endswith("…")
+    assert agent_executor_unclassified().message == (
+        "Unclassified agent executor error"
+    )
+
+
+def test_legacy_executor_unavailable_kind_deserializes_as_unclassified() -> None:
+    classification = RuntimeErrorClassification.model_validate(
+        {
+            "schema": "tracecat.error.v1",
+            "owner": "platform",
+            "kind": "agent.executor.unavailable",
+            "message": "Tracecat agent executor is unavailable",
+            "retry_disposition": "retryable",
+        }
+    )
+
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+
+
 @pytest.mark.parametrize(
     ("factory", "owner", "kind", "retry_disposition"),
     [
@@ -102,12 +147,6 @@ def _activity_error(cause: BaseException) -> ActivityError:
             RuntimeErrorOwner.USER,
             RuntimeErrorKind.AGENT_EXECUTION_FAILED,
             RetryDisposition.NON_RETRYABLE,
-        ),
-        (
-            agent_executor_unavailable,
-            RuntimeErrorOwner.PLATFORM,
-            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
-            RetryDisposition.RETRYABLE,
         ),
         (
             agent_llm_read_timeout,
@@ -232,7 +271,7 @@ def test_executor_activity_classifies_crash_as_unavailable() -> None:
         _activity_error(RuntimeError("opaque crash"))
     )
 
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
@@ -260,9 +299,11 @@ async def test_untyped_runtime_error_is_platform_classified() -> None:
 
     assert result.classification is not None
     assert result.classification.owner is RuntimeErrorOwner.PLATFORM
-    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
-    assert "raw provider response" not in result.classification.message
+    assert result.classification.message == (
+        "Unclassified agent executor error: raw provider response"
+    )
 
 
 def test_loopback_classification_is_copied_to_executor_result() -> None:
@@ -337,7 +378,7 @@ def test_agent_runtime_failure_keeps_other_failures_platform_owned(
 
     assert failure.message == "fallback text"
     assert failure.classification.owner is RuntimeErrorOwner.PLATFORM
-    assert failure.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert failure.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     assert failure.classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
@@ -381,7 +422,7 @@ def test_llm_diagnostics_survive_application_error_wrapping() -> None:
     with pytest.raises(ApplicationError) as raised:
         raise_wrapped_application_error(
             error,
-            fallback_classification=agent_executor_unavailable(),
+            fallback_classification=agent_executor_unclassified(),
         )
     assert extract_error_classification(raised.value) == expected
     assert extract_error_diagnostics(raised.value, expected) == (

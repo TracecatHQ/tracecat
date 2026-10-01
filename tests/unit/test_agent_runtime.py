@@ -3903,7 +3903,7 @@ async def test_run_does_not_attribute_process_exit_when_nsjail_is_disabled(
     await_args = mock_socket_writer.send_error.await_args
     assert await_args is not None
     classification = await_args.kwargs["classification"]
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
 
 @pytest.mark.anyio
@@ -3944,7 +3944,7 @@ async def test_run_keeps_original_error_for_non_resource_limit_exit_code(
     await_args = mock_socket_writer.send_error.await_args
     assert await_args is not None
     classification = await_args.kwargs["classification"]
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
 
 @pytest.mark.anyio
@@ -3978,7 +3978,7 @@ async def test_run_keeps_original_error_when_sandbox_process_did_not_exit(
     assert await_args is not None
     assert await_args.args[0] == "Test error"
     classification = await_args.kwargs["classification"]
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
     # Nothing was re-attributed, so the log carries no cause fields.
     log_args = mock_socket_writer.send_log.await_args

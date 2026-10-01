@@ -331,9 +331,9 @@ async def test_forward_request_emits_error_for_critical_upstream_http_error(
 @pytest.mark.parametrize(
     ("status_code", "expected_kind"),
     [
-        (401, RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE),
-        (403, RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE),
-        (500, RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE),
+        (401, RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED),
+        (403, RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED),
+        (500, RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED),
         (504, RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT),
     ],
 )
@@ -478,7 +478,7 @@ async def test_forward_request_classifies_connect_failure_as_platform(
 
     assert len(errors) == 1
     assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
-    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
 
 @pytest.mark.anyio
@@ -488,7 +488,7 @@ async def test_forward_request_classifies_connect_failure_as_platform(
         (
             False,
             RuntimeErrorOwner.PLATFORM,
-            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
         ),
         (True, RuntimeErrorOwner.USER, RuntimeErrorKind.AGENT_EXECUTION_FAILED),
     ],
@@ -556,7 +556,7 @@ async def test_forward_request_classifies_error_body_read_failure_by_route(
         (
             False,
             RuntimeErrorOwner.PLATFORM,
-            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
         ),
         (True, RuntimeErrorOwner.USER, RuntimeErrorKind.AGENT_EXECUTION_FAILED),
     ],
@@ -710,7 +710,7 @@ async def test_write_stream_response_emits_error_after_headers_sent(
         "LLM stream failed: provider stream disconnected"
     ]
     assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
-    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
 
 @pytest.mark.anyio
@@ -1765,7 +1765,7 @@ async def test_read_timeout_before_headers_records_route(
             401,
             "auth_error",
             False,
-            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
             RuntimeErrorOwner.PLATFORM,
             True,
         ),
@@ -1773,7 +1773,7 @@ async def test_read_timeout_before_headers_records_route(
             500,
             "tracecat_llm_token_invalid",
             False,
-            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
             RuntimeErrorOwner.PLATFORM,
             True,
         ),
@@ -1789,8 +1789,8 @@ async def test_structured_gateway_http_attribution(
     retryable: bool,
 ) -> None:
     errors: list[LLMProxyError] = []
-    # Deliberately misleading text must never select classification or enter
-    # durable failure text, even when it contains credential-shaped data.
+    # Deliberately misleading text must never select classification, and
+    # credential-shaped data must never enter durable failure text.
     body = orjson.dumps(
         {
             "error": {
@@ -1925,6 +1925,39 @@ def test_budget_classification_requires_structured_evidence(
     assert (
         _http_error_classification(429, route_is_direct=True, body=body).kind
         is expected_kind
+    )
+
+
+def test_managed_unclassified_http_error_keeps_gateway_message() -> None:
+    classification = _http_error_classification(
+        500,
+        route_is_direct=False,
+        body=orjson.dumps(
+            {
+                "error": {
+                    "type": "None",
+                    "message": "Catalog row abc is not enabled for this workspace "
+                    "Bearer synthetic-secret",
+                }
+            }
+        ),
+    )
+
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert classification.message.startswith(
+        "Unclassified agent executor error: LLM gateway returned HTTP 500: "
+        "Catalog row abc is not enabled for this workspace"
+    )
+    assert "synthetic-secret" not in classification.message
+
+
+def test_managed_unclassified_http_error_without_body_names_status() -> None:
+    classification = _http_error_classification(503, route_is_direct=False)
+
+    assert classification.message == (
+        "Unclassified agent executor error: LLM gateway returned HTTP 503"
     )
 
 

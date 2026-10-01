@@ -2303,7 +2303,9 @@ class TestSandboxedAgentExecutorHelpers:
         )
 
         assert result.classification is not None
-        assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        assert (
+            result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+        )
         assert result.diagnostic is None
 
     @pytest.mark.anyio
@@ -2345,7 +2347,9 @@ class TestSandboxedAgentExecutorHelpers:
 
         assert result.classification is not None
         assert result.classification.owner is RuntimeErrorOwner.PLATFORM
-        assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        assert (
+            result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+        )
         assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
         assert result.terminal_stream_error_emitted is True
 

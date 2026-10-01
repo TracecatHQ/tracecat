@@ -13,6 +13,7 @@ from tracecat.runtime.errors import (
     RuntimeErrorClassification,
     RuntimeErrorKind,
 )
+from tracecat.sanitization import redact_sensitive_text
 from tracecat.temporal.errors import iter_error_chain
 
 # Exit codes (``128 + signal``) that mean the jailed agent runtime hit one of
@@ -238,13 +239,42 @@ def agent_llm_rate_limited(*, route_is_direct: bool) -> RuntimeErrorClassificati
     )
 
 
-def agent_executor_unavailable(
+AGENT_EXECUTOR_UNCLASSIFIED_MESSAGE = "Unclassified agent executor error"
+MAX_UNCLASSIFIED_DETAIL_CHARS = 1000
+
+
+def _unclassified_detail(
+    error: BaseException | None,
+    detail: str | None,
+) -> str | None:
+    if detail is None and error is not None:
+        text = str(error).strip()
+        detail = f"{type(error).__name__}: {text}" if text else type(error).__name__
+    if not detail:
+        return None
+    safe = " ".join(redact_sensitive_text(detail, redact_emails=True).split())
+    if len(safe) > MAX_UNCLASSIFIED_DETAIL_CHARS:
+        safe = f"{safe[: MAX_UNCLASSIFIED_DETAIL_CHARS - 1]}…"
+    return safe or None
+
+
+def agent_executor_unclassified(
     error: BaseException | None = None,
+    *,
+    detail: str | None = None,
 ) -> RuntimeErrorClassification:
-    """Classify trusted executor infrastructure or transport failures."""
+    """Classify an executor failure that no specific policy recognizes.
+
+    The message keeps a redacted, bounded copy of the underlying error so the
+    failure can be triaged without log access. ``detail`` overrides the text
+    derived from ``error``.
+    """
+    message = AGENT_EXECUTOR_UNCLASSIFIED_MESSAGE
+    if safe_detail := _unclassified_detail(error, detail):
+        message = f"{message}: {safe_detail}"
     return RuntimeErrorClassification.platform(
-        kind=RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
-        message="Tracecat agent executor is unavailable",
+        kind=RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
+        message=message,
         retry_disposition=RetryDisposition.RETRYABLE,
         cause=error,
     )
@@ -281,8 +311,8 @@ def agent_runtime_failure(
     """Classify an exception raised out of a Claude runtime turn.
 
     A jailed process that exited with a resource-limit code is attributed to
-    the caller and carries its own message. Every other failure remains
-    platform-owned executor unavailability, surfacing ``fallback_message``.
+    the caller and carries its own message. Every other failure is a
+    platform-owned unclassified executor error carrying the underlying error.
     """
     for cause in iter_error_chain(error):
         if (
@@ -296,7 +326,7 @@ def agent_runtime_failure(
             )
     return AgentRuntimeFailure(
         message=fallback_message,
-        classification=agent_executor_unavailable(error),
+        classification=agent_executor_unclassified(error),
     )
 
 
