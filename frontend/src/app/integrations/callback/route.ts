@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 
+import { forwardClientAttributionHeaders } from "@/lib/forwarded-request-headers"
 import { buildUrl } from "@/lib/ss-utils"
 import { isIntegrationOAuthCallback } from "@/lib/utils"
 
@@ -73,11 +74,10 @@ export const GET = async (request: NextRequest) => {
     )
   }
 
-  const response = await fetch(url.toString(), {
-    headers: {
-      Cookie: cookie,
-    },
-  })
+  const headers = new Headers({ Cookie: cookie })
+  forwardClientAttributionHeaders(request.headers, headers)
+
+  const response = await fetch(url.toString(), { headers })
 
   // Redirect to the public app URL
   const cb = await response.json()
