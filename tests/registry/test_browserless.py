@@ -51,6 +51,25 @@ REJECTED_URLS = [
 # Publicly routable literal, so the allowed case needs no DNS either.
 PUBLIC_TARGET = "http://1.1.1.1/status"
 
+# A caller-supplied base_url carries the API token in its Authorization header,
+# so it must clear the same egress policy as the page being opened: an endpoint
+# on a private network, the cloud metadata address, or an attacker-controlled
+# host would otherwise receive the credential.
+BLOCKED_BASE_URLS = [
+    "http://127.0.0.1:3000",
+    "http://localhost:3000/",
+    "http://169.254.169.254",
+    "http://[::ffff:169.254.169.254]",
+    "http://10.0.0.5:3000",
+    "http://192.168.1.10",
+    "file:///etc/passwd",
+    "ftp://1.1.1.1/",
+    "http://user:password@1.1.1.1/",
+]
+
+# Publicly routable literal, so the allowed case needs no DNS.
+PUBLIC_BASE_URL = "http://1.1.1.1:3000"
+
 TEST_TOKEN = "test-token"
 
 
@@ -68,12 +87,12 @@ def browserless_token() -> Iterator[None]:
         secrets.reset_context(token)
 
 
-def _call(action: Action, url: str) -> Any:
+def _call(action: Action, url: str, **kwargs: Any) -> Any:
     match action:
         case browserless.scrape_elements:
-            return action(url=url, elements=[{"selector": "h1"}])
+            return action(url=url, elements=[{"selector": "h1"}], **kwargs)
         case _:
-            return action(url=url)
+            return action(url=url, **kwargs)
 
 
 @pytest.fixture(params=["get_content", "take_screenshot", "scrape_elements"])
@@ -155,4 +174,49 @@ async def test_operator_allowlisted_cidr_is_sent(
         # A private address outside the configured CIDR is still refused.
         with pytest.raises(DisallowedTargetUrlError):
             await _call(action, "http://10.0.1.5/")
+    assert len(sent_requests) == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("base_url", BLOCKED_BASE_URLS)
+async def test_untrusted_base_url_never_receives_the_token(
+    action: Action, base_url: str, sent_requests: list[httpx.Request]
+) -> None:
+    """A base_url that fails the egress policy is refused before the token is sent."""
+    with browserless_token(), pytest.raises(DisallowedTargetUrlError):
+        await _call(action, PUBLIC_TARGET, base_url=base_url)
+    assert sent_requests == []
+
+
+@pytest.mark.anyio
+async def test_public_base_url_is_sent(
+    action: Action, sent_requests: list[httpx.Request]
+) -> None:
+    """A publicly routable base_url is accepted and receives the request."""
+    with browserless_token():
+        await _call(action, PUBLIC_TARGET, base_url=PUBLIC_BASE_URL)
+    assert len(sent_requests) == 1
+    request = sent_requests[0]
+    assert str(request.url).startswith(PUBLIC_BASE_URL)
+    assert request.headers["authorization"] == f"Bearer {TEST_TOKEN}"
+
+
+@pytest.mark.anyio
+async def test_operator_allowlisted_base_url_is_sent(
+    action: Action,
+    sent_requests: list[httpx.Request],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A self-hosted instance on an allowed private CIDR stays reachable."""
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS",
+        (ip_network("10.0.0.0/24"),),
+    )
+    with browserless_token():
+        await _call(action, PUBLIC_TARGET, base_url="http://10.0.0.5:3000")
+        assert len(sent_requests) == 1
+        # An instance outside the configured CIDR is still refused.
+        with pytest.raises(DisallowedTargetUrlError):
+            await _call(action, PUBLIC_TARGET, base_url="http://10.0.1.5:3000")
     assert len(sent_requests) == 1

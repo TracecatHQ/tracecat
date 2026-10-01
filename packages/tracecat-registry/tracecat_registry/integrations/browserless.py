@@ -5,9 +5,11 @@ than YAML templates because every one of them takes a caller-supplied target URL
 that a browser then opens, and that target has to pass the registry's egress
 policy before the request is handed over; a template cannot enforce that.
 
-The Browserless `base_url` itself is ordinary routing configuration and is used
-as configured, exactly like any other self-hosted integration endpoint. Only the
-page being opened is checked.
+Both the `base_url` and the page being opened are checked against the same egress
+policy before the request leaves. The `base_url` carries the API token in its
+`Authorization` header, so a caller must not be able to point it at an internal
+service or an attacker-controlled host; a self-hosted instance on a private
+network stays reachable through the operator's allowed-CIDR configuration.
 """
 # WARNING: Do not import __future__ annotations from typing
 # Causes class types to resolve as strings, breaking TypedDict runtime behavior
@@ -39,7 +41,9 @@ BaseUrl = Annotated[
     str | None,
     Doc(
         "Browserless base URL. Defaults to `https://production-sfo.browserless.io`. "
-        "Set it to your own instance when self-hosting."
+        "Set it to your own instance when self-hosting. Must use http or https and "
+        "resolve to a publicly routable address, unless the host is covered by the "
+        "deployment's allowed-CIDR configuration."
     ),
 ]
 TargetUrl = Annotated[
@@ -86,7 +90,15 @@ async def _post(
     base64_encode_data: bool = False,
 ) -> HTTPResponse:
     """Send one request to Browserless and return the untouched HTTP envelope."""
-    url = f"{(base_url or BROWSERLESS_BASE_URL).rstrip('/')}{endpoint}"
+    base = (base_url or BROWSERLESS_BASE_URL).rstrip("/")
+    # The API token is attached below, so a caller-supplied endpoint must clear
+    # the same egress policy as a target URL. Otherwise an attacker-set base_url
+    # redirects the request, and the Bearer token with it, to an internal service
+    # or an external host that harvests the credential. The built-in default is a
+    # trusted constant and needs no resolving DNS lookup.
+    if base_url is not None:
+        await validate_public_target_url(base)
+    url = f"{base}{endpoint}"
     # Browserless validates each body against a JSON schema that rejects an
     # explicit null on an optional field, so unset options are omitted.
     body = {key: value for key, value in payload.items() if value is not None}
