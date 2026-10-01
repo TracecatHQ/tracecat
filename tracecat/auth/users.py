@@ -41,7 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat import config
 from tracecat.audit.service import AuditService
 from tracecat.auth.domain_policy import is_domain_allowed_for_org, is_org_saml_enforced
-from tracecat.auth.enums import AuthType
+from tracecat.auth.enums import AuthErrorCode, AuthType
 from tracecat.auth.ip_allowlist import IP_ALLOWLIST_DENIED_DETAIL
 from tracecat.auth.ip_allowlist_enforcement import (
     current_client_ip,
@@ -416,7 +416,10 @@ class UserManager(UUIDIDMixin, BaseUserManager[User, uuid.UUID]):
             )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="SAML authentication is enforced for this organization",
+                detail={
+                    "code": AuthErrorCode.SAML_ENFORCED,
+                    "message": "SAML authentication is enforced for this organization",
+                },
             )
         user = await super().oauth_callback(  # pyright: ignore[reportAttributeAccessIssue]
             oauth_name,

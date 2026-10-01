@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from cryptography.fernet import Fernet
+from fastapi import HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi_users.db import SQLAlchemyUserDatabase
 from fastapi_users.password import PasswordHelper
@@ -20,7 +21,7 @@ from tests.support.membership import (
 )
 from tracecat import config
 from tracecat.api.common import bootstrap_role
-from tracecat.auth.enums import AuthType
+from tracecat.auth.enums import AuthErrorCode, AuthType
 from tracecat.auth.users import UserManager
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.db.models import (
@@ -220,6 +221,40 @@ async def test_authenticate_rejects_password_for_saml_enforced_org(
     )
 
     assert authenticated_user is None
+
+
+@pytest.mark.anyio
+async def test_oauth_callback_rejects_saml_enforced_org_with_error_code(
+    session: AsyncSession,
+    user_manager: UserManager,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    user, _ = await _create_user_with_org_membership(
+        session,
+        email="user@acme-saml-oauth.com",
+        password="password-123456",
+        saml_enforced=True,
+    )
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__AUTH_TYPES",
+        {AuthType.OIDC, AuthType.SAML},
+    )
+    monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await user_manager.oauth_callback(
+            "oidc",
+            "synthetic-access-token",
+            "synthetic-account-id",
+            user.email,
+        )
+
+    assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+    assert exc_info.value.detail == {
+        "code": AuthErrorCode.SAML_ENFORCED,
+        "message": "SAML authentication is enforced for this organization",
+    }
 
 
 @pytest.mark.anyio
