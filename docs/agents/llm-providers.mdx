@@ -27,6 +27,7 @@ Tracecat lists providers in this order in Organization settings > Agent > Config
 | vLLM | Optional API key | Required, e.g. `http://vllm:8000/v1` | Off |
 | LiteLLM | Optional API key | Required, e.g. `http://litellm:4000/v1` | On |
 | OpenRouter | API key | Defaults to `https://openrouter.ai/api/v1`, optional override | Off |
+| Cheaper Inference | API key | Defaults to `https://api.cheaperinference.com/v1`, optional override | Off |
 
 Ollama, vLLM, and LiteLLM base URLs must include the `/v1` segment and be reachable from the Tracecat services. Inside a container, `localhost` points at the container itself, not your host. Base URLs that resolve to a private address also require `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS`; see [Private endpoints](#private-endpoints).
 
@@ -50,7 +51,7 @@ Ollama, vLLM, and LiteLLM base URLs must include the `/v1` segment and be reacha
   <Step title="Allow models">
     Expand the provider row and click Allow next to each model you want to expose. The pill on the row shows how many models are enabled.
 
-    Ollama, vLLM, LiteLLM, and OpenRouter discover models from the provider's `/models` endpoint when you save credentials. Click Refresh models on the row after you add or remove models upstream.
+    Ollama, vLLM, LiteLLM, OpenRouter, and Cheaper Inference discover models from the provider's `/models` endpoint when you save credentials. Click Refresh models on the row after you add or remove models upstream.
   </Step>
   <Step title="Set the default model">
     Under Default model, pick one of the enabled models. Agents and AI actions use it whenever a preset or action does not set its own model.
@@ -75,7 +76,7 @@ The allowlist applies to every workspace and also covers remote MCP servers, so 
 
 ## Passthrough
 
-Ollama, vLLM, LiteLLM, and OpenRouter expose a Passthrough toggle that controls how agent requests reach the provider.
+Ollama, vLLM, LiteLLM, OpenRouter, and Cheaper Inference expose a Passthrough toggle that controls how agent requests reach the provider.
 
 | Passthrough | Request route |
 | --- | --- |

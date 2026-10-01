@@ -506,6 +506,8 @@ class AgentManagementService(BaseOrgService):
             runtime.base_url,
             api_key=runtime.api_key,
         )
+        if model_type := GATEWAY_PROVIDER_SPECS[provider].discovery_model_type:
+            models = [model for model in models if model.get("type") == model_type]
         catalog_service = AgentCatalogService(session=self.session)
         count = await catalog_service.upsert_discovered_models(
             org_id=org_id,

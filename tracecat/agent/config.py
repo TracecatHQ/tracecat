@@ -1,4 +1,5 @@
 from tracecat.agent.gateway_providers import (
+    CHEAPERINFERENCE_DEFAULT_BASE_URL,
     OLLAMA_DEFAULT_BASE_URL,
     OPENROUTER_DEFAULT_BASE_URL,
 )
@@ -433,6 +434,34 @@ PROVIDER_CREDENTIAL_CONFIGS = {
             ),
         ],
     ),
+    "cheaperinference": ProviderCredentialConfig(
+        provider="cheaperinference",
+        label="Cheaper Inference",
+        fields=[
+            ProviderCredentialField(
+                key="CHEAPER_INFERENCE_API_KEY",
+                label="API Key",
+                type="password",
+                description="Your Cheaper Inference API key from cheaperinference.com/signup.",
+            ),
+            ProviderCredentialField(
+                key="CHEAPER_INFERENCE_BASE_URL",
+                label="Base URL",
+                type="text",
+                description="Cheaper Inference API base URL. Override only if you route through a proxy.",
+                required=False,
+                default=CHEAPERINFERENCE_DEFAULT_BASE_URL,
+            ),
+            ProviderCredentialField(
+                key="CHEAPER_INFERENCE_PASSTHROUGH",
+                label="Passthrough",
+                type="boolean",
+                description="Forward requests directly to Cheaper Inference's Anthropic-compatible endpoint instead of the managed LLM gateway.",
+                required=False,
+                default="false",
+            ),
+        ],
+    ),
     "azure_openai": ProviderCredentialConfig(
         provider="azure_openai",
         label="Azure OpenAI",
@@ -557,6 +586,7 @@ PROVIDER_DISPLAY_ORDER: tuple[str, ...] = (
     "vllm",
     "litellm",
     "openrouter",
+    "cheaperinference",
     "custom-model-provider",
 )
 

@@ -961,13 +961,48 @@ async def test_list_providers_includes_gateway_providers_in_display_order(
     providers = await service.list_providers()
 
     assert providers[:2] == ["openai", "anthropic"]
-    assert providers[-5:] == [
+    assert providers[-6:] == [
         "ollama",
         "vllm",
         "litellm",
         "openrouter",
+        "cheaperinference",
         "custom-model-provider",
     ]
+
+
+@pytest.mark.anyio
+async def test_refresh_gateway_catalog_keeps_only_text_models_for_cheaperinference(
+    role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = AgentManagementService(
+        AsyncMock(), role=role.model_copy(update={"scopes": frozenset({"*"})})
+    )
+    service.get_provider_credentials = AsyncMock(
+        return_value={"CHEAPER_INFERENCE_API_KEY": "synthetic-key"}
+    )
+    service._auto_grant_provider_access = AsyncMock()
+    monkeypatch.setattr(
+        agent_service,
+        "discover_openai_compatible_models",
+        AsyncMock(
+            return_value=[
+                {"id": "chat-model", "type": "text"},
+                {"id": "image-model", "type": "image"},
+                {"id": "video-model", "type": "video"},
+            ]
+        ),
+    )
+    upsert = AsyncMock(return_value=1)
+    monkeypatch.setattr(
+        agent_service,
+        "AgentCatalogService",
+        lambda session: SimpleNamespace(upsert_discovered_models=upsert),
+    )
+
+    assert await service.refresh_gateway_provider_catalog("cheaperinference") == 1
+    assert upsert.await_args is not None
+    assert upsert.await_args.kwargs["models"] == [{"id": "chat-model", "type": "text"}]
 
 
 @pytest.mark.anyio

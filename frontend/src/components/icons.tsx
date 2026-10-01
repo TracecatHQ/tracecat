@@ -966,6 +966,11 @@ export const providerIcons: Record<
       <OpenRouterIcon {...rest} />
     </div>
   ),
+  cheaperinference: ({ className, ...rest }) => (
+    <div className={className}>
+      <CheaperInferenceIcon {...rest} />
+    </div>
+  ),
   "manual-custom-source": ({ className, ...rest }) => (
     <div className={className}>
       <Sparkles {...rest} />
@@ -1740,6 +1745,28 @@ export function OpenRouterIcon({ className, ...rest }: IconProps) {
       <path
         fill="#7624F4"
         d="M303.9475,17.19926c42.79734,0,77.48933,34.69327,77.48933,77.48933s-34.69199,77.48933-77.48933,77.48933l76.86166,76.86244c9.76367,9.76313,2.84903,26.45667-10.95697,26.45667h-220.88335c-71.32686,0-129.14889-57.82202-129.14889-129.14889S77.64197,17.19926,148.96884,17.19926h154.97866ZM148.96884,68.85881c-42.79607,0-77.48933,34.69327-77.48933,77.48933s34.69327,77.48933,77.48933,77.48933,77.48933-34.69327,77.48933-77.48933-34.69327-77.48933-77.48933-77.48933Z"
+      />
+    </svg>
+  )
+}
+
+export function CheaperInferenceIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      role="img"
+      aria-label="Cheaper Inference"
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      {...rest}
+    >
+      <path
+        fill="currentColor"
+        d="M9.107 2.786H15.429V8.839H9.589a3.213 3.213 0 0 0 0.321 6.375H15.214L9.434 20.994A9.107 9.107 0 1 1 9.107 2.786Z"
+      />
+      <path
+        fill="currentColor"
+        d="M22.179 3.429H22.607a1.286 1.286 0 0 1 1.286 1.286V19.714a1.393 1.393 0 0 1 -1.393 1.393H17.464V8.143Z"
       />
     </svg>
   )

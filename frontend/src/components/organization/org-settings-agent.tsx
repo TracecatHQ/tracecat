@@ -530,6 +530,7 @@ const PROVIDER_DISPLAY_ORDER: readonly string[] = [
   "vllm",
   "litellm",
   "openrouter",
+  "cheaperinference",
 ]
 
 /**
@@ -541,6 +542,7 @@ const GATEWAY_PROVIDERS: ReadonlySet<string> = new Set([
   "vllm",
   "litellm",
   "openrouter",
+  "cheaperinference",
 ])
 
 function isGatewayProvider(provider: string): boolean {
@@ -577,6 +579,8 @@ function getProviderDisplayLabel(provider: string): string {
       return "LiteLLM"
     case "openrouter":
       return "OpenRouter"
+    case "cheaperinference":
+      return "Cheaper Inference"
     case "custom-model-provider":
       return "Custom"
     default:
@@ -608,6 +612,8 @@ function getProviderIconId(provider?: string | null): string {
       return "litellm"
     case "openrouter":
       return "openrouter"
+    case "cheaperinference":
+      return "cheaperinference"
     default:
       return "custom"
   }
@@ -2876,7 +2882,8 @@ export function OrgSettingsAgentForm() {
             </h3>
             <p className="text-sm text-muted-foreground">
               Add any other OpenAI-compatible gateway. Ollama, vLLM, LiteLLM,
-              and OpenRouter are available as built-in providers above.
+              OpenRouter, and Cheaper Inference are available as built-in
+              providers above.
             </p>
           </div>
           <Button

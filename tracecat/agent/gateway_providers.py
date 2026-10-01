@@ -24,11 +24,13 @@ type GatewayProviderSlug = Literal[
     "vllm",
     "litellm",
     "openrouter",
+    "cheaperinference",
     "custom-model-provider",
 ]
 
 OLLAMA_DEFAULT_BASE_URL = "http://localhost:11434/v1"
 OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+CHEAPERINFERENCE_DEFAULT_BASE_URL = "https://api.cheaperinference.com/v1"
 
 _TRUTHY_FLAGS = frozenset({"1", "true", "yes", "on"})
 _OPENAI_VERSION_SUFFIX_RE = re.compile(r"/v\d+/?$")
@@ -50,6 +52,8 @@ class GatewayProviderSpec:
         litellm_api_base_strips_version: Whether the LiteLLM adapter expects
             the host root rather than the ``/v1`` OpenAI-compatible base.
         requires_api_key: Whether managed LiteLLM calls need a real API key.
+        discovery_model_type: When set, catalog discovery keeps only models
+            whose ``type`` field equals this value.
     """
 
     slug: GatewayProviderSlug
@@ -62,6 +66,7 @@ class GatewayProviderSpec:
     default_passthrough: bool
     litellm_api_base_strips_version: bool = False
     requires_api_key: bool = False
+    discovery_model_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +123,19 @@ GATEWAY_PROVIDER_SPECS: dict[str, GatewayProviderSpec] = {
         default_base_url=OPENROUTER_DEFAULT_BASE_URL,
         default_passthrough=False,
         requires_api_key=True,
+    ),
+    "cheaperinference": GatewayProviderSpec(
+        slug="cheaperinference",
+        api_key_key="CHEAPER_INFERENCE_API_KEY",
+        base_url_key="CHEAPER_INFERENCE_BASE_URL",
+        passthrough_key="CHEAPER_INFERENCE_PASSTHROUGH",
+        model_name_key=None,
+        litellm_prefix="openai",
+        default_base_url=CHEAPERINFERENCE_DEFAULT_BASE_URL,
+        default_passthrough=False,
+        requires_api_key=True,
+        # The model list also includes image and video models.
+        discovery_model_type="text",
     ),
     CUSTOM_MODEL_PROVIDER_SLUG: GatewayProviderSpec(
         slug=CUSTOM_MODEL_PROVIDER_SLUG,

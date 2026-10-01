@@ -4,6 +4,7 @@ from litellm.proxy._types import ProxyException
 from tracecat.agent.config import PROVIDER_CREDENTIAL_CONFIGS, provider_display_rank
 from tracecat.agent.gateway import _inject_provider_credentials
 from tracecat.agent.gateway_providers import (
+    CHEAPERINFERENCE_DEFAULT_BASE_URL,
     OLLAMA_DEFAULT_BASE_URL,
     OPENROUTER_DEFAULT_BASE_URL,
     is_builtin_gateway_provider,
@@ -20,17 +21,18 @@ def test_provider_display_order_matches_requested_ordering() -> None:
     assert ordered[:2] == ["openai", "anthropic"]
     assert ordered.index("bedrock") < ordered.index("azure_openai")
     assert ordered.index("gemini") < ordered.index("mistral")
-    assert ordered[-5:] == [
+    assert ordered[-6:] == [
         "ollama",
         "vllm",
         "litellm",
         "openrouter",
+        "cheaperinference",
         "custom-model-provider",
     ]
 
 
 def test_gateway_provider_classification() -> None:
-    for provider in ("ollama", "vllm", "litellm", "openrouter"):
+    for provider in ("ollama", "vllm", "litellm", "openrouter", "cheaperinference"):
         assert is_builtin_gateway_provider(provider)
         assert is_gateway_provider(provider)
     assert is_gateway_provider("custom-model-provider")
@@ -96,6 +98,7 @@ def test_resolve_returns_none_for_non_gateway_provider() -> None:
             "openrouter/anthropic/claude-sonnet-4",
         ),
         ("openrouter", "openrouter/openai/gpt-4o", "openrouter/openai/gpt-4o"),
+        ("cheaperinference", "gpt-5.4-mini", "openai/gpt-5.4-mini"),
     ],
 )
 def test_managed_route_prefixes(provider: str, model: str, expected: str) -> None:
@@ -139,3 +142,16 @@ def test_openrouter_gateway_injection_requires_api_key() -> None:
     assert data["api_key"] == "sk-or"
     assert data["api_base"] == OPENROUTER_DEFAULT_BASE_URL
     assert data["model"] == "openrouter/anthropic/claude-sonnet-4"
+
+
+def test_cheaperinference_gateway_injection_requires_api_key() -> None:
+    with pytest.raises(ProxyException):
+        _inject_provider_credentials({"model": "gpt-5.4-mini"}, "cheaperinference", {})
+
+    data = {"model": "gpt-5.4-mini"}
+    _inject_provider_credentials(
+        data, "cheaperinference", {"CHEAPER_INFERENCE_API_KEY": "ci-key"}
+    )
+    assert data["api_key"] == "ci-key"
+    assert data["api_base"] == CHEAPERINFERENCE_DEFAULT_BASE_URL
+    assert data["model"] == "openai/gpt-5.4-mini"
