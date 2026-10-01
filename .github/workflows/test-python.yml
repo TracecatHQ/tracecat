@@ -47,6 +47,29 @@ env:
   UV_SYSTEM_PYTHON: 1
 
 jobs:
+  test-agent-runtime-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: Install uv
+        uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
+        with:
+          version: "0.9.7"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install dependencies
+        run: env -u UV_SYSTEM_PYTHON uv sync --frozen --python 3.12
+      - name: Test pinned SDK and CLI against local protocol fixtures
+        run: >-
+          uv run --no-sync python -m pytest
+          --confcutdir=tests/agent_runtime_contracts
+          tests/agent_runtime_contracts -q --tb=short
+
   test-custom-registry-install:
     runs-on: blacksmith-8vcpu-ubuntu-2204
     timeout-minutes: 60
