@@ -2058,8 +2058,12 @@ class TestRoleLevelGuard:
         assert [scope.name for scope in updated.scopes] == ["org:read"]
 
     @pytest.mark.parametrize(
-        ("status", "blocked"),
-        [(InvitationStatus.PENDING, True), (InvitationStatus.REVOKED, False)],
+        ("status", "expires_in", "blocked"),
+        [
+            (InvitationStatus.PENDING, timedelta(days=7), True),
+            (InvitationStatus.PENDING, timedelta(days=-1), False),
+            (InvitationStatus.REVOKED, timedelta(days=7), False),
+        ],
     )
     async def test_role_edit_cannot_flip_level_with_pending_invitation(
         self,
@@ -2068,6 +2072,7 @@ class TestRoleLevelGuard:
         org: Organization,
         workspace: Workspace,
         status: InvitationStatus,
+        expires_in: timedelta,
         blocked: bool,
     ):
         service = RBACService(session, role=role)
@@ -2078,7 +2083,7 @@ class TestRoleLevelGuard:
             email="invitee@example.com",
             status=status,
             token=uuid.uuid4().hex * 2,
-            expires_at=datetime.now(UTC) + timedelta(days=7),
+            expires_at=datetime.now(UTC) + expires_in,
         )
         invitation.grants = [
             InvitationGrant(

@@ -33,6 +33,20 @@ import {
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
 
+/** Prefer the API's detail message, then the error message. */
+function removalErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    const { detail } = error.body as { detail?: unknown }
+    if (typeof detail === "string") {
+      return detail
+    }
+  }
+  if (error instanceof Error) {
+    return error.message
+  }
+  return "The request could not be completed."
+}
+
 export function WorkspaceMembersTable({
   workspace,
 }: {
@@ -193,16 +207,7 @@ export function WorkspaceMembersTable({
                 try {
                   await removeMember(selectedUser.user_id)
                 } catch (error) {
-                  const detail =
-                    error instanceof ApiError
-                      ? (error.body as { detail?: unknown }).detail
-                      : undefined
-                  const description =
-                    typeof detail === "string"
-                      ? detail
-                      : error instanceof Error
-                        ? error.message
-                        : "The request could not be completed."
+                  const description = removalErrorMessage(error)
                   console.error("Failed to remove member", error)
                   toast({
                     title: "Failed to remove member",

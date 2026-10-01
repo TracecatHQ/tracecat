@@ -358,6 +358,7 @@ class RBACService(BaseOrgService):
             .where(InvitationGrant.role_id == role_id)
             .where(InvitationGrant.invitation_id == Invitation.id)
             .where(Invitation.status == InvitationStatus.PENDING)
+            .where(Invitation.expires_at > func.now())
         )
         return bool(await self.session.scalar(stmt))
 
