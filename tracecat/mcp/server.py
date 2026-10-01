@@ -97,6 +97,7 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
+from tracecat.agent.subagents import AgentSubagentsConfig, AttachedSubagentRef
 from tracecat.agent.tools import create_tool_from_registry
 from tracecat.agent.types import OutputType
 from tracecat.audit.logger import AuditEventDetails, audit_log
@@ -8717,6 +8718,7 @@ async def create_agent_preset(
     enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
     skills: list[AgentPresetSkillBindingBase] | None = None,
+    subagents: list[AttachedSubagentRef] | None = None,
 ) -> AgentPresetRead:
     """Create an agent preset in the selected workspace.
 
@@ -8726,6 +8728,12 @@ async def create_agent_preset(
 
     Attach tools via `actions`, `mcp_integration_ids`, or a skill's
     `metadata.tools`.
+
+    Use `subagents` to attach other presets as subagents. Each ref contains
+    `preset` (the child preset slug) and optional `preset_version`, `name`
+    (runtime alias), `description`, and `max_turns`. Omit `preset_version`
+    to follow the child's latest version. A child preset cannot have its own
+    subagents or tools that require manual approval.
     """
 
     try:
@@ -8759,6 +8767,11 @@ async def create_agent_preset(
             "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
             "skills": skills,
+            "agents": (
+                AgentSubagentsConfig(subagents=list(subagents))
+                if subagents is not None
+                else None
+            ),
         }
         create_data.update(
             {
@@ -8804,6 +8817,7 @@ async def update_agent_preset(
     enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
     skills: list[AgentPresetSkillBindingBase] | None = None,
+    subagents: list[AttachedSubagentRef] | None = None,
 ) -> AgentPresetRead:
     """Update an existing agent preset in the selected workspace.
 
@@ -8815,6 +8829,13 @@ async def update_agent_preset(
 
     Attach tools via `actions`, `mcp_integration_ids`, or a skill's
     `metadata.tools`.
+
+    Use `subagents` to replace attached preset-backed subagents. Each ref
+    contains `preset` (the child preset slug) and optional `preset_version`,
+    `name` (runtime alias), `description`, and `max_turns`. Omit `subagents`
+    to leave them unchanged, or pass an empty list to detach all subagents.
+    A child preset cannot have its own subagents or tools that require
+    manual approval.
 
     Set `clear_output_type=true` to remove an existing `output_type` (agent
     returns plain text). Omitting `output_type` leaves it unchanged.
@@ -8838,6 +8859,11 @@ async def update_agent_preset(
             "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
             "skills": skills,
+            "agents": (
+                AgentSubagentsConfig(subagents=list(subagents))
+                if subagents is not None
+                else None
+            ),
         }
         update_data.update(
             {

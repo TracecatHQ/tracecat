@@ -447,6 +447,8 @@
   Use `skills` to attach published skills. Each binding contains `skill_id` only; the preset always runs each skill's latest published version, so there is no version to pin.
 
   Attach tools via `actions`, `mcp_integration_ids`, or a skill's `metadata.tools`.
+
+  Use `subagents` to attach other presets as subagents. Each ref contains `preset` (the child preset slug) and optional `preset_version`, `name` (runtime alias), `description`, and `max_turns`. Omit `preset_version` to follow the child's latest version. A child preset cannot have its own subagents or tools that require manual approval.
 </ResponseField>
 
 <ResponseField name="update_agent_preset" type="tool">
@@ -455,6 +457,8 @@
   Use `skills` to replace attached published skills. Each binding contains `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list to detach all skills. Attached skills always run at their latest published version, so do not call this after `publish_skill` just to refresh a skill version; only pass `skills` when adding or removing a skill.
 
   Attach tools via `actions`, `mcp_integration_ids`, or a skill's `metadata.tools`.
+
+  Use `subagents` to replace attached preset-backed subagents. Each ref contains `preset` (the child preset slug) and optional `preset_version`, `name` (runtime alias), `description`, and `max_turns`. Omit `subagents` to leave them unchanged, or pass an empty list to detach all subagents. A child preset cannot have its own subagents or tools that require manual approval.
 
   Set `clear_output_type=true` to remove an existing `output_type` (agent returns plain text). Omitting `output_type` leaves it unchanged.
 </ResponseField>
