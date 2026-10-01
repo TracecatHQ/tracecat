@@ -6,12 +6,14 @@ from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from typing import Literal, cast
 from unittest.mock import Mock
 
 import httpx
 import orjson
 import pytest
+from tenacity import AsyncRetrying, RetryCallState
 
 from tracecat.agent.diagnostics import MAX_LLM_ERROR_BODY_BYTES, LLMErrorDiagnostics
 from tracecat.agent.observability import LLMGatewayLoadTracker
@@ -23,8 +25,10 @@ from tracecat.agent.sandbox.llm_proxy import (
     LLMSocketProxy,
     ParsedRequest,
     _http_error_classification,
-    _rate_limit_retry_delay,
+    _parse_retry_after,
+    _rate_limit_wait,
     _rewrite_json_body,
+    _UpstreamRateLimited,
 )
 from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
 from tracecat.runtime.errors import (
@@ -132,8 +136,8 @@ async def test_forward_request_streams_litellm_response(
 
     monotonic_values = iter([10.0, 10.025, 10.05, 10.075, 10.1, 10.125])
     monkeypatch.setattr(
-        "tracecat.agent.sandbox.llm_proxy.time.monotonic",
-        lambda: next(monotonic_values, 10.125),
+        "tracecat.agent.sandbox.llm_proxy.time",
+        SimpleNamespace(monotonic=lambda: next(monotonic_values, 10.125)),
     )
 
     def fake_info(message: str, **kwargs: object) -> None:
@@ -2432,6 +2436,16 @@ async def test_forward_request_does_not_retry_non_rate_limit_failures(
     assert errors[0].classification.kind is not RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
 
 
+def _rate_limited_retry_state(
+    attempt_number: int, retry_after: str | None
+) -> RetryCallState:
+    retry_state = RetryCallState(AsyncRetrying(), None, (), {})
+    retry_state.attempt_number = attempt_number
+    error = _UpstreamRateLimited(retry_after)
+    retry_state.set_exception((type(error), error, None))
+    return retry_state
+
+
 @pytest.mark.parametrize(
     ("retry_after", "expected"),
     [
@@ -2441,26 +2455,28 @@ async def test_forward_request_does_not_retry_non_rate_limit_failures(
         ("0", 0.0),
     ],
 )
-def test_rate_limit_retry_delay_honors_capped_retry_after(
+def test_rate_limit_wait_honors_capped_retry_after(
     monkeypatch: pytest.MonkeyPatch,
     retry_after: str,
     expected: float,
 ) -> None:
     monkeypatch.setattr(llm_proxy, "_RATE_LIMIT_MAX_DELAY_SECONDS", 20.0)
 
-    assert _rate_limit_retry_delay(1, retry_after) == expected
+    assert _parse_retry_after(retry_after) == expected
+    assert _rate_limit_wait(_rate_limited_retry_state(1, retry_after)) == expected
 
 
 @pytest.mark.parametrize(
     "retry_after", [None, "Wed, 21 Oct 2015 07:28:00 GMT", "-1", "nan", "inf"]
 )
-def test_rate_limit_retry_delay_falls_back_to_jittered_backoff(
+def test_rate_limit_wait_falls_back_to_jittered_backoff(
     monkeypatch: pytest.MonkeyPatch,
     retry_after: str | None,
 ) -> None:
     monkeypatch.setattr(llm_proxy, "_RATE_LIMIT_BASE_DELAY_SECONDS", 1.0)
     monkeypatch.setattr(llm_proxy, "_RATE_LIMIT_MAX_DELAY_SECONDS", 20.0)
 
-    assert 1.0 <= _rate_limit_retry_delay(1, retry_after) <= 1.5
-    assert 4.0 <= _rate_limit_retry_delay(3, retry_after) <= 6.0
-    assert _rate_limit_retry_delay(10, retry_after) == 20.0
+    assert _parse_retry_after(retry_after) is None
+    assert 1.0 <= _rate_limit_wait(_rate_limited_retry_state(1, retry_after)) <= 1.5
+    assert 4.0 <= _rate_limit_wait(_rate_limited_retry_state(3, retry_after)) <= 4.5
+    assert _rate_limit_wait(_rate_limited_retry_state(10, retry_after)) == 20.0

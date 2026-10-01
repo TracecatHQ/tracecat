@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import math
 import os
-import random
 import re
 import time
 import uuid
@@ -25,6 +24,13 @@ from uuid import uuid4
 import httpx
 import orjson
 from fastapi import HTTPException
+from tenacity import (
+    AsyncRetrying,
+    RetryCallState,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from tracecat import config as app_config
 from tracecat.agent.common.exceptions import AgentSandboxValidationError
@@ -303,22 +309,40 @@ def _http_error_classification(
     )
 
 
-def _rate_limit_retry_delay(attempt: int, retry_after: str | None) -> float:
-    """Seconds to wait before retrying a throttled request, capped.
+class _UpstreamRateLimited(Exception):
+    """Internal retry signal for a throttled upstream response."""
 
-    Honors a numeric ``Retry-After``; an http-date or malformed value falls
-    back to jittered exponential backoff.
-    """
-    if retry_after is not None:
-        try:
-            seconds = float(retry_after.strip())
-        except ValueError:
-            seconds = None
-        if seconds is not None and math.isfinite(seconds) and seconds >= 0:
-            return min(seconds, _RATE_LIMIT_MAX_DELAY_SECONDS)
-    delay = _RATE_LIMIT_BASE_DELAY_SECONDS * (2.0 ** (attempt - 1))
-    delay *= random.uniform(1.0, 1.5)
-    return min(delay, _RATE_LIMIT_MAX_DELAY_SECONDS)
+    def __init__(self, retry_after: str | None) -> None:
+        super().__init__("LLM upstream rate limited")
+        self.retry_after = retry_after
+
+
+def _parse_retry_after(value: str | None) -> float | None:
+    """Capped numeric ``Retry-After`` seconds; None for http-dates or junk."""
+    if value is None:
+        return None
+    try:
+        seconds = float(value.strip())
+    except ValueError:
+        return None
+    if not math.isfinite(seconds) or seconds < 0:
+        return None
+    return min(seconds, _RATE_LIMIT_MAX_DELAY_SECONDS)
+
+
+def _rate_limit_wait(retry_state: RetryCallState) -> float:
+    """Honor upstream ``Retry-After``, else jittered exponential backoff."""
+    outcome = retry_state.outcome
+    error = outcome.exception() if outcome is not None else None
+    if isinstance(error, _UpstreamRateLimited):
+        retry_after = _parse_retry_after(error.retry_after)
+        if retry_after is not None:
+            return retry_after
+    return wait_exponential_jitter(
+        initial=_RATE_LIMIT_BASE_DELAY_SECONDS,
+        max=_RATE_LIMIT_MAX_DELAY_SECONDS,
+        jitter=_RATE_LIMIT_BASE_DELAY_SECONDS / 2,
+    )(retry_state)
 
 
 def _transport_error_classification(
@@ -1238,99 +1262,112 @@ class LLMSocketProxy:
             client = self._direct_client if route.is_direct else self._client
             if client is None:
                 raise RuntimeError("LLM proxy client is not initialized")
-            attempt = 0
-            retry_delay: float | None = None
-            while True:
-                if retry_delay is not None:
-                    await asyncio.sleep(retry_delay)
-                attempt += 1
-                retry_delay = None
+
+            def log_rate_limit_retry(retry_state: RetryCallState) -> None:
+                next_action = retry_state.next_action
+                logger.warning(
+                    "Retrying rate limited LLM request",
+                    attempt=retry_state.attempt_number,
+                    max_attempts=_RATE_LIMIT_MAX_ATTEMPTS,
+                    retry_delay_seconds=(
+                        round(next_action.sleep, 2) if next_action else None
+                    ),
+                    trace_request_id=trace_request_id,
+                )
+
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(_RATE_LIMIT_MAX_ATTEMPTS),
+                wait=_rate_limit_wait,
+                retry=retry_if_exception_type(_UpstreamRateLimited),
+                before_sleep=log_rate_limit_retry,
+                reraise=True,
+            ):
+                attempt_number = attempt.retry_state.attempt_number
                 response_phase = "response_headers"
-                async with client.stream(
-                    method=method,
-                    url=upstream_request.url,
-                    headers=upstream_request.headers,
-                    content=upstream_request.body if upstream_request.body else None,
-                ) as response:
-                    body_chunks: AsyncIterable[bytes] | list[bytes]
-                    if response.status_code >= 400 and not _is_non_critical_request(
-                        method, path
-                    ):
-                        response_phase = "error_body"
-                        error_body = await response.aread()
-                        logger.warning(
-                            "LLM upstream returned an error",
-                            status_code=response.status_code,
-                            request_body_bytes=len(upstream_request.body),
-                            trace_request_id=trace_request_id,
-                            attempt=attempt,
-                        )
-                        classification = _http_error_classification(
-                            response.status_code,
-                            route_is_direct=route.is_direct,
-                            body=error_body,
-                            model=(
-                                request_model
-                                if isinstance(request_model, str)
-                                and len(request_model) <= 128
-                                else None
-                            ),
-                        )
-                        if (
-                            classification.kind
-                            is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
-                            and attempt < _RATE_LIMIT_MAX_ATTEMPTS
-                            and not self._stopping
+                with attempt:
+                    async with client.stream(
+                        method=method,
+                        url=upstream_request.url,
+                        headers=upstream_request.headers,
+                        content=upstream_request.body
+                        if upstream_request.body
+                        else None,
+                    ) as response:
+                        body_chunks: AsyncIterable[bytes] | list[bytes]
+                        if response.status_code >= 400 and not _is_non_critical_request(
+                            method, path
                         ):
-                            retry_delay = _rate_limit_retry_delay(
-                                attempt, response.headers.get("retry-after")
-                            )
+                            response_phase = "error_body"
+                            error_body = await response.aread()
                             logger.warning(
-                                "Retrying rate limited LLM request",
-                                attempt=attempt,
-                                max_attempts=_RATE_LIMIT_MAX_ATTEMPTS,
-                                retry_delay_seconds=round(retry_delay, 2),
+                                "LLM upstream returned an error",
+                                status_code=response.status_code,
+                                request_body_bytes=len(upstream_request.body),
                                 trace_request_id=trace_request_id,
+                                attempt=attempt_number,
                             )
-                            continue
-                        # Error bodies may echo credentials, budgets or request data.
-                        # Keep durable failure text source-owned and privacy-safe.
-                        # This stack is the local response check, not the remote provider.
-                        try:
-                            response.raise_for_status()
-                        except httpx.HTTPStatusError as exc:
-                            self._emit_error(
-                                classification.message,
-                                classification,
-                                diagnostic=diagnostic(),
-                                error=exc,
-                                context=ProxyFailureContext(
-                                    route="direct" if route.is_direct else "managed",
-                                    status_code=response.status_code,
+                            classification = _http_error_classification(
+                                response.status_code,
+                                route_is_direct=route.is_direct,
+                                body=error_body,
+                                model=(
+                                    request_model
+                                    if isinstance(request_model, str)
+                                    and len(request_model) <= 128
+                                    else None
                                 ),
                             )
-                        body_chunks = [error_body]
-                        response_headers = dict(response.headers)
-                    else:
-                        body_chunks, response_headers = await self._rewrite_tool_use(
-                            response, method=method, path=path
-                        )
+                            if (
+                                classification.kind
+                                is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+                                and attempt_number < _RATE_LIMIT_MAX_ATTEMPTS
+                                and not self._stopping
+                            ):
+                                raise _UpstreamRateLimited(
+                                    response.headers.get("retry-after")
+                                )
+                            # Error bodies may echo credentials, budgets or request data.
+                            # Keep durable failure text source-owned and privacy-safe.
+                            # This stack is the local response check, not the remote provider.
+                            try:
+                                response.raise_for_status()
+                            except httpx.HTTPStatusError as exc:
+                                self._emit_error(
+                                    classification.message,
+                                    classification,
+                                    diagnostic=diagnostic(),
+                                    error=exc,
+                                    context=ProxyFailureContext(
+                                        route="direct"
+                                        if route.is_direct
+                                        else "managed",
+                                        status_code=response.status_code,
+                                    ),
+                                )
+                            body_chunks = [error_body]
+                            response_headers = dict(response.headers)
+                        else:
+                            (
+                                body_chunks,
+                                response_headers,
+                            ) = await self._rewrite_tool_use(
+                                response, method=method, path=path
+                            )
 
-                    await self._write_response(
-                        writer,
-                        status_code=response.status_code,
-                        reason_phrase=response.reason_phrase,
-                        headers=response_headers,
-                        body_chunks=body_chunks,
-                        trace_request_id=trace_request_id,
-                        started_at=started_at,
-                        request_counter=request_counter,
-                        method=method,
-                        path=path,
-                        route_is_direct=route.is_direct,
-                        diagnostic_factory=diagnostic,
-                    )
-                break
+                        await self._write_response(
+                            writer,
+                            status_code=response.status_code,
+                            reason_phrase=response.reason_phrase,
+                            headers=response_headers,
+                            body_chunks=body_chunks,
+                            trace_request_id=trace_request_id,
+                            started_at=started_at,
+                            request_counter=request_counter,
+                            method=method,
+                            path=path,
+                            route_is_direct=route.is_direct,
+                            diagnostic_factory=diagnostic,
+                        )
         except DisallowedUrlError:
             message = "LLM provider destination is not allowed"
             await self._write_error_response(
