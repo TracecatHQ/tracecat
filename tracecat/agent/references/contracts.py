@@ -12,8 +12,10 @@ from uuid import UUID
 from pydantic import (
     AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
+    StrictBool,
     StringConstraints,
     model_validator,
 )
@@ -42,11 +44,21 @@ LogicalPath = Annotated[
 ScopeKey = Annotated[str, StringConstraints(pattern=r"^[a-zA-Z0-9_-]+$")]
 
 
+def _strict_version(value: object) -> int:
+    # Literal[1] alone also matches True and 1.0, even in Pydantic strict mode.
+    if type(value) is not int:
+        raise ValueError("Schema versions must be JSON integers")
+    return value
+
+
+SchemaVersion = Annotated[Literal[1], BeforeValidator(_strict_version)]
+
+
 class ReferenceContract(BaseModel):
     """Strict wire contract; additive revisions require explicit version support."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
-    schema_version: Literal[1] = Field(default=1)
+    schema_version: SchemaVersion = Field(default=1)
 
 
 class AuthoredSource(ReferenceContract):
@@ -96,7 +108,7 @@ class ExecutionAuthority(ReferenceContract):
     session_mode: Literal[
         "workspace_chat", "delegated_preset", "workflow", "builder", "tool_free"
     ]
-    activate_references: bool
+    activate_references: StrictBool
     action_scope_ceiling: tuple[str, ...] | None
     namespace_ceiling: tuple[str, ...] | None
     excluded_targets: tuple[ReferenceTarget, ...] = ()
@@ -163,7 +175,7 @@ class LogicalArtifact(ReferenceContract):
     key: str
     path: LogicalPath
     content_hash: Digest
-    size_bytes: int = Field(ge=0)
+    size_bytes: int = Field(ge=0, strict=True)
     media_type: str
 
 
@@ -191,7 +203,7 @@ class CallableBinding(ReferenceContract):
     # JSON Schema is an open recursive vocabulary, not an untyped payload.
     input_schema: FrozenJSONObject
     output_schema: FrozenJSONObject | None = Field(default=None)
-    requires_approval: bool
+    requires_approval: StrictBool
 
 
 class ReferenceRegistryLock(ReferenceContract):
@@ -269,10 +281,10 @@ class ReferenceCapabilities(ReferenceContract):
     harness_type: str
     kinds: frozenset[ReferenceKind]
     mcp_transports: frozenset[Literal["http", "stdio"]] = frozenset()
-    direct_child_delegation: bool = False
-    eager_callable_readiness: bool = False
-    snapshot_versions: frozenset[Literal[1]] = frozenset({1})
-    binding_versions: frozenset[Literal[1]] = frozenset({1})
+    direct_child_delegation: StrictBool = False
+    eager_callable_readiness: StrictBool = False
+    snapshot_versions: frozenset[SchemaVersion] = frozenset({1})
+    binding_versions: frozenset[SchemaVersion] = frozenset({1})
 
 
 class ReferencePreparationFailure(ReferenceContract):

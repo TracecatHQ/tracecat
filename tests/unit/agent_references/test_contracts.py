@@ -366,3 +366,50 @@ def test_callable_finite_numbers_roundtrip():
         ResolvedReferenceSnapshot.model_validate_json(snapshot.model_dump_json())
         == snapshot
     )
+
+
+@pytest.mark.parametrize("value", ["yes", "false", "true", 0, 1])
+def test_authority_wire_rejects_coerced_activation(value):
+    data = {
+        "actor_id": None,
+        "session_mode": "delegated_preset",
+        "activate_references": value,
+        "action_scope_ceiling": None,
+        "namespace_ceiling": None,
+        "admission_policy_hash": "0" * 64,
+    }
+    with pytest.raises(ValidationError):
+        ExecutionAuthority.model_validate_json(json.dumps(data))
+
+
+@pytest.mark.parametrize("value", [True, 1.0, "1", 2])
+@pytest.mark.parametrize(
+    "field", ["schema_version", "snapshot_versions", "binding_versions"]
+)
+def test_capability_wire_requires_supported_integer_versions(value, field):
+    data = {
+        "harness_type": "independent",
+        "kinds": ["skill"],
+        field: value if field == "schema_version" else [value],
+    }
+    with pytest.raises(ValidationError):
+        ReferenceCapabilities.model_validate_json(json.dumps(data))
+
+
+@pytest.mark.parametrize(
+    "field", ["direct_child_delegation", "eager_callable_readiness"]
+)
+def test_capability_wire_rejects_coerced_readiness(field):
+    with pytest.raises(ValidationError):
+        ReferenceCapabilities.model_validate_json(
+            json.dumps(
+                {"harness_type": "independent", "kinds": ["skill"], field: "yes"}
+            )
+        )
+
+
+def test_callable_wire_requires_boolean_approval():
+    data = snapshot_data()
+    data["scopes"][0]["callables"][0]["requires_approval"] = "false"
+    with pytest.raises(ValidationError):
+        ResolvedReferenceSnapshot.model_validate_json(json.dumps(data))
