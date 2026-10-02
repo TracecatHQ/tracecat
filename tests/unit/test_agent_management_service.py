@@ -3,7 +3,7 @@
 import uuid
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import sqlalchemy as sa
@@ -14,6 +14,8 @@ from tracecat_registry._internal import secrets as registry_secrets
 
 import tracecat.agent.service as agent_service
 from tracecat import config as tracecat_config
+from tracecat.agent.bedrock import BedrockDiscoveredModel, BedrockError
+from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.config import PROVIDER_CREDENTIAL_CONFIGS
 from tracecat.agent.preset.activities import _load_custom_model_provider_creds
 from tracecat.agent.preset.service import AgentPresetService
@@ -30,6 +32,7 @@ from tracecat.db.models import (
     Secret,
     Workspace,
 )
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.encryption import encrypt_keyvalues
@@ -1132,3 +1135,143 @@ async def test_get_providers_status_includes_builtin_configs_without_enabled_mod
     assert set(PROVIDER_CREDENTIAL_CONFIGS).issubset(status)
     assert status["anthropic"] is True
     assert status["openai"] is False
+
+
+@pytest.mark.anyio
+async def test_refresh_bedrock_catalog_syncs_models_and_subscriptions(
+    role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    role = role.model_copy(update={"scopes": frozenset({"agent:update"})})
+    service = AgentManagementService(AsyncMock(), role=role)
+    credentials = {"AWS_BEARER_TOKEN_BEDROCK": "synthetic", "AWS_REGION": "us-east-1"}
+    service.get_provider_credentials = AsyncMock(return_value=credentials)
+    service._auto_grant_provider_access = AsyncMock()
+    client = object()
+    create_client = Mock(return_value=client)
+    discovered = [
+        BedrockDiscoveredModel(
+            model_name="vendor.a-v1",
+            display_name="A",
+            foundation_model_id="vendor.a-v1",
+            model_id="vendor.a-v1",
+        )
+    ]
+    subscriptions = {
+        "vendor.a-v1": {"status": "subscribed", "checked_at": "t"},
+        "vendor.manual-v1": {"status": "not_subscribed", "checked_at": "t"},
+    }
+    get_subscriptions = Mock(return_value=subscriptions)
+    monkeypatch.setattr(agent_service, "create_bedrock_client", create_client)
+    monkeypatch.setattr(
+        agent_service, "list_bedrock_models", Mock(return_value=discovered)
+    )
+    monkeypatch.setattr(agent_service, "get_bedrock_subscriptions", get_subscriptions)
+    manual_row = SimpleNamespace(model_metadata={"model_id": "vendor.manual-v1"})
+    monkeypatch.setattr(
+        AgentCatalogService,
+        "list_bedrock_rows",
+        AsyncMock(return_value=[manual_row]),
+    )
+    sync = AsyncMock(return_value=1)
+    monkeypatch.setattr(AgentCatalogService, "sync_bedrock_models", sync)
+
+    count = await service.refresh_bedrock_catalog()
+
+    assert count == 1
+    create_client.assert_called_once_with(credentials, external_ids=[])
+    _, foundation_ids = get_subscriptions.call_args.args
+    assert set(foundation_ids) == {"vendor.a-v1", "vendor.manual-v1"}
+    sync.assert_awaited_once_with(
+        org_id=role.organization_id,
+        models=discovered,
+        subscriptions=subscriptions,
+    )
+    service._auto_grant_provider_access.assert_awaited_once_with("bedrock")
+
+
+@pytest.mark.anyio
+async def test_refresh_bedrock_catalog_requires_credentials(role: Role) -> None:
+    role = role.model_copy(update={"scopes": frozenset({"agent:update"})})
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.get_provider_credentials = AsyncMock(return_value=None)
+
+    with pytest.raises(TracecatNotFoundError):
+        await service.refresh_bedrock_catalog()
+
+
+@pytest.mark.anyio
+async def test_refresh_bedrock_catalog_role_mode_tries_workspace_external_ids(
+    role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    role = role.model_copy(update={"scopes": frozenset({"agent:update"})})
+    assert role.workspace_id is not None
+    other_workspace_id = uuid.uuid4()
+    session = AsyncMock()
+    session.execute.return_value = Mock(
+        scalars=Mock(
+            return_value=Mock(
+                all=Mock(return_value=[role.workspace_id, other_workspace_id])
+            )
+        )
+    )
+    service = AgentManagementService(session, role=role)
+    credentials = {"AWS_ROLE_ARN": "arn:aws:iam::123456789012:role/customer-role"}
+    service.get_provider_credentials = AsyncMock(return_value=credentials)
+    create_client = Mock(side_effect=BedrockError("Failed to assume"))
+    monkeypatch.setattr(agent_service, "create_bedrock_client", create_client)
+
+    with pytest.raises(ValueError, match="Failed to assume"):
+        await service.refresh_bedrock_catalog()
+
+    create_client.assert_called_once_with(
+        credentials,
+        external_ids=[
+            build_workspace_external_id(role.workspace_id),
+            build_workspace_external_id(other_workspace_id),
+        ],
+    )
+
+
+@pytest.mark.anyio
+async def test_subscribe_bedrock_model_resolves_profile_and_records_status(
+    role: Role, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    role = role.model_copy(update={"scopes": frozenset({"agent:update"})})
+    service = AgentManagementService(AsyncMock(), role=role)
+    service.get_provider_credentials = AsyncMock(
+        return_value={"AWS_ACCESS_KEY_ID": "a", "AWS_SECRET_ACCESS_KEY": "b"}
+    )
+    catalog_id = uuid.uuid4()
+    row = SimpleNamespace(
+        id=catalog_id,
+        organization_id=role.organization_id,
+        model_provider="bedrock",
+        model_name="profile",
+        model_metadata={"inference_profile_id": "us.vendor.a-v1"},
+    )
+    monkeypatch.setattr(
+        AgentCatalogService, "get_catalog_entry", AsyncMock(return_value=row)
+    )
+    record = AsyncMock()
+    monkeypatch.setattr(AgentCatalogService, "set_bedrock_subscription", record)
+    client = object()
+    monkeypatch.setattr(
+        agent_service, "create_bedrock_client", Mock(return_value=client)
+    )
+    resolve = Mock(return_value="vendor.a-v1")
+    monkeypatch.setattr(agent_service, "resolve_profile_foundation_model_id", resolve)
+    subscription = {"status": "pending", "checked_at": "t"}
+    subscribe = Mock(return_value=subscription)
+    monkeypatch.setattr(agent_service, "subscribe_bedrock_model", subscribe)
+
+    result = await service.subscribe_bedrock_model(catalog_id)
+
+    assert result == subscription
+    resolve.assert_called_once_with(client, "us.vendor.a-v1")
+    subscribe.assert_called_once_with(client, "vendor.a-v1")
+    record.assert_awaited_once_with(
+        org_id=role.organization_id,
+        catalog_id=catalog_id,
+        foundation_model_id="vendor.a-v1",
+        subscription=subscription,
+    )

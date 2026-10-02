@@ -13,6 +13,14 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 
+from tracecat.agent.bedrock import (
+    BEDROCK_DISCOVERY_SOURCE,
+    BEDROCK_FOUNDATION_MODEL_METADATA_KEY,
+    BEDROCK_SUBSCRIPTION_METADATA_KEY,
+    BedrockDiscoveredModel,
+    BedrockSubscription,
+    resolve_foundation_model_id,
+)
 from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.agent.catalog.types import ModelKey
 from tracecat.audit.logger import audit_log
@@ -598,10 +606,16 @@ class AgentCatalogService(BaseService):
                 f"model_provider mismatch: expected {row.model_provider!r}, "
                 f"got {expected_provider!r}"
             )
-        row.model_metadata = {
-            **(row.model_metadata or {}),
-            **(metadata or {}),
-        }
+        current_metadata = dict(row.model_metadata or {})
+        if (
+            row.model_provider == "bedrock"
+            and metadata
+            and ("inference_profile_id" in metadata or "model_id" in metadata)
+        ):
+            # A retargeted row must be re-resolved on the next Bedrock refresh.
+            current_metadata.pop(BEDROCK_FOUNDATION_MODEL_METADATA_KEY, None)
+            current_metadata.pop(BEDROCK_SUBSCRIPTION_METADATA_KEY, None)
+        row.model_metadata = {**current_metadata, **(metadata or {})}
         row.last_refreshed_at = datetime.now(UTC)
         await self.session.commit()
         await self.session.refresh(row)
@@ -693,3 +707,98 @@ class AgentCatalogService(BaseService):
         await self.session.execute(delete_stmt)
         await self.session.commit()
         return len(values)
+
+    async def list_bedrock_rows(self, *, org_id: UUID) -> Sequence[AgentCatalog]:
+        """List the org's Bedrock catalog rows."""
+        result = await self.session.execute(
+            select(AgentCatalog).where(
+                AgentCatalog.organization_id == org_id,
+                AgentCatalog.custom_provider_id.is_(None),
+                AgentCatalog.model_provider == "bedrock",
+            )
+        )
+        return result.scalars().all()
+
+    async def sync_bedrock_models(
+        self,
+        *,
+        org_id: UUID,
+        models: Sequence[BedrockDiscoveredModel],
+        subscriptions: Mapping[str, BedrockSubscription],
+    ) -> int:
+        """Merge discovered Bedrock models into the org's Bedrock catalog.
+
+        Manually authored rows are never removed; they only receive the
+        subscription status of the foundation model they reference.
+        Previously discovered rows that AWS no longer returns are removed.
+        """
+        rows = await self.list_bedrock_rows(org_id=org_id)
+        now = datetime.now(UTC)
+        discovered_by_name = {model.model_name: model for model in models}
+        foundation_by_ref = {
+            ref: model.foundation_model_id
+            for model in models
+            for ref in (model.inference_profile_id, model.model_id)
+            if ref is not None
+        }
+        existing_names: set[str] = set()
+        for row in rows:
+            metadata = dict(row.model_metadata or {})
+            if (
+                metadata.get("discovery_source") == BEDROCK_DISCOVERY_SOURCE
+                and row.model_name not in discovered_by_name
+            ):
+                await self.session.delete(row)
+                continue
+            existing_names.add(row.model_name)
+            ref = metadata.get("inference_profile_id") or metadata.get("model_id")
+            foundation_id = resolve_foundation_model_id(metadata)
+            if foundation_id is None and isinstance(ref, str):
+                foundation_id = foundation_by_ref.get(ref)
+            if foundation_id is None:
+                continue
+            metadata[BEDROCK_FOUNDATION_MODEL_METADATA_KEY] = foundation_id
+            if subscription := subscriptions.get(foundation_id):
+                metadata[BEDROCK_SUBSCRIPTION_METADATA_KEY] = subscription
+            row.model_metadata = metadata
+            row.last_refreshed_at = now
+
+        for model in models:
+            if model.model_name in existing_names:
+                continue
+            subscription = subscriptions.get(model.foundation_model_id)
+            self.session.add(
+                AgentCatalog(
+                    organization_id=org_id,
+                    custom_provider_id=None,
+                    model_provider="bedrock",
+                    model_name=model.model_name,
+                    model_metadata=model.to_metadata(
+                        subscription
+                        or {"status": "unknown", "checked_at": now.isoformat()}
+                    ),
+                    last_refreshed_at=now,
+                )
+            )
+        await self.session.commit()
+        return len(models)
+
+    async def set_bedrock_subscription(
+        self,
+        *,
+        org_id: UUID,
+        catalog_id: UUID,
+        foundation_model_id: str,
+        subscription: BedrockSubscription,
+    ) -> None:
+        """Record a subscription status on every org row for the foundation model."""
+        rows = await self.list_bedrock_rows(org_id=org_id)
+        for row in rows:
+            metadata = dict(row.model_metadata or {})
+            if row.id == catalog_id:
+                metadata[BEDROCK_FOUNDATION_MODEL_METADATA_KEY] = foundation_model_id
+            elif resolve_foundation_model_id(metadata) != foundation_model_id:
+                continue
+            metadata[BEDROCK_SUBSCRIPTION_METADATA_KEY] = subscription
+            row.model_metadata = metadata
+        await self.session.commit()

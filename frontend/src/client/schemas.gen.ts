@@ -6925,6 +6925,33 @@ export const $BedrockCatalogUpdate = {
   title: "BedrockCatalogUpdate",
 } as const
 
+export const $BedrockSubscriptionRead = {
+  properties: {
+    status: {
+      type: "string",
+      enum: [
+        "subscribed",
+        "not_subscribed",
+        "pending",
+        "not_authorized",
+        "unavailable",
+        "error",
+        "unknown",
+      ],
+      title: "Status",
+    },
+    checked_at: {
+      type: "string",
+      title: "Checked At",
+    },
+  },
+  type: "object",
+  required: ["status", "checked_at"],
+  title: "BedrockSubscriptionRead",
+  description:
+    "AWS Marketplace subscription status for a Bedrock foundation model.",
+} as const
+
 export const $BitbucketDataCenterTokenCredentialsRequest = {
   properties: {
     base_url: {

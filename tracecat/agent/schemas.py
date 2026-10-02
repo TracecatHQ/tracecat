@@ -12,6 +12,7 @@ from typing import (
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from tracecat.agent.bedrock import BedrockSubscriptionStatus
 from tracecat.agent.common.types import MCPServerConfig
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig, DeferredToolResults
@@ -25,6 +26,13 @@ class DefaultModelSelection(BaseModel):
     model_name: str = Field(..., min_length=1, max_length=500)
     model_provider: str = Field(..., min_length=1, max_length=120)
     custom_provider_id: uuid.UUID | None = Field(default=None)
+
+
+class BedrockSubscriptionRead(BaseModel):
+    """AWS Marketplace subscription status for a Bedrock foundation model."""
+
+    status: BedrockSubscriptionStatus
+    checked_at: str
 
 
 class DefaultModelSelectionUpdate(BaseModel):

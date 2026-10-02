@@ -853,6 +853,63 @@ async def test_provider_auth_signal_survives_litellm_serialization(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("llm_provider", "message", "expected_type"),
+    [
+        (
+            "bedrock",
+            "BedrockException - not authorized to perform the required AWS "
+            "Marketplace actions (aws-marketplace:ViewSubscriptions, "
+            "aws-marketplace:Subscribe) synthetic-sensitive-detail",
+            "tracecat_llm_provider_subscription_required",
+        ),
+        (
+            "bedrock",
+            "BedrockException - AccessDenied synthetic-sensitive-detail",
+            "tracecat_llm_provider_auth_failed",
+        ),
+        (
+            "openai",
+            "aws-marketplace:Subscribe synthetic-sensitive-detail",
+            "tracecat_llm_provider_auth_failed",
+        ),
+    ],
+)
+async def test_bedrock_marketplace_denial_survives_litellm_serialization(
+    llm_provider: str,
+    message: str,
+    expected_type: str,
+) -> None:
+    response = httpx.Response(
+        403,
+        request=httpx.Request("POST", "https://provider.example.invalid/v1/messages"),
+    )
+    original = PermissionDeniedError(
+        message=message,
+        llm_provider=llm_provider,
+        model="synthetic-model",
+        response=response,
+    )
+    callback = TracecatCallbackHandler()
+    proxy_logging = AsyncMock(spec=ProxyLogging)
+    proxy_logging.post_call_failure_hook.side_effect = (
+        callback.async_post_call_failure_hook
+    )
+    proxy_logging.post_call_response_headers_hook.return_value = {}
+    processor = ProxyBaseLLMRequestProcessing(data={})
+
+    with pytest.raises(ProxyException) as exc_info:
+        await processor._handle_llm_api_exception(
+            original, UserAPIKeyAuth(), proxy_logging
+        )
+
+    assert exc_info.value.code == "403"
+    wire_error = exc_info.value.to_dict()
+    assert wire_error["type"] == expected_type
+    assert "synthetic-sensitive-detail" not in json.dumps(wire_error)
+
+
+@pytest.mark.anyio
 async def test_failure_hook_preserves_budget_exception_for_litellm_auth_handler() -> (
     None
 ):

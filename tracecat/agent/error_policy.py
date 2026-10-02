@@ -342,6 +342,20 @@ def agent_llm_provider_auth_failed() -> RuntimeErrorClassification:
     )
 
 
+def agent_llm_provider_subscription_required() -> RuntimeErrorClassification:
+    """Classify a Bedrock model whose AWS Marketplace subscription is not active."""
+    return RuntimeErrorClassification.user(
+        kind=RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+        message=(
+            "AWS Bedrock model access is not active for this model; subscribe to "
+            "it in organization agent settings or grant the AWS role "
+            "aws-marketplace:Subscribe and aws-marketplace:ViewSubscriptions, "
+            "then retry in a few minutes"
+        ),
+        retry_disposition=RetryDisposition.NON_RETRYABLE,
+    )
+
+
 def agent_llm_model_not_enabled() -> RuntimeErrorClassification:
     """Classify a managed-route model that workspace model access disallows."""
     return RuntimeErrorClassification.user(
