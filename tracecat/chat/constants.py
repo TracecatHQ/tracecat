@@ -11,3 +11,6 @@ COMPACTION_DATA_PART_TYPE = "data-compaction"
 
 CANCELLED_DATA_PART_TYPE = "data-cancelled"
 """UI data part identifier for turn-cancelled notice payloads."""
+
+AGENT_CHUNK_DATA_PART_TYPE = "data-agent-chunk"
+"""UI data part identifier for transient child-session UI chunks."""

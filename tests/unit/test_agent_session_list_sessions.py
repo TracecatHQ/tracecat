@@ -93,7 +93,11 @@ async def test_list_sessions_parent_session_filter_excludes_legacy_chats() -> No
     session.execute.assert_awaited_once()
     query = str(session.execute.await_args.args[0])
     assert "agent_session.spawned_by_session_id =" in query
-    assert results == [AgentSessionRead.model_validate(child_session)]
+    assert results == [
+        AgentSessionRead.model_validate(child_session).model_copy(
+            update={"is_readonly": True}
+        )
+    ]
 
 
 @pytest.mark.anyio
@@ -130,12 +134,15 @@ async def test_list_sessions_marks_teammate_sessions_read_only() -> None:
     teammate_session = _agent_session_row(
         workspace_id=role.workspace_id,
         user_id=uuid.uuid4(),
-        spawned_by_session_id=uuid.uuid4(),
+        spawned_by_session_id=None,
     )
-    session.execute.return_value = _mock_scalar_result([teammate_session])
+    session.execute.side_effect = [
+        _mock_scalar_result([teammate_session]),
+        _mock_scalar_result([]),
+    ]
 
     results = await service.list_sessions(
-        spawned_by_session_id=teammate_session.spawned_by_session_id,
+        created_by=teammate_session.created_by,
         limit=1,
     )
 
@@ -147,21 +154,26 @@ async def test_list_sessions_marks_teammate_sessions_read_only() -> None:
 @pytest.mark.parametrize(
     "backend_state", ["enabled", "disabled", "missing", "unsupported"]
 )
-async def test_list_sessions_derives_readonly_from_backend_state(
+@pytest.mark.parametrize("is_child", [False, True], ids=["root", "child"])
+async def test_list_sessions_derives_readonly_from_parent_and_backend_state(
     backend_state: str,
+    is_child: bool,
 ) -> None:
     service, db, role = _build_service()
     assert role.workspace_id is not None
     row = _agent_session_row(
         workspace_id=role.workspace_id,
         user_id=role.user_id,
-        spawned_by_session_id=uuid.uuid4(),
+        spawned_by_session_id=uuid.uuid4() if is_child else None,
     )
     row.backend_id = "external"
     row.harness_type = (
         "unsupported" if backend_state == "unsupported" else "claude_code"
     )
-    db.execute.return_value = _mock_scalar_result([row])
+    db.execute.side_effect = [
+        _mock_scalar_result([row]),
+        _mock_scalar_result([]),
+    ]
     provider = DefaultBackend()
     with (
         patch.object(
@@ -176,7 +188,7 @@ async def test_list_sessions_derives_readonly_from_backend_state(
         )
     assert len(results) == 1
     assert isinstance(results[0], AgentSessionRead)
-    assert results[0].is_readonly is (backend_state != "enabled")
+    assert results[0].is_readonly is (is_child or backend_state != "enabled")
 
 
 @pytest.mark.anyio

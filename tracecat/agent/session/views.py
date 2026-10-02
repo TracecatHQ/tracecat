@@ -20,6 +20,7 @@ def build_session_read(
         title=session.title,
         created_by=session.created_by,
         is_readonly=readonly
+        or session.spawned_by_session_id is not None
         or is_session_readonly(role, session.created_by)
         or not available,
         backend_id=session.backend_id,

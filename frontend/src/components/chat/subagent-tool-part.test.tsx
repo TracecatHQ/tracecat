@@ -1,0 +1,425 @@
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import type { UIMessage, UIMessagePart } from "ai"
+import type { ReactNode } from "react"
+import { MessagePart } from "@/components/chat/chat-session-pane"
+import { SubagentStreamContext } from "@/hooks/use-subagent-stream"
+import { SubagentStreamStore } from "@/lib/subagent-stream"
+import { WorkspaceIdProvider } from "@/providers/workspace-id"
+
+const CHILD_ID = "0b5c6f7e-1d2a-4c3b-9e8f-7a6b5c4d3e2f"
+
+// jsdom lacks structuredClone, which readUIMessageStream uses per update.
+if (typeof globalThis.structuredClone !== "function") {
+  globalThis.structuredClone = ((value: unknown) =>
+    JSON.parse(JSON.stringify(value))) as typeof structuredClone
+}
+
+const mockUseGetChatVercel = jest.fn()
+
+jest.mock("@/hooks/use-chat", () => ({
+  useGetChatVercel: (args: { chatId?: string; workspaceId: string }) =>
+    mockUseGetChatVercel(args),
+}))
+
+// The real tool components pull in ESM-only syntax highlighting.
+jest.mock("@/components/ai-elements/tool", () => ({
+  getStatusBadge: () => null,
+  Tool: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  ToolContent: ({ children }: { children?: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  ToolHeader: ({ title, state }: { title?: string; state: string }) => (
+    <div>
+      <span>{title}</span>
+      <span data-testid="tool-state">{state}</span>
+    </div>
+  ),
+  ToolInput: () => null,
+  ToolOutput: ({
+    errorText,
+    output,
+  }: {
+    errorText?: string
+    output?: unknown
+  }) => (
+    <>
+      {errorText ? <div>{errorText}</div> : null}
+      {output !== undefined ? (
+        <pre data-testid="tool-output">{JSON.stringify(output)}</pre>
+      ) : null}
+    </>
+  ),
+}))
+
+jest.mock("@/components/icons", () => ({
+  getIcon: () => null,
+  ProviderIcon: () => null,
+}))
+
+jest.mock("@/components/json-viewer", () => ({
+  JsonViewWithControls: ({ src }: { src?: unknown }) => (
+    <pre>{JSON.stringify(src)}</pre>
+  ),
+}))
+
+jest.mock("@/components/editor/codemirror/code-editor", () => ({
+  CodeEditor: ({ value }: { value?: string }) => <pre>{value}</pre>,
+}))
+
+type Part = UIMessagePart<Record<string, unknown>, Record<string, never>>
+
+function subagentPart(overrides: Record<string, unknown>): Part {
+  return {
+    type: "tool-subagent",
+    toolCallId: "call_subagent",
+    input: { alias: "Triage agent", task: "Summarize the open cases" },
+    ...overrides,
+  } as unknown as Part
+}
+
+function renderPart(part: Part, wrap: (node: ReactNode) => ReactNode) {
+  function content(currentPart: Part) {
+    return wrap(
+      <MessagePart
+        part={currentPart}
+        partIdx={0}
+        id="parent-message"
+        role="assistant"
+        isLastMessage
+      />
+    )
+  }
+  const view = render(content(part))
+  return {
+    ...view,
+    rerenderPart: (nextPart: Part) => view.rerender(content(nextPart)),
+  }
+}
+
+describe("subagent tool part", () => {
+  beforeEach(() => {
+    mockUseGetChatVercel.mockReset()
+    mockUseGetChatVercel.mockReturnValue({
+      chat: undefined,
+      chatLoading: false,
+      chatError: null,
+    })
+  })
+
+  it.each([
+    {
+      name: "structured child failure",
+      errorText: {
+        session_id: CHILD_ID,
+        status: "failed",
+        output: "Subagent exceeded its turn limit",
+      },
+      sessionId: CHILD_ID,
+    },
+    {
+      name: "plain text failure",
+      errorText: "Subagent exceeded its turn limit",
+      sessionId: undefined,
+    },
+  ])("displays the reason for a $name", ({ errorText, sessionId }) => {
+    renderPart(
+      subagentPart({
+        state: "output-available",
+        output: { errorText },
+      }),
+      (node) => (
+        <WorkspaceIdProvider workspaceId="workspace-1">
+          {node}
+        </WorkspaceIdProvider>
+      )
+    )
+
+    expect(screen.getByTestId("tool-state")).toHaveTextContent("output-error")
+    expect(
+      screen.getByText("Subagent exceeded its turn limit")
+    ).toBeInTheDocument()
+    expect(mockUseGetChatVercel).toHaveBeenLastCalledWith({
+      chatId: sessionId,
+      workspaceId: "workspace-1",
+    })
+  })
+
+  it.each([undefined, null, "", "   ", 42])(
+    "shows a fallback when the child failure reason is %p",
+    (output) => {
+      renderPart(
+        subagentPart({
+          state: "output-available",
+          output: {
+            errorText: { session_id: CHILD_ID, status: "failed", output },
+          },
+        }),
+        (node) => (
+          <WorkspaceIdProvider workspaceId="workspace-1">
+            {node}
+          </WorkspaceIdProvider>
+        )
+      )
+
+      expect(screen.getByTestId("tool-state")).toHaveTextContent("output-error")
+      expect(screen.getByText("Subagent failed")).toBeInTheDocument()
+    }
+  )
+
+  it("keeps structured generic tool errors in the output renderer", () => {
+    renderPart(
+      subagentPart({
+        type: "tool-example",
+        toolCallId: "call_example",
+        state: "output-available",
+        input: {},
+        output: { errorText: { reason: "Request failed" } },
+      }),
+      (node) => node
+    )
+
+    expect(screen.getByTestId("tool-state")).toHaveTextContent("output-error")
+    expect(screen.getByTestId("tool-output")).toHaveTextContent(
+      "Request failed"
+    )
+  })
+
+  it("renders the live child transcript while the output is preliminary", async () => {
+    const store = new SubagentStreamStore()
+    for (const [index, chunk] of [
+      { type: "start", messageId: CHILD_ID },
+      { type: "text-start", id: "t1" },
+      { type: "text-delta", id: "t1", delta: "Child is working" },
+    ].entries()) {
+      store.ingest({
+        session_id: CHILD_ID,
+        event_id: "e1",
+        index,
+        chunk: chunk as never,
+      })
+    }
+
+    renderPart(
+      subagentPart({
+        state: "output-available",
+        output: { session_id: CHILD_ID, status: "running" },
+        preliminary: true,
+      }),
+      (node) => (
+        <SubagentStreamContext.Provider
+          value={{ store, workspaceId: "workspace-1", status: "streaming" }}
+        >
+          {node}
+        </SubagentStreamContext.Provider>
+      )
+    )
+
+    expect(screen.getByText("Triage agent")).toBeInTheDocument()
+    expect(screen.getByTestId("tool-state")).toHaveTextContent(
+      "input-available"
+    )
+    expect(await screen.findByText("Child is working")).toBeInTheDocument()
+    // While running, the persisted transcript is not requested.
+    expect(mockUseGetChatVercel).toHaveBeenLastCalledWith({
+      chatId: undefined,
+      workspaceId: "workspace-1",
+    })
+    expect(mockUseGetChatVercel).not.toHaveBeenCalledWith({
+      chatId: CHILD_ID,
+      workspaceId: "workspace-1",
+    })
+  })
+
+  it("loads the persisted child transcript once the call has finished", async () => {
+    const persistedMessages: UIMessage[] = [
+      {
+        id: "child-user",
+        role: "user",
+        parts: [{ type: "text", text: "Summarize the open cases" }],
+      },
+      {
+        id: "child-assistant",
+        role: "assistant",
+        parts: [{ type: "text", text: "Three cases are open" }],
+      },
+    ]
+    mockUseGetChatVercel.mockImplementation(
+      ({ chatId }: { chatId?: string }) => ({
+        chat:
+          chatId === CHILD_ID
+            ? { id: CHILD_ID, messages: persistedMessages }
+            : undefined,
+        chatLoading: false,
+        chatError: null,
+      })
+    )
+
+    renderPart(
+      subagentPart({
+        state: "output-available",
+        output: { session_id: CHILD_ID, summary: "done" },
+      }),
+      (node) => (
+        <WorkspaceIdProvider workspaceId="workspace-1">
+          {node}
+        </WorkspaceIdProvider>
+      )
+    )
+
+    expect(await screen.findByText("Three cases are open")).toBeInTheDocument()
+    expect(screen.getByTestId("tool-state")).toHaveTextContent(
+      "output-available"
+    )
+    // The task stays collapsed and the child prompt is not repeated.
+    expect(
+      screen.queryByText("Summarize the open cases")
+    ).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(mockUseGetChatVercel).toHaveBeenCalledWith({
+        chatId: CHILD_ID,
+        workspaceId: "workspace-1",
+      })
+    )
+  })
+
+  it("keeps completed live text until fresh history loads, then releases it", async () => {
+    const store = new SubagentStreamStore()
+    for (const [index, chunk] of [
+      { type: "start", messageId: CHILD_ID },
+      { type: "text-start", id: "t1" },
+      { type: "text-delta", id: "t1", delta: "Live reply" },
+    ].entries()) {
+      store.ingest({
+        session_id: CHILD_ID,
+        event_id: "e1",
+        index,
+        chunk: chunk as never,
+      })
+    }
+    const finalPart = subagentPart({
+      state: "output-available",
+      output: { session_id: CHILD_ID, status: "completed" },
+    })
+    // A cached response is not authoritative while the completion fetch runs.
+    mockUseGetChatVercel.mockReturnValue({
+      chat: { id: CHILD_ID, messages: [] },
+      chatLoading: false,
+      chatFetching: true,
+      chatError: null,
+    })
+    const view = renderPart(finalPart, (node) => (
+      <SubagentStreamContext.Provider
+        value={{ store, workspaceId: "workspace-1", status: "ready" }}
+      >
+        {node}
+      </SubagentStreamContext.Provider>
+    ))
+    expect(await screen.findByText("Live reply")).toBeInTheDocument()
+    expect(store.getMessage(CHILD_ID)).toBeDefined()
+
+    mockUseGetChatVercel.mockReturnValue({
+      chat: {
+        id: CHILD_ID,
+        messages: [
+          {
+            id: "persisted-reply",
+            role: "assistant",
+            parts: [{ type: "text", text: "Persisted reply" }],
+          },
+        ],
+      },
+      chatLoading: false,
+      chatFetching: false,
+      chatError: null,
+    })
+    view.rerenderPart(finalPart)
+    expect(await screen.findByText("Persisted reply")).toBeInTheDocument()
+    expect(screen.queryByText("Live reply")).not.toBeInTheDocument()
+    expect(store.getMessage(CHILD_ID)).toBeUndefined()
+  })
+
+  it.each([
+    { failed: true, placeholder: "Could not load transcript" },
+    { failed: false, placeholder: "No transcript available" },
+  ])(
+    "distinguishes a history request failure ($failed) from empty history",
+    ({ failed, placeholder }) => {
+      mockUseGetChatVercel.mockReturnValue({
+        chat: failed ? undefined : { id: CHILD_ID, messages: [] },
+        chatLoading: false,
+        chatError: failed ? new Error("History request failed") : null,
+      })
+      renderPart(
+        subagentPart({
+          state: "output-available",
+          output: { session_id: CHILD_ID, status: "completed" },
+        }),
+        (node) => (
+          <WorkspaceIdProvider workspaceId="workspace-1">
+            {node}
+          </WorkspaceIdProvider>
+        )
+      )
+
+      expect(screen.getByText(placeholder)).toBeInTheDocument()
+      expect(
+        screen.queryByText("History request failed")
+      ).not.toBeInTheDocument()
+    }
+  )
+
+  it("offers a working retry button when transcript recovery times out", () => {
+    jest.useFakeTimers()
+    const store = new SubagentStreamStore()
+    try {
+      mockUseGetChatVercel.mockReturnValue({
+        chat: { id: CHILD_ID, messages: [] },
+        chatLoading: false,
+        chatFetching: false,
+        chatError: null,
+      })
+      const view = renderPart(
+        subagentPart({
+          state: "output-available",
+          output: { session_id: CHILD_ID, status: "running" },
+          preliminary: true,
+        }),
+        (node) => (
+          <SubagentStreamContext.Provider
+            value={{ store, workspaceId: "workspace-1", status: "error" }}
+          >
+            {node}
+          </SubagentStreamContext.Provider>
+        )
+      )
+      act(() => jest.advanceTimersByTime(60_000))
+      expect(
+        screen.getByText("Transcript recovery paused.")
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText("Waiting for the agent to start...")
+      ).not.toBeInTheDocument()
+      expect(mockUseGetChatVercel).toHaveBeenLastCalledWith(
+        expect.objectContaining({ chatId: CHILD_ID, enabled: false })
+      )
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "Retry transcript loading" })
+      )
+      expect(
+        screen.queryByText("Transcript recovery paused.")
+      ).not.toBeInTheDocument()
+      expect(
+        screen.getByText("Waiting for the agent to start...")
+      ).toBeInTheDocument()
+      expect(mockUseGetChatVercel).toHaveBeenLastCalledWith(
+        expect.objectContaining({ chatId: CHILD_ID, enabled: true })
+      )
+      view.unmount()
+    } finally {
+      store.dispose()
+      jest.clearAllTimers()
+      jest.useRealTimers()
+    }
+  })
+})
