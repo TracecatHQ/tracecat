@@ -68,7 +68,7 @@ def main(path_env: str = CGROUP_PATH_ENV) -> None:
     """Run as root for delegation, then permanently drop to the image's apiuser."""
     if os.getuid() != 0 or len(sys.argv) < 2:
         raise RuntimeError(
-            "Run as root: python -m tracecat.sandbox.bootstrap COMMAND..."
+            "Start this sandbox bootstrap as root and provide a worker command."
         )
     nsjail_enabled = config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail
     if nsjail_enabled and not os.environ.get(path_env):
