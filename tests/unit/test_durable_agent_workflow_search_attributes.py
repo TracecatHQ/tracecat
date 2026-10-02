@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 import pytest
 from temporalio.common import TypedSearchAttributes
@@ -651,14 +651,16 @@ async def test_compile_agent_run_uses_legacy_activity_without_patch_marker() -> 
             token_ttl_seconds=None,
         )
 
-    patched_mock.assert_called_once_with(
-        DurableAgentWorkflowPatch.BUILD_AGENT_TOOL_DEFINITIONS
-    )
+    assert patched_mock.call_args_list == [
+        call(DurableAgentWorkflowPatch.FAIL_ON_ROOT_MCP_DISCOVERY_ERROR),
+        call(DurableAgentWorkflowPatch.BUILD_AGENT_TOOL_DEFINITIONS),
+    ]
     execute_activity_mock.assert_awaited_once()
     assert execute_activity_mock.await_args is not None
     activity_args = execute_activity_mock.await_args.kwargs["arg"]
     assert isinstance(activity_args, BuildToolDefsArgs)
     assert activity_args.tool_filters.actions == ["core.http_request"]
+    assert activity_args.fail_on_mcp_discovery_error is False
     assert compiled.root.build_result == build_result
     assert compiled.root.mcp_auth_token == "mcp-token"
     assert compiled.subagents == []
