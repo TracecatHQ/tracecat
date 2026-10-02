@@ -21,3 +21,5 @@ class FeatureFlag(StrEnum):
     AGENT_FS_PERSISTENCE = "agent-fs-persistence"
     # Expose backend selection for engineering validation during runtime rollout.
     AGENT_RUNTIME = "agent-runtime"
+    # Read workspace sync pulls from one GitHub commit tarball instead of per-blob calls.
+    WORKSPACE_SYNC_GITHUB_ARCHIVE = "workspace-sync-github-archive"

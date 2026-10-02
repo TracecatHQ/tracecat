@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import io
 import itertools
 import json
 import re
+import tarfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
@@ -22,11 +24,13 @@ import httpx
 from github.GithubException import GithubException
 from github.GitTreeElement import GitTreeElement
 from github.InputGitTreeElement import InputGitTreeElement
+from github.Repository import Repository
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
 from tracecat.db.models import User
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.git.types import GitUrl
 from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
 from tracecat.service import BaseWorkspaceService
@@ -174,6 +178,11 @@ def _path_is_under_roots(path: str, roots: Sequence[str]) -> bool:
 
 
 _GITHUB_BLOB_CONCURRENCY = 8
+_GITHUB_ARCHIVE_MAX_BYTES = 64 * 1024 * 1024
+"""Largest compressed commit tarball downloaded before falling back to blob reads."""
+_GITHUB_ARCHIVE_MAX_EXTRACTED_BYTES = 256 * 1024 * 1024
+"""Largest total size of tree-matched archive members decoded from one tarball."""
+_GITHUB_ARCHIVE_TIMEOUT_SECONDS = 30.0
 """Maximum concurrent GitHub blob/content calls during sync reads and writes."""
 
 _GITHUB_TREE_CHUNK_SIZE = 128
@@ -230,9 +239,73 @@ class _GitHubTreeChunk:
 
 def _git_blob_sha(content: str) -> str:
     """Return the Git blob object SHA for UTF-8 ``content``."""
-    content_bytes = content.encode("utf-8")
-    framed_content = b"blob " + str(len(content_bytes)).encode() + b"\0" + content_bytes
+    return _git_blob_sha_bytes(content.encode("utf-8"))
+
+
+def _git_blob_sha_bytes(content: bytes) -> str:
+    """Return the Git blob object SHA for raw ``content``."""
+    framed_content = b"blob " + str(len(content)).encode() + b"\0" + content
     return hashlib.sha1(framed_content, usedforsecurity=False).hexdigest()
+
+
+class _GitHubArchiveTooLargeError(Exception):
+    """Raised when a commit tarball exceeds the download size cap."""
+
+
+async def _download_github_archive(url: str) -> bytes:
+    """Download a GitHub archive link, enforcing the compressed size cap."""
+    async with httpx.AsyncClient(
+        timeout=_GITHUB_ARCHIVE_TIMEOUT_SECONDS,
+        follow_redirects=True,
+    ) as client:
+        async with client.stream("GET", url) as response:
+            response.raise_for_status()
+            chunks: list[bytes] = []
+            size = 0
+            async for chunk in response.aiter_bytes():
+                size += len(chunk)
+                if size > _GITHUB_ARCHIVE_MAX_BYTES:
+                    raise _GitHubArchiveTooLargeError(
+                        f"Archive exceeds {_GITHUB_ARCHIVE_MAX_BYTES} bytes"
+                    )
+                chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _verified_archive_texts(
+    archive: bytes,
+    blob_shas: Mapping[str, str],
+) -> dict[str, str | None]:
+    """Decode tarball members whose bytes hash to the commit tree's blob SHA.
+
+    GitHub nests every member under a ``{owner}-{repo}-{sha}/`` directory.
+    Members that are absent (``export-ignore``) or whose bytes differ from the
+    tree blob (``export-subst``, LFS objects) are omitted, so callers read them
+    through the blob API instead. Values are ``None`` for non-UTF-8 blobs.
+    """
+    texts: dict[str, str | None] = {}
+    extracted_bytes = 0
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+        for member in tar:
+            if not member.isfile():
+                continue
+            _, _, path = member.name.partition("/")
+            expected_sha = blob_shas.get(path)
+            if expected_sha is None:
+                continue
+            extracted_bytes += member.size
+            if extracted_bytes > _GITHUB_ARCHIVE_MAX_EXTRACTED_BYTES:
+                break
+            if (member_file := tar.extractfile(member)) is None:
+                continue
+            content = member_file.read()
+            if _git_blob_sha_bytes(content) != expected_sha:
+                continue
+            try:
+                texts[path] = content.decode("utf-8")
+            except UnicodeDecodeError:
+                texts[path] = None
+    return texts
 
 
 def _sized_git_tree_element(element: InputGitTreeElement) -> _SizedGitTreeElement:
@@ -456,10 +529,19 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 for item in tree.tree
                 if item.type == "blob" and item.path
             }
+            archive_texts: dict[str, str | None] = {}
+            if is_feature_enabled(FeatureFlag.WORKSPACE_SYNC_GITHUB_ARCHIVE):
+                archive_texts = await self._read_archive_texts(
+                    repo,
+                    commit_sha=commit.sha,
+                    blob_shas=blob_shas,
+                )
             blob_semaphore = asyncio.Semaphore(_GITHUB_BLOB_CONCURRENCY)
 
             async def fetch_text(path: str) -> str | None:
                 """Fetch a blob and decode it as UTF-8, or ``None`` if binary."""
+                if path in archive_texts:
+                    return archive_texts[path]
                 async with blob_semaphore:
                     blob = await asyncio.to_thread(repo.get_git_blob, blob_shas[path])
                 try:
@@ -481,6 +563,47 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
         finally:
             gh.close()
+
+    async def _read_archive_texts(
+        self,
+        repo: Repository,
+        *,
+        commit_sha: str,
+        blob_shas: Mapping[str, str],
+    ) -> dict[str, str | None]:
+        """Read tree-verified file texts from the commit tarball in one request.
+
+        Returns an empty mapping when the archive cannot be used, so every
+        path falls back to the per-blob API.
+        """
+        try:
+            archive_url = await asyncio.to_thread(
+                repo.get_archive_link, "tarball", commit_sha
+            )
+            archive = await _download_github_archive(archive_url)
+            texts = await asyncio.to_thread(_verified_archive_texts, archive, blob_shas)
+        except (
+            GithubException,
+            httpx.HTTPError,
+            _GitHubArchiveTooLargeError,
+            tarfile.TarError,
+            OSError,
+            EOFError,
+        ) as e:
+            self.logger.warning(
+                "GitHub archive read failed; falling back to blob reads",
+                commit_sha=commit_sha,
+                error_type=type(e).__name__,
+            )
+            return {}
+        self.logger.info(
+            "Read GitHub archive for workspace sync",
+            commit_sha=commit_sha,
+            archive_bytes=len(archive),
+            tree_blob_count=len(blob_shas),
+            verified_file_count=len(texts),
+        )
+        return texts
 
     async def write_files(
         self,

@@ -15445,6 +15445,7 @@ export const $FeatureFlag = {
     "agent-channels",
     "agent-fs-persistence",
     "agent-runtime",
+    "workspace-sync-github-archive",
   ],
   title: "FeatureFlag",
   description: "Feature flag enum reserved for engineering rollouts.",
