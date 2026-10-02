@@ -594,7 +594,12 @@ async def test_pull_previews_installs_without_writes_and_rechecks_on_apply(
     assert preview.library_skill_installs == [SLUG]
     assert await library_service.missing_installs([SLUG]) == [SLUG]
     assert (
-        await session.scalar(sa.select(sa.func.count()).select_from(AgentPreset)) == 0
+        await session.scalar(
+            sa.select(sa.func.count())
+            .select_from(AgentPreset)
+            .where(AgentPreset.workspace_id == svc_role.workspace_id)
+        )
+        == 0
     )
     # An install can disappear after preview. Apply must reconcile the whole
     # dependency set rather than trusting the preview's missing-only list.
@@ -606,11 +611,19 @@ async def test_pull_previews_installs_without_writes_and_rechecks_on_apply(
     assert await library_service.missing_installs([SLUG, "incident-summary"]) == []
     assert (
         await session.scalar(
-            sa.select(sa.func.count()).select_from(SkillLibraryInstall)
+            sa.select(sa.func.count())
+            .select_from(SkillLibraryInstall)
+            .where(SkillLibraryInstall.workspace_id == svc_role.workspace_id)
         )
         == 2
     )
-    presets = (await session.scalars(sa.select(AgentPreset))).all()
+    presets = (
+        await session.scalars(
+            sa.select(AgentPreset).where(
+                AgentPreset.workspace_id == svc_role.workspace_id
+            )
+        )
+    ).all()
     assert len(presets) == 2
     assert all(p.library_skills == ["incident-summary", SLUG] for p in presets)
     replay = await service._import_snapshot(snapshot, sync_schedules=False)
@@ -636,7 +649,12 @@ async def test_pull_unknown_library_skill_blocks_all_installs(
     assert result.library_skill_installs == []
     assert await library_service.missing_installs([SLUG]) == [SLUG]
     assert (
-        await session.scalar(sa.select(sa.func.count()).select_from(AgentPreset)) == 0
+        await session.scalar(
+            sa.select(sa.func.count())
+            .select_from(AgentPreset)
+            .where(AgentPreset.workspace_id == svc_role.workspace_id)
+        )
+        == 0
     )
 
 
@@ -663,7 +681,12 @@ async def test_pull_rolls_back_library_installs_and_presets_on_late_failure(
     assert result.library_skill_installs == []
     assert await library_service.missing_installs([SLUG, "incident-summary"]) == [SLUG]
     assert (
-        await session.scalar(sa.select(sa.func.count()).select_from(AgentPreset)) == 0
+        await session.scalar(
+            sa.select(sa.func.count())
+            .select_from(AgentPreset)
+            .where(AgentPreset.workspace_id == svc_role.workspace_id)
+        )
+        == 0
     )
 
 
