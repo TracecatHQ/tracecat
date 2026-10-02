@@ -594,7 +594,6 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 "GitHub archive read failed; falling back to blob reads",
                 commit_sha=commit_sha,
                 error_type=type(e).__name__,
-                error=str(e),
             )
             return {}
         self.logger.info(

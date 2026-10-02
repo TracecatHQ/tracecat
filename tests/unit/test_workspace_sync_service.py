@@ -33,6 +33,7 @@ from tracecat.exceptions import (
 from tracecat.feature_flags import FeatureFlag
 from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.logger import logger
 from tracecat.sync import CommitInfo, PullOptions, PushStatus
 from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.store.schemas import RemoteCaseTrigger, RemoteWorkflowSchedule
@@ -2414,6 +2415,35 @@ async def test_github_read_files_falls_back_to_blobs_when_archive_unusable(
 
     assert len(repo.blob_calls) == 4
     assert snapshot.files["workflows/a/definition.yml"] == "title: a\n"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("github_archive_enabled")
+async def test_github_archive_http_error_does_not_log_download_credentials(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    repo = _FakeGitHubArchiveRepo(_archive_repo_files())
+    token = "synthetic-secret"
+    archive_url = f"{_ARCHIVE_URL}?token={token}"
+    logs = io.StringIO()
+    sink_id = logger.add(logs, format="{message} {extra}", level="WARNING")
+    try:
+        with (
+            patch.object(repo, "get_archive_link", return_value=archive_url),
+            respx.mock(assert_all_called=True) as router,
+        ):
+            router.get(archive_url).mock(return_value=httpx.Response(503))
+            snapshot = await _read_with_archive_repo(repo, workspace_sync_service)
+    finally:
+        logger.remove(sink_id)
+
+    assert len(repo.blob_calls) == 4
+    assert snapshot.files["workflows/a/definition.yml"] == "title: a\n"
+    captured_logs = logs.getvalue()
+    assert "falling back to blob reads" in captured_logs
+    assert "HTTPStatusError" in captured_logs
+    assert token not in captured_logs
+    assert archive_url not in captured_logs
 
 
 @pytest.mark.anyio
