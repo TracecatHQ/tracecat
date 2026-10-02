@@ -61,18 +61,27 @@ curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat
 
 <Warning>
   Docker Compose defaults to the `direct` executor backend, which does not sandbox ordinary workflow actions.
-  For supported action isolation, set `TRACECAT__EXECUTOR_BACKEND=nsjail`, then enable the container permissions described in [Security](/self-hosting/security#nsjail-sandbox-recommended-for-production).
+  For supported action isolation, set `TRACECAT__EXECUTOR_BACKEND=nsjail`, then start with the sandbox overlay described in [Security](/self-hosting/security#nsjail-sandbox-recommended-for-production).
   The legacy `ephemeral` value remains a compatibility alias for `nsjail`.
 </Warning>
 
 ## Start Tracecat
 
-Run the command below to start Tracecat and all related services.
+For the direct backend, run the command below to start Tracecat and all related services.
 Make sure your `docker-compose.yml` and generated `.env` files are in the same directory.
 
 ```bash
 docker compose up
 ```
+
+For nsjail, download `docker-compose.sandbox.yml` from the same Tracecat release as your image and place it beside `docker-compose.yml`. Start with both files so the overlay supplies the container permissions and cgroup bootstrap:
+
+```bash
+TRACECAT__EXECUTOR_BACKEND=nsjail docker compose \
+  -f docker-compose.yml -f docker-compose.sandbox.yml up -d
+```
+
+If you build locally with `docker-compose.local.yml`, substitute that file for `docker-compose.yml` in the command.
 
 ## Access Tracecat
 

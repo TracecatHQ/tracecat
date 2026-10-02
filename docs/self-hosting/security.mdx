@@ -126,7 +126,7 @@ To enable nsjail, set the following in your `.env`:
 TRACECAT__EXECUTOR_BACKEND=nsjail
 ```
 
-The legacy `ephemeral` value remains an alias for `nsjail`.
+The legacy `ephemeral` value remains an alias for `nsjail`. For Docker Compose, use the sandbox overlay in the [startup instructions](/self-hosting/docker-compose#start-tracecat) to supply container permissions and cgroup delegation.
 
 <Warning>
   The `direct` backend does not sandbox ordinary workflow actions.

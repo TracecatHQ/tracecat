@@ -227,14 +227,8 @@ services:
       - core
       - core-db
       - temporal
-    # Required for nsjail sandbox
-    # cap_add:
-    #   - SYS_ADMIN
-    # security_opt:
-    #   - seccomp:unconfined
-    # # Required for NSTUN userspace networking (creates a TUN device in sandbox netns)
-    # devices:
-    #   - /dev/net/tun:/dev/net/tun
+    # For nsjail, use docker-compose.sandbox.yml with this file.
+    # The overlay supplies the required privileges and cgroup bootstrap.
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}
@@ -464,14 +458,8 @@ services:
       - core
       - core-db
       - temporal
-    # Required for nsjail sandbox (agent runtime isolation)
-    # cap_add:
-    #   - SYS_ADMIN
-    # security_opt:
-    #   - seccomp:unconfined
-    # # Required for NSTUN userspace networking (creates a TUN device in sandbox netns)
-    # devices:
-    #   - /dev/net/tun:/dev/net/tun
+    # For nsjail, use docker-compose.sandbox.yml with this file.
+    # The overlay supplies the required privileges and cgroup bootstrap.
     environment:
       # Common
       LOG_LEVEL: ${LOG_LEVEL}
