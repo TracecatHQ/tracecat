@@ -224,3 +224,36 @@ async def test_delete_organization_cleans_restrict_children(
     assert workspace_result.scalars().all() == []
     assert secret_result.scalars().all() == []
     assert store_result.scalars().all() == []
+
+
+@pytest.mark.anyio
+async def test_promoting_non_primary_domain_demotes_existing_primary(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+    org_a: Organization,
+) -> None:
+    service = AdminOrgService(session, role=platform_role)
+    first = await service.create_org_domain(
+        org_a.id, OrgDomainCreate(domain="a.example")
+    )
+    second = await service.create_org_domain(
+        org_a.id, OrgDomainCreate(domain="b.example")
+    )
+    assert first.is_primary is True
+    assert second.is_primary is False
+
+    promoted = await service.update_org_domain(
+        org_a.id, second.id, OrgDomainUpdate(is_primary=True)
+    )
+    assert promoted.is_primary is True
+    domains = {domain.id: domain for domain in await service.list_org_domains(org_a.id)}
+    assert domains[first.id].is_primary is False
+    assert domains[second.id].is_primary is True
+
+    restored = await service.update_org_domain(
+        org_a.id, first.id, OrgDomainUpdate(is_primary=True)
+    )
+    assert restored.is_primary is True
+    domains = {domain.id: domain for domain in await service.list_org_domains(org_a.id)}
+    assert domains[first.id].is_primary is True
+    assert domains[second.id].is_primary is False
