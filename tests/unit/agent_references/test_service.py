@@ -365,9 +365,12 @@ async def test_skill_service_reads_exact_markdown_and_compiles_derived_tool(
         statement = call.args[0]
         sql = str(statement)
         assert f"ORDER BY {table}.tool_id" in sql
-        assert f"{table}.workspace_id =" in sql
-        assert f"{table}.skill_version_id =" in sql
-        assert set(statement.compile().params.values()) == {service.workspace_id, vid}
+        assert f"{table}.workspace_id = :workspace_id_1" in sql
+        assert f"{table}.skill_version_id = :skill_version_id_1" in sql
+        assert statement.compile().params == {
+            "workspace_id_1": service.workspace_id,
+            "skill_version_id_1": vid,
+        }
 
 
 @pytest.mark.anyio
