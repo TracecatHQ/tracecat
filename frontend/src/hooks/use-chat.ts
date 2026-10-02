@@ -503,7 +503,7 @@ export function useGetChatVercel({
       })
     },
     enabled: !!chatId && enabled,
-    retry,
+    ...(retry !== undefined ? { retry } : {}),
     // A remount must never render a stale cache snapshot as the final
     // transcript: always refetch so the pane adopts the current server copy
     // (e.g. after an approval was resolved from another surface).
