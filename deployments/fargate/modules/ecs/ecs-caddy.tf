@@ -31,7 +31,7 @@ resource "aws_ecs_task_definition" "caddy_task_definition" {
 cat > /etc/caddy/Caddyfile <<'CONFIG'
 {
   servers {
-    trusted_proxies static ${join(" ", var.public_subnet_cidrs)}
+    trusted_proxies static ${join(" ", var.public_subnet_cidrs)} 127.0.0.1/32 ::1/128
     trusted_proxies_strict
   }
 }
