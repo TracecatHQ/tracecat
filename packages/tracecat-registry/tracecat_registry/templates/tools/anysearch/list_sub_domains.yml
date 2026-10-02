@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: List sub-domains
+  description: >-
+    List the vertical search sub-domains and their parameter definitions for one or more
+    AnySearch domains. Use the returned `sub_domain` as the `tag` input and its `params`
+    as the `params` input of `tools.anysearch.search`. Does not consume search quota.
+  display_group: AnySearch
+  doc_url: https://anysearch.com/docs/api-endpoints/v1-sub-domains
+  namespace: tools.anysearch
+  name: list_sub_domains
+  secrets:
+    - name: anysearch
+      keys: ["ANYSEARCH_API_KEY"]
+      optional: true
+  expects:
+    domain:
+      type: list[str]
+      description: >-
+        Domains to request, e.g. `["security", "finance"]`. Available domains include
+        general, resource, social_media, finance, academic, legal, health, business,
+        security, ip, code, energy, environment, agriculture, travel, film, and gaming.
+        Unknown domains return an empty `data.domains` array.
+    base_url:
+      type: str | None
+      description: Base URL of the AnySearch API.
+      default: null
+  steps:
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.anysearch.base_url || "https://api.anysearch.com" }}/v1/sub-domains
+        method: GET
+        headers:
+          Authorization: ${{ "Bearer " + SECRETS.anysearch.ANYSEARCH_API_KEY if SECRETS.anysearch.ANYSEARCH_API_KEY else None }}
+        params:
+          domain: ${{ inputs.domain }}
+  returns: ${{ steps.request.result }}
