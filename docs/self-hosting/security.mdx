@@ -152,7 +152,7 @@ When you enable nsjail, each agent, Python script, custom action, and dependency
 | Dependency installation for `core.script.run_python` | 2048 MB | `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` | 300 s | 256 MB | 64 |
 | Agents | 4096 MB | `TRACECAT__AGENT_SANDBOX_MEMORY_MB` | Agent timeout ceiling | 256 MB | 128 |
 
-Pass `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` to your action executor and `TRACECAT__AGENT_SANDBOX_MEMORY_MB` to `agent-executor`. Docker Compose forwards both settings. The Helm chart exposes them as `executor.sandboxMemoryMib` and `agentExecutor.sandboxMemoryMib`.
+Pass `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` to your action executor and `TRACECAT__AGENT_SANDBOX_MEMORY_MB` to `agent-executor`. Docker Compose forwards both settings. Helm chart 0.7.0 or newer exposes them as `executor.sandboxMemoryMib` and `agentExecutor.sandboxMemoryMib` and provides the required executor cgroup bootstrap.
 
 Sandboxes also have a per-process address-space guard (`rlimit_as`), defaulting to twice the memory budget: 4096 MiB for actions and Python, and 8192 MiB for agents. Set `TRACECAT__SANDBOX_ADDRESS_SPACE_MB=8192` or `TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB=16384` to override the respective guard. Size this guard above your workload's peak virtual size, since runtimes can reserve address space before using RAM. Stdio MCP connection probes use the same policy with a memory budget capped at 1024 MiB.
 
