@@ -60,6 +60,10 @@ class TracecatAuthorizationError(TracecatException):
     """Tracecat user-facing authorization error"""
 
 
+class AgentModelNotEnabledError(TracecatAuthorizationError):
+    """Raised when workspace model access does not enable a catalog model."""
+
+
 class ScopeDeniedError(TracecatAuthorizationError):
     """Raised when a user lacks required scopes for an operation.
 

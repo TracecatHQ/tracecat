@@ -193,7 +193,7 @@ async def create_session_activity(input: CreateSessionInput) -> CreateSessionRes
                 if agent_session.agents_binding is None:
                     has_resume_state = (
                         agent_session.sdk_session_id is not None
-                        or agent_session.parent_session_id is not None
+                        or agent_session.forked_from_session_id is not None
                     )
                     should_backfill_agents_binding = (
                         input.agents_binding is not None and not has_resume_state
@@ -304,32 +304,32 @@ async def load_session_activity(input: LoadSessionInput) -> LoadSessionResult:
             )
             has_resume_state = (
                 agent_session.sdk_session_id is not None
-                or agent_session.parent_session_id is not None
+                or agent_session.forked_from_session_id is not None
             )
 
             # For forked sessions, only fork on the first turn (when child has
             # no sdk_session_id yet). Subsequent turns resume the child's own
             # SDK session normally.
             if (
-                agent_session.parent_session_id is not None
+                agent_session.forked_from_session_id is not None
                 and agent_session.sdk_session_id is None
             ):
-                parent_session = await service.get_session(
-                    agent_session.parent_session_id
+                fork_source = await service.get_session(
+                    agent_session.forked_from_session_id
                 )
-                if parent_session is None:
+                if fork_source is None:
                     logger.warning(
-                        "Forked session references non-existent parent",
+                        "Forked session references non-existent source",
                         session_id=input.session_id,
-                        parent_session_id=agent_session.parent_session_id,
+                        forked_from_session_id=agent_session.forked_from_session_id,
                     )
                     return LoadSessionResult(
                         found=True,
                         agents_binding=agents_binding,
                         has_resume_state=has_resume_state,
                     )
-                is_fork = True
-                sdk_session_id = parent_session.sdk_session_id
+                sdk_session_id = agent_session.forked_from_sdk_session_id
+                is_fork = sdk_session_id is not None
 
             return LoadSessionResult(
                 found=True,

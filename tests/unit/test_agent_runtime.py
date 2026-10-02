@@ -30,6 +30,7 @@ from claude_agent_sdk.types import (
 
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
 from tracecat.agent.common.exceptions import (
+    AgentPreparationError,
     AgentSandboxProcessExitError,
     AgentSandboxValidationError,
 )
@@ -42,6 +43,7 @@ from tracecat.agent.common.types import (
     SandboxAgentConfig,
     SandboxSubagentConfig,
 )
+from tracecat.agent.error_policy import agent_runtime_failure
 from tracecat.agent.llm_routing import (
     get_litellm_route_model,
 )
@@ -61,7 +63,8 @@ from tracecat.agent.runtime.claude_code.session_lines import (
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
-from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.executor.enums import ExecutorBackendType
+from tracecat.runtime.errors import RetryDisposition, RuntimeErrorKind
 from tracecat.sandbox.exceptions import SandboxFileSafetyError
 
 
@@ -395,6 +398,44 @@ class TestClaudeAgentRuntimeRun:
 
         # Should have called send_stream_event
         mock_socket_writer.send_stream_event.assert_awaited()
+
+    @pytest.mark.anyio
+    async def test_ping_stream_event_is_filtered(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Keep-alive ping events are dropped before adapter conversion."""
+
+        async def mock_receive() -> Any:
+            yield StreamEvent(
+                uuid="ping-event-uuid",
+                session_id="test-sdk-session",
+                event={"type": "ping"},
+            )
+
+        mock_claude_sdk_client.receive_response = mock_receive
+
+        mock_adapter = MagicMock()
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_claude_sdk_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
+                return_value=mock_adapter,
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer, transport_factory=lambda _: MagicMock()
+            )
+            await runtime.run(sample_init_payload)
+
+        mock_adapter.to_unified_event.assert_not_called()
+        mock_socket_writer.send_stream_event.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_stream_events_flush_new_session_lines(
@@ -1849,7 +1890,13 @@ class TestClaudeAgentRuntimeRun:
         disable_nsjail: bool,
     ) -> None:
         """A mocked SDK turn should still drive runtime approval interrupts."""
-        monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+        monkeypatch.setattr(
+            runtime_module,
+            "TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT
+            if disable_nsjail
+            else ExecutorBackendType.NSJAIL,
+        )
         captured_options: list[Any] = []
 
         class ApprovalHookClient:
@@ -1952,7 +1999,13 @@ class TestClaudeAgentRuntimeRun:
         disable_nsjail: bool,
     ) -> None:
         """Approval continuations send a hidden tick after tool_result is seeded."""
-        monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+        monkeypatch.setattr(
+            runtime_module,
+            "TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT
+            if disable_nsjail
+            else ExecutorBackendType.NSJAIL,
+        )
         captured_options: list[Any] = []
 
         def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
@@ -2109,7 +2162,13 @@ class TestClaudeAgentRuntimeRun:
         disable_nsjail: bool,
     ) -> None:
         """Forked sessions should pass fork_session=True and not re-emit parent JSONL."""
-        monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+        monkeypatch.setattr(
+            runtime_module,
+            "TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT
+            if disable_nsjail
+            else ExecutorBackendType.NSJAIL,
+        )
         captured_options: list[Any] = []
 
         parent_sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
@@ -3461,7 +3520,7 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
     ) -> None:
         """Long paths are rejected instead of guessing Claude's hash suffix."""
         with pytest.raises(
-            AgentSandboxValidationError,
+            AgentPreparationError,
             match="runtime cwd is too long",
         ):
             _claude_project_dir_name(cwd)
@@ -3479,7 +3538,7 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
         )
 
         with pytest.raises(
-            AgentSandboxValidationError,
+            AgentPreparationError,
             match="runtime cwd is too long",
         ):
             runtime._ensure_working_directory(uuid.uuid4())
@@ -3753,6 +3812,35 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
         )
         assert runtime._last_seen_byte_offset == len(child_bytes)
 
+    @pytest.mark.anyio
+    async def test_resume_preparation_error_is_not_wrapped(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+    ) -> None:
+        """An ExceptionGroup wrapper would hide the typed error from attribution."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        payload = replace(
+            sample_init_payload,
+            sdk_session_id="../escape",
+            sdk_session_data="{}",
+        )
+
+        with pytest.raises(AgentPreparationError) as raised:
+            await runtime._prepare_resume_and_mcp(payload, write_session_file=True)
+
+        classification = agent_runtime_failure(
+            raised.value, fallback_message="unused"
+        ).classification
+        assert classification.kind is RuntimeErrorKind.AGENT_PREPARATION_FAILED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
 
 @pytest.mark.anyio
 async def test_run_rebuilds_sandbox_process_exit_from_transport_exit_code(
@@ -3769,7 +3857,9 @@ async def test_run_rebuilds_sandbox_process_exit_from_transport_exit_code(
     resource-limit classification, and the typed error is what propagates.
     Attribution requires a jail, so nsjail is enabled explicitly here.
     """
-    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", False)
+    monkeypatch.setattr(
+        runtime_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
     mock_claude_sdk_client.query = AsyncMock(
         side_effect=Exception("Sandbox shim failed with exit code 134")
     )
@@ -3818,11 +3908,13 @@ async def test_run_does_not_attribute_process_exit_when_nsjail_is_disabled(
 ) -> None:
     """Invariant: without a jail an exit code carries no resource-limit meaning.
 
-    TRACECAT__DISABLE_NSJAIL installs no rlimits, so a direct process that
+    The direct backend installs no rlimits, so a direct process that
     aborts or is OOM-killed by the host must stay platform-owned rather than
     blaming the caller for a cap this deployment never enforced.
     """
-    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", True)
+    monkeypatch.setattr(
+        runtime_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
+    )
     mock_claude_sdk_client.query = AsyncMock(side_effect=ValueError("Test error"))
     transport = MagicMock(spec=SandboxedCLITransport)
     transport.exit_code = 137
@@ -3842,7 +3934,7 @@ async def test_run_does_not_attribute_process_exit_when_nsjail_is_disabled(
     await_args = mock_socket_writer.send_error.await_args
     assert await_args is not None
     classification = await_args.kwargs["classification"]
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
 
 @pytest.mark.anyio
@@ -3859,7 +3951,9 @@ async def test_run_keeps_original_error_for_non_resource_limit_exit_code(
     so a failure that carries its own attribution would reach the activity as
     a process exit and lose it.
     """
-    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", False)
+    monkeypatch.setattr(
+        runtime_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
     mock_claude_sdk_client.query = AsyncMock(
         side_effect=AgentSandboxValidationError("Bad agent config")
     )
@@ -3881,7 +3975,7 @@ async def test_run_keeps_original_error_for_non_resource_limit_exit_code(
     await_args = mock_socket_writer.send_error.await_args
     assert await_args is not None
     classification = await_args.kwargs["classification"]
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
 
 @pytest.mark.anyio
@@ -3915,7 +4009,7 @@ async def test_run_keeps_original_error_when_sandbox_process_did_not_exit(
     assert await_args is not None
     assert await_args.args[0] == "Test error"
     classification = await_args.kwargs["classification"]
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
     # Nothing was re-attributed, so the log carries no cause fields.
     log_args = mock_socket_writer.send_log.await_args

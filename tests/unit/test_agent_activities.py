@@ -45,6 +45,11 @@ from tracecat_ee.agent.activities import (
 
 from tracecat import config
 from tracecat.agent.common.config import build_agent_runtime_uv_env
+from tracecat.agent.common.exceptions import (
+    AgentToolLimitExceededError,
+    UserMCPDiscoveryAuthError,
+    UserMCPDiscoveryTimeoutError,
+)
 from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
@@ -339,7 +344,7 @@ class TestBuildToolDefinitionsActivity:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
-            raise ValueError("Cannot request more than 100 tools")
+            raise AgentToolLimitExceededError(requested=101, limit=100)
 
         monkeypatch.setattr(
             agent_activities, "build_agent_tools", mock_build_agent_tools
@@ -359,8 +364,7 @@ class TestBuildToolDefinitionsActivity:
         assert classification.owner is RuntimeErrorOwner.USER
         assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
         assert app_error.non_retryable is True
-        assert app_error.message == "Agent configuration is invalid"
-        assert "Cannot request more than 100 tools" not in str(app_error)
+        assert app_error.message == "Agent requests 101 tools; the limit is 100"
 
     @pytest.mark.anyio
     async def test_maps_builtin_sync_pending_to_application_error(
@@ -551,9 +555,11 @@ class TestBuildToolDefinitionsActivity:
         assert exc_info.value.non_retryable is True
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize("timed_out", [False, True])
     async def test_strict_mcp_discovery_failure_fails_scope_compilation(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        timed_out: bool,
     ) -> None:
         from tracecat.agent.mcp import user_client
 
@@ -568,7 +574,9 @@ class TestBuildToolDefinitionsActivity:
             fail_on_error: bool = False,
         ) -> dict[str, Any]:
             discover_fail_flags.append(fail_on_error)
-            raise RuntimeError("server unavailable")
+            if timed_out:
+                raise UserMCPDiscoveryTimeoutError("broken")
+            raise UserMCPDiscoveryAuthError("broken")
 
         class _LockService:
             async def resolve_lock_with_bindings(
@@ -620,9 +628,22 @@ class TestBuildToolDefinitionsActivity:
         classification = extract_error_classification(exc_info.value)
         assert classification is not None
         assert classification.owner is RuntimeErrorOwner.USER
-        assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
-        assert exc_info.value.message == "Agent configuration is invalid"
-        assert exc_info.value.non_retryable is True
+        assert classification.kind is (
+            RuntimeErrorKind.AGENT_MCP_UNAVAILABLE
+            if timed_out
+            else RuntimeErrorKind.AGENT_MCP_AUTH_FAILED
+        )
+        assert exc_info.value.message == (
+            "MCP server 'broken' timed out during tool discovery; "
+            "check availability and retry"
+            if timed_out
+            else "MCP server 'broken' rejected the configured credentials; "
+            "reconnect the integration"
+        )
+        assert classification.retry_disposition is (
+            RetryDisposition.RETRYABLE if timed_out else RetryDisposition.NON_RETRYABLE
+        )
+        assert exc_info.value.non_retryable is (not timed_out)
 
     @pytest.mark.anyio
     async def test_mcp_tool_policy_filters_and_maps_approvals(
@@ -1076,7 +1097,7 @@ class TestCreateSessionActivity:
         mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (mock_agent_session, False)
 
@@ -1108,7 +1129,7 @@ class TestCreateSessionActivity:
         mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (
             mock_agent_session,
@@ -1135,7 +1156,7 @@ class TestCreateSessionActivity:
             "incoming_agents_binding",
             "persisted_agents_binding",
             "sdk_session_id",
-            "parent_session_id",
+            "source_session_id",
             "expected_success",
             "expected_backfill",
         ),
@@ -1226,7 +1247,7 @@ class TestCreateSessionActivity:
         incoming_agents_binding: ResolvedAgentsConfig | None,
         persisted_agents_binding: dict[str, object] | None,
         sdk_session_id: str | None,
-        parent_session_id: uuid.UUID | None,
+        source_session_id: uuid.UUID | None,
         expected_success: bool,
         expected_backfill: bool,
         enforce_session_agents_binding: bool,
@@ -1244,7 +1265,7 @@ class TestCreateSessionActivity:
         mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = persisted_agents_binding
         mock_agent_session.sdk_session_id = sdk_session_id
-        mock_agent_session.parent_session_id = parent_session_id
+        mock_agent_session.forked_from_session_id = source_session_id
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (
             mock_agent_session,
@@ -1301,7 +1322,7 @@ class TestCreateSessionActivity:
         mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
         mock_service.get_session.return_value = mock_agent_session
 
         mock_ctx = AsyncMock()
@@ -1431,7 +1452,7 @@ class TestCreateSessionActivity:
         mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (mock_agent_session, False)
         mock_service.auto_title_session_on_first_prompt = AsyncMock()
@@ -1488,7 +1509,7 @@ class TestLoadSessionActivity:
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
 
         # Set up the mock service
         mock_service = AsyncMock()
@@ -1523,7 +1544,7 @@ class TestLoadSessionActivity:
         agents_binding = ResolvedAgentsConfig.model_validate({"subagents": []})
         mock_agent_session.agents_binding = agents_binding.model_dump(mode="json")
         mock_agent_session.sdk_session_id = "sdk-session-123"
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
 
         # Set up the mock service
         mock_service = AsyncMock()
@@ -1545,11 +1566,16 @@ class TestLoadSessionActivity:
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
-    async def test_loads_forked_parent_session_metadata(
-        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    @pytest.mark.parametrize("source_sdk_id", ["source-sdk-session", None])
+    async def test_loads_forked_source_session_metadata(
+        self,
+        mock_with_session,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        source_sdk_id: str | None,
     ):
-        """Forked first turns resume from parent metadata without SDK JSONL."""
-        parent_session_id = uuid.uuid4()
+        """Forked first turns use captured native identity when one exists."""
+        source_session_id = uuid.uuid4()
         input = LoadSessionInput(
             role=mock_role,
             session_id=mock_session_id,
@@ -1558,14 +1584,15 @@ class TestLoadSessionActivity:
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = parent_session_id
-        mock_parent_session = MagicMock()
-        mock_parent_session.sdk_session_id = "parent-sdk-session"
+        mock_agent_session.forked_from_session_id = source_session_id
+        mock_agent_session.forked_from_sdk_session_id = source_sdk_id
+        mock_source_session = MagicMock()
+        mock_source_session.sdk_session_id = "later-sdk-session"
 
         mock_service = AsyncMock()
         mock_service.get_session.side_effect = [
             mock_agent_session,
-            mock_parent_session,
+            mock_source_session,
         ]
 
         mock_ctx = AsyncMock()
@@ -1575,9 +1602,9 @@ class TestLoadSessionActivity:
         result = await load_session_activity(input)
 
         assert result.found is True
-        assert result.sdk_session_id == "parent-sdk-session"
+        assert result.sdk_session_id == source_sdk_id
         assert result.sdk_session_data is None
-        assert result.is_fork is True
+        assert result.is_fork is (source_sdk_id is not None)
         assert result.agents_binding is None
         assert result.has_resume_state is True
 
@@ -2297,7 +2324,9 @@ class TestSandboxedAgentExecutorHelpers:
         )
 
         assert result.classification is not None
-        assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        assert (
+            result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+        )
         assert result.diagnostic is None
 
     @pytest.mark.anyio
@@ -2339,7 +2368,9 @@ class TestSandboxedAgentExecutorHelpers:
 
         assert result.classification is not None
         assert result.classification.owner is RuntimeErrorOwner.PLATFORM
-        assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        assert (
+            result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+        )
         assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
         assert result.terminal_stream_error_emitted is True
 

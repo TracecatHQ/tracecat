@@ -449,13 +449,30 @@ def get_sync_session(
 _STREAMING_BODY_MAX_BYTES = 100 * 1024 * 1024  # 100 MB
 
 
+async def _read_streaming_body(body: StreamingBody) -> bytes:
+    """Read a StreamingBody to EOF, up to `_STREAMING_BODY_MAX_BYTES`.
+
+    `StreamingBody.read(amt)` returns at most `amt` bytes but may return fewer
+    (whatever is currently buffered), so read in a loop until EOF.
+    """
+    buffer = bytearray()
+    while chunk := await body.read(_STREAMING_BODY_MAX_BYTES - len(buffer) + 1):
+        buffer.extend(chunk)
+        if len(buffer) > _STREAMING_BODY_MAX_BYTES:
+            raise ValueError(
+                f"Streaming response body exceeds the maximum supported size of "
+                f"{_STREAMING_BODY_MAX_BYTES} bytes"
+            )
+    return bytes(buffer)
+
+
 async def _read_streaming_values(obj: Any) -> Any:
     """Recursively read StreamingBody and bytes values in a boto3 response.
 
     Content is decoded as UTF-8, falling back to base64 for binary data.
     """
     if isinstance(obj, StreamingBody):
-        content = await obj.read(_STREAMING_BODY_MAX_BYTES)
+        content = await _read_streaming_body(obj)
         try:
             return content.decode("utf-8")
         except UnicodeDecodeError:

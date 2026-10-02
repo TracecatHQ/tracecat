@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tracecat.config import env_bool
+from tracecat import config
 
 CGROUP_PATH_ENV = "TRACECAT__SANDBOX_CGROUP_PATH"
 # UID/GID of apiuser in the Tracecat container image.
@@ -70,7 +70,7 @@ def main(path_env: str = CGROUP_PATH_ENV) -> None:
         raise RuntimeError(
             "Run as root: python -m tracecat.sandbox.bootstrap COMMAND..."
         )
-    nsjail_enabled = not env_bool("TRACECAT__DISABLE_NSJAIL", default=True)
+    nsjail_enabled = config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail
     if nsjail_enabled and not os.environ.get(path_env):
         root = delegate_cgroup(APIUSER_ID, APIUSER_ID)
         os.environ[path_env] = str(root)

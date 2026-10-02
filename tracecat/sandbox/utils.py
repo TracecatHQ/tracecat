@@ -13,14 +13,8 @@ import signal
 import subprocess
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from pathlib import Path
 
 from tracecat.concurrency import rejoin_future_through_cancellation
-from tracecat.config import (
-    TRACECAT__DISABLE_NSJAIL,
-    TRACECAT__SANDBOX_NSJAIL_PATH,
-    TRACECAT__SANDBOX_ROOTFS_PATH,
-)
 
 _PID_NAMESPACE_AVAILABLE: bool | None = None
 _PID_NAMESPACE_PROBE_ERROR: str | None = None
@@ -126,25 +120,6 @@ async def communicate_process_group(
     if stdout is None or stderr is None:
         raise RuntimeError("Captured stdout and stderr are required")
     return stdout, stderr
-
-
-def is_nsjail_available() -> bool:
-    """Check if nsjail sandbox is available and configured.
-
-    This function is used by both the Python script sandbox and the agent
-    runtime sandbox to determine if nsjail isolation is available.
-
-    Returns:
-        True if nsjail can be used, False otherwise.
-    """
-    # Check the appropriate disable flag
-    if TRACECAT__DISABLE_NSJAIL:
-        return False
-
-    nsjail_path = Path(TRACECAT__SANDBOX_NSJAIL_PATH)
-    rootfs_path = Path(TRACECAT__SANDBOX_ROOTFS_PATH)
-
-    return nsjail_path.exists() and rootfs_path.is_dir()
 
 
 async def pid_namespace_available() -> bool:

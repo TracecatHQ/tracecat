@@ -43,7 +43,7 @@ from tracecat.sandbox.types import (
     SandboxNetworkRequest,
     SandboxResult,
 )
-from tracecat.sandbox.utils import is_nsjail_available, pid_namespace_available
+from tracecat.sandbox.utils import pid_namespace_available
 
 __all__ = [
     "MCP_STDIO_PERSIST_ACTIVITY_NAME",
@@ -310,7 +310,7 @@ async def _execute_probe_without_nsjail(
     *,
     timeout_seconds: int,
 ) -> SandboxResult:
-    """Run the probe with best-effort PID isolation when nsjail is unavailable.
+    """Run the probe with best-effort PID isolation for the direct backend.
 
     Mirrors ``UnsafePidExecutor``: ``unshare --pid --fork --kill-child`` when
     the host supports it, otherwise a plain subprocess in its own session so
@@ -388,10 +388,12 @@ async def probe_stdio_mcp_tools_in_sandbox(
     env: dict[str, str] | None,
     timeout: int,
 ) -> StdioMCPProbeResult:
-    """Run a stdio MCP server in a sandbox and list its tools.
+    """Run a stdio MCP server using the configured backend and list its tools.
 
-    Uses nsjail when available; otherwise falls back to the same best-effort
-    PID-level isolation that unsandboxed Python actions use.
+    TRACECAT__EXECUTOR_BACKEND selects nsjail or direct execution. The nsjail
+    backend returns probe failures without falling back to direct execution.
+    The direct backend uses the same best-effort PID-level isolation as
+    unsandboxed Python actions, regardless of nsjail availability.
     """
     timeout_seconds = timeout
     hard_timeout_seconds = timeout_seconds + MCP_STDIO_PROBE_HARD_TIMEOUT_BUFFER
@@ -411,7 +413,7 @@ async def probe_stdio_mcp_tools_in_sandbox(
             )
             (job_dir / "input.json").write_bytes(orjson.dumps(payload))
 
-            if is_nsjail_available():
+            if config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
                 probe_limits = AgentResourceLimits(
                     memory_mb=min(1024, config.TRACECAT__AGENT_SANDBOX_MEMORY_MB)
                 )

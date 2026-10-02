@@ -38,7 +38,7 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
     from tracecat.agent.error_policy import (
         agent_executor_timed_out,
-        agent_executor_unavailable,
+        agent_executor_unclassified,
         agent_preparation_failed,
         agent_session_initialization_failed,
         agent_workflow_internal_error,
@@ -203,7 +203,7 @@ def _executor_activity_classification(
         for current in iter_error_chain(error, include_implicit_context=False)
     ):
         return agent_executor_timed_out(cause)
-    return agent_executor_unavailable(cause)
+    return agent_executor_unclassified(cause)
 
 
 def _agent_token_ttl_seconds(activity_timeout_seconds: int) -> int:
@@ -554,9 +554,9 @@ class DurableAgentWorkflow:
     def _initialize_run(self) -> None:
         """Initialize fallible workflow runtime state inside the interceptor."""
         if (workspace_id := self.role.workspace_id) is None:
-            raise_application_error_from_classification(invalid_agent_configuration())
+            raise_application_error_from_classification(agent_workflow_internal_error())
         if (organization_id := self.role.organization_id) is None:
-            raise_application_error_from_classification(invalid_agent_configuration())
+            raise_application_error_from_classification(agent_workflow_internal_error())
         self.workspace_id = workspace_id
         self.organization_id = organization_id
 
@@ -671,6 +671,9 @@ class DurableAgentWorkflow:
                         )
                     else:
                         preset_config.instructions = override_cfg.instructions
+
+                if override_cfg.output_type is not None:
+                    preset_config.output_type = override_cfg.output_type
 
             cfg = preset_config
         else:

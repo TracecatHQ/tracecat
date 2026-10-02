@@ -361,12 +361,12 @@ export function ChatSessionPane({
     enabled: toolsEnabled && sessionMcpEnabled,
   })
 
-  // Check if this is a legacy read-only session
+  // Read-only state includes ownership, backend availability, and entitlements.
   const isReadonly = chat ? "is_readonly" in chat && chat.is_readonly : false
   const readonlyDescription =
     chat && "user_id" in chat
       ? "This legacy conversation is read-only."
-      : "This conversation belongs to a teammate."
+      : "This conversation is read-only."
 
   const uiMessages = useMemo(
     () => (chat?.messages || []).map(toUIMessage),
@@ -1287,11 +1287,7 @@ export function ChatSessionPane({
             <ConversationContent className={chatContentCenterClass}>
               {displayedError && (
                 <Alert variant="destructive" className="mb-4">
-                  <AlertTitle>
-                    {lastError
-                      ? "Unable to continue with this model"
-                      : "Last run failed"}
-                  </AlertTitle>
+                  <AlertTitle>Last run failed</AlertTitle>
                   <AlertDescription>{displayedError}</AlertDescription>
                 </Alert>
               )}

@@ -61,8 +61,8 @@ curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat
 
 <Warning>
   Docker Compose defaults to the `direct` executor backend, which does not sandbox ordinary workflow actions.
-  Setting `TRACECAT__DISABLE_NSJAIL=false` alone does not change that backend or sandbox those actions.
-  For supported `nsjail` action isolation, set `TRACECAT__EXECUTOR_BACKEND=ephemeral` and `TRACECAT__DISABLE_NSJAIL=false`, then enable the container permissions described in [Security](/self-hosting/security#nsjail-sandbox-recommended-for-production).
+  For supported action isolation, set `TRACECAT__EXECUTOR_BACKEND=nsjail`, then enable the container permissions described in [Security](/self-hosting/security#nsjail-sandbox-recommended-for-production).
+  The legacy `ephemeral` value remains a compatibility alias for `nsjail`.
 </Warning>
 
 ## Start Tracecat

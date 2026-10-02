@@ -23,6 +23,7 @@ from tracecat_registry.context import RegistryContext, clear_context, set_contex
 
 import tracecat.executor.backends.base as executor_backend_module
 import tracecat.sandbox.service as sandbox_service_module
+from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import (
@@ -36,6 +37,7 @@ from tracecat.executor.action_gateway.server import ActionGateway
 from tracecat.executor.backends.base import ExecutorBackend
 from tracecat.executor.backends.direct import DirectBackend
 from tracecat.executor.backends.ephemeral import EphemeralBackend
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.executor.schemas import ActionImplementation, ResolvedContext
 from tracecat.identifiers.workflow import ExecutionUUID, WorkflowUUID
 from tracecat.registry.lock.types import RegistryLock
@@ -216,8 +218,8 @@ def _make_run_python_context() -> ResolvedContext:
 
 
 def _run_python_nsjail_available() -> bool:
-    nsjail_path = Path(sandbox_service_module.TRACECAT__SANDBOX_NSJAIL_PATH)
-    rootfs_path = Path(sandbox_service_module.TRACECAT__SANDBOX_ROOTFS_PATH)
+    nsjail_path = Path(config.TRACECAT__SANDBOX_NSJAIL_PATH)
+    rootfs_path = Path(config.TRACECAT__SANDBOX_ROOTFS_PATH)
     return (
         platform.system() == "Linux"
         and nsjail_path.is_file()
@@ -240,8 +242,8 @@ def _set_run_python_nsjail_mode(
 ) -> None:
     monkeypatch.setattr(
         sandbox_service_module,
-        "TRACECAT__DISABLE_NSJAIL",
-        disable_nsjail,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
     )
 
 
@@ -736,7 +738,7 @@ def _run_nsjail_harness_in_docker_or_skip(
                 f"      - {json.dumps(tests_mount)}",
                 "    environment:",
                 '      TRACECAT__RUN_PYTHON_NSJAIL_DOCKER_FALLBACK_CHILD: "1"',
-                '      TRACECAT__DISABLE_NSJAIL: "false"',
+                '      TRACECAT__EXECUTOR_BACKEND: "nsjail"',
                 '      TRACECAT__SANDBOX_NSJAIL_PATH: "/usr/local/bin/nsjail"',
                 '      TRACECAT__SANDBOX_ROOTFS_PATH: "/var/lib/tracecat/sandbox-rootfs"',
                 '      PYTHONDONTWRITEBYTECODE: "1"',
@@ -923,7 +925,9 @@ async def test_run_python_nsjail_rejects_missing_action_gateway_socket(
     service = SandboxService(cache_dir=str(tmp_path / "sandbox-cache"))
     nsjail_executor = _CapturingNsjailExecutor()
     monkeypatch.setattr(service, "_nsjail_executor", nsjail_executor)
-    monkeypatch.setattr(service, "_is_nsjail_available", lambda: True)
+    monkeypatch.setattr(
+        sandbox_service_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
 
     with pytest.raises(SandboxInfrastructureError, match="socket is unavailable"):
         await service.run_python(
@@ -1351,7 +1355,9 @@ async def test_run_python_subprocess_can_import_registry_ctx(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setattr(SandboxService, "_is_nsjail_available", lambda self: False)
+    monkeypatch.setattr(
+        sandbox_service_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
+    )
 
     result = await _run_sandbox_registry_ctx_smoke(
         cache_dir=tmp_path / "sandbox-cache",

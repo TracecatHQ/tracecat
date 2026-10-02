@@ -2,26 +2,33 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from typing import Literal, cast
 from unittest.mock import Mock
 
 import httpx
 import orjson
 import pytest
+from tenacity import AsyncRetrying, RetryCallState
 
 from tracecat.agent.diagnostics import MAX_LLM_ERROR_BODY_BYTES, LLMErrorDiagnostics
 from tracecat.agent.observability import LLMGatewayLoadTracker
+from tracecat.agent.sandbox import llm_proxy
 from tracecat.agent.sandbox.llm_proxy import (
     LLMProxyError,
     LLMRoute,
     LLMRoutingPlan,
     LLMSocketProxy,
+    ParsedRequest,
     _http_error_classification,
+    _parse_retry_after,
+    _rate_limit_wait,
     _rewrite_json_body,
+    _UpstreamRateLimited,
 )
 from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
 from tracecat.runtime.errors import (
@@ -29,6 +36,12 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
     RuntimeErrorOwner,
 )
+
+
+@pytest.fixture(autouse=True)
+def no_rate_limit_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(llm_proxy, "_RATE_LIMIT_BASE_DELAY_SECONDS", 0.0)
+    monkeypatch.setattr(llm_proxy, "_RATE_LIMIT_MAX_DELAY_SECONDS", 0.0)
 
 
 class _FakeWriter:
@@ -123,8 +136,8 @@ async def test_forward_request_streams_litellm_response(
 
     monotonic_values = iter([10.0, 10.025, 10.05, 10.075, 10.1, 10.125])
     monkeypatch.setattr(
-        "tracecat.agent.sandbox.llm_proxy.time.monotonic",
-        lambda: next(monotonic_values, 10.125),
+        "tracecat.agent.sandbox.llm_proxy.time",
+        SimpleNamespace(monotonic=lambda: next(monotonic_values, 10.125)),
     )
 
     def fake_info(message: str, **kwargs: object) -> None:
@@ -318,9 +331,9 @@ async def test_forward_request_emits_error_for_critical_upstream_http_error(
 @pytest.mark.parametrize(
     ("status_code", "expected_kind"),
     [
-        (401, RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE),
-        (403, RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE),
-        (500, RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE),
+        (401, RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED),
+        (403, RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED),
+        (500, RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED),
         (504, RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT),
     ],
 )
@@ -465,7 +478,7 @@ async def test_forward_request_classifies_connect_failure_as_platform(
 
     assert len(errors) == 1
     assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
-    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
 
 @pytest.mark.anyio
@@ -475,7 +488,7 @@ async def test_forward_request_classifies_connect_failure_as_platform(
         (
             False,
             RuntimeErrorOwner.PLATFORM,
-            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
         ),
         (True, RuntimeErrorOwner.USER, RuntimeErrorKind.AGENT_EXECUTION_FAILED),
     ],
@@ -543,7 +556,7 @@ async def test_forward_request_classifies_error_body_read_failure_by_route(
         (
             False,
             RuntimeErrorOwner.PLATFORM,
-            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
         ),
         (True, RuntimeErrorOwner.USER, RuntimeErrorKind.AGENT_EXECUTION_FAILED),
     ],
@@ -697,7 +710,7 @@ async def test_write_stream_response_emits_error_after_headers_sent(
         "LLM stream failed: provider stream disconnected"
     ]
     assert errors[0].classification.owner is RuntimeErrorOwner.PLATFORM
-    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
 
 @pytest.mark.anyio
@@ -1693,6 +1706,14 @@ async def test_read_timeout_before_headers_records_route(
             False,
         ),
         (
+            403,
+            "tracecat_llm_model_not_enabled",
+            False,
+            RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+            RuntimeErrorOwner.USER,
+            False,
+        ),
+        (
             401,
             "tracecat_llm_token_invalid",
             True,
@@ -1744,7 +1765,7 @@ async def test_read_timeout_before_headers_records_route(
             401,
             "auth_error",
             False,
-            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
             RuntimeErrorOwner.PLATFORM,
             True,
         ),
@@ -1752,7 +1773,7 @@ async def test_read_timeout_before_headers_records_route(
             500,
             "tracecat_llm_token_invalid",
             False,
-            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
+            RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED,
             RuntimeErrorOwner.PLATFORM,
             True,
         ),
@@ -1768,8 +1789,8 @@ async def test_structured_gateway_http_attribution(
     retryable: bool,
 ) -> None:
     errors: list[LLMProxyError] = []
-    # Deliberately misleading text must never select classification or enter
-    # durable failure text, even when it contains credential-shaped data.
+    # Deliberately misleading text must never select classification, and
+    # credential-shaped data must never enter durable failure text.
     body = orjson.dumps(
         {
             "error": {
@@ -1904,6 +1925,39 @@ def test_budget_classification_requires_structured_evidence(
     assert (
         _http_error_classification(429, route_is_direct=True, body=body).kind
         is expected_kind
+    )
+
+
+def test_managed_unclassified_http_error_keeps_gateway_message() -> None:
+    classification = _http_error_classification(
+        500,
+        route_is_direct=False,
+        body=orjson.dumps(
+            {
+                "error": {
+                    "type": "None",
+                    "message": "Catalog row abc is not enabled for this workspace "
+                    "Bearer synthetic-secret",
+                }
+            }
+        ),
+    )
+
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert classification.message.startswith(
+        "Unclassified agent executor error: LLM gateway returned HTTP 500: "
+        "Catalog row abc is not enabled for this workspace"
+    )
+    assert "synthetic-secret" not in classification.message
+
+
+def test_managed_unclassified_http_error_without_body_names_status() -> None:
+    classification = _http_error_classification(503, route_is_direct=False)
+
+    assert classification.message == (
+        "Unclassified agent executor error: LLM gateway returned HTTP 503"
     )
 
 
@@ -2315,3 +2369,155 @@ async def test_rewrite_json_body_passes_through_oversized_bodies() -> None:
     assert b"".join(out) == b"".join(chunks)
     # 11 chunks are flushed as one buffered piece; the 12th streams through.
     assert len(out) == 2
+
+
+_RATE_LIMIT_REQUEST: dict[str, object] = {
+    "method": "POST",
+    "path": "/v1/messages",
+    "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer llm-token",
+        "X-Request-ID": "trace-rate-limit",
+    },
+    "body": b'{"messages":[{"role":"user","content":"hello"}]}',
+}
+
+
+async def _forward_with_handler(
+    tmp_path: Path,
+    handler: Callable[[httpx.Request], Coroutine[None, None, httpx.Response]],
+) -> tuple[str, list[LLMProxyError]]:
+    errors: list[LLMProxyError] = []
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(),
+        on_error=errors.append,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
+    writer = _FakeWriter()
+    try:
+        await socket_proxy._forward_request(
+            cast(ParsedRequest, _RATE_LIMIT_REQUEST),
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        await socket_proxy._client.aclose()
+    return writer.buffer.decode("utf-8"), errors
+
+
+@pytest.mark.anyio
+async def test_forward_request_retries_rate_limited_request_until_success(
+    tmp_path: Path,
+) -> None:
+    bodies: list[bytes] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(request.content)
+        if len(bodies) < 3:
+            return httpx.Response(429, json={"error": {"type": "rate_limit_error"}})
+        return httpx.Response(200, json={"ok": True})
+
+    response_text, errors = await _forward_with_handler(tmp_path, handler)
+
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert '"ok":true' in response_text
+    assert "rate_limit_error" not in response_text
+    assert errors == []
+    assert len(bodies) == 3
+    assert len(set(bodies)) == 1
+
+
+@pytest.mark.anyio
+async def test_forward_request_emits_rate_limit_after_bounded_retries(
+    tmp_path: Path,
+) -> None:
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(429, json={"error": {"type": "rate_limit_error"}})
+
+    response_text, errors = await _forward_with_handler(tmp_path, handler)
+
+    assert attempts == llm_proxy._RATE_LIMIT_MAX_ATTEMPTS
+    assert response_text.startswith("HTTP/1.1 429 Too Many Requests")
+    assert response_text.count("HTTP/1.1") == 1
+    assert len(errors) == 1
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("status_code", "body"),
+    [
+        (429, {"error": {"code": "insufficient_quota"}}),
+        (429, {"error": {"type": "budget_exceeded"}}),
+        (401, {"error": {"type": "auth_error"}}),
+        (500, {"error": {"type": "internal"}}),
+    ],
+)
+async def test_forward_request_does_not_retry_non_rate_limit_failures(
+    tmp_path: Path,
+    status_code: int,
+    body: dict[str, object],
+) -> None:
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(status_code, json=body)
+
+    _, errors = await _forward_with_handler(tmp_path, handler)
+
+    assert attempts == 1
+    assert len(errors) == 1
+    assert errors[0].classification.kind is not RuntimeErrorKind.AGENT_LLM_RATE_LIMITED
+
+
+def _rate_limited_retry_state(
+    attempt_number: int, retry_after: str | None
+) -> RetryCallState:
+    retry_state = RetryCallState(AsyncRetrying(), None, (), {})
+    retry_state.attempt_number = attempt_number
+    error = _UpstreamRateLimited(retry_after)
+    retry_state.set_exception((type(error), error, None))
+    return retry_state
+
+
+@pytest.mark.parametrize(
+    ("retry_after", "expected"),
+    [
+        ("3", 3.0),
+        ("0.5", 0.5),
+        ("600", 20.0),
+        ("0", 0.0),
+    ],
+)
+def test_rate_limit_wait_honors_capped_retry_after(
+    monkeypatch: pytest.MonkeyPatch,
+    retry_after: str,
+    expected: float,
+) -> None:
+    monkeypatch.setattr(llm_proxy, "_RATE_LIMIT_MAX_DELAY_SECONDS", 20.0)
+
+    assert _parse_retry_after(retry_after) == expected
+    assert _rate_limit_wait(_rate_limited_retry_state(1, retry_after)) == expected
+
+
+@pytest.mark.parametrize(
+    "retry_after", [None, "Wed, 21 Oct 2015 07:28:00 GMT", "-1", "nan", "inf"]
+)
+def test_rate_limit_wait_falls_back_to_jittered_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+    retry_after: str | None,
+) -> None:
+    monkeypatch.setattr(llm_proxy, "_RATE_LIMIT_BASE_DELAY_SECONDS", 1.0)
+    monkeypatch.setattr(llm_proxy, "_RATE_LIMIT_MAX_DELAY_SECONDS", 20.0)
+
+    assert _parse_retry_after(retry_after) is None
+    assert 1.0 <= _rate_limit_wait(_rate_limited_retry_state(1, retry_after)) <= 1.5
+    assert 4.0 <= _rate_limit_wait(_rate_limited_retry_state(3, retry_after)) <= 4.5
+    assert _rate_limit_wait(_rate_limited_retry_state(10, retry_after)) == 20.0

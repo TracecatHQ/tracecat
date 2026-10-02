@@ -118,7 +118,7 @@ async def test_router_unavailability_is_not_provider_throttling_or_auth(
     assert orjson.loads(body)["error"]["type"] == "tracecat_llm_deployment_unavailable"
     assert b"synthetic-sensitive" not in body
     classification = _http_error_classification(503, route_is_direct=False, body=body)
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     assert classification.owner is RuntimeErrorOwner.PLATFORM
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
@@ -224,7 +224,7 @@ async def test_provider_auth_cooldown_does_not_establish_next_callers_auth_failu
     body = bytes(failure.body)
     assert b"synthetic-sensitive" not in body
     classification = _http_error_classification(503, route_is_direct=False, body=body)
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     assert classification.owner is RuntimeErrorOwner.PLATFORM
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
@@ -375,6 +375,11 @@ async def test_retry_does_not_inherit_an_earlier_provider_quota_failure(
             "tracecat_llm_provider_auth_failed",
             401,
             RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED,
+        ),
+        (
+            "tracecat_llm_model_not_enabled",
+            403,
+            RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
         ),
         ("budget_exceeded", 429, RuntimeErrorKind.AGENT_LLM_BUDGET_EXCEEDED),
     ],

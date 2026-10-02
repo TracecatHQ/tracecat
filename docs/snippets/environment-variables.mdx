@@ -72,8 +72,7 @@
 
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
-| `TRACECAT__EXECUTOR_BACKEND` | `direct` | Execution strategy for actions. `direct` runs a subprocess per action, `ephemeral` spawns a cold nsjail subprocess per action for full isolation, `auto` selects `ephemeral` if nsjail is available and falls back to `direct`. |
-| `TRACECAT__DISABLE_NSJAIL` | `true` | Disable nsjail sandboxing. Set to `false` only if nsjail is installed. |
+| `TRACECAT__EXECUTOR_BACKEND` | `direct` | Execution mode for actions, agents, registry sync, and Python scripts. `direct` runs without nsjail; `nsjail` requires nsjail isolation. `ephemeral` is a compatibility alias for `nsjail`. |
 | `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` | `2048` | Aggregate cgroup v2 memory budget in MiB for each `core.script.run_python`, dependency-install, and custom action sandbox. A workload that exceeds it fails as `sandbox.resource_limit_exceeded`. The container memory limit still applies on top. See [Resource limits](/self-hosting/security#resource-limits). |
 | `TRACECAT__SANDBOX_ADDRESS_SPACE_MB` | Twice the memory budget | Per-process virtual address-space cap in MiB for action, Python, and dependency-install sandboxes. Requires nsjail. Set a positive integer to override the computed default. |
 | `TRACECAT__RESULT_EXTERNALIZATION_ENABLED` | `true` | Store large action results in blob storage instead of Temporal history. |

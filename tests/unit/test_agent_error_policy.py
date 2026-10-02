@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import cast
 
 import pytest
+from temporalio.api.failure.v1 import Failure
 from temporalio.converter import DataConverter
 from temporalio.exceptions import (
     ActivityError,
@@ -18,19 +19,32 @@ from tracecat_ee.agent.workflows.durable import (
     _executor_activity_classification,
 )
 
-from tracecat.agent.common.exceptions import AgentSandboxProcessExitError
+from tracecat.agent.common.exceptions import (
+    AgentPreparationError,
+    AgentSandboxProcessExitError,
+    AgentToolLimitExceededError,
+    AgentToolResolutionError,
+    UserMCPDiscoveryAuthError,
+    UserMCPDiscoveryBudgetExceededError,
+    UserMCPDiscoveryError,
+    UserMCPDiscoveryTimeoutError,
+    UserMCPDiscoveryUnavailableError,
+)
 from tracecat.agent.diagnostics import LLMErrorDiagnostics
 from tracecat.agent.error_policy import (
+    MAX_UNCLASSIFIED_DETAIL_CHARS,
     agent_executor_protocol_failed,
     agent_executor_timed_out,
-    agent_executor_unavailable,
+    agent_executor_unclassified,
     agent_llm_read_timeout,
     agent_preparation_failed,
     agent_runtime_failure,
     agent_sandbox_resource_limit_exceeded,
     agent_session_initialization_failed,
+    agent_tool_build_failure,
     agent_workflow_internal_error,
     invalid_agent_configuration,
+    mcp_discovery_failure,
     tenant_entitlement_denied,
     user_agent_execution_failed,
 )
@@ -52,6 +66,7 @@ from tracecat.temporal.errors import (
     build_error_transport_detail,
     extract_error_classification,
     extract_error_diagnostics,
+    raise_application_error_from_classification,
     raise_wrapped_application_error,
 )
 
@@ -68,6 +83,50 @@ def _activity_error(cause: BaseException) -> ActivityError:
     )
     error.__cause__ = cause
     return error
+
+
+def test_agent_executor_unclassified_keeps_redacted_underlying_error() -> None:
+    classification = agent_executor_unclassified(
+        ValueError("catalog lookup failed\nAuthorization: Bearer abc.def.ghi")
+    )
+
+    assert classification.owner is RuntimeErrorOwner.PLATFORM
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+    assert classification.retry_disposition is RetryDisposition.RETRYABLE
+    assert classification.cause_type == "ValueError"
+    assert classification.message.startswith(
+        "Unclassified agent executor error: ValueError: catalog lookup failed "
+    )
+    assert "abc.def.ghi" not in classification.message
+
+
+def test_agent_executor_unclassified_detail_overrides_and_is_bounded() -> None:
+    classification = agent_executor_unclassified(
+        RuntimeError("ignored"), detail="x" * 5000
+    )
+
+    assert "ignored" not in classification.message
+    assert len(classification.message) <= (
+        len("Unclassified agent executor error: ") + MAX_UNCLASSIFIED_DETAIL_CHARS
+    )
+    assert classification.message.endswith("…")
+    assert agent_executor_unclassified().message == (
+        "Unclassified agent executor error"
+    )
+
+
+def test_legacy_executor_unavailable_kind_deserializes_as_unclassified() -> None:
+    classification = RuntimeErrorClassification.model_validate(
+        {
+            "schema": "tracecat.error.v1",
+            "owner": "platform",
+            "kind": "agent.executor.unavailable",
+            "message": "Tracecat agent executor is unavailable",
+            "retry_disposition": "retryable",
+        }
+    )
+
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
 
 @pytest.mark.parametrize(
@@ -102,12 +161,6 @@ def _activity_error(cause: BaseException) -> ActivityError:
             RuntimeErrorOwner.USER,
             RuntimeErrorKind.AGENT_EXECUTION_FAILED,
             RetryDisposition.NON_RETRYABLE,
-        ),
-        (
-            agent_executor_unavailable,
-            RuntimeErrorOwner.PLATFORM,
-            RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE,
-            RetryDisposition.RETRYABLE,
         ),
         (
             agent_llm_read_timeout,
@@ -232,7 +285,7 @@ def test_executor_activity_classifies_crash_as_unavailable() -> None:
         _activity_error(RuntimeError("opaque crash"))
     )
 
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     assert classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
@@ -260,9 +313,11 @@ async def test_untyped_runtime_error_is_platform_classified() -> None:
 
     assert result.classification is not None
     assert result.classification.owner is RuntimeErrorOwner.PLATFORM
-    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
-    assert "raw provider response" not in result.classification.message
+    assert result.classification.message == (
+        "Unclassified agent executor error: raw provider response"
+    )
 
 
 def test_loopback_classification_is_copied_to_executor_result() -> None:
@@ -337,7 +392,7 @@ def test_agent_runtime_failure_keeps_other_failures_platform_owned(
 
     assert failure.message == "fallback text"
     assert failure.classification.owner is RuntimeErrorOwner.PLATFORM
-    assert failure.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert failure.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
     assert failure.classification.retry_disposition is RetryDisposition.RETRYABLE
 
 
@@ -381,7 +436,7 @@ def test_llm_diagnostics_survive_application_error_wrapping() -> None:
     with pytest.raises(ApplicationError) as raised:
         raise_wrapped_application_error(
             error,
-            fallback_classification=agent_executor_unavailable(),
+            fallback_classification=agent_executor_unclassified(),
         )
     assert extract_error_classification(raised.value) == expected
     assert extract_error_diagnostics(raised.value, expected) == (
@@ -417,3 +472,208 @@ async def test_llm_diagnostics_survive_temporal_payload_and_activity_wrapper() -
     assert extract_error_diagnostics(_activity_error(transported), classification) == (
         diagnostic.model_dump(mode="json"),
     )
+
+
+@pytest.mark.parametrize(
+    ("error", "owner", "kind", "retry_disposition", "message"),
+    [
+        (
+            UserMCPDiscoveryAuthError("github"),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.AGENT_MCP_AUTH_FAILED,
+            RetryDisposition.NON_RETRYABLE,
+            "MCP server 'github' rejected the configured credentials; "
+            "reconnect the integration",
+        ),
+        (
+            UserMCPDiscoveryTimeoutError("synthetic-mcp"),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.AGENT_MCP_UNAVAILABLE,
+            RetryDisposition.RETRYABLE,
+            "MCP server 'synthetic-mcp' timed out during tool discovery; "
+            "check availability and retry",
+        ),
+        (
+            UserMCPDiscoveryBudgetExceededError("synthetic-mcp"),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.AGENT_MCP_UNAVAILABLE,
+            RetryDisposition.RETRYABLE,
+            "MCP tool discovery ran out of time before reaching server "
+            "'synthetic-mcp'; check availability of the other servers and retry",
+        ),
+        (
+            UserMCPDiscoveryUnavailableError("github", retryable=True),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.AGENT_MCP_UNAVAILABLE,
+            RetryDisposition.RETRYABLE,
+            "MCP server 'github' is unavailable; retry later",
+        ),
+        (
+            UserMCPDiscoveryUnavailableError("github", retryable=False),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.AGENT_MCP_UNAVAILABLE,
+            RetryDisposition.NON_RETRYABLE,
+            "MCP server 'github' rejected the tool discovery request",
+        ),
+        (
+            UserMCPDiscoveryError("github"),
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.AGENT_PREPARATION_FAILED,
+            RetryDisposition.NON_RETRYABLE,
+            "Tracecat could not prepare the agent run",
+        ),
+        (
+            KeyError("tool policy"),
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.AGENT_PREPARATION_FAILED,
+            RetryDisposition.NON_RETRYABLE,
+            "Tracecat could not prepare the agent run",
+        ),
+    ],
+)
+def test_mcp_discovery_failure_attributes_owner_by_cause(
+    error: BaseException,
+    owner: RuntimeErrorOwner,
+    kind: RuntimeErrorKind,
+    retry_disposition: RetryDisposition,
+    message: str,
+) -> None:
+    classification = mcp_discovery_failure(error)
+
+    assert classification.owner is owner
+    assert classification.kind is kind
+    assert classification.retry_disposition is retry_disposition
+    assert classification.message == message
+    assert classification.cause_type == type(error).__name__
+
+
+@pytest.mark.anyio
+async def test_mcp_timeout_survives_temporal_failure_transport() -> None:
+    # Raise inside the handler, as the activity does, so implicit chaining
+    # would carry the private cause if the raise helper stopped suppressing it.
+    try:
+        try:
+            raise RuntimeError("synthetic private diagnostic")
+        except RuntimeError as private:
+            raise UserMCPDiscoveryTimeoutError("synthetic-mcp") from private
+    except UserMCPDiscoveryTimeoutError as error:
+        expected = mcp_discovery_failure(error)
+        with pytest.raises(ApplicationError) as raised:
+            raise_application_error_from_classification(expected)
+    converter = DataConverter.default
+    failure = Failure()
+    await converter.encode_failure(raised.value, failure)
+    restored = await converter.decode_failure(failure)
+    assert _agent_activity_classification(_activity_error(restored)) == expected
+    assert "synthetic private diagnostic" not in str(failure)
+
+
+@pytest.mark.parametrize(
+    ("error", "owner", "kind", "message"),
+    [
+        (
+            AgentToolResolutionError(
+                missing_actions=frozenset({"tools.acme.search", "tools.acme.lookup"})
+            ),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+            "Agent tools reference actions that are not in the registry: "
+            "tools.acme.lookup, tools.acme.search",
+        ),
+        (
+            AgentToolResolutionError(
+                missing_actions=frozenset({"tools.acme.search"}),
+                missing_platform_actions=frozenset({"core.http_request"}),
+            ),
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.AGENT_PREPARATION_FAILED,
+            "Tracecat could not prepare the agent run",
+        ),
+        (
+            AgentToolResolutionError(
+                missing_actions=frozenset({"tools.acme.search"}),
+                entitlement_denied_actions=frozenset({"tools.acme.premium"}),
+            ),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED,
+            "This feature requires an upgraded plan",
+        ),
+        (
+            AgentToolResolutionError(
+                failed_custom_actions=frozenset({"tools.acme.broken"})
+            ),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+            "Custom registry actions could not be built into agent tools: "
+            "tools.acme.broken",
+        ),
+        (
+            AgentToolResolutionError(
+                missing_actions=frozenset({"tools.acme.search"}),
+                failed_custom_actions=frozenset({"tools.acme.broken"}),
+            ),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+            "Agent tools reference actions that are not in the registry: "
+            "tools.acme.search; Custom registry actions could not be built into "
+            "agent tools: tools.acme.broken",
+        ),
+        (
+            AgentToolResolutionError(failed_actions=frozenset({"core.http_request"})),
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.AGENT_PREPARATION_FAILED,
+            "Tracecat could not prepare the agent run",
+        ),
+        (
+            AgentToolLimitExceededError(requested=101, limit=100),
+            RuntimeErrorOwner.USER,
+            RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
+            "Agent requests 101 tools; the limit is 100",
+        ),
+        (
+            ValueError("raw registry detail"),
+            RuntimeErrorOwner.PLATFORM,
+            RuntimeErrorKind.AGENT_PREPARATION_FAILED,
+            "Tracecat could not prepare the agent run",
+        ),
+    ],
+)
+def test_agent_tool_build_failure_attributes_owner_by_cause(
+    error: ValueError,
+    owner: RuntimeErrorOwner,
+    kind: RuntimeErrorKind,
+    message: str,
+) -> None:
+    classification = agent_tool_build_failure(error)
+
+    assert classification.owner is owner
+    assert classification.kind is kind
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert classification.message == message
+    assert classification.cause_type == type(error).__name__
+
+
+def test_invalid_agent_tools_message_is_bounded() -> None:
+    # The long name sorts first so it is shown and must be truncated.
+    long_name = "a." + "x" * 200
+    error = AgentToolResolutionError(
+        missing_actions=frozenset(f"tools.acme.action_{i}" for i in range(8))
+        | frozenset({long_name})
+    )
+
+    message = agent_tool_build_failure(error).message
+
+    assert message.endswith("(+4 more)")
+    assert f"{long_name[:61]}..." in message
+    assert "x" * 100 not in message
+
+
+def test_agent_preparation_error_is_platform_preparation_failure() -> None:
+    error = AgentPreparationError("cwd /tmp/secret-path is too long")
+
+    failure = agent_runtime_failure(error, fallback_message=str(error))
+
+    assert failure.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert failure.classification.kind is RuntimeErrorKind.AGENT_PREPARATION_FAILED
+    assert failure.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+    assert failure.message == "Tracecat could not prepare the agent run"

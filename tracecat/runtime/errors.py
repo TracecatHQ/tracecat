@@ -90,11 +90,20 @@ class RuntimeErrorKind(StrEnum):
     AGENT_LLM_BUDGET_EXCEEDED = "agent.llm.budget_exceeded"
     AGENT_LLM_RATE_LIMITED = "agent.llm.rate_limited"
     AGENT_LLM_READ_TIMEOUT = "agent.llm.read_timeout"
+    AGENT_MCP_AUTH_FAILED = "agent.mcp.auth_failed"
+    AGENT_MCP_UNAVAILABLE = "agent.mcp.unavailable"
     AGENT_EXECUTION_FAILED = "agent.execution.failed"
-    AGENT_EXECUTOR_UNAVAILABLE = "agent.executor.unavailable"
+    AGENT_EXECUTOR_UNCLASSIFIED = "agent.executor.unclassified"
     AGENT_EXECUTOR_TIMED_OUT = "agent.executor.timed_out"
     AGENT_EXECUTOR_PROTOCOL_FAILED = "agent.executor.protocol_failed"
     AGENT_WORKFLOW_INTERNAL_ERROR = "agent.workflow.internal_error"
+
+    @classmethod
+    def _missing_(cls, value: object) -> RuntimeErrorKind | None:
+        # Workflow histories recorded before the rename carry the legacy value.
+        if value == "agent.executor.unavailable":
+            return cls.AGENT_EXECUTOR_UNCLASSIFIED
+        return None
 
 
 class RuntimeErrorClassification(BaseModel):

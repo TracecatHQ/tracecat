@@ -1010,6 +1010,10 @@ export type AgentSessionCreate = {
    */
   id?: string | null
   /**
+   * Session that spawned this fresh child
+   */
+  spawned_by_session_id?: string | null
+  /**
    * Human-readable title for the session
    */
   title?: string
@@ -1080,6 +1084,10 @@ export type AgentSessionForkRequest = {
    * Override entity type for the forked session. Use 'approval' for inbox forks to hide from main chat list.
    */
   entity_type?: AgentSessionEntity | null
+  /**
+   * Session that spawned this forked child
+   */
+  spawned_by_session_id?: string | null
 }
 
 /**
@@ -1110,6 +1118,8 @@ export type AgentSessionRead = {
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null
+  spawned_by_session_id?: string | null
+  forked_from_session_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -1142,6 +1152,8 @@ export type AgentSessionReadVercel = {
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null
+  spawned_by_session_id?: string | null
+  forked_from_session_id?: string | null
   created_at: string
   updated_at: string
   /**
@@ -1178,6 +1190,8 @@ export type AgentSessionReadWithMessages = {
   last_stream_id?: string | null
   artifacts?: Array<Artifact>
   parent_session_id?: string | null
+  spawned_by_session_id?: string | null
+  forked_from_session_id?: string | null
   created_at: string
   updated_at: string
   /**
@@ -7696,8 +7710,10 @@ export type RuntimeErrorKind =
   | "agent.llm.budget_exceeded"
   | "agent.llm.rate_limited"
   | "agent.llm.read_timeout"
+  | "agent.mcp.auth_failed"
+  | "agent.mcp.unavailable"
   | "agent.execution.failed"
-  | "agent.executor.unavailable"
+  | "agent.executor.unclassified"
   | "agent.executor.timed_out"
   | "agent.executor.protocol_failed"
   | "agent.workflow.internal_error"
@@ -13652,13 +13668,26 @@ export type AgentSessionsListSessionsData = {
    */
   excludeEntityTypes?: Array<AgentSessionEntity> | null
   /**
+   * Filter by history source session ID
+   */
+  forkedFromSessionId?: string | null
+  /**
+   * Include spawned children without a parent filter
+   */
+  includeChildren?: boolean
+  /**
    * Maximum number of sessions to return
    */
   limit?: number
   /**
-   * Filter by parent session ID (for finding forked sessions)
+   * Legacy alias for forked_from_session_id
+   * @deprecated
    */
   parentSessionId?: string | null
+  /**
+   * Filter by spawning parent session ID
+   */
+  spawnedBySessionId?: string | null
   workspaceId: string
 }
 
@@ -19602,6 +19631,14 @@ export type $OpenApiTs = {
          */
         200: AgentSessionRead
         /**
+         * Workspace Chat entitlement or parent session write access required
+         */
+        403: unknown
+        /**
+         * Parent session not found in this workspace
+         */
+        404: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -19614,6 +19651,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Array<AgentSessionRead | ChatReadMinimal>
+        /**
+         * Conflicting parent_session_id and forked_from_session_id filters
+         */
+        400: unknown
         /**
          * Validation Error
          */

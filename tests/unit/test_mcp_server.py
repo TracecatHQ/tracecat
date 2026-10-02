@@ -9280,12 +9280,10 @@ async def test_get_agent_preset_returns_full_configuration(
         (None, "0-0"),
     ],
 )
-@pytest.mark.parametrize("requested_preset_version", [3, None])
 async def test_run_agent_preset_uses_session_stream_cursor(
     monkeypatch: pytest.MonkeyPatch,
     last_stream_id: str | None,
     expected_start_id: str,
-    requested_preset_version: int | None,
 ) -> None:
     workspace_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
@@ -9305,10 +9303,8 @@ async def test_run_agent_preset_uses_session_stream_cursor(
             self,
             *,
             slug: str,
-            preset_version: int | None = None,
         ) -> SimpleNamespace:
             assert slug == "triage"
-            assert preset_version == requested_preset_version
             return version
 
     class _SessionService:
@@ -9355,16 +9351,10 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     )
     monkeypatch.setattr(mcp_server, "_collect_agent_response", _collect)
 
-    version_kwargs = (
-        {"preset_version": requested_preset_version}
-        if requested_preset_version is not None
-        else {}
-    )
     result = await _tool(mcp_server.run_agent_preset)(
         workspace_id=str(workspace_id),
         preset_slug="triage",
         prompt="check alerts",
-        **version_kwargs,
     )
 
     assert result == "agent response"
@@ -9380,18 +9370,14 @@ async def test_run_agent_preset_uses_session_stream_cursor(
 
 
 @pytest.mark.anyio
-async def test_run_agent_preset_marks_numeric_version_deprecated() -> None:
+async def test_run_agent_preset_does_not_expose_preset_version() -> None:
     tool = next(
         tool
         for tool in await mcp_server.mcp.list_tools()
         if tool.name == "run_agent_preset"
     )
 
-    preset_version_schema = tool.parameters["properties"]["preset_version"]
-
-    assert preset_version_schema["deprecated"] is True
-    assert "Deprecated compatibility input" in preset_version_schema["description"]
-    assert "current head" in preset_version_schema["description"]
+    assert "preset_version" not in tool.parameters["properties"]
 
 
 @pytest.mark.anyio
@@ -10736,6 +10722,230 @@ async def test_update_agent_preset_can_clear_skill_bindings(
     )
 
     assert captured["params"].skills == []
+
+
+def _mcp_subagent_test_preset(workspace_id: uuid.UUID) -> SimpleNamespace:
+    now = datetime.now(UTC)
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        name="Security triage",
+        slug="security-triage",
+        description=None,
+        instructions="Original prompt",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        catalog_id=None,
+        base_url=None,
+        output_type=None,
+        actions=None,
+        namespaces=None,
+        tool_approvals=None,
+        mcp_integrations=None,
+        agents={},
+        retries=3,
+        enable_thinking=True,
+        enable_internet_access=False,
+        current_version_id=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_passes_subagents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    catalog_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_default_model_selection(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                catalog_id=catalog_id,
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
+
+    class _AccessService:
+        async def is_catalog_enabled(
+            self, requested_catalog_id: uuid.UUID, *, workspace_id: uuid.UUID
+        ) -> bool:
+            return True
+
+    class _PresetService(_PresetReadBuilder):
+        async def create_preset(self, params: Any) -> SimpleNamespace:
+            created["params"] = params
+            return _mcp_subagent_test_preset(workspace_id)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentModelAccessService,
+        "with_session",
+        lambda role: _AsyncContext(_AccessService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    await _tool(mcp_server.create_agent_preset)(
+        workspace_id=str(workspace_id),
+        name="Security triage",
+        subagents=[
+            {
+                "preset": "enrich-ioc",
+                "preset_version": 2,
+                "name": "enricher",
+                "description": "Enrich indicators",
+                "max_turns": 5,
+            },
+            {"preset": "summarize-case"},
+        ],
+    )
+
+    params = created["params"]
+    assert params.agents.model_dump(mode="json", exclude={"enabled"}) == {
+        "subagents": [
+            {
+                "preset": "enrich-ioc",
+                "preset_version": 2,
+                "name": "enricher",
+                "description": "Enrich indicators",
+                "max_turns": 5,
+            },
+            {
+                "preset": "summarize-case",
+                "preset_version": None,
+                "name": None,
+                "description": None,
+                "max_turns": None,
+            },
+        ]
+    }
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_omitted_subagents_uses_empty_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    catalog_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_default_model_selection(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                catalog_id=catalog_id,
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
+
+    class _AccessService:
+        async def is_catalog_enabled(
+            self, requested_catalog_id: uuid.UUID, *, workspace_id: uuid.UUID
+        ) -> bool:
+            return True
+
+    class _PresetService(_PresetReadBuilder):
+        async def create_preset(self, params: Any) -> SimpleNamespace:
+            created["params"] = params
+            return _mcp_subagent_test_preset(workspace_id)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentModelAccessService,
+        "with_session",
+        lambda role: _AsyncContext(_AccessService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    await _tool(mcp_server.create_agent_preset)(
+        workspace_id=str(workspace_id),
+        name="Security triage",
+    )
+
+    assert created["params"].agents.subagents == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("subagents", "expected_set", "expected_aliases"),
+    [
+        (None, False, None),
+        ([], True, []),
+        ([{"preset": "enrich-ioc", "name": "enricher"}], True, ["enricher"]),
+    ],
+)
+async def test_update_agent_preset_subagents(
+    monkeypatch: pytest.MonkeyPatch,
+    subagents: list[dict[str, Any]] | None,
+    expected_set: bool,
+    expected_aliases: list[str] | None,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    captured: dict[str, Any] = {}
+    preset = _mcp_subagent_test_preset(workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _PresetService(_PresetReadBuilder):
+        async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
+            assert preset_slug == "security-triage"
+            return preset
+
+        async def update_preset(
+            self, current_preset: Any, params: Any
+        ) -> SimpleNamespace:
+            assert current_preset is preset
+            captured["params"] = params
+            return preset
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    await _tool(mcp_server.update_agent_preset)(
+        workspace_id=str(workspace_id),
+        preset_slug="security-triage",
+        subagents=subagents,
+    )
+
+    params = captured["params"]
+    assert ("agents" in params.model_fields_set) is expected_set
+    if expected_aliases is None:
+        assert params.agents is None
+    else:
+        assert [ref.alias for ref in params.agents.subagents] == expected_aliases
 
 
 @pytest.mark.anyio

@@ -108,22 +108,6 @@ def _get_site_packages_dir() -> Path | None:
     return None
 
 
-def _is_sandbox_available() -> bool:
-    """Check if nsjail sandbox is available."""
-    nsjail_path = Path(config.TRACECAT__SANDBOX_NSJAIL_PATH)
-    rootfs_path = Path(config.TRACECAT__SANDBOX_ROOTFS_PATH)
-
-    if not nsjail_path.exists():
-        logger.debug("nsjail binary not found", path=str(nsjail_path))
-        return False
-
-    if not rootfs_path.exists():
-        logger.debug("Sandbox rootfs not found", path=str(rootfs_path))
-        return False
-
-    return True
-
-
 # Keeps the whole message under the 2048-char cap that
 # EventFailure.sanitize_error_text applies before the UI sees it.
 _WORKLOAD_STDERR_MESSAGE_CHARS = 1900
@@ -203,7 +187,7 @@ class ActionRunner:
         artifact_uris: list[str] | None = None,
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
-        force_sandbox: bool = False,
+        use_sandbox: bool | None = None,
     ) -> ExecutionResult:
         """Execute an action in a subprocess (untrusted mode).
 
@@ -216,7 +200,7 @@ class ActionRunner:
             artifact_uris: List of registry artifact S3 URIs (deterministic order)
             env_vars: Additional environment variables for the subprocess
             timeout: Execution timeout in seconds
-            force_sandbox: If True, always use nsjail sandbox regardless of config
+            use_sandbox: Explicit subprocess mode; defaults to the configured backend.
             resolved_context: Pre-resolved context from service layer (optional,
                 will be resolved here if not provided)
 
@@ -226,9 +210,8 @@ class ActionRunner:
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
         # Both execution modes treat registry artifacts as shared import inputs.
-        use_sandbox = force_sandbox or (
-            config.TRACECAT__EXECUTOR_SANDBOX_ENABLED and _is_sandbox_available()
-        )
+        if use_sandbox is None:
+            use_sandbox = config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail
 
         # Materialize each registry artifact, collect paths in deterministic order.
         # The lease is held for the whole subprocess execution so cache eviction
@@ -237,7 +220,6 @@ class ActionRunner:
             logger.debug(
                 "Using sandbox execution",
                 use_sandbox=use_sandbox,
-                force_sandbox=force_sandbox,
             )
 
             secret_projection = resolved_context.secret_projection

@@ -109,7 +109,7 @@ async def test_direct_backend_uses_subprocess_runner(
     assert result.result == {"ok": True}
     mock_runner.execute_action.assert_awaited_once()
     call = mock_runner.execute_action.await_args.kwargs
-    assert call["force_sandbox"] is False
+    assert call["use_sandbox"] is False
     assert call["artifact_uris"] == ["s3://tracecat-registry/test/site-packages.tar.gz"]
 
 

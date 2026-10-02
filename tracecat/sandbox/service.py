@@ -15,15 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from tracecat.config import (
-    TRACECAT__DISABLE_NSJAIL,
+    TRACECAT__EXECUTOR_BACKEND,
     TRACECAT__SANDBOX_ADDRESS_SPACE_MB,
     TRACECAT__SANDBOX_CACHE_DIR,
     TRACECAT__SANDBOX_DEFAULT_MEMORY_MB,
     TRACECAT__SANDBOX_DEFAULT_TIMEOUT,
-    TRACECAT__SANDBOX_NSJAIL_PATH,
     TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_BYTES,
     TRACECAT__SANDBOX_PACKAGE_CACHE_MAX_ENTRIES,
-    TRACECAT__SANDBOX_ROOTFS_PATH,
 )
 from tracecat.logger import logger
 from tracecat.sandbox.cgroup import sandbox_cgroup
@@ -130,23 +128,9 @@ class SandboxService:
         # Ensure cache directories exist
         self.package_cache.mkdir(parents=True, exist_ok=True)
 
-        # Initialize executors lazily based on availability
+        # Initialize executors lazily when selected by the configured backend.
         self._nsjail_executor: NsjailExecutor | None = None
         self._unsafe_pid_executor: UnsafePidExecutor | None = None
-
-    def _is_nsjail_available(self) -> bool:
-        """Check if nsjail sandbox is available and configured.
-
-        Returns:
-            True if nsjail can be used, False otherwise.
-        """
-        if TRACECAT__DISABLE_NSJAIL:
-            return False
-
-        nsjail_path = Path(TRACECAT__SANDBOX_NSJAIL_PATH)
-        rootfs_path = Path(TRACECAT__SANDBOX_ROOTFS_PATH)
-
-        return nsjail_path.exists() and rootfs_path.is_dir()
 
     @property
     def nsjail_executor(self) -> NsjailExecutor:
@@ -442,10 +426,10 @@ class SandboxService:
     ) -> Any:
         """Execute a Python script in a sandbox.
 
-        This is the main entry point for script execution. It automatically
-        selects the appropriate executor based on nsjail availability:
-        - If nsjail is available: Uses full OS-level isolation
-        - If nsjail is unavailable: Uses fallback executor with PID isolation
+        TRACECAT__EXECUTOR_BACKEND selects the executor:
+        - nsjail: Uses OS-level isolation and propagates nsjail failures.
+        - direct: Uses the unsafe PID executor with PID namespace isolation
+          when available.
 
         Args:
             script: Python script content to execute.
@@ -477,8 +461,8 @@ class SandboxService:
             action_gateway_socket
         )
 
-        # Route to appropriate executor based on nsjail availability
-        if self._is_nsjail_available():
+        # The configured backend is authoritative; never fall back from nsjail.
+        if TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
             logger.debug("Using nsjail executor for script execution")
             return await self._run_with_nsjail(
                 script=script,
@@ -493,9 +477,9 @@ class SandboxService:
             )
         else:
             logger.info(
-                "nsjail not available, using unsafe PID executor. "
+                "Using the direct backend with the unsafe PID executor. "
                 "Using PID namespace isolation when available. "
-                "For full OS-level isolation, set TRACECAT__DISABLE_NSJAIL=false "
+                "For full OS-level isolation, set TRACECAT__EXECUTOR_BACKEND=nsjail "
                 "and ensure nsjail is installed with the sandbox rootfs."
             )
             resolved_env_vars = self._with_action_gateway_socket_env(

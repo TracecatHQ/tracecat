@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from tracecat.agent.diagnostics import LLMErrorDiagnostics
-from tracecat.agent.error_policy import agent_executor_unavailable
+from tracecat.agent.error_policy import agent_executor_unclassified
 from tracecat.agent.executor.activity import AgentExecutorResult
 
 
@@ -15,7 +15,7 @@ class _PreviousClassification(BaseModel):
 
     schema_: Literal["tracecat.error.v1"] = Field(alias="schema")
     owner: Literal["platform"]
-    kind: Literal["agent.executor.unavailable"]
+    kind: Literal["agent.executor.unclassified"]
     message: str
     retry_disposition: Literal["retryable"]
     cause_type: str | None = None
@@ -29,7 +29,7 @@ class _PreviousExecutorResult(BaseModel):
 
 
 def test_agent_diagnostics_do_not_change_the_v1_classification_wire_shape() -> None:
-    classification = agent_executor_unavailable()
+    classification = agent_executor_unclassified()
     result = AgentExecutorResult(
         success=False,
         classification=classification,

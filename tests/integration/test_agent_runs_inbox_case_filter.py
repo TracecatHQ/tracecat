@@ -171,9 +171,11 @@ async def test_case_filter_is_scoped_deduplicated_and_paginated(
     assert isolated.items == []
 
 
+@pytest.mark.parametrize("ancestry", ["spawn", "fork", "both"])
 async def test_backend_compatibility_preserves_eligibility_and_count_rules(
     session: AsyncSession,
     svc_role: Role,
+    ancestry: str,
 ) -> None:
     """Only backend restrictions change; harness and approval rules stay intact."""
     assert svc_role.workspace_id is not None
@@ -216,7 +218,11 @@ async def test_backend_compatibility_preserves_eligibility_and_count_rules(
         rows.append(row)
     child = _agent_session(workspace_id, "child", base_time, entity_id=uuid.uuid4())
     child.backend_id = "ee"
-    child.parent_session_id = rows[4].id
+    if ancestry in {"spawn", "both"}:
+        child.spawned_by_session_id = rows[4].id
+    if ancestry in {"fork", "both"}:
+        child.forked_from_session_id = rows[4].id
+        child.parent_session_id = rows[4].id
     session.add(child)
     await session.flush()
     session.add(

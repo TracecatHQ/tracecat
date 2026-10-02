@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from tracecat.executor.enums import ExecutorBackendType
+
 # === Agent Sandbox Config (read directly from env) === #
 
 TRACECAT__AGENT_SANDBOX_TIMEOUT = int(
@@ -36,10 +38,10 @@ if (
 ):
     raise ValueError("TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB must be positive")
 
-TRACECAT__DISABLE_NSJAIL = os.environ.get(
-    "TRACECAT__DISABLE_NSJAIL", "true"
-).lower() in ("true", "1")
-"""Disable nsjail sandbox and use the unsafe PID executor instead."""
+TRACECAT__EXECUTOR_BACKEND = ExecutorBackendType.from_config(
+    os.environ.get("TRACECAT__EXECUTOR_BACKEND")
+)
+"""Execution mode shared with action execution and registry sync."""
 
 _AGENT_RUNTIME_UV_PATH_ENV_VARS = (
     ("UV_CACHE_DIR", "cache"),
@@ -121,7 +123,7 @@ JAILED_OTEL_SOCKET_PATH = Path("/var/run/tracecat/otel.sock")
 # === Runtime socket overrides (primarily for direct subprocess mode) === #
 #
 # In NSJail mode, the orchestrator mounts per-job sockets into the jailed paths above.
-# In direct subprocess mode (TRACECAT__DISABLE_NSJAIL=true), there is no mount, so the
+# In direct subprocess mode (TRACECAT__EXECUTOR_BACKEND=direct), there is no mount, so the
 # runtime must connect to the orchestrator's real socket paths.
 TRACECAT__AGENT_CONTROL_SOCKET_PATH = Path(
     os.environ.get(

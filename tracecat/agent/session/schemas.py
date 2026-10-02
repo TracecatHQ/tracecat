@@ -21,6 +21,9 @@ class AgentSessionCreate(BaseModel):
         default=None,
         description="Session ID. If not provided, service generates one.",
     )
+    spawned_by_session_id: uuid.UUID | None = Field(
+        default=None, description="Session that spawned this fresh child"
+    )
     # Metadata fields
     title: str = Field(
         default="New Chat",
@@ -166,8 +169,10 @@ class AgentSessionRead(BaseModel):
     # Stream tracking
     last_stream_id: str | None = None
     artifacts: list[Artifact] = Field(default_factory=list)
-    # Fork tracking
-    parent_session_id: uuid.UUID | None = None
+    # Session ancestry
+    parent_session_id: uuid.UUID | None = None  # Legacy fork source.
+    spawned_by_session_id: uuid.UUID | None = None
+    forked_from_session_id: uuid.UUID | None = None
     # Timestamps
     created_at: datetime
     updated_at: datetime
@@ -204,6 +209,9 @@ class AgentSessionForkRequest(BaseModel):
         default=None,
         description="Override entity type for the forked session. "
         "Use 'approval' for inbox forks to hide from main chat list.",
+    )
+    spawned_by_session_id: uuid.UUID | None = Field(
+        default=None, description="Session that spawned this forked child"
     )
 
 

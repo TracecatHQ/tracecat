@@ -108,7 +108,7 @@ Defaults differ by deployment target.
 | Deployment | Default |
 | --- | --- |
 | [Kubernetes](/self-hosting/kubernetes#security) | nsjail sandbox. The chart applies the required security context to the executor pods. |
-| [Docker Compose](/self-hosting/docker-compose) | No isolation. `TRACECAT__DISABLE_NSJAIL=true` with the `direct` backend. |
+| [Docker Compose](/self-hosting/docker-compose) | No isolation. `TRACECAT__EXECUTOR_BACKEND=direct`. |
 | [AWS Fargate](/self-hosting/aws-fargate) | No isolation. Fargate cannot grant the capabilities nsjail requires. |
 
 ### nsjail sandbox (recommended for production)
@@ -123,14 +123,14 @@ For production, enable [nsjail](https://github.com/google/nsjail) — a process 
 To enable nsjail, set the following in your `.env`:
 
 ```bash
-TRACECAT__DISABLE_NSJAIL=false
-TRACECAT__EXECUTOR_BACKEND=ephemeral
+TRACECAT__EXECUTOR_BACKEND=nsjail
 ```
 
+The legacy `ephemeral` value remains an alias for `nsjail`.
+
 <Warning>
-  The `direct` backend does not provide the supported `nsjail` boundary for ordinary workflow actions.
-  Setting `TRACECAT__DISABLE_NSJAIL=false` while keeping `TRACECAT__EXECUTOR_BACKEND=direct` does not sandbox those actions.
-  Select `ephemeral` as well to isolate them.
+  The `direct` backend does not sandbox ordinary workflow actions.
+  Set `TRACECAT__EXECUTOR_BACKEND=nsjail` for supported action isolation.
 </Warning>
 
 nsjail requires:
@@ -179,7 +179,7 @@ Review that code and pin those dependencies as you would any code with direct ac
 | Backend | Isolation | Latency | Use case |
 | :------ | :-------- | :------ | :------- |
 | `direct` | Does not support sandboxing | ~50ms | Trusted code, dependencies, and agents |
-| `ephemeral` | nsjail sandbox (cold per action) | ~4000ms | Untrusted code, dependencies, and agents |
+| `nsjail` (`ephemeral` alias) | nsjail sandbox (cold per action) | ~4000ms | Untrusted code, dependencies, and agents |
 
 ## Authentication
 

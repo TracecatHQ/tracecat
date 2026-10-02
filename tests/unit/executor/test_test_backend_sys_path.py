@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import uuid
 
-from tracecat.executor.backends.test import _temporary_sys_path
+from tests.support.executor_backend import _temporary_sys_path
 
 
 def _unique_sys_path_entry(prefix: str) -> str:

@@ -97,6 +97,7 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
+from tracecat.agent.subagents import AgentSubagentsConfig, AttachedSubagentRef
 from tracecat.agent.tools import create_tool_from_registry
 from tracecat.agent.types import OutputType
 from tracecat.audit.logger import AuditEventDetails, audit_log
@@ -2463,11 +2464,12 @@ docstring carries the full RFC 6902 patch rules.
 - {_SKILL_FILE_WARNING}
 - Call `prepare_skill_upload` with file metadata, upload the raw bytes to each
   returned URL, then call `complete_skill_upload` with the upload IDs.
-- Skill versions cannot be pinned on agent presets. Bindings carry only
-  `skill_id`; the preset always runs, and `get_agent_preset` always reports,
-  the skill's latest published version. After `publish_skill`, do NOT call
-  `update_agent_preset` (or re-send `skills`); only touch `skills` to attach
-  or detach a skill.
+
+## Agent preset versions
+- Always use the latest subagent and skill. Do NOT pin agent preset versions
+  (`subagents[].preset_version`) unless the user explicitly asks to.
+- Skills always run their latest published version. After `publish_skill`,
+  do NOT call `update_agent_preset`; touch `skills` only to attach/detach.
 
 ## Structured argument quick reference
 Tool docstrings are the source of truth for every other argument shape.
@@ -3191,6 +3193,17 @@ group of tools several agents share.
 actions for one run — MCP tools stay, an empty list is ignored — which is handy
 for a test or an eval.
 - Set an `output_type` only when the user explicitly asks for structured output.
+
+### Subagent and skill versions
+- Always use the latest subagent and skill. This is the default and the best
+practice: fixes and improvements to a child preset or skill reach every parent
+preset without re-editing it.
+- Do NOT pin agent preset versions unless the user explicitly asks to pin a
+specific version. Leave `preset_version` out of `subagents` refs, including
+when you copy refs from `get_agent_preset` into an update.
+- Skills cannot be pinned: bindings carry only `skill_id`.
+- If the user does ask to pin, confirm which version, set `preset_version` on
+that one ref only, and tell them the subagent will no longer pick up updates.
 """
 
 
@@ -8717,6 +8730,7 @@ async def create_agent_preset(
     enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
     skills: list[AgentPresetSkillBindingBase] | None = None,
+    subagents: list[AttachedSubagentRef] | None = None,
 ) -> AgentPresetRead:
     """Create an agent preset in the selected workspace.
 
@@ -8726,6 +8740,13 @@ async def create_agent_preset(
 
     Attach tools via `actions`, `mcp_integration_ids`, or a skill's
     `metadata.tools`.
+
+    Use `subagents` to attach other presets as subagents. Each ref contains
+    `preset` (the child preset slug) and optional `name` (runtime alias),
+    `description`, and `max_turns`. Always omit `preset_version` so the
+    subagent follows the child preset's latest version; set it only when the
+    user explicitly asks to pin a specific version. A child preset cannot have
+    its own subagents or tools that require manual approval.
     """
 
     try:
@@ -8759,6 +8780,11 @@ async def create_agent_preset(
             "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
             "skills": skills,
+            "agents": (
+                AgentSubagentsConfig(subagents=list(subagents))
+                if subagents is not None
+                else None
+            ),
         }
         create_data.update(
             {
@@ -8804,6 +8830,7 @@ async def update_agent_preset(
     enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
     skills: list[AgentPresetSkillBindingBase] | None = None,
+    subagents: list[AttachedSubagentRef] | None = None,
 ) -> AgentPresetRead:
     """Update an existing agent preset in the selected workspace.
 
@@ -8815,6 +8842,17 @@ async def update_agent_preset(
 
     Attach tools via `actions`, `mcp_integration_ids`, or a skill's
     `metadata.tools`.
+
+    Use `subagents` to replace attached preset-backed subagents. Each ref
+    contains `preset` (the child preset slug) and optional `name` (runtime
+    alias), `description`, and `max_turns`. Always omit `preset_version` so
+    the subagent follows the child preset's latest version; set it only when
+    the user explicitly asks to pin a specific version. When re-sending
+    existing subagents, drop any `preset_version` the user did not ask for.
+    Omit `subagents` to leave them unchanged, or pass an empty list to detach
+    all subagents.
+    A child preset cannot have its own subagents or tools that require
+    manual approval.
 
     Set `clear_output_type=true` to remove an existing `output_type` (agent
     returns plain text). Omitting `output_type` leaves it unchanged.
@@ -8838,6 +8876,11 @@ async def update_agent_preset(
             "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
             "skills": skills,
+            "agents": (
+                AgentSubagentsConfig(subagents=list(subagents))
+                if subagents is not None
+                else None
+            ),
         }
         update_data.update(
             {
@@ -10096,16 +10139,6 @@ async def run_agent_preset(
     workspace_id: uuid.UUID,
     preset_slug: str,
     prompt: str,
-    preset_version: Annotated[
-        int | None,
-        Field(
-            description=(
-                "Deprecated compatibility input. Agent presets always resolve the "
-                "current head."
-            ),
-            deprecated=True,
-        ),
-    ] = None,
     timeout_seconds: int = 120,
 ) -> str | AgentAwaitingApprovalResponse:
     """Run an agent preset with a prompt and return text or approval status.
@@ -10118,8 +10151,6 @@ async def run_agent_preset(
         workspace_id: The workspace ID (from list_workspaces).
         preset_slug: Slug of the agent preset to run (from list_agent_presets).
         prompt: The user prompt to send to the agent.
-        preset_version: Deprecated compatibility input. The server accepts but
-            ignores this value and always resolves the current preset head.
         timeout_seconds: Max seconds to wait for response (default 120, max 300).
 
     Returns:
@@ -10135,10 +10166,7 @@ async def run_agent_preset(
             preset = await svc.get_preset_by_slug(preset_slug)
             if not preset:
                 raise ToolError(f"Agent preset '{preset_slug}' not found")
-            version = await svc.resolve_agent_preset_version(
-                slug=preset_slug,
-                preset_version=preset_version,
-            )
+            version = await svc.resolve_agent_preset_version(slug=preset_slug)
 
         # Create ephemeral session and run turn
         async with AgentSessionService.with_session(role=role) as svc:

@@ -32,8 +32,9 @@ export function InboxChat({ session }: InboxChatProps) {
 
     const fetchForkedSession = async () => {
       try {
-        const childSessions = await agentSessionsListSessions({
+        const forkedSessions = await agentSessionsListSessions({
           workspaceId,
+          // Keep requests compatible with older API instances during upgrades.
           parentSessionId: session.id,
           createdBy: user?.id,
           limit: 1,
@@ -41,10 +42,10 @@ export function InboxChat({ session }: InboxChatProps) {
         // Only update state if this effect hasn't been superseded
         if (!isCurrent) return
 
-        if (childSessions.length > 0) {
+        if (forkedSessions.length > 0) {
           setForkedState({
             parentSessionId: session.id,
-            sessionId: childSessions[0].id,
+            sessionId: forkedSessions[0].id,
           })
         } else {
           setForkedState(null)
