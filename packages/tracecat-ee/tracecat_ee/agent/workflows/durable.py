@@ -1356,6 +1356,12 @@ class DurableAgentWorkflow:
                 entity_type="agent_preset_builder",
             )
 
+        elif (
+            args.entity_type == AgentSessionEntity.WORKSPACE_CHAT
+            and args.agent_preset_id is None
+        ):
+            internal_tool_context = InternalToolContext(entity_type="copilot")
+
         # Resolve root and subagent tool definitions in one activity, while
         # preserving partitioned outputs for scope-specific tokens and tools.
         compiled_run = await self._compile_agent_run(

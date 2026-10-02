@@ -3,6 +3,24 @@ from tracecat.agent.mcp.internal_tools import BUILDER_INTERNAL_TOOL_NAMES
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
+from tracecat.workspaces.schemas import ChatCapabilitySelection
+
+
+def select_workspace_chat_capabilities(
+    available: list[str],
+    selection: ChatCapabilitySelection,
+    override: list[str] | None = None,
+) -> list[str]:
+    """Intersect a current catalog with workspace limits and optional chat choices."""
+    if selection.mode == "none":
+        return []
+    allowed = set(available)
+    if selection.mode == "selected":
+        allowed.intersection_update(selection.selected)
+    if override is not None:
+        allowed.intersection_update(override)
+    return list(dict.fromkeys(item for item in available if item in allowed))
+
 
 WORKSPACE_CHAT_AGENT_DEFAULT_TOOLS = [
     "ai.agent.create_preset",

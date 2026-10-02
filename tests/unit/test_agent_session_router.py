@@ -83,6 +83,7 @@ def _agent_session_stub(**overrides: Any) -> SimpleNamespace:
         "channel_context": None,
         "tools": None,
         "mcp_integrations": None,
+        "workspace_chat_overrides": None,
         "agent_preset_id": uuid.uuid4(),
         "agent_preset_version_id": uuid.uuid4(),
         "agents_binding": {},
@@ -414,7 +415,8 @@ async def test_update_session_rejects_teammate_session() -> None:
 
 @pytest.mark.anyio
 async def test_get_session_includes_agents_binding() -> None:
-    session_stub = _agent_session_stub()
+    overrides = {"tools": [], "mcp_integrations": None}
+    session_stub = _agent_session_stub(workspace_chat_overrides=overrides)
     fake_svc = SimpleNamespace(
         get_session=AsyncMock(return_value=session_stub),
         list_messages=AsyncMock(return_value=[]),
@@ -437,10 +439,20 @@ async def test_get_session_includes_agents_binding() -> None:
         "subagents": [],
     }
 
+    assert response.model_dump(mode="json")["workspace_chat_overrides"] == {
+        **overrides,
+        "subagents": None,
+    }
+
 
 @pytest.mark.anyio
 async def test_get_session_vercel_includes_agents_binding() -> None:
-    session_stub = _agent_session_stub()
+    overrides = {
+        "tools": [],
+        "mcp_integrations": None,
+        "subagents": [str(uuid.uuid4())],
+    }
+    session_stub = _agent_session_stub(workspace_chat_overrides=overrides)
     fake_svc = SimpleNamespace(
         get_session=AsyncMock(return_value=session_stub),
         list_messages=AsyncMock(return_value=[]),
@@ -462,6 +474,8 @@ async def test_get_session_vercel_includes_agents_binding() -> None:
         "enabled": True,
         "subagents": [],
     }
+
+    assert response.model_dump(mode="json")["workspace_chat_overrides"] == overrides
 
 
 @pytest.mark.anyio

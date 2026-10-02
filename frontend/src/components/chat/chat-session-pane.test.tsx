@@ -72,6 +72,11 @@ jest.mock("@/hooks/use-chat", () => ({
 }))
 
 jest.mock("@/lib/hooks", () => ({
+  useUserScopes: () => ({
+    userScopes: { scopes: ["*"] },
+    isLoading: false,
+    error: null,
+  }),
   useBuilderRegistryActions: () => ({
     registryActions: [],
     registryActionsIsLoading: false,

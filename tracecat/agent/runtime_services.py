@@ -51,6 +51,8 @@ async def start_mcp_server() -> None:
         app,
         uds=str(socket_path),
         log_level="warning",
+        # Match the local MCP bridge's bound for catalog-sized signed allowlists.
+        h11_max_incomplete_event_size=1024 * 1024,
     )
     server = uvicorn.Server(uvicorn_config)
     _mcp_server_task = asyncio.create_task(server.serve())

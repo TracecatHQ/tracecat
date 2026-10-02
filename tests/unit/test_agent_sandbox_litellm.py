@@ -3778,3 +3778,48 @@ async def test_invalid_diagnostic_token_does_not_block_forwarding() -> None:
         "synthetic-model", {"Authorization": "Bearer synthetic-invalid-token"}
     ) == LLMErrorDiagnostics(route="managed")
     assert plan.resolve("synthetic-model") is plan.managed_route
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("jailed", [False, True])
+async def test_large_mcp_config_uses_file_instead_of_process_argument(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, jailed: bool
+) -> None:
+    monkeypatch.setenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "1")
+    token = "synthetic-signed-allowlist" * 10000
+    mapping = session_paths_module.AgentSandboxPathMapping(
+        host_home_dir=tmp_path / "home",
+        host_work_dir=tmp_path / "project",
+        runtime_home_dir=tmp_path / "home",
+        runtime_work_dir=tmp_path / "project",
+    )
+    transport = SandboxedCLITransport(
+        options=ClaudeAgentOptions(
+            mcp_servers={
+                "tracecat": {
+                    "type": "http",
+                    "url": "http://127.0.0.1:4101/mcp",
+                    "headers": {"Authorization": f"Bearer {token}"},
+                }
+            }
+        ),
+        session_id="session-1",
+        socket_dir=tmp_path / "sockets",
+        llm_socket_path=tmp_path / "llm.sock",
+        job_dir=tmp_path,
+        path_mapping=mapping,
+        enable_internet_access=False,
+        use_jailed_paths=jailed,
+    )
+    command = await transport._build_claude_command()
+    config_path = tmp_path / "claude-mcp.json"
+    runtime_path = Path("/run/tracecat/job/claude-mcp.json") if jailed else config_path
+    assert command[command.index("--mcp-config") + 1] == str(runtime_path)
+    assert all(len(arg.encode()) < 128 * 1024 for arg in command)
+    assert (
+        orjson.loads(config_path.read_bytes())["mcpServers"]["tracecat"]["headers"][
+            "Authorization"
+        ]
+        == f"Bearer {token}"
+    )
+    assert config_path.stat().st_mode & 0o777 == 0o600

@@ -49,6 +49,11 @@ jest.mock("@/hooks/use-chat", () => ({
   }),
 }))
 jest.mock("@/lib/hooks", () => ({
+  useUserScopes: () => ({
+    userScopes: { scopes: ["*"] },
+    isLoading: false,
+    error: null,
+  }),
   useBuilderRegistryActions: jest.fn(() => ({
     registryActions: [],
     registryActionsIsLoading: false,
@@ -1327,7 +1332,7 @@ describe("ChatSessionPane", () => {
             entityType="copilot"
             entityId="workspace-1"
             modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
-            surface="workspace-chat"
+            surface="regular"
             toolsEnabled
             mcpEnabled
           />
@@ -1408,7 +1413,7 @@ describe("ChatSessionPane", () => {
             entityType="copilot"
             entityId="workspace-1"
             modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
-            surface="workspace-chat"
+            surface="regular"
             toolsEnabled
             mcpEnabled
           />
@@ -1447,7 +1452,7 @@ describe("ChatSessionPane", () => {
             entityType="copilot"
             entityId="workspace-1"
             modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
-            surface="workspace-chat"
+            surface="regular"
             toolsEnabled
             mcpEnabled
           />

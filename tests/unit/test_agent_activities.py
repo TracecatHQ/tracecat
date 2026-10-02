@@ -101,6 +101,7 @@ from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
 )
+from tracecat.agent.tokens import InternalToolContext
 from tracecat.agent.tools import BuildToolsResult
 from tracecat.agent.types import AgentConfig, Tool, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
@@ -936,16 +937,20 @@ class TestBuildToolDefinitionsActivity:
         check_entitlement.assert_not_awaited()
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize("entity_type", [None, "copilot"])
     async def test_build_agent_tool_definitions_returns_partitioned_scopes(
         self,
         monkeypatch: pytest.MonkeyPatch,
         mock_role: Role,
+        entity_type: str | None,
     ) -> None:
         build_calls: list[list[str] | None] = []
+        limits: list[int] = []
 
         async def mock_build_agent_tools(**kwargs: Any) -> BuildToolsResult:
             actions = kwargs.get("actions")
             build_calls.append(actions)
+            limits.append(kwargs["max_tools"])
             action_name = actions[0] if actions else "core.default"
             return BuildToolsResult(
                 tools=[
@@ -993,10 +998,16 @@ class TestBuildToolDefinitionsActivity:
                     BuildAgentScopeToolDefsArgs(
                         scope="root",
                         tool_filters=ToolFilters(actions=["core.root"]),
+                        internal_tool_context=InternalToolContext(
+                            entity_type=entity_type
+                        ),
                     ),
                     BuildAgentScopeToolDefsArgs(
                         scope="analyst",
                         tool_filters=ToolFilters(actions=["core.child"]),
+                        internal_tool_context=InternalToolContext(
+                            entity_type=entity_type
+                        ),
                     ),
                 ],
             )
@@ -1006,6 +1017,10 @@ class TestBuildToolDefinitionsActivity:
         assert set(result.scopes["root"].tool_definitions) == {"core.root"}
         assert set(result.scopes["analyst"].tool_definitions) == {"core.child"}
         assert build_calls == [["core.root"], ["core.child"]]
+        assert limits == [
+            0 if entity_type == "copilot" else config.TRACECAT__AGENT_MAX_TOOLS,
+            config.TRACECAT__AGENT_MAX_TOOLS,
+        ]
 
     @pytest.mark.anyio
     async def test_duplicate_compile_scope_is_platform_invariant(

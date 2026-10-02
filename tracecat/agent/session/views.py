@@ -1,7 +1,7 @@
 """Build session API views with actor-specific read-only state."""
 
 from tracecat.agent.backends.registry import agent_backend_available
-from tracecat.agent.session.schemas import AgentSessionRead
+from tracecat.agent.session.schemas import AgentSessionRead, WorkspaceChatOverrides
 from tracecat.agent.session.types import AgentSessionEntity, is_session_readonly
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.projection import validate_artifacts
@@ -29,6 +29,11 @@ def build_session_read(
         channel_context=session.channel_context,
         tools=session.tools,
         mcp_integrations=session.mcp_integrations,
+        workspace_chat_overrides=(
+            WorkspaceChatOverrides.model_validate(session.workspace_chat_overrides)
+            if session.workspace_chat_overrides is not None
+            else None
+        ),
         agent_preset_id=session.agent_preset_id,
         agent_preset_version_id=session.agent_preset_version_id,
         agents_binding=(

@@ -13,16 +13,168 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from tracecat_registry import RegistryOAuthSecret, RegistrySecret
 
 from tracecat.agent.authoring_context import (
     ActionRequirementPayload,
     build_enabled_models,
     build_example_from_schema,
     evaluate_configuration,
+    filter_configured_actions,
     optional_secret_names,
 )
+from tracecat.auth.types import Role
+from tracecat.integrations.enums import OAuthGrantType
+from tracecat.integrations.schemas import ProviderKey
+from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.versions.schemas import (
+    RegistryVersionManifest,
+    RegistryVersionManifestAction,
+)
+
+
+@pytest.mark.anyio
+async def test_configured_action_filter_uses_required_credentials_and_nested_steps():
+    actions = {
+        "core.free": [],
+        "tools.unconnected": [],
+        "core.optional": [
+            RegistrySecret(name="optional", keys=["TOKEN"], optional=True)
+        ],
+        "tools.ready": [RegistrySecret(name="ready", keys=["TOKEN"])],
+        "tools.incomplete": [RegistrySecret(name="ready", keys=["TOKEN", "URL"])],
+        "tools.missing": [RegistrySecret(name="missing", keys=["TOKEN"])],
+        "tools.org": [RegistrySecret(name="org", keys=["TOKEN"])],
+        "tools.auth_alternatives": [
+            RegistrySecret(
+                name="ca_cert",
+                keys=["CA_CERTIFICATE"],
+                optional=True,
+                secret_type="ca_cert",
+            ),
+            RegistrySecret(name="missing", keys=["TOKEN"], optional=True),
+            RegistryOAuthSecret(
+                provider_id="example", grant_type="authorization_code", optional=True
+            ),
+        ],
+        "tools.oauth": [
+            RegistryOAuthSecret(provider_id="example", grant_type="authorization_code")
+        ],
+    }
+    manifest = RegistryVersionManifest(
+        actions={
+            name: RegistryVersionManifestAction(
+                namespace=name.rsplit(".", 1)[0],
+                name=name.rsplit(".", 1)[1],
+                description=name,
+                action_type="udf",
+                interface={"expects": {}, "returns": {}},
+                implementation={},
+                secrets=secrets,
+            )
+            for name, secrets in actions.items()
+        }
+    )
+    manifest.actions["tools.nested"] = RegistryVersionManifestAction(
+        namespace="tools",
+        name="nested",
+        description="Nested",
+        action_type="template",
+        interface={"expects": {}, "returns": {}},
+        implementation={
+            "template_action": {"definition": {"steps": [{"action": "tools.missing"}]}}
+        },
+    )
+    registry = RegistryActionsService(
+        AsyncMock(),
+        Role(
+            type="service",
+            service_id="tracecat-api",
+            organization_id=uuid.uuid4(),
+            workspace_id=uuid.uuid4(),
+        ),
+    )
+    names = [*manifest.actions, "tools.deleted"]
+    indexed = {name: SimpleNamespace(manifest=manifest) for name in manifest.actions}
+    with (
+        patch.object(
+            registry, "get_actions_from_index", new=AsyncMock(return_value=indexed)
+        ) as lookup,
+        patch(
+            "tracecat.agent.authoring_context.load_secret_inventory",
+            new=AsyncMock(
+                side_effect=lambda role: {
+                    "ready": {"TOKEN"},
+                    "ca_cert": {"CA_CERTIFICATE"},
+                }
+            ),
+        ),
+        patch(
+            "tracecat.agent.authoring_context.load_oauth_inventory",
+            new=AsyncMock(
+                return_value={
+                    ProviderKey(
+                        id="example", grant_type=OAuthGrantType.AUTHORIZATION_CODE
+                    )
+                }
+            ),
+        ) as oauth,
+        patch(
+            "tracecat.agent.authoring_context.SecretsService.with_session"
+        ) as secret_session,
+    ):
+        secret_service = secret_session.return_value.__aenter__.return_value
+        secret_service.list_org_secrets = AsyncMock(
+            return_value=[
+                SimpleNamespace(
+                    name=name, environment="default", encrypted_keys=b"synthetic"
+                )
+                for name in ("org", "ready")
+            ]
+        )
+        secret_service.decrypt_keys = Mock(
+            return_value=[
+                SimpleNamespace(key="TOKEN"),
+                SimpleNamespace(key="URL"),
+            ]
+        )
+        assert await filter_configured_actions(
+            names, registry=registry, role=registry.role
+        ) == [
+            "core.free",
+            "core.optional",
+            "tools.ready",
+            "tools.auth_alternatives",
+            "tools.oauth",
+        ]
+        lookup.assert_awaited_once_with(names)
+        secret_service.list_org_secrets.assert_not_called()
+        role_with_org_secrets = registry.role.model_copy(
+            update={"scopes": frozenset({"org:secret:read"})}
+        )
+        assert await filter_configured_actions(
+            names, registry=registry, role=role_with_org_secrets
+        ) == [
+            "core.free",
+            "core.optional",
+            "tools.ready",
+            "tools.org",
+            "tools.auth_alternatives",
+            "tools.oauth",
+        ]
+        # The org URL must not fill the incomplete workspace credential.
+        secret_service.list_org_secrets.assert_awaited_once()
+        oauth.return_value = set()
+        assert await filter_configured_actions(
+            names, registry=registry, role=registry.role
+        ) == [
+            "core.free",
+            "core.optional",
+            "tools.ready",
+        ]
 
 
 class TestBuildExampleFromSchema:

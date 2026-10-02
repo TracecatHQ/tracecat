@@ -1,16 +1,59 @@
 from __future__ import annotations
 
-from typing import NotRequired, Self, TypedDict
+from typing import Annotated, Literal, NotRequired, Self, TypedDict
+from uuid import UUID
 
-from pydantic import EmailStr, Field, computed_field, field_validator, model_validator
+from pydantic import (
+    ConfigDict,
+    EmailStr,
+    Field,
+    StringConstraints,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 from tracecat import config
+from tracecat.chat.types import WorkspaceChatSettingsData
 from tracecat.core.schemas import Schema
 from tracecat.git.constants import GIT_SSH_URL_REGEX
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.workspace_sync.enums import VcsProvider
 
 # === Workspace === #
+
+
+class ChatCapabilitySelection(Schema):
+    """Workspace chat access; selected is an explicit, non-expanding allowlist."""
+
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["all", "selected", "none"] = Field(default="all")
+    selected: list[Annotated[str, StringConstraints(min_length=1, max_length=255)]] = (
+        Field(default_factory=list, max_length=10000)
+    )
+
+
+class WorkspaceChatSettings(Schema):
+    """Limits for workspace chat without a selected agent preset."""
+
+    model_config = ConfigDict(extra="forbid")
+    tools: ChatCapabilitySelection = Field(default_factory=ChatCapabilitySelection)
+    mcp: ChatCapabilitySelection = Field(default_factory=ChatCapabilitySelection)
+    subagents: ChatCapabilitySelection = Field(default_factory=ChatCapabilitySelection)
+
+    @field_validator("mcp", "subagents")
+    @classmethod
+    def validate_resource_ids(
+        cls, value: ChatCapabilitySelection
+    ) -> ChatCapabilitySelection:
+        """Store canonical UUIDs so equivalent spellings match catalog IDs."""
+        return value.model_copy(
+            update={
+                "selected": list(
+                    dict.fromkeys(str(UUID(item)) for item in value.selected)
+                )
+            }
+        )
 
 
 # DTO
@@ -22,10 +65,12 @@ class WorkspaceSettings(TypedDict):
     allowed_attachment_extensions: NotRequired[list[str] | None]
     allowed_attachment_mime_types: NotRequired[list[str] | None]
     validate_attachment_magic_number: NotRequired[bool | None]
+    chat: NotRequired[WorkspaceChatSettingsData | None]
 
 
 # Schema
 class WorkspaceSettingsRead(Schema):
+    chat: WorkspaceChatSettings = Field(default_factory=WorkspaceChatSettings)
     git_provider: VcsProvider | None = None
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = None
@@ -33,6 +78,12 @@ class WorkspaceSettingsRead(Schema):
     allowed_attachment_extensions: list[str] | None = None
     allowed_attachment_mime_types: list[str] | None = None
     validate_attachment_magic_number: bool | None = None
+
+    @field_validator("chat", mode="before")
+    @classmethod
+    def default_chat_settings(cls, value: object) -> object:
+        """A cleared setting inherits the unrestricted workspace defaults."""
+        return {} if value is None else value
 
     @computed_field
     @property
@@ -52,6 +103,10 @@ class WorkspaceSettingsRead(Schema):
 
 
 class WorkspaceSettingsUpdate(Schema):
+    chat: WorkspaceChatSettings | None = Field(
+        default=None,
+        description="Replace default workspace chat limits. Null restores unrestricted defaults.",
+    )
     git_provider: VcsProvider | None = None
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = Field(

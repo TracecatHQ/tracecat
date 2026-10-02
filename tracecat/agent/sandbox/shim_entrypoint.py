@@ -97,7 +97,10 @@ async def _read_chunked_body(reader: asyncio.StreamReader, max_body_size: int) -
 
 
 async def read_http_request(
-    reader: asyncio.StreamReader, *, max_body_size: int
+    reader: asyncio.StreamReader,
+    *,
+    max_body_size: int,
+    max_header_size: int = HTTP_HEADER_LIMIT,
 ) -> tuple[bytes, bytes] | None:
     """Read one bounded HTTP request, normalizing chunked bodies to Content-Length.
 
@@ -119,7 +122,7 @@ async def read_http_request(
     while True:
         line = await _read_http_line(reader)
         header_size += len(line)
-        if header_size > HTTP_HEADER_LIMIT:
+        if header_size > max_header_size:
             raise HTTPRequestError("HTTP headers too large", 431)
         if line == b"\r\n":
             break
@@ -224,6 +227,7 @@ class SandboxSocketBridge:
         on_uds_failure: Literal["error", "drop"],
         log_label: str,
         listener_fd: int | None = None,
+        max_header_size: int = 65536,
     ) -> None:
         self.socket_path = socket_path
         self._requested_port = port
@@ -231,6 +235,7 @@ class SandboxSocketBridge:
         self._on_uds_failure = on_uds_failure
         self._log_label = log_label
         self._listener_fd = listener_fd
+        self._max_header_size = max_header_size
         self._actual_port: int | None = None
         self._server: asyncio.Server | None = None
         self._serve_task: asyncio.Task[None] | None = None
@@ -243,6 +248,7 @@ class SandboxSocketBridge:
                 self._accept_connection,
                 host=BRIDGE_HOST,
                 port=self._requested_port,
+                limit=self._max_header_size,
             )
         else:
             listener = socket.socket(fileno=self._listener_fd)
@@ -250,6 +256,7 @@ class SandboxSocketBridge:
             self._server = await asyncio.start_server(
                 self._accept_connection,
                 sock=listener,
+                limit=self._max_header_size,
             )
         if not self._server.sockets:
             raise RuntimeError(f"{self._log_label} did not expose a listening socket")
@@ -397,7 +404,11 @@ class SandboxSocketBridge:
 
     async def _read_http_request(self, reader: asyncio.StreamReader) -> bytes | None:
         """Read a full HTTP request including headers and optional body."""
-        request = await read_http_request(reader, max_body_size=self._max_body_size)
+        request = await read_http_request(
+            reader,
+            max_body_size=self._max_body_size,
+            max_header_size=self._max_header_size,
+        )
         if request is None:
             return None
         headers, body = request
@@ -496,6 +507,8 @@ async def run_sandboxed_claude_shim() -> int:
             on_uds_failure="error",
             log_label="MCP bridge",
             listener_fd=init_payload.get("mcp_bridge_fd"),
+            # Signed catalog allowlists can exceed the default 64 KiB line limit.
+            max_header_size=1024 * 1024,
         )
         mcp_bridge_port = await mcp_bridge.start()
         command = _rewrite_mcp_bridge_command_port(

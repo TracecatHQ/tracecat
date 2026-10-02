@@ -1,5 +1,9 @@
 import { fireEvent, render, screen, within } from "@testing-library/react"
-import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
+import type {
+  AgentPresetReadMinimal,
+  MCPIntegrationRead,
+  RegistryActionReadMinimal,
+} from "@/client"
 import {
   ChatToolsPicker,
   DEFAULT_CAPABILITY_GROUPS,
@@ -56,6 +60,59 @@ function registryAction(
     ...overrides,
   }
 }
+
+it("shows searchable saved subagents and explains ineligible presets", () => {
+  const preset: AgentPresetReadMinimal = {
+    id: "helper",
+    workspace_id: "workspace",
+    name: "Research helper",
+    slug: "helper",
+    description: "Research tasks",
+    model_provider: "test",
+    model_name: "test",
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    current_version_subagent_eligibility: { eligible: true },
+  }
+  const onSubagentsChange = jest.fn()
+  render(
+    <ChatToolsPicker
+      registryActions={[]}
+      selectedTools={[]}
+      onToolsChange={jest.fn()}
+      mcpIntegrations={[]}
+      selectedMcpIntegrations={[]}
+      onMcpChange={jest.fn()}
+      workspaceManaged
+      subagents={[
+        preset,
+        {
+          ...preset,
+          id: "nested",
+          name: "Nested helper",
+          description: "Delegates tasks to other agents",
+          current_version_subagent_eligibility: {
+            eligible: false,
+            message: "Nested subagents are unsupported.",
+          },
+        },
+      ]}
+      selectedSubagents={[preset.id]}
+      onSubagentsChange={onSubagentsChange}
+    />
+  )
+  expect(screen.getByRole("switch", { name: /Research helper/ })).toBeChecked()
+  fireEvent.click(screen.getByRole("switch", { name: /Research helper/ }))
+  expect(onSubagentsChange).toHaveBeenCalledWith([])
+  expect(screen.getByRole("switch", { name: /Nested helper/ })).toBeDisabled()
+  expect(screen.getByText("Nested subagents are unsupported.")).toBeVisible()
+  fireEvent.change(
+    screen.getByPlaceholderText("Search capabilities & tools..."),
+    { target: { value: "Research" } }
+  )
+  expect(screen.getByText("Research helper")).toBeVisible()
+  expect(screen.queryByText("Nested helper")).not.toBeInTheDocument()
+})
 
 describe("DEFAULT_CAPABILITY_GROUPS", () => {
   /**
@@ -482,4 +539,40 @@ describe("ChatToolsPicker", () => {
     expect(screen.getByText("Cases")).toBeInTheDocument()
     expect(screen.getByText("Agent presets")).toBeInTheDocument()
   })
+})
+
+it("allows one-off workspace choices above the legacy extras cap and can reset", () => {
+  const actions = Array.from({ length: 60 }, (_, index) =>
+    registryAction(`core.test.tool_${index}`)
+  )
+  const onToolsChange = jest.fn()
+  const onReset = jest.fn()
+  render(
+    <ChatToolsPicker
+      surface="workspace-chat"
+      workspaceManaged
+      hasOverrides
+      onReset={onReset}
+      registryActions={actions}
+      selectedTools={actions.map((action) => action.action)}
+      onToolsChange={onToolsChange}
+      mcpIntegrations={[]}
+      selectedMcpIntegrations={[]}
+      onMcpChange={jest.fn()}
+    />
+  )
+  expect(screen.queryByText("Always on")).not.toBeInTheDocument()
+  expect(screen.queryByText(/reached.*limit/)).not.toBeInTheDocument()
+  fireEvent.change(
+    screen.getByPlaceholderText("Search capabilities & tools..."),
+    { target: { value: "tool_0" } }
+  )
+  fireEvent.click(screen.getByRole("switch", { name: /core.test.tool_0/ }))
+  expect(onToolsChange).toHaveBeenCalledWith(
+    actions.slice(1).map((action) => action.action)
+  )
+  fireEvent.click(
+    screen.getByRole("button", { name: "Use workspace defaults" })
+  )
+  expect(onReset).toHaveBeenCalledTimes(1)
 })

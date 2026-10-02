@@ -341,7 +341,13 @@ async def test_agent_worker_registers_runtime_error_attribution_interceptor(
             del exc_type, exc, tb
 
     monkeypatch.delenv("SENTRY_DSN", raising=False)
-    monkeypatch.setattr(worker, "get_temporal_client", AsyncMock(return_value=object()))
+    base_client = Mock()
+    base_client.config.return_value = {"service_client": object()}
+    client_factory = Mock(return_value=object())
+    monkeypatch.setattr(worker, "Client", client_factory)
+    monkeypatch.setattr(
+        worker, "get_temporal_client", AsyncMock(return_value=base_client)
+    )
     monkeypatch.setattr(worker, "get_activities", lambda: [])
     monkeypatch.setattr(worker, "Worker", _FakeWorker)
     monkeypatch.setattr(worker, "new_sandbox_runner", lambda: object())
@@ -351,6 +357,15 @@ async def test_agent_worker_registers_runtime_error_attribution_interceptor(
 
     assert len(captured_interceptors) == 1
     assert isinstance(captured_interceptors[0], RuntimeErrorAttributionInterceptor)
+
+    converter = client_factory.call_args.kwargs["data_converter"]
+    large_catalog = {"tools": ["synthetic tool definition" * 100] * 1500}
+    encoded = await converter.encode([large_catalog])
+    assert sum(len(payload.data) for payload in encoded) < 2 * 1024 * 1024
+    # Existing non-compressing clients must still read agent-worker output.
+    assert await worker.get_data_converter(compression_enabled=False).decode(
+        encoded
+    ) == [large_catalog]
 
 
 @pytest.mark.anyio

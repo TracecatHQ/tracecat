@@ -6,6 +6,7 @@ import {
   GitBranchIcon,
   LockIcon,
   LogOut,
+  MessageSquareIcon,
   Palette,
   Settings2,
   UserIcon,
@@ -241,6 +242,13 @@ function SettingsModalContent() {
                         icon={Settings2}
                         label="General"
                         section="workspace-general"
+                        activeSection={displayedSection}
+                        onSelect={setActiveSection}
+                      />
+                      <NavItem
+                        icon={MessageSquareIcon}
+                        label="Chat"
+                        section="workspace-chat"
                         activeSection={displayedSection}
                         onSelect={setActiveSection}
                       />

@@ -1963,6 +1963,8 @@ export function useUserManager() {
 interface UseBuilderRegistryActionsOptions {
   versions?: string[]
   includeLocked?: boolean
+  workspaceId?: string
+  configuredOnly?: boolean
 }
 
 export function useBuilderRegistryActions(
@@ -1977,11 +1979,15 @@ export function useBuilderRegistryActions(
       "builder_registry_actions",
       options?.versions,
       options?.includeLocked,
+      options?.workspaceId,
+      options?.configuredOnly,
     ],
     queryFn: async () => {
-      return await registryActionsListRegistryActions(
-        options?.includeLocked ? { includeLocked: true } : {}
-      )
+      return await registryActionsListRegistryActions({
+        includeLocked: options?.includeLocked,
+        workspaceId: options?.workspaceId,
+        configuredOnly: options?.configuredOnly,
+      })
     },
   })
 

@@ -1037,6 +1037,7 @@ export type AgentSessionCreate = {
    * MCP integration IDs attached to this session
    */
   mcp_integrations?: Array<string> | null
+  workspace_chat_overrides?: WorkspaceChatOverrides | null
   /**
    * Agent preset used for this session (if any)
    */
@@ -1109,6 +1110,7 @@ export type AgentSessionRead = {
   } | null
   tools: Array<string> | null
   mcp_integrations: Array<string> | null
+  workspace_chat_overrides?: WorkspaceChatOverrides | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
@@ -1143,6 +1145,7 @@ export type AgentSessionReadVercel = {
   } | null
   tools: Array<string> | null
   mcp_integrations: Array<string> | null
+  workspace_chat_overrides?: WorkspaceChatOverrides | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
@@ -1181,6 +1184,7 @@ export type AgentSessionReadWithMessages = {
   } | null
   tools: Array<string> | null
   mcp_integrations: Array<string> | null
+  workspace_chat_overrides?: WorkspaceChatOverrides | null
   agent_preset_id: string | null
   agent_preset_version_id: string | null
   agents_binding?: ResolvedAgentsConfig | null
@@ -1216,6 +1220,7 @@ export type AgentSessionUpdate = {
    * MCP integration IDs attached to this session
    */
   mcp_integrations?: Array<string> | null
+  workspace_chat_overrides?: WorkspaceChatOverrides | null
   /**
    * Agent preset to use for this session
    */
@@ -3049,6 +3054,16 @@ export type CatalogMappingSelection = {
  * Supported external channel types.
  */
 export type ChannelType = "slack"
+
+/**
+ * Workspace chat access; selected is an explicit, non-expanding allowlist.
+ */
+export type ChatCapabilitySelection = {
+  mode?: "all" | "selected" | "none"
+  selected?: Array<string>
+}
+
+export type mode = "all" | "selected" | "none"
 
 /**
  * Model for a chat message with typed message payload.
@@ -11414,6 +11429,24 @@ export type WorkflowUpdate = {
   error_handler?: string | null
 }
 
+/**
+ * One-chat selections, always intersected with current workspace limits.
+ */
+export type WorkspaceChatOverrides = {
+  tools?: Array<string> | null
+  mcp_integrations?: Array<string> | null
+  subagents?: Array<string> | null
+}
+
+/**
+ * Limits for workspace chat without a selected agent preset.
+ */
+export type WorkspaceChatSettings = {
+  tools?: ChatCapabilitySelection
+  mcp?: ChatCapabilitySelection
+  subagents?: ChatCapabilitySelection
+}
+
 export type WorkspaceCreate = {
   name: string
   settings?: WorkspaceSettingsUpdate | null
@@ -11467,6 +11500,7 @@ export type WorkspaceSecretStoreRead = {
 }
 
 export type WorkspaceSettingsRead = {
+  chat?: WorkspaceChatSettings
   git_provider?: VcsProvider | null
   git_repo_url?: string | null
   workflow_unlimited_timeout_enabled?: boolean | null
@@ -11485,6 +11519,10 @@ export type WorkspaceSettingsRead = {
 }
 
 export type WorkspaceSettingsUpdate = {
+  /**
+   * Replace default workspace chat limits. Null restores unrestricted defaults.
+   */
+  chat?: WorkspaceChatSettings | null
   git_provider?: VcsProvider | null
   git_repo_url?: string | null
   /**
@@ -14338,9 +14376,14 @@ export type RegistryRepositoriesGetPreviousRegistryVersionResponse =
 
 export type RegistryActionsListRegistryActionsData = {
   /**
+   * Only actions with configured credentials in the selected workspace
+   */
+  configuredOnly?: boolean
+  /**
    * Include actions locked by missing entitlements
    */
   includeLocked?: boolean
+  workspaceId?: string | null
 }
 
 export type RegistryActionsListRegistryActionsResponse =

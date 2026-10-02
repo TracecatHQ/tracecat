@@ -6,12 +6,31 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from tracecat.agent.adapter.vercel import UIMessage
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAgentsConfig
 from tracecat.artifacts.schemas import Artifact
+
+
+class WorkspaceChatOverrides(BaseModel):
+    """One-chat selections, always intersected with current workspace limits."""
+
+    model_config = ConfigDict(extra="forbid")
+    tools: list[str] | None = Field(default=None, max_length=10000)
+    mcp_integrations: list[str] | None = Field(default=None, max_length=10000)
+    subagents: list[str] | None = Field(default=None, max_length=10000)
+
+    @field_validator("mcp_integrations", "subagents")
+    @classmethod
+    def validate_resource_ids(cls, value: list[str] | None) -> list[str] | None:
+        """Canonicalize resource IDs without changing inherit/empty semantics."""
+        return (
+            list(dict.fromkeys(str(uuid.UUID(item)) for item in value))
+            if value is not None
+            else None
+        )
 
 
 class AgentSessionCreate(BaseModel):
@@ -53,6 +72,7 @@ class AgentSessionCreate(BaseModel):
         description="MCP integration IDs attached to this session",
         max_length=50,
     )
+    workspace_chat_overrides: WorkspaceChatOverrides | None = Field(default=None)
     agent_preset_id: uuid.UUID | None = Field(
         default=None,
         description="Agent preset used for this session (if any)",
@@ -97,6 +117,7 @@ class AgentSessionUpdate(BaseModel):
         description="MCP integration IDs attached to this session",
         max_length=50,
     )
+    workspace_chat_overrides: WorkspaceChatOverrides | None = Field(default=None)
     agent_preset_id: uuid.UUID | None = Field(
         default=None, description="Agent preset to use for this session"
     )
@@ -156,6 +177,7 @@ class AgentSessionRead(BaseModel):
     channel_context: dict[str, Any] | None
     tools: list[str] | None
     mcp_integrations: list[str] | None
+    workspace_chat_overrides: WorkspaceChatOverrides | None = Field(default=None)
     agent_preset_id: uuid.UUID | None
     agent_preset_version_id: uuid.UUID | None
     agents_binding: ResolvedAgentsConfig | None = None

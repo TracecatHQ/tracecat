@@ -314,6 +314,65 @@ async def build_action_contexts(
     return action_contexts
 
 
+async def filter_configured_actions(
+    action_names: list[str], *, registry: RegistryActionsService, role: Role
+) -> list[str]:
+    """Keep built-in tools and tools backed by configured integrations.
+
+    Batch manifest reads include nested template requirements. Integrations with
+    optional auth alternatives still need one configured credential. Workspace
+    credentials take precedence over org defaults.
+    """
+    if not action_names:
+        return []
+    workspace_inventory = await load_secret_inventory(role)
+    if has_scope(role.scopes or frozenset(), "org:secret:read"):
+        async with SecretsService.with_session(role=role) as svc:
+            for secret in await svc.list_org_secrets():
+                if secret.environment == DEFAULT_SECRETS_ENVIRONMENT:
+                    workspace_inventory.setdefault(
+                        secret.name,
+                        {kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)},
+                    )
+    oauth_inventory = await load_oauth_inventory(role)
+    indexed_actions = await registry.get_actions_from_index(action_names)
+    configured_actions: list[str] = []
+    for name in action_names:
+        if (indexed := indexed_actions.get(name)) is None:
+            continue
+        secrets = registry.aggregate_secrets_from_manifest(indexed.manifest, name)
+        requirements = secrets_to_requirements(secrets)
+        configured, _ = evaluate_configuration(
+            requirements, workspace_inventory, oauth_inventory
+        )
+        if name.startswith("tools."):
+            # Optional HTTP transport certificates do not connect an integration.
+            alternatives = secrets_to_requirements(
+                [
+                    secret
+                    for secret in secrets
+                    if not (
+                        isinstance(secret, RegistrySecret)
+                        and secret.optional
+                        and secret.secret_type in ("mtls", "ca_cert")
+                    )
+                ]
+            )
+            for requirement in alternatives:
+                requirement["optional"] = False
+            configured = configured and any(
+                evaluate_configuration(
+                    [requirement],
+                    workspace_inventory,
+                    oauth_inventory,
+                )[0]
+                for requirement in alternatives
+            )
+        if configured:
+            configured_actions.append(name)
+    return configured_actions
+
+
 async def build_variable_hints(*, role: Role) -> list[dict[str, Any]]:
     """List workspace variables in the default environment as hints.
 

@@ -80,6 +80,9 @@ function applyOptimisticChatUpdate<T extends UpdateableChatRecord>(
     ...(update.mcp_integrations !== undefined
       ? { mcp_integrations: update.mcp_integrations ?? [] }
       : {}),
+    ...(update.workspace_chat_overrides !== undefined
+      ? { workspace_chat_overrides: update.workspace_chat_overrides }
+      : {}),
     ...(update.agent_preset_id !== undefined
       ? { agent_preset_id: update.agent_preset_id }
       : {}),

@@ -12,6 +12,7 @@ from pydantic import (
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from tracecat import config
 from tracecat.agent.common.stream_types import UnifiedStreamEvent
 from tracecat.agent.common.types import (
     MCPHttpServerConfig,
@@ -308,6 +309,15 @@ class AgentActivities:
                 namespaces=args.tool_filters.namespaces,
                 actions=actions_to_build if actions_to_build else None,
                 tool_approvals=args.tool_approvals,
+                # Default workspace chat exposes the searchable catalog. Presets
+                # and saved subagents keep the existing authored-tool limit.
+                max_tools=(
+                    0
+                    if args.scope == "root"
+                    and args.internal_tool_context is not None
+                    and args.internal_tool_context.entity_type == "copilot"
+                    else config.TRACECAT__AGENT_MAX_TOOLS
+                ),
             )
         except ValueError as e:
             raise_application_error_from_classification(agent_tool_build_failure(e))
