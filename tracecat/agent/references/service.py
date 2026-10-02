@@ -9,7 +9,6 @@ import hashlib
 from functools import cached_property
 from uuid import UUID
 
-from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -110,7 +109,7 @@ class ReferenceService(BaseWorkspaceService):
         ) as exc:
             # No distinction between an absent and an inaccessible identity.
             raise ReferenceLookupError() from exc
-        except (ReferenceURIError, ValidationError) as exc:
+        except ReferenceURIError as exc:
             raise ReferenceLookupError(Code.INVALID_SOURCE) from exc
 
     async def _skill(
@@ -398,14 +397,24 @@ class ReferenceService(BaseWorkspaceService):
                 )
                 or ()
             )
-            count += (
-                len(grant.tool_names)
-                if grant.tool_names is not None
-                else sum(t.enabled and t.status == "available" for t in tools)
-            )
+            if integration.server_type == "stdio":
+                # Whole-server execution exposes the entire native catalog. Until
+                # a bounded probe supplies it, zero is not a safe size estimate.
+                if integration.tools is None:
+                    raise ReferenceLookupError(
+                        Code.NOT_READY,
+                        target=ReferenceTarget(Kind.MCP_SERVER, str(integration.id)),
+                    )
+                count += len(tools)
+            else:
+                count += (
+                    len(grant.tool_names)
+                    if grant.tool_names is not None
+                    else sum(t.enabled and t.status == "available" for t in tools)
+                )
         if (
             config.TRACECAT__AGENT_MAX_TOOLS > 0
-            and len(effective.actions) > config.TRACECAT__AGENT_MAX_TOOLS
+            and count > config.TRACECAT__AGENT_MAX_TOOLS
         ):
             raise ReferenceLookupError(Code.LIMIT_EXCEEDED)
         if effective.tool_approvals:

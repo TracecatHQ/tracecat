@@ -427,3 +427,82 @@ async def test_all_candidate_skill_files_are_scanned():
     )
     assert result.diagnostics[0].code == Code.INVALID_SOURCE
     assert not result.scopes
+
+
+@pytest.mark.anyio
+async def test_duplicate_snapshot_identities_return_diagnostic():
+    skill = target()
+    selected = resource(skill).selected
+    result = await compile_references(
+        authored((skill,)),
+        authority(),
+        Lookup(),
+        selected_versions=(selected, selected),
+    )
+    assert not result.scopes
+    assert result.diagnostics[0].code == Code.SNAPSHOT_CONFLICT
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("alias", ["worker ", " worker", "\tworker"])
+async def test_noncanonical_alias_is_rejected_before_expansion(alias):
+    child = target(Kind.AGENT)
+    result = await compile_references(
+        authored((child,)),
+        authority(),
+        Lookup(resource(child, (TOOL,))),
+        aliases=((child, alias),),
+    )
+    assert not result.scopes
+    assert result.diagnostics[0].code == Code.INVALID_SOURCE
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("slot", ["root", "candidate", "dependency", "override"])
+async def test_source_origins_are_bound_to_their_admitted_slot(slot):
+    root = source(target(Kind.AGENT))
+    request = authored(root=root)
+    lookup = Lookup()
+    candidates = ()
+    if slot == "root":
+        request = authored(
+            root=root.model_copy(update={"origin": "authorized_override"})
+        )
+    elif slot == "candidate":
+        candidates = (
+            source(root.owner, version=root.version_id, path="other.md").model_copy(
+                update={"origin": "authorized_override"}
+            ),
+        )
+    elif slot == "dependency":
+        skill = target()
+        dependency = resource(skill)
+        bad = dependency.sources[0].model_copy(update={"origin": "authorized_override"})
+        lookup = Lookup(ReferenceResource(dependency.selected, (bad,)))
+        request = authored((skill,))
+    else:
+        request = request.model_copy(update={"overrides": (root,)})
+    result = await compile_references(
+        request, authority(), lookup, candidate_sources=candidates
+    )
+    assert not result.scopes
+    assert result.diagnostics[0].code == Code.INVALID_SOURCE
+
+
+@pytest.mark.anyio
+async def test_root_skill_uses_candidate_manual_tools_without_loading_old_version():
+    skill, server = target(), target(Kind.MCP_SERVER)
+    # A previously published declaration must not reappear after the candidate removes it.
+    lookup = Lookup(
+        resource(skill, (OTHER,)), ReferenceResource(SelectedReference(target=server))
+    )
+    request = authored(root=source(skill), explicit=(TOOL, server))
+    result = await compile_references(request, authority(), lookup)
+    assert not result.diagnostics
+    assert lookup.calls[skill] == 0
+    assert result.scopes[0].grants.actions == (TOOL.identity,)
+    assert {e.target for e in result.scopes[0].edges} == {TOOL, server}
+    assert all(e.contribution == "explicit" for e in result.scopes[0].edges)
+    removed = await compile_references(authored(root=request.root), authority(), lookup)
+    assert not removed.scopes[0].grants.actions
+    assert not removed.scopes[0].edges

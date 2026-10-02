@@ -75,8 +75,12 @@ async def compile_references(
     """
     if not authority.activate_references:
         return CompiledReferences()
-    state = _Compiler(lookup, authority, limits, aliases, selected_versions)
     try:
+        if selected_versions is not None and len(
+            {item.target for item in selected_versions}
+        ) != len(selected_versions):
+            raise _Rejected(Code.SNAPSHOT_CONFLICT, (authored.root.owner,))
+        state = _Compiler(lookup, authority, limits, aliases, selected_versions)
         async with asyncio.timeout(limits.seconds):
             return await state.compile(authored, policy, candidate_sources)
     except _Rejected as exc:
@@ -104,8 +108,6 @@ class _Compiler:
         self.alias_inputs = aliases
         self.aliases: dict[ReferenceTarget, str] = {}
         self.pins = None if pins is None else {item.target: item for item in pins}
-        if pins is not None and len(self.pins or {}) != len(pins):
-            raise ValueError("Duplicate selected identities")
         self.resources: dict[ReferenceTarget, ReferenceResource] = {}
         self.scopes: dict[str, _Scope] = {}
         self.edge_count = 0
@@ -122,7 +124,13 @@ class _Compiler:
             raise _Rejected(Code.INVALID_SOURCE, (root.owner,))
         self._record_aliases(self.alias_inputs, (root.owner,))
         sources = (root, *candidate_sources, *authored.overrides)
-        self._validate_sources(root.owner, root.version_id, sources)
+        self._validate_sources(root.owner, root.version_id, (root, *candidate_sources))
+        self._validate_sources(
+            root.owner, root.version_id, authored.overrides, override=True
+        )
+        # The candidate envelope owns manual declarations, including skill
+        # frontmatter tools. Reloading a published root would resurrect removed
+        # tools or fail for an unpublished candidate.
         root_resource = ReferenceResource(
             selected=SelectedReference(
                 target=root.owner,
@@ -142,7 +150,9 @@ class _Compiler:
         self.resources[root.owner] = root_resource
         main = _Scope("root", None, policy)
         self.scopes[main.key] = main
-        await self._expand(root_resource, main, (root.owner,))
+        await self._expand(
+            root_resource, main, (root.owner,), overrides=authored.overrides
+        )
         compiled: list[CompiledScope] = []
         for scope in self.scopes.values():
             targets = tuple(scope.selected)
@@ -178,6 +188,8 @@ class _Compiler:
         path: tuple[ReferenceTarget, ...],
     ) -> None:
         for target, alias in aliases:
+            if alias != alias.strip():
+                raise _Rejected(Code.INVALID_SOURCE, path)
             try:
                 validate_subagent_alias(alias)
             except ValueError as exc:
@@ -195,15 +207,19 @@ class _Compiler:
         owner: ReferenceTarget,
         version: UUID | None,
         sources: tuple[AuthoredSource, ...],
+        *,
+        override: bool = False,
     ) -> None:
         for source in sources:
             expected_origin = (
                 "skill_file" if owner.kind == Kind.SKILL else "agent_instructions"
             )
+            if override:
+                expected_origin = "authorized_override"
             if (
                 source.owner != owner
                 or source.version_id != version
-                or source.origin not in {expected_origin, "authorized_override"}
+                or source.origin != expected_origin
                 or hashlib.sha256(source.markdown.encode()).hexdigest()
                 != source.content_hash
             ):
@@ -214,6 +230,8 @@ class _Compiler:
         resource: ReferenceResource,
         scope: _Scope,
         path: tuple[ReferenceTarget, ...],
+        *,
+        overrides: tuple[AuthoredSource, ...] = (),
     ) -> int:
         owner = resource.selected.target
         scope.selected[owner] = resource.selected
@@ -223,7 +241,14 @@ class _Compiler:
                 raise _Rejected(Code.LIMIT_EXCEEDED, path)
             return height
         height = 0
-        self._validate_sources(owner, resource.selected.version_id, resource.sources)
+        self._validate_sources(
+            owner,
+            resource.selected.version_id,
+            tuple(s for s in resource.sources if s not in overrides),
+        )
+        self._validate_sources(
+            owner, resource.selected.version_id, overrides, override=True
+        )
         self._record_aliases(
             tuple(
                 (d.target, d.alias)

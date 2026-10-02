@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 from cryptography.fernet import Fernet
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
@@ -47,10 +48,12 @@ from tracecat.db.models import (
     Workflow,
     WorkflowDefinition,
 )
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.service import IntegrationService
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.storage import blob
+from tracecat.tables.service import TablesService
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
@@ -161,7 +164,7 @@ async def test_stdio_whole_server_retains_internet_requirement(service, monkeypa
 
 
 @pytest.mark.anyio
-async def test_registry_mention_needs_no_manual_declaration(service):
+async def test_registry_tool_policy_boundaries(service):
     target = ReferenceTarget(Kind.TOOL, "core.http_request")
     grants = await service.policy(
         (target,), ScopePolicy(approvals=((target.identity, True),))
@@ -185,6 +188,10 @@ async def test_registry_mention_needs_no_manual_declaration(service):
     "kind,cls,method",
     [
         (Kind.SKILL, SkillService, "get_skill"),
+        (Kind.AGENT, AgentPresetService, "resolve_agent_preset_version"),
+        (Kind.WORKFLOW, WorkflowsManagementService, "get_workflow"),
+        (Kind.TABLE, TablesService, "get_table"),
+        (Kind.MCP_TOOL, IntegrationService, "get_mcp_integration"),
         (Kind.MCP_SERVER, IntegrationService, "get_mcp_integration"),
         (Kind.TOOL, RegistryActionsService, "get_action_from_index"),
     ],
@@ -192,13 +199,16 @@ async def test_registry_mention_needs_no_manual_declaration(service):
 async def test_missing_and_inaccessible_are_indistinguishable(
     service, monkeypatch, kind, cls, method
 ):
-    get = AsyncMock(return_value=None)
+    get = AsyncMock(side_effect=TracecatNotFoundError("Synthetic missing resource"))
     monkeypatch.setattr(cls, method, get)
     target = ReferenceTarget(
-        kind, "core.http_request" if kind == Kind.TOOL else str(uuid4())
+        kind,
+        "core.http_request" if kind == Kind.TOOL else str(uuid4()),
+        "read" if kind == Kind.MCP_TOOL else None,
     )
     with pytest.raises(ReferenceLookupError) as missing:
         await service.resolve(target, version_id=None, limits=GraphLimits())
+    get.assert_awaited_once()
     service.role = service.role.model_copy(update={"scopes": frozenset()})
     get.reset_mock()
     with pytest.raises(ReferenceLookupError) as denied:
@@ -494,3 +504,96 @@ async def test_markdown_stream_validates_bytes_before_compilation(
     with pytest.raises(ReferenceLookupError) as exc:
         await ReferenceService._read_markdown(stored, budget)
     assert exc.value.code == code
+
+
+@pytest.mark.anyio
+async def test_malformed_stored_agent_config_is_not_an_authored_diagnostic(
+    service, monkeypatch
+):
+    pid = uuid4()
+    version = AgentPresetVersion(
+        id=uuid4(), preset_id=pid, instructions="", agents={"subagents": "corrupt"}
+    )
+    monkeypatch.setattr(
+        AgentPresetService,
+        "resolve_agent_preset_version",
+        AsyncMock(return_value=version),
+    )
+    monkeypatch.setattr(
+        AgentPresetService,
+        "get_preset",
+        AsyncMock(return_value=AgentPreset(id=pid, slug="example")),
+    )
+    rows = MagicMock()
+    rows.scalars.return_value.all.return_value = []
+    service.session.execute = AsyncMock(return_value=rows)
+    with pytest.raises(ValidationError):
+        await service.resolve(
+            ReferenceTarget(Kind.AGENT, str(pid)),
+            version_id=version.id,
+            limits=GraphLimits(),
+        )
+
+
+@pytest.mark.anyio
+async def test_stdio_unknown_catalog_is_not_a_zero_tool_grant(service, monkeypatch):
+    row = integration("stdio")
+    row.tools = None
+    monkeypatch.setattr(
+        IntegrationService, "get_mcp_integration", AsyncMock(return_value=row)
+    )
+    with pytest.raises(ReferenceLookupError) as exc:
+        await service.policy(
+            (ReferenceTarget(Kind.MCP_SERVER, str(row.id)),), ScopePolicy()
+        )
+    assert exc.value.code == Code.NOT_READY
+
+
+@pytest.mark.anyio
+async def test_stdio_counts_entire_catalog_including_disabled_tools(
+    service, monkeypatch
+):
+    row = integration("stdio")
+    monkeypatch.setattr(
+        IntegrationService, "get_mcp_integration", AsyncMock(return_value=row)
+    )
+    grants = await service.policy(
+        (ReferenceTarget(Kind.MCP_SERVER, str(row.id)),), ScopePolicy()
+    )
+    assert grants.tool_count == 2
+
+
+@pytest.mark.anyio
+async def test_archived_skill_remains_unavailable_even_with_version_pin(
+    service, monkeypatch
+):
+    get = AsyncMock(return_value=None)
+    monkeypatch.setattr(SkillService, "get_skill", get)
+    read = AsyncMock(side_effect=AssertionError("Must not bypass deletion"))
+    monkeypatch.setattr(SkillService, "get_version_read", read)
+    sid = uuid4()
+    with pytest.raises(ReferenceLookupError) as exc:
+        await service.resolve(
+            ReferenceTarget(Kind.SKILL, str(sid)),
+            version_id=uuid4(),
+            limits=GraphLimits(),
+        )
+    assert exc.value.code == Code.UNRESOLVED
+    get.assert_awaited_once_with(sid)
+    read.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_configured_tool_limit_counts_expanded_mcp_tools(service, monkeypatch):
+    row = integration()
+    monkeypatch.setattr(
+        IntegrationService, "get_mcp_integration", AsyncMock(return_value=row)
+    )
+    monkeypatch.setattr(config, "TRACECAT__AGENT_MAX_TOOLS", 1)
+    targets = (
+        ReferenceTarget(Kind.TOOL, "core.http_request"),
+        ReferenceTarget(Kind.MCP_SERVER, str(row.id)),
+    )
+    with pytest.raises(ReferenceLookupError) as exc:
+        await service.policy(targets, ScopePolicy())
+    assert exc.value.code == Code.LIMIT_EXCEEDED
