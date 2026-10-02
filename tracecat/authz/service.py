@@ -402,7 +402,9 @@ class MembershipService(BaseService):
                     paths.c.workspace_id == workspace_id,
                     or_(paths.c.via_group, paths.c.org_wide),
                 )
-                .order_by(paths.c.org_wide, paths.c.via_group)
+                # Report an org-wide grant first: removing a workspace group
+                # alone would still leave it in place.
+                .order_by(paths.c.org_wide.desc(), paths.c.via_group)
                 .limit(1)
             )
         ).first()

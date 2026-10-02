@@ -66,6 +66,18 @@ from tracecat.exceptions import (
 from tracecat.invitations.enums import InvitationStatus
 
 
+async def create_bare_member(
+    session: AsyncSession, organization_id: uuid.UUID, email: str
+) -> uuid.UUID:
+    """Admit a user with presence only, so no role path reaches any workspace."""
+    member = User(id=uuid.uuid4(), email=email, hashed_password="x")
+    session.add(member)
+    await session.flush()
+    await ensure_member(session, organization_id, member.id)
+    await session.commit()
+    return member.id
+
+
 async def create_org_role(service: RBACService, name: str) -> DBRole:
     """Create a custom role that an ``org:read`` scope pins to org-wide grants."""
     org_read = await service.session.scalar(
@@ -1905,10 +1917,10 @@ class TestRoleLevelGuard:
         session: AsyncSession,
         role: Role,
         org: Organization,
-        user: User,
         workspace: Workspace,
     ):
         service = RBACService(session, role=role)
+        member_id = await create_bare_member(session, org.id, "everywhere@example.com")
         other_org = Organization(name="Other", slug=uuid.uuid4().hex)
         session.add(other_org)
         await session.flush()
@@ -1917,42 +1929,51 @@ class TestRoleLevelGuard:
         session.add_all([foreign, second])
         await session.commit()
         editor = await service.create_role(name="All Workspaces Editor")
+        assert not await workspace_membership_exists(
+            session, user_id=member_id, workspace_id=workspace.id
+        )
 
-        await service.create_user_assignment(user_id=user.id, role_id=editor.id)
+        await service.create_user_assignment(user_id=member_id, role_id=editor.id)
 
         for ws, present in ((workspace, True), (second, True), (foreign, False)):
             assert (
                 await workspace_membership_exists(
-                    session, user_id=user.id, workspace_id=ws.id
+                    session, user_id=member_id, workspace_id=ws.id
                 )
                 is present
             )
         members = await MembershipService(session, role=role).list_workspace_members(
             second.id
         )
-        listed = next(m for m in members if m.user_id == user.id)
+        listed = next(m for m in members if m.user_id == member_id)
         assert listed.role_name == "All Workspaces Editor" and not listed.via_group
 
     async def test_org_wide_group_workspace_role_reaches_every_workspace(
         self,
         session: AsyncSession,
         role: Role,
-        user: User,
+        org: Organization,
         workspace: Workspace,
     ):
         service = RBACService(session, role=role)
+        member_id = await create_bare_member(
+            session, org.id, "group-member@example.com"
+        )
         group = await service.create_group(name="All Workspaces Group")
-        await service.add_group_member(group.id, user.id)
+        await service.add_group_member(group.id, member_id)
+        assert not await workspace_membership_exists(
+            session, user_id=member_id, workspace_id=workspace.id
+        )
         editor = await service.create_role(name="Group Editor")
         await service.create_group_role_assignment(group_id=group.id, role_id=editor.id)
 
         assert await workspace_membership_exists(
-            session, user_id=user.id, workspace_id=workspace.id
+            session, user_id=member_id, workspace_id=workspace.id
         )
         members = await MembershipService(session, role=role).list_workspace_members(
             workspace.id
         )
-        listed = next(m for m in members if m.user_id == user.id)
+        listed = next(m for m in members if m.user_id == member_id)
         assert listed.via_group
 
     async def test_org_wide_org_role_grants_no_workspace_presence(
@@ -1963,14 +1984,7 @@ class TestRoleLevelGuard:
         workspace: Workspace,
     ):
         # Bare membership: the shared fixture's presence role would itself expand.
-        member = User(
-            id=uuid.uuid4(), email="org-reader@example.com", hashed_password="x"
-        )
-        session.add(member)
-        await session.flush()
-        await ensure_member(session, org.id, member.id)
-        await session.commit()
-        member_id = member.id
+        member_id = await create_bare_member(session, org.id, "org-reader@example.com")
         service = RBACService(session, role=role)
         org_role = await create_org_role(service, name="Org Reader")
         await service.create_user_assignment(user_id=member_id, role_id=org_role.id)
@@ -2106,3 +2120,57 @@ class TestRoleLevelGuard:
         else:
             updated = await service.update_role(target_id, scope_ids=[org_read])
             assert [scope.name for scope in updated.scopes] == ["org:read"]
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "org:widgets:read",
+            "workspace:custom:read",
+            "*:read",
+            "o*:read",
+        ],
+    )
+    async def test_create_scope_rejects_reserved_prefix(
+        self, session: AsyncSession, role: Role, name: str
+    ):
+        service = RBACService(session, role=role)
+        with pytest.raises(TracecatValidationError, match="reserved prefix"):
+            await service.create_scope(name=name)
+
+    async def test_create_scope_allows_unreserved_platform_root(
+        self, session: AsyncSession, role: Role
+    ):
+        service = RBACService(session, role=role)
+        scope = await service.create_scope(name="case:escalate")
+        assert scope.resource == "case"
+        # Custom registry actions are granted through custom action scopes.
+        action = await service.create_scope(name="action:tools.acme.*:execute")
+        assert action.action == "execute"
+
+    async def test_delete_role_rejects_pending_invitation(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        service = RBACService(session, role=role)
+        target = await service.create_role(name="Invited Only")
+        target_id = target.id
+        invitation = Invitation(
+            organization_id=org.id,
+            email="invitee@example.com",
+            status=InvitationStatus.PENDING,
+            token=uuid.uuid4().hex * 2,
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        invitation.grants = [
+            InvitationGrant(
+                organization_id=org.id, workspace_id=workspace.id, role_id=target_id
+            )
+        ]
+        session.add(invitation)
+        await session.commit()
+
+        with pytest.raises(TracecatValidationError, match="pending invitations"):
+            await service.delete_role(target_id)

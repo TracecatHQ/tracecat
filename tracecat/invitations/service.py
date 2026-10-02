@@ -240,7 +240,10 @@ async def _apply_grants(
         (
             await session.execute(
                 select(DBRole)
-                .where(DBRole.id.in_({grant.role_id for grant in explicit}))
+                .where(
+                    DBRole.organization_id == organization_id,
+                    DBRole.id.in_({grant.role_id for grant in explicit}),
+                )
                 .options(selectinload(DBRole.scopes))
             )
         )
@@ -250,8 +253,10 @@ async def _apply_grants(
     roles_by_id = {role.id: role for role in roles}
     # Grants made before roles were pinned to a level may no longer fit.
     for grant in explicit:
+        if (granted_role := roles_by_id.get(grant.role_id)) is None:
+            raise TracecatAuthorizationError("Invitation is no longer valid")
         try:
-            ensure_role_fits_scope(roles_by_id[grant.role_id], grant.workspace_id)
+            ensure_role_fits_scope(granted_role, grant.workspace_id)
         except TracecatValidationError as e:
             raise TracecatAuthorizationError(
                 f"Invitation is no longer valid: {e}"

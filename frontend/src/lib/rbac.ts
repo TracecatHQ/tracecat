@@ -270,6 +270,24 @@ export function isOrgLevelRole(role: { scopes?: ScopeRead[] }): boolean {
   return (role.scopes ?? []).some((scope) => scope.name.startsWith("org:"))
 }
 
+/**
+ * Roles to offer when editing an assignment. A current role that no longer
+ * fits the scope is returned separately so the dialog can still show it.
+ */
+export function rolesForAssignmentEdit<
+  T extends { id: string; scopes?: ScopeRead[] },
+>(
+  roles: T[],
+  workspaceId: string | null,
+  currentRoleId: string
+): { options: T[]; legacy: T | undefined } {
+  const options = rolesForScope(roles, workspaceId)
+  const legacy = options.some((role) => role.id === currentRoleId)
+    ? undefined
+    : roles.find((role) => role.id === currentRoleId)
+  return { options, legacy }
+}
+
 /** Roles assignable at a scope: org roles only org-wide; workspace roles anywhere. */
 export function rolesForScope<T extends { scopes?: ScopeRead[] }>(
   roles: T[],

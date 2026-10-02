@@ -25,7 +25,9 @@ from tracecat.authz.membership import (
 from tracecat.authz.scopes import (
     ORG_MEMBER_ROLE_SLUG,
     PRESET_ROLE_SCOPES,
+    RESERVED_SCOPE_ROOTS,
     is_org_level_role,
+    is_reserved_scope_name,
 )
 from tracecat.authz.service import (
     ensure_role_fits_scope,
@@ -137,6 +139,12 @@ class RBACService(BaseOrgService):
             raise TracecatValidationError(
                 "Invalid scope name. Must be lowercase with only alphanumeric, "
                 "colon, underscore, dot, dash, and asterisk characters."
+            )
+        if is_reserved_scope_name(name):
+            raise TracecatValidationError(
+                f"Scope name cannot start with a reserved prefix: "
+                f"{', '.join(sorted(f'{root}:' for root in RESERVED_SCOPE_ROOTS))}, "
+                "or a wildcard"
             )
 
         # Parse resource and action from scope name
@@ -295,6 +303,7 @@ class RBACService(BaseOrgService):
 
         Preset roles cannot be deleted.
         """
+        await lock_role_changes(self.session, self.organization_id)
         role = await self.get_role(role_id)
 
         # Preset roles cannot be deleted
@@ -319,6 +328,12 @@ class RBACService(BaseOrgService):
             raise TracecatValidationError(
                 "Cannot delete role that is assigned to users. "
                 "Remove all user assignments first."
+            )
+
+        if await self._role_in_use(role_id):
+            raise TracecatValidationError(
+                "Cannot delete role offered in pending invitations. "
+                "Revoke those invitations first."
             )
 
         await self.session.delete(role)

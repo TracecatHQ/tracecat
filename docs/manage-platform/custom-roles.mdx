@@ -28,13 +28,13 @@ Each row sets a level of None, Read, Write, Execute (workflows and agents only),
 
 You can grant only scopes you hold yourself, and Tracecat refuses the rest with `Cannot grant scopes not held by the caller`. Built-in roles have no Edit or Delete in their row menu.
 
-Tracecat refuses deleting a role that is still assigned with `Cannot delete role that is assigned to groups. Remove all group assignments first.`, or the user-assignment equivalent — remove the role's assignments, then delete it.
+Tracecat refuses deleting a role that is still assigned with `Cannot delete role that is assigned to groups. Remove all group assignments first.`, the user-assignment equivalent, or `Cannot delete role offered in pending invitations` — remove the role's assignments or revoke the invitations, then delete it.
 
 ## Custom scopes
 
 The Scopes tab lists every scope in the organization by name, and Filter by source narrows it to Platform or Custom scopes. It lives on the Access control page at `/organization/settings/rbac`, alongside Group assignments and User assignments tabs that list every assignment in one place.
 
-Select `Create scope` to add your own: names follow `resource:action` and use only lowercase letters, numbers, colons, underscores, dots, asterisks, and hyphens.
+Select `Create scope` to add your own: names follow `resource:action` and use only lowercase letters, numbers, colons, underscores, dots, asterisks, and hyphens. Names cannot start with the reserved prefixes `org:` or `workspace:`, or with a wildcard.
 
 You can delete a custom scope; platform scopes have no Delete action.
 
@@ -52,7 +52,7 @@ Effective permissions are the union of direct and group assignments; no assignme
 
 ## In a workspace
 
-A workspace's Members page lists everyone with access to that workspace: roles assigned on it, directly or through a group, and workspace roles assigned organization-wide. Manage roles and groups from the organization Members page.
+A workspace's Members page lists users who hold a workspace role there: assigned on that workspace or organization-wide, directly or through a group. Organization owners and admins reach every workspace without appearing in this list. Manage roles and groups from the organization Members page.
 
 ## Related pages
 

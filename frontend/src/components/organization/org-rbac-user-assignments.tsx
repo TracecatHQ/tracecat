@@ -62,7 +62,7 @@ import {
   useRbacUserAssignments,
   useWorkspaceManager,
 } from "@/lib/hooks"
-import { rolesForScope } from "@/lib/rbac"
+import { rolesForAssignmentEdit, rolesForScope } from "@/lib/rbac"
 
 export function OrgRbacUserAssignments() {
   const [selectedAssignment, setSelectedAssignment] =
@@ -544,6 +544,11 @@ function UserAssignmentEditDialog({
 }) {
   const [roleId, setRoleId] = useState(assignment.role_id)
   const { roles } = useRbacRoles()
+  const { options, legacy } = rolesForAssignmentEdit(
+    roles,
+    assignment.workspace_id ?? null,
+    assignment.role_id
+  )
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -573,13 +578,16 @@ function UserAssignmentEditDialog({
                 <SelectValue placeholder="Select a role" />
               </SelectTrigger>
               <SelectContent>
-                {rolesForScope(roles, assignment.workspace_id ?? null).map(
-                  (role) => (
-                    <SelectItem key={role.id} value={role.id}>
-                      {role.name}
-                    </SelectItem>
-                  )
+                {legacy && (
+                  <SelectItem value={legacy.id} disabled>
+                    {legacy.name} (not assignable here)
+                  </SelectItem>
                 )}
+                {options.map((role) => (
+                  <SelectItem key={role.id} value={role.id}>
+                    {role.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -592,7 +600,10 @@ function UserAssignmentEditDialog({
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={!roleId || isPending}>
+          <Button
+            type="submit"
+            disabled={!roleId || roleId === assignment.role_id || isPending}
+          >
             {isPending ? "Saving..." : "Save changes"}
           </Button>
         </DialogFooter>

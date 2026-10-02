@@ -2,7 +2,7 @@
 
 import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import { useState } from "react"
-import { ApiError, type WorkspaceMember, type WorkspaceRead } from "@/client"
+import type { WorkspaceMember, WorkspaceRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
@@ -32,20 +32,7 @@ import {
   useWorkspaceMembers,
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
-
-/** Prefer the API's detail message, then the error message. */
-function removalErrorMessage(error: unknown): string {
-  if (error instanceof ApiError) {
-    const { detail } = error.body as { detail?: unknown }
-    if (typeof detail === "string") {
-      return detail
-    }
-  }
-  if (error instanceof Error) {
-    return error.message
-  }
-  return "The request could not be completed."
-}
+import { getApiErrorDetail } from "@/lib/errors"
 
 export function WorkspaceMembersTable({
   workspace,
@@ -207,7 +194,9 @@ export function WorkspaceMembersTable({
                 try {
                   await removeMember(selectedUser.user_id)
                 } catch (error) {
-                  const description = removalErrorMessage(error)
+                  const description =
+                    getApiErrorDetail(error) ??
+                    "The request could not be completed."
                   console.error("Failed to remove member", error)
                   toast({
                     title: "Failed to remove member",

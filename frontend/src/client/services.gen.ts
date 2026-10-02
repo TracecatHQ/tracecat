@@ -13939,6 +13939,9 @@ export const rbacCreateUserAssignment = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Organization role assigned on a workspace.",
+      404: "User, role, or workspace not found.",
+      409: "User already has an assignment for this workspace.",
       422: "Validation Error",
     },
   })
@@ -13990,6 +13993,8 @@ export const rbacUpdateUserAssignment = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Organization role assigned on a workspace.",
+      404: "Assignment or role not found.",
       422: "Validation Error",
     },
   })
@@ -14067,6 +14072,8 @@ export const rbacCreateScope = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Invalid or reserved scope name.",
+      409: "A scope with this name already exists.",
       422: "Validation Error",
     },
   })
@@ -14119,6 +14126,8 @@ export const rbacDeleteScope = (
       scope_id: data.scopeId,
     },
     errors: {
+      403: "Platform scope or scope from another organization.",
+      404: "Scope not found.",
       422: "Validation Error",
     },
   })
@@ -14172,6 +14181,9 @@ export const rbacUpdateRole = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      403: "System role scopes cannot change.",
+      404: "Role not found.",
+      409: "Duplicate name, or a level switch while the role is in use.",
       422: "Validation Error",
     },
   })
@@ -14430,6 +14442,9 @@ export const rbacCreateAssignment = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Organization role assigned on a workspace.",
+      404: "Group, role, or workspace not found.",
+      409: "Group already has an assignment for this workspace.",
       422: "Validation Error",
     },
   })
@@ -14483,6 +14498,8 @@ export const rbacUpdateAssignment = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Organization role assigned on a workspace.",
+      404: "Assignment or role not found.",
       422: "Validation Error",
     },
   })

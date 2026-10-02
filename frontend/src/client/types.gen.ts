@@ -23233,6 +23233,18 @@ export type $OpenApiTs = {
          */
         201: UserRoleAssignmentReadWithDetails
         /**
+         * Organization role assigned on a workspace.
+         */
+        400: unknown
+        /**
+         * User, role, or workspace not found.
+         */
+        404: unknown
+        /**
+         * User already has an assignment for this workspace.
+         */
+        409: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -23260,6 +23272,14 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: UserRoleAssignmentReadWithDetails
+        /**
+         * Organization role assigned on a workspace.
+         */
+        400: unknown
+        /**
+         * Assignment or role not found.
+         */
+        404: unknown
         /**
          * Validation Error
          */
@@ -23306,6 +23326,14 @@ export type $OpenApiTs = {
          */
         201: ScopeRead
         /**
+         * Invalid or reserved scope name.
+         */
+        400: unknown
+        /**
+         * A scope with this name already exists.
+         */
+        409: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -23334,6 +23362,14 @@ export type $OpenApiTs = {
          */
         204: void
         /**
+         * Platform scope or scope from another organization.
+         */
+        403: unknown
+        /**
+         * Scope not found.
+         */
+        404: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -23361,6 +23397,18 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: RoleReadWithScopes
+        /**
+         * System role scopes cannot change.
+         */
+        403: unknown
+        /**
+         * Role not found.
+         */
+        404: unknown
+        /**
+         * Duplicate name, or a level switch while the role is in use.
+         */
+        409: unknown
         /**
          * Validation Error
          */
@@ -23499,6 +23547,18 @@ export type $OpenApiTs = {
          */
         201: GroupRoleAssignmentReadWithDetails
         /**
+         * Organization role assigned on a workspace.
+         */
+        400: unknown
+        /**
+         * Group, role, or workspace not found.
+         */
+        404: unknown
+        /**
+         * Group already has an assignment for this workspace.
+         */
+        409: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -23526,6 +23586,14 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: GroupRoleAssignmentReadWithDetails
+        /**
+         * Organization role assigned on a workspace.
+         */
+        400: unknown
+        /**
+         * Assignment or role not found.
+         */
+        404: unknown
         /**
          * Validation Error
          */

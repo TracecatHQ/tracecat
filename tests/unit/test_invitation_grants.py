@@ -936,8 +936,14 @@ async def test_accept_rejects_grant_at_wrong_role_level(
     await session.commit()
     token, user_id, org_id = invitation.token, invitee.id, org.id
 
-    with pytest.raises(TracecatAuthorizationError, match="no longer valid"):
+    with pytest.raises(
+        TracecatAuthorizationError, match="can only be assigned organization-wide"
+    ):
         await accept_invitation_for_user(session, user_id=user_id, token=token)
     await session.rollback()
 
     assert await _assignments(session, user_id, org_id) == {}
+    status = await session.scalar(
+        select(Invitation.status).where(Invitation.token == token)
+    )
+    assert status == InvitationStatus.PENDING
