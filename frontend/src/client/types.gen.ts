@@ -1817,6 +1817,30 @@ export type BedrockCatalogUpdate = {
 }
 
 /**
+ * AWS Marketplace subscription status for a Bedrock foundation model.
+ */
+export type BedrockSubscriptionRead = {
+  status:
+    | "subscribed"
+    | "not_subscribed"
+    | "pending"
+    | "not_authorized"
+    | "unavailable"
+    | "error"
+    | "unknown"
+  checked_at: string
+}
+
+export type status2 =
+  | "subscribed"
+  | "not_subscribed"
+  | "pending"
+  | "not_authorized"
+  | "unavailable"
+  | "error"
+  | "unknown"
+
+/**
  * Register or rotate the organization Bitbucket Data Center API token.
  */
 export type BitbucketDataCenterTokenCredentialsRequest = {
@@ -2883,7 +2907,7 @@ export type CaseTriggerConfig = {
   tag_filters?: Array<string>
 }
 
-export type status2 = "online" | "offline"
+export type status3 = "online" | "offline"
 
 export type CaseTriggerCreate = {
   status?: "online" | "offline"
@@ -5630,7 +5654,7 @@ export type MCPCatalogConnectResponse = {
   provider_id?: string | null
 }
 
-export type status3 = "configured" | "connected" | "oauth_redirect"
+export type status4 = "configured" | "connected" | "oauth_redirect"
 
 /**
  * Typed configure-dialog field declared by a catalog spec.
@@ -5976,7 +6000,7 @@ export type MCPServerToolSummary = {
   status?: "available" | "missing"
 }
 
-export type status4 = "available" | "missing"
+export type status5 = "available" | "missing"
 
 export type MCPServerType = "http" | "stdio"
 
@@ -6114,7 +6138,7 @@ export type MCPVerificationStatusRead = {
   error?: string | null
 }
 
-export type status5 =
+export type status6 =
   | "idle"
   | "verifying"
   | "succeeded"
@@ -6723,7 +6747,7 @@ export type PlatformMCPCatalogRead = {
   last_refreshed_at: string | null
 }
 
-export type status6 = "available" | "coming_soon" | "deprecated" | "hidden"
+export type status7 = "available" | "coming_soon" | "deprecated" | "hidden"
 
 /**
  * Platform registry settings response.
@@ -7008,7 +7032,7 @@ export type RateLimitInfo = {
   }
 }
 
-export type status7 = "allowed" | "allowed_warning" | "rejected"
+export type status8 = "allowed" | "allowed_warning" | "rejected"
 
 /**
  * A reasoning part of a message.
@@ -7644,7 +7668,7 @@ export type RunArtifact = {
   startedAt: string
 }
 
-export type status8 = "running" | "success" | "failed" | "cancelled"
+export type status9 = "running" | "success" | "failed" | "cancelled"
 
 /**
  * This is the runtime context model for a workflow run. Passed into activities.
@@ -10585,7 +10609,7 @@ export type WorkflowCommitResponse = {
   } | null
 }
 
-export type status9 = "success" | "failure"
+export type status10 = "success" | "failure"
 
 /**
  * API response model for persisted workflow definitions.
@@ -10673,7 +10697,7 @@ export type WorkflowDslPublishResult = {
   message: string
 }
 
-export type status10 = "committed" | "no_op"
+export type status11 = "committed" | "no_op"
 
 export type WorkflowEditDefinition_Input = {
   entrypoint?: DSLEntrypoint_Input
@@ -11030,7 +11054,7 @@ export type WorkflowExecutionRead = {
   interactions?: Array<InteractionRead>
 }
 
-export type status11 =
+export type status12 =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
@@ -12971,6 +12995,12 @@ export type AgentRefreshProviderModelsData = {
 export type AgentRefreshProviderModelsResponse = {
   [key: string]: number
 }
+
+export type AgentSubscribeBedrockModelData = {
+  catalogId: string
+}
+
+export type AgentSubscribeBedrockModelResponse = BedrockSubscriptionRead
 
 export type AgentGetDefaultModelResponse = string | null
 
@@ -18401,6 +18431,21 @@ export type $OpenApiTs = {
         200: {
           [key: string]: number
         }
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/agent/providers/bedrock/models/{catalog_id}/subscribe": {
+    post: {
+      req: AgentSubscribeBedrockModelData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: BedrockSubscriptionRead
         /**
          * Validation Error
          */

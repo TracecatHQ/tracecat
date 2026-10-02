@@ -394,6 +394,20 @@ class _ProviderAuthHTTPException(HTTPException):
     type = "tracecat_llm_provider_auth_failed"
 
 
+class _ProviderSubscriptionHTTPException(HTTPException):
+    """Retain Bedrock Marketplace subscription denials through serialization."""
+
+    type = "tracecat_llm_provider_subscription_required"
+
+
+def _is_bedrock_marketplace_denial(exc: PermissionDeniedError) -> bool:
+    # Bedrock reports missing or in-progress Marketplace model subscriptions as
+    # AccessDenied naming the aws-marketplace actions it needs.
+    return str(exc.llm_provider).startswith("bedrock") and "aws-marketplace:" in str(
+        exc
+    )
+
+
 class _ProviderQuotaHTTPException(HTTPException):
     """Retain structured provider quota evidence through gateway serialization."""
 
@@ -471,6 +485,7 @@ class TracecatCallbackHandler(CustomLogger):
                 "tracecat_llm_token_invalid",
                 "tracecat_llm_provider_auth_failed",
                 "tracecat_llm_model_not_enabled",
+                "tracecat_llm_provider_subscription_required",
                 "budget_exceeded",
             }:
                 original_exception.message = _anthropic_error_message(
@@ -484,6 +499,16 @@ class TracecatCallbackHandler(CustomLogger):
             replacement = _GatewayUnavailableHTTPException(
                 status_code=503,
                 detail="The LLM gateway has no available deployment; retry later",
+            )
+        elif isinstance(
+            original_exception, PermissionDeniedError
+        ) and _is_bedrock_marketplace_denial(original_exception):
+            replacement = _ProviderSubscriptionHTTPException(
+                status_code=original_exception.status_code,
+                detail=(
+                    "AWS Bedrock model access is not active; subscribe to the "
+                    "model or grant the required AWS Marketplace permissions"
+                ),
             )
         elif isinstance(
             original_exception, AuthenticationError | PermissionDeniedError

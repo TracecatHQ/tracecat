@@ -4434,7 +4434,7 @@ name = "pyroscope-io"
 version = "0.8.16"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi" },
+    { name = "cffi", marker = "sys_platform != 'win32'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a8/50/607b38b120ba8adad954119ba512c53590c793f0cf7f009ba6549e4e1d77/pyroscope_io-0.8.16-py2.py3-none-macosx_11_0_arm64.whl", hash = "sha256:e07edcfd59f5bdce42948b92c9b118c824edbd551730305f095a6b9af401a9e8", size = 3138869, upload-time = "2026-01-22T06:23:24.664Z" },
@@ -5173,8 +5173,8 @@ name = "secretstorage"
 version = "3.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cryptography" },
-    { name = "jeepney" },
+    { name = "cryptography", marker = "sys_platform != 'win32'" },
+    { name = "jeepney", marker = "sys_platform != 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1c/03/e834bcd866f2f8a49a85eaff47340affa3bfa391ee9912a952a1faa68c7b/secretstorage-3.5.0.tar.gz", hash = "sha256:f04b8e4689cbce351744d5537bf6b1329c6fc68f91fa666f60a380edddcd11be", size = 19884, upload-time = "2025-11-23T19:02:53.191Z" }
 wheels = [
@@ -5600,12 +5600,12 @@ dev = [
     { name = "respx" },
     { name = "ruff" },
     { name = "types-aioboto3", extra = ["s3", "secretsmanager", "sts"] },
-    { name = "types-boto3", extra = ["s3", "secretsmanager", "sts"] },
+    { name = "types-boto3", extra = ["bedrock", "s3", "secretsmanager", "sts"] },
 ]
 lint = [
     { name = "basedpyright" },
     { name = "types-aioboto3", extra = ["s3", "secretsmanager", "sts"] },
-    { name = "types-boto3", extra = ["s3", "secretsmanager", "sts"] },
+    { name = "types-boto3", extra = ["bedrock", "s3", "secretsmanager", "sts"] },
 ]
 
 [package.metadata]
@@ -5687,12 +5687,12 @@ dev = [
     { name = "respx", specifier = "==0.22.0" },
     { name = "ruff", specifier = "==0.15.0" },
     { name = "types-aioboto3", extras = ["sts", "s3", "secretsmanager"], specifier = "==15.5.0" },
-    { name = "types-boto3", extras = ["sts", "s3", "secretsmanager"], specifier = "==1.42.25" },
+    { name = "types-boto3", extras = ["bedrock", "sts", "s3", "secretsmanager"], specifier = "==1.42.25" },
 ]
 lint = [
     { name = "basedpyright", specifier = "==1.37.1" },
     { name = "types-aioboto3", extras = ["sts", "s3", "secretsmanager"], specifier = "==15.5.0" },
-    { name = "types-boto3", extras = ["sts", "s3", "secretsmanager"], specifier = "==1.42.25" },
+    { name = "types-boto3", extras = ["bedrock", "sts", "s3", "secretsmanager"], specifier = "==1.42.25" },
 ]
 
 [[package]]
@@ -5950,6 +5950,9 @@ wheels = [
 ]
 
 [package.optional-dependencies]
+bedrock = [
+    { name = "types-boto3-bedrock" },
+]
 s3 = [
     { name = "types-boto3-s3" },
 ]
@@ -5958,6 +5961,15 @@ secretsmanager = [
 ]
 sts = [
     { name = "types-boto3-sts" },
+]
+
+[[package]]
+name = "types-boto3-bedrock"
+version = "1.42.83"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2e/35/e35466b38267716d3ac188d6299832ec526a5fcb00bd99047eb77109e89d/types_boto3_bedrock-1.42.83.tar.gz", hash = "sha256:680e9017d7fc784c92910c11b22fab756088d003ecfc62d280c5de8f64a7485f", size = 63631, upload-time = "2026-04-03T19:54:11Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0e/f0/d03ace7ad3127dc01c63d99a998f9d6f84343045df2034ab9dca3d208f9f/types_boto3_bedrock-1.42.83-py3-none-any.whl", hash = "sha256:1f7372666945cdea683bf9d20dec03def0fd1b817c218ca0673c59c77478a008", size = 71538, upload-time = "2026-04-03T19:54:09.256Z" },
 ]
 
 [[package]]

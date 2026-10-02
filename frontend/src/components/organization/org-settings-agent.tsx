@@ -16,7 +16,9 @@ import {
   type AzureOpenAICatalogCreate,
   agentDeleteProviderCredentials,
   agentRefreshProviderModels,
+  agentSubscribeBedrockModel,
   type BedrockCatalogCreate,
+  type BedrockSubscriptionRead,
   createCatalogEntry,
   createCustomProvider,
   deleteCatalogEntry,
@@ -425,6 +427,68 @@ interface BuiltInCatalogEntry extends ModelCatalogEntry {
   credentials_configured?: boolean
   organization_id?: string | null
   metadata_display_name?: string | null
+  bedrock_subscription_status?: BedrockSubscriptionStatus | null
+}
+
+type BedrockSubscriptionStatus = BedrockSubscriptionRead["status"]
+
+const BEDROCK_SUBSCRIPTION_LABELS: Record<
+  BedrockSubscriptionStatus,
+  string | null
+> = {
+  subscribed: "Subscribed",
+  not_subscribed: "Not subscribed",
+  pending: "Subscription pending",
+  not_authorized: "Not authorized",
+  unavailable: "Unavailable in region",
+  error: "Subscription error",
+  unknown: null,
+}
+
+const BEDROCK_SUBSCRIBABLE_STATUSES: ReadonlySet<BedrockSubscriptionStatus> =
+  new Set(["not_subscribed", "error", "unknown"])
+
+function getBedrockSubscriptionStatus(
+  metadata: Record<string, unknown> | null | undefined
+): BedrockSubscriptionStatus | null {
+  const subscription = metadata?.bedrock_subscription
+  if (!subscription || typeof subscription !== "object") {
+    return null
+  }
+  const status = (subscription as Record<string, unknown>).status
+  return typeof status === "string" && status in BEDROCK_SUBSCRIPTION_LABELS
+    ? (status as BedrockSubscriptionStatus)
+    : null
+}
+
+function BedrockSubscriptionBadge({
+  status,
+}: {
+  status: BedrockSubscriptionStatus
+}) {
+  const label = BEDROCK_SUBSCRIPTION_LABELS[status]
+  if (!label) {
+    return null
+  }
+  return (
+    <Badge
+      className={cn(
+        "shrink-0 font-medium",
+        status === "subscribed" &&
+          "border-emerald-500/40 text-emerald-700 dark:text-emerald-400",
+        status === "pending" &&
+          "border-amber-500/40 text-amber-700 dark:text-amber-400",
+        (status === "not_subscribed" ||
+          status === "not_authorized" ||
+          status === "error") &&
+          "border-destructive/40 text-destructive",
+        status === "unavailable" && "text-muted-foreground"
+      )}
+      variant="outline"
+    >
+      {label}
+    </Badge>
+  )
 }
 
 interface BuiltInProviderConnection {
@@ -545,6 +609,10 @@ const GATEWAY_PROVIDERS: ReadonlySet<string> = new Set([
 
 function isGatewayProvider(provider: string): boolean {
   return GATEWAY_PROVIDERS.has(provider)
+}
+
+function supportsModelRefresh(provider: string): boolean {
+  return isGatewayProvider(provider) || provider === "bedrock"
 }
 
 function providerDisplayRank(provider: string, fallbackIndex: number): number {
@@ -1256,6 +1324,7 @@ function ProviderAllowlistModelRow({
   onToggle,
   onEdit,
   onDelete,
+  onSubscribe,
 }: {
   canManageModels: boolean
   disabled: boolean
@@ -1264,7 +1333,17 @@ function ProviderAllowlistModelRow({
   onToggle: (model: ModelCatalogEntry) => Promise<void>
   onEdit?: (model: BuiltInCatalogEntry) => void
   onDelete?: (model: BuiltInCatalogEntry) => void
+  onSubscribe?: (model: BuiltInCatalogEntry) => Promise<void>
 }) {
+  const [subscribePending, setSubscribePending] = useState(false)
+  const subscriptionStatus = model.bedrock_subscription_status ?? null
+  const canSubscribe =
+    canManageModels &&
+    onSubscribe !== undefined &&
+    model.organization_id != null &&
+    model.credentials_configured === true &&
+    subscriptionStatus !== null &&
+    BEDROCK_SUBSCRIBABLE_STATUSES.has(subscriptionStatus)
   const canEnable = canEnableBuiltInCatalogModel(model)
   const statusMessage = model.readiness_message
   const isCloudCatalogModel = isCloudCatalogProvider(model.model_provider)
@@ -1292,6 +1371,30 @@ function ProviderAllowlistModelRow({
             <p className="truncate text-sm font-medium">
               {displayName || getModelLabel(model)}
             </p>
+            {subscriptionStatus ? (
+              <BedrockSubscriptionBadge status={subscriptionStatus} />
+            ) : null}
+            {canSubscribe ? (
+              <Button
+                className="h-6 shrink-0 px-2 text-xs"
+                disabled={disabled || subscribePending}
+                onClick={async () => {
+                  setSubscribePending(true)
+                  try {
+                    await onSubscribe(model)
+                  } finally {
+                    setSubscribePending(false)
+                  }
+                }}
+                size="sm"
+                variant="outline"
+              >
+                {subscribePending ? (
+                  <Loader2 className="mr-1 size-3 animate-spin" />
+                ) : null}
+                Subscribe
+              </Button>
+            ) : null}
           </div>
           {displayName ? (
             <p className="truncate text-xs text-muted-foreground">
@@ -1381,6 +1484,7 @@ function ProviderConnectionItem({
   onEnableAllModels,
   onExpandedChange,
   onRefreshModels,
+  onSubscribeModel,
   onToggleModel,
   provider,
   refreshPending = false,
@@ -1392,6 +1496,7 @@ function ProviderConnectionItem({
   onAddCatalogModel?: (provider: string) => void
   onConfigureProvider: (provider: string) => void
   onRefreshModels?: (provider: string) => void
+  onSubscribeModel?: (model: BuiltInCatalogEntry) => Promise<void>
   refreshPending?: boolean
   onDeleteCatalogModel?: (model: BuiltInCatalogEntry) => void
   onDeleteCredentials: (provider: string, label: string) => Promise<void>
@@ -1666,6 +1771,7 @@ function ProviderConnectionItem({
                       model={model}
                       onDelete={onDeleteCatalogModel}
                       onEdit={onEditCatalogModel}
+                      onSubscribe={onSubscribeModel}
                       showCapabilityColumns={showCapabilityColumns}
                       onToggle={async (nextModel) => {
                         const nextCountDelta = nextModel.enabled ? -1 : 1
@@ -2185,6 +2291,10 @@ export function OrgSettingsAgentForm() {
                 entry.model_metadata,
                 "display_name"
               ),
+              bedrock_subscription_status:
+                entry.model_provider === "bedrock"
+                  ? getBedrockSubscriptionStatus(entry.model_metadata)
+                  : null,
               readiness_message: credentialsConfigured
                 ? null
                 : "Connect this provider before allowing its platform models.",
@@ -2330,6 +2440,15 @@ export function OrgSettingsAgentForm() {
   const refreshBuiltInProviderMutation = useMutation({
     mutationFn: async (provider: string) =>
       await agentRefreshProviderModels({ provider }),
+    meta: { suppressErrorToast: true },
+    onSuccess: () => {
+      invalidateOrganizationAgentQueries()
+      invalidateBuiltInAgentQueries()
+    },
+  })
+  const subscribeBedrockModelMutation = useMutation({
+    mutationFn: async (catalogId: string) =>
+      await agentSubscribeBedrockModel({ catalogId }),
     meta: { suppressErrorToast: true },
     onSuccess: () => {
       invalidateOrganizationAgentQueries()
@@ -2551,7 +2670,37 @@ export function OrgSettingsAgentForm() {
         title: `Failed to refresh ${label} models`,
         description:
           getApiErrorDetail(error) ??
-          "Unable to reach the provider's /models endpoint.",
+          (provider === "bedrock"
+            ? "Unable to list models from AWS Bedrock."
+            : "Unable to reach the provider's /models endpoint."),
+        variant: "destructive",
+      })
+    }
+  }
+
+  async function handleSubscribeBedrockModel(model: BuiltInCatalogEntry) {
+    if (!model.id) {
+      return
+    }
+    const name = model.metadata_display_name || model.model_name
+    try {
+      const result = await subscribeBedrockModelMutation.mutateAsync(model.id)
+      toast({
+        title:
+          result.status === "subscribed"
+            ? `Subscribed to ${name}`
+            : `Subscription requested for ${name}`,
+        description:
+          result.status === "subscribed"
+            ? "The model is ready to use."
+            : "AWS can take a few minutes to activate model access.",
+      })
+    } catch (error) {
+      toast({
+        title: `Failed to subscribe to ${name}`,
+        description:
+          getApiErrorDetail(error) ??
+          "Check that the AWS credentials allow aws-marketplace:Subscribe.",
         variant: "destructive",
       })
     }
@@ -2849,8 +2998,13 @@ export function OrgSettingsAgentForm() {
                       setExpandedProvider(expanded ? provider.provider : null)
                     }}
                     onRefreshModels={
-                      isGatewayProvider(provider.provider)
+                      supportsModelRefresh(provider.provider)
                         ? handleRefreshBuiltInProvider
+                        : undefined
+                    }
+                    onSubscribeModel={
+                      provider.provider === "bedrock"
+                        ? handleSubscribeBedrockModel
                         : undefined
                     }
                     onToggleModel={handleModelToggle}

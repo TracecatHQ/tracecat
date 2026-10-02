@@ -243,6 +243,8 @@ import type {
   AgentSkillsRestoreSkillVersionResponse,
   AgentSkillsUploadSkillData,
   AgentSkillsUploadSkillResponse,
+  AgentSubscribeBedrockModelData,
+  AgentSubscribeBedrockModelResponse,
   AgentTagsCreateAgentTagData,
   AgentTagsCreateAgentTagResponse,
   AgentTagsDeleteAgentTagData,
@@ -5097,7 +5099,7 @@ export const agentDeleteProviderCredentials = (
 
 /**
  * Refresh Provider Models
- * Re-discover models for a built-in gateway provider (Ollama, vLLM, ...).
+ * Re-discover models for Bedrock or a built-in gateway provider.
  * @param data The data for the request.
  * @param data.provider
  * @returns number Successful Response
@@ -5111,6 +5113,29 @@ export const agentRefreshProviderModels = (
     url: "/agent/providers/{provider}/refresh",
     path: {
       provider: data.provider,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Subscribe Bedrock Model
+ * Accept the AWS Marketplace offer for a Bedrock catalog model.
+ * @param data The data for the request.
+ * @param data.catalogId
+ * @returns BedrockSubscriptionRead Successful Response
+ * @throws ApiError
+ */
+export const agentSubscribeBedrockModel = (
+  data: AgentSubscribeBedrockModelData
+): CancelablePromise<AgentSubscribeBedrockModelResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/providers/bedrock/models/{catalog_id}/subscribe",
+    path: {
+      catalog_id: data.catalogId,
     },
     errors: {
       422: "Validation Error",
