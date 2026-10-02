@@ -477,10 +477,14 @@ export function useGetChatVercel({
   chatId,
   workspaceId,
   refetchInterval,
+  enabled = true,
+  retry,
 }: {
   chatId?: string
   workspaceId: string
   refetchInterval?: number | false
+  enabled?: boolean
+  retry?: boolean
 }) {
   const {
     data: chat,
@@ -498,7 +502,8 @@ export function useGetChatVercel({
         workspaceId,
       })
     },
-    enabled: !!chatId,
+    enabled: !!chatId && enabled,
+    retry,
     // A remount must never render a stale cache snapshot as the final
     // transcript: always refetch so the pane adopts the current server copy
     // (e.g. after an approval was resolved from another surface).

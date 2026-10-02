@@ -14,6 +14,8 @@ import { toUIMessage, transformMessages } from "@/lib/chat"
 import type { SubagentStreamStore } from "@/lib/subagent-stream"
 import { useOptionalWorkspaceId } from "@/providers/workspace-id"
 
+const RECOVERY_TIMEOUT_MS = 60_000
+
 /** Live child-session transcripts for the chat that renders subagent cards. */
 export type SubagentStreamContextValue = {
   store: SubagentStreamStore
@@ -76,16 +78,32 @@ export function useSubagentTranscript({
   isLive: boolean
   isLoading: boolean
   isError: boolean
+  isRecoveryPaused: boolean
+  retryRecovery: () => void
 } {
   const context = useContext(SubagentStreamContext)
   const fallbackWorkspaceId = useOptionalWorkspaceId()
   const workspaceId = context?.workspaceId ?? fallbackWorkspaceId
   const liveMessage = useSubagentLiveMessage(sessionId)
   const [adoptedSessionId, setAdoptedSessionId] = useState<string | null>(null)
+  const [recoveryPaused, setRecoveryPaused] = useState(false)
+  const [recoveryAttempt, setRecoveryAttempt] = useState(0)
   const parentStreaming =
     context?.status === "streaming" || context?.status === "submitted"
   const recovering =
     !finished && !parentStreaming && adoptedSessionId !== sessionId
+  useEffect(() => {
+    setRecoveryPaused(false)
+    if (!recovering || !sessionId) return
+    const timeout = setTimeout(
+      () => setRecoveryPaused(true),
+      RECOVERY_TIMEOUT_MS
+    )
+    return () => clearTimeout(timeout)
+  }, [recovering, sessionId, recoveryAttempt])
+  const retryRecovery = useCallback(() => {
+    setRecoveryAttempt((attempt) => attempt + 1)
+  }, [])
   const persistedSessionId =
     (finished || recovering || adoptedSessionId === sessionId) &&
     sessionId &&
@@ -95,8 +113,19 @@ export function useSubagentTranscript({
   const { chat, chatLoading, chatFetching, chatError } = useGetChatVercel({
     chatId: persistedSessionId,
     workspaceId: workspaceId ?? "",
-    ...(recovering ? { refetchInterval: 3_000 } : {}),
+    ...(recovering
+      ? { refetchInterval: 3_000, enabled: !recoveryPaused, retry: false }
+      : {}),
   })
+  useEffect(() => {
+    if (
+      recovering &&
+      !chatFetching &&
+      (chatError?.status === 403 || chatError?.status === 404)
+    ) {
+      setRecoveryPaused(true)
+    }
+  }, [recovering, chatFetching, chatError])
   const hasPersistedHistory =
     persistedSessionId !== undefined &&
     chat !== undefined &&
@@ -129,5 +158,7 @@ export function useSubagentTranscript({
       parentStreaming && !hasPersistedHistory && liveMessage !== undefined,
     isLoading: persistedSessionId !== undefined && chatLoading,
     isError: persistedSessionId !== undefined && chatError != null,
+    isRecoveryPaused: recovering && recoveryPaused,
+    retryRecovery,
   }
 }

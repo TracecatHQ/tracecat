@@ -1895,10 +1895,28 @@ function SubagentTranscript({
   sessionId: string | null
   finished: boolean
 }) {
-  const { messages, isLive, isLoading, isError } = useSubagentTranscript({
-    sessionId,
-    finished,
-  })
+  const {
+    messages,
+    isLive,
+    isLoading,
+    isError,
+    isRecoveryPaused,
+    retryRecovery,
+  } = useSubagentTranscript({ sessionId, finished })
+  const recoveryNotice = isRecoveryPaused ? (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <span>Transcript recovery paused.</span>
+      <Button
+        variant="link"
+        size="sm"
+        className="h-auto p-0 text-xs"
+        onClick={retryRecovery}
+        aria-label="Retry transcript loading"
+      >
+        Retry
+      </Button>
+    </div>
+  ) : null
 
   if (messages.length === 0) {
     let placeholder = "Waiting for the agent to start..."
@@ -1909,7 +1927,12 @@ function SubagentTranscript({
     } else if (finished) {
       placeholder = "No transcript available"
     }
-    return <p className="text-xs text-muted-foreground">{placeholder}</p>
+    return (
+      <div className="space-y-2">
+        <p className="text-xs text-muted-foreground">{placeholder}</p>
+        {recoveryNotice}
+      </div>
+    )
   }
 
   const status: ChatStatus | undefined =
@@ -1934,6 +1957,7 @@ function SubagentTranscript({
             ))}
         </div>
       ))}
+      {recoveryNotice}
     </div>
   )
 }

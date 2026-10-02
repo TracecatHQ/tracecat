@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import type { UIMessage, UIMessagePart } from "ai"
 import type { ReactNode } from "react"
 import { MessagePart } from "@/components/chat/chat-session-pane"
@@ -367,4 +367,53 @@ describe("subagent tool part", () => {
       ).not.toBeInTheDocument()
     }
   )
+
+  it("offers a working retry button when transcript recovery times out", () => {
+    jest.useFakeTimers()
+    const store = new SubagentStreamStore()
+    try {
+      mockUseGetChatVercel.mockReturnValue({
+        chat: { id: CHILD_ID, messages: [] },
+        chatLoading: false,
+        chatFetching: false,
+        chatError: null,
+      })
+      const view = renderPart(
+        subagentPart({
+          state: "output-available",
+          output: { session_id: CHILD_ID, status: "running" },
+          preliminary: true,
+        }),
+        (node) => (
+          <SubagentStreamContext.Provider
+            value={{ store, workspaceId: "workspace-1", status: "error" }}
+          >
+            {node}
+          </SubagentStreamContext.Provider>
+        )
+      )
+      act(() => jest.advanceTimersByTime(60_000))
+      expect(
+        screen.getByText("Transcript recovery paused.")
+      ).toBeInTheDocument()
+      expect(mockUseGetChatVercel).toHaveBeenLastCalledWith(
+        expect.objectContaining({ chatId: CHILD_ID, enabled: false })
+      )
+
+      fireEvent.click(
+        screen.getByRole("button", { name: "Retry transcript loading" })
+      )
+      expect(
+        screen.queryByText("Transcript recovery paused.")
+      ).not.toBeInTheDocument()
+      expect(mockUseGetChatVercel).toHaveBeenLastCalledWith(
+        expect.objectContaining({ chatId: CHILD_ID, enabled: true })
+      )
+      view.unmount()
+    } finally {
+      store.dispose()
+      jest.clearAllTimers()
+      jest.useRealTimers()
+    }
+  })
 })
