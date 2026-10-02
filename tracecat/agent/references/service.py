@@ -34,7 +34,12 @@ from tracecat.agent.skill.types import SkillMcpGrant
 from tracecat.agent.skill.validation import get_mcp_grant_support_error
 from tracecat.agent.subagents import AgentSubagentsConfig, ResolvedAttachedSubagentRef
 from tracecat.authz.controls import check_scopes
-from tracecat.db.models import AgentPresetVersionSkill, MCPIntegration, SkillVersion
+from tracecat.db.models import (
+    AgentPresetVersionSkill,
+    MCPIntegration,
+    SkillBlob,
+    SkillVersion,
+)
 from tracecat.exceptions import (
     EntitlementRequired,
     TracecatAuthorizationError,
@@ -46,6 +51,7 @@ from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.integrations.service import IntegrationService
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.service import BaseWorkspaceService
+from tracecat.storage import blob
 from tracecat.tables.service import TablesService
 from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
@@ -125,14 +131,21 @@ class ReferenceService(BaseWorkspaceService):
         ):
             raise ReferenceLookupError(Code.LIMIT_EXCEEDED)
         sources: list[AuthoredSource] = []
+        files = dict(await service.get_version_file_materialization(version.id))
+        remaining = limits.source_bytes
         for entry in version.files:
             if not entry.path.lower().endswith(".md"):
                 continue
-            file = await service.get_version_file(
-                skill_id=skill.id, version_id=version.id, path=entry.path
-            )
-            if file is None or file.text_content is None:
+            stored = files.get(entry.path)
+            if (
+                stored is None
+                or stored.id != entry.blob_id
+                or stored.sha256 != entry.sha256
+                or stored.size_bytes != entry.size_bytes
+            ):
                 raise ReferenceLookupError(Code.INVALID_SOURCE)
+            markdown = await self._read_markdown(stored, remaining)
+            remaining -= stored.size_bytes
             sources.append(
                 AuthoredSource(
                     origin="skill_file",
@@ -140,7 +153,7 @@ class ReferenceService(BaseWorkspaceService):
                     version_id=version.id,
                     path=entry.path,
                     content_hash=entry.sha256,
-                    markdown=file.text_content,
+                    markdown=markdown,
                 )
             )
         stmt = (
@@ -178,6 +191,42 @@ class ReferenceService(BaseWorkspaceService):
             tuple(declarations),
             slug=skill.slug or "",
         )
+
+    @staticmethod
+    async def _read_markdown(stored: SkillBlob, remaining: int) -> str:
+        """Read exact published bytes within the compiler budget, not UI limits."""
+        if stored.size_bytes > remaining:
+            raise ReferenceLookupError(Code.LIMIT_EXCEEDED)
+        content = bytearray()
+        try:
+            async with blob.open_download_stream(
+                key=stored.key,
+                bucket=stored.bucket,
+                redact_log_identifiers=True,
+            ) as (stream, length):
+                if length is not None and length > remaining:
+                    raise ReferenceLookupError(Code.LIMIT_EXCEEDED)
+                if length is not None and length != stored.size_bytes:
+                    raise ReferenceLookupError(Code.INVALID_SOURCE)
+                while chunk := await stream.read(
+                    min(65536, stored.size_bytes - len(content) + 1)
+                ):
+                    content.extend(chunk)
+                    if len(content) > remaining:
+                        raise ReferenceLookupError(Code.LIMIT_EXCEEDED)
+                    if len(content) > stored.size_bytes:
+                        raise ReferenceLookupError(Code.INVALID_SOURCE)
+        except FileNotFoundError as exc:
+            raise ReferenceLookupError() from exc
+        if (
+            len(content) != stored.size_bytes
+            or hashlib.sha256(content).hexdigest() != stored.sha256
+        ):
+            raise ReferenceLookupError(Code.INVALID_SOURCE)
+        try:
+            return content.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ReferenceLookupError(Code.INVALID_SOURCE) from exc
 
     async def _agent(
         self, target: ReferenceTarget, version_id: UUID | None, limits: GraphLimits

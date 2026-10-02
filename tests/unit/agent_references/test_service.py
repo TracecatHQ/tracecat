@@ -1,7 +1,9 @@
 """Lookup and policy boundaries use stored metadata, not native runtimes."""
 
 import hashlib
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from io import BytesIO
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
@@ -29,7 +31,6 @@ from tracecat.agent.references.uri import ReferenceDiagnosticCode as Code
 from tracecat.agent.references.uri import ReferenceKind as Kind
 from tracecat.agent.references.uri import ReferenceTarget
 from tracecat.agent.skill.schemas import (
-    SkillDraftFileRead,
     SkillFileEntry,
     SkillVersionRead,
 )
@@ -41,6 +42,7 @@ from tracecat.db.models import (
     AgentPresetVersion,
     MCPIntegration,
     Skill,
+    SkillBlob,
     SkillVersion,
     Workflow,
     WorkflowDefinition,
@@ -48,6 +50,7 @@ from tracecat.db.models import (
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.service import IntegrationService
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.storage import blob
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 
@@ -205,13 +208,14 @@ async def test_missing_and_inaccessible_are_indistinguishable(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("padding", [0, 300_000])
 async def test_skill_service_reads_exact_markdown_and_compiles_derived_tool(
-    service, monkeypatch
+    service, monkeypatch, padding
 ):
     sid, vid = uuid4(), uuid4()
     target = ReferenceTarget(Kind.SKILL, str(sid))
     tool = ReferenceTarget(Kind.TOOL, "core.http_request")
-    markdown = "[Request](tracecat-ref://v1/tool/core.http_request)"
+    markdown = "x" * padding + "\n\n[Request](tracecat-ref://v1/tool/core.http_request)"
     digest = hashlib.sha256(markdown.encode()).hexdigest()
     skill = Skill(id=sid, current_version_id=vid, slug="example")
     monkeypatch.setattr(SkillService, "get_skill", AsyncMock(return_value=skill))
@@ -239,20 +243,24 @@ async def test_skill_service_reads_exact_markdown_and_compiles_derived_tool(
     )
     read = AsyncMock(return_value=published)
     monkeypatch.setattr(SkillService, "get_version_read", read)
-    monkeypatch.setattr(
-        SkillService,
-        "get_version_file",
-        AsyncMock(
-            return_value=SkillDraftFileRead(
-                kind="inline",
-                path="SKILL.md",
-                content_type="text/markdown",
-                size_bytes=len(markdown),
-                sha256=digest,
-                text_content=markdown,
-            )
-        ),
+    stored = SkillBlob(
+        id=published.files[0].blob_id,
+        key="synthetic-key",
+        bucket="synthetic-bucket",
+        size_bytes=len(markdown),
+        sha256=digest,
     )
+    materialize = AsyncMock(return_value=[("SKILL.md", stored)])
+    monkeypatch.setattr(SkillService, "get_version_file_materialization", materialize)
+    ui_read = AsyncMock(side_effect=AssertionError("Compiler must not use UI reads"))
+    monkeypatch.setattr(SkillService, "get_version_file", ui_read)
+    payload = BytesIO(markdown.encode())
+
+    @asynccontextmanager
+    async def stream(**kwargs):
+        yield AsyncMock(read=AsyncMock(side_effect=payload.read)), len(markdown)
+
+    monkeypatch.setattr(blob, "open_download_stream", stream)
     row = SkillVersion(id=vid, skill_id=sid, tools=[], mcp_tools=[])
     result = MagicMock()
     result.scalar_one.return_value = row
@@ -285,6 +293,8 @@ async def test_skill_service_reads_exact_markdown_and_compiles_derived_tool(
     assert not compiled.diagnostics
     assert compiled.scopes[0].grants.actions == (tool.identity,)
     read.assert_awaited_once_with(skill_id=sid, version_id=vid)
+    materialize.assert_awaited_once_with(vid)
+    ui_read.assert_not_awaited()
     edge = next(e for e in compiled.scopes[0].edges if e.target == tool)
     assert edge.source == target
     assert edge.location is not None and edge.location.path == "SKILL.md"
@@ -445,3 +455,42 @@ async def test_historical_child_binding_selects_head_once_then_reuses_turn_pin(
     )
     assert not incomplete.scopes
     assert incomplete.diagnostics[0].code == Code.SNAPSHOT_CONFLICT
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "payload,declared,digest,budget,code",
+    [
+        (b"\xff", 1, hashlib.sha256(b"\xff").hexdigest(), 10, Code.INVALID_SOURCE),
+        (b"text", 4, "a" * 64, 10, Code.INVALID_SOURCE),
+        (b"too long", 3, "a" * 64, 10, Code.INVALID_SOURCE),
+        (b"short", 6, "a" * 64, 10, Code.INVALID_SOURCE),
+        (b"too long", 3, "a" * 64, 3, Code.LIMIT_EXCEEDED),
+        (b"text", 4, "a" * 64, 3, Code.LIMIT_EXCEEDED),
+    ],
+)
+async def test_markdown_stream_validates_bytes_before_compilation(
+    monkeypatch, payload, declared, digest, budget, code
+):
+    buffer = BytesIO(payload)
+
+    @asynccontextmanager
+    async def stream(**kwargs):
+        # Unknown Content-Length and short chunks exercise the streaming bound.
+        yield (
+            AsyncMock(
+                read=AsyncMock(side_effect=lambda amount: buffer.read(min(amount, 2)))
+            ),
+            None,
+        )
+
+    monkeypatch.setattr(blob, "open_download_stream", stream)
+    stored = SkillBlob(
+        key="synthetic-key",
+        bucket="synthetic-bucket",
+        size_bytes=declared,
+        sha256=digest,
+    )
+    with pytest.raises(ReferenceLookupError) as exc:
+        await ReferenceService._read_markdown(stored, budget)
+    assert exc.value.code == code
