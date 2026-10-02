@@ -13,17 +13,22 @@ from tracecat.agent.skill.frontmatter import (
     parse_skill_markdown,
     split_skill_markdown_frontmatter,
 )
+from tracecat.agent.skill.library.types import LibrarySkill
 
 
 def stage_platform_skill_plugin(
-    *, asset_names: Sequence[str], vendored_root: Path, plugin_root: Path
+    *,
+    asset_names: Sequence[str],
+    vendored_root: Path,
+    plugin_root: Path,
+    library_skills: Sequence[LibrarySkill] = (),
 ) -> None:
     """Copy allowlisted image skills without importing plugin hooks or tools."""
     catalog = {skill.asset_name: skill for skill in PLATFORM_SKILLS}
     skills = [catalog[name] for name in dict.fromkeys(asset_names) if name in catalog]
-    if not skills:
+    if not skills and not library_skills:
         return
-    if not vendored_root.is_dir():
+    if skills and not vendored_root.is_dir():
         raise FileNotFoundError(
             f"Vendored copilot skills directory is required: {vendored_root}"
         )
@@ -58,6 +63,12 @@ def stage_platform_skill_plugin(
                     f"${reference.asset_name}", f"${reference.qualified_name}"
                 ).replace(f"`{reference.asset_name}`", f"`{reference.qualified_name}`")
             document.write_text(content, encoding="utf-8")
+    for library_skill in library_skills:
+        destination = plugin_root / "skills" / library_skill.slug
+        for path, content in library_skill.files.items():
+            target = destination / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
     manifest_dir = plugin_root / ".claude-plugin"
     manifest_dir.mkdir(parents=True)
     (manifest_dir / "plugin.json").write_bytes(

@@ -724,6 +724,7 @@ export type AgentPresetCreate = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Input
   retries?: number
   enable_thinking?: boolean
@@ -774,6 +775,7 @@ export type AgentPresetRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Output
   retries?: number
   enable_thinking?: boolean
@@ -906,6 +908,7 @@ export type AgentPresetUpdate = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Input | null
   retries?: number | null
   enable_thinking?: boolean | null
@@ -947,6 +950,7 @@ export type AgentPresetVersionRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Output
   retries?: number
   enable_thinking?: boolean
@@ -3718,6 +3722,30 @@ export type CursorPaginatedResponse_InboxItemRead_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_LibrarySkillRead_ = {
+  items: Array<LibrarySkillRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_MCPPersonalAccessTokenRead_ = {
   items: Array<MCPPersonalAccessTokenRead>
   /**
@@ -5603,6 +5631,15 @@ export type LayoutViewport = {
 }
 
 /**
+ * A library skill and this workspace's install state.
+ */
+export type LibrarySkillRead = {
+  slug: string
+  description?: string | null
+  installed: boolean
+}
+
+/**
  * Authentication type for MCP integrations.
  */
 export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
@@ -6974,6 +7011,7 @@ export type PullResult = {
   resource_diffs?: Array<PullResourceDiff> | null
   files?: Array<string> | null
   resources?: Array<SyncPreviewResource> | null
+  library_skill_installs?: Array<string>
   catalog_mapping_requirements?: Array<CatalogMappingRequirement> | null
   mcp_integration_mapping_requirements?: Array<McpIntegrationMappingRequirement> | null
 }
@@ -13572,6 +13610,37 @@ export type SkillFoldersMoveFolderData = {
 
 export type SkillFoldersMoveFolderResponse = SkillFolderRead
 
+export type SkillLibraryListLibrarySkillsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type SkillLibraryListLibrarySkillsResponse =
+  CursorPaginatedResponse_LibrarySkillRead_
+
+export type SkillLibraryInstallLibrarySkillData = {
+  slug: string
+  workspaceId: string
+}
+
+export type SkillLibraryInstallLibrarySkillResponse = LibrarySkillRead
+
+export type SkillLibraryUninstallLibrarySkillData = {
+  slug: string
+  workspaceId: string
+}
+
+export type SkillLibraryUninstallLibrarySkillResponse = void
+
+export type SkillLibraryForkLibrarySkillData = {
+  slug: string
+  workspaceId: string
+}
+
+export type SkillLibraryForkLibrarySkillResponse = SkillRead
+
 export type SkillTagsListSkillTagsData = {
   cursor?: string | null
   limit?: number
@@ -19489,6 +19558,88 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: SkillFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-library": {
+    get: {
+      req: SkillLibraryListLibrarySkillsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_LibrarySkillRead_
+        /**
+         * Invalid cursor
+         */
+        400: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-library/{slug}/install": {
+    post: {
+      req: SkillLibraryInstallLibrarySkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: LibrarySkillRead
+        /**
+         * Unknown library skill
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: SkillLibraryUninstallLibrarySkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Library skill is not installed
+         */
+        404: unknown
+        /**
+         * A preset head binds the skill
+         */
+        409: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-library/{slug}/fork": {
+    post: {
+      req: SkillLibraryForkLibrarySkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SkillRead
+        /**
+         * Forked skill is invalid
+         */
+        400: unknown
+        /**
+         * Unknown library skill
+         */
+        404: unknown
         /**
          * Validation Error
          */

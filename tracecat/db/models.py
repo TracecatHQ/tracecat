@@ -3940,6 +3940,24 @@ class SkillFolder(WorkspaceModel):
     )
 
 
+class SkillLibraryInstall(WorkspaceModel):
+    """A workspace's opt-in to one platform library skill."""
+
+    __tablename__ = "skill_library_install"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_id",
+            "library_slug",
+            name="uq_skill_library_install_workspace_slug",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID, default=uuid.uuid4, nullable=False, unique=True, index=True
+    )
+    library_slug: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
 class SkillTagLink(Base):
     """Link table for workspace skills and skill tags."""
 
@@ -4048,6 +4066,11 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         JSONB,
         nullable=True,
         doc="MCP integrations to use",
+    )
+    library_skills: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Installed platform library skill slugs bound to this preset",
     )
     agents: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
@@ -4187,6 +4210,11 @@ class AgentPresetVersion(WorkspaceModel):
         JSONB,
         nullable=True,
         doc="MCP integrations to use",
+    )
+    library_skills: Mapped[list[str] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        doc="Installed platform library skill slugs bound to this preset",
     )
     agents: Mapped[dict[str, Any]] = mapped_column(
         JSONB,

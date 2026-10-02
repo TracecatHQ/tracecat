@@ -106,6 +106,8 @@ class AgentConfig:
     workspace ``resolved_skills``. Asset contents are pinned by the executor
     image; no host paths or user-supplied origin claims cross this boundary.
     """
+    library_skills: list[str] | None = None
+    """Installed platform library skill slugs, staged in the platform plugin."""
 
 
 # --- Tool Types (Harness-Agnostic) ---

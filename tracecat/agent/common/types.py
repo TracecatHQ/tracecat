@@ -210,6 +210,8 @@ class SandboxAgentConfig(BaseModel):
     """Whether to enable extended thinking for the Claude Code CLI."""
     enable_internet_access: bool = False
     """Whether to enable internet access tools (WebSearch, WebFetch)."""
+    library_skills: list[str] | None = None
+    """Library skill slugs; the executor stages them before sandbox start."""
 
     @classmethod
     def from_agent_config(cls, config: AgentConfig) -> SandboxAgentConfig:
@@ -233,6 +235,7 @@ class SandboxAgentConfig(BaseModel):
             output_type=config.output_type,
             enable_thinking=config.enable_thinking,
             enable_internet_access=config.enable_internet_access,
+            library_skills=config.library_skills,
         )
 
 

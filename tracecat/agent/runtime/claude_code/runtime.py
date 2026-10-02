@@ -104,6 +104,7 @@ from tracecat.agent.runtime.claude_code.session_lines import (
     is_synthetic_session_line,
 )
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
+from tracecat.agent.skill.builtin import PLATFORM_SKILL_PLUGIN_NAME
 from tracecat.integrations.mcp_validation import sanitize_mcp_command_args
 from tracecat.logger import logger
 from tracecat.runtime.errors import RuntimeErrorClassification
@@ -1477,6 +1478,13 @@ class ClaudeAgentRuntime:
                 mcpServers=mcp_server_configs or None,
                 disallowedTools=disallowed_tools,
                 maxTurns=subagent.max_turns,
+                # Preloading needs no Skill/Read grant; qualified names keep
+                # workspace namesakes from shadowing the staged plugin copy.
+                skills=[
+                    f"{PLATFORM_SKILL_PLUGIN_NAME}:{slug}"
+                    for slug in subagent.config.library_skills or []
+                ]
+                or None,
             )
 
         return definitions

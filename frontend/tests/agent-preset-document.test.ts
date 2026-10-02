@@ -187,6 +187,7 @@ describe("buildAgentPresetVirtualFiles round-trip symmetry", () => {
       "tool_approvals",
       "subagents",
       "skills",
+      "library_skills",
       "runtime",
     ])
   })
@@ -254,6 +255,30 @@ describe("buildAgentPresetVirtualFiles determinism", () => {
       })
     ).config
     expect(shuffled).toBe(baseline)
+  })
+
+  it("ignores library skill order and duplicates", () => {
+    const sorted = renderPayload(
+      buildPayload({ library_skills: ["incident-summary", "phishing-triage"] })
+    ).config
+    const shuffled = renderPayload(
+      buildPayload({
+        library_skills: [
+          "phishing-triage",
+          "incident-summary",
+          "phishing-triage",
+        ],
+      })
+    ).config
+    expect(shuffled).toBe(sorted)
+  })
+
+  it("surfaces a library skill change as a config difference", () => {
+    const withLibrary = renderPayload(
+      buildPayload({ library_skills: ["phishing-triage"] })
+    ).config
+    expect(withLibrary).not.toBe(baseline)
+    expect(withLibrary).toContain("- phishing-triage")
   })
 
   it("ignores metadata-only changes", () => {
@@ -368,6 +393,7 @@ describe("buildAgentPresetVirtualFiles normalization", () => {
         "subagents:",
         "  agents: []",
         "skills: []",
+        "library_skills: []",
         "runtime:",
         "  retries: 3",
         "  enable_thinking: false",

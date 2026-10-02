@@ -61,6 +61,7 @@ from tracecat.agent.skill.bindings import (
     validate_no_duplicate_skill_ids,
 )
 from tracecat.agent.skill.dependencies import SkillToolDependencyService
+from tracecat.agent.skill.library.service import SkillLibraryService
 from tracecat.agent.skill.types import SkillMcpGrant
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
@@ -133,6 +134,7 @@ class AgentPresetService(BaseWorkspaceService):
         "namespaces",
         "tool_approvals",
         "mcp_integrations",
+        "library_skills",
         "agents",
         "retries",
         "enable_thinking",
@@ -142,6 +144,7 @@ class AgentPresetService(BaseWorkspaceService):
     def __init__(self, session: AsyncSession, role: Role | None = None):
         super().__init__(session, role=role)
         self.skills = SkillBindingService(session, role=self.role)
+        self.library = SkillLibraryService(session, role=self.role)
         self.skill_tools = SkillToolDependencyService(session, role=self.role)
         self.tool_policy = PresetToolPolicyService(session, role=self.role)
 
@@ -275,6 +278,7 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_integrations=preset.mcp_integrations or (),
             tool_approvals=preset.tool_approvals or {},
             skill_version_ids=skill_version_ids,
+            library_skills=preset.library_skills or (),
         )
 
     @staticmethod
@@ -444,6 +448,7 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=preset.namespaces,
             tool_approvals=preset.tool_approvals,
             mcp_integrations=preset.mcp_integrations,
+            library_skills=preset.library_skills,
             agents=agents,
             retries=preset.retries,
             enable_thinking=preset.enable_thinking,
@@ -479,6 +484,7 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=version.namespaces,
             tool_approvals=version.tool_approvals,
             mcp_integrations=version.mcp_integrations,
+            library_skills=version.library_skills,
             agents=agents,
             retries=version.retries,
             enable_thinking=version.enable_thinking,
@@ -526,6 +532,7 @@ class AgentPresetService(BaseWorkspaceService):
                 params.skills,
                 for_update=True,
             )
+        library_skills = await self.library.validated_bindings(params.library_skills)
         catalog_entry: AgentCatalog | None = None
         if params.catalog_id is not None:
             catalog_entry = await self._get_enabled_catalog_entry(params.catalog_id)
@@ -552,6 +559,7 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=params.namespaces,
             tool_approvals=params.tool_approvals,
             mcp_integrations=params.mcp_integrations,
+            library_skills=library_skills,
             agents=AgentSubagentsConfig().model_dump(mode="json"),
             enable_thinking=params.enable_thinking,
             enable_internet_access=params.enable_internet_access,
@@ -666,6 +674,14 @@ class AgentPresetService(BaseWorkspaceService):
             await self.load_selected_mcp_integrations(mcp_integrations)
             if preset.mcp_integrations != mcp_integrations:
                 preset.mcp_integrations = mcp_integrations
+                execution_changed = True
+
+        if "library_skills" in set_fields:
+            library_skills = await self.library.validated_bindings(
+                set_fields.pop("library_skills")
+            )
+            if preset.library_skills != library_skills:
+                preset.library_skills = library_skills
                 execution_changed = True
 
         if "agents" in set_fields:
@@ -1709,6 +1725,7 @@ class AgentPresetService(BaseWorkspaceService):
                     AgentPresetVersion.namespaces,
                     AgentPresetVersion.mcp_integrations,
                     AgentPresetVersion.tool_approvals,
+                    AgentPresetVersion.library_skills,
                     AgentPresetVersion.agents,
                     AgentPresetVersion.enable_internet_access,
                     AgentPresetVersion.created_at,
@@ -2240,6 +2257,7 @@ class AgentPresetService(BaseWorkspaceService):
             version.id,
             for_update=True,
         )
+        await self.library.validated_bindings(version.library_skills)
         await self._lock_preset_update_dependencies(preset.id, version.agents)
         restored_agents = await self._resolve_restored_agents_config(preset, version)
         self._sync_preset_head_from_version(
@@ -2305,7 +2323,7 @@ class AgentPresetService(BaseWorkspaceService):
                 )
 
         list_changes: list[StringListFieldChange] = []
-        for field in ("actions", "namespaces", "mcp_integrations"):
+        for field in ("actions", "namespaces", "mcp_integrations", "library_skills"):
             base_values = set(getattr(base_version, field) or [])
             compare_values = set(getattr(compare_version, field) or [])
             added = sorted(compare_values - base_values)
@@ -2390,6 +2408,7 @@ class AgentPresetService(BaseWorkspaceService):
             resolved_skills=resolved_skills,
             metadata=metadata,
         )
+        await self.library.validate_declared_tools(version.library_skills or [])
         policy = resolve_tool_policy(inputs, metadata.versions, metadata.integrations)
         self._validate_effective_tool_count(policy)
         mcp_servers = self._resolve_tool_mcp_grants(
@@ -2449,6 +2468,8 @@ class AgentPresetService(BaseWorkspaceService):
             enable_internet_access=version.enable_internet_access
             or policy.requires_internet_access,
             resolved_skills=resolved_skills,
+            # Uninstall only blocks new bindings; pinned versions keep theirs.
+            library_skills=version.library_skills or None,
         )
 
     async def publish_preset_head(
@@ -2599,6 +2620,7 @@ class AgentPresetService(BaseWorkspaceService):
             namespaces=preset.namespaces,
             tool_approvals=preset.tool_approvals,
             mcp_integrations=preset.mcp_integrations,
+            library_skills=preset.library_skills,
             agents=preset.agents,
             retries=preset.retries,
             enable_thinking=preset.enable_thinking,
@@ -2631,6 +2653,7 @@ class AgentPresetService(BaseWorkspaceService):
         preset.namespaces = version.namespaces
         preset.tool_approvals = version.tool_approvals
         preset.mcp_integrations = version.mcp_integrations
+        preset.library_skills = version.library_skills
         preset.agents = agents
         preset.retries = version.retries
         preset.enable_thinking = version.enable_thinking
