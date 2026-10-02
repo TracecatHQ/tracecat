@@ -725,6 +725,8 @@ def _run_nsjail_harness_in_docker_or_skip(
             [
                 "services:",
                 "  api:",
+                '    user: "0:0"',
+                "    cgroup: private",
                 "    build:",
                 "      target: test",
                 "    cap_add:",
@@ -759,9 +761,12 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "--build",
                 "-T",
                 "--entrypoint",
-                "sh",
+                "python",
                 "api",
-                "-lc",
+                "-m",
+                "tracecat.sandbox.bootstrap",
+                "sh",
+                "-c",
                 "uv run python -m tests.unit.executor.test_run_python_sdk_context "
                 f"{cli_arg}",
             ],
