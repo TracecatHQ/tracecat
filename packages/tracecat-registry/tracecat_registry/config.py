@@ -1,6 +1,7 @@
 """Configuration for tracecat-registry package."""
 
 import os
+from ipaddress import IPv4Network, IPv6Network, ip_network
 from typing import Any
 
 from pydantic_core import to_jsonable_python as _to_jsonable_python
@@ -35,6 +36,42 @@ TRACECAT__MAX_UPLOAD_FILES_COUNT = int(
 TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES = int(
     os.environ.get("TRACECAT__MAX_AGGREGATE_UPLOAD_SIZE_BYTES", 100 * 1024 * 1024)
 )
+
+
+# Outbound egress policy for caller-supplied browser targets
+def _env_networks(name: str) -> tuple[IPv4Network | IPv6Network, ...]:
+    """Parse a comma-separated environment variable into validated IP networks.
+
+    Mirrors `env_networks` in `tracecat/config.py`. This package is a dependency
+    of `tracecat`, so it cannot import that module.
+    """
+    raw_value = os.environ.get(name, "")
+    if not raw_value.strip():
+        return ()
+    networks: list[IPv4Network | IPv6Network] = []
+    for value in raw_value.split(","):
+        stripped = value.strip()
+        if not stripped:
+            continue
+        try:
+            networks.append(ip_network(stripped))
+        except ValueError as exc:
+            raise ValueError(
+                f"{name} contains an invalid network: {stripped!r}"
+            ) from exc
+    return tuple(networks)
+
+
+TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS = _env_networks(
+    "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS"
+)
+"""Operator-only exceptions to the browser-target egress policy.
+
+Empty by default, and read from the same variable the API's outbound HTTP policy
+uses, so one deployment-level setting covers both. Configure exact IPs or narrow
+CIDRs only for intentional private targets, and set it in the process or
+container environment rather than in workspace or action inputs.
+"""
 
 # S3 concurrency limit
 TRACECAT__S3_CONCURRENCY_LIMIT = int(
