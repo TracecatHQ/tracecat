@@ -32,6 +32,7 @@ describe("child stream lifecycle in useVercelChat", () => {
   it.each([
     { isAbort: false, isDisconnect: false, isError: false, completed: true },
     { isAbort: true, isDisconnect: false, isError: false, completed: false },
+    { isAbort: false, isDisconnect: true, isError: false, completed: false },
     { isAbort: false, isDisconnect: true, isError: true, completed: false },
     { isAbort: false, isDisconnect: false, isError: true, completed: false },
   ])("only completes readers after a normal finish: %p", (flags) => {
