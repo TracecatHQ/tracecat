@@ -350,6 +350,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
             retries=self.retries,
             enable_thinking=self.enable_thinking,
             enable_internet_access=self.enable_internet_access,
+            library_skills=self.library_skills,
         )
 
 

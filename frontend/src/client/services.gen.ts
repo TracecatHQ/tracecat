@@ -7143,6 +7143,7 @@ export const skillLibraryListLibrarySkills = (
       reverse: data.reverse,
     },
     errors: {
+      400: "Invalid cursor",
       422: "Validation Error",
     },
   })
@@ -7168,6 +7169,7 @@ export const skillLibraryInstallLibrarySkill = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      404: "Unknown library skill",
       422: "Validation Error",
     },
   })
@@ -7193,6 +7195,8 @@ export const skillLibraryUninstallLibrarySkill = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      404: "Library skill is not installed",
+      409: "A preset head binds the skill",
       422: "Validation Error",
     },
   })
@@ -7218,6 +7222,8 @@ export const skillLibraryForkLibrarySkill = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      400: "Forked skill is invalid",
+      404: "Unknown library skill",
       422: "Validation Error",
     },
   })

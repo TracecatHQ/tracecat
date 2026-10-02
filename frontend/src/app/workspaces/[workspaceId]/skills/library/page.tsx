@@ -1,42 +1,24 @@
 "use client"
 
-import { ArrowUpRight } from "lucide-react"
-import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { SkillLibraryView } from "@/components/skills/skill-library-view"
-import { Button } from "@/components/ui/button"
-import { useEntitlements } from "@/hooks/use-entitlements"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 export default function SkillLibraryPage() {
-  const { hasEntitlement, isLoading } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
+  const canRead = useScopeCheck("agent:read")
 
-  if (isLoading) return <CenteredSpinner />
+  if (canRead === undefined) return <CenteredSpinner />
 
-  if (!agentAddonsEnabled) {
+  if (canRead === false) {
     return (
-      <div className="size-full overflow-auto">
-        <div className="container flex h-full max-w-[1000px] items-center justify-center py-8">
-          <EntitlementRequiredEmptyState
-            title="Enterprise only"
-            description="The skill library is only available on enterprise plans."
-          >
-            <Button
-              variant="link"
-              asChild
-              className="text-muted-foreground"
-              size="sm"
-            >
-              <a
-                href="https://tracecat.com"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Learn more <ArrowUpRight className="size-4" />
-              </a>
-            </Button>
-          </EntitlementRequiredEmptyState>
-        </div>
+      <div className="flex h-full items-center justify-center p-6">
+        <Alert className="max-w-md">
+          <AlertTitle>Access denied</AlertTitle>
+          <AlertDescription>
+            You do not have permission to view the skill library.
+          </AlertDescription>
+        </Alert>
       </div>
     )
   }

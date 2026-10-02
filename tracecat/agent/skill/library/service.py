@@ -23,8 +23,7 @@ from tracecat.pagination import (
     CursorPaginatedResponse,
     CursorPaginationParams,
 )
-from tracecat.service import BaseWorkspaceService, requires_entitlement
-from tracecat.tiers.enums import Entitlement
+from tracecat.service import BaseWorkspaceService
 
 
 def normalize_library_slugs(slugs: Iterable[str] | None) -> list[str]:
@@ -108,7 +107,6 @@ class SkillLibraryService(BaseWorkspaceService):
         )
 
     @require_scope("agent:create")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def install(self, slug: str) -> LibrarySkillRead:
         """Opt this workspace into a library skill. Idempotent."""
 
@@ -120,7 +118,6 @@ class SkillLibraryService(BaseWorkspaceService):
         )
 
     @require_scope("agent:create")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def install_many(self, slugs: Sequence[str]) -> list[str]:
         """Install known skills without committing the caller's transaction.
 
@@ -185,7 +182,6 @@ class SkillLibraryService(BaseWorkspaceService):
         await self.session.commit()
 
     @require_scope("agent:create")
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def fork(self, slug: str) -> SkillRead:
         """Copy a library skill into a new, editable workspace skill draft."""
 
@@ -239,7 +235,6 @@ class SkillLibraryService(BaseWorkspaceService):
                 },
             )
 
-    @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def validate_bindable(self, slugs: Sequence[str]) -> None:
         """Require every slug to exist in the library and be installed here.
 

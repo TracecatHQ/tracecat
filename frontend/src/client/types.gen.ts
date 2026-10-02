@@ -19571,6 +19571,10 @@ export type $OpenApiTs = {
          */
         200: CursorPaginatedResponse_LibrarySkillRead_
         /**
+         * Invalid cursor
+         */
+        400: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -19586,6 +19590,10 @@ export type $OpenApiTs = {
          */
         200: LibrarySkillRead
         /**
+         * Unknown library skill
+         */
+        404: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -19598,6 +19606,14 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Library skill is not installed
+         */
+        404: unknown
+        /**
+         * A preset head binds the skill
+         */
+        409: unknown
         /**
          * Validation Error
          */
@@ -19613,6 +19629,14 @@ export type $OpenApiTs = {
          * Successful Response
          */
         201: SkillRead
+        /**
+         * Forked skill is invalid
+         */
+        400: unknown
+        /**
+         * Unknown library skill
+         */
+        404: unknown
         /**
          * Validation Error
          */

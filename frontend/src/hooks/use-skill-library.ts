@@ -92,6 +92,9 @@ export function useSkillLibrary(
       await skillLibraryForkLibrarySkill({ workspaceId, slug }),
     onSuccess: (skill) => {
       queryClient.invalidateQueries({ queryKey: ["skills", workspaceId] })
+      queryClient.invalidateQueries({
+        queryKey: ["skill-directory-items", workspaceId],
+      })
       toast({
         title: "Forked skill",
         description: `${skill.name} is now an editable workspace skill.`,

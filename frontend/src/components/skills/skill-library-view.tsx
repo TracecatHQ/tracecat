@@ -45,8 +45,28 @@ export function SkillLibraryView() {
     forkLibrarySkillIsPending
 
   async function handleFork(slug: string) {
-    const skill = await forkLibrarySkill(slug)
-    router.push(`/workspaces/${workspaceId}/skills/${skill.id}`)
+    try {
+      const skill = await forkLibrarySkill(slug)
+      router.push(`/workspaces/${workspaceId}/skills/${skill.id}`)
+    } catch {
+      // The mutation hook reports failures.
+    }
+  }
+
+  async function handleInstall(slug: string) {
+    try {
+      await installLibrarySkill(slug)
+    } catch {
+      // The mutation hook reports failures.
+    }
+  }
+
+  async function handleUninstall(slug: string) {
+    try {
+      await uninstallLibrarySkill(slug)
+    } catch {
+      // The mutation hook reports failures.
+    }
   }
 
   if (librarySkillsIsLoading) {
@@ -95,8 +115,8 @@ export function SkillLibraryView() {
                 canCreate={canCreate}
                 canDelete={canDelete}
                 disabled={isMutating}
-                onInstall={() => installLibrarySkill(skill.slug)}
-                onUninstall={() => uninstallLibrarySkill(skill.slug)}
+                onInstall={() => handleInstall(skill.slug)}
+                onUninstall={() => handleUninstall(skill.slug)}
                 onFork={() => handleFork(skill.slug)}
               />
             ))}

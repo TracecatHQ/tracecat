@@ -50,7 +50,6 @@ from tracecat.sync import (
     ResourcePullCount,
     SyncPreviewResource,
 )
-from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.store.import_service import WorkflowImportService
@@ -950,12 +949,9 @@ class WorkspaceSyncService(SyncMappingService):
         library_skill_installs: list[str] = []
         if requested_library_skills:
             library_service = SkillLibraryService(self.session, role=self.role)
-            await library_service.require_entitlement(Entitlement.AGENT_ADDONS)
             library_skill_installs = await library_service.missing_installs(
                 sorted(set(requested_library_skills) & load_library().keys())
             )
-            if library_skill_installs:
-                self._enforce_required_scopes(["agent:create"])
         correlated_spec = snapshot.spec.model_copy(
             update={
                 "agent_presets": correlated_mcp.presets,
@@ -995,7 +991,11 @@ class WorkspaceSyncService(SyncMappingService):
             requested_catalog_mappings=requested_catalog_mappings,
             requested_mcp_integration_mappings=requested_mcp_integration_mappings,
         )
+        # Dry runs only preview installs; applying them needs the write scope.
+        if prepared.library_skill_installs:
+            self._enforce_required_scopes(["agent:create"])
         snapshot, resource_diagnostics = prepared.snapshot, prepared.diagnostics
+        # Failed applies install nothing, so report no library installs.
         if resource_diagnostics:
             return self._failed_pull_result(
                 snapshot,
@@ -1005,7 +1005,6 @@ class WorkspaceSyncService(SyncMappingService):
                 mcp_integration_mapping_requirements=(
                     prepared.mcp_integration_mapping_requirements
                 ),
-                library_skill_installs=prepared.library_skill_installs,
             )
 
         remote_workflows, local_ids = await self._remote_workflows(snapshot)
@@ -1030,7 +1029,6 @@ class WorkspaceSyncService(SyncMappingService):
                     "error(s) found"
                 ),
                 resource_counts=self._resource_counts_from_spec(snapshot.spec),
-                library_skill_installs=prepared.library_skill_installs,
             )
 
         has_non_workflow_resources = self._has_non_workflow_resources(snapshot.spec)

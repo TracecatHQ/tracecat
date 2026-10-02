@@ -42,7 +42,6 @@ from tracecat.agent.workflow_config import (
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentPreset, SkillLibraryInstall, Workspace
 from tracecat.exceptions import (
-    EntitlementRequired,
     ScopeDeniedError,
     TracecatValidationError,
 )
@@ -283,13 +282,7 @@ def test_payload_round_trip_keeps_library_skills() -> None:
 
 
 @pytest.fixture
-def library_service(
-    session: AsyncSession, svc_role: Role, monkeypatch: pytest.MonkeyPatch
-) -> SkillLibraryService:
-    # Class-level so the preset service's own library service is entitled too.
-    monkeypatch.setattr(
-        SkillLibraryService, "has_entitlement", AsyncMock(return_value=True)
-    )
+def library_service(session: AsyncSession, svc_role: Role) -> SkillLibraryService:
     return SkillLibraryService(session=session, role=svc_role)
 
 
@@ -316,16 +309,22 @@ class TestSkillLibraryService:
         installed = {item.slug for item in page.items if item.installed}
         assert installed == {SLUG}
 
-    async def test_install_requires_agent_addons(
+    async def test_library_needs_no_entitlement(
         self,
+        session: AsyncSession,
+        svc_role: Role,
         library_service: SkillLibraryService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        # The library is open source; only scopes gate install, bind, and fork.
         monkeypatch.setattr(
-            library_service, "has_entitlement", AsyncMock(return_value=False)
+            SkillLibraryService, "has_entitlement", AsyncMock(return_value=False)
         )
-        with pytest.raises(EntitlementRequired):
-            await library_service.install(SLUG)
+        await library_service.install(SLUG)
+        presets = AgentPresetService(session=session, role=svc_role)
+        preset = await presets.create_preset(_preset([SLUG]))
+        assert preset.library_skills == [SLUG]
+        await library_service.fork(SLUG)
 
     async def test_preset_rejects_uninstalled_library_skill(
         self,
@@ -367,21 +366,6 @@ class TestSkillLibraryService:
         )
         assert pinned.library_skills == [SLUG]
 
-    async def test_binding_requires_agent_addons(
-        self,
-        session: AsyncSession,
-        svc_role: Role,
-        library_service: SkillLibraryService,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        await library_service.install(SLUG)
-        monkeypatch.setattr(
-            SkillLibraryService, "has_entitlement", AsyncMock(return_value=False)
-        )
-        presets = AgentPresetService(session=session, role=svc_role)
-        with pytest.raises(EntitlementRequired):
-            await presets.create_preset(_preset([SLUG]))
-
     async def test_declared_tools_must_exist_in_registry(
         self, library_service: SkillLibraryService, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -419,9 +403,6 @@ async def test_uninstall_waits_for_concurrent_bind(
     svc_role: Role, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An uninstall racing a bind sees the committed binding and is rejected."""
-    monkeypatch.setattr(
-        SkillLibraryService, "has_entitlement", AsyncMock(return_value=True)
-    )
     role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
     engine = create_async_engine(TEST_DB_CONFIG.test_url)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -451,10 +432,27 @@ async def test_uninstall_waits_for_concurrent_bind(
             assert locked.all() == []
             await uninstalling.rollback()
 
+            uninstall_pid = await uninstalling.scalar(
+                sa.text("SELECT pg_backend_pid()")
+            )
             uninstall = asyncio.create_task(
                 SkillLibraryService(uninstalling, role=role).uninstall(SLUG)
             )
-            await asyncio.sleep(0.2)
+            # Commit the bind only once uninstall is provably queued on the lock.
+            async with sessions() as observer:
+                for _ in range(100):
+                    wait_event = await observer.scalar(
+                        sa.text(
+                            "SELECT wait_event_type FROM pg_stat_activity "
+                            "WHERE pid = :pid"
+                        ),
+                        {"pid": uninstall_pid},
+                    )
+                    if wait_event == "Lock":
+                        break
+                    await asyncio.sleep(0.05)
+                else:
+                    pytest.fail("uninstall never waited on the install row lock")
             assert not uninstall.done()
 
             binding.add(
@@ -609,6 +607,7 @@ async def test_pull_unknown_library_skill_blocks_all_installs(
     result = await service._import_snapshot(snapshot, sync_schedules=False)
 
     assert not result.success
+    assert result.library_skill_installs == []
     assert await library_service.missing_installs([SLUG]) == [SLUG]
     assert (
         await session.scalar(sa.select(sa.func.count()).select_from(AgentPreset)) == 0
@@ -643,30 +642,20 @@ async def test_pull_rolls_back_library_installs_and_presets_on_late_failure(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("denial", ["entitlement", "scope"])
-async def test_pull_library_installs_require_entitlement_and_create_scope(
+async def test_pull_library_installs_require_create_scope(
     session: AsyncSession,
     svc_role: Role,
     library_service: SkillLibraryService,
-    monkeypatch: pytest.MonkeyPatch,
-    denial: str,
 ) -> None:
-    role = svc_role
-    if denial == "entitlement":
-        monkeypatch.setattr(
-            SkillLibraryService, "has_entitlement", AsyncMock(return_value=False)
-        )
-        expected_error = EntitlementRequired
-    else:
-        role = svc_role.model_copy(
-            update={"scopes": frozenset({"agent:read", "agent:update"})}
-        )
-        expected_error = ScopeDeniedError
+    role = svc_role.model_copy(
+        update={"scopes": frozenset({"agent:read", "agent:update"})}
+    )
     service = WorkspaceSyncService(session=session, role=role)
     snapshot = _library_sync_snapshot([SLUG])
 
-    with pytest.raises(expected_error):
-        await service._prepare_snapshot_for_import(snapshot)
-    with pytest.raises(expected_error):
+    # Previews need only read scopes; the install scope gates apply.
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.library_skill_installs == [SLUG]
+    with pytest.raises(ScopeDeniedError):
         await service._import_snapshot(snapshot, sync_schedules=False)
     assert await library_service.missing_installs([SLUG]) == [SLUG]

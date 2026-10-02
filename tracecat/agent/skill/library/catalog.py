@@ -30,6 +30,8 @@ _RESERVED_NAMES = frozenset(
 
 def _load_skill(skill_dir: Path) -> LibrarySkill:
     slug = skill_dir.name
+    if skill_dir.is_symlink():
+        raise ValueError(f"Library skill {slug!r} is a symlink")
     if slug in _RESERVED_NAMES:
         raise ValueError(f"Library skill {slug!r} shadows a platform skill")
     paths = sorted(skill_dir.rglob("*"))
