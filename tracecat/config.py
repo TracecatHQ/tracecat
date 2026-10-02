@@ -701,7 +701,9 @@ TRACECAT__SANDBOX_DEFAULT_MEMORY_MB = int(
 if TRACECAT__SANDBOX_DEFAULT_MEMORY_MB <= 0:
     raise ValueError("TRACECAT__SANDBOX_DEFAULT_MEMORY_MB must be positive")
 
-_sandbox_address_space_mb = os.environ.get("TRACECAT__SANDBOX_ADDRESS_SPACE_MB")
+_sandbox_address_space_mb = os.environ.get(
+    "TRACECAT__SANDBOX_ADDRESS_SPACE_MB", ""
+).strip()
 TRACECAT__SANDBOX_ADDRESS_SPACE_MB = (
     int(_sandbox_address_space_mb) if _sandbox_address_space_mb else None
 )
