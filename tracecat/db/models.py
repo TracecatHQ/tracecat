@@ -566,6 +566,10 @@ class WorkspaceSyncResourceMapping(WorkspaceModel):
 
 class User(SQLAlchemyBaseUserTableUUID, Base):
     __tablename__ = "user"
+    __table_args__ = (
+        # Email lookups are case-insensitive; enforce the same uniqueness.
+        Index("ix_user_email_lower", text("lower(email)"), unique=True),
+    )
 
     first_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     last_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

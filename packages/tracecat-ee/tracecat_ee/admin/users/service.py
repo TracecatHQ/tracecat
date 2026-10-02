@@ -41,15 +41,6 @@ class AdminUserService(BasePlatformService):
                 await user_manager.validate_password(params.password, user_create)
                 hashed_password = user_manager.password_helper.hash(params.password)
 
-        # Email lookups are case-insensitive but the unique index is not.
-        existing_user_id = await self.session.scalar(
-            select(cast(Mapped[uuid.UUID], User.id)).where(
-                func.lower(User.email) == params.email.lower()
-            )
-        )
-        if existing_user_id is not None:
-            raise ValueError(f"User with email {params.email} already exists")
-
         user = User(
             email=params.email,
             hashed_password=hashed_password,
