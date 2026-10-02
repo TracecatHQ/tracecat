@@ -385,13 +385,18 @@ AWS_ROLE_ARN_PATTERN = r"^arn:aws(?:-[a-z]+)*:iam::\d{12}:role/[\w+=,.@/-]+$"
 AWS_REGION_PATTERN = r"^[a-z]{2}(?:-[a-z]+)+-\d$"
 
 
+def aws_partition_for_region(region: str) -> str | None:
+    """Return the AWS partition for a region, or None when botocore doesn't know it."""
+    try:
+        return botocore.session.get_session().get_partition_for_region(region)
+    except UnknownRegionError:
+        return None  # Region is newer than the pinned botocore; let AWS decide.
+
+
 def check_aws_partition(role_arn: str, region: str) -> None:
     """Reject a role ARN from a different AWS partition than the region."""
-    try:
-        partition = botocore.session.get_session().get_partition_for_region(region)
-    except UnknownRegionError:
-        return  # Region is newer than the pinned botocore; let AWS decide.
-    if role_arn.split(":")[1] != partition:
+    partition = aws_partition_for_region(region)
+    if partition is not None and role_arn.split(":")[1] != partition:
         raise ValueError(
             f"Role ARN partition must be {partition!r} for region {region!r}"
         )
@@ -449,7 +454,10 @@ class AwsSecretsManagerStoreConfig(BaseModel):
     provider: Literal[SecretStoreProvider.AWS_SECRETS_MANAGER] = (
         SecretStoreProvider.AWS_SECRETS_MANAGER
     )
-    role_arn: str = Field(..., pattern=AWS_ROLE_ARN_PATTERN, max_length=2048)
+    # None until the admin creates the role from the generated trust policy.
+    role_arn: str | None = Field(
+        default=None, pattern=AWS_ROLE_ARN_PATTERN, max_length=2048
+    )
     region: str = Field(..., pattern=AWS_REGION_PATTERN, max_length=64)
     external_id: str = Field(..., min_length=1, max_length=255)
 
@@ -460,12 +468,15 @@ class AwsSecretsManagerStoreCreate(BaseModel):
     provider: Literal[SecretStoreProvider.AWS_SECRETS_MANAGER] = (
         SecretStoreProvider.AWS_SECRETS_MANAGER
     )
-    role_arn: str = Field(..., pattern=AWS_ROLE_ARN_PATTERN, max_length=2048)
+    role_arn: str | None = Field(
+        default=None, pattern=AWS_ROLE_ARN_PATTERN, max_length=2048
+    )
     region: str = Field(..., pattern=AWS_REGION_PATTERN, max_length=64)
 
     @model_validator(mode="after")
     def validate_partition(self) -> AwsSecretsManagerStoreCreate:
-        check_aws_partition(self.role_arn, self.region)
+        if self.role_arn is not None:
+            check_aws_partition(self.role_arn, self.region)
         return self
 
 

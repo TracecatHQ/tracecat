@@ -6562,9 +6562,16 @@ export const $AwsSecretsManagerStoreConfig = {
       default: "aws_secrets_manager",
     },
     role_arn: {
-      type: "string",
-      maxLength: 2048,
-      pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Role Arn",
     },
     region: {
@@ -6581,7 +6588,7 @@ export const $AwsSecretsManagerStoreConfig = {
     },
   },
   type: "object",
-  required: ["role_arn", "region", "external_id"],
+  required: ["region", "external_id"],
   title: "AwsSecretsManagerStoreConfig",
   description:
     "Persisted provider configuration for an AWS Secrets Manager store.",
@@ -6596,9 +6603,16 @@ export const $AwsSecretsManagerStoreCreate = {
       default: "aws_secrets_manager",
     },
     role_arn: {
-      type: "string",
-      maxLength: 2048,
-      pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Role Arn",
     },
     region: {
@@ -6609,7 +6623,7 @@ export const $AwsSecretsManagerStoreCreate = {
     },
   },
   type: "object",
-  required: ["role_arn", "region"],
+  required: ["region"],
   title: "AwsSecretsManagerStoreCreate",
   description:
     "Client-supplied fields when creating an AWS Secrets Manager store.",

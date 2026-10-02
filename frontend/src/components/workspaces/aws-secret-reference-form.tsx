@@ -33,27 +33,29 @@ import {
   useAuthorizedSecretStores,
   useAwsSecretReferences,
 } from "@/hooks/use-secret-stores"
+import {
+  validateAwsSecretId,
+  validateSecretKey,
+  validateSecretName,
+} from "@/lib/aws-secret-validation"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-const SECRET_ID_REGEX =
-  /^(?:arn:aws(?:-[a-z]+)*:secretsmanager:[a-z0-9-]+:\d{12}:secret:.+|[A-Za-z0-9/_+=.@-]{1,512})$/
-const KEY_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/
+function refineWith(validate: (value: string) => string | null) {
+  return (value: string, ctx: z.RefinementCtx) => {
+    const message = validate(value)
+    if (message) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message })
+    }
+  }
+}
 
 const awsReferenceSchema = z
   .object({
-    name: z
-      .string()
-      .min(1, "Name is required")
-      .regex(
-        /^[a-z_][a-z0-9_]*$/,
-        "Use lowercase letters, digits, and underscores; do not start with a digit"
-      ),
+    name: z.string().superRefine(refineWith(validateSecretName)),
     description: z.string().max(255).default(""),
     environment: z.string().default(""),
     store_id: z.string().min(1, "Select an authorized store"),
-    remote_reference: z
-      .string()
-      .regex(SECRET_ID_REGEX, "Enter a Secrets Manager secret name or ARN"),
+    remote_reference: z.string().superRefine(refineWith(validateAwsSecretId)),
     mode: z.enum(["whole_string", "json"]),
     whole_string_key: z.string().default(""),
     fields: z
@@ -67,11 +69,12 @@ const awsReferenceSchema = z
   })
   .superRefine((values, ctx) => {
     if (values.mode === "whole_string") {
-      if (!KEY_REGEX.test(values.whole_string_key)) {
+      const keyError = validateSecretKey(values.whole_string_key)
+      if (keyError) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["whole_string_key"],
-          message: "Declare one output key name",
+          message: keyError,
         })
       }
       return
@@ -80,33 +83,35 @@ const awsReferenceSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["fields"],
-        message: "Declare at least one JSON field",
+        message: "Add at least one JSON field to read from the secret.",
       })
     }
     const seen = new Set<string>()
     values.fields.forEach((entry, index) => {
-      if (!KEY_REGEX.test(entry.key)) {
+      const key = entry.key.trim()
+      const keyError = validateSecretKey(key)
+      if (keyError) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["fields", index, "key"],
-          message: "Invalid key name",
+          message: keyError,
         })
       }
       if (entry.field.trim() === "") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["fields", index, "field"],
-          message: "JSON field is required",
+          message: "Enter the top-level JSON field to read, e.g. api_key",
         })
       }
-      if (seen.has(entry.key)) {
+      if (key && seen.has(key)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["fields", index, "key"],
-          message: "Output keys must be unique",
+          message: `Output key ${key} is already used. Each key must be unique.`,
         })
       }
-      seen.add(entry.key)
+      seen.add(key)
     })
   })
 
@@ -176,6 +181,7 @@ export function AwsSecretReferenceForm({
   })
   const { control, register } = methods
   const mode = methods.watch("mode")
+  const name = methods.watch("name")
   const { fields, append, remove } = useFieldArray({ control, name: "fields" })
 
   const availableStores = (stores ?? []).filter(
@@ -237,12 +243,17 @@ export function AwsSecretReferenceForm({
               <FormItem>
                 <FormLabel className="text-sm">Name</FormLabel>
                 <FormDescription className="text-sm">
-                  Referenced as <code>SECRETS.&lt;name&gt;.&lt;key&gt;</code>.
+                  Referenced as{" "}
+                  <code>
+                    SECRETS.
+                    {validateSecretName(name) ? "<name>" : name}
+                    .&lt;key&gt;
+                  </code>
                 </FormDescription>
                 <FormControl>
                   <Input
                     className="text-sm"
-                    placeholder="Name (snake case)"
+                    placeholder="hello_world"
                     readOnly={Boolean(initialName)}
                     {...register("name")}
                   />

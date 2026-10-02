@@ -161,6 +161,48 @@ async def test_create_store_persists_external_id_across_updates(
 
 
 @pytest.mark.anyio
+async def test_store_without_role_arn_cannot_be_enabled_until_set(
+    stores: SecretStoresService,
+) -> None:
+    with pytest.raises(ValueError, match="Finish setting up"):
+        await stores.create_store(
+            SecretStoreCreate(
+                name="draft",
+                config=AwsSecretsManagerStoreCreate(region=REGION),
+            )
+        )
+
+    store = await stores.create_store(
+        SecretStoreCreate(
+            name="draft",
+            config=AwsSecretsManagerStoreCreate(region=REGION),
+            enabled=False,
+        )
+    )
+    store_id = store.id
+    draft_config = parse_store_config(store)
+    assert draft_config.role_arn is None
+    assert draft_config.external_id.startswith("tracecat-")
+
+    with pytest.raises(ValueError, match="Finish setting up"):
+        await stores.update_store(store, SecretStoreUpdate(enabled=True))
+    await stores.session.rollback()
+
+    store = await stores.get_store(store_id)
+    await stores.update_store(
+        store,
+        SecretStoreUpdate(
+            config=AwsSecretsManagerStoreUpdate(role_arn=ROLE_ARN), enabled=True
+        ),
+    )
+    refreshed = await stores.get_store(store_id)
+    assert refreshed.enabled is True
+    refreshed_config = parse_store_config(refreshed)
+    assert refreshed_config.role_arn == ROLE_ARN
+    assert refreshed_config.external_id == draft_config.external_id
+
+
+@pytest.mark.anyio
 async def test_store_lookup_is_scoped_to_organization(
     stores: SecretStoresService,
 ) -> None:

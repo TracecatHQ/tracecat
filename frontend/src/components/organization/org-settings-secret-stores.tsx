@@ -13,6 +13,7 @@ import type { SecretStoreProvider, SecretStoreRead } from "@/client"
 import { ScopeGuard, useScopeCheck } from "@/components/auth/scope-guard"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Collapsible,
@@ -112,104 +113,186 @@ function CreateSecretStoreDialog({
   const [open, setOpen] = React.useState(false)
   const [name, setName] = React.useState("")
   const [config, setConfig] = React.useState<CreateConfigState>({})
-  const [enabled, setEnabled] = React.useState(true)
   const [allWorkspaces, setAllWorkspaces] = React.useState(false)
+  const [showErrors, setShowErrors] = React.useState(false)
+  const [createdStore, setCreatedStore] =
+    React.useState<SecretStoreRead | null>(null)
   // A provider select arrives with the second provider.
   const providerKey = Object.keys(
     SECRET_STORE_PROVIDERS
   )[0] as SecretStoreProvider
   const provider = SECRET_STORE_PROVIDERS[providerKey]
+  const configErrors = provider.validateCreate(config)
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next)
+    if (next) return
+    if (createdStore) onCreated(createdStore.id)
+    setName("")
+    setConfig({})
+    setAllWorkspaces(false)
+    setShowErrors(false)
+    setCreatedStore(null)
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    try {
-      const store = await createStore({
-        name: name.trim(),
-        config: provider.toCreateConfig(config),
-        enabled,
-        all_workspaces: allWorkspaces,
-      })
-      onCreated(store.id)
-    } catch {
-      // The mutation hook shows the error; keep the draft available to retry.
+    if (Object.keys(configErrors).length > 0) {
+      setShowErrors(true)
       return
     }
-    setOpen(false)
-    setName("")
-    setConfig({})
-    setEnabled(true)
-    setAllWorkspaces(false)
+    try {
+      // Saved disabled: the store is enabled once setup supplies the role.
+      setCreatedStore(
+        await createStore({
+          name: name.trim(),
+          config: provider.toCreateConfig(config),
+          enabled: false,
+          all_workspaces: allWorkspaces,
+        })
+      )
+    } catch {
+      // The mutation hook shows the error; keep the draft available to retry.
+    }
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button size="sm" variant="outline" className="shrink-0 shadow-none">
           <PlusIcon className="mr-2 size-4" />
           Add store
         </Button>
       </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{provider.createTitle}</DialogTitle>
-          <DialogDescription>{provider.createDescription}</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="space-y-2">
-            <Label htmlFor="store-name">Name</Label>
-            <Input
-              id="store-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="production-secrets"
-              required
-            />
-          </div>
-          <provider.CreateFields config={config} onChange={setConfig} />
-          <div className="flex items-center justify-between gap-4 border-t pt-4">
-            <div className="space-y-0.5">
-              <Label htmlFor="store-enabled">Enabled</Label>
-              <p className="text-xs text-muted-foreground">
-                Disabled stores cannot be used to read secrets.
-              </p>
+      {createdStore ? (
+        <StoreSetupDialogContent
+          store={createdStore}
+          cancelLabel="Finish later"
+          onClose={() => handleOpenChange(false)}
+        />
+      ) : (
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{provider.createTitle}</DialogTitle>
+            <DialogDescription>{provider.createDescription}</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-2">
+              <Label htmlFor="store-name">Name</Label>
+              <Input
+                id="store-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="production-secrets"
+                required
+              />
             </div>
-            <Switch
-              id="store-enabled"
-              checked={enabled}
-              onCheckedChange={setEnabled}
+            <provider.CreateFields
+              config={config}
+              onChange={setConfig}
+              errors={showErrors ? configErrors : {}}
             />
-          </div>
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
-              <Label htmlFor="store-all-workspaces">All workspaces</Label>
+            <div className="flex items-center justify-between gap-4 border-t pt-4">
+              <div className="space-y-0.5">
+                <Label htmlFor="store-all-workspaces">All workspaces</Label>
+              </div>
+              <Switch
+                id="store-all-workspaces"
+                checked={allWorkspaces}
+                onCheckedChange={setAllWorkspaces}
+              />
             </div>
-            <Switch
-              id="store-all-workspaces"
-              checked={allWorkspaces}
-              onCheckedChange={setAllWorkspaces}
-            />
-          </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              type="button"
-              variant="outline"
-              className="shadow-none"
-              onClick={() => setOpen(false)}
-              disabled={createStorePending}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={createStorePending}
-              className="shadow-none"
-            >
-              {createStorePending ? "Saving…" : "Save store"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                type="button"
+                variant="outline"
+                className="shadow-none"
+                onClick={() => handleOpenChange(false)}
+                disabled={createStorePending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={createStorePending}
+                className="shadow-none"
+              >
+                {createStorePending ? "Saving…" : "Continue"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      )}
     </Dialog>
+  )
+}
+
+/** Second setup phase: show the generated policies, collect the role, enable. */
+function StoreSetupDialogContent({
+  store,
+  cancelLabel,
+  onClose,
+}: {
+  store: SecretStoreRead
+  cancelLabel: string
+  onClose: () => void
+}) {
+  const { updateStore } = useOrgSecretStores()
+  const [config, setConfig] = React.useState<CreateConfigState>({})
+  const [pending, setPending] = React.useState(false)
+  const [showErrors, setShowErrors] = React.useState(false)
+  const provider = SECRET_STORE_PROVIDERS[store.provider]
+  const configErrors = provider.validateSetup(config)
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (Object.keys(configErrors).length > 0) {
+      setShowErrors(true)
+      return
+    }
+    setPending(true)
+    try {
+      await updateStore({
+        storeId: store.id,
+        params: { config: provider.toSetupConfig(config), enabled: true },
+      })
+      onClose()
+    } catch {
+      // The mutation hook shows the error; keep the draft available to retry.
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <DialogContent className="sm:max-w-3xl">
+      <DialogHeader>
+        <DialogTitle>{provider.setupTitle}</DialogTitle>
+        <DialogDescription>{provider.setupDescription}</DialogDescription>
+      </DialogHeader>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <provider.SetupFields
+          store={store}
+          config={config}
+          onChange={setConfig}
+          errors={showErrors ? configErrors : {}}
+        />
+        <DialogFooter className="gap-2 sm:gap-0">
+          <Button
+            type="button"
+            variant="outline"
+            className="shadow-none"
+            onClick={onClose}
+            disabled={pending}
+          >
+            {cancelLabel}
+          </Button>
+          <Button type="submit" className="shadow-none" disabled={pending}>
+            {pending ? "Saving…" : "Save and enable"}
+          </Button>
+        </DialogFooter>
+      </form>
+    </DialogContent>
   )
 }
 
@@ -223,18 +306,25 @@ function EditSecretStoreDialog({
   const { updateStore } = useOrgSecretStores()
   const [name, setName] = React.useState(store.name)
   const [config, setConfig] = React.useState<CreateConfigState>({
-    ...store.config,
+    role_arn: store.config.role_arn ?? "",
+    region: store.config.region,
   })
   const [pending, setPending] = React.useState(false)
+  const [showErrors, setShowErrors] = React.useState(false)
   const provider = SECRET_STORE_PROVIDERS[store.provider]
+  const configErrors = provider.validateEdit(config, store)
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (Object.keys(configErrors).length > 0) {
+      setShowErrors(true)
+      return
+    }
     setPending(true)
     try {
       await updateStore({
         storeId: store.id,
-        params: { name: name.trim(), config: provider.toCreateConfig(config) },
+        params: { name: name.trim(), config: provider.toUpdateConfig(config) },
       })
       onClose()
     } catch {
@@ -266,7 +356,11 @@ function EditSecretStoreDialog({
               required
             />
           </div>
-          <provider.CreateFields config={config} onChange={setConfig} />
+          <provider.EditFields
+            config={config}
+            onChange={setConfig}
+            errors={showErrors ? configErrors : {}}
+          />
           <DialogFooter className="gap-2 sm:gap-0">
             <Button
               type="button"
@@ -309,8 +403,10 @@ function SecretStoreCard({
     "workspace:read",
   ])
   const [editing, setEditing] = React.useState(false)
+  const [settingUp, setSettingUp] = React.useState(false)
   const [pending, setPending] = React.useState(false)
   const [workspacePickerOpen, setWorkspacePickerOpen] = React.useState(false)
+  const [workspaceQuery, setWorkspaceQuery] = React.useState("")
   const authorizedIds = new Set(store.authorized_workspace_ids ?? [])
 
   async function changeStore(action: () => Promise<unknown>) {
@@ -324,8 +420,13 @@ function SecretStoreCard({
     }
   }
 
+  const query = workspaceQuery.trim().toLowerCase()
+  const matchingWorkspaces = workspaces?.filter((workspace) =>
+    workspace.name.toLowerCase().includes(query)
+  )
   const referenceCount = store.reference_count ?? 0
   const provider = SECRET_STORE_PROVIDERS[store.provider]
+  const setupComplete = provider.isSetupComplete(store)
   let workspaceSummary = "Select workspaces"
   if (store.all_workspaces) {
     workspaceSummary = "All workspaces"
@@ -351,29 +452,47 @@ function SecretStoreCard({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
-          <ScopeGuard scope="org:secret:update">
-            <div className="flex items-center gap-2">
-              <Label
-                htmlFor={`store-enabled-${store.id}`}
-                className="text-xs text-muted-foreground"
-              >
-                {store.enabled ? "Enabled" : "Disabled"}
-              </Label>
-              <Switch
-                id={`store-enabled-${store.id}`}
-                checked={store.enabled}
-                disabled={pending}
-                onCheckedChange={(checked) =>
-                  changeStore(() =>
-                    updateStore({
-                      storeId: store.id,
-                      params: { enabled: checked },
-                    })
-                  )
-                }
-              />
-            </div>
-          </ScopeGuard>
+          {!setupComplete && (
+            <Badge variant="outline" className="font-normal">
+              Setup incomplete
+            </Badge>
+          )}
+          {!setupComplete && canUpdate && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2 text-xs shadow-none"
+              disabled={pending}
+              onClick={() => setSettingUp(true)}
+            >
+              Finish setup
+            </Button>
+          )}
+          {setupComplete && (
+            <ScopeGuard scope="org:secret:update">
+              <div className="flex items-center gap-2">
+                <Label
+                  htmlFor={`store-enabled-${store.id}`}
+                  className="text-xs text-muted-foreground"
+                >
+                  {store.enabled ? "Enabled" : "Disabled"}
+                </Label>
+                <Switch
+                  id={`store-enabled-${store.id}`}
+                  checked={store.enabled}
+                  disabled={pending}
+                  onCheckedChange={(checked) =>
+                    changeStore(() =>
+                      updateStore({
+                        storeId: store.id,
+                        params: { enabled: checked },
+                      })
+                    )
+                  }
+                />
+              </div>
+            </ScopeGuard>
+          )}
           {(canUpdate || canDelete) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -433,7 +552,10 @@ function SecretStoreCard({
           <p className="text-xs text-muted-foreground">Workspaces</p>
           <DropdownMenu
             open={workspacePickerOpen}
-            onOpenChange={setWorkspacePickerOpen}
+            onOpenChange={(open) => {
+              setWorkspacePickerOpen(open)
+              if (!open) setWorkspaceQuery("")
+            }}
           >
             <DropdownMenuTrigger asChild>
               <Button
@@ -493,8 +615,30 @@ function SecretStoreCard({
                         : "Could not load workspaces. Refresh to try again."}
                     </p>
                   )}
+                  {workspaces && workspaces.length > 0 && (
+                    <div className="p-1">
+                      <Input
+                        value={workspaceQuery}
+                        onChange={(event) =>
+                          setWorkspaceQuery(event.target.value)
+                        }
+                        // Keep menu typeahead from stealing keystrokes.
+                        onKeyDown={(event) => event.stopPropagation()}
+                        placeholder="Search workspaces"
+                        aria-label="Search workspaces"
+                        className="h-8 text-xs shadow-none"
+                      />
+                    </div>
+                  )}
+                  {matchingWorkspaces?.length === 0 &&
+                    workspaces &&
+                    workspaces.length > 0 && (
+                      <p className="px-2 py-2 text-xs text-muted-foreground">
+                        No workspaces match.
+                      </p>
+                    )}
                   <div className="max-h-64 overflow-y-auto">
-                    {workspaces?.map((workspace) => (
+                    {matchingWorkspaces?.map((workspace) => (
                       <DropdownMenuCheckboxItem
                         key={workspace.id}
                         checked={authorizedIds.has(workspace.id)}
@@ -539,6 +683,15 @@ function SecretStoreCard({
           onClose={() => setEditing(false)}
         />
       )}
+      <Dialog open={settingUp} onOpenChange={setSettingUp}>
+        {settingUp && (
+          <StoreSetupDialogContent
+            store={store}
+            cancelLabel="Cancel"
+            onClose={() => setSettingUp(false)}
+          />
+        )}
+      </Dialog>
     </Collapsible>
   )
 }

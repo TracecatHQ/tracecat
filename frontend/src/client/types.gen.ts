@@ -1734,7 +1734,7 @@ export type AwsSecretResolutionErrorCode =
  */
 export type AwsSecretsManagerStoreConfig = {
   provider?: "aws_secrets_manager"
-  role_arn: string
+  role_arn?: string | null
   region: string
   external_id: string
 }
@@ -1744,7 +1744,7 @@ export type AwsSecretsManagerStoreConfig = {
  */
 export type AwsSecretsManagerStoreCreate = {
   provider?: "aws_secrets_manager"
-  role_arn: string
+  role_arn?: string | null
   region: string
 }
 

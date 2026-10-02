@@ -97,6 +97,10 @@ async def create_secret_store(
     service = SecretStoresService(session, role=role)
     try:
         store = await service.create_store(params)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from e
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

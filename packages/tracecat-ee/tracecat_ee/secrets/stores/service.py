@@ -26,6 +26,8 @@ from tracecat.secrets.schemas import SecretStoreCreate, SecretStoreUpdate
 from tracecat.service import BaseOrgService
 from tracecat_ee.secrets.stores.backends import get_backend, parse_store_config
 
+_NOT_READY_MESSAGE = "Finish setting up the store before enabling it."
+
 
 class SecretStoresService(BaseOrgService):
     """Manage organization secret stores and workspace authorizations."""
@@ -120,7 +122,10 @@ class SecretStoresService(BaseOrgService):
     @audit_log(resource_type="organization_secret_store", action="create")
     async def create_store(self, params: SecretStoreCreate) -> OrganizationSecretStore:
         """Create a store. Server-owned config fields are generated here."""
-        config = get_backend(params.provider).new_config(params.config)
+        backend = get_backend(params.provider)
+        config = backend.new_config(params.config)
+        if params.enabled and not backend.is_ready(config):
+            raise ValueError(_NOT_READY_MESSAGE)
         store = OrganizationSecretStore(
             organization_id=self.organization_id,
             name=params.name,
@@ -159,6 +164,10 @@ class SecretStoresService(BaseOrgService):
             store.config = config.model_dump(mode="json")
         for field, value in fields.items():
             setattr(store, field, value)
+        if store.enabled and not get_backend(store.provider).is_ready(
+            parse_store_config(store)
+        ):
+            raise ValueError(_NOT_READY_MESSAGE)
         self.session.add(store)
         await self.session.commit()
 
