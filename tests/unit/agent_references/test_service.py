@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat import config
 from tracecat.agent.mcp.utils import REGISTRY_MCP_SERVER_NAME, normalize_mcp_tool_name
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.references.compiler import compile_references
 from tracecat.agent.references.compiler_types import (
     GraphLimits,
@@ -36,6 +37,8 @@ from tracecat.agent.skill.service import SkillService
 from tracecat.agent.tools import EXCLUDED_AGENT_ACTIONS
 from tracecat.auth.types import Role
 from tracecat.db.models import (
+    AgentPreset,
+    AgentPresetVersion,
     MCPIntegration,
     Skill,
     SkillVersion,
@@ -310,3 +313,135 @@ async def test_workflow_pin_uses_exact_definition_and_never_normalizes(
     get.assert_awaited_once_with(wid, normalize=False)
     exact.assert_awaited_once_with(version)
     latest.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_historical_child_binding_selects_head_once_then_reuses_turn_pin(
+    service, monkeypatch
+):
+    parent_id, child_id = uuid4(), uuid4()
+    old_child_id, selected_child_id, newer_child_id = uuid4(), uuid4(), uuid4()
+    child_target = ReferenceTarget(Kind.AGENT, str(child_id))
+    parent = AgentPresetVersion(
+        id=uuid4(),
+        preset_id=parent_id,
+        instructions="Parent",
+        actions=[],
+        namespaces=[],
+        tool_approvals={},
+        mcp_integrations=[],
+        enable_internet_access=False,
+        agents={
+            "subagents": [
+                {
+                    "preset": "helper",
+                    "preset_id": str(child_id),
+                    "preset_version_id": str(old_child_id),
+                    "preset_version": 1,
+                }
+            ]
+        },
+    )
+    selected_child = AgentPresetVersion(
+        id=selected_child_id,
+        preset_id=child_id,
+        instructions="Selected v2",
+        actions=["core.http_request"],
+        namespaces=[],
+        tool_approvals={},
+        mcp_integrations=[],
+        enable_internet_access=False,
+        agents={"subagents": []},
+    )
+    newer_child = AgentPresetVersion(
+        id=newer_child_id,
+        preset_id=child_id,
+        instructions="New v3",
+        actions=[],
+        namespaces=[],
+        tool_approvals={},
+        mcp_integrations=[],
+        enable_internet_access=False,
+        agents={"subagents": []},
+    )
+    current_child = selected_child
+
+    async def resolve_version(*, preset_id, preset_version_id=None):
+        if preset_id == parent_id:
+            return parent
+        assert preset_id == child_id
+        assert preset_version_id != old_child_id
+        if preset_version_id == selected_child_id:
+            return selected_child
+        assert preset_version_id is None
+        return current_child
+
+    resolver = AsyncMock(side_effect=resolve_version)
+    monkeypatch.setattr(AgentPresetService, "resolve_agent_preset_version", resolver)
+    monkeypatch.setattr(
+        AgentPresetService,
+        "get_preset",
+        AsyncMock(
+            side_effect=lambda pid: AgentPreset(
+                id=pid, slug="parent" if pid == parent_id else "helper"
+            )
+        ),
+    )
+    rows = MagicMock()
+    rows.scalars.return_value.all.return_value = []
+    service.session.execute = AsyncMock(return_value=rows)
+    monkeypatch.setattr(
+        RegistryActionsService,
+        "get_action_from_index",
+        AsyncMock(return_value=object()),
+    )
+    loaded = await service.resolve(
+        ReferenceTarget(Kind.AGENT, str(parent_id)),
+        version_id=parent.id,
+        limits=GraphLimits(),
+    )
+    authored = AuthoredReferenceInput(
+        root=loaded.sources[0],
+        explicit=ExplicitDeclarations(
+            targets=tuple(d.target for d in loaded.declarations)
+        ),
+    )
+    authority = ExecutionAuthority(
+        actor_id=uuid4(),
+        session_mode="delegated_preset",
+        activate_references=True,
+        action_scope_ceiling=None,
+        namespace_ceiling=None,
+        admission_policy_hash="a" * 64,
+    )
+    aliases = ((child_target, "helper"),)
+    fresh = await compile_references(authored, authority, service, aliases=aliases)
+    assert not fresh.diagnostics
+    selected = next(s for s in fresh.scopes[1].selected if s.target == child_target)
+    assert selected.version_id == selected_child_id
+    assert fresh.scopes[1].grants.actions == ("core.http_request",)
+
+    current_child = newer_child
+    resumed = await compile_references(
+        authored, authority, service, aliases=aliases, selected_versions=(selected,)
+    )
+    assert resumed == fresh
+    resolver.assert_awaited_with(
+        preset_id=child_id, preset_version_id=selected_child_id
+    )
+    another_turn = await compile_references(
+        authored, authority, service, aliases=aliases
+    )
+    assert not another_turn.diagnostics
+    assert another_turn.scopes[1].grants.actions == ()
+    assert (
+        next(
+            s for s in another_turn.scopes[1].selected if s.target == child_target
+        ).version_id
+        == newer_child_id
+    )
+    incomplete = await compile_references(
+        authored, authority, service, aliases=aliases, selected_versions=()
+    )
+    assert not incomplete.scopes
+    assert incomplete.diagnostics[0].code == Code.SNAPSHOT_CONFLICT

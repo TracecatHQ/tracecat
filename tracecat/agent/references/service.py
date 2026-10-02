@@ -226,6 +226,9 @@ class ReferenceService(BaseWorkspaceService):
         )
         for ref in AgentSubagentsConfig.model_validate(version.agents).subagents:
             if isinstance(ref, ResolvedAttachedSubagentRef):
+                # Keep the authored identity, not its historical publication pin.
+                # Fresh turns select dependency heads once; retries use the
+                # compiler-selected version map, as in preset runtime resolution.
                 child_id = ref.preset_id
             else:
                 child = await service.get_preset_by_slug(ref.preset)
