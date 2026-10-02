@@ -906,3 +906,44 @@ class TestDuplicateGrantScopes:
             ],
         )
         assert len(params.grants) == 2
+
+
+@pytest.mark.anyio
+async def test_accept_rejects_grant_at_wrong_role_level(
+    session: AsyncSession,
+    org: Organization,
+    invitee: User,
+    workspace_a: Workspace,
+):
+    """A pending grant from before roles were pinned to a level is refused."""
+    admin_role_id = await _role_id(session, org.id, "organization-admin")
+    # Written directly: creation now rejects an org role on a workspace.
+    invitation = Invitation(
+        organization_id=org.id,
+        email=invitee.email,
+        status=InvitationStatus.PENDING,
+        token=uuid.uuid4().hex * 2,
+        expires_at=datetime.now(UTC) + timedelta(days=7),
+    )
+    invitation.grants = [
+        InvitationGrantRow(
+            organization_id=org.id,
+            workspace_id=workspace_a.id,
+            role_id=admin_role_id,
+        )
+    ]
+    session.add(invitation)
+    await session.commit()
+    token, user_id, org_id = invitation.token, invitee.id, org.id
+
+    with pytest.raises(
+        TracecatAuthorizationError, match="can only be assigned organization-wide"
+    ):
+        await accept_invitation_for_user(session, user_id=user_id, token=token)
+    await session.rollback()
+
+    assert await _assignments(session, user_id, org_id) == {}
+    status = await session.scalar(
+        select(Invitation.status).where(Invitation.token == token)
+    )
+    assert status == InvitationStatus.PENDING

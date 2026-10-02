@@ -14,6 +14,8 @@ Standard actions (ordered by privilege):
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from fnmatch import fnmatchcase
 from typing import TYPE_CHECKING, cast, get_args
 
 from tracecat.authz.enums import OrgRole, WorkspaceRole
@@ -345,6 +347,32 @@ PRESET_ROLE_SCOPES: dict[str, frozenset[str]] = {
     "organization-admin": ORG_ADMIN_SCOPES,
     "organization-member": ORG_MEMBER_SCOPES,
 }
+
+
+def is_org_level_role(scope_names: Iterable[str]) -> bool:
+    """Return whether a role's scopes make it an organization-level role.
+
+    Any ``org:*`` scope pins a role to org-wide grants. Every other role is a
+    workspace role, granted on one workspace or org-wide for all of them.
+    """
+    return any(name.startswith("org:") for name in scope_names)
+
+
+# Platform-owned roots with authorization meaning: role level and workspace
+# administration. Custom scopes cannot claim them. action: stays open so custom
+# registry actions can be granted.
+RESERVED_SCOPE_ROOTS: frozenset[str] = frozenset({"org", "workspace"})
+
+
+def is_reserved_scope_name(name: str) -> bool:
+    """Return whether a custom scope name claims a platform-owned root.
+
+    Scope matching is fnmatch-based, so a wildcard root such as ``*`` or ``o*``
+    that matches a reserved root claims it too.
+    """
+    root = name.split(":", 1)[0]
+    return any(fnmatchcase(reserved, root) for reserved in RESERVED_SCOPE_ROOTS)
+
 
 # =============================================================================
 # Service Principal Scope Allowlist

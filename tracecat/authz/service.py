@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, exists, func, literal, or_, select, union_all
+from sqlalchemy import delete, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -16,7 +16,11 @@ from tracecat.authz.membership import (
     lock_role_changes,
     mirror_workspace_membership,
 )
-from tracecat.authz.scopes import ORG_MEMBER_FLOOR_SCOPES, ORG_MEMBER_ROLE_SLUG
+from tracecat.authz.scopes import (
+    ORG_MEMBER_FLOOR_SCOPES,
+    ORG_MEMBER_ROLE_SLUG,
+    is_org_level_role,
+)
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
@@ -187,6 +191,26 @@ async def resolve_grantable_role(
     )
 
 
+def ensure_role_fits_scope(role: DBRole, workspace_id: WorkspaceID | None) -> None:
+    """Reject an organization role granted on a single workspace.
+
+    A workspace role granted org-wide applies in every workspace.
+
+    Args:
+        role: Role with ``scopes`` loaded.
+        workspace_id: Target workspace, or None for an org-wide grant.
+
+    Raises:
+        TracecatValidationError: If an org-level role targets a workspace.
+    """
+    if workspace_id is not None and is_org_level_role(
+        scope.name for scope in role.scopes
+    ):
+        raise TracecatValidationError(
+            f"{role.name} is an organization role and can only be assigned organization-wide"
+        )
+
+
 async def resolve_grantable_role_by_slug(
     session: AsyncSession,
     granter: Role,
@@ -252,34 +276,17 @@ class MembershipService(BaseService):
         self, workspace_id: WorkspaceID
     ) -> list[WorkspaceMember]:
         """List workspace members with the role each holds there."""
-        # Membership is the role paths, so read them directly rather than
-        # deriving Membership and joining back to the same tables.
-        paths = union_all(
-            select(
-                UserRoleAssignment.user_id,
-                UserRoleAssignment.role_id,
-                literal(0).label("via_group"),
-            ).where(UserRoleAssignment.workspace_id == workspace_id),
-            select(
-                effective_group_members.c.user_id,
-                GroupRoleAssignment.role_id,
-                literal(1).label("via_group"),
-            )
-            .join_from(
-                GroupRoleAssignment,
-                effective_group_members,
-                effective_group_members.c.group_id == GroupRoleAssignment.group_id,
-            )
-            .where(GroupRoleAssignment.workspace_id == workspace_id),
-        ).subquery("paths")
-        # One row per member; a direct assignment wins over group grants.
+        paths = _role_paths
+        # One row per member; a workspace grant wins over an org-wide one, and a
+        # direct grant over a group one.
         statement = (
             select(User, DBRole.name, paths.c.via_group)
             .select_from(paths)
             .join(User, User.id == paths.c.user_id)  # pyright: ignore[reportArgumentType]
             .join(DBRole, DBRole.id == paths.c.role_id)
+            .where(paths.c.workspace_id == workspace_id)
             .distinct(paths.c.user_id)
-            .order_by(paths.c.user_id, paths.c.via_group, DBRole.name)
+            .order_by(paths.c.user_id, paths.c.org_wide, paths.c.via_group, DBRole.name)
         )
         rows = (await self.session.execute(statement)).tuples().all()
         return [
@@ -289,7 +296,7 @@ class MembershipService(BaseService):
                 last_name=user.last_name,
                 email=user.email,
                 role_name=role_name,
-                via_group=bool(via_group),
+                via_group=via_group,
             )
             for user, role_name, via_group in rows
         ]
@@ -371,8 +378,9 @@ class MembershipService(BaseService):
         """Delete a workspace membership.
 
         Raises:
-            TracecatConflictError: If a workspace-scoped group grant would keep
-                the user in the workspace after the direct assignment is gone.
+            TracecatConflictError: If a group grant or an org-wide workspace role
+                would keep the user in the workspace after the direct assignment
+                is gone.
         """
         if self.role is None:
             raise TracecatAuthorizationError("Operator context is required")
@@ -382,31 +390,39 @@ class MembershipService(BaseService):
             )
         ).scalar_one()
         await lock_role_changes(self.session, organization_id)
-        # Only workspace-scoped group grants keep workspace presence; org-wide
-        # group roles do not.
-        group_name = (
+        paths = _role_paths
+        retained = (
             await self.session.execute(
-                select(Group.name)
-                .join(
-                    effective_group_members,
-                    effective_group_members.c.group_id == Group.id,
-                )
-                .join(
-                    GroupRoleAssignment,
-                    GroupRoleAssignment.group_id == Group.id,
-                )
+                select(paths.c.org_wide, Group.name, DBRole.name)
+                .select_from(paths)
+                .join(DBRole, DBRole.id == paths.c.role_id)
+                .outerjoin(Group, Group.id == paths.c.group_id)
                 .where(
-                    effective_group_members.c.user_id == user_id,
-                    Group.organization_id == organization_id,
-                    GroupRoleAssignment.workspace_id == workspace_id,
+                    paths.c.user_id == user_id,
+                    paths.c.workspace_id == workspace_id,
+                    or_(paths.c.via_group, paths.c.org_wide),
                 )
+                # Report an org-wide grant first: removing a workspace group
+                # alone would still leave it in place.
+                .order_by(paths.c.org_wide.desc(), paths.c.via_group)
                 .limit(1)
             )
-        ).scalar_one_or_none()
-        if group_name is not None:
+        ).first()
+        if retained is not None:
+            org_wide, group_name, role_name = retained
+            if group_name is not None and not org_wide:
+                raise TracecatConflictError(
+                    f"User remains a member through group '{group_name}'. "
+                    "Remove them from the group first."
+                )
+            if group_name is not None:
+                raise TracecatConflictError(
+                    f"User has {role_name} in every workspace through group "
+                    f"'{group_name}'. Change the group in organization settings."
+                )
             raise TracecatConflictError(
-                f"User remains a member through group '{group_name}'. "
-                "Remove them from the group first."
+                f"User has {role_name} in every workspace. "
+                "Change their organization-wide role in organization settings."
             )
 
         await drop_workspace_membership_mirror(

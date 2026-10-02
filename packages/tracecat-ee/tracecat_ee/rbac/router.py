@@ -98,7 +98,17 @@ async def get_scope(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
-@scopes_router.post("", response_model=ScopeRead, status_code=status.HTTP_201_CREATED)
+@scopes_router.post(
+    "",
+    response_model=ScopeRead,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"description": "Invalid or reserved scope name."},
+        status.HTTP_409_CONFLICT: {
+            "description": "A scope with this name already exists."
+        },
+    },
+)
 @require_scope("org:rbac:create")
 async def create_scope(
     *,
@@ -128,7 +138,16 @@ async def create_scope(
         ) from e
 
 
-@scopes_router.delete("/{scope_id}", status_code=status.HTTP_204_NO_CONTENT)
+@scopes_router.delete(
+    "/{scope_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_403_FORBIDDEN: {
+            "description": "Platform scope or scope from another organization."
+        },
+        status.HTTP_404_NOT_FOUND: {"description": "Scope not found."},
+    },
+)
 @require_scope("org:rbac:delete")
 async def delete_scope(
     *,
@@ -235,7 +254,17 @@ async def create_role(
         ) from e
 
 
-@roles_router.patch("/{role_id}", response_model=RoleReadWithScopes)
+@roles_router.patch(
+    "/{role_id}",
+    response_model=RoleReadWithScopes,
+    responses={
+        status.HTTP_403_FORBIDDEN: {"description": "System role scopes cannot change."},
+        status.HTTP_404_NOT_FOUND: {"description": "Role not found."},
+        status.HTTP_409_CONFLICT: {
+            "description": "Duplicate name, or a level switch while the role is in use."
+        },
+    },
+)
 @require_scope("org:rbac:update")
 async def update_role(
     *,
@@ -271,6 +300,8 @@ async def update_role(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except TracecatAuthorizationError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -655,6 +686,17 @@ async def get_assignment(
     "",
     response_model=GroupRoleAssignmentReadWithDetails,
     status_code=status.HTTP_201_CREATED,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Organization role assigned on a workspace."
+        },
+        status.HTTP_404_NOT_FOUND: {
+            "description": "Group, role, or workspace not found."
+        },
+        status.HTTP_409_CONFLICT: {
+            "description": "Group already has an assignment for this workspace."
+        },
+    },
 )
 @require_scope("org:rbac:create")
 async def create_assignment(
@@ -692,6 +734,10 @@ async def create_assignment(
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
     except IntegrityError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -700,7 +746,14 @@ async def create_assignment(
 
 
 @assignments_router.patch(
-    "/{assignment_id}", response_model=GroupRoleAssignmentReadWithDetails
+    "/{assignment_id}",
+    response_model=GroupRoleAssignmentReadWithDetails,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Organization role assigned on a workspace."
+        },
+        status.HTTP_404_NOT_FOUND: {"description": "Assignment or role not found."},
+    },
 )
 @require_scope("org:rbac:update")
 async def update_assignment(
@@ -733,6 +786,10 @@ async def update_assignment(
         )
     except TracecatNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
 
 
 @assignments_router.delete("/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT)

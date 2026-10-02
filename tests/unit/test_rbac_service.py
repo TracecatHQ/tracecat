@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -31,7 +32,11 @@ from tracecat.authz.scopes import (
     ORG_MEMBER_FLOOR_SCOPES,
 )
 from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
-from tracecat.authz.service import query_effective_scopes
+from tracecat.authz.service import (
+    MembershipService,
+    query_effective_scopes,
+    workspace_membership_exists,
+)
 from tracecat.db.models import (
     AccessToken,
     ExternalGroupMapping,
@@ -39,6 +44,8 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
+    Invitation,
+    InvitationGrant,
     LegacyMembership,
     Organization,
     OrganizationMembership,
@@ -56,6 +63,30 @@ from tracecat.exceptions import (
     TracecatNotFoundError,
     TracecatValidationError,
 )
+from tracecat.invitations.enums import InvitationStatus
+
+
+async def create_bare_member(
+    session: AsyncSession, organization_id: uuid.UUID, email: str
+) -> uuid.UUID:
+    """Admit a user with presence only, so no role path reaches any workspace."""
+    member = User(id=uuid.uuid4(), email=email, hashed_password="x")
+    session.add(member)
+    await session.flush()
+    await ensure_member(session, organization_id, member.id)
+    await session.commit()
+    return member.id
+
+
+async def create_org_role(service: RBACService, name: str) -> DBRole:
+    """Create a custom role that an ``org:read`` scope pins to org-wide grants."""
+    org_read = await service.session.scalar(
+        select(Scope.id).where(
+            Scope.name == "org:read", Scope.organization_id.is_(None)
+        )
+    )
+    assert org_read is not None
+    return await service.create_role(name=name, scope_ids=[org_read])
 
 
 @pytest.fixture
@@ -115,8 +146,14 @@ async def seeded_scopes(session: AsyncSession) -> list[Scope]:
 
 @pytest.fixture
 def admin_assignable_scopes(seeded_scopes: list[Scope]) -> list[Scope]:
-    """Return seeded scopes held by the organization-admin test role."""
-    return [scope for scope in seeded_scopes if scope.name in ORG_ADMIN_SCOPES]
+    """Return seeded scopes held by the organization-admin test role.
+
+    Org scopes sort first so ``[0]`` builds an org-level role deterministically.
+    """
+    return sorted(
+        (scope for scope in seeded_scopes if scope.name in ORG_ADMIN_SCOPES),
+        key=lambda scope: (not scope.name.startswith("org:"), scope.name),
+    )
 
 
 @pytest.fixture
@@ -415,7 +452,7 @@ class TestRBACServiceRoles:
         service = RBACService(session, role=role)
 
         # Create role and group
-        custom_role = await service.create_role(name="Assigned Role")
+        custom_role = await create_org_role(service, name="Assigned Role")
         group = await service.create_group(name="Test Group")
 
         # Create assignment
@@ -643,7 +680,7 @@ class TestRBACServiceAssignments:
         """Create an org-wide assignment."""
         service = RBACService(session, role=role)
 
-        custom_role = await service.create_role(name="Test Role")
+        custom_role = await create_org_role(service, name="Test Role")
         group = await service.create_group(name="Test Group")
 
         assignment = await service.create_group_role_assignment(
@@ -684,8 +721,8 @@ class TestRBACServiceAssignments:
         """Update an assignment's role."""
         service = RBACService(session, role=role)
 
-        role1 = await service.create_role(name="Role 1")
-        role2 = await service.create_role(name="Role 2")
+        role1 = await create_org_role(service, name="Role 1")
+        role2 = await create_org_role(service, name="Role 2")
         group = await service.create_group(name="Test Group")
 
         assignment = await service.create_group_role_assignment(
@@ -727,7 +764,7 @@ class TestRBACServiceAssignments:
     ):
         """Group assignment updates enforce the caller's scope ceiling."""
         service = RBACService(session, role=role)
-        assignable_role = await service.create_role(name="Assignable Role")
+        assignable_role = await create_org_role(service, name="Assignable Role")
         group = await service.create_group(name="Target Group")
         assignment = await service.create_group_role_assignment(
             group_id=group.id,
@@ -756,7 +793,7 @@ class TestRBACServiceUserAssignments:
     ):
         """Create direct assignment for org member."""
         service = RBACService(session, role=role)
-        custom_role = await service.create_role(name="Direct User Role")
+        custom_role = await create_org_role(service, name="Direct User Role")
 
         assignment = await service.create_user_assignment(
             user_id=user.id,
@@ -785,14 +822,17 @@ class TestRBACServiceUserAssignments:
         await grant_org_membership_via_group(
             session, user_id=user.id, organization_id=other_org.id
         )
+        # Presence gives the caller the floor's org:read to grant there.
+        assert role.user_id
+        await ensure_member(session, other_org.id, role.user_id)
         await session.commit()
 
         service = RBACService(session, role=role)
         other_role = role.model_copy(update={"organization_id": other_org.id})
         other_service = RBACService(session, role=other_role)
 
-        org_role = await service.create_role(name="Direct User Role")
-        other_org_role = await other_service.create_role(name="Direct User Role")
+        org_role = await create_org_role(service, name="Direct User Role")
+        other_org_role = await create_org_role(other_service, name="Direct User Role")
 
         assignment = await service.create_user_assignment(
             user_id=user.id,
@@ -823,8 +863,8 @@ class TestRBACServiceUserAssignments:
     ):
         """A user can still have only one direct org-wide assignment per org."""
         service = RBACService(session, role=role)
-        first_role = await service.create_role(name="First Direct User Role")
-        second_role = await service.create_role(name="Second Direct User Role")
+        first_role = await create_org_role(service, name="First Direct User Role")
+        second_role = await create_org_role(service, name="Second Direct User Role")
 
         await service.create_user_assignment(
             user_id=user.id,
@@ -832,7 +872,7 @@ class TestRBACServiceUserAssignments:
         )
 
         with pytest.raises(
-            TracecatValidationError,
+            TracecatConflictError,
             match="User already has an assignment for this workspace",
         ):
             await service.create_user_assignment(
@@ -893,7 +933,7 @@ class TestRBACServiceUserAssignments:
     ):
         """User assignment updates enforce the caller's scope ceiling."""
         service = RBACService(session, role=role)
-        assignable_role = await service.create_role(name="Assignable Role")
+        assignable_role = await create_org_role(service, name="Assignable Role")
         assignment = await service.create_user_assignment(
             user_id=user.id,
             role_id=assignable_role.id,
@@ -918,7 +958,7 @@ class TestRBACServiceUserAssignments:
         """A workspace-only path is enough to grant an org-wide role."""
         member = await _workspace_only_user(session, org, workspace)
         service = RBACService(session, role=role)
-        custom_role = await service.create_role(name="Org Wide Role")
+        custom_role = await create_org_role(service, name="Org Wide Role")
 
         assignment = await service.create_user_assignment(
             user_id=member.id,
@@ -988,7 +1028,7 @@ class TestRBACServiceUserAssignments:
         """A remaining workspace path keeps the org-wide role deletable."""
         member = await _workspace_only_user(session, org, workspace)
         service = RBACService(session, role=role)
-        custom_role = await service.create_role(name="Removable Org Role")
+        custom_role = await create_org_role(service, name="Removable Org Role")
         assignment = await service.create_user_assignment(
             user_id=member.id,
             role_id=custom_role.id,
@@ -1023,7 +1063,7 @@ class TestRBACServiceUserAssignments:
         await session.commit()
 
         service = RBACService(session, role=role)
-        custom_role = await service.create_role(name="Group Path Org Role")
+        custom_role = await create_org_role(service, name="Group Path Org Role")
         assignment = await service.create_user_assignment(
             user_id=member.id,
             role_id=custom_role.id,
@@ -1046,7 +1086,7 @@ class TestRBACServiceUserAssignments:
     ):
         """Org-wide assignment mirrors presence into the legacy org table."""
         service = RBACService(session, role=role)
-        custom_role = await service.create_role(name="Legacy Org Role")
+        custom_role = await create_org_role(service, name="Legacy Org Role")
 
         await service.create_user_assignment(user_id=user.id, role_id=custom_role.id)
 
@@ -1066,7 +1106,7 @@ class TestRBACServiceUserAssignments:
         await ensure_member(session, service.organization_id, user.id)
         await session.commit()
 
-        custom_role = await service.create_role(name="Legacy Org Role Again")
+        custom_role = await create_org_role(service, name="Legacy Org Role Again")
 
         await service.create_user_assignment(user_id=user.id, role_id=custom_role.id)
 
@@ -1102,7 +1142,7 @@ class TestRBACServiceUserAssignments:
     ):
         """Org presence is stored, so it outlives the last org-wide assignment."""
         service = RBACService(session, role=role)
-        custom_role = await service.create_role(name="Evictable Org Role")
+        custom_role = await create_org_role(service, name="Evictable Org Role")
         assignment = await service.create_user_assignment(
             user_id=user.id, role_id=custom_role.id
         )
@@ -1133,6 +1173,9 @@ class TestRBACServiceUserAssignments:
         await grant_org_membership_via_group(
             session, user_id=user.id, organization_id=other_org.id
         )
+        # Presence gives the caller the floor's org:read to grant there.
+        assert role.user_id
+        await ensure_member(session, other_org.id, role.user_id)
         await session.commit()
 
         service = RBACService(session, role=role)
@@ -1141,11 +1184,11 @@ class TestRBACServiceUserAssignments:
         )
         assignment = await service.create_user_assignment(
             user_id=user.id,
-            role_id=(await service.create_role(name="Leaving Org Role")).id,
+            role_id=(await create_org_role(service, name="Leaving Org Role")).id,
         )
         await other_service.create_user_assignment(
             user_id=user.id,
-            role_id=(await other_service.create_role(name="Kept Org Role")).id,
+            role_id=(await create_org_role(other_service, name="Kept Org Role")).id,
         )
 
         await service.delete_user_assignment(assignment.id)
@@ -1299,9 +1342,14 @@ class TestRBACServiceScopeComputation:
         service = RBACService(session, role=role)
 
         # Create role with scopes
+        workspace_scope = next(
+            scope
+            for scope in admin_assignable_scopes
+            if not scope.name.startswith("org:")
+        )
         custom_role = await service.create_role(
             name="Workspace Role",
-            scope_ids=[admin_assignable_scopes[0].id],
+            scope_ids=[workspace_scope.id],
         )
 
         # Create group, add user, and assign to specific workspace
@@ -1321,7 +1369,7 @@ class TestRBACServiceScopeComputation:
         scopes_with_ws = await service.get_group_scopes(
             user.id, workspace_id=workspace.id
         )
-        assert admin_assignable_scopes[0].name in scopes_with_ws
+        assert workspace_scope.name in scopes_with_ws
 
     async def test_get_group_scopes_org_wide_applies_to_workspace(
         self,
@@ -1545,8 +1593,15 @@ class TestAtomicRoleEdits:
             foreign = Workspace(name="Foreign", organization_id=other_org.id)
             session.add(foreign)
             await session.commit()
+            editor = await session.scalar(
+                select(DBRole.id).where(
+                    DBRole.organization_id == org.id,
+                    DBRole.slug == "workspace-editor",
+                )
+            )
+            assert editor
             params.assignments.append(
-                UserRoleAssignmentSpec(role_id=admin, workspace_id=foreign.id)
+                UserRoleAssignmentSpec(role_id=editor, workspace_id=foreign.id)
             )
         elif failure == "duplicate_scope":
             params.assignments.append(UserRoleAssignmentSpec(role_id=admin))
@@ -1823,3 +1878,303 @@ class TestImplicitMemberRoleIsHidden:
         assert (
             await query_effective_scopes(session, legacy.id, org.id, None)
         ).issuperset(ORG_MEMBER_FLOOR_SCOPES)
+
+
+@pytest.mark.anyio
+class TestRoleLevelGuard:
+    """Org roles are granted only org-wide; workspace roles anywhere."""
+
+    async def test_user_assignment_rejects_org_role_on_workspace(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+    ):
+        service = RBACService(session, role=role)
+        target = await create_org_role(service, name="Org Role")
+        with pytest.raises(TracecatValidationError, match="organization role"):
+            await service.create_user_assignment(
+                user_id=user.id, role_id=target.id, workspace_id=workspace.id
+            )
+
+    async def test_group_assignment_rejects_org_role_on_workspace(
+        self,
+        session: AsyncSession,
+        role: Role,
+        workspace: Workspace,
+    ):
+        service = RBACService(session, role=role)
+        group = await service.create_group(name="Level Group")
+        target = await create_org_role(service, name="Org Role")
+        with pytest.raises(TracecatValidationError, match="organization role"):
+            await service.create_group_role_assignment(
+                group_id=group.id, role_id=target.id, workspace_id=workspace.id
+            )
+
+    async def test_org_wide_workspace_role_reaches_every_workspace(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        service = RBACService(session, role=role)
+        member_id = await create_bare_member(session, org.id, "everywhere@example.com")
+        other_org = Organization(name="Other", slug=uuid.uuid4().hex)
+        session.add(other_org)
+        await session.flush()
+        foreign = Workspace(name="Foreign", organization_id=other_org.id)
+        second = Workspace(name="Second", organization_id=org.id)
+        session.add_all([foreign, second])
+        await session.commit()
+        editor = await service.create_role(name="All Workspaces Editor")
+        assert not await workspace_membership_exists(
+            session, user_id=member_id, workspace_id=workspace.id
+        )
+
+        await service.create_user_assignment(user_id=member_id, role_id=editor.id)
+
+        for ws, present in ((workspace, True), (second, True), (foreign, False)):
+            assert (
+                await workspace_membership_exists(
+                    session, user_id=member_id, workspace_id=ws.id
+                )
+                is present
+            )
+        members = await MembershipService(session, role=role).list_workspace_members(
+            second.id
+        )
+        listed = next(m for m in members if m.user_id == member_id)
+        assert listed.role_name == "All Workspaces Editor" and not listed.via_group
+
+    async def test_org_wide_group_workspace_role_reaches_every_workspace(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        service = RBACService(session, role=role)
+        member_id = await create_bare_member(
+            session, org.id, "group-member@example.com"
+        )
+        group = await service.create_group(name="All Workspaces Group")
+        await service.add_group_member(group.id, member_id)
+        assert not await workspace_membership_exists(
+            session, user_id=member_id, workspace_id=workspace.id
+        )
+        editor = await service.create_role(name="Group Editor")
+        await service.create_group_role_assignment(group_id=group.id, role_id=editor.id)
+
+        assert await workspace_membership_exists(
+            session, user_id=member_id, workspace_id=workspace.id
+        )
+        members = await MembershipService(session, role=role).list_workspace_members(
+            workspace.id
+        )
+        listed = next(m for m in members if m.user_id == member_id)
+        assert listed.via_group
+
+    async def test_org_wide_org_role_grants_no_workspace_presence(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        # Bare membership: the shared fixture's presence role would itself expand.
+        member_id = await create_bare_member(session, org.id, "org-reader@example.com")
+        service = RBACService(session, role=role)
+        org_role = await create_org_role(service, name="Org Reader")
+        await service.create_user_assignment(user_id=member_id, role_id=org_role.id)
+
+        assert not await workspace_membership_exists(
+            session, user_id=member_id, workspace_id=workspace.id
+        )
+        members = await MembershipService(session, role=role).list_workspace_members(
+            workspace.id
+        )
+        assert member_id not in {m.user_id for m in members}
+
+    async def test_update_assignment_rejects_wrong_level(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+    ):
+        service = RBACService(session, role=role)
+        assignment = await service.create_user_assignment(
+            user_id=user.id,
+            role_id=(await service.create_role(name="Workspace Role")).id,
+            workspace_id=workspace.id,
+        )
+        org_role = await create_org_role(service, name="Org Role")
+        with pytest.raises(TracecatValidationError, match="organization role"):
+            await service.update_user_assignment(assignment.id, role_id=org_role.id)
+
+    async def test_replace_rejects_wrong_level(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+    ):
+        service = RBACService(session, role=role)
+        user_id = user.id
+        org_role = await create_org_role(service, name="Org Role")
+        params = await _replacement(service, user_id)
+        params.assignments = [
+            UserRoleAssignmentSpec(role_id=org_role.id, workspace_id=workspace.id)
+        ]
+        with pytest.raises(TracecatValidationError, match="organization role"):
+            await service.replace_user_assignments(params)
+        assert (await _replacement(service, user_id)).expected_assignments == []
+
+    async def test_role_edit_cannot_flip_level_while_assigned(
+        self,
+        session: AsyncSession,
+        role: Role,
+        user: User,
+        workspace: Workspace,
+    ):
+        service = RBACService(session, role=role)
+        target = await service.create_role(name="Workspace Role")
+        await service.create_user_assignment(
+            user_id=user.id, role_id=target.id, workspace_id=workspace.id
+        )
+        org_read = await session.scalar(
+            select(Scope.id).where(
+                Scope.name == "org:read", Scope.organization_id.is_(None)
+            )
+        )
+        assert org_read
+        target_id = target.id
+        with pytest.raises(TracecatConflictError, match="switching it between"):
+            await service.update_role(target_id, scope_ids=[org_read])
+        assert (await service.get_role(target_id)).scopes == []
+
+    async def test_role_edit_can_flip_level_when_unassigned(
+        self,
+        session: AsyncSession,
+        role: Role,
+    ):
+        service = RBACService(session, role=role)
+        target = await service.create_role(name="Unassigned Role")
+        org_read = await session.scalar(
+            select(Scope.id).where(
+                Scope.name == "org:read", Scope.organization_id.is_(None)
+            )
+        )
+        assert org_read
+        updated = await service.update_role(target.id, scope_ids=[org_read])
+        assert [scope.name for scope in updated.scopes] == ["org:read"]
+
+    @pytest.mark.parametrize(
+        ("status", "expires_in", "blocked"),
+        [
+            (InvitationStatus.PENDING, timedelta(days=7), True),
+            (InvitationStatus.PENDING, timedelta(days=-1), False),
+            (InvitationStatus.REVOKED, timedelta(days=7), False),
+        ],
+    )
+    async def test_role_edit_cannot_flip_level_with_pending_invitation(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+        status: InvitationStatus,
+        expires_in: timedelta,
+        blocked: bool,
+    ):
+        service = RBACService(session, role=role)
+        target = await service.create_role(name="Invited Role")
+        target_id = target.id
+        invitation = Invitation(
+            organization_id=org.id,
+            email="invitee@example.com",
+            status=status,
+            token=uuid.uuid4().hex * 2,
+            expires_at=datetime.now(UTC) + expires_in,
+        )
+        invitation.grants = [
+            InvitationGrant(
+                organization_id=org.id, workspace_id=workspace.id, role_id=target_id
+            )
+        ]
+        session.add(invitation)
+        await session.commit()
+        org_read = await session.scalar(
+            select(Scope.id).where(
+                Scope.name == "org:read", Scope.organization_id.is_(None)
+            )
+        )
+        assert org_read
+
+        if blocked:
+            with pytest.raises(TracecatConflictError, match="pending invitations"):
+                await service.update_role(target_id, scope_ids=[org_read])
+            assert (await service.get_role(target_id)).scopes == []
+        else:
+            updated = await service.update_role(target_id, scope_ids=[org_read])
+            assert [scope.name for scope in updated.scopes] == ["org:read"]
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "org:widgets:read",
+            "workspace:custom:read",
+            "*:read",
+            "o*:read",
+            "*g:read",
+        ],
+    )
+    async def test_create_scope_rejects_reserved_prefix(
+        self, session: AsyncSession, role: Role, name: str
+    ):
+        service = RBACService(session, role=role)
+        with pytest.raises(TracecatValidationError, match="reserved prefix"):
+            await service.create_scope(name=name)
+
+    async def test_create_scope_allows_unreserved_platform_root(
+        self, session: AsyncSession, role: Role
+    ):
+        service = RBACService(session, role=role)
+        scope = await service.create_scope(name="case:escalate")
+        assert scope.resource == "case"
+        # A wildcard root that matches no reserved root stays allowed.
+        wildcard = await service.create_scope(name="foo*:read")
+        assert wildcard.resource == "foo*"
+        # Custom registry actions are granted through custom action scopes.
+        action = await service.create_scope(name="action:tools.acme.*:execute")
+        assert action.action == "execute"
+
+    async def test_delete_role_rejects_pending_invitation(
+        self,
+        session: AsyncSession,
+        role: Role,
+        org: Organization,
+        workspace: Workspace,
+    ):
+        service = RBACService(session, role=role)
+        target = await service.create_role(name="Invited Only")
+        target_id = target.id
+        invitation = Invitation(
+            organization_id=org.id,
+            email="invitee@example.com",
+            status=InvitationStatus.PENDING,
+            token=uuid.uuid4().hex * 2,
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        invitation.grants = [
+            InvitationGrant(
+                organization_id=org.id, workspace_id=workspace.id, role_id=target_id
+            )
+        ]
+        session.add(invitation)
+        await session.commit()
+
+        with pytest.raises(TracecatValidationError, match="pending invitations"):
+            await service.delete_role(target_id)

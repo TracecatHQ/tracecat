@@ -72,13 +72,7 @@ import {
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { Spinner } from "@/components/loading/spinner"
-import {
-  MembersViewMode,
-  MembersViewToggle,
-} from "@/components/members/members-view-toggle"
 import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
-import { CreateGroupButton } from "@/components/rbac/create-group-button"
-import { CreateRoleButton } from "@/components/rbac/create-role-button"
 import { CreateSkillButton } from "@/components/skills/create-skill-button"
 import {
   SkillsCatalogViewMode,
@@ -1664,36 +1658,6 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
   )
 }
 
-function MembersActions({ view }: { view: MembersViewMode }) {
-  const { workspace } = useWorkspaceDetails()
-  const workspaceId = useWorkspaceId()
-
-  if (!workspace) {
-    return null
-  }
-
-  // Render the appropriate action button based on the current view
-  const actionButton =
-    view === MembersViewMode.Roles ? (
-      <CreateRoleButton workspaceOnly />
-    ) : view === MembersViewMode.Groups ? (
-      <CreateGroupButton />
-    ) : null
-
-  return (
-    <>
-      <MembersViewToggle
-        view={view}
-        membersHref={`/workspaces/${workspaceId}/members`}
-        rolesHref={`/workspaces/${workspaceId}/members/roles`}
-        groupsHref={`/workspaces/${workspaceId}/members/groups`}
-        rbacScope="workspace:rbac:read"
-      />
-      {actionButton}
-    </>
-  )
-}
-
 function CredentialsActions() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const canCreateSecrets = useScopeCheck("secret:create")
@@ -2273,21 +2237,6 @@ function getPageConfig(
   if (pagePath === "/members") {
     return {
       title: "Members",
-      actions: <MembersActions view={MembersViewMode.Members} />,
-    }
-  }
-
-  if (pagePath === "/members/roles") {
-    return {
-      title: "Roles",
-      actions: <MembersActions view={MembersViewMode.Roles} />,
-    }
-  }
-
-  if (pagePath === "/members/groups") {
-    return {
-      title: "Groups",
-      actions: <MembersActions view={MembersViewMode.Groups} />,
     }
   }
 

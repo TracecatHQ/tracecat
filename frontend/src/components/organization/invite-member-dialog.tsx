@@ -41,6 +41,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useOrgMembers, useRbacRoles, useWorkspaceManager } from "@/lib/hooks"
+import { rolesForScope } from "@/lib/rbac"
 
 /** Scope value standing in for an organization-wide grant. */
 const ORG_WIDE = "org-wide"
@@ -104,15 +105,6 @@ function InviteMemberForm({
   const { createInvitation, createInvitationIsPending } = useOrgMembers()
   const [warning, setWarning] = useState<string | null>(null)
   const { roles } = useRbacRoles()
-  // A preset role only fits the scope it was built for: a workspace role
-  // granted org-wide would apply its scopes across every workspace. Custom
-  // roles have no slug prefix, so they stay offered on both.
-  const rolesForScope = (scope: string) =>
-    roles.filter(
-      (r) =>
-        !r.slug ||
-        r.slug.startsWith(scope === ORG_WIDE ? "organization-" : "workspace-")
-    )
   const { workspaces } = useWorkspaceManager()
 
   const form = useForm<InviteFormValues>({
@@ -272,7 +264,10 @@ function InviteMemberForm({
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {rolesForScope(scope).map((role) => (
+                              {rolesForScope(
+                                roles,
+                                scope === ORG_WIDE ? null : scope
+                              ).map((role) => (
                                 <SelectItem key={role.id} value={role.id}>
                                   {role.name}
                                 </SelectItem>

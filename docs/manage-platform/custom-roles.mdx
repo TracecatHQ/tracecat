@@ -12,13 +12,11 @@ Roles bundle scopes, groups bundle users, and assignments bind a role to a user 
 
 Open Members in the organization sidebar. With the entitlement active the page reads `Members and access control` and gains Roles and Groups tabs beside Members.
 
-In a workspace, open Members and switch views with the Members, Roles, and Groups toggle in the control bar at the top right, beside the action button.
-
 ## Turn it on
 
 Custom roles, groups, and scopes require the `rbac_addons` entitlement. A single-tenant deployment turns it on with `TRACECAT__FEATURE_FLAGS=rbac`, and a multi-tenant deployment reads it from the organization's tier.
 
-Without the entitlement the pages are absent rather than locked. The Members page shows a plain member list, Access control redirects to it, the workspace Roles and Groups pages redirect to workspace Members, and the Members, Roles, and Groups toggle disappears from the workspace navigation.
+Without the entitlement the pages are absent rather than locked. The Members page shows a plain member list, and Access control redirects to it.
 
 ## Create a role
 
@@ -30,13 +28,13 @@ Each row sets a level of None, Read, Write, Execute (workflows and agents only),
 
 You can grant only scopes you hold yourself, and Tracecat refuses the rest with `Cannot grant scopes not held by the caller`. Built-in roles have no Edit or Delete in their row menu.
 
-Tracecat refuses deleting a role that is still assigned with `Cannot delete role that is assigned to groups. Remove all group assignments first.`, or the user-assignment equivalent — remove the role's assignments, then delete it.
+Tracecat refuses deleting a role that is still assigned with `Cannot delete role that is assigned to groups. Remove all group assignments first.`, the user-assignment equivalent, or `Cannot delete role offered in pending invitations` — remove the role's assignments or revoke the invitations, then delete it.
 
 ## Custom scopes
 
 The Scopes tab lists every scope in the organization by name, and Filter by source narrows it to Platform or Custom scopes. It lives on the Access control page at `/organization/settings/rbac`, alongside Group assignments and User assignments tabs that list every assignment in one place.
 
-Select `Create scope` to add your own: names follow `resource:action` and use only lowercase letters, numbers, colons, underscores, dots, asterisks, and hyphens.
+Select `Create scope` to add your own: names follow `resource:action` and use only lowercase letters, numbers, colons, underscores, dots, asterisks, and hyphens. Names cannot use the reserved prefixes `org:` or `workspace:`, including through a wildcard such as `*:` or `o*:`.
 
 You can delete a custom scope; platform scopes have no Delete action.
 
@@ -48,15 +46,13 @@ Open the Groups tab and select `Create group`, which takes a name and a descript
 
 ## Assign roles
 
-Assign a role to a user from the Members tab: open the member's row menu, choose `Manage roles`, then pick a role and a scope of Organization-wide or a single workspace under `Add role assignment`. Assign a role to a group from `Manage group` on the Groups tab.
+Assign a role to a user from the Members tab: open the member's row menu, choose `Manage roles`, then pick a scope of Organization-wide or a single workspace, then a role, under `Add role assignment`. Organization roles can only be assigned organization-wide. A workspace role assigned organization-wide applies in every workspace. Assign a role to a group from `Manage group` on the Groups tab.
 
 Effective permissions are the union of direct and group assignments; no assignment overrides another.
 
 ## In a workspace
 
-The control bar toggle switches between Members, Roles, and Groups, and the action button beside it becomes `Create role` or `Create group` for those views. Creating either still requires `org:rbac:create`.
-
-Assignments made here apply only to that workspace, and the scope picker hides organization-only scopes.
+A workspace's Members page lists users who hold a workspace role there: assigned on that workspace or organization-wide, directly or through a group. Organization owners and admins reach every workspace without appearing in this list. Manage roles and groups from the organization Members page.
 
 ## Related pages
 

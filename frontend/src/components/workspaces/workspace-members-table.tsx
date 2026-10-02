@@ -32,6 +32,7 @@ import {
   useWorkspaceMembers,
   useWorkspaceMutations,
 } from "@/hooks/use-workspace"
+import { getApiErrorDetail } from "@/lib/errors"
 
 export function WorkspaceMembersTable({
   workspace,
@@ -194,9 +195,8 @@ export function WorkspaceMembersTable({
                   await removeMember(selectedUser.user_id)
                 } catch (error) {
                   const description =
-                    error instanceof Error
-                      ? error.message
-                      : "The request could not be completed."
+                    getApiErrorDetail(error) ??
+                    "The request could not be completed."
                   console.error("Failed to remove member", error)
                   toast({
                     title: "Failed to remove member",

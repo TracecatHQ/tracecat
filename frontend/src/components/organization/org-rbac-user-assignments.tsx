@@ -62,6 +62,7 @@ import {
   useRbacUserAssignments,
   useWorkspaceManager,
 } from "@/lib/hooks"
+import { rolesForAssignmentEdit, rolesForScope } from "@/lib/rbac"
 
 export function OrgRbacUserAssignments() {
   const [selectedAssignment, setSelectedAssignment] =
@@ -466,7 +467,10 @@ function UserAssignmentFormDialog({
                 <SelectValue placeholder="Select a role" />
               </SelectTrigger>
               <SelectContent>
-                {roles.map((role) => (
+                {rolesForScope(
+                  roles,
+                  workspaceId === "org-wide" ? null : workspaceId
+                ).map((role) => (
                   <SelectItem key={role.id} value={role.id}>
                     {role.name}
                   </SelectItem>
@@ -477,7 +481,13 @@ function UserAssignmentFormDialog({
 
           <div className="space-y-2">
             <Label htmlFor="assignment-workspace">Scope</Label>
-            <Select value={workspaceId} onValueChange={setWorkspaceId}>
+            <Select
+              value={workspaceId}
+              onValueChange={(value) => {
+                setWorkspaceId(value)
+                setRoleId("")
+              }}
+            >
               <SelectTrigger id="assignment-workspace">
                 <SelectValue placeholder="Select scope" />
               </SelectTrigger>
@@ -534,6 +544,11 @@ function UserAssignmentEditDialog({
 }) {
   const [roleId, setRoleId] = useState(assignment.role_id)
   const { roles } = useRbacRoles()
+  const { options, legacy } = rolesForAssignmentEdit(
+    roles,
+    assignment.workspace_id ?? null,
+    assignment.role_id
+  )
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -563,7 +578,12 @@ function UserAssignmentEditDialog({
                 <SelectValue placeholder="Select a role" />
               </SelectTrigger>
               <SelectContent>
-                {roles.map((role) => (
+                {legacy && (
+                  <SelectItem value={legacy.id} disabled>
+                    {legacy.name} (not assignable here)
+                  </SelectItem>
+                )}
+                {options.map((role) => (
                   <SelectItem key={role.id} value={role.id}>
                     {role.name}
                   </SelectItem>
@@ -580,7 +600,10 @@ function UserAssignmentEditDialog({
           >
             Cancel
           </Button>
-          <Button type="submit" disabled={!roleId || isPending}>
+          <Button
+            type="submit"
+            disabled={!roleId || roleId === assignment.role_id || isPending}
+          >
             {isPending ? "Saving..." : "Save changes"}
           </Button>
         </DialogFooter>

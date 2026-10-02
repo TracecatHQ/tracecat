@@ -29,7 +29,7 @@ from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
 from tracecat.authz.enums import ScimConnectionStatus
 from tracecat.authz.membership import ensure_member, lock_role_changes
 from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG
-from tracecat.authz.service import resolve_granter_scopes
+from tracecat.authz.service import ensure_role_fits_scope, resolve_granter_scopes
 from tracecat.db.models import (
     Invitation,
     InvitationGrant,
@@ -187,6 +187,9 @@ async def validate_grants(
         raise TracecatValidationError("Invalid role ID for this organization")
     if any(granted_role.slug == ORG_MEMBER_ROLE_SLUG for granted_role in granted_roles):
         raise TracecatValidationError("organization-member is granted implicitly")
+    roles_by_id = {granted_role.id: granted_role for granted_role in granted_roles}
+    for grant in grants:
+        ensure_role_fits_scope(roles_by_id[grant.role_id], grant.workspace_id)
 
     if not role.is_platform_superuser:
         # Read live permissions once for this batch, never the cached Role.scopes.
@@ -228,9 +231,38 @@ async def _apply_grants(
             DBRole.slug == ORG_MEMBER_ROLE_SLUG,
         )
     )
-    for grant in grants:
-        if grant.workspace_id is None and grant.role_id == member_role_id:
-            continue
+    explicit = [
+        grant
+        for grant in grants
+        if not (grant.workspace_id is None and grant.role_id == member_role_id)
+    ]
+    roles = (
+        (
+            await session.execute(
+                select(DBRole)
+                .where(
+                    DBRole.organization_id == organization_id,
+                    DBRole.id.in_({grant.role_id for grant in explicit}),
+                )
+                .options(selectinload(DBRole.scopes))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    roles_by_id = {role.id: role for role in roles}
+    # Grants made before roles were pinned to a level may no longer fit.
+    for grant in explicit:
+        if (granted_role := roles_by_id.get(grant.role_id)) is None:
+            raise TracecatAuthorizationError("Invitation is no longer valid")
+        try:
+            ensure_role_fits_scope(granted_role, grant.workspace_id)
+        except TracecatValidationError as e:
+            raise TracecatAuthorizationError(
+                f"Invitation is no longer valid: {e}"
+            ) from e
+
+    for grant in explicit:
         stmt = pg_insert(UserRoleAssignment).values(
             organization_id=organization_id,
             user_id=user_id,

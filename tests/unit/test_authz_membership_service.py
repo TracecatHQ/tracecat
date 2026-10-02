@@ -620,3 +620,91 @@ async def test_delete_membership_rejects_when_group_grant_remains(
 
     assert assignment is not None
     assert legacy is not None
+
+
+@pytest.mark.parametrize("source", ["direct", "group", "direct_and_workspace_group"])
+async def test_delete_membership_rejects_when_org_wide_workspace_role_remains(
+    source: str,
+    session: AsyncSession,
+    membership_service: MembershipService,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    workspace_editor_role: DBRole,
+) -> None:
+    """An org-wide workspace role keeps presence, so the delete is refused."""
+    await ensure_member(session, organization.id, member_user.id)
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=member_user.id,
+            workspace_id=workspace.id,
+            role_id=workspace_editor_role.id,
+            assigned_by=actor_user.id,
+        )
+    )
+    group_name = "Everywhere" if source == "group" else "Reviewers"
+    group = Group(name=group_name, organization_id=organization.id)
+    session.add(group)
+    await session.flush()
+    if source != "direct":
+        session.add_all(
+            [
+                GroupMember(
+                    group_id=group.id,
+                    user_id=member_user.id,
+                    organization_id=organization.id,
+                ),
+                GroupRoleAssignment(
+                    organization_id=organization.id,
+                    group_id=group.id,
+                    workspace_id=None if source == "group" else workspace.id,
+                    role_id=workspace_editor_role.id,
+                ),
+            ]
+        )
+    if source != "group":
+        session.add(
+            UserRoleAssignment(
+                organization_id=organization.id,
+                user_id=member_user.id,
+                workspace_id=None,
+                role_id=workspace_editor_role.id,
+            )
+        )
+    await session.commit()
+    workspace_id, user_id, group_id = workspace.id, member_user.id, group.id
+
+    # The org-wide grant is reported even when a workspace group also remains.
+    with pytest.raises(
+        TracecatConflictError,
+        match="every workspace through group 'Everywhere'"
+        if source == "group"
+        else "every workspace. Change their organization-wide role",
+    ):
+        await membership_service.delete_membership(
+            workspace_id=workspace_id, user_id=user_id
+        )
+    await session.rollback()
+
+    assert await session.scalar(
+        select(UserRoleAssignment.id).where(
+            UserRoleAssignment.workspace_id == workspace_id,
+            UserRoleAssignment.user_id == user_id,
+        )
+    )
+    if source == "group":
+        assert await session.scalar(
+            select(GroupRoleAssignment.id).where(
+                GroupRoleAssignment.group_id == group_id,
+                GroupRoleAssignment.workspace_id.is_(None),
+            )
+        )
+    else:
+        assert await session.scalar(
+            select(UserRoleAssignment.id).where(
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.workspace_id.is_(None),
+            )
+        )

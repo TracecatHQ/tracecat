@@ -22,13 +22,15 @@ Tracecat seeds six built-in roles into every organization at startup. Tracecat r
 
 The Scopes column counts the current definition. Startup seeding adds scopes a built-in role is missing and removes none, so an organization created before a scope was renamed also keeps the old name.
 
-`organization-owner` and `organization-admin` reach every workspace in the organization without a workspace membership. Every other user needs a workspace membership plus a workspace role, and `organization-member` on its own grants no workspace resource scope.
+`organization-owner` and `organization-admin` reach every workspace in the organization without a workspace membership. Every other user needs a workspace role, assigned on that workspace or organization-wide, and `organization-member` on its own grants no workspace resource scope.
 
 ![Built-in roles](/img/manage-platform/rbac-roles.png)
 
 ## Assignments
 
 An assignment binds one role to one user or one group, either organization-wide or for a single workspace. An organization-wide assignment applies in every workspace, and a workspace assignment grants nothing outside that workspace.
+
+A role that holds any `org:*` scope is an organization role and can only be assigned organization-wide. Every other role is a workspace role: assign it on one workspace, or organization-wide to grant it in every workspace. Tracecat rejects a role edit that would switch a role between the two while it is assigned or offered in a pending invitation. Assignments created before this rule existed keep working until you change or remove them; editing one requires picking a role that fits its scope.
 
 A user's effective scopes are the union of their direct assignments and the assignments of every group they belong to. A user with `workspace-viewer` directly and a group assignment of `workspace-editor` in the same workspace holds every `workspace-editor` scope there.
 

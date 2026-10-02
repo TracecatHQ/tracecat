@@ -69,6 +69,7 @@ import {
 } from "@/lib/hooks"
 import { invitationGrantsSummary } from "@/lib/invitations"
 import { useQuery, useQueryClient } from "@/lib/query"
+import { rolesForScope } from "@/lib/rbac"
 import { toast } from "../ui/use-toast"
 
 export function OrgMembersTable() {
@@ -737,7 +738,7 @@ export function ManageUserRolesDialog({
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
                 <SelectContent>
-                  {roles.map((role) => (
+                  {rolesForScope(roles, selectedWorkspaceId).map((role) => (
                     <SelectItem key={role.id} value={role.id}>
                       {role.name}
                     </SelectItem>
@@ -746,7 +747,10 @@ export function ManageUserRolesDialog({
               </Select>
               <Select
                 value={workspaceId}
-                onValueChange={setWorkspaceId}
+                onValueChange={(value) => {
+                  setWorkspaceId(value)
+                  setRoleId("")
+                }}
                 disabled={!ready || isSaving}
               >
                 <SelectTrigger
