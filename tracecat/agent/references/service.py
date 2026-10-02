@@ -10,7 +10,6 @@ from functools import cached_property
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 
 from tracecat import config
 from tracecat.agent.preset.service import AgentPresetService
@@ -38,7 +37,8 @@ from tracecat.db.models import (
     AgentPresetVersionSkill,
     MCPIntegration,
     SkillBlob,
-    SkillVersion,
+    SkillVersionMcpTool,
+    SkillVersionTool,
 )
 from tracecat.exceptions import (
     EntitlementRequired,
@@ -154,28 +154,37 @@ class ReferenceService(BaseWorkspaceService):
                     markdown=markdown,
                 )
             )
-        stmt = (
-            select(SkillVersion)
+        registry_stmt = (
+            select(SkillVersionTool.tool_id)
             .where(
-                SkillVersion.workspace_id == self.workspace_id,
-                SkillVersion.id == version.id,
+                SkillVersionTool.workspace_id == self.workspace_id,
+                SkillVersionTool.skill_version_id == version.id,
             )
-            .options(
-                selectinload(SkillVersion.tools), selectinload(SkillVersion.mcp_tools)
-            )
+            .order_by(SkillVersionTool.tool_id)
         )
-        row = (await self.session.execute(stmt)).scalar_one()
+        tool_ids = (await self.session.execute(registry_stmt)).scalars().all()
         declarations = [
-            Declaration(ReferenceTarget(Kind.TOOL, t.tool_id), "skill_tool")
-            for t in row.tools
+            Declaration(ReferenceTarget(Kind.TOOL, tool_id), "skill_tool")
+            for tool_id in tool_ids
         ]
-        for tool in row.mcp_tools:
-            if tool.mcp_integration_id is None:
+        mcp_stmt = (
+            select(
+                SkillVersionMcpTool.mcp_integration_id, SkillVersionMcpTool.tool_name
+            )
+            .where(
+                SkillVersionMcpTool.workspace_id == self.workspace_id,
+                SkillVersionMcpTool.skill_version_id == version.id,
+            )
+            .order_by(SkillVersionMcpTool.tool_id)
+        )
+        mcp_tools = (await self.session.execute(mcp_stmt)).tuples().all()
+        for integration_id, tool_name in mcp_tools:
+            if integration_id is None:
                 raise ReferenceLookupError()
-            kind = Kind.MCP_TOOL if tool.tool_name else Kind.MCP_SERVER
+            kind = Kind.MCP_TOOL if tool_name else Kind.MCP_SERVER
             declarations.append(
                 Declaration(
-                    ReferenceTarget(kind, str(tool.mcp_integration_id), tool.tool_name),
+                    ReferenceTarget(kind, str(integration_id), tool_name),
                     "skill_tool",
                 )
             )

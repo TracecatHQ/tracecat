@@ -44,7 +44,6 @@ from tracecat.db.models import (
     MCPIntegration,
     Skill,
     SkillBlob,
-    SkillVersion,
     Workflow,
     WorkflowDefinition,
 )
@@ -285,9 +284,9 @@ async def test_skill_service_reads_exact_markdown_and_compiles_derived_tool(
         yield AsyncMock(read=AsyncMock(side_effect=payload.read)), len(markdown)
 
     monkeypatch.setattr(blob, "open_download_stream", stream)
-    row = SkillVersion(id=vid, skill_id=sid, tools=[], mcp_tools=[])
     result = MagicMock()
-    result.scalar_one.return_value = row
+    result.scalars.return_value.all.return_value = []
+    result.tuples.return_value.all.return_value = []
     service.session.execute = AsyncMock(return_value=result)
     monkeypatch.setattr(
         RegistryActionsService,
@@ -339,6 +338,36 @@ async def test_skill_service_reads_exact_markdown_and_compiles_derived_tool(
         admitted, authority, service, limits=GraphLimits(edges=1)
     )
     assert too_many_edges.diagnostics[0].code == Code.LIMIT_EXCEEDED
+
+    registry_rows = MagicMock()
+    registry_rows.scalars.return_value.all.return_value = ["core.a", "core.z"]
+    mcp_rows = MagicMock()
+    integration_id = uuid4()
+    mcp_rows.tuples.return_value.all.return_value = [
+        (integration_id, "a"),
+        (integration_id, "z"),
+    ]
+    execute = AsyncMock(side_effect=[registry_rows, mcp_rows])
+    service.session.execute = execute
+    payload.seek(0)
+    projected = await service.resolve(target, version_id=vid, limits=GraphLimits())
+    assert [d.target for d in projected.declarations] == [
+        ReferenceTarget(Kind.TOOL, "core.a"),
+        ReferenceTarget(Kind.TOOL, "core.z"),
+        ReferenceTarget(Kind.MCP_TOOL, str(integration_id), "a"),
+        ReferenceTarget(Kind.MCP_TOOL, str(integration_id), "z"),
+    ]
+    for call, table in zip(
+        execute.await_args_list,
+        ["skill_version_tool", "skill_version_mcp_tool"],
+        strict=True,
+    ):
+        statement = call.args[0]
+        sql = str(statement)
+        assert f"ORDER BY {table}.tool_id" in sql
+        assert f"{table}.workspace_id =" in sql
+        assert f"{table}.skill_version_id =" in sql
+        assert set(statement.compile().params.values()) == {service.workspace_id, vid}
 
 
 @pytest.mark.anyio
