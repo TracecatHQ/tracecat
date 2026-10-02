@@ -195,16 +195,70 @@ def test_bootstrap_skips_cgroups_in_direct_mode(
     )
 
 
+@pytest.mark.parametrize("shared_path", [None, "", "explicit"])
 def test_agent_bootstrap_preserves_its_delegation_contract(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bootstrap_process: Mock
+    shared_path: str | None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bootstrap_process: Mock,
 ) -> None:
     monkeypatch.setenv(agent_cgroup.CGROUP_PATH_ENV, "")
     (tmp_path / "cgroup.subtree_control").write_text("memory")
     (tmp_path / "cgroup.procs").touch()
+    shared_root = tmp_path / "python"
+    shared_root.mkdir()
+    (shared_root / "cgroup.subtree_control").write_text("memory")
+    (shared_root / "cgroup.procs").touch()
+    if shared_path is None:
+        monkeypatch.delenv(CGROUP_PATH_ENV, raising=False)
+    else:
+        monkeypatch.setenv(CGROUP_PATH_ENV, str(shared_root) if shared_path else "")
     monkeypatch.setattr(cgroup, "delegate_cgroup", Mock(return_value=tmp_path))
+
     agent_cgroup.main()
-    assert agent_cgroup.sandbox_cgroup() == tmp_path
-    assert sandbox_cgroup() == tmp_path
-    bootstrap_process.execvp.assert_called_once_with(
-        "python", ["python", "-m", "worker"]
+
+    assert cgroup.os.environ[agent_cgroup.CGROUP_PATH_ENV] == str(tmp_path)
+    assert cgroup.os.environ[CGROUP_PATH_ENV] == str(
+        shared_root if shared_path else tmp_path
     )
+    assert bootstrap_process.mock_calls == [
+        call.setgroups([]),
+        call.setgid(cgroup.APIUSER_ID),
+        call.setuid(cgroup.APIUSER_ID),
+        call.validate(agent_cgroup.CGROUP_PATH_ENV),
+        call.validate(CGROUP_PATH_ENV),
+        call.execvp("python", ["python", "-m", "worker"]),
+    ]
+
+
+@pytest.mark.parametrize("memory_enabled", [False, True])
+def test_agent_bootstrap_rejects_unusable_shared_subtree(
+    memory_enabled: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bootstrap_process: Mock,
+) -> None:
+    monkeypatch.setenv(agent_cgroup.CGROUP_PATH_ENV, str(tmp_path))
+    (tmp_path / "cgroup.subtree_control").write_text("memory")
+    (tmp_path / "cgroup.procs").touch()
+    shared_root = tmp_path / "python"
+    shared_root.mkdir()
+    (shared_root / "cgroup.subtree_control").write_text(
+        "memory" if memory_enabled else "cpu"
+    )
+    (shared_root / "cgroup.procs").touch()
+    monkeypatch.setenv(CGROUP_PATH_ENV, str(shared_root))
+    monkeypatch.setattr(cgroup.os, "access", lambda path, mode: path != shared_root)
+
+    expected_error = PermissionError if memory_enabled else RuntimeError
+    with pytest.raises(expected_error):
+        agent_cgroup.main()
+
+    assert cgroup.os.environ[CGROUP_PATH_ENV] == str(shared_root)
+    assert bootstrap_process.mock_calls == [
+        call.setgroups([]),
+        call.setgid(cgroup.APIUSER_ID),
+        call.setuid(cgroup.APIUSER_ID),
+        call.validate(agent_cgroup.CGROUP_PATH_ENV),
+        call.validate(CGROUP_PATH_ENV),
+    ]

@@ -74,7 +74,7 @@ def main(path_env: str = CGROUP_PATH_ENV) -> None:
     if nsjail_enabled and not os.environ.get(path_env):
         root = delegate_cgroup(APIUSER_ID, APIUSER_ID)
         os.environ[path_env] = str(root)
-    if nsjail_enabled:
+    if nsjail_enabled and not os.environ.get(CGROUP_PATH_ENV):
         # Agent workers also host shared Run Python sandboxes.
         os.environ[CGROUP_PATH_ENV] = os.environ[path_env]
     os.environ.update(HOME="/home/apiuser", USER="apiuser", LOGNAME="apiuser")
@@ -83,4 +83,6 @@ def main(path_env: str = CGROUP_PATH_ENV) -> None:
     os.setuid(APIUSER_ID)
     if nsjail_enabled:
         sandbox_cgroup(path_env)
+        if path_env != CGROUP_PATH_ENV:
+            sandbox_cgroup(CGROUP_PATH_ENV)
     os.execvp(sys.argv[1], sys.argv[1:])
