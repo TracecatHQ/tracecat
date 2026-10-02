@@ -278,6 +278,13 @@ jobs:
             uv run pytest tests/${{ matrix.test_group }} -m "not live_secret" -n auto -ra -o faulthandler_timeout=300
           fi
 
+      - name: Reference storage PostgreSQL contracts
+        if: matrix.test_group == 'unit'
+        run: >-
+          uv run python -m pytest
+          --confcutdir=tests/integration/agent_references
+          tests/integration/agent_references -q --tb=short
+
       - name: Show Docker logs on failure
         if: failure()
         run: |
