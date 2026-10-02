@@ -36,6 +36,7 @@ class PresetToolInputs:
     mcp_integrations: Sequence[str]
     tool_approvals: Mapping[str, bool]
     skill_version_ids: Sequence[uuid.UUID]
+    library_skills: Sequence[str] = ()
 
 
 @dataclass(frozen=True, slots=True)

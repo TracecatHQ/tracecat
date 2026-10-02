@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 
@@ -11,5 +12,12 @@ class LibrarySkill:
 
     slug: str
     description: str | None
-    markdown: bytes
-    """``SKILL.md`` content; library skills are single-file by construction."""
+    files: Mapping[str, bytes]
+    """Relative POSIX path to content; always includes ``SKILL.md``."""
+    declared_tools: tuple[str, ...] = ()
+    """Registry tool IDs from ``metadata.tools``."""
+
+    @property
+    def markdown(self) -> bytes:
+        """Return the root ``SKILL.md`` content."""
+        return self.files["SKILL.md"]

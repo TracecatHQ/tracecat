@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -25,6 +25,18 @@ class SkillToolDependencyService(BaseWorkspaceService):
     """Load and authorize projections for already-resolved skill versions."""
 
     service_name = "skill_tool_dependency"
+
+    async def missing_registry_tools(self, tool_ids: Iterable[str]) -> list[str]:
+        """Return declared registry tool IDs absent from this workspace's index."""
+        wanted = set(tool_ids)
+        if not wanted:
+            return []
+        entries = await RegistryActionsService(
+            self.session, role=self.role
+        ).list_actions_from_index(include_keys=wanted)
+        return sorted(
+            wanted - {f"{entry.namespace}.{entry.name}" for entry, _ in entries}
+        )
 
     async def load_metadata(
         self,
@@ -99,23 +111,15 @@ class SkillToolDependencyService(BaseWorkspaceService):
         registry_tool_ids = tuple(
             sorted({tool.tool_id for version in versions for tool in version.tools})
         )
-        if registry_tool_ids:
-            registry_service = RegistryActionsService(self.session, role=self.role)
-            available_entries = await registry_service.list_actions_from_index(
-                include_keys=set(registry_tool_ids)
+        if missing := await self.missing_registry_tools(registry_tool_ids):
+            raise TracecatValidationError(
+                "Attached skills require unavailable registry tools",
+                detail={
+                    "code": "skill_registry_tools_unavailable",
+                    "tool_ids": missing,
+                    "preset_version_id": preset_context,
+                },
             )
-            available_tool_ids = {
-                f"{entry.namespace}.{entry.name}" for entry, _ in available_entries
-            }
-            if missing := set(registry_tool_ids) - available_tool_ids:
-                raise TracecatValidationError(
-                    "Attached skills require unavailable registry tools",
-                    detail={
-                        "code": "skill_registry_tools_unavailable",
-                        "tool_ids": sorted(missing),
-                        "preset_version_id": preset_context,
-                    },
-                )
 
         mcp_rows = [tool for version in versions for tool in version.mcp_tools]
         null_integration_tool_ids = sorted(

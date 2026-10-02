@@ -19,6 +19,8 @@ from tracecat.agent.common.types import SandboxAgentConfig
 from tracecat.agent.executor.activity import SandboxedAgentExecutor
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
 from tracecat.agent.preset.service import AgentPresetService
+from tracecat.agent.preset.tool_policy import resolve_tool_policy
+from tracecat.agent.preset.types import PresetToolInputs
 from tracecat.agent.skill.builtin import PLATFORM_SKILLS
 from tracecat.agent.skill.builtin.staging import stage_platform_skill_plugin
 from tracecat.agent.skill.library.catalog import (
@@ -31,6 +33,7 @@ from tracecat.agent.skill.library.service import (
     SkillLibraryService,
     normalize_library_slugs,
 )
+from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import (
     agent_config_from_payload,
@@ -45,6 +48,7 @@ from tracecat.exceptions import (
 )
 from tracecat.git.types import GitUrl
 from tracecat.pagination import CursorPaginationParams
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.sync import PullOptions
 from tracecat.workspace_sync.adapters import AGENT_PRESET_RESOURCE_ADAPTER
 from tracecat.workspace_sync.adapters.agent_preset import AgentPresetAdapter
@@ -74,7 +78,8 @@ def _write_skill(root: Path, slug: str, frontmatter: str) -> None:
 
 
 VENDORED_LIBRARY_ROOT = Path(config.TRACECAT__SKILL_LIBRARY_DIR)
-FIXTURE_LIBRARY_SLUGS = (SLUG, "incident-summary")
+TOOLED_SLUG = "tooled-skill"
+FIXTURE_LIBRARY_SLUGS = (SLUG, "incident-summary", TOOLED_SLUG)
 
 
 @pytest.fixture(autouse=True)
@@ -83,8 +88,15 @@ def fixture_library(
 ) -> Iterator[None]:
     """Serve a fixture library; the real one is vendored only into images."""
     root = tmp_path_factory.mktemp("skill-library")
-    for slug in FIXTURE_LIBRARY_SLUGS:
+    for slug in (SLUG, "incident-summary"):
         _write_skill(root, slug, f"name: {slug}\ndescription: Fixture {slug}.")
+    _write_skill(
+        root,
+        TOOLED_SLUG,
+        f"name: {TOOLED_SLUG}\nmetadata:\n  tools: [core.http_request]",
+    )
+    (root / SLUG / "references").mkdir()
+    (root / SLUG / "references" / "guide.md").write_text("Fixture guide.")
     monkeypatch.setattr(config, "TRACECAT__SKILL_LIBRARY_DIR", str(root))
     load_library.cache_clear()
     yield
@@ -108,7 +120,7 @@ def test_load_library_reads_configured_dir() -> None:
     ("slug", "frontmatter"),
     [
         ("mismatch", "name: other"),
-        ("with-tools", "name: with-tools\nmetadata:\n  tools: [core.http_request]"),
+        ("with-mcp", "name: with-mcp\nmetadata:\n  tools: [mcp.jira.search]"),
         (PLATFORM_SKILLS[0].skill_name, f"name: {PLATFORM_SKILLS[0].skill_name}"),
     ],
 )
@@ -120,11 +132,41 @@ def test_catalog_rejects_invalid_entries(
         load_library_from(tmp_path)
 
 
-def test_catalog_rejects_supporting_files(tmp_path: Path) -> None:
+def test_catalog_keeps_resource_files(tmp_path: Path) -> None:
     _write_skill(tmp_path, "with-reference", "name: with-reference")
-    (tmp_path / "with-reference" / "reference.md").write_text("Details")
-    with pytest.raises(ValueError, match="only SKILL.md"):
-        load_library_from(tmp_path)
+    (tmp_path / "with-reference" / "references").mkdir()
+    (tmp_path / "with-reference" / "references" / "guide.md").write_text("Details")
+    skill = load_library_from(tmp_path)["with-reference"]
+    assert set(skill.files) == {"SKILL.md", "references/guide.md"}
+
+
+def test_catalog_keeps_declared_registry_tools() -> None:
+    assert load_library()[TOOLED_SLUG].declared_tools == ("core.http_request",)
+
+
+def _policy_inputs(namespaces: list[str]) -> PresetToolInputs:
+    return PresetToolInputs(
+        key=uuid.uuid4(),
+        actions=[],
+        namespaces=namespaces,
+        mcp_integrations=[],
+        tool_approvals={},
+        skill_version_ids=[],
+        library_skills=[TOOLED_SLUG],
+    )
+
+
+def test_tool_policy_grants_library_tools() -> None:
+    policy = resolve_tool_policy(_policy_inputs([]), {}, {})
+    assert policy.actions == ("core.http_request",)
+
+
+def test_tool_policy_blocks_library_tools_outside_namespaces() -> None:
+    policy = resolve_tool_policy(_policy_inputs(["tools."]), {}, {})
+    assert policy.actions == ()
+    assert [(s.tool_id, s.skill_name) for s in policy.blocked_tools] == [
+        ("core.http_request", TOOLED_SLUG)
+    ]
 
 
 def test_normalize_library_slugs_dedupes_and_sorts() -> None:
@@ -210,8 +252,9 @@ def test_library_skills_stage_without_platform_skills(tmp_path: Path) -> None:
     )
     manifest = orjson.loads((plugin / ".claude-plugin" / "plugin.json").read_bytes())
     assert manifest == {"name": "tracecat"}
-    staged = (plugin / "skills" / SLUG / "SKILL.md").read_bytes()
-    assert staged == load_library()[SLUG].markdown
+    staged = plugin / "skills" / SLUG
+    assert (staged / "SKILL.md").read_bytes() == load_library()[SLUG].markdown
+    assert (staged / "references" / "guide.md").read_text() == "Fixture guide."
 
 
 @pytest.mark.anyio
@@ -339,12 +382,35 @@ class TestSkillLibraryService:
         with pytest.raises(EntitlementRequired):
             await presets.create_preset(_preset([SLUG]))
 
+    async def test_declared_tools_must_exist_in_registry(
+        self, library_service: SkillLibraryService, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        index = AsyncMock(return_value=[])
+        monkeypatch.setattr(RegistryActionsService, "list_actions_from_index", index)
+        with pytest.raises(TracecatValidationError) as exc_info:
+            await library_service.validate_declared_tools([TOOLED_SLUG])
+        assert _code(exc_info) == SkillLibraryErrorCode.TOOLS_UNAVAILABLE.value
+
+        index.return_value = [
+            (SimpleNamespace(namespace="core", name="http_request"), None)
+        ]
+        await library_service.validate_declared_tools([TOOLED_SLUG])
+        await library_service.validate_declared_tools([SLUG])
+
     async def test_fork_creates_editable_workspace_skill(
         self, library_service: SkillLibraryService
     ) -> None:
         skill = await library_service.fork(SLUG)
         assert skill.name == SLUG
         assert skill.current_version_id is None
+        draft = await SkillService(
+            library_service.session, role=library_service.role
+        ).get_draft(skill.id)
+        assert draft is not None
+        assert {file.path for file in draft.files} == {
+            "SKILL.md",
+            "references/guide.md",
+        }
 
 
 @pytest.mark.anyio

@@ -15,6 +15,11 @@ from tracecat import config
 from tracecat.agent.skill.builtin import PLATFORM_SKILLS
 from tracecat.agent.skill.frontmatter import parse_skill_markdown
 from tracecat.agent.skill.library.types import LibrarySkill
+from tracecat.agent.skill.manifest import (
+    SkillFileSizeMetadata,
+    normalize_skill_path,
+    skill_file_limit_violation,
+)
 from tracecat.exceptions import TracecatValidationError
 
 # Library skills stage into the same plugin as platform skills.
@@ -35,21 +40,27 @@ def _load_skill(skill_dir: Path) -> LibrarySkill:
         for path in paths
         if path.is_file()
     }
+    for path in files:
+        normalize_skill_path(path)
+    sizes = [
+        SkillFileSizeMetadata(path, len(content)) for path, content in files.items()
+    ]
+    if violation := skill_file_limit_violation(sizes):
+        raise ValueError(f"Library skill {slug!r}: {violation.message}")
     if "SKILL.md" not in files:
         raise ValueError(f"Library skill {slug!r} is missing SKILL.md")
-    # Subagents preload only SKILL.md and have no Read grant for extra files.
-    if set(files) != {"SKILL.md"}:
-        raise ValueError(f"Library skill {slug!r} must contain only SKILL.md")
     frontmatter = parse_skill_markdown(files["SKILL.md"].decode("utf-8"))
     if frontmatter is None or frontmatter.name != slug:
         raise ValueError(f"Library skill {slug!r} frontmatter name must match")
-    # Crawl scope: library skills carry instructions only, never tool grants.
-    if frontmatter.metadata.tools:
-        raise ValueError(f"Library skill {slug!r} must not declare tools")
+    tools = tuple(frontmatter.metadata.tools)
+    # MCP tool IDs name one workspace's integration, so they are not portable.
+    if mcp_tools := [tool for tool in tools if tool.startswith("mcp.")]:
+        raise ValueError(f"Library skill {slug!r} declares MCP tools: {mcp_tools}")
     return LibrarySkill(
         slug=slug,
         description=frontmatter.description,
-        markdown=files["SKILL.md"],
+        files=files,
+        declared_tools=tools,
     )
 
 

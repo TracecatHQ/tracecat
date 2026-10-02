@@ -278,6 +278,7 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_integrations=preset.mcp_integrations or (),
             tool_approvals=preset.tool_approvals or {},
             skill_version_ids=skill_version_ids,
+            library_skills=preset.library_skills or (),
         )
 
     @staticmethod
@@ -1724,6 +1725,7 @@ class AgentPresetService(BaseWorkspaceService):
                     AgentPresetVersion.namespaces,
                     AgentPresetVersion.mcp_integrations,
                     AgentPresetVersion.tool_approvals,
+                    AgentPresetVersion.library_skills,
                     AgentPresetVersion.agents,
                     AgentPresetVersion.enable_internet_access,
                     AgentPresetVersion.created_at,
@@ -2406,6 +2408,7 @@ class AgentPresetService(BaseWorkspaceService):
             resolved_skills=resolved_skills,
             metadata=metadata,
         )
+        await self.library.validate_declared_tools(version.library_skills or [])
         policy = resolve_tool_policy(inputs, metadata.versions, metadata.integrations)
         self._validate_effective_tool_count(policy)
         mcp_servers = self._resolve_tool_mcp_grants(

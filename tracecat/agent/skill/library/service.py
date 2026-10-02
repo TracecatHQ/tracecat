@@ -9,6 +9,7 @@ from enum import StrEnum
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 
+from tracecat.agent.skill.dependencies import SkillToolDependencyService
 from tracecat.agent.skill.library.catalog import get_library_skills, load_library
 from tracecat.agent.skill.library.schemas import LibrarySkillRead
 from tracecat.agent.skill.library.types import LibrarySkill
@@ -36,6 +37,7 @@ class SkillLibraryErrorCode(StrEnum):
 
     NOT_INSTALLED = "library_skill_not_installed"
     IN_USE = "library_skill_in_use"
+    TOOLS_UNAVAILABLE = "library_skill_tools_unavailable"
 
 
 class SkillLibraryService(BaseWorkspaceService):
@@ -187,11 +189,11 @@ class SkillLibraryService(BaseWorkspaceService):
     async def fork(self, slug: str) -> SkillRead:
         """Copy a library skill into a new, editable workspace skill draft."""
 
-        markdown = self._get_skill(slug).markdown
         files = [
             SkillUploadFile(
-                path="SKILL.md", content_base64=base64.b64encode(markdown).decode()
+                path=path, content_base64=base64.b64encode(content).decode()
             )
+            for path, content in self._get_skill(slug).files.items()
         ]
         return await SkillService(self.session, role=self.role).upload_skill(
             SkillUpload(name=slug, files=files)
@@ -216,6 +218,27 @@ class SkillLibraryService(BaseWorkspaceService):
         # Install rows only exist for catalog slugs, so unknown slugs are missing.
         return sorted(set(normalized) - await self._installed(normalized))
 
+    async def validate_declared_tools(self, slugs: Sequence[str]) -> None:
+        """Require every registry tool the entries declare to exist here.
+
+        Raises:
+            TracecatValidationError: If a slug is unknown or a tool is missing.
+        """
+
+        tool_ids = [
+            tool for skill in get_library_skills(slugs) for tool in skill.declared_tools
+        ]
+        if missing := await SkillToolDependencyService(
+            self.session, role=self.role
+        ).missing_registry_tools(tool_ids):
+            raise TracecatValidationError(
+                f"Library skills need tools that are not available: {', '.join(missing)}",
+                detail={
+                    "code": SkillLibraryErrorCode.TOOLS_UNAVAILABLE.value,
+                    "tool_ids": missing,
+                },
+            )
+
     @requires_entitlement(Entitlement.AGENT_ADDONS)
     async def validate_bindable(self, slugs: Sequence[str]) -> None:
         """Require every slug to exist in the library and be installed here.
@@ -227,7 +250,7 @@ class SkillLibraryService(BaseWorkspaceService):
             TracecatValidationError: If a slug is unknown or not installed.
         """
 
-        get_library_skills(slugs)
+        await self.validate_declared_tools(slugs)
         installed = await self._installed(slugs, lock=True)
         if missing := sorted(set(slugs) - installed):
             raise TracecatValidationError(
