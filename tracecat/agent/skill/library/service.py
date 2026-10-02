@@ -77,11 +77,18 @@ class SkillLibraryService(BaseWorkspaceService):
         if params.reverse:
             window = [s for s in skills if cursor is None or s.slug < cursor]
             page = window[-params.limit :]
-            has_before, has_after = len(window) > len(page), cursor is not None
+            has_before = len(window) > len(page)
+            # Forged or stale cursors may sit past the last entry.
+            has_after = (
+                cursor is not None and bool(skills) and skills[-1].slug >= cursor
+            )
         else:
             window = [s for s in skills if cursor is None or s.slug > cursor]
             page = window[: params.limit]
-            has_before, has_after = cursor is not None, len(window) > len(page)
+            has_before = (
+                cursor is not None and bool(skills) and skills[0].slug <= cursor
+            )
+            has_after = len(window) > len(page)
         installed = await self._installed([skill.slug for skill in page])
         return CursorPaginatedResponse(
             items=[

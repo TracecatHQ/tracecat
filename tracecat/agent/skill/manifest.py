@@ -123,6 +123,11 @@ def normalize_skill_path(path: str) -> str:
             the skill root.
     """
 
+    if "\x00" in path:
+        raise TracecatValidationError(
+            "Skill paths cannot contain NUL bytes",
+            detail={"code": "invalid_path", "path": path.replace("\x00", "")},
+        )
     if "\\" in path:
         raise TracecatValidationError(
             f"Skill paths must use POSIX separators: {path!r}",

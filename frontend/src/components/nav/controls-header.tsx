@@ -419,14 +419,12 @@ function SkillsActions() {
 
   return (
     <>
-      {organizationEnabled ? (
-        <SkillsCatalogViewToggle
-          view={catalogView}
-          skillsHref={skillsHref}
-          tagsHref={tagsHref}
-          libraryHref={libraryHref}
-        />
-      ) : null}
+      <SkillsCatalogViewToggle
+        view={catalogView}
+        skillsHref={skillsHref}
+        tagsHref={organizationEnabled ? tagsHref : undefined}
+        libraryHref={libraryHref}
+      />
       <WorkspaceResourceSyncActions
         label="skills"
         branchSlug="skills"

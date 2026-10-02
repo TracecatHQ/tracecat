@@ -14,7 +14,6 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from tests.database import TEST_DB_CONFIG
-from tracecat import config
 from tracecat.agent.common.types import SandboxAgentConfig
 from tracecat.agent.executor.activity import SandboxedAgentExecutor
 from tracecat.agent.preset.schemas import AgentPresetCreate, AgentPresetUpdate
@@ -23,6 +22,7 @@ from tracecat.agent.preset.tool_policy import resolve_tool_policy
 from tracecat.agent.preset.types import PresetToolInputs
 from tracecat.agent.skill.builtin import PLATFORM_SKILLS
 from tracecat.agent.skill.builtin.staging import stage_platform_skill_plugin
+from tracecat.agent.skill.library import catalog
 from tracecat.agent.skill.library.catalog import (
     get_library_skills,
     load_library,
@@ -33,6 +33,7 @@ from tracecat.agent.skill.library.service import (
     SkillLibraryService,
     normalize_library_slugs,
 )
+from tracecat.agent.skill.manifest import normalize_skill_path
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import (
@@ -46,7 +47,7 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.git.types import GitUrl
-from tracecat.pagination import CursorPaginationParams
+from tracecat.pagination import BaseCursorPaginator, CursorPaginationParams
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.sync import PullOptions
 from tracecat.workspace_sync.adapters import AGENT_PRESET_RESOURCE_ADAPTER
@@ -76,7 +77,7 @@ def _write_skill(root: Path, slug: str, frontmatter: str) -> None:
     (skill_dir / "SKILL.md").write_text(f"---\n{frontmatter}\n---\nBody")
 
 
-VENDORED_LIBRARY_ROOT = Path(config.TRACECAT__SKILL_LIBRARY_DIR)
+BUNDLED_LIBRARY_ROOT = catalog.LIBRARY_ROOT
 TOOLED_SLUG = "tooled-skill"
 FIXTURE_LIBRARY_SLUGS = (SLUG, "incident-summary", TOOLED_SLUG)
 
@@ -85,7 +86,7 @@ FIXTURE_LIBRARY_SLUGS = (SLUG, "incident-summary", TOOLED_SLUG)
 def fixture_library(
     tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[None]:
-    """Serve a fixture library; the real one is vendored only into images."""
+    """Serve fixture entries that exercise resources and declared tools."""
     root = tmp_path_factory.mktemp("skill-library")
     for slug in (SLUG, "incident-summary"):
         _write_skill(root, slug, f"name: {slug}\ndescription: Fixture {slug}.")
@@ -96,22 +97,17 @@ def fixture_library(
     )
     (root / SLUG / "references").mkdir()
     (root / SLUG / "references" / "guide.md").write_text("Fixture guide.")
-    monkeypatch.setattr(config, "TRACECAT__SKILL_LIBRARY_DIR", str(root))
+    monkeypatch.setattr(catalog, "LIBRARY_ROOT", root)
     load_library.cache_clear()
     yield
     load_library.cache_clear()
 
 
-def test_vendored_library_is_valid() -> None:
-    if not VENDORED_LIBRARY_ROOT.is_dir():
-        pytest.skip(
-            f"No vendored skill library at {VENDORED_LIBRARY_ROOT}. The "
-            "`plugin-skills` Dockerfile stage copies it in at image build time."
-        )
-    assert load_library_from(VENDORED_LIBRARY_ROOT)
+def test_bundled_library_is_valid() -> None:
+    assert SLUG in load_library_from(BUNDLED_LIBRARY_ROOT)
 
 
-def test_load_library_reads_configured_dir() -> None:
+def test_load_library_reads_library_root() -> None:
     assert sorted(load_library()) == sorted(FIXTURE_LIBRARY_SLUGS)
 
 
@@ -166,6 +162,11 @@ def test_tool_policy_blocks_library_tools_outside_namespaces() -> None:
     assert [(s.tool_id, s.skill_name) for s in policy.blocked_tools] == [
         ("core.http_request", TOOLED_SLUG)
     ]
+
+
+def test_skill_paths_reject_nul_bytes() -> None:
+    with pytest.raises(TracecatValidationError, match="NUL"):
+        normalize_skill_path("references/a\x00b.md")
 
 
 def test_normalize_library_slugs_dedupes_and_sorts() -> None:
@@ -366,6 +367,33 @@ class TestSkillLibraryService:
         )
         assert pinned.library_skills == [SLUG]
 
+    @pytest.mark.parametrize("operation", ["install", "fork", "uninstall"])
+    async def test_library_writes_require_scopes(
+        self, session: AsyncSession, svc_role: Role, operation: str
+    ) -> None:
+        reader = svc_role.model_copy(update={"scopes": frozenset({"agent:read"})})
+        service = SkillLibraryService(session=session, role=reader)
+        operations = {
+            "install": service.install,
+            "fork": service.fork,
+            "uninstall": service.uninstall,
+        }
+        with pytest.raises(ScopeDeniedError):
+            await operations[operation](SLUG)
+
+    async def test_reverse_listing_ignores_cursor_past_catalog(
+        self, library_service: SkillLibraryService
+    ) -> None:
+        page = await library_service.list_skills(
+            CursorPaginationParams(
+                limit=1,
+                cursor=BaseCursorPaginator.encode_cursor("zzz"),
+                reverse=True,
+            )
+        )
+        assert [item.slug for item in page.items] == [TOOLED_SLUG]
+        assert page.has_more is False
+
     async def test_declared_tools_must_exist_in_registry(
         self, library_service: SkillLibraryService, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -399,9 +427,7 @@ class TestSkillLibraryService:
 
 @pytest.mark.anyio
 @pytest.mark.usefixtures("db")
-async def test_uninstall_waits_for_concurrent_bind(
-    svc_role: Role, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_uninstall_waits_for_concurrent_bind(svc_role: Role) -> None:
     """An uninstall racing a bind sees the committed binding and is rejected."""
     role = svc_role.model_copy(update={"workspace_id": uuid.uuid4()}, deep=True)
     engine = create_async_engine(TEST_DB_CONFIG.test_url)

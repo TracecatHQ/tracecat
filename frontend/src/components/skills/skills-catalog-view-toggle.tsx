@@ -19,7 +19,8 @@ export enum SkillsCatalogViewMode {
 interface SkillsCatalogViewToggleProps {
   view: SkillsCatalogViewMode
   skillsHref: string
-  tagsHref: string
+  /** Omit to hide the tags view, which requires the agent add-ons entitlement. */
+  tagsHref?: string
   libraryHref: string
   className?: string
 }
@@ -45,13 +46,17 @@ export function SkillsCatalogViewToggle({
       href: skillsHref,
       ariaLabel: "Skills view",
     },
-    {
-      mode: SkillsCatalogViewMode.Tags,
-      icon: TagIcon,
-      tooltip: "Skill tags",
-      href: tagsHref,
-      ariaLabel: "Skill tags view",
-    },
+    ...(tagsHref
+      ? [
+          {
+            mode: SkillsCatalogViewMode.Tags,
+            icon: TagIcon,
+            tooltip: "Skill tags",
+            href: tagsHref,
+            ariaLabel: "Skill tags view",
+          },
+        ]
+      : []),
     {
       mode: SkillsCatalogViewMode.Library,
       icon: LibraryIcon,
@@ -59,7 +64,7 @@ export function SkillsCatalogViewToggle({
       href: libraryHref,
       ariaLabel: "Skill library view",
     },
-  ] as const
+  ]
 
   return (
     <div

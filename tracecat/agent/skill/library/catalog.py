@@ -1,8 +1,8 @@
-"""Load the platform skill library vendored into the image.
+"""Load the platform skill library bundled with this package.
 
-Each directory under ``TRACECAT__SKILL_LIBRARY_DIR`` is one library skill,
-authored in ``tracecat-plugins`` and pinned at image build time. Content is
-immutable per image, so a malformed entry fails loudly instead of being skipped.
+Each directory under ``skills/`` is one library skill. Content is repo-owned
+and immutable per image, so a malformed entry fails loudly instead of being
+skipped; a bundled-catalog test keeps the shipped entries valid.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
 
-from tracecat import config
 from tracecat.agent.skill.builtin import PLATFORM_SKILLS
 from tracecat.agent.skill.frontmatter import parse_skill_markdown
 from tracecat.agent.skill.library.types import LibrarySkill
@@ -21,6 +20,9 @@ from tracecat.agent.skill.manifest import (
     skill_file_limit_violation,
 )
 from tracecat.exceptions import TracecatValidationError
+
+LIBRARY_ROOT = Path(__file__).parent / "skills"
+"""Bundled library root; tests repoint it at fixture entries."""
 
 # Library skills stage into the same plugin as platform skills.
 _RESERVED_NAMES = frozenset(
@@ -69,8 +71,6 @@ def _load_skill(skill_dir: Path) -> LibrarySkill:
 def load_library_from(root: Path) -> dict[str, LibrarySkill]:
     """Load and validate every library skill under ``root``, keyed by slug."""
 
-    if not root.is_dir():
-        return {}
     return {
         skill.slug: skill
         for skill in (
@@ -81,9 +81,9 @@ def load_library_from(root: Path) -> dict[str, LibrarySkill]:
 
 @lru_cache(maxsize=1)
 def load_library() -> dict[str, LibrarySkill]:
-    """Return the vendored library, loaded once per process."""
+    """Return the bundled library, loaded once per process."""
 
-    return load_library_from(Path(config.TRACECAT__SKILL_LIBRARY_DIR))
+    return load_library_from(LIBRARY_ROOT)
 
 
 def get_library_skills(slugs: Sequence[str]) -> list[LibrarySkill]:
