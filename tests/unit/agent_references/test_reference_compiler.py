@@ -381,7 +381,8 @@ async def test_mixed_skill_agent_cycle_reports_full_path():
 
 
 @pytest.mark.anyio
-async def test_effective_authorized_override_is_a_separate_contribution():
+@pytest.mark.parametrize("override_count", [1, 64])
+async def test_effective_authorized_override_is_a_separate_contribution(override_count):
     request = authored((TOOL,))
     override = source(
         request.root.owner,
@@ -389,11 +390,17 @@ async def test_effective_authorized_override_is_a_separate_contribution():
         version=request.root.version_id,
         path="override.md",
     ).model_copy(update={"origin": "authorized_override"})
-    request = request.model_copy(update={"overrides": (override,)})
+    overrides = tuple(
+        override.model_copy(update={"path": f"override-{index}.md"})
+        for index in range(override_count)
+    )
+    request = request.model_copy(update={"overrides": overrides})
     result = await compile_references(request, authority(), Lookup())
     assert set(result.scopes[0].grants.actions) == {TOOL.identity, OTHER.identity}
-    edge = next(e for e in result.scopes[0].edges if e.target == OTHER)
-    assert edge.location is not None and edge.location.path == "override.md"
+    edges = [e for e in result.scopes[0].edges if e.target == OTHER]
+    assert {e.location.path for e in edges if e.location is not None} == {
+        f"override-{index}.md" for index in range(override_count)
+    }
 
 
 @pytest.mark.anyio

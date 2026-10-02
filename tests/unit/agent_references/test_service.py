@@ -313,7 +313,10 @@ async def test_skill_service_reads_exact_markdown_and_compiles_derived_tool(
         namespace_ceiling=None,
         admission_policy_hash="a" * 64,
     )
-    compiled = await compile_references(admitted, authority, service)
+    # Only root -> skill and skill -> tool count as edges, regardless of assets.
+    compiled = await compile_references(
+        admitted, authority, service, limits=GraphLimits(edges=2)
+    )
     assert not compiled.diagnostics
     assert compiled.scopes[0].grants.actions == (tool.identity,)
     read.assert_awaited_once_with(skill_id=sid, version_id=vid)
@@ -328,6 +331,14 @@ async def test_skill_service_reads_exact_markdown_and_compiles_derived_tool(
         )
     assert oversized.value.code == Code.LIMIT_EXCEEDED
     materialize.assert_awaited_once_with(vid)
+    payload.seek(0)
+    # Even a one-edge budget must not reject materialization of two files.
+    await service.resolve(target, version_id=vid, limits=GraphLimits(edges=1))
+    payload.seek(0)
+    too_many_edges = await compile_references(
+        admitted, authority, service, limits=GraphLimits(edges=1)
+    )
+    assert too_many_edges.diagnostics[0].code == Code.LIMIT_EXCEEDED
 
 
 @pytest.mark.anyio
@@ -440,6 +451,10 @@ async def test_historical_child_binding_selects_head_once_then_reuses_turn_pin(
         version_id=parent.id,
         limits=GraphLimits(),
     )
+    call = service.session.execute.await_args
+    assert call is not None
+    statement = call.args[0]
+    assert "ORDER BY agent_preset_version_skill.skill_id" in str(statement)
     authored = AuthoredReferenceInput(
         root=loaded.sources[0],
         explicit=ExplicitDeclarations(

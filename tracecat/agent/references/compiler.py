@@ -123,7 +123,7 @@ class _Compiler:
         if root.owner.kind not in {Kind.AGENT, Kind.SKILL}:
             raise _Rejected(Code.INVALID_SOURCE, (root.owner,))
         self._record_aliases(self.alias_inputs, (root.owner,))
-        sources = (root, *candidate_sources, *authored.overrides)
+        sources = (root, *candidate_sources)
         self._validate_sources(root.owner, root.version_id, (root, *candidate_sources))
         self._validate_sources(
             root.owner, root.version_id, authored.overrides, override=True
@@ -244,7 +244,7 @@ class _Compiler:
         self._validate_sources(
             owner,
             resource.selected.version_id,
-            tuple(s for s in resource.sources if s not in overrides),
+            resource.sources,
         )
         self._validate_sources(
             owner, resource.selected.version_id, overrides, override=True
@@ -257,7 +257,7 @@ class _Compiler:
             ),
             path,
         )
-        for source in resource.sources:
+        for source in (*resource.sources, *overrides):
             self.source_bytes += len(source.markdown.encode())
             if self.source_bytes > self.limits.source_bytes:
                 raise _Rejected(Code.LIMIT_EXCEEDED, path)

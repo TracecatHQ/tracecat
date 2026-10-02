@@ -128,10 +128,7 @@ class ReferenceService(BaseWorkspaceService):
         markdown_entries = [
             entry for entry in version.files if is_markdown_path(entry.path)
         ]
-        if (
-            sum(entry.size_bytes for entry in markdown_entries) > limits.source_bytes
-            or version.file_count > limits.edges
-        ):
+        if sum(entry.size_bytes for entry in markdown_entries) > limits.source_bytes:
             raise ReferenceLookupError(Code.LIMIT_EXCEEDED)
         sources: list[AuthoredSource] = []
         files = dict(await service.get_version_file_materialization(version.id))
@@ -265,10 +262,12 @@ class ReferenceService(BaseWorkspaceService):
         skill_ids = (
             (
                 await self.session.execute(
-                    select(AgentPresetVersionSkill.skill_id).where(
+                    select(AgentPresetVersionSkill.skill_id)
+                    .where(
                         AgentPresetVersionSkill.workspace_id == self.workspace_id,
                         AgentPresetVersionSkill.preset_version_id == version.id,
                     )
+                    .order_by(AgentPresetVersionSkill.skill_id)
                 )
             )
             .scalars()
