@@ -1919,6 +1919,7 @@ function SubagentTranscript({
   ) : null
 
   if (messages.length === 0) {
+    if (isRecoveryPaused) return recoveryNotice
     let placeholder = "Waiting for the agent to start..."
     if (isError) {
       placeholder = "Could not load transcript"
@@ -1927,12 +1928,7 @@ function SubagentTranscript({
     } else if (finished) {
       placeholder = "No transcript available"
     }
-    return (
-      <div className="space-y-2">
-        <p className="text-xs text-muted-foreground">{placeholder}</p>
-        {recoveryNotice}
-      </div>
-    )
+    return <p className="text-xs text-muted-foreground">{placeholder}</p>
   }
 
   const status: ChatStatus | undefined =

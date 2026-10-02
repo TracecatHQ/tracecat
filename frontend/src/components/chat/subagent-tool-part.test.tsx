@@ -396,6 +396,9 @@ describe("subagent tool part", () => {
       expect(
         screen.getByText("Transcript recovery paused.")
       ).toBeInTheDocument()
+      expect(
+        screen.queryByText("Waiting for the agent to start...")
+      ).not.toBeInTheDocument()
       expect(mockUseGetChatVercel).toHaveBeenLastCalledWith(
         expect.objectContaining({ chatId: CHILD_ID, enabled: false })
       )
@@ -406,6 +409,9 @@ describe("subagent tool part", () => {
       expect(
         screen.queryByText("Transcript recovery paused.")
       ).not.toBeInTheDocument()
+      expect(
+        screen.getByText("Waiting for the agent to start...")
+      ).toBeInTheDocument()
       expect(mockUseGetChatVercel).toHaveBeenLastCalledWith(
         expect.objectContaining({ chatId: CHILD_ID, enabled: true })
       )
