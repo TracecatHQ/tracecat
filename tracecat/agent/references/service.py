@@ -25,6 +25,7 @@ from tracecat.agent.references.compiler_types import (
     ScopePolicy,
 )
 from tracecat.agent.references.contracts import AuthoredSource, SelectedReference
+from tracecat.agent.references.markdown import is_markdown_path
 from tracecat.agent.references.uri import ReferenceDiagnosticCode as Code
 from tracecat.agent.references.uri import ReferenceKind as Kind
 from tracecat.agent.references.uri import ReferenceTarget, ReferenceURIError
@@ -124,17 +125,18 @@ class ReferenceService(BaseWorkspaceService):
         version = await service.get_version_read(
             skill_id=skill.id, version_id=selected_id
         )
+        markdown_entries = [
+            entry for entry in version.files if is_markdown_path(entry.path)
+        ]
         if (
-            version.total_size_bytes > limits.source_bytes
+            sum(entry.size_bytes for entry in markdown_entries) > limits.source_bytes
             or version.file_count > limits.edges
         ):
             raise ReferenceLookupError(Code.LIMIT_EXCEEDED)
         sources: list[AuthoredSource] = []
         files = dict(await service.get_version_file_materialization(version.id))
         remaining = limits.source_bytes
-        for entry in version.files:
-            if not entry.path.lower().endswith(".md"):
-                continue
+        for entry in markdown_entries:
             stored = files.get(entry.path)
             if (
                 stored is None
@@ -217,6 +219,9 @@ class ReferenceService(BaseWorkspaceService):
                         raise ReferenceLookupError(Code.INVALID_SOURCE)
         except FileNotFoundError as exc:
             raise ReferenceLookupError() from exc
+        # StorageDownloadError deliberately propagates: infrastructure failures
+        # abort compilation and remain distinguishable from invalid declarations
+        # so the caller can retry. No partial graph is returned or persisted.
         if (
             len(content) != stored.size_bytes
             or hashlib.sha256(content).hexdigest() != stored.sha256

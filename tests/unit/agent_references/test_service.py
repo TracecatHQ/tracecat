@@ -219,8 +219,12 @@ async def test_missing_and_inaccessible_are_indistinguishable(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("padding", [0, 300_000])
+@pytest.mark.parametrize(
+    "source_path",
+    ["SKILL.md", "references/usage.markdown", "references/usage.MARKDOWN"],
+)
 async def test_skill_service_reads_exact_markdown_and_compiles_derived_tool(
-    service, monkeypatch, padding
+    service, monkeypatch, padding, source_path
 ):
     sid, vid = uuid4(), uuid4()
     target = ReferenceTarget(Kind.SKILL, str(sid))
@@ -236,20 +240,29 @@ async def test_skill_service_reads_exact_markdown_and_compiles_derived_tool(
         workspace_id=service.workspace_id,
         version=3,
         manifest_sha256="a" * 64,
-        file_count=1,
-        total_size_bytes=len(markdown),
+        file_count=2,
+        total_size_bytes=len(markdown) + 3_000_000,
         name="Example",
         created_at=now,
         updated_at=now,
         files=[
             SkillFileEntry(
-                path="SKILL.md",
+                path=source_path,
                 blob_id=uuid4(),
                 sha256=digest,
                 size_bytes=len(markdown),
                 content_type="text/markdown",
             )
         ],
+    )
+    published.files.append(
+        SkillFileEntry(
+            path="assets/report.pdf",
+            blob_id=uuid4(),
+            sha256="b" * 64,
+            size_bytes=3_000_000,
+            content_type="application/pdf",
+        )
     )
     read = AsyncMock(return_value=published)
     monkeypatch.setattr(SkillService, "get_version_read", read)
@@ -260,7 +273,7 @@ async def test_skill_service_reads_exact_markdown_and_compiles_derived_tool(
         size_bytes=len(markdown),
         sha256=digest,
     )
-    materialize = AsyncMock(return_value=[("SKILL.md", stored)])
+    materialize = AsyncMock(return_value=[(source_path, stored)])
     monkeypatch.setattr(SkillService, "get_version_file_materialization", materialize)
     ui_read = AsyncMock(side_effect=AssertionError("Compiler must not use UI reads"))
     monkeypatch.setattr(SkillService, "get_version_file", ui_read)
@@ -268,6 +281,7 @@ async def test_skill_service_reads_exact_markdown_and_compiles_derived_tool(
 
     @asynccontextmanager
     async def stream(**kwargs):
+        assert kwargs["key"] == "synthetic-key"
         yield AsyncMock(read=AsyncMock(side_effect=payload.read)), len(markdown)
 
     monkeypatch.setattr(blob, "open_download_stream", stream)
@@ -307,7 +321,13 @@ async def test_skill_service_reads_exact_markdown_and_compiles_derived_tool(
     ui_read.assert_not_awaited()
     edge = next(e for e in compiled.scopes[0].edges if e.target == tool)
     assert edge.source == target
-    assert edge.location is not None and edge.location.path == "SKILL.md"
+    assert edge.location is not None and edge.location.path == source_path
+    with pytest.raises(ReferenceLookupError) as oversized:
+        await service.resolve(
+            target, version_id=vid, limits=GraphLimits(source_bytes=len(markdown) - 1)
+        )
+    assert oversized.value.code == Code.LIMIT_EXCEEDED
+    materialize.assert_awaited_once_with(vid)
 
 
 @pytest.mark.anyio
@@ -597,3 +617,23 @@ async def test_configured_tool_limit_counts_expanded_mcp_tools(service, monkeypa
     with pytest.raises(ReferenceLookupError) as exc:
         await service.policy(targets, ScopePolicy())
     assert exc.value.code == Code.LIMIT_EXCEEDED
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("during_read", [False, True])
+async def test_storage_outages_remain_operational_errors(monkeypatch, during_read):
+    error = blob.StorageDownloadError(error_code="SlowDown")
+
+    @asynccontextmanager
+    async def stream(**kwargs):
+        if not during_read:
+            raise error
+        yield AsyncMock(read=AsyncMock(side_effect=error)), None
+
+    monkeypatch.setattr(blob, "open_download_stream", stream)
+    stored = SkillBlob(
+        key="synthetic-key", bucket="synthetic-bucket", size_bytes=4, sha256="a" * 64
+    )
+    with pytest.raises(blob.StorageDownloadError) as exc:
+        await ReferenceService._read_markdown(stored, 10)
+    assert exc.value is error
