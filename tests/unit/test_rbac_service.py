@@ -2128,6 +2128,7 @@ class TestRoleLevelGuard:
             "workspace:custom:read",
             "*:read",
             "o*:read",
+            "*g:read",
         ],
     )
     async def test_create_scope_rejects_reserved_prefix(
@@ -2143,6 +2144,9 @@ class TestRoleLevelGuard:
         service = RBACService(session, role=role)
         scope = await service.create_scope(name="case:escalate")
         assert scope.resource == "case"
+        # A wildcard root that matches no reserved root stays allowed.
+        wildcard = await service.create_scope(name="foo*:read")
+        assert wildcard.resource == "foo*"
         # Custom registry actions are granted through custom action scopes.
         action = await service.create_scope(name="action:tools.acme.*:execute")
         assert action.action == "execute"

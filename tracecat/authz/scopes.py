@@ -15,6 +15,7 @@ Standard actions (ordered by privilege):
 from __future__ import annotations
 
 from collections.abc import Iterable
+from fnmatch import fnmatchcase
 from typing import TYPE_CHECKING, cast, get_args
 
 from tracecat.authz.enums import OrgRole, WorkspaceRole
@@ -366,10 +367,11 @@ RESERVED_SCOPE_ROOTS: frozenset[str] = frozenset({"org", "workspace"})
 def is_reserved_scope_name(name: str) -> bool:
     """Return whether a custom scope name claims a platform-owned root.
 
-    A wildcard root is reserved too, since ``*:read`` would match ``org:read``.
+    Scope matching is fnmatch-based, so a wildcard root such as ``*`` or ``o*``
+    that matches a reserved root claims it too.
     """
     root = name.split(":", 1)[0]
-    return root in RESERVED_SCOPE_ROOTS or "*" in root
+    return any(fnmatchcase(reserved, root) for reserved in RESERVED_SCOPE_ROOTS)
 
 
 # =============================================================================

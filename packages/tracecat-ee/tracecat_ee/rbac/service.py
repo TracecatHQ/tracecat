@@ -144,7 +144,7 @@ class RBACService(BaseOrgService):
             raise TracecatValidationError(
                 f"Scope name cannot start with a reserved prefix: "
                 f"{', '.join(sorted(f'{root}:' for root in RESERVED_SCOPE_ROOTS))}, "
-                "or a wildcard"
+                "or a wildcard that matches one"
             )
 
         # Parse resource and action from scope name
