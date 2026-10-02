@@ -40,6 +40,7 @@ from tracecat.agent.backends.types import (
     SessionWorkflowContext,
 )
 from tracecat.agent.cancellation import signal_turn_cancel
+from tracecat.agent.references.contracts import ReferenceCapabilities
 from tracecat.agent.session.types import AgentSessionEntity, TurnLifecycle
 from tracecat.concurrency import rejoin_future_on_cancel
 from tracecat.contexts import ctx_role
@@ -68,6 +69,7 @@ class AgentBackend[InputT, OutputT](ABC):
     default_harness: ClassVar[str]
     supported_harnesses: ClassVar[frozenset[str]]
     history: ClassVar[SessionHistoryAdapter | None] = None
+    reference_capabilities: ClassVar[tuple[ReferenceCapabilities, ...]] = ()
     task_queue: ClassVar[str]
     priority: ClassVar[Priority] = Priority()
     retry_policy: ClassVar[RetryPolicy] = RetryPolicy(maximum_attempts=1)
