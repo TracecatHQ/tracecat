@@ -19,6 +19,9 @@ from tracecat.expressions.functions import (
     capitalize,
     cast,
     check_ip_version,
+    collect,
+    compact,
+    compact_object,
     contains_any_of,
     contains_none_of,
     create_days,
@@ -81,12 +84,19 @@ from tracecat.expressions.functions import (
     not_in,
     not_null,
     now,
+    omit_keys,
     or_,
     parse_datetime,
+    parse_email_addresses,
+    parse_key_value,
     parse_time,
+    parse_url,
+    pick_keys,
     pow,
     prettify_json,
     regex_extract,
+    regex_extract_all,
+    regex_extract_fields,
     regex_match,
     regex_not_match,
     seconds_between,
@@ -117,6 +127,443 @@ from tracecat.expressions.functions import (
     weeks_between,
     zip_iterables,
 )
+
+
+@pytest.mark.parametrize(
+    "mappings,expected",
+    [
+        # Example from the docs: group alternating keys
+        (
+            [
+                {"even_number": 2},
+                {"even_number": 4},
+                {"even_number": 6},
+                {"odd_number": 1},
+                {"odd_number": 3},
+                {"odd_number": 5},
+            ],
+            {"even_number": [2, 4, 6], "odd_number": [1, 3, 5]},
+        ),
+        # Multiple keys per mapping
+        (
+            [{"a": 1, "b": 2}, {"a": 3, "b": 4}],
+            {"a": [1, 3], "b": [2, 4]},
+        ),
+        # Ragged mappings: missing keys are simply not collected
+        (
+            [{"a": 1}, {"b": 2}, {"a": 3, "c": 4}],
+            {"a": [1, 3], "b": [2], "c": [4]},
+        ),
+        # Duplicates are preserved by default
+        (
+            [{"a": 1}, {"a": 1}, {"a": 2}],
+            {"a": [1, 1, 2]},
+        ),
+        # Heterogeneous and nested values are kept as-is
+        (
+            [{"a": None}, {"a": [1, 2]}, {"a": {"b": 3}}],
+            {"a": [None, [1, 2], {"b": 3}]},
+        ),
+        # Empty inputs
+        ([], {}),
+        ([{}, {}], {}),
+        # Non-string keys
+        ([{1: "a"}, {1: "b"}, {2: "c"}], {1: ["a", "b"], 2: ["c"]}),
+    ],
+)
+def test_collect(
+    mappings: list[dict[Any, Any]], expected: dict[Any, list[Any]]
+) -> None:
+    assert collect(mappings) == expected
+
+
+def test_collect_preserves_insertion_order() -> None:
+    result = collect([{"b": 1}, {"a": 2}, {"b": 3}])
+    assert list(result.keys()) == ["b", "a"]
+    assert result["b"] == [1, 3]
+
+
+@pytest.mark.parametrize(
+    "mappings,expected",
+    [
+        # Duplicates removed, first-seen order preserved
+        (
+            [{"a": 2}, {"a": 1}, {"a": 2}, {"a": 3}, {"a": 1}],
+            {"a": [2, 1, 3]},
+        ),
+        # Deduplication is per key
+        (
+            [{"a": 1, "b": 1}, {"a": 1, "b": 2}],
+            {"a": [1], "b": [1, 2]},
+        ),
+        # Unhashable values are deduplicated without raising
+        (
+            [{"a": {"x": 1}}, {"a": {"x": 1}}, {"a": {"x": 2}}, {"a": [1]}, {"a": [1]}],
+            {"a": [{"x": 1}, {"x": 2}, [1]]},
+        ),
+        # Mixed hashable and unhashable values
+        (
+            [{"a": 1}, {"a": [1]}, {"a": 1}, {"a": [1]}],
+            {"a": [1, [1]]},
+        ),
+        # Nothing to remove
+        ([{"a": 1}, {"a": 2}], {"a": [1, 2]}),
+        ([], {}),
+    ],
+)
+def test_collect_remove_duplicates(
+    mappings: list[dict[Any, Any]], expected: dict[Any, list[Any]]
+) -> None:
+    assert collect(mappings, remove_duplicates=True) == expected
+
+
+def test_collect_dedupe_uses_equality_semantics() -> None:
+    """Dedupe follows Python equality, so `True` collapses into `1` (as `unique` does)."""
+    result = collect([{"a": 1}, {"a": True}, {"a": 1.0}], remove_duplicates=True)
+    assert result["a"] == [1]
+
+
+def test_collect_accepts_non_dict_mappings() -> None:
+    from types import MappingProxyType
+
+    result = collect([MappingProxyType({"a": 1}), MappingProxyType({"a": 2})])
+    assert result == {"a": [1, 2]}
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        (
+            "https://example.com/path/to/page?a=1&b=2#section",
+            {
+                "scheme": "https",
+                "host": "example.com",
+                "port": None,
+                "path": "/path/to/page",
+                "query": {"a": "1", "b": "2"},
+                "fragment": "section",
+            },
+        ),
+        # Explicit port
+        (
+            "https://example.com:8443/admin",
+            {
+                "scheme": "https",
+                "host": "example.com",
+                "port": 8443,
+                "path": "/admin",
+                "query": {},
+                "fragment": "",
+            },
+        ),
+        # Repeated query params are joined
+        (
+            "https://example.com/?tag=a&tag=b",
+            {
+                "scheme": "https",
+                "host": "example.com",
+                "port": None,
+                "path": "/",
+                "query": {"tag": "a,b"},
+                "fragment": "",
+            },
+        ),
+        # Percent-encoded values are decoded
+        (
+            "https://example.com/s?q=hello%20world",
+            {
+                "scheme": "https",
+                "host": "example.com",
+                "port": None,
+                "path": "/s",
+                "query": {"q": "hello world"},
+                "fragment": "",
+            },
+        ),
+        # Host is lowercased by urlsplit, credentials are not part of the host
+        (
+            "http://user:pass@EXAMPLE.com/x",
+            {
+                "scheme": "http",
+                "host": "example.com",
+                "port": None,
+                "path": "/x",
+                "query": {},
+                "fragment": "",
+            },
+        ),
+        # Non-HTTP schemes
+        (
+            "mailto:alice@example.com",
+            {
+                "scheme": "mailto",
+                "host": None,
+                "port": None,
+                "path": "alice@example.com",
+                "query": {},
+                "fragment": "",
+            },
+        ),
+        # Bare path, no scheme or host
+        (
+            "/just/a/path",
+            {
+                "scheme": "",
+                "host": None,
+                "port": None,
+                "path": "/just/a/path",
+                "query": {},
+                "fragment": "",
+            },
+        ),
+    ],
+)
+def test_parse_url(url: str, expected: dict[str, Any]) -> None:
+    assert parse_url(url) == expected
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        # Basic key=value log line
+        ("user=bob action=login", {"user": "bob", "action": "login"}),
+        # Quoted values may contain whitespace, and quotes are stripped
+        (
+            'user=bob msg="access denied" src=10.0.0.1',
+            {"user": "bob", "msg": "access denied", "src": "10.0.0.1"},
+        ),
+        # Single quotes work too
+        ("msg='hello world'", {"msg": "hello world"}),
+        # Tokens without the separator are ignored
+        ("noise user=bob more-noise", {"user": "bob"}),
+        # Empty values are preserved
+        ("user= action=login", {"user": "", "action": "login"}),
+        # Values containing the separator keep it
+        ("url=https://example.com/?a=1", {"url": "https://example.com/?a=1"}),
+        # Later occurrences win
+        ("user=alice user=bob", {"user": "bob"}),
+        # Empty input
+        ("", {}),
+    ],
+)
+def test_parse_key_value(text: str, expected: dict[str, str]) -> None:
+    assert parse_key_value(text) == expected
+
+
+def test_parse_key_value_custom_separator() -> None:
+    assert parse_key_value("level:info msg:'all good'", separator=":") == {
+        "level": "info",
+        "msg": "all good",
+    }
+
+
+@pytest.mark.parametrize(
+    "headers,expected",
+    [
+        # Display name and bare address in one header
+        (
+            "Alice Smith <alice@example.com>, bob@example.com",
+            [
+                {
+                    "display_name": "Alice Smith",
+                    "email": "alice@example.com",
+                    "user": "alice",
+                    "domain": "example.com",
+                },
+                {
+                    "display_name": "",
+                    "email": "bob@example.com",
+                    "user": "bob",
+                    "domain": "example.com",
+                },
+            ],
+        ),
+        # Quoted display name containing a comma is not split on
+        (
+            '"Smith, Alice" <alice@example.com>',
+            [
+                {
+                    "display_name": "Smith, Alice",
+                    "email": "alice@example.com",
+                    "user": "alice",
+                    "domain": "example.com",
+                }
+            ],
+        ),
+        # Group syntax
+        (
+            "Team: alice@example.com, bob@example.com;",
+            [
+                {
+                    "display_name": "",
+                    "email": "alice@example.com",
+                    "user": "alice",
+                    "domain": "example.com",
+                },
+                {
+                    "display_name": "",
+                    "email": "bob@example.com",
+                    "user": "bob",
+                    "domain": "example.com",
+                },
+            ],
+        ),
+        # A list of headers is de-duplicated by address, first occurrence wins
+        (
+            ["Alice <alice@example.com>", "alice@example.com, bob@example.com"],
+            [
+                {
+                    "display_name": "Alice",
+                    "email": "alice@example.com",
+                    "user": "alice",
+                    "domain": "example.com",
+                },
+                {
+                    "display_name": "",
+                    "email": "bob@example.com",
+                    "user": "bob",
+                    "domain": "example.com",
+                },
+            ],
+        ),
+        # Empty header
+        ("", []),
+        ([], []),
+    ],
+)
+def test_parse_email_addresses(
+    headers: str | list[str], expected: list[dict[str, str]]
+) -> None:
+    assert parse_email_addresses(headers) == expected
+
+
+@pytest.mark.parametrize(
+    "pattern,text,expected",
+    [
+        # No groups: full matches
+        (r"\d+", "a1 b22 c333", ["1", "22", "333"]),
+        # One group: the captured group
+        (r"user=(\w+)", "user=alice user=bob", ["alice", "bob"]),
+        # First non-null group wins, mirroring regex_extract
+        (r"(?:a(\d)|b(\d))", "a1 b2", ["1", "2"]),
+        # No matches
+        (r"\d+", "no digits here", []),
+        # Overlapping-looking patterns still scan left to right
+        (r"[aeiou]", "sequoia", ["e", "u", "o", "i", "a"]),
+    ],
+)
+def test_regex_extract_all(pattern: str, text: str, expected: list[str]) -> None:
+    assert regex_extract_all(pattern, text) == expected
+
+
+def test_regex_extract_all_matches_regex_extract_on_first_match() -> None:
+    pattern = r"user=(\w+)"
+    text = "user=alice user=bob"
+    assert regex_extract_all(pattern, text)[0] == regex_extract(pattern, text)
+
+
+@pytest.mark.parametrize(
+    "pattern,text,expected",
+    [
+        # Named groups become object keys
+        (
+            r"(?P<user>\w+)@(?P<domain>[\w.]+)",
+            "contact bob@example.com now",
+            {"user": "bob", "domain": "example.com"},
+        ),
+        # Unmatched optional groups are null
+        (
+            r"(?P<user>\w+)(?:@(?P<domain>[\w.]+))?",
+            "bob",
+            {"user": "bob", "domain": None},
+        ),
+        # Unnamed groups are not included
+        (r"(\w+)@(?P<domain>[\w.]+)", "bob@example.com", {"domain": "example.com"}),
+        # A pattern with no named groups yields an empty object
+        (r"\w+", "bob", {}),
+        # No match at all
+        (r"(?P<user>\d+)", "no digits", None),
+    ],
+)
+def test_regex_extract_fields(
+    pattern: str, text: str, expected: dict[str, str | None] | None
+) -> None:
+    assert regex_extract_fields(pattern, text) == expected
+
+
+@pytest.mark.parametrize(
+    "obj,keys,expected",
+    [
+        ({"a": 1, "b": 2, "c": 3}, ["b"], {"a": 1, "c": 3}),
+        # Keys that are not present are ignored
+        ({"a": 1}, ["b", "c"], {"a": 1}),
+        # Removing everything
+        ({"a": 1, "b": 2}, ["a", "b"], {}),
+        # Nothing to remove
+        ({"a": 1}, [], {"a": 1}),
+        ({}, ["a"], {}),
+        # Non-string keys
+        ({1: "a", 2: "b"}, [1], {2: "b"}),
+    ],
+)
+def test_omit_keys(
+    obj: dict[Any, Any], keys: list[Any], expected: dict[Any, Any]
+) -> None:
+    assert omit_keys(obj, keys) == expected
+
+
+def test_omit_keys_does_not_mutate_input() -> None:
+    original = {"a": 1, "b": 2}
+    assert omit_keys(original, ["a"]) == {"b": 2}
+    assert original == {"a": 1, "b": 2}
+
+
+@pytest.mark.parametrize(
+    "obj,keys,expected",
+    [
+        ({"a": 1, "b": 2, "c": 3}, ["a", "c"], {"a": 1, "c": 3}),
+        # Missing keys are skipped rather than raising or yielding null
+        ({"a": 1}, ["a", "zzz"], {"a": 1}),
+        # Output follows the order of `keys`, not the source object
+        ({"a": 1, "b": 2}, ["b", "a"], {"b": 2, "a": 1}),
+        # Null values are still picked
+        ({"a": None}, ["a"], {"a": None}),
+        ({"a": 1}, [], {}),
+        ({}, ["a"], {}),
+    ],
+)
+def test_pick_keys(
+    obj: dict[Any, Any], keys: list[Any], expected: dict[Any, Any]
+) -> None:
+    assert pick_keys(obj, keys) == expected
+
+
+def test_pick_keys_preserves_key_order() -> None:
+    assert list(pick_keys({"a": 1, "b": 2, "c": 3}, ["c", "a"])) == ["c", "a"]
+
+
+@pytest.mark.parametrize(
+    "obj,expected",
+    [
+        ({"a": 1, "b": None, "c": 3}, {"a": 1, "c": 3}),
+        # Only nulls go, matching `compact` for lists
+        (
+            {"a": "", "b": [], "c": {}, "d": 0, "e": False, "f": None},
+            {"a": "", "b": [], "c": {}, "d": 0, "e": False},
+        ),
+        ({"a": None}, {}),
+        ({}, {}),
+    ],
+)
+def test_compact_object(obj: dict[Any, Any], expected: dict[Any, Any]) -> None:
+    assert compact_object(obj) == expected
+
+
+def test_compact_object_matches_compact_semantics() -> None:
+    """`compact_object` drops exactly what `compact` drops, but for objects."""
+    values = [1, None, "", 0, False]
+    obj = {str(i): v for i, v in enumerate(values)}
+    assert list(compact_object(obj).values()) == compact(values)
 
 
 @pytest.mark.parametrize(
