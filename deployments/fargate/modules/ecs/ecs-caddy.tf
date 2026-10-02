@@ -31,7 +31,7 @@ resource "aws_ecs_task_definition" "caddy_task_definition" {
 cat > /etc/caddy/Caddyfile <<'CONFIG'
 {
   servers {
-    trusted_proxies static ${join(" ", var.public_subnet_cidrs)} 127.0.0.1/32 ::1/128
+    trusted_proxies static ${join(" ", var.public_subnet_cidrs)}
     trusted_proxies_strict
   }
 }
@@ -130,8 +130,9 @@ resource "aws_ecs_service" "tracecat_caddy" {
     namespace = local.local_dns_namespace
 
     service {
-      port_name      = "caddy"
-      discovery_name = "caddy-service"
+      port_name             = "caddy"
+      discovery_name        = "caddy-service"
+      ingress_port_override = 15080
       timeout {
         per_request_timeout_seconds = 300
       }

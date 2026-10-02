@@ -53,15 +53,16 @@ def test_api_upstream_forwards_host_and_proto_for_oidc_discovery() -> None:
     assert "header_up X-Forwarded-Proto {scheme}" in fargate_api_upstream
 
 
-def test_fargate_caddy_trusts_alb_subnets_and_service_connect_proxy() -> None:
-    """ALB traffic reaches Caddy through its Service Connect proxy on loopback."""
+def test_fargate_alb_traffic_bypasses_service_connect_proxy() -> None:
+    """The ALB must be Caddy's direct peer so its X-Forwarded-For is trusted."""
     caddy_config = (
         REPO_ROOT / "deployments/fargate/modules/ecs/ecs-caddy.tf"
     ).read_text()
 
+    assert "ingress_port_override = 15080" in caddy_config
+    assert "containerPort = 80" in caddy_config
     assert (
-        'trusted_proxies static ${join(" ", var.public_subnet_cidrs)} 127.0.0.1/32 ::1/128'
-        in caddy_config
+        'trusted_proxies static ${join(" ", var.public_subnet_cidrs)}\n' in caddy_config
     )
     assert "trusted_proxies_strict" in caddy_config
-    assert "trusted_proxies static private_ranges" not in caddy_config
+    assert "127.0.0.1/32" not in caddy_config
