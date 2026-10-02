@@ -1516,6 +1516,308 @@
       "errors": [],
       "locations": [],
       "diagnostic_locations": []
+    },
+    {
+      "name": "bare-inline-line-leading",
+      "source": "[x](\u2028tracecat-ref://v1/tool/core.http_request)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "bare-inline-line-trailing",
+      "source": "[x](tracecat-ref://v1/tool/core.http_request\u2028)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "bare-inline-paragraph-leading",
+      "source": "[x](\u2029tracecat-ref://v1/tool/core.http_request)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "bare-inline-paragraph-trailing",
+      "source": "[x](tracecat-ref://v1/tool/core.http_request\u2029)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "bare-inline-nbsp-boundary",
+      "source": "[x](\u00a0tracecat-ref://v1/tool/core.http_request\u00a0)",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "bare-inline-vertical-tab-leading",
+      "source": "[x](\u000btracecat-ref://v1/tool/core.http_request)",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "bare-inline-form-feed-trailing",
+      "source": "[x](tracecat-ref://v1/tool/core.http_request\f)",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "bare-inline-bom-leading",
+      "source": "[x](\ufefftracecat-ref://v1/tool/core.http_request)",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "bare-inline-bom-trailing",
+      "source": "[x](tracecat-ref://v1/tool/core.http_request\ufeff)",
+      "targets": [],
+      "errors": [
+        "invalid_identity"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "bare-inline-ascii-tabs-boundary",
+      "source": "[x](\ttracecat-ref://v1/tool/core.http_request\t)",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-line-leading",
+      "source": "[x][r]\n\n[r]:\u2028tracecat-ref://v1/tool/core.http_request",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-nbsp-trailing",
+      "source": "[x][r]\n\n[r]:tracecat-ref://v1/tool/core.http_request\u00a0",
+      "targets": [],
+      "errors": [
+        "invalid_uri"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-bom-before-title",
+      "source": "[x][r]\n\n[r]:tracecat-ref://v1/tool/core.http_request\ufeff \"title\"",
+      "targets": [],
+      "errors": [
+        "invalid_identity"
+      ],
+      "locations": [],
+      "diagnostic_locations": [
+        [
+          1,
+          1
+        ]
+      ]
+    },
+    {
+      "name": "definition-tab-after-colon",
+      "source": "[x][r]\n\n[r]:\ttracecat-ref://v1/tool/core.http_request",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-tab-trailing",
+      "source": "[x][r]\n\n[r]:tracecat-ref://v1/tool/core.http_request\t",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-tabs-double-quote-title",
+      "source": "[x][r]\n\n[r]:\ttracecat-ref://v1/tool/core.http_request\t\"title\"\t",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-tabs-single-quote-title",
+      "source": "[x][r]\n\n[r]: \ttracecat-ref://v1/tool/core.http_request\t'title' \t",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-tabs-parenthesis-title",
+      "source": "[x][r]\n\n[r]:\t tracecat-ref://v1/tool/core.http_request\t(title)\t",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-tabs-angle-title",
+      "source": "[x][r]\n\n[r]:\t<tracecat-ref://v1/tool/core.http_request>\t\"title\"\t",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-tabs-next-line",
+      "source": "[x][r]\n\n[r]:\t\n\ttracecat-ref://v1/tool/core.http_request",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-tabs-next-line-title",
+      "source": "[x][r]\n\n[r]:\ttracecat-ref://v1/tool/core.http_request\t\n\t\"title\"",
+      "targets": [
+        "tracecat-ref://v1/tool/core.http_request"
+      ],
+      "errors": [],
+      "locations": [
+        [
+          1,
+          1
+        ]
+      ],
+      "diagnostic_locations": []
+    },
+    {
+      "name": "definition-control-leading",
+      "source": "[x][r]\n\n[r]:\u001ctracecat-ref://v1/tool/core.http_request",
+      "targets": [],
+      "errors": [],
+      "locations": [],
+      "diagnostic_locations": []
     }
   ]
 }

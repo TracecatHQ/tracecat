@@ -85,13 +85,28 @@ export function parseMarkdownReferences(markdown: string): {
     return { ...token, raw, text: raw }
   }
   tokenizer.link = function link(source) {
-    const token = nativeTokenizer.link.call(this, source)
+    // Only space, tab and LF separate the destination from Markdown syntax.
+    // Other whitespace belongs to the URI and must survive strict validation.
+    const rule = this.rules.inline.link
+    const linkRule = new RegExp(
+      rule.source
+        .replaceAll("\\s*", "[ \\t\\n]*")
+        .replace("[^ \\t\\n\\x00-\\x1f]*", "[^ \\t\\n\\x00-\\x1f\\x7f]*"),
+      rule.flags
+    )
+    const linkTokenizer = new manager.instance.Tokenizer(this.options)
+    linkTokenizer.rules = {
+      ...this.rules,
+      inline: { ...this.rules.inline, link: linkRule },
+    }
+    linkTokenizer.lexer = this.lexer
+    const token = linkTokenizer.link(source)
     if (!token) return token
     // Re-read the destination from the consumed source before Marked's
     // backslash unescaping loses the distinction between & and \\&.
-    const match = this.rules.inline.link.exec(token.raw)
+    const match = linkRule.exec(token.raw)
     if (match) {
-      const destination = match[2].trim().replace(/^<([\s\S]*)>$/, "$1")
+      const destination = match[2].replace(/^<([\s\S]*)>$/, "$1")
       token.href = decodeMarkdownDestination(destination)
     }
     return token
@@ -101,7 +116,11 @@ export function parseMarkdownReferences(markdown: string): {
     // exclude only actual newlines. Keep the native definition grammar otherwise.
     const rule = this.rules.block.def
     const definitionRule = new RegExp(
-      rule.source.replace("<.*?>", "<[^\\n]*?>"),
+      rule.source
+        .replace("<.*?>", "<[^\\n]*?>")
+        .replaceAll(" *", "[ \\t]*")
+        .replaceAll(" +", "[ \\t]+")
+        .replace("[^<\\s][^\\s]*", "[^<\\x00-\\x20\\x7f][^\\x00-\\x20\\x7f]*"),
       rule.flags
     )
     const definitionTokenizer = new manager.instance.Tokenizer()
