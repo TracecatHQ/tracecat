@@ -7,10 +7,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Pin NsJail 4.0 source with the in-process NSTUN policy backend.
 ENV NSJAIL_COMMIT=388b9655a696e88df3185d09e36c0378a8532904
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+COPY --chmod=0755 docker/apt-install.sh /usr/local/bin/apt-install
+
+RUN apt-install \
     git gcc g++ make pkg-config bison flex \
     libprotobuf-dev protobuf-compiler libnl-route-3-dev ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -f /usr/local/bin/apt-install
 
 COPY docker/nsjail/nstun-bounded-memory.patch /tmp/nstun-bounded-memory.patch
 
@@ -41,9 +43,11 @@ FROM python:3.12-slim-bookworm AS sandbox-rootfs
 ARG TARGETARCH
 ARG DUCKDB_VERSION=1.4.3
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+COPY --chmod=0755 docker/apt-install.sh /usr/local/bin/apt-install
+
+RUN apt-install \
     ca-certificates curl wget jq iputils-ping git openssh-client squashfs-tools \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -f /usr/local/bin/apt-install
 
 # This rootfs is shared by run_python and agent sandboxes; CLI additions here
 # are intentionally available to both. DuckDB is not available from Bookworm
@@ -131,12 +135,13 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 # Install runtime packages
-RUN apt-get update && apt-get install -y --no-install-recommends \
+COPY --chmod=0755 docker/apt-install.sh /usr/local/bin/apt-install
+
+RUN APT_UPGRADE=1 apt-install \
     acl git openssh-client xmlsec1 libmagic1 curl ca-certificates jq \
     libnl-route-3-200 libprotobuf32 libcap2-bin util-linux \
     squashfs-tools \
-    && apt-get -y upgrade \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    && rm -f /usr/local/bin/apt-install
 
 # DuckDB (CLI binary + extensions) is stored as a single physical copy inside
 # the sandbox rootfs (copied in below). The executor host — including the
