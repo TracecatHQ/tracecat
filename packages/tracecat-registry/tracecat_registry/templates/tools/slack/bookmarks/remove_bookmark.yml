@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Remove bookmark
+  description: Remove a bookmark from a Slack channel.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/bookmarks.remove
+  namespace: tools.slack
+  name: remove_bookmark
+  expects:
+    channel_id:
+      type: str
+      description: ID of the channel to remove the bookmark from.
+    bookmark_id:
+      type: str
+      description: ID of the bookmark to remove.
+  steps:
+    - ref: remove_bookmark
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: bookmarks_remove
+        params:
+          channel_id: ${{ inputs.channel_id }}
+          bookmark_id: ${{ inputs.bookmark_id }}
+  returns: ${{ steps.remove_bookmark.result }}

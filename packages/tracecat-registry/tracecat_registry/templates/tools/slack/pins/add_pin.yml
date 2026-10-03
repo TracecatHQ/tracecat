@@ -1,0 +1,24 @@
+type: action
+definition:
+  title: Add pin
+  description: Pin a message in a Slack channel.
+  display_group: Slack
+  doc_url: https://api.slack.com/methods/pins.add
+  namespace: tools.slack
+  name: add_pin
+  expects:
+    channel:
+      type: str
+      description: ID of the channel containing the message to pin.
+    timestamp:
+      type: str
+      description: Timestamp of the message to pin.
+  steps:
+    - ref: add_pin
+      action: tools.slack_sdk.call_method
+      args:
+        sdk_method: pins_add
+        params:
+          channel: ${{ inputs.channel }}
+          timestamp: ${{ inputs.timestamp }}
+  returns: ${{ steps.add_pin.result }}
