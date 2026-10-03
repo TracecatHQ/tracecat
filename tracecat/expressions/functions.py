@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import csv
 import hashlib
+import io
 import ipaddress
 import itertools
 import json
@@ -252,7 +253,9 @@ def deserialize_ndjson(x: str) -> list[dict[str, Any]]:
 
 def parse_csv(x: str) -> list[dict[str, Any]]:
     """Parse CSV string into list of objects."""
-    return [dict(row) for row in csv.DictReader(x.splitlines())]
+    # Read from a file-like object with newline="" so quoted fields keep their
+    # embedded line breaks, as the csv module requires.
+    return [dict(row) for row in csv.DictReader(io.StringIO(x, newline=""))]
 
 
 # IP address functions
