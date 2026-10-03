@@ -10,7 +10,7 @@ Defanged variants:
 - Parentheses: replace `.` with `(.)` (e.g. https://example(.).com)
 - Escaped dot: replace `.` with `\\.`  (e.g. https://example\\.com)
 - Protocol substitution: `hxxp://` instead of `http://`
-- Protocol bracket variations: `http[:]//` or `http(:)//`
+- Protocol bracket variations: `http[:]//`, `http(:)//` or `http[://]`
 - Slash replacement: `http:[/][/]` or `http:(/)(/)`
 - Complete protocol masking: `xxxx://example.com`, `xxx://example.com`
 """
@@ -75,8 +75,10 @@ def extract_urls(
             " dot ": ".",
             " colon ": ":",
             # Protocol defanging
-            "hxxp://": "http://",
-            "hxxps://": "https://",
+            # Rewrite the scheme first so it also combines with the bracket
+            # and slash variants below, e.g. hxxps[:]// and hxxp:[/][/].
+            "hxxp": "http",
+            "[://]": "://",
             "xxp://": "http://",
             "xxps://": "https://",
             "xxxp://": "http://",
