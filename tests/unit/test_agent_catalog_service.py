@@ -8,6 +8,11 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tracecat.agent.bedrock import (
+    BedrockDiscoveredModel,
+    BedrockSubscription,
+    BedrockSubscriptionStatus,
+)
 from tracecat.agent.catalog.schemas import (
     AzureOpenAICatalogUpdate,
     BedrockCatalogUpdate,
@@ -1341,3 +1346,172 @@ async def test_enabled_catalog_models_respects_workspace_override(
             workspace_id=svc_workspace.id,
             catalog_id=catalog_id,
         )
+
+
+def _bedrock_subscription(status: BedrockSubscriptionStatus) -> BedrockSubscription:
+    return {"status": status, "checked_at": "2026-01-01T00:00:00+00:00"}
+
+
+async def _bedrock_rows(
+    session: AsyncSession, org_id: uuid.UUID
+) -> dict[str, AgentCatalog]:
+    result = await session.execute(
+        select(AgentCatalog).where(
+            AgentCatalog.organization_id == org_id,
+            AgentCatalog.model_provider == "bedrock",
+        )
+    )
+    return {row.model_name: row for row in result.scalars().all()}
+
+
+@pytest.mark.anyio
+async def test_sync_bedrock_models_merges_discovered_and_manual_rows(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    org_id = svc_organization.id
+    session.add_all(
+        [
+            AgentCatalog(
+                organization_id=org_id,
+                model_provider="bedrock",
+                model_name="manual-profile",
+                model_metadata={"inference_profile_id": "us.vendor.a-v1"},
+            ),
+            AgentCatalog(
+                organization_id=org_id,
+                model_provider="bedrock",
+                model_name="manual-unlisted",
+                model_metadata={"model_id": "vendor.private-v1"},
+            ),
+            AgentCatalog(
+                organization_id=org_id,
+                model_provider="bedrock",
+                model_name="vendor.removed-v1",
+                model_metadata={
+                    "discovery_source": "bedrock",
+                    "model_id": "vendor.removed-v1",
+                },
+            ),
+        ]
+    )
+    await session.commit()
+    service = AgentCatalogService(session=session)
+
+    count = await service.sync_bedrock_models(
+        org_id=org_id,
+        models=[
+            BedrockDiscoveredModel(
+                model_name="us.vendor.a-v1",
+                display_name="Profile A",
+                foundation_model_id="vendor.a-v1",
+                inference_profile_id="us.vendor.a-v1",
+            ),
+            BedrockDiscoveredModel(
+                model_name="vendor.b-v1",
+                display_name="Model B",
+                foundation_model_id="vendor.b-v1",
+                model_id="vendor.b-v1",
+            ),
+        ],
+        subscriptions={
+            "vendor.a-v1": _bedrock_subscription("subscribed"),
+            "vendor.b-v1": _bedrock_subscription("not_subscribed"),
+            "vendor.private-v1": _bedrock_subscription("pending"),
+        },
+    )
+
+    rows = await _bedrock_rows(session, org_id)
+    assert count == 2
+    assert set(rows) == {
+        "manual-profile",
+        "manual-unlisted",
+        "us.vendor.a-v1",
+        "vendor.b-v1",
+    }
+    manual_profile = rows["manual-profile"].model_metadata or {}
+    assert manual_profile["foundation_model_id"] == "vendor.a-v1"
+    assert manual_profile["bedrock_subscription"]["status"] == "subscribed"
+    assert "discovery_source" not in manual_profile
+    manual_unlisted = rows["manual-unlisted"].model_metadata or {}
+    assert manual_unlisted["bedrock_subscription"]["status"] == "pending"
+    discovered = rows["vendor.b-v1"].model_metadata or {}
+    assert discovered["discovery_source"] == "bedrock"
+    assert discovered["model_id"] == "vendor.b-v1"
+    assert discovered["display_name"] == "Model B"
+    assert discovered["bedrock_subscription"]["status"] == "not_subscribed"
+
+
+@pytest.mark.anyio
+async def test_set_bedrock_subscription_updates_rows_for_foundation_model(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    org_id = svc_organization.id
+    target = AgentCatalog(
+        organization_id=org_id,
+        model_provider="bedrock",
+        model_name="profile",
+        model_metadata={"inference_profile_id": "us.vendor.a-v1"},
+    )
+    sibling = AgentCatalog(
+        organization_id=org_id,
+        model_provider="bedrock",
+        model_name="vendor.a-v1",
+        model_metadata={"model_id": "vendor.a-v1"},
+    )
+    other = AgentCatalog(
+        organization_id=org_id,
+        model_provider="bedrock",
+        model_name="vendor.b-v1",
+        model_metadata={"model_id": "vendor.b-v1"},
+    )
+    session.add_all([target, sibling, other])
+    await session.commit()
+
+    await AgentCatalogService(session=session).set_bedrock_subscription(
+        org_id=org_id,
+        catalog_id=target.id,
+        foundation_model_id="vendor.a-v1",
+        subscription=_bedrock_subscription("pending"),
+    )
+
+    rows = await _bedrock_rows(session, org_id)
+    target_metadata = rows["profile"].model_metadata or {}
+    assert target_metadata["foundation_model_id"] == "vendor.a-v1"
+    assert target_metadata["bedrock_subscription"]["status"] == "pending"
+    sibling_metadata = rows["vendor.a-v1"].model_metadata or {}
+    assert sibling_metadata["bedrock_subscription"]["status"] == "pending"
+    assert "bedrock_subscription" not in (rows["vendor.b-v1"].model_metadata or {})
+
+
+@pytest.mark.anyio
+async def test_update_bedrock_catalog_entry_clears_stale_subscription_on_retarget(
+    session: AsyncSession,
+    svc_organization: Organization,
+) -> None:
+    org_id = svc_organization.id
+    row = AgentCatalog(
+        organization_id=org_id,
+        model_provider="bedrock",
+        model_name="manual",
+        model_metadata={
+            "model_id": "vendor.a-v1",
+            "foundation_model_id": "vendor.a-v1",
+            "bedrock_subscription": _bedrock_subscription("subscribed"),
+        },
+    )
+    session.add(row)
+    await session.commit()
+    token = ctx_role.set(_user_role(org_id))
+    try:
+        updated = await AgentCatalogService(session=session).update_catalog_entry(
+            row,
+            org_id=org_id,
+            expected_provider="bedrock",
+            metadata={"model_id": "vendor.b-v1"},
+        )
+    finally:
+        ctx_role.reset(token)
+
+    assert updated.model_metadata == {"model_id": "vendor.b-v1"}

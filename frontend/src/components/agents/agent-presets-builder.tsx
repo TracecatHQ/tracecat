@@ -2180,10 +2180,10 @@ function AgentPresetConfigurationPanel({
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false)
 
   return (
-    <ScrollArea className="h-full">
-      <div className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm">
-        <section className="space-y-4">
-          <div className="grid gap-4">
+    <ScrollArea className="h-full [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full">
+      <div className="flex min-w-0 w-full flex-col gap-8 px-6 py-6 pb-20 text-sm">
+        <section className="min-w-0 w-full space-y-4">
+          <div className="grid min-w-0 grid-cols-1 gap-4">
             <FormField
               control={form.control}
               name="model_name"
@@ -2217,7 +2217,10 @@ function AgentPresetConfigurationPanel({
                                 providerId={selectedModel.iconId}
                                 className="size-4 shrink-0 rounded-none bg-transparent p-0"
                               />
-                              <span className="truncate">
+                              <span
+                                className="truncate"
+                                title={selectedModel.displayName}
+                              >
                                 {selectedModel.displayName}
                               </span>
                               <span className="shrink-0 text-muted-foreground">
@@ -2248,7 +2251,7 @@ function AgentPresetConfigurationPanel({
                     </FormControl>
                     <PopoverContent
                       align="start"
-                      className="w-[--radix-popover-trigger-width] p-0"
+                      className="w-[max(var(--radix-popover-trigger-width),32rem)] max-w-[calc(100vw-2rem)] p-0"
                       sideOffset={4}
                     >
                       <Command
@@ -2306,7 +2309,10 @@ function AgentPresetConfigurationPanel({
                                     providerId={option.iconId}
                                     className="size-4 shrink-0 rounded-none bg-transparent p-0"
                                   />
-                                  <span className="min-w-0 truncate">
+                                  <span
+                                    className="min-w-0 truncate"
+                                    title={option.displayName}
+                                  >
                                     {option.displayName}
                                   </span>
                                   <span className="shrink-0 text-[11px] text-muted-foreground">
