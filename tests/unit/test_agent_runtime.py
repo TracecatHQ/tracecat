@@ -1450,6 +1450,8 @@ class TestClaudeAgentRuntimeRun:
             "CronList",
             "EnterWorktree",
             "ExitWorktree",
+            "ScheduleWakeup",
+            "ListAgents",
         }
         assert options.agents is None
 
@@ -1591,6 +1593,8 @@ class TestClaudeAgentRuntimeRun:
             "CronList",
             "EnterWorktree",
             "ExitWorktree",
+            "ScheduleWakeup",
+            "ListAgents",
         }
         assert "ToolSearch" not in (agent_def.disallowedTools or [])
 
