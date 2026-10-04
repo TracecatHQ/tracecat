@@ -1536,6 +1536,7 @@ export const workspacesCreateWorkspaceMembership = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      404: "User is not a member of the organization.",
       409: "User is already a member of the workspace.",
       422: "Validation Error",
     },

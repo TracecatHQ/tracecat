@@ -16,7 +16,7 @@ from tests.support.membership import (
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.membership import ensure_member
-from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES
+from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES, ORG_ADMIN_SCOPES
 from tracecat.authz.seeding import seed_system_scopes
 from tracecat.authz.service import MembershipService
 from tracecat.db.models import (
@@ -467,6 +467,67 @@ async def test_create_membership_allows_admin_inviter(
         )
     ).scalar_one_or_none()
     assert legacy is not None
+
+
+async def test_create_membership_allows_org_admin_inviter(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    actor_user: User,
+    scoped_workspace_editor_role: DBRole,
+) -> None:
+    """An org admin adds an org member without holding workspace:member:invite."""
+    assert "workspace:member:invite" not in ORG_ADMIN_SCOPES
+    org_admin_role = DBRole(
+        id=uuid.uuid4(),
+        name="Organization Admin",
+        slug=None,
+        organization_id=organization.id,
+    )
+    session.add(org_admin_role)
+    await session.flush()
+    result = await session.execute(
+        select(Scope).where(Scope.name.in_(sorted(ORG_ADMIN_SCOPES)))
+    )
+    for scope in result.scalars().all():
+        session.add(RoleScope(role_id=org_admin_role.id, scope_id=scope.id))
+    await ensure_member(session, organization.id, actor_user.id)
+    await ensure_member(session, organization.id, member_user.id)
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=actor_user.id,
+            workspace_id=None,
+            role_id=org_admin_role.id,
+        )
+    )
+    await session.commit()
+
+    service = MembershipService(
+        session=session,
+        role=Role(
+            type="user",
+            user_id=actor_user.id,
+            organization_id=organization.id,
+            workspace_id=workspace.id,
+            service_id="tracecat-api",
+            scopes=ORG_ADMIN_SCOPES,
+        ),
+    )
+    await service.create_membership(
+        workspace_id=workspace.id,
+        params=WorkspaceMembershipCreate(user_id=member_user.id),
+    )
+
+    assert (
+        await session.execute(
+            select(Membership).where(
+                Membership.user_id == member_user.id,
+                Membership.workspace_id == workspace.id,
+            )
+        )
+    ).scalar_one_or_none() is not None
 
 
 async def test_list_workspace_members_reports_each_path_once(

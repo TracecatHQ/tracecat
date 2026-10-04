@@ -144,6 +144,7 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { WorkspaceResourceSyncActions } from "@/components/workspace-sync/resource-sync-actions"
+import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
 import {
   NewVariableDialog,
   NewVariableDialogTrigger,
@@ -1658,6 +1659,16 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
   )
 }
 
+function MembersActions() {
+  const { workspace } = useWorkspaceDetails()
+
+  if (!workspace) {
+    return null
+  }
+
+  return <AddWorkspaceMember workspace={workspace} />
+}
+
 function CredentialsActions() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const canCreateSecrets = useScopeCheck("secret:create")
@@ -2237,6 +2248,7 @@ function getPageConfig(
   if (pagePath === "/members") {
     return {
       title: "Members",
+      actions: <MembersActions />,
     }
   }
 

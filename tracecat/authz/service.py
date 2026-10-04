@@ -311,7 +311,7 @@ class MembershipService(BaseService):
         )
         return (await self.session.execute(statement)).scalars().first()
 
-    @require_scope("workspace:member:invite")
+    @require_scope("workspace:member:invite", "org:member:invite", require_all=False)
     async def create_membership(
         self,
         workspace_id: WorkspaceID,
