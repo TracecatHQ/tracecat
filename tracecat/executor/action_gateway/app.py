@@ -176,11 +176,13 @@ def _include_internal_routers(app: FastAPI) -> None:
 def _add_exception_handlers(app: FastAPI) -> None:
     """Install API-compatible exception handlers on the action gateway."""
     from fastapi import HTTPException
+    from temporalio.service import RPCError
 
     from tracecat.api.common import (
         auth_pool_exhausted_exception_handler,
         generic_exception_handler,
         http_exception_handler,
+        temporal_rpc_exception_handler,
         tracecat_exception_handler,
     )
     from tracecat.db.exceptions import AuthPoolExhaustedError
@@ -197,6 +199,7 @@ def _add_exception_handlers(app: FastAPI) -> None:
     )
     app.add_exception_handler(TracecatException, tracecat_exception_handler)
     app.add_exception_handler(TableRowError, table_row_exception_handler)
+    app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
     app.add_exception_handler(
         TracecatQueryTimeoutError,
         query_timeout_exception_handler,
