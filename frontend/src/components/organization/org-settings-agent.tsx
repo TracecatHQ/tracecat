@@ -1367,8 +1367,11 @@ function ProviderAllowlistModelRow({
         )}
       >
         <div className="min-w-0 space-y-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-            <p className="truncate text-sm font-medium">
+          <div className="flex min-w-0 items-center gap-2">
+            <p
+              className="min-w-0 truncate text-sm font-medium"
+              title={displayName || getModelLabel(model)}
+            >
               {displayName || getModelLabel(model)}
             </p>
             {subscriptionStatus ? (
@@ -1397,7 +1400,10 @@ function ProviderAllowlistModelRow({
             ) : null}
           </div>
           {displayName ? (
-            <p className="truncate text-xs text-muted-foreground">
+            <p
+              className="truncate text-xs text-muted-foreground"
+              title={model.model_name}
+            >
               {model.model_name}
             </p>
           ) : null}
@@ -1525,6 +1531,7 @@ function ProviderConnectionItem({
       const sourceName = getModelSourceLabel(model)
       return (
         model.model_name.toLowerCase().includes(normalizedQuery) ||
+        model.metadata_display_name?.toLowerCase().includes(normalizedQuery) ||
         model.model_provider.toLowerCase().includes(normalizedQuery) ||
         sourceName.toLowerCase().includes(normalizedQuery)
       )
