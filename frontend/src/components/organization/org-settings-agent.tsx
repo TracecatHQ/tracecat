@@ -481,7 +481,7 @@ function BedrockSubscriptionBadge({
         (status === "not_subscribed" ||
           status === "not_authorized" ||
           status === "error") &&
-          "border-destructive/40 text-destructive",
+          "border-red-500/40 text-red-600 dark:text-red-400",
         status === "unavailable" && "text-muted-foreground"
       )}
       variant="outline"
@@ -1367,7 +1367,7 @@ function ProviderAllowlistModelRow({
         )}
       >
         <div className="min-w-0 space-y-1">
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <p className="truncate text-sm font-medium">
               {displayName || getModelLabel(model)}
             </p>
