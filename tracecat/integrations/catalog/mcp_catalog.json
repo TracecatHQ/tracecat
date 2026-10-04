@@ -120,6 +120,13 @@
       "icon": "https://www.google.com/s2/favicons?domain=learn.microsoft.com&sz=128"
     },
     {
+      "slug": "rapid7-mcp",
+      "name": "Rapid7 InsightVM",
+      "description": "Export and analyze InsightVM vulnerabilities, remediations, and policies",
+      "category": "Endpoint",
+      "icon": "https://www.google.com/s2/favicons?domain=rapid7.com&sz=128"
+    },
+    {
       "slug": "wiz-mcp",
       "name": "Wiz",
       "description": "Investigate cloud security findings, identities, and exposures on Wiz",
@@ -416,6 +423,13 @@
       "description": "Search company knowledge and run Glean agents with permission-aware results",
       "category": "Productivity",
       "icon": "https://www.google.com/s2/favicons?domain=www.glean.com&sz=128"
+    },
+    {
+      "slug": "perplexity-mcp",
+      "name": "Perplexity",
+      "description": "Search the web, research topics, and reason over live results with Perplexity",
+      "category": "Productivity",
+      "icon": "https://cdn.simpleicons.org/perplexity"
     }
   ]
 }

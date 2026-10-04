@@ -6,7 +6,6 @@ import { z } from "zod"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import {
   Form,
   FormControl,
@@ -17,7 +16,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
-import { useOrgAppSettings, useWorkspaceManager } from "@/lib/hooks"
+import { useOrgAppSettings } from "@/lib/hooks"
 
 const appFormSchema = z.object({
   app_registry_validation_enabled: z.boolean(),
@@ -26,9 +25,7 @@ const appFormSchema = z.object({
   app_workflow_export_enabled: z.boolean(),
   app_create_workspace_on_register: z.boolean(),
   app_action_form_mode_enabled: z.boolean(),
-  app_unsafe_disable_secret_error_withholding_workspace_ids: z.array(
-    z.string()
-  ),
+  app_workflow_compact_conditions_enabled: z.boolean(),
 })
 
 type AppFormValues = z.infer<typeof appFormSchema>
@@ -56,12 +53,10 @@ export function OrgSettingsAppForm() {
         appSettings?.app_create_workspace_on_register ?? false,
       app_action_form_mode_enabled:
         appSettings?.app_action_form_mode_enabled ?? true,
-      app_unsafe_disable_secret_error_withholding_workspace_ids:
-        appSettings?.app_unsafe_disable_secret_error_withholding_workspace_ids ??
-        [],
+      app_workflow_compact_conditions_enabled:
+        appSettings?.app_workflow_compact_conditions_enabled ?? true,
     },
   })
-  const { workspaces, workspacesLoading } = useWorkspaceManager()
 
   const onSubmit = async (data: AppFormValues) => {
     try {
@@ -74,8 +69,8 @@ export function OrgSettingsAppForm() {
           app_create_workspace_on_register:
             data.app_create_workspace_on_register,
           app_action_form_mode_enabled: data.app_action_form_mode_enabled,
-          app_unsafe_disable_secret_error_withholding_workspace_ids:
-            data.app_unsafe_disable_secret_error_withholding_workspace_ids,
+          app_workflow_compact_conditions_enabled:
+            data.app_workflow_compact_conditions_enabled,
         },
       })
     } catch {
@@ -231,52 +226,22 @@ export function OrgSettingsAppForm() {
 
         <FormField
           control={form.control}
-          name="app_unsafe_disable_secret_error_withholding_workspace_ids"
+          name="app_workflow_compact_conditions_enabled"
           render={({ field }) => (
-            <FormItem className="rounded-lg border p-4">
+            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
               <div className="space-y-0.5">
-                <FormLabel>Workspaces allowed to show error details</FormLabel>
+                <FormLabel>Compact run if conditions</FormLabel>
                 <FormDescription>
-                  Unsafe: actions in these workspaces can opt into showing
-                  original error messages when secrets are in scope. Known
-                  secret values are still masked.
+                  Show run if conditions on the workflow canvas as an icon.
+                  Hover or select an action to see the full condition.
                 </FormDescription>
               </div>
-              <div className="space-y-2 pt-2">
-                {workspacesLoading && (
-                  <p className="text-xs text-muted-foreground">
-                    Loading workspaces...
-                  </p>
-                )}
-                {!workspacesLoading && (workspaces?.length ?? 0) === 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    No workspaces found.
-                  </p>
-                )}
-                {workspaces?.map((workspace) => {
-                  const checked = field.value.includes(workspace.id)
-                  return (
-                    <label
-                      key={workspace.id}
-                      className="flex items-center gap-2 text-sm"
-                    >
-                      <Checkbox
-                        checked={checked}
-                        onCheckedChange={(next) => {
-                          if (next === true) {
-                            field.onChange([...field.value, workspace.id])
-                          } else {
-                            field.onChange(
-                              field.value.filter((id) => id !== workspace.id)
-                            )
-                          }
-                        }}
-                      />
-                      <span>{workspace.name}</span>
-                    </label>
-                  )
-                })}
-              </div>
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
             </FormItem>
           )}
         />

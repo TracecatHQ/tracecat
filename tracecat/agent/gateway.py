@@ -9,6 +9,7 @@ from urllib.parse import parse_qsl, urlencode
 
 import boto3
 import httpx
+import orjson
 from aiocache import Cache
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException, Request
@@ -20,6 +21,7 @@ from litellm.exceptions import (
 )
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAuth
+from litellm.types.router import RouterRateLimitError
 from litellm.types.utils import CallTypesLiteral
 from openai import RateLimitError as OpenAIRateLimitError
 
@@ -42,6 +44,7 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.agent.tokens import verify_llm_token
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
+from tracecat.exceptions import AgentModelNotEnabledError
 from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.temporal.error_chain import iter_error_chain
@@ -301,6 +304,13 @@ async def get_provider_credentials(
                         provider,
                         creds,
                     )
+        except AgentModelNotEnabledError as exc:
+            raise ProxyException(
+                message="The selected model is not enabled for this workspace.",
+                type="tracecat_llm_model_not_enabled",
+                param=None,
+                code=403,
+            ) from exc
         except ValueError as exc:
             raise ProxyException(
                 message=str(exc),
@@ -384,6 +394,20 @@ class _ProviderAuthHTTPException(HTTPException):
     type = "tracecat_llm_provider_auth_failed"
 
 
+class _ProviderSubscriptionHTTPException(HTTPException):
+    """Retain Bedrock Marketplace subscription denials through serialization."""
+
+    type = "tracecat_llm_provider_subscription_required"
+
+
+def _is_bedrock_marketplace_denial(exc: PermissionDeniedError) -> bool:
+    # Bedrock reports missing or in-progress Marketplace model subscriptions as
+    # AccessDenied naming the aws-marketplace actions it needs.
+    return str(exc.llm_provider).startswith("bedrock") and "aws-marketplace:" in str(
+        exc
+    )
+
+
 class _ProviderQuotaHTTPException(HTTPException):
     """Retain structured provider quota evidence through gateway serialization."""
 
@@ -394,6 +418,12 @@ class _ProviderRateLimitHTTPException(HTTPException):
     """Retain generic provider throttling through gateway serialization."""
 
     type = "throttling_error"
+
+
+class _GatewayUnavailableHTTPException(HTTPException):
+    """Distinguish router availability failures from upstream throttling."""
+
+    type = "tracecat_llm_deployment_unavailable"
 
 
 def _response_has_provider_quota_code(response: httpx.Response) -> bool:
@@ -427,6 +457,13 @@ def _is_provider_quota_exceeded(error: BaseException) -> bool:
     return False
 
 
+def _anthropic_error_message(error_type: str, message: str) -> str:
+    """Preserve gateway error codes through LiteLLM's Anthropic serializer."""
+    return orjson.dumps(
+        {"type": "error", "error": {"type": error_type, "message": message}}
+    ).decode()
+
+
 class TracecatCallbackHandler(CustomLogger):
     """LiteLLM callback handler that injects provider credentials per request."""
 
@@ -441,9 +478,41 @@ class TracecatCallbackHandler(CustomLogger):
         user_api_key_dict: UserAPIKeyAuth,
         traceback_str: str | None = None,
     ) -> HTTPException | None:
-        """Label typed provider failures without copying provider details."""
+        """Label typed gateway and provider failures without copying details."""
         del request_data, user_api_key_dict, traceback_str
-        if isinstance(original_exception, AuthenticationError | PermissionDeniedError):
+        if isinstance(original_exception, ProxyException):
+            if original_exception.type in {
+                "tracecat_llm_token_invalid",
+                "tracecat_llm_provider_auth_failed",
+                "tracecat_llm_model_not_enabled",
+                "tracecat_llm_provider_subscription_required",
+                "budget_exceeded",
+            }:
+                original_exception.message = _anthropic_error_message(
+                    original_exception.type, original_exception.message
+                )
+            return None
+        if isinstance(original_exception, RouterRateLimitError):
+            # LiteLLM otherwise serializes this ValueError as a 429. Its
+            # deployment-scoped cooldown state is shared across credentials;
+            # even a cached 401 cannot establish this caller's auth failure.
+            replacement = _GatewayUnavailableHTTPException(
+                status_code=503,
+                detail="The LLM gateway has no available deployment; retry later",
+            )
+        elif isinstance(
+            original_exception, PermissionDeniedError
+        ) and _is_bedrock_marketplace_denial(original_exception):
+            replacement = _ProviderSubscriptionHTTPException(
+                status_code=original_exception.status_code,
+                detail=(
+                    "AWS Bedrock model access is not active; subscribe to the "
+                    "model or grant the required AWS Marketplace permissions"
+                ),
+            )
+        elif isinstance(
+            original_exception, AuthenticationError | PermissionDeniedError
+        ):
             replacement = _ProviderAuthHTTPException(
                 status_code=original_exception.status_code,
                 detail="The LLM provider rejected authentication or access",
@@ -463,11 +532,16 @@ class TracecatCallbackHandler(CustomLogger):
         else:
             return None
 
-        # LiteLLM's /v1/messages handler ignores the returned replacement and
-        # serializes the original exception. Normalize its wire fields too;
-        # other endpoints still use the bounded replacement above.
-        original_exception.type = replacement.type
-        original_exception.message = str(replacement.detail)
+        # /v1/messages ignores the replacement and normalizes the original
+        # message into an Anthropic envelope. Supply that envelope explicitly
+        # so its status-based mapping cannot erase auth origin or quota codes.
+        # RouterRateLimitError lacks these wire attributes; attach them for
+        # LiteLLM's duck-typed endpoint serializer.
+        original_exception.__dict__.update(
+            type=replacement.type,
+            message=_anthropic_error_message(replacement.type, str(replacement.detail)),
+            status_code=replacement.status_code,
+        )
         return replacement
 
     async def async_pre_call_hook(
@@ -555,6 +629,10 @@ class TracecatCallbackHandler(CustomLogger):
             provider=provider,
         )
         data.update(model_settings)
+
+        # LiteLLM's native Rust transport bypasses our guarded HTTPX factories.
+        # A request override takes precedence over process and environment flags.
+        data["rust"] = False
 
         if provider == CUSTOM_MODEL_PROVIDER_SLUG:
             # Custom providers expose the OpenAI-compatible protocol. Make the

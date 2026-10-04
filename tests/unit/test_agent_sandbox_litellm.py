@@ -66,7 +66,13 @@ from tracecat.agent.runtime.claude_code.broker import (
     ClaudeTurnRequest,
 )
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
-from tracecat.agent.sandbox.config import AgentResourceLimits
+from tracecat.agent.sandbox.cgroup import sandbox_cgroup
+from tracecat.agent.sandbox.config import (
+    JAILED_SHIM_ENTRYPOINT_PATH,
+    AgentResourceLimits,
+    AgentSandboxConfig,
+    build_agent_nsjail_config,
+)
 from tracecat.agent.sandbox.llm_proxy import (
     LLM_SOCKET_NAME,
     LLMRoute,
@@ -78,6 +84,7 @@ from tracecat.agent.tokens import LLMRouteClaim, mint_llm_token
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.observability.types import PlatformErrorCapture
 from tracecat.runtime.errors import (
     RetryDisposition,
@@ -135,6 +142,7 @@ class _DuckDBSmokeMessage(TypedDict):
 
 
 _STDIO_MCP_BURST_SERVER_COUNT = 12
+_STDIO_MCP_BURST_READY_TIMEOUT_SECONDS = 30
 _STDIO_MCP_BURST_FLOWS_PER_SERVER = 128
 _STDIO_MCP_BURST_FLOW_COUNT = (
     _STDIO_MCP_BURST_SERVER_COUNT * _STDIO_MCP_BURST_FLOWS_PER_SERVER
@@ -147,12 +155,8 @@ _STDIO_MCP_COMBINED_FLOW_COUNT = (
 # under retained load, which exceeds the default 128-process agent jail cap.
 # The stress test opts into a raised cap; production keeps the default.
 _STDIO_MCP_BURST_AGENT_NPROC_LIMIT = 1024
-# The jailed Claude CLI runs under Bun (JavaScriptCore), which sizes its heap
-# reservations by host RAM. On large CI runners the reservation exceeds the
-# default 4 GiB rlimit_as (enforced in MiB since the rlimit units fix), so
-# JSC aborts with "MemoryExhaustion ... Crash intentionally" (SIGABRT). The
-# burst case opts into 8 GiB address-space headroom; production keeps 4 GiB.
-_STDIO_MCP_BURST_AGENT_MEMORY_MB = 8192
+# Reserve virtual address space for Bun without raising the cgroup budget.
+_STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB = 8192
 _STDIO_MCP_BURST_PARENT_NOFILE_LIMIT = 4096
 _STDIO_MCP_BASH_TOOL_USE_ID = "toolu_tracecat_bash_network_probe"
 _STDIO_MCP_BASH_RESULT_MARKER = "TRACE_CAT_BASH_NETWORK_PROBE_OK"
@@ -341,6 +345,7 @@ def _agent_nsjail_available() -> bool:
     rootfs_path = Path(app_config.TRACECAT__SANDBOX_ROOTFS_PATH)
     return (
         platform.system() == "Linux"
+        and bool(os.environ.get("TRACECAT__AGENT_SANDBOX_CGROUP_PATH"))
         and nsjail_path.is_file()
         and os.access(nsjail_path, os.X_OK)
         and rootfs_path.is_dir()
@@ -351,10 +356,26 @@ def _set_disable_nsjail_mode(
     monkeypatch: pytest.MonkeyPatch,
     disable_nsjail: bool,
 ) -> None:
-    monkeypatch.setattr(executor_activity, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
-    monkeypatch.setattr(broker_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
-    monkeypatch.setattr(nsjail_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
-    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+    monkeypatch.setattr(
+        executor_activity,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
+    )
+    monkeypatch.setattr(
+        broker_module,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
+    )
+    monkeypatch.setattr(
+        nsjail_module,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.DIRECT if disable_nsjail else ExecutorBackendType.NSJAIL,
+    )
 
 
 def _docker_nsjail_fallback_enabled() -> bool:
@@ -667,6 +688,7 @@ class _FakeProxy:
 class _FakeLLMSocketProxy:
     instances: list[_FakeLLMSocketProxy] = []
     scripted_bash_command: str | None = None
+    scripted_bash_ready: asyncio.Event | None = None
 
     def __init__(
         self,
@@ -683,6 +705,7 @@ class _FakeLLMSocketProxy:
         self.stopped = False
         self.request_count = 0
         self.message_request_count = 0
+        self.scripted_bash_readiness_error: str | None = None
         self.requests: list[_LiteLLMRequestPayload] = []
         self._server: asyncio.Server | None = None
         type(self).instances.append(self)
@@ -746,11 +769,26 @@ class _FakeLLMSocketProxy:
         if is_nonstream_messages_request:
             self.message_request_count += 1
 
-        if (
+        request_bash = (
             self.scripted_bash_command is not None
             and self.message_request_count == 1
             and is_nonstream_messages_request
-        ):
+        )
+        if request_bash and self.scripted_bash_ready is not None:
+            try:
+                await asyncio.wait_for(
+                    self.scripted_bash_ready.wait(),
+                    timeout=_STDIO_MCP_BURST_READY_TIMEOUT_SECONDS,
+                )
+            except TimeoutError:
+                # End the fake turn so the harness can clean up, then surface
+                # the timeout in the test instead of an unhandled server task.
+                self.scripted_bash_readiness_error = (
+                    "Timed out waiting for all MCP initialization signals before Bash"
+                )
+                request_bash = False
+
+        if request_bash:
             content = [
                 {
                     "type": "tool_use",
@@ -1131,6 +1169,7 @@ async def _run_full_claude_harness_runtime_case(
     executor_input: AgentExecutorInput | None = None,
     job_dir: Path | None = None,
     scripted_bash_command: str | None = None,
+    scripted_bash_ready: asyncio.Event | None = None,
 ) -> None:
     _patch_agent_management_credentials(monkeypatch)
     _FakeLLMSocketProxy.instances.clear()
@@ -1169,6 +1208,7 @@ async def _run_full_claude_harness_runtime_case(
         "scripted_bash_command",
         scripted_bash_command,
     )
+    monkeypatch.setattr(_FakeLLMSocketProxy, "scripted_bash_ready", scripted_bash_ready)
     monkeypatch.setattr(executor_activity, "LLMSocketProxy", _FakeLLMSocketProxy)
     monkeypatch.setattr(
         nsjail_module,
@@ -1218,14 +1258,18 @@ async def _run_full_claude_harness_runtime_case(
         await broker.stop()
         shutil.rmtree(job_dir, ignore_errors=True)
 
+    assert len(_FakeLLMSocketProxy.instances) == 1
+    proxy = _FakeLLMSocketProxy.instances[0]
+    assert proxy.scripted_bash_readiness_error is None, (
+        proxy.scripted_bash_readiness_error
+    )
+
     assert result.success is True
     assert result.error is None
     assert result.output == "fake claude response"
     assert result.result_num_turns == (2 if scripted_bash_command else 1)
     assert result.messages is None
 
-    assert len(_FakeLLMSocketProxy.instances) == 1
-    proxy = _FakeLLMSocketProxy.instances[0]
     assert proxy.request_count >= 1
     assert proxy.started is True
     assert proxy.stopped is True
@@ -1264,8 +1308,11 @@ async def _run_stdio_mcp_startup_burst_case(
         updates: dict[str, int] = {}
         if config.resources.max_processes < _STDIO_MCP_BURST_AGENT_NPROC_LIMIT:
             updates["max_processes"] = _STDIO_MCP_BURST_AGENT_NPROC_LIMIT
-        if config.resources.memory_mb < _STDIO_MCP_BURST_AGENT_MEMORY_MB:
-            updates["memory_mb"] = _STDIO_MCP_BURST_AGENT_MEMORY_MB
+        if (
+            config.resources.address_space_limit_mb
+            < _STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB
+        ):
+            updates["address_space_mb"] = _STDIO_MCP_BURST_AGENT_ADDRESS_SPACE_MB
         if updates:
             config.resources = dataclasses.replace(config.resources, **updates)
         return config
@@ -1342,6 +1389,10 @@ async def _run_stdio_mcp_startup_burst_case(
 
     received_packets = 0
     initialized_servers: set[str] = set()
+    expected_initialized_servers = {
+        str(server_index) for server_index in range(_STDIO_MCP_BURST_SERVER_COUNT)
+    }
+    mcp_ready = asyncio.Event()
     loop = asyncio.get_running_loop()
 
     def echo_startup_packet(sink: socket.socket) -> None:
@@ -1354,6 +1405,8 @@ async def _run_stdio_mcp_startup_burst_case(
             received_packets += 1
         elif data.startswith(b"initialized:"):
             initialized_servers.add(data.decode().partition(":")[2])
+            if initialized_servers == expected_initialized_servers:
+                mcp_ready.set()
         sink.sendto(b"ack", source)
 
     for sink in udp_sinks:
@@ -1368,17 +1421,17 @@ async def _run_stdio_mcp_startup_burst_case(
             executor_input=executor_input,
             job_dir=job_dir,
             scripted_bash_command=bash_command,
+            # The CLI can call the model while MCP batches still initialize.
+            # Keep the turn alive until all startup flows are retained, so Bash
+            # exercises the combined flow budget rather than racing cleanup.
+            scripted_bash_ready=mcp_ready,
         )
-        await asyncio.sleep(0.1)
     finally:
         for sink in udp_sinks:
             loop.remove_reader(sink.fileno())
             sink.close()
 
     assert received_packets == _STDIO_MCP_COMBINED_FLOW_COUNT, received_packets
-    expected_initialized_servers = {
-        str(server_index) for server_index in range(_STDIO_MCP_BURST_SERVER_COUNT)
-    }
     assert initialized_servers == expected_initialized_servers, initialized_servers
 
     [proxy] = _FakeLLMSocketProxy.instances
@@ -1726,6 +1779,8 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "  api:",
                 "    build:",
                 "      target: test",
+                '    user: "0:0"',
+                "    cgroup: private",
                 *privileged_lines,
                 "    cap_add:",
                 "      - SYS_ADMIN",
@@ -1738,7 +1793,7 @@ def _run_nsjail_harness_in_docker_or_skip(
                 f"      - {json.dumps(tests_mount)}",
                 "    environment:",
                 '      TRACECAT__AGENT_NSJAIL_DOCKER_FALLBACK_CHILD: "1"',
-                '      TRACECAT__DISABLE_NSJAIL: "false"',
+                '      TRACECAT__EXECUTOR_BACKEND: "nsjail"',
                 '      TRACECAT__SANDBOX_NSJAIL_PATH: "/usr/local/bin/nsjail"',
                 '      TRACECAT__SANDBOX_ROOTFS_PATH: "/var/lib/tracecat/sandbox-rootfs"',
                 '      PYTHONDONTWRITEBYTECODE: "1"',
@@ -1761,8 +1816,11 @@ def _run_nsjail_harness_in_docker_or_skip(
                 "--build",
                 "-T",
                 "--entrypoint",
-                "sh",
+                "python",
                 "api",
+                "-m",
+                "tracecat.agent.sandbox.cgroup",
+                "sh",
                 "-lc",
                 f"uv run python -m tests.unit.test_agent_sandbox_litellm {cli_flag}",
             ],
@@ -1780,6 +1838,67 @@ def _run_nsjail_harness_in_docker_or_skip(
         pytest.fail(
             f"{failure_label}\n\nstdout:\n{result.stdout}\n\nstderr:\n{result.stderr}"
         )
+
+
+def test_agent_cgroup_oom_containment_and_recovery() -> None:
+    _run_nsjail_harness_in_docker_or_skip(cli_flag="--run-nsjail-cgroup-smoke")
+
+
+def _run_nsjail_cgroup_smoke_from_cli() -> None:
+    """Verify the real kernel boundary, then reuse the agent/DuckDB smoke."""
+    assert os.getuid() == 1001
+    root = sandbox_cgroup()
+    events_path = root / "memory.events"
+
+    def oom_kills() -> int:
+        return int(
+            dict(line.split() for line in events_path.read_text().splitlines())[
+                "oom_kill"
+            ]
+        )
+
+    before = oom_kills()
+    parent_group = Path("/proc/self/cgroup").read_text()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        job = Path(temp_dir)
+        session_paths_module.job_uv_state_dir(job).mkdir()
+        (job / Path(JAILED_SHIM_ENTRYPOINT_PATH).name).write_text(
+            "import resource\n"
+            "assert resource.getrlimit(resource.RLIMIT_AS) == (512 * 1024 * 1024,) * 2\n"
+            "data = []\nwhile True: data.append(bytearray(16 * 1024 * 1024))\n"
+        )
+        site_packages = next(
+            Path(p) for p in sys.path if "site-packages" in p and Path(p).is_dir()
+        )
+        text = build_agent_nsjail_config(
+            rootfs=Path(app_config.TRACECAT__SANDBOX_ROOTFS_PATH),
+            job_dir=job,
+            socket_dir=job,
+            config=AgentSandboxConfig(
+                resources=AgentResourceLimits(
+                    memory_mb=128,
+                    address_space_mb=512,
+                    timeout_seconds=15,
+                )
+            ),
+            site_packages_dir=site_packages,
+            llm_socket_path=None,
+            mount_control_socket=False,
+            cgroup_mount=root,
+        )
+        config_path = job / "nsjail.cfg"
+        config_path.write_text(text)
+        result = subprocess.run(
+            [app_config.TRACECAT__SANDBOX_NSJAIL_PATH, "--config", str(config_path)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 137, result.stderr
+        assert oom_kills() > before, result.stderr
+        assert Path("/proc/self/cgroup").read_text() == parent_group
+    _run_nsjail_duckdb_smoke_from_cli()
 
 
 def _run_nsjail_harness_smoke_from_cli() -> None:
@@ -1923,21 +2042,31 @@ async def _run_nproc_cap_case(
     # only thing that can bound the fork loop is the shim's RLIMIT_NPROC.
     expected = AgentResourceLimits().max_processes
     probe_lines = [
-        "import os, resource, json",
+        "import errno, os, resource, json",
         "soft, _hard = resource.getrlimit(resource.RLIMIT_NPROC)",
         "forked = 0",
+        "fork_errno = None",
         "try:",
         "    for _ in range(300):",
         "        pid = os.fork()",
         "        if pid == 0:",
         "            os._exit(0)",
         "        forked += 1",
-        "except OSError:",
-        "    pass",
-        f"capped = soft == {expected} and 0 < forked < 300",
+        "except OSError as exc:",
+        "    fork_errno = exc.errno",
         # Zombie children still count against RLIMIT_NPROC until reaped, so
-        # the un-reaped fork loop is exactly what makes the cap bind.
-        'print(json.dumps({"soft": soft, "forked": forked, "capped": capped}))',
+        # retain them until the cap binds, then reap them before Claude resumes.
+        # Otherwise the shim inherits zombies and the runtime can abort when
+        # it tries to create another thread or subprocess at the exhausted cap.
+        "finally:",
+        "    for _ in range(forked):",
+        "        os.waitpid(-1, 0)",
+        f"capped = soft == {expected} and 0 < forked < 300 and fork_errno == errno.EAGAIN",
+        "pid = os.fork()",
+        "if pid == 0:",
+        "    os._exit(0)",
+        "_, status = os.waitpid(pid, 0)",
+        'print(json.dumps({"soft": soft, "forked": forked, "capped": capped, "recovered": status == 0}))',
     ]
     bash_command = "python3 - <<'PYEOF'\n" + "\n".join(probe_lines) + "\nPYEOF"
 
@@ -1966,6 +2095,7 @@ async def _run_nproc_cap_case(
     probe = json.loads(probe_output)
     assert probe["soft"] == expected, bash_result
     assert probe["capped"] is True, bash_result
+    assert probe["recovered"] is True, bash_result
 
 
 def _run_nsjail_nproc_smoke_from_cli() -> None:
@@ -3099,7 +3229,7 @@ async def _run_executor_through_route_materialization(
 
 
 @pytest.mark.anyio
-async def test_executor_classifies_passthrough_without_base_url_as_invalid_config(
+async def test_executor_classifies_passthrough_without_base_url_as_platform(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -3116,8 +3246,8 @@ async def test_executor_classifies_passthrough_without_base_url_as_invalid_confi
 
     assert result.success is False
     assert result.classification is not None
-    assert result.classification.owner is RuntimeErrorOwner.USER
-    assert result.classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert result.classification.owner is RuntimeErrorOwner.PLATFORM
+    assert result.classification.kind is RuntimeErrorKind.AGENT_PREPARATION_FAILED
     assert result.classification.retry_disposition is RetryDisposition.NON_RETRYABLE
 
 
@@ -3465,7 +3595,9 @@ async def test_sandbox_shim_starts_bridge_and_sets_child_base_url(
 
 
 if __name__ == "__main__":
-    if sys.argv[1:] == ["--run-nsjail-harness-smoke"]:
+    if sys.argv[1:] == ["--run-nsjail-cgroup-smoke"]:
+        _run_nsjail_cgroup_smoke_from_cli()
+    elif sys.argv[1:] == ["--run-nsjail-harness-smoke"]:
         _run_nsjail_harness_smoke_from_cli()
     elif sys.argv[1:] == ["--run-nsjail-nstun-smoke"]:
         _run_nsjail_nstun_smoke_from_cli()
@@ -3485,7 +3617,7 @@ if __name__ == "__main__":
             "[--run-nsjail-harness-smoke|--run-nsjail-nstun-smoke|"
             "--run-nsjail-stdio-mcp-burst-smoke|"
             "--run-nsjail-skills-smoke|--run-nsjail-mcp-compression-smoke|"
-            "--run-nsjail-duckdb-smoke|--run-nsjail-nproc-smoke]"
+            "--run-nsjail-duckdb-smoke|--run-nsjail-nproc-smoke|--run-nsjail-cgroup-smoke]"
         )
 
 

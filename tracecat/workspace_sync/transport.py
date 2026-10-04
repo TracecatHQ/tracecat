@@ -5,28 +5,52 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import io
 import itertools
 import json
+import re
+import tarfile
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
+from email.utils import parseaddr
 from functools import partial
+from tempfile import TemporaryDirectory
 from typing import Any, Protocol
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 import httpx
 from github.GithubException import GithubException
 from github.GitTreeElement import GitTreeElement
 from github.InputGitTreeElement import InputGitTreeElement
+from github.Repository import Repository
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
 from tracecat.db.models import User
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.feature_flags import FeatureFlag, is_feature_enabled
 from tracecat.git.types import GitUrl
 from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
 from tracecat.service import BaseWorkspaceService
 from tracecat.sync import CommitInfo, PushStatus
+from tracecat.vcs.bitbucket.app import BitbucketError, BitbucketTokenService
+from tracecat.vcs.bitbucket.git import BitbucketGit, repository_path
+from tracecat.vcs.bitbucket.types import (
+    BitbucketBranch,
+    BitbucketCommit,
+    BitbucketPage,
+    BitbucketPullRequest,
+    BitbucketRepository,
+)
+from tracecat.vcs.bitbucket_data_center.app import BitbucketDataCenterTokenService
+from tracecat.vcs.bitbucket_data_center.types import (
+    DataCenterBranch,
+    DataCenterCommit,
+    DataCenterPage,
+    DataCenterPullRequest,
+)
 from tracecat.vcs.github.app import GitHubAppError, GitHubAppService
 from tracecat.vcs.gitlab.app import GitLabApiError, GitLabError, GitLabTokenService
 from tracecat.vcs.gitlab.schemas import GitLabTokenCredentials
@@ -125,32 +149,22 @@ class VcsTransportFactory(Protocol):
         ...
 
 
-def unsupported_transport(provider: VcsProvider) -> TracecatValidationError:
-    """Build the error raised for providers without a sync transport yet."""
-    return TracecatValidationError(
-        f"{provider.value} workspace sync is not implemented yet. "
-        "Bitbucket will use a token-backed VCS transport in a later pass."
-    )
-
-
 def vcs_transport_for_provider(
     provider: VcsProvider,
     *,
     session: Any,
     role: Any,
 ) -> VcsSyncTransport:
-    """Return the :class:`VcsSyncTransport` for ``provider``.
-
-    Raises :func:`unsupported_transport` for providers that are not yet
-    implemented.
-    """
+    """Return the workspace sync transport for the configured provider."""
     match provider:
         case VcsProvider.GITHUB:
             return GitHubWorkspaceSyncTransport(session=session, role=role)
         case VcsProvider.GITLAB:
             return GitLabWorkspaceSyncTransport(session=session, role=role)
+        case VcsProvider.BITBUCKET_DATA_CENTER:
+            return BitbucketDataCenterWorkspaceSyncTransport(session=session, role=role)
         case VcsProvider.BITBUCKET:
-            raise unsupported_transport(provider)
+            return BitbucketWorkspaceSyncTransport(session=session, role=role)
 
 
 def _normalized_roots(roots: Sequence[str]) -> tuple[str, ...]:
@@ -164,6 +178,11 @@ def _path_is_under_roots(path: str, roots: Sequence[str]) -> bool:
 
 
 _GITHUB_BLOB_CONCURRENCY = 8
+_GITHUB_ARCHIVE_MAX_BYTES = 64 * 1024 * 1024
+"""Largest compressed commit tarball downloaded before falling back to blob reads."""
+_GITHUB_ARCHIVE_MAX_EXTRACTED_BYTES = 256 * 1024 * 1024
+"""Largest total size of tree-matched archive members decoded from one tarball."""
+_GITHUB_ARCHIVE_TIMEOUT_SECONDS = 30.0
 """Maximum concurrent GitHub blob/content calls during sync reads and writes."""
 
 _GITHUB_TREE_CHUNK_SIZE = 128
@@ -220,9 +239,73 @@ class _GitHubTreeChunk:
 
 def _git_blob_sha(content: str) -> str:
     """Return the Git blob object SHA for UTF-8 ``content``."""
-    content_bytes = content.encode("utf-8")
-    framed_content = b"blob " + str(len(content_bytes)).encode() + b"\0" + content_bytes
+    return _git_blob_sha_bytes(content.encode("utf-8"))
+
+
+def _git_blob_sha_bytes(content: bytes) -> str:
+    """Return the Git blob object SHA for raw ``content``."""
+    framed_content = b"blob " + str(len(content)).encode() + b"\0" + content
     return hashlib.sha1(framed_content, usedforsecurity=False).hexdigest()
+
+
+class _GitHubArchiveTooLargeError(Exception):
+    """Raised when a commit tarball exceeds the download size cap."""
+
+
+async def _download_github_archive(url: str) -> bytes:
+    """Download a GitHub archive link, enforcing the compressed size cap."""
+    async with httpx.AsyncClient(
+        timeout=_GITHUB_ARCHIVE_TIMEOUT_SECONDS,
+        follow_redirects=True,
+    ) as client:
+        async with client.stream("GET", url) as response:
+            response.raise_for_status()
+            chunks: list[bytes] = []
+            size = 0
+            async for chunk in response.aiter_bytes():
+                size += len(chunk)
+                if size > _GITHUB_ARCHIVE_MAX_BYTES:
+                    raise _GitHubArchiveTooLargeError(
+                        f"Archive exceeds {_GITHUB_ARCHIVE_MAX_BYTES} bytes"
+                    )
+                chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _verified_archive_texts(
+    archive: bytes,
+    blob_shas: Mapping[str, str],
+) -> dict[str, str | None]:
+    """Decode tarball members whose bytes hash to the commit tree's blob SHA.
+
+    GitHub nests every member under a ``{owner}-{repo}-{sha}/`` directory.
+    Members that are absent (``export-ignore``) or whose bytes differ from the
+    tree blob (``export-subst``, LFS objects) are omitted, so callers read them
+    through the blob API instead. Values are ``None`` for non-UTF-8 blobs.
+    """
+    texts: dict[str, str | None] = {}
+    extracted_bytes = 0
+    with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+        for member in tar:
+            if not member.isfile():
+                continue
+            _, _, path = member.name.partition("/")
+            expected_sha = blob_shas.get(path)
+            if expected_sha is None:
+                continue
+            extracted_bytes += member.size
+            if extracted_bytes > _GITHUB_ARCHIVE_MAX_EXTRACTED_BYTES:
+                break
+            if (member_file := tar.extractfile(member)) is None:
+                continue
+            content = member_file.read()
+            if _git_blob_sha_bytes(content) != expected_sha:
+                continue
+            try:
+                texts[path] = content.decode("utf-8")
+            except UnicodeDecodeError:
+                texts[path] = None
+    return texts
 
 
 def _sized_git_tree_element(element: InputGitTreeElement) -> _SizedGitTreeElement:
@@ -446,10 +529,19 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 for item in tree.tree
                 if item.type == "blob" and item.path
             }
+            archive_texts: dict[str, str | None] = {}
+            if is_feature_enabled(FeatureFlag.WORKSPACE_SYNC_GITHUB_ARCHIVE):
+                archive_texts = await self._read_archive_texts(
+                    repo,
+                    commit_sha=commit.sha,
+                    blob_shas=blob_shas,
+                )
             blob_semaphore = asyncio.Semaphore(_GITHUB_BLOB_CONCURRENCY)
 
             async def fetch_text(path: str) -> str | None:
                 """Fetch a blob and decode it as UTF-8, or ``None`` if binary."""
+                if path in archive_texts:
+                    return archive_texts[path]
                 async with blob_semaphore:
                     blob = await asyncio.to_thread(repo.get_git_blob, blob_shas[path])
                 try:
@@ -471,6 +563,47 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e
         finally:
             gh.close()
+
+    async def _read_archive_texts(
+        self,
+        repo: Repository,
+        *,
+        commit_sha: str,
+        blob_shas: Mapping[str, str],
+    ) -> dict[str, str | None]:
+        """Read tree-verified file texts from the commit tarball in one request.
+
+        Returns an empty mapping when the archive cannot be used, so every
+        path falls back to the per-blob API.
+        """
+        try:
+            archive_url = await asyncio.to_thread(
+                repo.get_archive_link, "tarball", commit_sha
+            )
+            archive = await _download_github_archive(archive_url)
+            texts = await asyncio.to_thread(_verified_archive_texts, archive, blob_shas)
+        except (
+            GithubException,
+            httpx.HTTPError,
+            _GitHubArchiveTooLargeError,
+            tarfile.TarError,
+            OSError,
+            EOFError,
+        ) as e:
+            self.logger.warning(
+                "GitHub archive read failed; falling back to blob reads",
+                commit_sha=commit_sha,
+                error_type=type(e).__name__,
+            )
+            return {}
+        self.logger.info(
+            "Read GitHub archive for workspace sync",
+            commit_sha=commit_sha,
+            archive_bytes=len(archive),
+            tree_blob_count=len(blob_shas),
+            verified_file_count=len(texts),
+        )
+        return texts
 
     async def write_files(
         self,
@@ -1495,3 +1628,528 @@ def _gitlab_error_message(response: httpx.Response) -> str:
         if isinstance(message, dict):
             return str(message)
     return str(payload)
+
+
+class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
+    """Bitbucket Cloud API tokens, Git commits, and REST pull requests."""
+
+    service_name = "workspace_bitbucket_sync"
+
+    @asynccontextmanager
+    async def _connection(
+        self, url: GitUrl
+    ) -> AsyncIterator[tuple[httpx.AsyncClient, BitbucketGit, str]]:
+        path = repository_path(url)
+        credentials = await BitbucketTokenService(
+            session=self.session, role=self.role
+        ).get_bitbucket_token_credentials()
+        with TemporaryDirectory(prefix="tracecat-bitbucket-") as directory:
+            git = BitbucketGit(directory, credentials.token)
+            await git.initialize()
+            async with httpx.AsyncClient(
+                base_url="https://api.bitbucket.org/2.0/",
+                auth=httpx.BasicAuth(
+                    credentials.email, credentials.token.get_secret_value()
+                ),
+                timeout=30,
+                follow_redirects=False,
+            ) as client:
+                yield client, git, f"repositories/{path}"
+
+    async def _request(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, str | int] | None = None,
+        body: Mapping[str, object] | None = None,
+    ) -> httpx.Response:
+        # Pagination links are remote input: never send credentials to another origin.
+        target = client.base_url.join(path)
+        if (
+            target.scheme != "https"
+            or target.host != "api.bitbucket.org"
+            or target.port not in {None, 443}
+            or not target.path.startswith("/2.0/repositories/")
+        ):
+            raise BitbucketError("Invalid Bitbucket Cloud API URL")
+        response = await client.request(method, target, params=params, json=body)
+        if not response.is_success:
+            raise BitbucketError(
+                f"Bitbucket Cloud API request failed (HTTP {response.status_code}). Check token permissions and repository access."
+            )
+        return response
+
+    async def _model[T: BaseModel](
+        self, client: httpx.AsyncClient, path: str, model: type[T]
+    ) -> T:
+        response = await self._request(client, "GET", path)
+        return model.model_validate_json(response.content)
+
+    async def _list[T: BaseModel](
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        model: type[T],
+        *,
+        limit: int,
+        params: Mapping[str, str | int] | None = None,
+    ) -> list[T]:
+        results: list[T] = []
+        seen: set[str] = set()
+        while path and len(results) < limit:
+            if path in seen:
+                raise BitbucketError("Invalid Bitbucket pagination loop")
+            seen.add(path)
+            response = await self._request(client, "GET", path, params=params)
+            page = BitbucketPage[model].model_validate_json(response.content)
+            results.extend(page.values)
+            path = page.next or ""
+            params = None
+        return results[:limit]
+
+    async def list_branches(
+        self, *, url: GitUrl, limit: int = 100
+    ) -> list[GitBranchInfo]:
+        if limit <= 0:
+            return []
+        async with self._connection(url) as (client, _git, path):
+            repo = await self._model(client, path, BitbucketRepository)
+            branches = await self._list(
+                client,
+                f"{path}/refs/branches",
+                BitbucketBranch,
+                limit=limit,
+                params={"pagelen": 100},
+            )
+            if repo.mainbranch and all(
+                b.name != repo.mainbranch.name for b in branches
+            ):
+                branches = [repo.mainbranch, *branches[: limit - 1]]
+            return [
+                GitBranchInfo(
+                    name=b.name,
+                    is_default=bool(repo.mainbranch and b.name == repo.mainbranch.name),
+                )
+                for b in branches
+            ]
+
+    async def list_commits(
+        self, *, url: GitUrl, branch: str = "main", limit: int = 10
+    ) -> list[GitCommitInfo]:
+        if limit <= 0:
+            return []
+        async with self._connection(url) as (client, _git, path):
+            commits = await self._list(
+                client,
+                f"{path}/commits/{quote(branch, safe='')}",
+                BitbucketCommit,
+                limit=limit,
+                params={"pagelen": min(limit, 100)},
+            )
+            result: list[GitCommitInfo] = []
+            for commit in commits:
+                name, email = parseaddr(commit.author.raw)
+                result.append(
+                    GitCommitInfo(
+                        sha=commit.hash,
+                        message=commit.message,
+                        author=name or commit.author.raw,
+                        author_email=email,
+                        date=commit.date,
+                    )
+                )
+            return result
+
+    def _git_remote(self, url: GitUrl, client: httpx.AsyncClient) -> str:
+        return f"https://bitbucket.org/{repository_path(url)}.git"
+
+    async def read_files(self, *, url: GitUrl, ref: str) -> VcsTreeSnapshot:
+        async with self._connection(url) as (client, git, _path):
+            sha = await git.fetch(self._git_remote(url, client), ref)
+            entries = await git.entries(sha)
+            # Bound subprocesses when the shared selector gathers all managed files.
+            semaphore = asyncio.Semaphore(8)
+
+            async def fetch_text(path: str) -> str | None:
+                async with semaphore:
+                    content = await git.run("cat-file", "blob", entries[path].sha)
+                try:
+                    return content.decode("utf-8")
+                except UnicodeDecodeError:
+                    return None
+
+            files = await self._select_snapshot_files(
+                blob_paths=list(entries), fetch_text=fetch_text
+            )
+            tree = (await git.run("rev-parse", f"{sha}^{{tree}}")).decode().strip()
+            return VcsTreeSnapshot(
+                commit_sha=sha,
+                tree_sha=tree,
+                files=files,
+                blob_paths=frozenset(entries),
+            )
+
+    async def write_files(
+        self,
+        *,
+        url: GitUrl,
+        files: dict[str, str],
+        message: str,
+        branch: str,
+        create_pr: bool,
+        pr_base_branch: str | None = None,
+        delete_missing_paths_under: Sequence[str] = (),
+    ) -> CommitInfo:
+        message = self._normalize_commit_message(files, message)
+        async with self._connection(url) as (client, git, path):
+            repo = await self._model(client, path, BitbucketRepository)
+            if not repo.mainbranch:
+                raise BitbucketError(
+                    "Initialize the Bitbucket repository with a commit before syncing"
+                )
+            base = pr_base_branch or url.ref or repo.mainbranch.name
+            await git.run("check-ref-format", f"refs/heads/{branch}")
+            await git.run("check-ref-format", f"refs/heads/{base}")
+            if create_pr and branch == base:
+                raise TracecatValidationError(
+                    "The sync branch must differ from the pull request base branch"
+                )
+            # A filtered branch list distinguishes absence from permission/network failures.
+            branches = await self._list(
+                client,
+                f"{path}/refs/branches",
+                BitbucketBranch,
+                limit=1,
+                params={"q": f"name={json.dumps(branch)}", "pagelen": 1},
+            )
+            remote = f"https://bitbucket.org/{repository_path(url)}.git"
+            parent = await git.fetch(remote, branch if branches else base)
+            entries = await git.entries(parent)
+            roots = _normalized_roots(delete_missing_paths_under)
+            deleted = {
+                p for p in entries if p not in files and _path_is_under_roots(p, roots)
+            }
+            sha = await git.commit(parent, files, deleted, message)
+            if sha:
+                await git.push(remote, sha, branch)
+            info = CommitInfo(
+                status=PushStatus.COMMITTED if sha else PushStatus.NO_OP,
+                sha=sha,
+                ref=branch,
+                base_ref=base,
+                message=message,
+            )
+            if create_pr and (sha or branches):
+                # Retrying after PR creation failed must recover without another commit.
+                ahead = await self._list(
+                    client,
+                    f"{path}/commits/{quote(branch, safe='')}",
+                    BitbucketCommit,
+                    limit=1,
+                    params={"exclude": base, "pagelen": 1},
+                )
+                if ahead:
+                    pr_url, pr_number, pr_reused = await self._upsert_pull_request(
+                        client, path, branch, base, message
+                    )
+                    info = replace(
+                        info, pr_url=pr_url, pr_number=pr_number, pr_reused=pr_reused
+                    )
+            return info
+
+    async def _upsert_pull_request(
+        self, client: httpx.AsyncClient, path: str, branch: str, base: str, title: str
+    ) -> tuple[str, int, bool]:
+        query = (
+            f"source.branch.name={json.dumps(branch)} AND destination.branch.name={json.dumps(base)} "
+            f"AND source.repository.full_name={json.dumps(path.removeprefix('repositories/'))}"
+        )
+        existing = await self._list(
+            client,
+            f"{path}/pullrequests",
+            BitbucketPullRequest,
+            limit=1,
+            params={"state": "OPEN", "q": query, "pagelen": 1},
+        )
+        if existing:
+            pr = existing[0]
+            return pr.links.html.href, pr.id, True
+        response = await self._request(
+            client,
+            "POST",
+            f"{path}/pullrequests",
+            body={
+                "title": title.splitlines()[0],
+                "description": await self._sync_request_body(),
+                "source": {"branch": {"name": branch}},
+                "destination": {"branch": {"name": base}},
+            },
+        )
+        pr = BitbucketPullRequest.model_validate_json(response.content)
+        return pr.links.html.href, pr.id, False
+
+
+class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport):
+    """Data Center REST adapter with the same isolated Git/snapshot implementation."""
+
+    service_name = "workspace_bitbucket_data_center_sync"
+
+    @asynccontextmanager
+    async def _connection(
+        self, url: GitUrl
+    ) -> AsyncIterator[tuple[httpx.AsyncClient, BitbucketGit, str]]:
+        credentials = await BitbucketDataCenterTokenService(
+            session=self.session, role=self.role
+        ).get_bitbucket_data_center_token_credentials()
+        base = httpx.URL(credentials.base_url + "/")
+        if url.host.lower() != base.host.lower() or any(
+            not re.fullmatch(r"[A-Za-z0-9_~][A-Za-z0-9_.~-]*", part)
+            or part in {".", ".."}
+            for part in (url.org, url.repo)
+        ):
+            raise BitbucketError(
+                "Repository must match the configured Data Center instance and project/repository path"
+            )
+        with TemporaryDirectory(prefix="tracecat-bitbucket-dc-") as directory:
+            git = BitbucketGit(
+                directory, credentials.token, credential_url=str(base), bearer=True
+            )
+            await git.initialize()
+            async with httpx.AsyncClient(
+                base_url=base.join("rest/api/1.0/"),
+                headers={
+                    "Authorization": f"Bearer {credentials.token.get_secret_value()}"
+                },
+                timeout=30,
+                follow_redirects=False,
+            ) as client:
+                yield (
+                    client,
+                    git,
+                    f"projects/{quote(url.org, safe='')}/repos/{quote(url.repo, safe='')}",
+                )
+
+    def _git_remote(self, url: GitUrl, client: httpx.AsyncClient) -> str:
+        instance = str(client.base_url).removesuffix("rest/api/1.0/")
+        return f"{instance}scm/{quote(url.org, safe='')}/{quote(url.repo, safe='')}.git"
+
+    async def _request(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, str | int] | None = None,
+        body: Mapping[str, object] | None = None,
+    ) -> httpx.Response:
+        target = client.base_url.join(path)
+        base = client.base_url
+        if (
+            target.scheme != "https"
+            or target.host != base.host
+            or target.port != base.port
+            or not target.path.startswith(base.path + "projects/")
+            or target.userinfo
+            or target.fragment
+        ):
+            raise BitbucketError("Invalid Data Center API URL")
+        response = await client.request(method, target, params=params, json=body)
+        if not response.is_success:
+            raise BitbucketError(
+                f"Bitbucket Data Center API request failed (HTTP {response.status_code})"
+            )
+        return response
+
+    async def _list[T: BaseModel](
+        self,
+        client: httpx.AsyncClient,
+        path: str,
+        model: type[T],
+        *,
+        limit: int,
+        params: Mapping[str, str | int] | None = None,
+    ) -> list[T]:
+        results: list[T] = []
+        start = 0
+        while len(results) < limit:
+            response = await self._request(
+                client,
+                "GET",
+                path,
+                params={
+                    **(params or {}),
+                    "start": start,
+                    "limit": min(100, limit - len(results)),
+                },
+            )
+            page = DataCenterPage[model].model_validate_json(response.content)
+            results.extend(page.values)
+            if page.isLastPage:
+                break
+            if page.nextPageStart is None or page.nextPageStart <= start:
+                raise BitbucketError("Invalid Data Center pagination")
+            start = page.nextPageStart
+        return results[:limit]
+
+    async def list_branches(
+        self, *, url: GitUrl, limit: int = 100
+    ) -> list[GitBranchInfo]:
+        if limit <= 0:
+            return []
+        async with self._connection(url) as (client, _git, path):
+            default = await self._model(
+                client, f"{path}/default-branch", DataCenterBranch
+            )
+            branches = await self._list(
+                client, f"{path}/branches", DataCenterBranch, limit=limit
+            )
+            if all(b.name != default.name for b in branches):
+                branches = [default, *branches[: limit - 1]]
+            return [
+                GitBranchInfo(name=b.name, is_default=b.name == default.name)
+                for b in branches
+            ]
+
+    async def list_commits(
+        self, *, url: GitUrl, branch: str = "main", limit: int = 10
+    ) -> list[GitCommitInfo]:
+        if limit <= 0:
+            return []
+        async with self._connection(url) as (client, _git, path):
+            commits = await self._list(
+                client,
+                f"{path}/commits",
+                DataCenterCommit,
+                limit=limit,
+                params={"until": f"refs/heads/{branch}"},
+            )
+            return [
+                GitCommitInfo(
+                    sha=c.id,
+                    message=c.message,
+                    author=c.author.name,
+                    author_email=c.author.emailAddress,
+                    date=datetime.fromtimestamp(
+                        c.authorTimestamp / 1000, UTC
+                    ).isoformat(),
+                )
+                for c in commits
+            ]
+
+    async def write_files(
+        self,
+        *,
+        url: GitUrl,
+        files: dict[str, str],
+        message: str,
+        branch: str,
+        create_pr: bool,
+        pr_base_branch: str | None = None,
+        delete_missing_paths_under: Sequence[str] = (),
+    ) -> CommitInfo:
+        message = self._normalize_commit_message(files, message)
+        async with self._connection(url) as (client, git, path):
+            default = await self._model(
+                client, f"{path}/default-branch", DataCenterBranch
+            )
+            base = pr_base_branch or url.ref or default.name
+            await git.run("check-ref-format", f"refs/heads/{branch}")
+            await git.run("check-ref-format", f"refs/heads/{base}")
+            if create_pr and branch == base:
+                raise TracecatValidationError(
+                    "The sync branch must differ from the pull request base branch"
+                )
+            # Data Center filterText is a substring filter; require an exact name match.
+            candidates = await self._list(
+                client,
+                f"{path}/branches",
+                DataCenterBranch,
+                limit=10000,
+                params={"filterText": branch},
+            )
+            exists = any(b.name == branch for b in candidates)
+            remote = self._git_remote(url, client)
+            parent = await git.fetch(remote, branch if exists else base)
+            entries = await git.entries(parent)
+            roots = _normalized_roots(delete_missing_paths_under)
+            deleted = {
+                p for p in entries if p not in files and _path_is_under_roots(p, roots)
+            }
+            sha = await git.commit(parent, files, deleted, message)
+            if sha:
+                await git.push(remote, sha, branch)
+            info = CommitInfo(
+                status=PushStatus.COMMITTED if sha else PushStatus.NO_OP,
+                sha=sha,
+                ref=branch,
+                base_ref=base,
+                message=message,
+            )
+            if create_pr and (sha or exists):
+                ahead = await self._list(
+                    client,
+                    f"{path}/commits",
+                    DataCenterCommit,
+                    limit=1,
+                    params={
+                        "until": f"refs/heads/{branch}",
+                        "since": f"refs/heads/{base}",
+                    },
+                )
+                if ahead:
+                    pr_url, pr_number, reused = await self._upsert_pull_request(
+                        client, path, branch, base, message
+                    )
+                    info = replace(
+                        info, pr_url=pr_url, pr_number=pr_number, pr_reused=reused
+                    )
+            return info
+
+    async def _upsert_pull_request(
+        self, client: httpx.AsyncClient, path: str, branch: str, base: str, title: str
+    ) -> tuple[str, int, bool]:
+        project, repo = path.split("/")[1::2]
+        existing = await self._list(
+            client,
+            f"{path}/pull-requests",
+            DataCenterPullRequest,
+            limit=10000,
+            params={
+                "state": "OPEN",
+                "direction": "OUTGOING",
+                "at": f"refs/heads/{branch}",
+            },
+        )
+        for pr in existing:
+            if (
+                pr.fromRef.id == f"refs/heads/{branch}"
+                and pr.toRef.id == f"refs/heads/{base}"
+                and all(
+                    ref.repository.slug == unquote(repo)
+                    and ref.repository.project.key.casefold()
+                    == unquote(project).casefold()
+                    for ref in (pr.fromRef, pr.toRef)
+                )
+            ):
+                return self._pr_url(client, path, pr.id), pr.id, True
+        repository = {"slug": unquote(repo), "project": {"key": unquote(project)}}
+        response = await self._request(
+            client,
+            "POST",
+            f"{path}/pull-requests",
+            body={
+                "title": title.splitlines()[0],
+                "description": await self._sync_request_body(),
+                "fromRef": {"id": f"refs/heads/{branch}", "repository": repository},
+                "toRef": {"id": f"refs/heads/{base}", "repository": repository},
+            },
+        )
+        pr = DataCenterPullRequest.model_validate_json(response.content)
+        return self._pr_url(client, path, pr.id), pr.id, False
+
+    @staticmethod
+    def _pr_url(client: httpx.AsyncClient, path: str, number: int) -> str:
+        instance = str(client.base_url).removesuffix("rest/api/1.0/")
+        return f"{instance}{path}/pull-requests/{number}"

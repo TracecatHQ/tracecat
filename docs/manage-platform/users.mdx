@@ -33,11 +33,13 @@ In a single-tenant deployment, a superadmin account joins the default organizati
 
 ### Invitations
 
-Organization owners and admins invite from the organization Members page with `Invite member`. The dialog takes an email and the role the account receives on acceptance. The invitation stays valid for 7 days.
+Organization owners and admins invite from the organization Members page with `Invite member`. Enter an email and choose a role and scope for each entry in `Role grants`. Use `Add grant` to include more workspaces or an organization-wide role, with one grant per scope. The invitation stays valid for 7 days.
 
-![Invite member dialog](/img/manage-platform/users-invitations.png)
+![Invite member dialog with organization-wide and workspace role grants](/img/manage-platform/users-invitations.png)
 
-You send the link yourself. Open the pending member's row menu, choose `Copy invitation link`, and send it to the invitee.
+Tracecat emails the invitation when SMTP is configured. Open the pending member's row menu to choose `Resend invitation email` or `Copy invitation link`. Without SMTP, copy the link and send it to the invitee yourself.
+
+![Pending invitation menu with copy-link and resend-email actions](/img/manage-platform/users-invitation-actions.png)
 
 The link has the form `<app URL>/invitations/accept?token=<token>`. Tracecat rejects an email that is already a member or already holds a pending invitation.
 
@@ -45,11 +47,11 @@ The invitee opens the link and signs in, or signs up with basic auth. A sign-up 
 
 The signed-in email must match the invitation. A used, revoked, or expired link shows `Invitation already accepted`, `Invitation revoked`, or `Invitation expired`.
 
-After acceptance the account holds the invited role organization-wide and lands on `/workspaces`.
+After acceptance the account joins the organization, receives each role at its selected scope, and lands on `/workspaces`. From the platform admin console, you can also invite an organization member for baseline access without an organization-wide role assignment.
 
 ### Workspace membership
 
-Workspace admins add existing accounts from the workspace's Members page with `Add member`. The lookup is by email, and an unknown email fails with `Couldn't find a user with this email`. The account receives `workspace-editor` in that workspace.
+You grant workspace access from the organization Members page: use `Manage roles` to give an existing member a workspace role, or add a workspace grant when you invite someone. Workspace admins remove members from the workspace's Members page with `Remove from workspace`.
 
 ## Related pages
 

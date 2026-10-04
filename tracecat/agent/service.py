@@ -6,7 +6,7 @@ import uuid
 from collections.abc import AsyncIterator, Iterator, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Literal, NamedTuple, TypeGuard
+from typing import TYPE_CHECKING, Literal, NamedTuple, TypeGuard
 
 import orjson
 import sqlalchemy as sa
@@ -17,15 +17,32 @@ from pydantic import SecretStr
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.secrets.stores.backends import get_backend
 from tracecat_registry._internal import secrets as registry_secrets
 
 from tracecat.agent.access.service import AgentModelAccessService
+from tracecat.agent.bedrock import (
+    BedrockError,
+    BedrockSubscription,
+    create_bedrock_client,
+    get_bedrock_subscriptions,
+    list_bedrock_models,
+    resolve_foundation_model_id,
+    resolve_profile_foundation_model_id,
+    subscribe_bedrock_model,
+)
 from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.config import (
     MODEL_CONFIGS,
     PROVIDER_CREDENTIAL_CONFIGS,
     provider_display_rank,
+)
+from tracecat.agent.default_model import (
+    read_default_model_catalog_id,
+    read_default_model_name,
+    resolve_legacy_default_model,
+    resolve_org_default_model,
 )
 from tracecat.agent.gateway_providers import (
     GATEWAY_PROVIDER_SPECS,
@@ -51,21 +68,41 @@ from tracecat.db.models import (
     AgentModelAccess,
     OrganizationSecret,
     Secret,
+    Workspace,
 )
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    AgentModelNotEnabledError,
+    TracecatAuthorizationError,
+    TracecatNotFoundError,
+)
 from tracecat.integrations.aws_assume_role import build_workspace_external_id
 from tracecat.logger import logger
 from tracecat.secrets import secrets_manager
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.encryption import decrypt_keyvalues, decrypt_value
 from tracecat.secrets.enums import SecretType
-from tracecat.secrets.schemas import SecretCreate, SecretKeyValue, SecretUpdate
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.schemas import (
+    SecretCreate,
+    SecretKeyValue,
+    SecretSearch,
+    SecretUpdate,
+)
+from tracecat.secrets.service import (
+    SecretsService,
+    build_external_secret_reference,
+    is_external_reference,
+)
 from tracecat.service import BaseOrgService
 from tracecat.settings.schemas import SettingCreate, SettingUpdate, ValueType
 from tracecat.settings.service import SettingsService
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
+
+if TYPE_CHECKING:
+    from types_boto3_bedrock.client import BedrockClient
 
 _AWS_ASSUME_ROLE_EXTERNAL_ID_SECRET_KEY = "TRACECAT_AWS_EXTERNAL_ID"
+_BEDROCK_ROLE_WORKSPACE_LIMIT = 25
 _VERTEX_BEARER_TOKEN_KEY = "VERTEX_AI_BEARER_TOKEN"
 _GOOGLE_CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 _AZURE_COGNITIVE_SCOPE = "https://cognitiveservices.azure.com/.default"
@@ -324,51 +361,10 @@ class AgentManagementService(BaseOrgService):
         await self.session.commit()
 
     async def _get_default_model_name_setting(self) -> str | None:
-        """Return the stored legacy default model name, if present."""
-        setting = await self.settings_service.get_org_setting(
-            _DEFAULT_MODEL_SETTING_KEY
-        )
-        if not setting:
-            return None
-        value = self.settings_service.get_value(setting)
-        return value if isinstance(value, str) and value else None
+        return await read_default_model_name(self.session, self.organization_id)
 
     async def _get_default_model_catalog_id_setting(self) -> uuid.UUID | None:
-        """Return the stored canonical default model catalog id, if present."""
-        setting = await self.settings_service.get_org_setting(
-            _DEFAULT_MODEL_CATALOG_ID_SETTING_KEY
-        )
-        if not setting:
-            return None
-
-        value = self.settings_service.get_value(setting)
-        if not isinstance(value, str) or not value:
-            return None
-        try:
-            return uuid.UUID(value)
-        except ValueError:
-            logger.warning("Invalid default model catalog id setting", value=value)
-            return None
-
-    def _resolve_legacy_default_model_entry(
-        self,
-        enabled_models: list[AgentCatalogRead],
-        *,
-        model_name: str,
-    ) -> AgentCatalogRead | None:
-        """Resolve a legacy name-only default model selection."""
-        matches = [entry for entry in enabled_models if entry.model_name == model_name]
-        if not matches:
-            return None
-        if len(matches) == 1:
-            return matches[0]
-
-        builtin_matches = [
-            entry for entry in matches if entry.custom_provider_id is None
-        ]
-        if len(builtin_matches) == 1:
-            return builtin_matches[0]
-        return None
+        return await read_default_model_catalog_id(self.session, self.organization_id)
 
     def _to_default_model_selection(
         self, catalog_entry: AgentCatalogRead
@@ -535,6 +531,120 @@ class AgentManagementService(BaseOrgService):
         await self._auto_grant_provider_access(provider)
         return count
 
+    async def _bedrock_role_external_ids(self) -> list[str]:
+        """Workspace External IDs to try for org-level Bedrock role calls."""
+        org_id = self.role.organization_id
+        workspace_ids: list[uuid.UUID] = []
+        if self.role.workspace_id is not None:
+            workspace_ids.append(self.role.workspace_id)
+        if org_id is not None:
+            result = await self.session.execute(
+                select(Workspace.id)
+                .where(Workspace.organization_id == org_id)
+                .order_by(Workspace.created_at)
+                .limit(_BEDROCK_ROLE_WORKSPACE_LIMIT)
+            )
+            workspace_ids.extend(
+                ws_id for ws_id in result.scalars().all() if ws_id not in workspace_ids
+            )
+        return [build_workspace_external_id(ws_id) for ws_id in workspace_ids]
+
+    async def _get_bedrock_client(self) -> BedrockClient:
+        credentials = await self.get_provider_credentials("bedrock")
+        if credentials is None:
+            raise TracecatNotFoundError("No credentials configured for bedrock")
+        external_ids = (
+            await self._bedrock_role_external_ids()
+            if credentials.get("AWS_ROLE_ARN")
+            else []
+        )
+        try:
+            return await asyncio.to_thread(
+                create_bedrock_client, credentials, external_ids=external_ids
+            )
+        except BedrockError as exc:
+            raise ValueError(str(exc)) from exc
+
+    @require_scope("agent:update")
+    async def refresh_bedrock_catalog(self) -> int:
+        """Discover Bedrock chat models and their AWS subscription status.
+
+        Raises:
+            TracecatNotFoundError: If Bedrock credentials are not configured.
+            ValueError: If AWS authentication or model listing fails.
+        """
+        org_id = self.role.organization_id
+        if org_id is None:
+            raise TracecatNotFoundError("Organization not found")
+        client = await self._get_bedrock_client()
+        try:
+            models = await asyncio.to_thread(list_bedrock_models, client)
+        except BedrockError as exc:
+            raise ValueError(str(exc)) from exc
+        catalog_service = AgentCatalogService(session=self.session)
+        rows = await catalog_service.list_bedrock_rows(org_id=org_id)
+        foundation_ids = {model.foundation_model_id for model in models}
+        foundation_ids.update(
+            fm_id
+            for row in rows
+            if (fm_id := resolve_foundation_model_id(row.model_metadata or {}))
+        )
+        subscriptions = await asyncio.to_thread(
+            get_bedrock_subscriptions, client, foundation_ids
+        )
+        count = await catalog_service.sync_bedrock_models(
+            org_id=org_id,
+            models=models,
+            subscriptions=subscriptions,
+        )
+        await self._auto_grant_provider_access("bedrock")
+        return count
+
+    @require_scope("agent:update")
+    async def subscribe_bedrock_model(
+        self, catalog_id: uuid.UUID
+    ) -> BedrockSubscription:
+        """Accept the AWS Marketplace offer for a Bedrock catalog row's model.
+
+        Raises:
+            TracecatNotFoundError: If the row or Bedrock credentials are missing.
+            ValueError: If the model cannot be resolved or AWS rejects the request.
+        """
+        org_id = self.role.organization_id
+        if org_id is None:
+            raise TracecatNotFoundError("Organization not found")
+        catalog_service = AgentCatalogService(session=self.session)
+        row = await catalog_service.get_catalog_entry(
+            org_id=org_id, catalog_id=catalog_id
+        )
+        if row.model_provider != "bedrock" or row.organization_id != org_id:
+            raise TracecatNotFoundError(f"Bedrock catalog entry {catalog_id} not found")
+        metadata = row.model_metadata or {}
+        client = await self._get_bedrock_client()
+        try:
+            foundation_id = resolve_foundation_model_id(metadata)
+            profile_id = metadata.get("inference_profile_id")
+            if foundation_id is None and isinstance(profile_id, str) and profile_id:
+                foundation_id = await asyncio.to_thread(
+                    resolve_profile_foundation_model_id, client, profile_id
+                )
+            if foundation_id is None:
+                raise ValueError(
+                    f"Unable to resolve the Bedrock foundation model for {row.model_name}"
+                )
+            subscription = await asyncio.to_thread(
+                subscribe_bedrock_model, client, foundation_id
+            )
+        except BedrockError as exc:
+            raise ValueError(str(exc)) from exc
+        await catalog_service.set_bedrock_subscription(
+            org_id=org_id,
+            catalog_id=row.id,
+            foundation_model_id=foundation_id,
+            subscription=subscription,
+        )
+        return subscription
+
     @require_scope("agent:read")
     async def get_provider_credentials(self, provider: str) -> dict[str, str] | None:
         """Get decrypted credentials for an AI provider at organization level."""
@@ -551,17 +661,28 @@ class AgentManagementService(BaseOrgService):
         self,
         provider: str,
     ) -> dict[str, str] | None:
-        """Get decrypted credentials for an AI provider at workspace level."""
+        """Resolve local or externally backed workspace credentials for a provider.
+
+        Commits the caller's session before resolving an external reference.
+        """
         secret_name = self._get_workspace_credential_secret_name(provider)
-        try:
-            secret = await self.secrets_service.get_secret_by_name(
-                secret_name,
-                DEFAULT_SECRETS_ENVIRONMENT,
-            )
-            decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
-            return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
-        except TracecatNotFoundError:
+        secrets = await self.secrets_service.search_secrets(
+            SecretSearch(names={secret_name}, environment=DEFAULT_SECRETS_ENVIRONMENT)
+        )
+        if not secrets:
             return None
+        secret = secrets[0]
+        if is_external_reference(secret):
+            await check_entitlement(
+                self.session, self.role, Entitlement.EXTERNAL_SECRET_STORES
+            )
+            reference = build_external_secret_reference(secret)
+            # Release the DB connection before the remote call.
+            await self.session.commit()
+            values = await get_backend(reference.provider).resolve([reference])
+            return values.get(secret_name)
+        decrypted_keys = self.secrets_service.decrypt_keys(secret.encrypted_keys)
+        return {kv.key: kv.value.get_secret_value() for kv in decrypted_keys}
 
     async def _augment_runtime_provider_credentials(
         self, provider: str, credentials: dict[str, str]
@@ -712,7 +833,7 @@ class AgentManagementService(BaseOrgService):
             catalog_id,
             workspace_id=self.role.workspace_id,
         ):
-            raise TracecatAuthorizationError(
+            raise AgentModelNotEnabledError(
                 f"Catalog row {catalog_id!s} is not enabled for this workspace"
             )
 
@@ -1014,26 +1135,11 @@ class AgentManagementService(BaseOrgService):
             return self.settings_service.get_value(setting)
         return None
 
+    @require_scope("agent:read")
     async def get_default_model_selection(self) -> DefaultModelSelection | None:
         """Get the canonical default model selection, if it resolves cleanly."""
-        access_svc = AgentModelAccessService(session=self.session, role=self.role)
-        enabled_models = await access_svc.get_org_models()
-
-        if catalog_id := await self._get_default_model_catalog_id_setting():
-            if catalog_entry := next(
-                (entry for entry in enabled_models if entry.id == catalog_id),
-                None,
-            ):
-                return self._to_default_model_selection(catalog_entry)
-            return None
-
-        if model_name := await self._get_default_model_name_setting():
-            if catalog_entry := self._resolve_legacy_default_model_entry(
-                enabled_models,
-                model_name=model_name,
-            ):
-                return self._to_default_model_selection(catalog_entry)
-        return None
+        entry = await resolve_org_default_model(self.session, self.organization_id)
+        return self._to_default_model_selection(entry) if entry else None
 
     @contextlib.contextmanager
     def _credentials_sandbox(self, credentials: dict[str, str]) -> Iterator[None]:
@@ -1070,7 +1176,7 @@ class AgentManagementService(BaseOrgService):
 
             access_svc = AgentModelAccessService(session=self.session, role=self.role)
             enabled_models = await access_svc.get_org_models()
-            catalog_entry = self._resolve_legacy_default_model_entry(
+            catalog_entry = resolve_legacy_default_model(
                 enabled_models, model_name=legacy_name
             )
             if catalog_entry is None:

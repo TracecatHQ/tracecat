@@ -22,13 +22,13 @@ from tracecat.auth.users import (
     get_user_manager_context,
     lookup_user_by_email,
 )
+from tracecat.authz.membership import ensure_member
 from tracecat.db.engine import (
     get_async_session_bypass_rls_context_manager,
     get_async_session_context_manager,
 )
 from tracecat.db.models import (
-    Membership,
-    OrganizationMembership,
+    LegacyMembership,
     OrganizationTier,
     Tier,
     User,
@@ -349,42 +349,22 @@ async def _get_or_create_local_user(
     return user, True
 
 
-async def _ensure_org_membership(
-    *,
-    session: AsyncSession,
-    user_id: UUID,
-    organization_id: UUID,
-) -> None:
-    result = await session.execute(
-        select(OrganizationMembership).where(
-            OrganizationMembership.user_id == user_id,
-            OrganizationMembership.organization_id == organization_id,
-        )
-    )
-    if result.scalar_one_or_none() is None:
-        session.add(
-            OrganizationMembership(
-                user_id=user_id,
-                organization_id=organization_id,
-            )
-        )
-
-
-async def _ensure_workspace_membership(
+async def _ensure_legacy_workspace_membership(
     *,
     session: AsyncSession,
     user_id: UUID,
     workspace_id: UUID,
 ) -> None:
+    """Write the legacy table for app versions that still read it."""
     result = await session.execute(
-        select(Membership).where(
-            Membership.user_id == user_id,
-            Membership.workspace_id == workspace_id,
+        select(LegacyMembership).where(
+            LegacyMembership.user_id == user_id,
+            LegacyMembership.workspace_id == workspace_id,
         )
     )
     if result.scalar_one_or_none() is None:
         session.add(
-            Membership(
+            LegacyMembership(
                 user_id=user_id,
                 workspace_id=workspace_id,
             )
@@ -488,12 +468,9 @@ async def create_dev_user(
             slug=workspace_role,
         )
 
-        await _ensure_org_membership(
-            session=session,
-            user_id=user.id,
-            organization_id=organization_id,
-        )
-        await _ensure_workspace_membership(
+        # The membership row is the aggregate root the assignments hang off.
+        await ensure_member(session, organization_id, user.id)
+        await _ensure_legacy_workspace_membership(
             session=session,
             user_id=user.id,
             workspace_id=workspace.id,

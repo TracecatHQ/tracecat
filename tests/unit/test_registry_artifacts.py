@@ -1722,8 +1722,8 @@ class TestRegistryArtifactCacheLease:
                     cache._release_lease(cache_key)
 
     @pytest.mark.anyio
-    async def test_mutable_lease_without_uris_returns_no_paths(self, temp_cache_dir):
-        """An empty mutable lease exposes no unaccounted cache directory."""
+    async def test_lease_without_uris_returns_no_paths(self, temp_cache_dir):
+        """An empty lease exposes no cache directory."""
         cache = RegistryArtifactCache(temp_cache_dir)
         cache._budget_dirty = False
 
@@ -1743,7 +1743,6 @@ class TestRegistryArtifactCacheLease:
         ):
             async with cache.lease(
                 None,
-                paths_may_be_modified=True,
             ) as registry_paths:
                 assert registry_paths == []
 
@@ -3200,10 +3199,10 @@ class TestRegistryArtifactCacheEviction:
         assert cache._budget_dirty is False
 
     @pytest.mark.anyio
-    async def test_mutable_cache_hit_rescans_unknown_entry_growth(
+    async def test_external_growth_is_reconciled_by_admission_not_warm_release(
         self, temp_cache_dir: Path
     ) -> None:
-        """Writable direct actions cannot grow a warm entry outside the cap."""
+        """Unmanaged writes are observed at the next admission, not per action."""
         cache = RegistryArtifactCache(temp_cache_dir)
         await cache.ensure_swept()
         artifact_uri = "s3://bucket/mutable-cached.tar.gz"
@@ -3224,10 +3223,18 @@ class TestRegistryArtifactCacheEviction:
         ):
             async with cache.lease(
                 [artifact_uri],
-                paths_may_be_modified=True,
             ) as registry_paths:
                 assert registry_paths == [target_dir]
                 (entry_dir / "action-output.bin").write_bytes(b"x" * 4096)
+
+            assert scan_cache_snapshot.call_count == 0
+            assert entry_dir.exists()
+            # The next admission still uses a fresh on-disk measurement.
+            await cache._ensure_cache_capacity(
+                additional_bytes=0,
+                protected_key="new-entry",
+                max_bytes=max_bytes,
+            )
 
         assert scan_cache_snapshot.call_count == 1
         assert not entry_dir.exists()

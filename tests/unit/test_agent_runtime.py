@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
 import pytest
-from claude_agent_sdk import ClaudeAgentOptions, Transport
+from claude_agent_sdk import ClaudeAgentOptions, CLIConnectionError, Transport
 from claude_agent_sdk._internal.query import Query
 from claude_agent_sdk.types import (
     AssistantMessage,
@@ -31,6 +31,7 @@ from claude_agent_sdk.types import (
 
 import tracecat.agent.runtime.claude_code.runtime as runtime_module
 from tracecat.agent.common.exceptions import (
+    AgentPreparationError,
     AgentSandboxProcessExitError,
     AgentSandboxValidationError,
 )
@@ -43,6 +44,7 @@ from tracecat.agent.common.types import (
     SandboxAgentConfig,
     SandboxSubagentConfig,
 )
+from tracecat.agent.error_policy import agent_runtime_failure
 from tracecat.agent.llm_routing import (
     get_litellm_route_model,
 )
@@ -62,7 +64,8 @@ from tracecat.agent.runtime.claude_code.session_lines import (
 from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import AgentConfig
-from tracecat.runtime.errors import RuntimeErrorKind
+from tracecat.executor.enums import ExecutorBackendType
+from tracecat.runtime.errors import RetryDisposition, RuntimeErrorKind
 from tracecat.sandbox.exceptions import SandboxFileSafetyError
 
 
@@ -398,6 +401,45 @@ class TestClaudeAgentRuntimeRun:
 
         # Should have called send_stream_event
         mock_socket_writer.send_stream_event.assert_awaited()
+
+    @pytest.mark.anyio
+    async def test_ping_stream_event_is_filtered(
+        self,
+        mock_socket_writer: MagicMock,
+        mock_claude_sdk_client: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        """Keep-alive ping events are dropped before adapter conversion."""
+
+        async def mock_receive() -> Any:
+            yield StreamEvent(
+                uuid="ping-event-uuid",
+                session_id="test-sdk-session",
+                event={"type": "ping"},
+            )
+
+        mock_claude_sdk_client.receive_response = mock_receive
+
+        mock_adapter = MagicMock()
+
+        with (
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
+                return_value=mock_claude_sdk_client,
+            ),
+            patch(
+                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKAdapter",
+                return_value=mock_adapter,
+            ),
+        ):
+            runtime = ClaudeAgentRuntime(
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
+            )
+            await runtime.run(sample_init_payload)
+
+        mock_adapter.to_unified_event.assert_not_called()
+        mock_socket_writer.send_stream_event.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_stream_events_flush_new_session_lines(
@@ -1425,6 +1467,8 @@ class TestClaudeAgentRuntimeRun:
             "CronList",
             "EnterWorktree",
             "ExitWorktree",
+            "ScheduleWakeup",
+            "ListAgents",
         }
         assert options.agents is None
 
@@ -1567,6 +1611,8 @@ class TestClaudeAgentRuntimeRun:
             "CronList",
             "EnterWorktree",
             "ExitWorktree",
+            "ScheduleWakeup",
+            "ListAgents",
         }
         assert "ToolSearch" not in (agent_def.disallowedTools or [])
 
@@ -1868,7 +1914,13 @@ class TestClaudeAgentRuntimeRun:
         disable_nsjail: bool,
     ) -> None:
         """A mocked SDK turn should still drive runtime approval interrupts."""
-        monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+        monkeypatch.setattr(
+            runtime_module,
+            "TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT
+            if disable_nsjail
+            else ExecutorBackendType.NSJAIL,
+        )
         captured_options: list[Any] = []
 
         class ApprovalHookClient:
@@ -1972,7 +2024,13 @@ class TestClaudeAgentRuntimeRun:
         disable_nsjail: bool,
     ) -> None:
         """Approval continuations send a hidden tick after tool_result is seeded."""
-        monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+        monkeypatch.setattr(
+            runtime_module,
+            "TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT
+            if disable_nsjail
+            else ExecutorBackendType.NSJAIL,
+        )
         captured_options: list[Any] = []
 
         def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
@@ -2016,7 +2074,10 @@ class TestClaudeAgentRuntimeRun:
         assert messages == [
             {
                 "type": "user",
-                "message": {"role": "user", "content": "Continue."},
+                "message": {
+                    "role": "user",
+                    "content": runtime_module.APPROVAL_CONTINUATION_PROMPT,
+                },
                 "parent_tool_use_id": None,
                 "session_id": "default",
                 "isMeta": True,
@@ -2126,7 +2187,13 @@ class TestClaudeAgentRuntimeRun:
         disable_nsjail: bool,
     ) -> None:
         """Forked sessions should pass fork_session=True and not re-emit parent JSONL."""
-        monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", disable_nsjail)
+        monkeypatch.setattr(
+            runtime_module,
+            "TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT
+            if disable_nsjail
+            else ExecutorBackendType.NSJAIL,
+        )
         captured_options: list[Any] = []
 
         parent_sdk_session_id = "eed8297f-26fb-4e00-905f-a10f0cf20704"
@@ -3478,7 +3545,7 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
     ) -> None:
         """Long paths are rejected instead of guessing Claude's hash suffix."""
         with pytest.raises(
-            AgentSandboxValidationError,
+            AgentPreparationError,
             match="runtime cwd is too long",
         ):
             _claude_project_dir_name(cwd)
@@ -3496,7 +3563,7 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
         )
 
         with pytest.raises(
-            AgentSandboxValidationError,
+            AgentPreparationError,
             match="runtime cwd is too long",
         ):
             runtime._ensure_working_directory(uuid.uuid4())
@@ -3770,6 +3837,35 @@ class TestClaudeAgentRuntimeSessionLineFlushing:
         )
         assert runtime._last_seen_byte_offset == len(child_bytes)
 
+    @pytest.mark.anyio
+    async def test_resume_preparation_error_is_not_wrapped(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        tmp_path: Path,
+    ) -> None:
+        """An ExceptionGroup wrapper would hide the typed error from attribution."""
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+            session_home_dir=tmp_path / "claude-home",
+            cwd=tmp_path / "claude-project",
+        )
+        payload = replace(
+            sample_init_payload,
+            sdk_session_id="../escape",
+            sdk_session_data="{}",
+        )
+
+        with pytest.raises(AgentPreparationError) as raised:
+            await runtime._prepare_resume_and_mcp(payload, write_session_file=True)
+
+        classification = agent_runtime_failure(
+            raised.value, fallback_message="unused"
+        ).classification
+        assert classification.kind is RuntimeErrorKind.AGENT_PREPARATION_FAILED
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
 
 @pytest.mark.anyio
 async def test_run_rebuilds_sandbox_process_exit_from_transport_exit_code(
@@ -3786,7 +3882,9 @@ async def test_run_rebuilds_sandbox_process_exit_from_transport_exit_code(
     resource-limit classification, and the typed error is what propagates.
     Attribution requires a jail, so nsjail is enabled explicitly here.
     """
-    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", False)
+    monkeypatch.setattr(
+        runtime_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
     mock_claude_sdk_client.query = AsyncMock(
         side_effect=Exception("Sandbox shim failed with exit code 134")
     )
@@ -3835,11 +3933,13 @@ async def test_run_does_not_attribute_process_exit_when_nsjail_is_disabled(
 ) -> None:
     """Invariant: without a jail an exit code carries no resource-limit meaning.
 
-    TRACECAT__DISABLE_NSJAIL installs no rlimits, so a direct process that
+    The direct backend installs no rlimits, so a direct process that
     aborts or is OOM-killed by the host must stay platform-owned rather than
     blaming the caller for a cap this deployment never enforced.
     """
-    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", True)
+    monkeypatch.setattr(
+        runtime_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
+    )
     mock_claude_sdk_client.query = AsyncMock(side_effect=ValueError("Test error"))
     transport = MagicMock(spec=SandboxedCLITransport)
     transport.exit_code = 137
@@ -3859,7 +3959,7 @@ async def test_run_does_not_attribute_process_exit_when_nsjail_is_disabled(
     await_args = mock_socket_writer.send_error.await_args
     assert await_args is not None
     classification = await_args.kwargs["classification"]
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
 
 @pytest.mark.anyio
@@ -3876,7 +3976,9 @@ async def test_run_keeps_original_error_for_non_resource_limit_exit_code(
     so a failure that carries its own attribution would reach the activity as
     a process exit and lose it.
     """
-    monkeypatch.setattr(runtime_module, "TRACECAT__DISABLE_NSJAIL", False)
+    monkeypatch.setattr(
+        runtime_module, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+    )
     mock_claude_sdk_client.query = AsyncMock(
         side_effect=AgentSandboxValidationError("Bad agent config")
     )
@@ -3898,7 +4000,7 @@ async def test_run_keeps_original_error_for_non_resource_limit_exit_code(
     await_args = mock_socket_writer.send_error.await_args
     assert await_args is not None
     classification = await_args.kwargs["classification"]
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
 
 @pytest.mark.anyio
@@ -3932,7 +4034,7 @@ async def test_run_keeps_original_error_when_sandbox_process_did_not_exit(
     assert await_args is not None
     assert await_args.args[0] == "Test error"
     classification = await_args.kwargs["classification"]
-    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+    assert classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
 
     # Nothing was re-attributed, so the log carries no cause fields.
     log_args = mock_socket_writer.send_log.await_args
@@ -4017,7 +4119,7 @@ async def test_initialization_failure_preserves_error_and_diagnostics_before_cle
     assert isinstance(excinfo.value.__cause__, TimeoutError)
     assert "ECONNREFUSED" in "\n".join(excinfo.value.__notes__)
     assert "synthetic-secret" not in "\n".join(excinfo.value.__notes__)
-    assert order == ["terminal", "diagnostics", "disconnect"]
+    assert order == ["diagnostics", "terminal", "disconnect"]
     transport.close.assert_awaited_once()
     mock_claude_sdk_client.query.assert_not_awaited()
     assert runtime.client is None
@@ -4177,3 +4279,145 @@ async def test_runtime_does_not_apply_diagnostic_deadline_to_terminal_delivery(
             await runtime.run(sample_init_payload)
     assert delivered.is_set()
     assert excinfo.value is original
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("interrupt_in_flight", [False, True])
+@pytest.mark.parametrize("runtime_failed", [False, True])
+@pytest.mark.parametrize(
+    "connection_error", [CLIConnectionError, BrokenPipeError, ConnectionResetError]
+)
+async def test_interrupt_racing_sdk_teardown_preserves_turn_outcome(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    interrupt_in_flight: bool,
+    runtime_failed: bool,
+    connection_error: type[Exception],
+) -> None:
+    """Late stop requests must not replace a completed or failed turn's outcome."""
+    response_started = asyncio.Event()
+    finish_response = asyncio.Event()
+    disconnect_started = asyncio.Event()
+    finish_disconnect = asyncio.Event()
+    interrupt_started = asyncio.Event()
+
+    async def receive_response() -> Any:
+        response_started.set()
+        await finish_response.wait()
+        if runtime_failed:
+            raise ValueError("synthetic runtime failure")
+        return
+        yield  # noqa: B901
+
+    async def disconnect() -> None:
+        disconnect_started.set()
+        await finish_disconnect.wait()
+
+    async def interrupt() -> None:
+        interrupt_started.set()
+        await disconnect_started.wait()
+        raise connection_error("synthetic closed transport")
+
+    mock_claude_sdk_client.receive_response = receive_response
+    mock_claude_sdk_client.disconnect.side_effect = disconnect
+    mock_claude_sdk_client.interrupt.side_effect = interrupt
+    runtime = ClaudeAgentRuntime(
+        mock_socket_writer, transport_factory=lambda _: MagicMock(spec=Transport)
+    )
+    with patch.object(
+        runtime_module, "ClaudeSDKClient", return_value=mock_claude_sdk_client
+    ):
+        async with asyncio.timeout(5):
+            run_task = asyncio.create_task(runtime.run(sample_init_payload))
+            await response_started.wait()
+            interrupt_task = None
+            if interrupt_in_flight:
+                interrupt_task = asyncio.create_task(
+                    runtime.interrupt(reason="user_cancel")
+                )
+                await interrupt_started.wait()
+            finish_response.set()
+            await disconnect_started.wait()
+            try:
+                if interrupt_task is not None:
+                    await interrupt_task
+                else:
+                    await runtime.interrupt(reason="user_cancel")
+                    mock_claude_sdk_client.interrupt.assert_not_awaited()
+            finally:
+                finish_disconnect.set()
+                if runtime_failed:
+                    with pytest.raises(ValueError, match="synthetic runtime failure"):
+                        await run_task
+                else:
+                    await run_task
+
+    if runtime_failed:
+        mock_socket_writer.send_error.assert_awaited_once()
+    else:
+        mock_socket_writer.send_error.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "connection_error", [CLIConnectionError, BrokenPipeError, ConnectionResetError]
+)
+async def test_interrupt_preserves_live_connection_error(
+    mock_socket_writer: MagicMock,
+    connection_error: type[Exception],
+) -> None:
+    runtime = ClaudeAgentRuntime(
+        mock_socket_writer, transport_factory=lambda _: MagicMock()
+    )
+    client = MagicMock()
+    client.interrupt = AsyncMock(side_effect=connection_error("synthetic live failure"))
+    runtime.client = client
+    runtime._client_connected_event.set()
+    runtime._query_sent_event.set()
+
+    with pytest.raises(connection_error, match="synthetic live failure"):
+        await runtime.interrupt(reason="user_cancel")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("initialization_failed", [False, True])
+async def test_blocked_diagnostic_sink_does_not_prevent_terminal_error(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    monkeypatch: pytest.MonkeyPatch,
+    initialization_failed: bool,
+) -> None:
+    monkeypatch.setattr(runtime_module, "DIAGNOSTIC_TIMEOUT_SECONDS", 0.01)
+    original = ValueError("synthetic runtime failure")
+    failing_call = (
+        mock_claude_sdk_client.connect
+        if initialization_failed
+        else mock_claude_sdk_client.query
+    )
+    failing_call.side_effect = original
+    log_cancelled = asyncio.Event()
+
+    async def send_log(_level: str, message: str, **_extra: object) -> None:
+        if message in {"Claude SDK initialization failed", "Runtime error"}:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                log_cancelled.set()
+
+    mock_socket_writer.send_log.side_effect = send_log
+    with patch.object(
+        runtime_module, "ClaudeSDKClient", return_value=mock_claude_sdk_client
+    ):
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock(spec=Transport)
+        )
+        async with asyncio.timeout(1):
+            with pytest.raises(ValueError) as excinfo:
+                await runtime.run(sample_init_payload)
+
+    assert excinfo.value is original
+    assert log_cancelled.is_set()
+    mock_socket_writer.send_error.assert_awaited_once()
+    mock_claude_sdk_client.disconnect.assert_awaited_once()

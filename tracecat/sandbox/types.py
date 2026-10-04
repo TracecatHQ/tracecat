@@ -129,6 +129,8 @@ class ResourceLimits:
 
     Attributes:
         memory_mb: Maximum memory in megabytes (default 2048 = 2 GiB).
+        address_space_mb: Optional per-process virtual-memory cap in MiB.
+            Defaults to memory_mb.
         cpu_seconds: Maximum CPU time in seconds.
         max_file_size_mb: Maximum file size in megabytes.
         max_open_files: Maximum number of open file descriptors.
@@ -142,6 +144,20 @@ class ResourceLimits:
     max_open_files: int = 256
     max_processes: int = 64
     timeout_seconds: int = 300
+    address_space_mb: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.address_space_mb is not None and self.address_space_mb <= 0:
+            raise ValueError("address_space_mb must be positive")
+
+    @property
+    def address_space_limit_mb(self) -> int:
+        """Use an explicit virtual-memory cap when provided by agent probes."""
+        return (
+            self.address_space_mb
+            if self.address_space_mb is not None
+            else self.memory_mb
+        )
 
 
 @dataclass(frozen=True, slots=True)

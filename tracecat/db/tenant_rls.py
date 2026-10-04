@@ -43,7 +43,6 @@ INITIAL_WORKSPACE_SCOPED_TABLES = (
     "chat",
     "chat_message",
     "membership",
-    "invitation",
     "oauth_integration",
     "oauth_provider",
     "mcp_integration",
@@ -56,6 +55,7 @@ INITIAL_ORG_SCOPED_TABLES = (
     "organization_membership",
     "organization_invitation",
     "organization_tier",
+    "invitation",
     "registry_repository",
     "registry_action",
     "registry_version",
@@ -80,6 +80,8 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "agent_preset_version",
     "agent_folder",
     "agent_tag",
+    "skill_folder",
+    "skill_tag",
     "skill",
     "skill_blob",
     "skill_upload",
@@ -97,24 +99,51 @@ POST_RLS_ORG_SCOPED_TABLES = (
     "watchtower_agent",
     "mcp_refresh_token",
     "agent_custom_provider",
+    "organization_secret_store",
+    "external_user",
+    "external_group",
+    "external_group_mapping",
+    "external_group_member",
+    "scim_connection",
 )
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (
+    "invitation_grant",
     "watchtower_agent_session",
     "watchtower_agent_tool_call",
     "service_account",
     "mcp_personal_access_token",
     "agent_model_access",
+    "workspace_secret_store_authorization",
 )
 
 SPECIAL_TENANT_POLICY_TABLES = frozenset(
-    {"agent_tag_link", "service_account_api_key", "service_account_scope"}
+    {
+        "agent_tag_link",
+        "skill_tag_link",
+        "service_account_api_key",
+        "service_account_scope",
+    }
 )
 
 # Workspace and oauth_state carry custom policy SQL. scope and agent_catalog
 # both have nullable organization_id and allow shared platform-owned rows.
-SPECIAL_WORKSPACE_POLICY_TABLES = frozenset({"oauth_state"})
-SPECIAL_ORG_POLICY_TABLES = frozenset({"workspace", "scope", "agent_catalog"})
+SEARCH_POLICY_TABLES = frozenset(
+    {
+        "search_workspace_state",
+        "search_embedding_config",
+        "search_collection",
+        "search_document",
+        "search_chunk",
+    }
+)
+# group_member.organization_id is a nullable denormalization for the membership
+# foreign key; the table is governed by its parent group's policy.
+SPECIAL_WORKSPACE_POLICY_TABLES = frozenset({"oauth_state"}) | SEARCH_POLICY_TABLES
+SPECIAL_ORG_POLICY_TABLES = (
+    frozenset({"workspace", "scope", "agent_catalog", "group_member"})
+    | SEARCH_POLICY_TABLES
+)
 
 CURRENT_WORKSPACE_SCOPED_TABLES = (
     *INITIAL_WORKSPACE_SCOPED_TABLES,
@@ -197,6 +226,25 @@ def disable_oauth_state_special_rls() -> str:
     return f"""
         DROP POLICY IF EXISTS {policy_name("oauth_state")} ON "oauth_state";
         ALTER TABLE "oauth_state" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def enable_group_member_table_rls() -> str:
+    """Scope legacy nullable membership rows through their owning group."""
+    return f"""
+        ALTER TABLE group_member ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY {policy_name("group_member")} ON group_member
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR EXISTS (
+                    SELECT 1 FROM "group" AS parent_group
+                    WHERE parent_group.id = group_member.group_id
+                      AND parent_group.organization_id = NULLIF(
+                          current_setting('app.current_org_id', true), ''
+                      )::uuid
+                )
+            );
     """
 
 
@@ -406,6 +454,52 @@ def disable_agent_tag_link_table_rls() -> str:
     """
 
 
+def _skill_tag_link_workspace_condition() -> str:
+    return """
+                EXISTS (
+                    SELECT 1
+                    FROM skill_tag
+                    WHERE skill_tag.id = skill_tag_link.tag_id
+                      AND skill_tag.workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                )
+                AND EXISTS (
+                    SELECT 1
+                    FROM skill
+                    WHERE skill.id = skill_tag_link.skill_id
+                      AND skill.workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+                )
+    """
+
+
+def enable_skill_tag_link_table_rls() -> str:
+    workspace_condition = _skill_tag_link_workspace_condition()
+    return f"""
+        ALTER TABLE "skill_tag_link" ENABLE ROW LEVEL SECURITY;
+
+        CREATE POLICY {policy_name("skill_tag_link")} ON "skill_tag_link"
+            FOR ALL
+            USING (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR (
+{workspace_condition}
+                )
+            )
+            WITH CHECK (
+                current_setting('{RLS_BYPASS_VAR}', true) = '{RLS_BYPASS_ON}'
+                OR (
+{workspace_condition}
+                )
+            );
+    """
+
+
+def disable_skill_tag_link_table_rls() -> str:
+    return f"""
+        DROP POLICY IF EXISTS {policy_name("skill_tag_link")} ON "skill_tag_link";
+        ALTER TABLE "skill_tag_link" DISABLE ROW LEVEL SECURITY;
+    """
+
+
 def disable_agent_catalog_table_rls() -> str:
     return f"""
         DROP POLICY IF EXISTS {_agent_catalog_platform_read_policy()} ON "agent_catalog";
@@ -437,4 +531,25 @@ def disable_workspace_special_rls() -> str:
     return f"""
         DROP POLICY IF EXISTS {policy_name("workspace")} ON "workspace";
         ALTER TABLE "workspace" DISABLE ROW LEVEL SECURITY;
+    """
+
+
+def enable_search_table_rls(table: str) -> str:
+    """Enforce both tenant identities and hide data after workspace deletion."""
+    if table not in SEARCH_POLICY_TABLES:
+        raise ValueError("Unknown search table")
+    predicate = f"""
+        current_setting('app.rls_bypass', true) = 'on'
+        OR (
+            workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
+            AND organization_id = NULLIF(current_setting('app.current_org_id', true), '')::uuid
+            AND EXISTS (SELECT 1 FROM workspace w
+                        WHERE w.id = "{table}".workspace_id
+                          AND w.organization_id = "{table}".organization_id)
+        )
+    """
+    return f"""
+        ALTER TABLE "{table}" ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY {policy_name(table)} ON "{table}"
+        FOR ALL USING ({predicate}) WITH CHECK ({predicate});
     """

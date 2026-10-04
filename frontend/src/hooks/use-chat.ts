@@ -7,6 +7,7 @@ import {
 } from "ai"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
+  type AgentBackendRead,
   type AgentSessionCreate,
   type AgentSessionEntity,
   type AgentSessionRead,
@@ -23,6 +24,7 @@ import {
   agentSessionsDeleteSession,
   agentSessionsGetSession,
   agentSessionsGetSessionVercel,
+  agentSessionsListAgentBackends,
   agentSessionsListSessions,
   agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
@@ -39,6 +41,11 @@ import {
   useQuery,
   useQueryClient,
 } from "@/lib/query"
+import {
+  AGENT_CHUNK_DATA_PART_TYPE,
+  parseAgentChunkData,
+  SubagentStreamStore,
+} from "@/lib/subagent-stream"
 
 const DEFAULT_CHAT_ERROR_MESSAGE =
   "The assistant couldn't complete that request. Please try again."
@@ -469,13 +476,20 @@ export function useCancelChatTurn(workspaceId: string) {
 export function useGetChatVercel({
   chatId,
   workspaceId,
+  refetchInterval,
+  enabled = true,
+  retry,
 }: {
   chatId?: string
   workspaceId: string
+  refetchInterval?: number | false
+  enabled?: boolean
+  retry?: boolean
 }) {
   const {
     data: chat,
     isLoading: chatLoading,
+    isFetching: chatFetching,
     error: chatError,
   } = useQuery<AgentSessionsGetSessionVercelResponse, ApiError>({
     queryKey: ["chat", chatId, workspaceId, "vercel"],
@@ -488,13 +502,15 @@ export function useGetChatVercel({
         workspaceId,
       })
     },
-    enabled: !!chatId,
+    enabled: !!chatId && enabled,
+    ...(retry !== undefined ? { retry } : {}),
     // A remount must never render a stale cache snapshot as the final
     // transcript: always refetch so the pane adopts the current server copy
     // (e.g. after an approval was resolved from another surface).
     refetchOnMount: "always",
+    refetchInterval,
   })
-  return { chat, chatLoading, chatError }
+  return { chat, chatLoading, chatFetching, chatError }
 }
 
 function applyArtifactsToVercelChat(
@@ -588,7 +604,17 @@ export function useVercelChat({
   resume?: boolean
 }) {
   const queryClient = useQueryClient()
-  const [lastError, setLastError] = useState<string | null>(null)
+  const [lastError, setLastError] = useState<{
+    chatId: string | undefined
+    message: string
+  } | null>(null)
+  // Live child-session transcripts. Child chunks are transient data parts, so
+  // they never enter `messages`; they are routed here instead.
+  const subagentStore = useMemo(
+    () => new SubagentStreamStore(),
+    [chatId, workspaceId]
+  )
+  useEffect(() => () => subagentStore.dispose(), [subagentStore])
 
   // Build the Vercel streaming endpoint URL
   const apiEndpoint = useMemo(() => {
@@ -647,14 +673,17 @@ export function useVercelChat({
     }),
     onError: (error) => {
       const friendlyMessage = parseChatError(error)
-      setLastError(friendlyMessage)
+      setLastError({ chatId, message: friendlyMessage })
       console.error("Error in Vercel chat:", error)
       toast({
         title: "Chat error",
         description: friendlyMessage,
       })
     },
-    onFinish: () => {
+    onFinish: ({ isAbort, isDisconnect, isError }) => {
+      if (!isAbort && !isDisconnect && !isError) {
+        void subagentStore.complete()
+      }
       setLastError(null)
       invalidateChatTurnQueries(queryClient, { chatId, workspaceId })
       // First-prompt auto-titling runs as a detached backend task that can
@@ -668,12 +697,23 @@ export function useVercelChat({
         }, delayMs)
       }
     },
-    onData,
+    onData: (dataPart) => {
+      if (dataPart.type === AGENT_CHUNK_DATA_PART_TYPE) {
+        const chunkData = parseAgentChunkData(dataPart.data)
+        if (chunkData) {
+          subagentStore.ingest(chunkData)
+        }
+        return
+      }
+      onData?.(dataPart)
+    },
   })
 
   return {
     ...chat,
-    lastError,
+    subagentStore,
+    lastError:
+      lastError && lastError.chatId === chatId ? lastError.message : null,
     clearError: useCallback(() => setLastError(null), []),
   }
 }
@@ -767,5 +807,28 @@ export function makeContinueMessage(
         data: { kind: "continue", source, decisions },
       } as UIMessage["parts"][number],
     ],
+  }
+}
+
+const EMPTY_BACKENDS: AgentBackendRead[] = []
+
+/** Discover enabled backend providers without coupling the UI to their names. */
+export function useAgentBackends(
+  workspaceId?: string,
+  options?: { enabled?: boolean }
+) {
+  const { data, isLoading, isSuccess, error, refetch } = useQuery({
+    queryKey: ["agent-backends", workspaceId],
+    queryFn: () =>
+      agentSessionsListAgentBackends({ workspaceId: workspaceId! }),
+    enabled: Boolean(workspaceId) && (options?.enabled ?? true),
+    staleTime: 60_000,
+  })
+  return {
+    backends: data ?? EMPTY_BACKENDS,
+    backendsLoading: isLoading,
+    backendsReady: isSuccess,
+    backendsError: error,
+    refetchBackends: refetch,
   }
 }

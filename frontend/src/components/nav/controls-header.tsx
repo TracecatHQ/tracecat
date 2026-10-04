@@ -72,14 +72,13 @@ import {
 import { DynamicLucideIcon } from "@/components/dynamic-lucide-icon"
 import { CreateCustomProviderDialog } from "@/components/integrations/create-custom-provider-dialog"
 import { Spinner } from "@/components/loading/spinner"
-import {
-  MembersViewMode,
-  MembersViewToggle,
-} from "@/components/members/members-view-toggle"
 import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
-import { CreateGroupButton } from "@/components/rbac/create-group-button"
-import { CreateRoleButton } from "@/components/rbac/create-role-button"
 import { CreateSkillButton } from "@/components/skills/create-skill-button"
+import {
+  SkillsCatalogViewMode,
+  SkillsCatalogViewToggle,
+} from "@/components/skills/skills-catalog-view-toggle"
+import { SkillFolderCreateDialog } from "@/components/skills/skills-dashboard"
 import { SkillsDetailActions } from "@/components/skills/skills-detail-actions"
 import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actions"
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
@@ -157,6 +156,7 @@ import {
   useAgentTagCatalog,
 } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useSkillTagCatalog } from "@/hooks/use-skill-tags"
 import { useSkill } from "@/hooks/use-skills"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
 import {
@@ -357,14 +357,109 @@ function IntegrationsActions() {
 }
 
 function SkillsActions() {
+  const pathname = usePathname()
+  const workspaceId = useWorkspaceId()
+  const searchParams = useSearchParams()
+  const canCreateSkill = useScopeCheck("agent:create")
+  const { hasEntitlement } = useEntitlements()
+  const organizationEnabled = hasEntitlement("agent_addons")
+  const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
+  const [folderDialogOpen, setFolderDialogOpen] = useState(false)
+  const catalogView = pathname?.includes("/skills/tags")
+    ? SkillsCatalogViewMode.Tags
+    : SkillsCatalogViewMode.Skills
+  const skillsHref = `/workspaces/${workspaceId}/skills`
+  const tagsHref = `/workspaces/${workspaceId}/skills/tags`
+  const isFoldersView =
+    organizationEnabled && searchParams?.get("view") !== "list"
+  const currentPath = normalizeAgentActionPath(
+    searchParams?.get("path") ?? null
+  )
+  const canUseSkillActions = canCreateSkill === true
+
+  let skillActionControls: ReactNode = null
+  if (canUseSkillActions) {
+    if (catalogView === SkillsCatalogViewMode.Tags) {
+      if (organizationEnabled) {
+        skillActionControls = (
+          <AddSkillTag
+            open={createTagDialogOpen}
+            onOpenChange={setCreateTagDialogOpen}
+          />
+        )
+      }
+    } else {
+      skillActionControls = (
+        <>
+          <CreateSkillButton
+            currentPath={isFoldersView ? currentPath : null}
+            showFolder={isFoldersView}
+            onCreateFolder={() => setFolderDialogOpen(true)}
+          />
+          {organizationEnabled ? (
+            <SkillFolderCreateDialog
+              open={folderDialogOpen}
+              onOpenChange={setFolderDialogOpen}
+              currentPath={currentPath}
+            />
+          ) : null}
+        </>
+      )
+    }
+  }
+
   return (
     <>
+      {organizationEnabled ? (
+        <SkillsCatalogViewToggle
+          view={catalogView}
+          skillsHref={skillsHref}
+          tagsHref={tagsHref}
+        />
+      ) : null}
       <WorkspaceResourceSyncActions
         label="skills"
         branchSlug="skills"
         resources={["skill"]}
       />
-      <CreateSkillButton />
+      {skillActionControls}
+    </>
+  )
+}
+
+function AddSkillTag({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const workspaceId = useWorkspaceId()
+  const { skillTags, createSkillTag } = useSkillTagCatalog(workspaceId, {
+    enabled: open,
+  })
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 bg-background"
+        onClick={() => onOpenChange(true)}
+      >
+        <Plus className="mr-1 h-3.5 w-3.5" />
+        Create tag
+      </Button>
+      <CreateTagDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        existingTags={skillTags}
+        onCreateTag={async (params) => {
+          await createSkillTag(params)
+        }}
+        title="Create new skill tag"
+        description="Enter a name for your new skill tag."
+      />
     </>
   )
 }
@@ -437,6 +532,24 @@ function AgentFoldersBreadcrumb({
     <FolderPathBreadcrumb
       rootLabel="Agents"
       rootHref={`/workspaces/${workspaceId}/agents`}
+      folderPath={organizationEnabled ? path : "/"}
+    />
+  )
+}
+
+function SkillsFoldersBreadcrumb({
+  workspaceId,
+  path,
+}: {
+  workspaceId: string
+  path: string | null
+}) {
+  const { hasEntitlement } = useEntitlements()
+  const organizationEnabled = hasEntitlement("agent_addons")
+  return (
+    <FolderPathBreadcrumb
+      rootLabel="Skills"
+      rootHref={`/workspaces/${workspaceId}/skills`}
       folderPath={organizationEnabled ? path : "/"}
     />
   )
@@ -1546,36 +1659,14 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
   )
 }
 
-function MembersActions({ view }: { view: MembersViewMode }) {
+function MembersActions() {
   const { workspace } = useWorkspaceDetails()
-  const workspaceId = useWorkspaceId()
 
   if (!workspace) {
     return null
   }
 
-  // Render the appropriate action button based on the current view
-  const actionButton =
-    view === MembersViewMode.Roles ? (
-      <CreateRoleButton workspaceOnly />
-    ) : view === MembersViewMode.Groups ? (
-      <CreateGroupButton />
-    ) : (
-      <AddWorkspaceMember workspace={workspace} />
-    )
-
-  return (
-    <>
-      <MembersViewToggle
-        view={view}
-        membersHref={`/workspaces/${workspaceId}/members`}
-        rolesHref={`/workspaces/${workspaceId}/members/roles`}
-        groupsHref={`/workspaces/${workspaceId}/members/groups`}
-        rbacScope="workspace:rbac:read"
-      />
-      {actionButton}
-    </>
-  )
+  return <AddWorkspaceMember workspace={workspace} />
 }
 
 function CredentialsActions() {
@@ -2080,6 +2171,13 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/skills")) {
+    if (pagePath === "/skills/tags") {
+      return {
+        title: "Skills",
+        actions: <SkillsActions />,
+      }
+    }
+
     const skillMatch = pagePath.match(/^\/skills\/([^/]+)$/)
     if (skillMatch) {
       return {
@@ -2098,8 +2196,16 @@ function getPageConfig(
         ),
       }
     }
+    const skillsView = searchParams?.get("view") === "list" ? "list" : "folders"
     return {
-      title: "Skills",
+      title: (
+        <SkillsFoldersBreadcrumb
+          workspaceId={workspaceId}
+          path={
+            skillsView === "folders" ? (searchParams?.get("path") ?? "/") : "/"
+          }
+        />
+      ),
       actions: <SkillsActions />,
     }
   }
@@ -2142,21 +2248,7 @@ function getPageConfig(
   if (pagePath === "/members") {
     return {
       title: "Members",
-      actions: <MembersActions view={MembersViewMode.Members} />,
-    }
-  }
-
-  if (pagePath === "/members/roles") {
-    return {
-      title: "Roles",
-      actions: <MembersActions view={MembersViewMode.Roles} />,
-    }
-  }
-
-  if (pagePath === "/members/groups") {
-    return {
-      title: "Groups",
-      actions: <MembersActions view={MembersViewMode.Groups} />,
+      actions: <MembersActions />,
     }
   }
 

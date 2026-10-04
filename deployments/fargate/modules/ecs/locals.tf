@@ -117,6 +117,10 @@ locals {
         TRACECAT__AUTH_ALLOWED_DOMAINS             = var.auth_allowed_domains
         TRACECAT__AUTH_MIN_PASSWORD_LENGTH         = var.auth_min_password_length
         TRACECAT__AUTH_SUPERADMIN_EMAIL            = var.auth_superadmin_email
+        TRACECAT__SMTP_HOST                        = var.smtp_host
+        TRACECAT__SMTP_PORT                        = tostring(var.smtp_port)
+        TRACECAT__SMTP_USER                        = var.smtp_user
+        TRACECAT__EMAIL_FROM                       = var.email_from
         TRACECAT__DB_ENDPOINT                      = local.core_db_hostname
         TRACECAT__SERVICE_NAME                     = "api"
         SENTRY_DSN                                 = var.sentry_dsn
@@ -200,7 +204,6 @@ locals {
         TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS    = var.executor_threadpool_max_workers
         TRACECAT__EXECUTOR_FOR_EACH_MAX_CONCURRENCY  = var.executor_for_each_max_concurrency
         TRACECAT__UNSAFE_DISABLE_SM_MASKING          = "false"
-        TRACECAT__DISABLE_NSJAIL                     = "true"
         TRACECAT__SANDBOX_NSJAIL_PATH                = "/usr/local/bin/nsjail"
         TRACECAT__SANDBOX_ROOTFS_PATH                = "/var/lib/tracecat/sandbox-rootfs"
         TRACECAT__SANDBOX_CACHE_DIR                  = "/var/lib/tracecat/sandbox-cache"
@@ -242,7 +245,6 @@ locals {
         TRACECAT__LLM_GATEWAY_STATUS_LOG_INTERVAL_SECONDS  = var.llm_gateway_status_log_interval_seconds
         TRACECAT__LITELLM_BASE_URL                         = "http://litellm-service:4000"
         TRACECAT__UNSAFE_DISABLE_SM_MASKING                = "false"
-        TRACECAT__DISABLE_NSJAIL                           = "true"
         TRACECAT__SANDBOX_NSJAIL_PATH                      = "/usr/local/bin/nsjail"
         TRACECAT__SANDBOX_ROOTFS_PATH                      = "/var/lib/tracecat/sandbox-rootfs"
         TRACECAT__SANDBOX_CACHE_DIR                        = "/var/lib/tracecat/sandbox-cache"

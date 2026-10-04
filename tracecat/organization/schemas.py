@@ -1,11 +1,12 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr
 
-from tracecat.identifiers import OrganizationID, UserID
-from tracecat.invitations.enums import InvitationStatus
+from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
+from tracecat.invitations.schemas import InvitationGrant
 
 # Members
 
@@ -24,6 +25,8 @@ class OrgMemberRead(BaseModel):
     email: EmailStr
     role_name: str
     role_slug: str | None = None
+    # Populated for invited rows only: the grants the invitation will confer.
+    grants: list[InvitationGrant] = []
     status: OrgMemberStatus
     first_name: str | None = None
     last_name: str | None = None
@@ -45,6 +48,35 @@ class OrgMemberDetail(BaseModel):
     last_login_at: datetime | None
 
 
+type MemberRoleSourceType = Literal["direct", "group", "idp_group"]
+
+
+class MemberRoleSource(BaseModel):
+    """A direct assignment or group through which a member holds a role."""
+
+    type: MemberRoleSourceType
+    group_id: UUID | None = None
+    group_name: str | None = None
+    external_group_id: UUID | None = None
+    external_group_display_name: str | None = None
+
+
+class MemberRoleRead(BaseModel):
+    """A member's role in one workspace or organization, with its sources."""
+
+    role_id: UUID
+    role_name: str
+    workspace_id: WorkspaceID | None
+    sources: list[MemberRoleSource]
+
+
+class MemberAccessTrace(BaseModel):
+    """A member's roles and the sources of each role."""
+
+    user_id: UserID
+    roles: list[MemberRoleRead]
+
+
 # Organization
 
 
@@ -64,73 +96,3 @@ class OrgDomainRead(BaseModel):
     verification_method: str
     created_at: datetime
     updated_at: datetime
-
-
-# Invitations
-
-
-class OrgInvitationCreate(BaseModel):
-    """Request body for creating an organization invitation."""
-
-    email: EmailStr
-    role_id: UUID
-
-
-class OrgInvitationRead(BaseModel):
-    """Response model for organization invitation."""
-
-    id: UUID
-    organization_id: OrganizationID
-    email: EmailStr
-    role_id: UUID
-    role_name: str
-    role_slug: str | None = None
-    status: InvitationStatus
-    invited_by: UserID | None
-    expires_at: datetime
-    created_at: datetime
-    accepted_at: datetime | None
-
-
-class OrgInvitationReadMinimal(BaseModel):
-    """Minimal response for public token-based invitation lookup.
-
-    Excludes sensitive fields like email, invited_by ID, and timestamps
-    to reduce information disclosure when querying by token.
-    """
-
-    organization_id: OrganizationID
-    organization_name: str
-    organization_slug: str
-    inviter_name: str | None
-    inviter_email: str | None
-    role_name: str
-    role_slug: str | None = None
-    status: InvitationStatus
-    expires_at: datetime
-    email_matches: bool | None = None
-    """Whether the authenticated user's email matches the invitation.
-
-    - None: User is not authenticated
-    - True: User's email matches the invitation
-    - False: User's email does not match the invitation
-    """
-
-
-class OrgPendingInvitationRead(BaseModel):
-    """Pending invitation visible to the invited authenticated user."""
-
-    token: str
-    organization_id: OrganizationID
-    organization_name: str
-    inviter_name: str | None
-    inviter_email: str | None
-    role_name: str
-    role_slug: str | None = None
-    expires_at: datetime
-
-
-class OrgInvitationAccept(BaseModel):
-    """Request body for accepting an organization invitation via token."""
-
-    token: str

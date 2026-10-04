@@ -11,9 +11,11 @@ import {
   LogsIcon,
   MousePointerClickIcon,
   RadioTowerIcon,
+  RefreshCwIcon,
   Settings2,
   ShieldCheckIcon,
   UsersIcon,
+  VaultIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -42,11 +44,15 @@ export function OrganizationSidebar({
   const customRegistryEnabled = hasEntitlement("custom_registry")
   const gitSyncEnabled = hasEntitlement("git_sync")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
+  const externalSecretStoresEnabled = hasEntitlement("external_secret_stores")
+  const rbacAddonsEnabled = hasEntitlement("rbac_addons")
 
   // Scope checks for org sidebar items
+  const canViewSecretStores = useScopeCheck("org:secret:read")
   const canViewSettings = useScopeCheck("org:settings:read")
   const canViewServiceAccounts = useScopeCheck("org:service_account:read")
   const canViewMembers = useScopeCheck("org:member:read")
+  const canManageScim = useScopeCheck("org:scim:manage")
 
   const navCustomRegistry = [
     {
@@ -94,6 +100,22 @@ export function OrganizationSidebar({
       isActive: pathname?.includes("/organization/settings/domains"),
       visible: canViewSettings === true,
       locked: false,
+    },
+    {
+      title: "SCIM",
+      url: "/organization/settings/scim",
+      icon: RefreshCwIcon,
+      isActive: pathname?.includes("/organization/settings/scim"),
+      visible: canManageScim === true,
+      locked: !rbacAddonsEnabled,
+    },
+    {
+      title: "Secret stores",
+      url: "/organization/settings/secret-stores",
+      icon: VaultIcon,
+      isActive: pathname?.includes("/organization/settings/secret-stores"),
+      visible: canViewSecretStores === true,
+      locked: !externalSecretStoresEnabled,
     },
     {
       title: "Application",
@@ -194,7 +216,7 @@ export function OrganizationSidebar({
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        {canViewSettings === true && (
+        {navSettings.some((item) => item.visible === true) && (
           <SidebarGroup>
             <SidebarGroupLabel>Settings</SidebarGroupLabel>
             <SidebarGroupContent>

@@ -74,6 +74,7 @@ import {
   useRbacRoles,
   useWorkspaceManager,
 } from "@/lib/hooks"
+import { rolesForScope } from "@/lib/rbac"
 
 export function OrgRbacGroups() {
   const [selectedGroup, setSelectedGroup] =
@@ -695,7 +696,13 @@ function GroupManageDialog({
           </TabsTrigger>
         </TabsList>
         <TabsContent value="members" className="mt-4 space-y-4">
-          {canManageMembers && (
+          {group.is_idp_managed && (
+            <p className="text-sm text-muted-foreground">
+              Membership is managed by your identity provider. Edit members
+              there.
+            </p>
+          )}
+          {canManageMembers && !group.is_idp_managed && (
             <div className="space-y-2">
               <Label>Add member</Label>
               <div className="flex gap-2">
@@ -754,7 +761,7 @@ function GroupManageDialog({
                           </span>
                         )}
                       </div>
-                      {canManageMembers && (
+                      {canManageMembers && !group.is_idp_managed && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -792,7 +799,12 @@ function GroupManageDialog({
                     <SelectValue placeholder="Select a role" />
                   </SelectTrigger>
                   <SelectContent>
-                    {roles.map((role) => (
+                    {rolesForScope(
+                      roles,
+                      selectedWorkspaceId === "org-wide"
+                        ? null
+                        : selectedWorkspaceId
+                    ).map((role) => (
                       <SelectItem key={role.id} value={role.id}>
                         {role.name}
                       </SelectItem>
@@ -801,7 +813,10 @@ function GroupManageDialog({
                 </Select>
                 <Select
                   value={selectedWorkspaceId}
-                  onValueChange={setSelectedWorkspaceId}
+                  onValueChange={(value) => {
+                    setSelectedWorkspaceId(value)
+                    setSelectedRoleId("")
+                  }}
                 >
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder="Scope" />

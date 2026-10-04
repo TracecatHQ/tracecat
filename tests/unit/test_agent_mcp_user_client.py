@@ -1,20 +1,39 @@
+import asyncio
 import base64
+import ipaddress
 from typing import Any
 
 import httpx
 import pytest
+from aiohttp import web
+from fastmcp import settings as fastmcp_settings
 from fastmcp.client.transports import SSETransport, StreamableHttpTransport
+from mcp import McpError
 from mcp.types import (
+    METHOD_NOT_FOUND,
     BlobResourceContents,
     ContentBlock,
     EmbeddedResource,
+    ErrorData,
     TextContent,
     TextResourceContents,
 )
 from pydantic import AnyUrl
 
+from tracecat import config
+from tracecat.agent.common.exceptions import (
+    UserMCPDiscoveryAuthError,
+    UserMCPDiscoveryBudgetExceededError,
+    UserMCPDiscoveryError,
+    UserMCPDiscoveryTimeoutError,
+    UserMCPDiscoveryUnavailableError,
+)
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
-from tracecat.agent.mcp.http_limits import BoundedResponseTransport
+from tracecat.agent.mcp import user_client
+from tracecat.agent.mcp.http_limits import (
+    BoundedResponseTransport,
+    MCPResponseTooLargeError,
+)
 from tracecat.agent.mcp.user_client import UserMCPClient, _create_transport
 from tracecat.agent.mcp.utils import (
     flatten_mcp_content_blocks,
@@ -26,6 +45,223 @@ def _mcp_server(name: str) -> MCPHttpServerConfig:
         "name": name,
         "url": f"https://{name}.example/mcp",
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "phase", ["initialize", "tools/list", "sse_connect", "healthy"]
+)
+async def test_discovery_deadline_with_real_fastmcp_http_client(
+    monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
+    """Exercise FastMCP's background session and cancellation over an HTTP socket."""
+    methods: list[str] = []
+    release = asyncio.Event()
+
+    async def mcp_handler(request: web.Request) -> web.Response:
+        if request.method != "POST":
+            if phase == "sse_connect":
+                methods.append(phase)
+                await release.wait()
+            return web.Response(status=405)
+        message = await request.json()
+        method = message["method"]
+        methods.append(method)
+        if method == phase:
+            await release.wait()
+        if "id" not in message:
+            return web.Response(status=202)
+        result = (
+            {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "synthetic-mcp", "version": "1.0"},
+            }
+            if method == "initialize"
+            else {"tools": [{"name": "search", "inputSchema": {"type": "object"}}]}
+        )
+        return web.json_response(
+            {"jsonrpc": "2.0", "id": message["id"], "result": result}
+        )
+
+    app = web.Application()
+    app.router.add_route("*", "/mcp", mcp_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = runner.addresses[0][1]
+    monkeypatch.setattr(
+        config,
+        "TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS",
+        [ipaddress.ip_network("127.0.0.0/8")],
+    )
+    monkeypatch.setattr(
+        user_client,
+        "MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS",
+        2 if phase == "healthy" else 0.2,
+    )
+    # Discovery must own the timeout even with a shorter FastMCP default.
+    monkeypatch.setattr(fastmcp_settings, "client_init_timeout", 0.02)
+    client = UserMCPClient(
+        [
+            {
+                "name": "synthetic-mcp",
+                "url": f"http://127.0.0.1:{port}/mcp",
+                "transport": "sse" if phase == "sse_connect" else "http",
+            }
+        ]
+    )
+    try:
+        if phase == "healthy":
+            tools = await asyncio.wait_for(client.discover_tools(fail_on_error=True), 2)
+            assert list(tools) == ["mcp__synthetic-mcp__search"]
+        else:
+            with pytest.raises(UserMCPDiscoveryTimeoutError) as raised:
+                await asyncio.wait_for(client.discover_tools(fail_on_error=True), 2)
+            assert raised.value.server_name == "synthetic-mcp"
+            assert phase in methods
+    finally:
+        release.set()
+        await runner.cleanup()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("phase", ["connect", "list_tools"])
+async def test_discovery_hang_returns_named_timeout_before_activity_deadline(
+    monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
+    cleaned_up = asyncio.Event()
+
+    class HangingClient:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> "HangingClient":
+            if phase == "connect":
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    cleaned_up.set()
+            return self
+
+        async def list_tools(self) -> list[Any]:
+            await asyncio.Event().wait()
+            return []
+
+        async def __aexit__(self, *args: Any) -> None:
+            cleaned_up.set()
+
+    monkeypatch.setattr(user_client, "Client", HangingClient)
+    monkeypatch.setattr(
+        user_client, "MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS", 0.02, raising=False
+    )
+    with pytest.raises(UserMCPDiscoveryUnavailableError) as raised:
+        await asyncio.wait_for(
+            UserMCPClient([_mcp_server("hanging")]).discover_tools(fail_on_error=True),
+            timeout=1,
+        )
+    assert raised.value.server_name == "hanging"
+    assert raised.value.retryable is True
+    assert cleaned_up.is_set()
+
+
+@pytest.mark.anyio
+async def test_discovery_retries_share_one_server_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    async def fail(
+        self: UserMCPClient, name: str, config: MCPHttpServerConfig
+    ) -> dict[str, MCPToolDefinition]:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.ConnectError("synthetic private diagnostic")
+
+    monkeypatch.setattr(UserMCPClient, "_discover_server_tools_once", fail)
+    monkeypatch.setattr(
+        user_client, "MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS", 0.02, raising=False
+    )
+    with pytest.raises(UserMCPDiscoveryUnavailableError):
+        await asyncio.wait_for(
+            UserMCPClient([_mcp_server("retrying")]).discover_tools(fail_on_error=True),
+            timeout=1,
+        )
+    assert attempts == 1
+
+
+@pytest.mark.anyio
+async def test_discovery_servers_share_total_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    contacted: list[str] = []
+
+    async def hang(
+        self: UserMCPClient, name: str, config: MCPHttpServerConfig
+    ) -> dict[str, MCPToolDefinition]:
+        contacted.append(name)
+        await asyncio.Event().wait()
+        return {}
+
+    monkeypatch.setattr(UserMCPClient, "_discover_server_tools", hang)
+    monkeypatch.setattr(
+        user_client, "MCP_SERVER_DISCOVERY_TIMEOUT_SECONDS", 1, raising=False
+    )
+    monkeypatch.setattr(
+        user_client, "MCP_DISCOVERY_TIMEOUT_SECONDS", 0.02, raising=False
+    )
+    result = await asyncio.wait_for(
+        UserMCPClient(
+            [_mcp_server("first"), _mcp_server("second")]
+        ).discover_tools_detailed(),
+        timeout=1,
+    )
+    assert contacted == ["first"]
+    assert set(result.failed_servers) == {"first", "second"}
+
+
+@pytest.mark.anyio
+async def test_strict_discovery_raises_budget_error_for_uncontacted_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    contacted: list[str] = []
+
+    async def record(
+        self: UserMCPClient, name: str, config: MCPHttpServerConfig
+    ) -> dict[str, MCPToolDefinition]:
+        contacted.append(name)
+        return {}
+
+    monkeypatch.setattr(UserMCPClient, "_discover_server_tools", record)
+    monkeypatch.setattr(user_client, "MCP_DISCOVERY_TIMEOUT_SECONDS", 0, raising=False)
+    with pytest.raises(UserMCPDiscoveryBudgetExceededError) as raised:
+        await UserMCPClient([_mcp_server("first")]).discover_tools(fail_on_error=True)
+    assert contacted == []
+    assert raised.value.server_name == "first"
+
+
+@pytest.mark.anyio
+async def test_discovery_cancellation_is_not_an_mcp_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = asyncio.Event()
+
+    async def hang(
+        self: UserMCPClient, name: str, config: MCPHttpServerConfig
+    ) -> dict[str, MCPToolDefinition]:
+        started.set()
+        await asyncio.Event().wait()
+        return {}
+
+    monkeypatch.setattr(UserMCPClient, "_discover_server_tools", hang)
+    task = asyncio.create_task(
+        UserMCPClient([_mcp_server("cancelled")]).discover_tools(fail_on_error=True)
+    )
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
 
 @pytest.mark.anyio
@@ -86,6 +322,80 @@ async def test_discover_tools_fails_closed_in_strict_mode(
         match="Failed to discover tools from user MCP server 'broken'",
     ):
         await client.discover_tools(fail_on_error=True)
+
+
+def _http_status_error(status_code: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "https://broken.example/mcp")
+    return httpx.HTTPStatusError(
+        "status error",
+        request=request,
+        response=httpx.Response(status_code, request=request),
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "expected_type", "retryable"),
+    [
+        (_http_status_error(401), UserMCPDiscoveryAuthError, None),
+        (_http_status_error(403), UserMCPDiscoveryAuthError, None),
+        (_http_status_error(503), UserMCPDiscoveryUnavailableError, True),
+        (_http_status_error(408), UserMCPDiscoveryUnavailableError, True),
+        (_http_status_error(429), UserMCPDiscoveryUnavailableError, True),
+        (TimeoutError(), UserMCPDiscoveryTimeoutError, True),
+        (httpx.ReadTimeout("synthetic timeout"), UserMCPDiscoveryTimeoutError, True),
+        (httpx.ConnectError("refused"), UserMCPDiscoveryUnavailableError, True),
+        (_http_status_error(404), UserMCPDiscoveryUnavailableError, False),
+        (
+            MCPResponseTooLargeError(16 * 1024 * 1024, observed=17_000_000),
+            UserMCPDiscoveryUnavailableError,
+            False,
+        ),
+        (
+            McpError(ErrorData(code=METHOD_NOT_FOUND, message="Method not found")),
+            UserMCPDiscoveryUnavailableError,
+            False,
+        ),
+        (ValueError("bad schema"), UserMCPDiscoveryError, None),
+    ],
+)
+@pytest.mark.parametrize("nested_in_group", [False, True])
+async def test_discover_tools_strict_mode_raises_typed_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    nested_in_group: bool,
+    error: BaseException,
+    expected_type: type[UserMCPDiscoveryError],
+    retryable: bool | None,
+) -> None:
+    async def fake_discover_server_tools(
+        self: UserMCPClient,
+        server_name: str,
+        config: MCPHttpServerConfig,
+    ) -> dict[str, MCPToolDefinition]:
+        del self, server_name, config
+        # Wrap like fastmcp/anyio do so the typed mapping must walk both the
+        # cause chain and ExceptionGroup members.
+        if nested_in_group:
+            raise RuntimeError("Client failed to connect") from BaseExceptionGroup(
+                "unhandled errors in a TaskGroup", [error]
+            )
+        raise RuntimeError("Client failed to connect") from error
+
+    monkeypatch.setattr(
+        UserMCPClient,
+        "_discover_server_tools",
+        fake_discover_server_tools,
+    )
+    client = UserMCPClient([_mcp_server("broken")])
+
+    with pytest.raises(UserMCPDiscoveryError) as exc_info:
+        await client.discover_tools(fail_on_error=True)
+
+    assert type(exc_info.value) is expected_type
+    assert exc_info.value.server_name == "broken"
+    if retryable is not None:
+        assert isinstance(exc_info.value, UserMCPDiscoveryUnavailableError)
+        assert exc_info.value.retryable is retryable
 
 
 # Regression: fastmcp's StreamableHttpTransport.connect_session merges any

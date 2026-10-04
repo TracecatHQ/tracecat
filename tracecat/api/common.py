@@ -4,6 +4,7 @@ from fastapi.responses import ORJSONResponse
 from fastapi.routing import APIRoute
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from temporalio.api.enums.v1 import IndexedValueType
 from temporalio.api.operatorservice.v1 import (
     AddSearchAttributesRequest,
@@ -31,6 +32,7 @@ from tracecat.query.errors import (
     TracecatQueryOverflowError,
     TracecatQueryTimeoutError,
 )
+from tracecat.tables.exceptions import TableRowError
 from tracecat.workflow.executions.enums import TemporalSearchAttr
 
 # All Tracecat search attributes are Keyword-typed.
@@ -56,7 +58,9 @@ async def generic_exception_handler(request: Request, exc: Exception) -> Respons
 
 async def http_exception_handler(request: Request, exc: Exception) -> Response:
     """Log HTTP exceptions with tenant context for observability."""
-    http_exc = exc if isinstance(exc, HTTPException) else HTTPException(500, str(exc))
+    http_exc = (
+        exc if isinstance(exc, StarletteHTTPException) else HTTPException(500, str(exc))
+    )
     role = ctx_role.get()
     log_method = logger.warning if http_exc.status_code < 500 else logger.error
     log_method(
@@ -172,6 +176,20 @@ def tracecat_exception_handler(request: Request, exc: Exception) -> Response:
             "message": msg,
             "detail": tracecat_exc.detail,
         },
+    )
+
+
+async def table_row_exception_handler(request: Request, exc: Exception) -> Response:
+    """Report invalid row input as a client error, without capturing an outage."""
+    if not isinstance(exc, TableRowError):
+        raise exc
+    status_code = (
+        status.HTTP_409_CONFLICT
+        if exc.code == "duplicate_value"
+        else status.HTTP_400_BAD_REQUEST
+    )
+    return await http_exception_handler(
+        request, HTTPException(status_code=status_code, detail=exc.detail)
     )
 
 

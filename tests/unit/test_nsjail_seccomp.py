@@ -149,8 +149,12 @@ def test_nsjail_configs_use_resource_limit_megabyte_units(tmp_path: Path) -> Non
         llm_socket_path=tmp_path / "llm.sock",
     )
 
-    for config_text in (python_config, action_config, agent_config):
-        assert "rlimit_as: 321" in config_text
+    for config_text, address_space_mb in (
+        (python_config, 321),
+        (action_config, 321),
+        (agent_config, 642),
+    ):
+        assert f"rlimit_as: {address_space_mb}" in config_text
         assert "rlimit_fsize: 45" in config_text
         assert f"rlimit_as: {321 * 1024 * 1024}" not in config_text
         assert f"rlimit_fsize: {45 * 1024 * 1024}" not in config_text

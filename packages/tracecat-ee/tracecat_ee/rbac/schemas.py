@@ -132,7 +132,7 @@ class GroupMemberRead(BaseModel):
     email: str
     first_name: str | None = None
     last_name: str | None = None
-    added_at: datetime
+    added_at: datetime | None
 
 
 class GroupRead(BaseModel):
@@ -154,6 +154,7 @@ class GroupReadWithMembers(GroupRead):
 
     members: list[GroupMemberRead] = Field(default_factory=list)
     member_count: int = 0
+    is_idp_managed: bool = False
 
 
 class GroupCreate(BaseModel):
@@ -291,3 +292,25 @@ class UserRoleAssignmentList(BaseModel):
 
     items: list[UserRoleAssignmentReadWithDetails]
     total: int
+
+
+class UserRoleAssignmentSpec(BaseModel):
+    """One desired direct assignment, with at most one role per scope."""
+
+    role_id: UUID
+    workspace_id: UUID | None = None
+
+
+class RoleAssignmentSnapshot(UserRoleAssignmentSpec):
+    """Assignment identity and value observed when editing began."""
+
+    id: UUID
+
+
+class UserRoleAssignmentsReplace(BaseModel):
+    """Replace a member's direct roles only if their access has not changed."""
+
+    user_id: UUID
+    assignments: list[UserRoleAssignmentSpec]
+    expected_assignments: list[RoleAssignmentSnapshot]
+    expected_group_assignments: list[RoleAssignmentSnapshot] | None = None

@@ -27,6 +27,7 @@ import orjson
 from claude_agent_sdk import (
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    CLIConnectionError,
     HookMatcher,
     SandboxSettings,
     Transport,
@@ -52,11 +53,11 @@ from claude_agent_sdk.types import (
 from tracecat.agent.common.config import (
     AGENT_RUNTIME_PROTECTED_ENV_VARS,
     TRACECAT__AGENT_MCP_BRIDGE_PORT,
-    TRACECAT__DISABLE_NSJAIL,
+    TRACECAT__EXECUTOR_BACKEND,
 )
 from tracecat.agent.common.exceptions import (
+    AgentPreparationError,
     AgentSandboxProcessExitError,
-    AgentSandboxValidationError,
 )
 from tracecat.agent.common.output_format import build_sdk_output_format
 from tracecat.agent.common.protocol import RuntimeInitPayload
@@ -145,7 +146,7 @@ def _claude_project_dir_name(cwd: Path) -> str:
     """
     sanitized = CLAUDE_PROJECT_DIR_SANITIZE_RE.sub("-", str(cwd))
     if len(sanitized) > CLAUDE_PROJECT_DIR_MAX_LENGTH:
-        raise AgentSandboxValidationError(
+        raise AgentPreparationError(
             "Claude runtime cwd is too long for deterministic session persistence: "
             f"sanitized path length {len(sanitized)} exceeds "
             f"{CLAUDE_PROJECT_DIR_MAX_LENGTH}. Shorten TMPDIR or the runtime cwd."
@@ -211,7 +212,7 @@ def _sandbox_process_exit_error(
     ``AgentSandboxValidationError``, say -- would reach the activity as a
     process exit and lose its own attribution.
     """
-    if TRACECAT__DISABLE_NSJAIL:
+    if not TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
         # Without a jail no rlimit was installed, so the exit code carries no
         # resource-limit meaning. A direct process that aborts or that the host
         # OOM-kills is a platform failure, and attributing it to the caller
@@ -262,6 +263,9 @@ CLAUDE_CODE_STATEFUL_TOOLS = [
     "CronList",
     "EnterWorktree",
     "ExitWorktree",
+    # Session wakeups and agent discovery need an interactive harness.
+    "ScheduleWakeup",
+    "ListAgents",
 ]
 
 DISALLOWED_TOOLS = [
@@ -745,14 +749,14 @@ class ClaudeAgentRuntime:
         ~/.claude/projects/{encoded-cwd}/{session_id}.jsonl
 
         Raises:
-            AgentSandboxValidationError: If sdk_session_id contains path traversal.
+            AgentPreparationError: If sdk_session_id contains path traversal.
         """
         # Validate session ID to prevent path traversal
         # Only allow alphanumeric, hyphens, and underscores
         if not sdk_session_id or not all(
             c.isalnum() or c in "-_" for c in sdk_session_id
         ):
-            raise AgentSandboxValidationError(
+            raise AgentPreparationError(
                 f"Invalid sdk_session_id: must be alphanumeric with hyphens/underscores only, got {sdk_session_id!r}"
             )
 
@@ -798,7 +802,6 @@ class ClaudeAgentRuntime:
         resume_session_id: str | None = None
         fork_session = False
         mcp_servers: dict[str, McpServerConfig] = {}
-        session_file_task: asyncio.Task[Path] | None = None
 
         if payload.sdk_session_id and payload.sdk_session_data:
             resume_session_id = payload.sdk_session_id
@@ -808,20 +811,11 @@ class ClaudeAgentRuntime:
                 self._last_seen_byte_offset = len(session_data.encode("utf-8"))
                 self._sdk_session_id = resume_session_id
 
-        async with asyncio.TaskGroup() as tg:
-            if (
-                write_session_file
-                and payload.sdk_session_id
-                and payload.sdk_session_data
-            ):
-                session_file_task = tg.create_task(
-                    self._write_session_file(
-                        payload.sdk_session_id, payload.sdk_session_data
-                    )
-                )
-
-        if session_file_task is not None:
-            _ = session_file_task.result()
+        # Await directly: a TaskGroup would wrap typed failures in an ExceptionGroup.
+        if write_session_file and payload.sdk_session_id and payload.sdk_session_data:
+            await self._write_session_file(
+                payload.sdk_session_id, payload.sdk_session_data
+            )
 
         if self.registry_tools:
             mcp_servers[REGISTRY_MCP_SERVER_NAME] = self._trusted_mcp_server_config(
@@ -1243,7 +1237,16 @@ class ClaudeAgentRuntime:
             )
             self._was_interrupted = True
             self._interrupt_sent = True
-            await self.client.interrupt()
+            client = self.client
+            try:
+                await client.interrupt()
+            except (CLIConnectionError, BrokenPipeError, ConnectionResetError):
+                # The turn can enter SDK teardown while the interrupt write is
+                # suspended. Its original outcome belongs to run(), not this
+                # best-effort stop request. Live connection errors still fail.
+                if self.client is client:
+                    raise
+                logger.debug("Claude runtime closed while interrupting")
 
     async def _pre_tool_use_hook(
         self,
@@ -1593,8 +1596,10 @@ class ClaudeAgentRuntime:
     @staticmethod
     def _sandbox_settings() -> SandboxSettings:
         """Build Claude SDK sandbox settings for direct mode."""
-        sandbox_settings = SandboxSettings(enabled=TRACECAT__DISABLE_NSJAIL)
-        if TRACECAT__DISABLE_NSJAIL:
+        sandbox_settings = SandboxSettings(
+            enabled=not TRACECAT__EXECUTOR_BACKEND.uses_nsjail
+        )
+        if not TRACECAT__EXECUTOR_BACKEND.uses_nsjail:
             sandbox_settings["enableWeakerNestedSandbox"] = True
             sandbox_settings["allowUnsandboxedCommands"] = False
         return sandbox_settings
@@ -1920,9 +1925,10 @@ class ClaudeAgentRuntime:
                         first_stream_event_logged = True
                         log_benchmark_phase("runtime_first_stream_event")
 
-                    # Partial streaming delta - forward to UI
-                    unified = self._stream_adapter.to_unified_event(message)
-                    await self._event_writer.send_stream_event(unified)
+                    # ping events are upstream keep-alives with no content.
+                    if message.event.get("type") != "ping":
+                        unified = self._stream_adapter.to_unified_event(message)
+                        await self._event_writer.send_stream_event(unified)
                     self._session_flush_event.set()
 
                 elif isinstance(message, ResultMessage):
@@ -1961,6 +1967,8 @@ class ClaudeAgentRuntime:
                         await self._register_assistant_tool_approvals(message)
                     elif isinstance(message, UserMessage):
                         await self._emit_user_tool_results(message)
+            # Stop accepting interrupts before disconnect closes the transport.
+            self.client = None
             await cleanup.aclose()
 
             # CLI has exited — session file is fully flushed.
@@ -2004,27 +2012,30 @@ class ClaudeAgentRuntime:
                         "Claude SDK initialization diagnostics: "
                         + orjson.dumps(log_fields).decode()
                     )
-            # Record terminal failure before best-effort diagnostics or cleanup.
-            # Delivery failure must not replace the original SDK exception.
+            # Socket consumers stop at the terminal error, so send diagnostics
+            # first with a bounded budget. A failed log sink must not prevent
+            # terminal delivery or replace the original SDK exception.
+            with suppress(Exception):
+                async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
+                    if initialization_started_at is not None:
+                        await self._event_writer.send_log(
+                            "warning", "Claude SDK initialization failed", **log_fields
+                        )
+                    else:
+                        await self._event_writer.send_log(
+                            "error", "Runtime error", **log_fields
+                        )
             with suppress(Exception):
                 await self._event_writer.send_error(
                     failure.message, classification=failure.classification, cause=error
                 )
                 terminal_error_reported = True
-            with suppress(Exception):
-                if initialization_started_at is not None:
-                    async with asyncio.timeout(DIAGNOSTIC_TIMEOUT_SECONDS):
-                        await self._event_writer.send_log(
-                            "warning", "Claude SDK initialization failed", **log_fields
-                        )
-                else:
-                    await self._event_writer.send_log(
-                        "error", "Runtime error", **log_fields
-                    )
             if error is e:
                 raise
             raise error from e
         finally:
+            # Also reject late interrupts during failed or cancelled turns.
+            self.client = None
             if stderr_task is not None:
                 stderr_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -2035,7 +2046,6 @@ class ClaudeAgentRuntime:
                 session_flush_task.cancel()
                 with suppress(asyncio.CancelledError, Exception):
                     await session_flush_task
-            self.client = None
             if completed:
                 await self._event_writer.send_done()
             elif terminal_error_reported:

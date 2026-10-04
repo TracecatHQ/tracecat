@@ -30,7 +30,6 @@ Terraform stack for Tracecat on AWS ECS Fargate (`>1.0.0-beta.xx`).
 > As a result, script execution uses subprocess isolation without nsjail-level mount/network/cgroup controls.
 > If you need highest isolation for untrusted code execution, deploy Tracecat on Kubernetes with the Helm chart, where `nsjail` is enabled by default.
 
-- `TRACECAT__DISABLE_NSJAIL=true`
 - `TRACECAT__EXECUTOR_BACKEND=direct` (executor + agent-executor)
 
 ## Default sizing
@@ -77,6 +76,14 @@ terraform apply
 For Terraform Cloud direct OIDC runs, the target account and role come from `TFC_AWS_RUN_ROLE_ARN`. This stack now uses the ambient AWS credentials from the execution environment and no longer accepts `aws_account_id` / `aws_role_name` inputs for a second provider-side assume-role hop.
 
 ## Self-contained migrations
+
+Before introducing vector-dependent application migrations, provision pgvector
+in the application RDS database using a database administrator, then run the
+read-only check as the migration role. The PostgreSQL 16.10 default supports
+pgvector; no engine-version change is required. See the
+[application database prerequisite and upgrade guide](../postgres/README.md).
+The migrations init container must not assume extension-installation privileges.
+The Temporal RDS database does not need pgvector.
 
 - API task startup includes an internal migrations init container.
 - API container starts only if migrations succeed (`dependsOn: SUCCESS`).

@@ -16,6 +16,7 @@ from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
+    RegistryLockAmbiguousActionError,
     RegistryLockInvalidDataError,
 )
 from tracecat.registry.actions.schemas import RegistryActionImplValidator
@@ -193,10 +194,7 @@ class RegistryLockService(BaseOrgService):
                     f"Available registries: {list(origins.keys())}"
                 )
             if len(matching_origins) > 1:
-                raise RegistryLockInvalidDataError(
-                    f"Ambiguous action '{action_name}' found in multiple registries: "
-                    f"{matching_origins}. Please specify the registry explicitly."
-                )
+                raise RegistryLockAmbiguousActionError(action_name, matching_origins)
 
             resolved_origin = matching_origins[0]
             actions[action_name] = resolved_origin

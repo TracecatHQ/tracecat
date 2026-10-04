@@ -15,12 +15,12 @@ import pytest
 from pydantic import SecretStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from tests.support.executor_backend import TestBackend
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
 from tracecat.db.models import RegistryVersion
 from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
-from tracecat.executor.backends.test import TestBackend
 from tracecat.executor.service import dispatch_action
 from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers.workflow import WorkflowUUID

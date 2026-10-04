@@ -75,9 +75,8 @@ class ActionControlFlow(Schema):
     unsafe_disable_secret_error_withholding: bool = Field(
         default=False,
         description=(
-            "UNSAFE: if true, surface this action's original error message even "
-            "when secrets are in scope, instead of the generic 'Details withheld' "
-            "message. Known secret values are still masked."
+            "Legacy field, ignored. Error diagnostics always mask known secrets "
+            "and observed secret-derived values."
         ),
     )
 

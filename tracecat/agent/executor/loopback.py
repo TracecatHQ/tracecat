@@ -39,7 +39,7 @@ from tracecat.agent.common.stream_types import (
 )
 from tracecat.agent.error_policy import (
     agent_executor_protocol_failed,
-    agent_executor_unavailable,
+    agent_executor_unclassified,
 )
 from tracecat.agent.session.history import prepare_session_history
 from tracecat.agent.session.service import AgentSessionService
@@ -593,7 +593,9 @@ class LoopbackHandler:
         except asyncio.IncompleteReadError as error:
             logger.warning("Runtime disconnected unexpectedly during execution")
             self._result.error = "Runtime disconnected unexpectedly"
-            self._result.classification = agent_executor_unavailable()
+            self._result.classification = agent_executor_unclassified(
+                detail=self._result.error
+            )
             self._result.sentry_capture = capture_activity_failure(
                 error, self._result.classification
             )
@@ -617,7 +619,7 @@ class LoopbackHandler:
         except Exception as e:
             logger.exception("Error handling runtime connection", error=str(e))
             self._result.error = f"Connection error: {e}"
-            self._result.classification = agent_executor_unavailable(e)
+            self._result.classification = agent_executor_unclassified(e)
             self._result.sentry_capture = capture_activity_failure(
                 e, self._result.classification
             )
@@ -647,7 +649,9 @@ class LoopbackHandler:
                     "Runtime connection closed unexpectedly during execution"
                 )
                 self._result.error = "Runtime disconnected during execution"
-                self._result.classification = agent_executor_unavailable()
+                self._result.classification = agent_executor_unclassified(
+                    detail=self._result.error
+                )
                 self._result.sentry_capture = capture_activity_failure(
                     error, self._result.classification
                 )
@@ -814,7 +818,7 @@ class LoopbackHandler:
         # route/status failures are classified by the host-side LLM proxy before
         # they reach this fallback, so do not blame the caller for an untyped
         # runtime or provider failure.
-        self._result.classification = agent_executor_unavailable()
+        self._result.classification = agent_executor_unclassified(detail=error_msg)
         return True
 
     def _track_tool_event(self, event: UnifiedStreamEvent) -> None:
@@ -970,7 +974,9 @@ class LoopbackHandler:
             # it over in-process. Error envelopes arriving over the sandbox
             # socket carry no ownership metadata by design, so those stay
             # platform-owned.
-            self._result.classification = classification or agent_executor_unavailable()
+            self._result.classification = classification or agent_executor_unclassified(
+                detail=error
+            )
             try:
                 await self._emit_terminal_stream_error(stream_sink, error)
             finally:
@@ -1003,6 +1009,12 @@ class LoopbackHandler:
             success=self._result.error is None,
         )
         await self._emit_failed_compaction_if_pending()
+        if self._executor_error_recorded:
+            # Executor error delivery owns external stream closure. Cleanup can
+            # arrive while its Redis write is pending, before Slack sees the
+            # error; closing here would mark the turn successful and drop it.
+            # Leave closure to that path even if its bounded delivery fails.
+            return True
         if self._result.error is not None:
             await self._close_external_stream()
             return True

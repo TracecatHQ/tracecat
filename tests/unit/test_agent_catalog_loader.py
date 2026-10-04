@@ -87,3 +87,51 @@ def test_platform_catalog_includes_gpt_5_6_models() -> None:
     assert entries["gpt-5.6-sol"].metadata["max_input_tokens"] == 1050000
     assert entries["gpt-5.6-terra"].metadata["output_cost_per_token"] == 1.5e-05
     assert entries["gpt-5.6-luna"].metadata["input_cost_per_token"] == 1e-06
+
+
+def test_platform_catalog_includes_gpt_6_astra_and_claude_fable_5_1() -> None:
+    entries = {
+        (entry.model_provider, entry.model_name): entry
+        for entry in loader.get_platform_catalog_models()
+    }
+
+    astra = entries[("openai", "gpt-6-astra")]
+    assert astra.metadata["input_cost_per_token"] == 1e-05
+    assert astra.metadata["output_cost_per_token"] == 5e-05
+    assert astra.metadata["max_input_tokens"] == 922000
+
+    fable = entries[("anthropic", "claude-fable-5-1")]
+    assert fable.metadata["input_cost_per_token"] == 1e-05
+    assert fable.metadata["cache_read_input_token_cost"] == 2.5e-07
+    assert fable.metadata["max_input_tokens"] == 1000000
+
+
+def test_platform_catalog_includes_claude_opus_and_sonnet_5_5() -> None:
+    entries = {
+        (entry.model_provider, entry.model_name): entry
+        for entry in loader.get_platform_catalog_models()
+    }
+
+    opus = entries[("anthropic", "claude-opus-5-5")]
+    assert opus.metadata["input_cost_per_token"] == 4e-06
+    assert opus.metadata["output_cost_per_token"] == 2e-05
+    assert opus.metadata["max_input_tokens"] == 1000000
+
+    sonnet = entries[("anthropic", "claude-sonnet-5-5")]
+    assert sonnet.metadata["input_cost_per_token"] == 2e-06
+    assert sonnet.metadata["cache_read_input_token_cost"] == 2e-07
+    assert sonnet.metadata["max_output_tokens"] == 128000
+
+
+def test_platform_catalog_includes_gpt_6_sol_luna_and_gpt_6_1_sol() -> None:
+    entries = {
+        entry.model_name: entry
+        for entry in loader.get_platform_catalog_models()
+        if entry.model_provider == "openai"
+    }
+
+    assert {"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"}.issubset(entries)
+    assert entries["gpt-6-sol"].metadata["cache_read_input_token_cost"] == 2e-07
+    assert entries["gpt-6-luna"].metadata["input_cost_per_token"] == 1e-07
+    assert entries["gpt-6.1-sol"].metadata["cache_read_input_token_cost"] == 1e-07
+    assert entries["gpt-6.1-sol"].metadata["max_input_tokens"] == 922000

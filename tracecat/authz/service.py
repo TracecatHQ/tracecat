@@ -1,31 +1,45 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import and_, delete, func, literal, or_, select
+from sqlalchemy import delete, exists, func, or_, select
+from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
 from tracecat.auth.types import Role
 from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
+from tracecat.authz.membership import (
+    drop_workspace_membership_mirror,
+    lock_role_changes,
+    mirror_workspace_membership,
+)
+from tracecat.authz.scopes import (
+    ORG_MEMBER_FLOOR_SCOPES,
+    ORG_MEMBER_ROLE_SLUG,
+    is_org_level_role,
+)
 from tracecat.contexts import ctx_role
 from tracecat.db.engine import SupportsExecute
 from tracecat.db.models import (
-    GroupMember,
+    Group,
     GroupRoleAssignment,
     Membership,
+    OrganizationMembership,
     RoleScope,
     Scope,
     User,
     UserRoleAssignment,
     Workspace,
+    _role_paths,
+    effective_group_members,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -78,22 +92,32 @@ async def query_effective_scopes(
         )
     )
 
-    # Group role assignments → GroupMember → GroupRoleAssignment → Role → RoleScope → Scope
+    # Manual and IdP members inherit the same group role scopes.
     group_scopes = (
         select(Scope.name)
         .join(RoleScope, RoleScope.scope_id == Scope.id)
         .join(DBRole, DBRole.id == RoleScope.role_id)
         .join(GroupRoleAssignment, GroupRoleAssignment.role_id == DBRole.id)
-        .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
+        .join(
+            effective_group_members,
+            effective_group_members.c.group_id == GroupRoleAssignment.group_id,
+        )
         .where(
-            GroupMember.user_id == user_id,
+            effective_group_members.c.user_id == user_id,
             GroupRoleAssignment.organization_id == organization_id,
             group_workspace_condition,
         )
     )
 
-    # Single atomic query: union both assignment paths
-    combined = user_scopes.union(group_scopes)
+    # Presence alone carries a scope floor; same statement as the role paths so
+    # a concurrent removal is never read half-applied.
+    floor_scopes = select(func.unnest(pg_array(sorted(ORG_MEMBER_FLOOR_SCOPES)))).where(
+        exists().where(
+            OrganizationMembership.user_id == user_id,
+            OrganizationMembership.organization_id == organization_id,
+        )
+    )
+    combined = user_scopes.union(group_scopes, floor_scopes)
     result = await session.execute(combined)
     return frozenset(result.scalars().all())
 
@@ -112,6 +136,38 @@ async def resolve_granter_scopes(
     return await query_effective_scopes(
         session, granter.user_id, granter.organization_id, granter.workspace_id
     )
+
+
+async def workspace_membership_exists(
+    session: SupportsExecute,
+    *,
+    user_id: UserID,
+    workspace_id: WorkspaceID,
+) -> bool:
+    """Check whether a user holds any role path into a workspace.
+
+    Reads the role-path union directly, so arms added to ``_role_paths`` are
+    covered without changing this helper.
+
+    Args:
+        session: Session used to run the existence query.
+        user_id: User whose presence is being checked.
+        workspace_id: Workspace the user must hold a role path into.
+
+    Returns:
+        True if at least one role path grants the user presence there.
+    """
+    stmt = select(
+        exists(
+            select(1)
+            .select_from(_role_paths)
+            .where(
+                _role_paths.c.user_id == user_id,
+                _role_paths.c.workspace_id == workspace_id,
+            )
+        )
+    )
+    return bool((await session.execute(stmt)).scalar_one())
 
 
 async def resolve_grantable_role(
@@ -133,6 +189,26 @@ async def resolve_grantable_role(
     return await _resolve_grantable(
         session, granter, organization_id, DBRole.id == role_id, "Role not found"
     )
+
+
+def ensure_role_fits_scope(role: DBRole, workspace_id: WorkspaceID | None) -> None:
+    """Reject an organization role granted on a single workspace.
+
+    A workspace role granted org-wide applies in every workspace.
+
+    Args:
+        role: Role with ``scopes`` loaded.
+        workspace_id: Target workspace, or None for an org-wide grant.
+
+    Raises:
+        TracecatValidationError: If an org-level role targets a workspace.
+    """
+    if workspace_id is not None and is_org_level_role(
+        scope.name for scope in role.scopes
+    ):
+        raise TracecatValidationError(
+            f"{role.name} is an organization role and can only be assigned organization-wide"
+        )
 
 
 async def resolve_grantable_role_by_slug(
@@ -167,6 +243,8 @@ async def _resolve_grantable(
     role = (await session.execute(stmt)).scalar_one_or_none()
     if role is None:
         raise TracecatNotFoundError(not_found_message)
+    if role.slug == ORG_MEMBER_ROLE_SLUG:
+        raise TracecatValidationError("organization-member is granted implicitly")
 
     if not granter.is_platform_superuser:
         granter_scopes = await resolve_granter_scopes(session, granter)
@@ -174,20 +252,12 @@ async def _resolve_grantable(
     return role
 
 
-@dataclass
-class MembershipWithOrg:
-    """Membership with organization ID."""
-
-    membership: Membership
-    org_id: OrganizationID
-
-
 class MembershipService(BaseService):
     """Manage workspace memberships.
 
     This service optionally accepts a role for authorization-controlled methods
     (like add/update/delete membership). Methods used during the auth flow
-    (like get_membership, list_user_memberships) don't require a role.
+    (like get_membership) don't require a role.
     """
 
     service_name = "membership"
@@ -205,29 +275,20 @@ class MembershipService(BaseService):
     async def list_workspace_members(
         self, workspace_id: WorkspaceID
     ) -> list[WorkspaceMember]:
-        """List all workspace members with their workspace roles from RBAC."""
+        """List workspace members with the role each holds there."""
+        paths = _role_paths
+        # One row per member; a workspace grant wins over an org-wide one, and a
+        # direct grant over a group one.
         statement = (
-            select(
-                User,
-                func.coalesce(DBRole.name, literal("Workspace Editor")).label(
-                    "role_name"
-                ),
-            )
-            .select_from(Membership)
-            .join(User, Membership.user_id == User.id)  # pyright: ignore[reportArgumentType]
-            .join(Workspace, Workspace.id == Membership.workspace_id)
-            .outerjoin(
-                UserRoleAssignment,
-                and_(
-                    UserRoleAssignment.user_id == User.id,  # pyright: ignore[reportArgumentType]
-                    UserRoleAssignment.workspace_id == Membership.workspace_id,
-                    UserRoleAssignment.organization_id == Workspace.organization_id,
-                ),
-            )
-            .outerjoin(DBRole, DBRole.id == UserRoleAssignment.role_id)
-            .where(Membership.workspace_id == workspace_id)
+            select(User, DBRole.name, paths.c.via_group)
+            .select_from(paths)
+            .join(User, User.id == paths.c.user_id)  # pyright: ignore[reportArgumentType]
+            .join(DBRole, DBRole.id == paths.c.role_id)
+            .where(paths.c.workspace_id == workspace_id)
+            .distinct(paths.c.user_id)
+            .order_by(paths.c.user_id, paths.c.org_wide, paths.c.via_group, DBRole.name)
         )
-        rows = (await self.session.execute(statement)).all()
+        rows = (await self.session.execute(statement)).tuples().all()
         return [
             WorkspaceMember(
                 user_id=user.id,
@@ -235,64 +296,28 @@ class MembershipService(BaseService):
                 last_name=user.last_name,
                 email=user.email,
                 role_name=role_name,
+                via_group=via_group,
             )
-            for user, role_name in rows
+            for user, role_name, via_group in rows
         ]
 
     async def get_membership(
         self, workspace_id: WorkspaceID, user_id: UserID
-    ) -> MembershipWithOrg | None:
-        """Get a workspace membership with organization ID."""
-        statement = (
-            select(Membership, Workspace.organization_id)
-            .join(Workspace, Membership.workspace_id == Workspace.id)
-            .where(
-                Membership.user_id == user_id,
-                Membership.workspace_id == workspace_id,
-            )
+    ) -> Membership | None:
+        """Get a workspace membership."""
+        statement = select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.workspace_id == workspace_id,
         )
-        result = await self.session.execute(statement)
-        row = result.first()
-        if row is None:
-            return None
-        membership, org_id = row
-        return MembershipWithOrg(membership=membership, org_id=org_id)
+        return (await self.session.execute(statement)).scalars().first()
 
-    async def list_user_memberships(self, user_id: UserID) -> Sequence[Membership]:
-        """List all workspace memberships for a specific user.
-
-        This is used by the authorization middleware to cache user permissions.
-        """
-        statement = select(Membership).where(Membership.user_id == user_id)
-        result = await self.session.execute(statement)
-        return result.scalars().all()
-
-    async def list_user_memberships_with_org(
-        self, user_id: UserID
-    ) -> Sequence[MembershipWithOrg]:
-        """List all workspace memberships for a user with organization IDs."""
-        statement = (
-            select(Membership, Workspace.organization_id)
-            .join(Workspace, Membership.workspace_id == Workspace.id)
-            .where(Membership.user_id == user_id)
-        )
-        result = await self.session.execute(statement)
-        return [
-            MembershipWithOrg(membership=membership, org_id=org_id)
-            for membership, org_id in result.all()
-        ]
-
-    @require_scope("workspace:member:invite")
+    @require_scope("workspace:member:invite", "org:member:invite", require_all=False)
     async def create_membership(
         self,
         workspace_id: WorkspaceID,
         params: WorkspaceMembershipCreate,
     ) -> None:
-        """Create a workspace membership.
-
-        Note: The authorization cache is request-scoped, so changes will be
-        reflected in subsequent requests automatically.
-        """
+        """Create a workspace membership."""
         org_stmt = select(Workspace.organization_id).where(Workspace.id == workspace_id)
         organization_id = (await self.session.execute(org_stmt)).scalar_one_or_none()
         if organization_id is None:
@@ -304,6 +329,7 @@ class MembershipService(BaseService):
             raise TracecatAuthorizationError(
                 "Operator context is required to grant workspace membership"
             )
+        await lock_role_changes(self.session, organization_id)
         try:
             granted_role = await resolve_grantable_role_by_slug(
                 self.session, self.role, organization_id, "workspace-editor"
@@ -312,19 +338,28 @@ class MembershipService(BaseService):
             raise TracecatValidationError("Workspace or default role not found") from e
         role_id = granted_role.id
 
-        # Heal stale direct assignments left behind by prior failed remove flows.
-        await self.session.execute(
-            delete(UserRoleAssignment).where(
-                UserRoleAssignment.user_id == params.user_id,
-                UserRoleAssignment.workspace_id == workspace_id,
-            )
+        existing_member_stmt = select(Membership.user_id).where(
+            Membership.workspace_id == workspace_id,
+            Membership.user_id == params.user_id,
         )
+        if (
+            await self.session.execute(existing_member_stmt)
+        ).scalar_one_or_none() is not None:
+            raise TracecatConflictError("User is already a member of workspace.")
 
-        membership = Membership(
-            user_id=params.user_id,
-            workspace_id=workspace_id,
+        # Workspace add must not admit outsiders: org membership is a
+        # precondition, not a side effect.
+        org_member_stmt = select(OrganizationMembership.user_id).where(
+            OrganizationMembership.user_id == params.user_id,
+            OrganizationMembership.organization_id == organization_id,
         )
-        self.session.add(membership)
+        if (await self.session.execute(org_member_stmt)).scalar_one_or_none() is None:
+            raise TracecatNotFoundError("User not found in organization")
+
+        # Legacy workspace table is still written for app versions that read it.
+        await mirror_workspace_membership(
+            self.session, user_id=params.user_id, workspace_id=workspace_id
+        )
         self.session.add(
             UserRoleAssignment(
                 organization_id=organization_id,
@@ -342,14 +377,56 @@ class MembershipService(BaseService):
     ) -> None:
         """Delete a workspace membership.
 
-        Note: The authorization cache is request-scoped, so changes will be
-        reflected in subsequent requests automatically.
+        Raises:
+            TracecatConflictError: If a group grant or an org-wide workspace role
+                would keep the user in the workspace after the direct assignment
+                is gone.
         """
-        await self.session.execute(
-            delete(Membership).where(
-                Membership.workspace_id == workspace_id,
-                Membership.user_id == user_id,
+        if self.role is None:
+            raise TracecatAuthorizationError("Operator context is required")
+        organization_id = (
+            await self.session.execute(
+                select(Workspace.organization_id).where(Workspace.id == workspace_id)
             )
+        ).scalar_one()
+        await lock_role_changes(self.session, organization_id)
+        paths = _role_paths
+        retained = (
+            await self.session.execute(
+                select(paths.c.org_wide, Group.name, DBRole.name)
+                .select_from(paths)
+                .join(DBRole, DBRole.id == paths.c.role_id)
+                .outerjoin(Group, Group.id == paths.c.group_id)
+                .where(
+                    paths.c.user_id == user_id,
+                    paths.c.workspace_id == workspace_id,
+                    or_(paths.c.via_group, paths.c.org_wide),
+                )
+                # Report an org-wide grant first: removing a workspace group
+                # alone would still leave it in place.
+                .order_by(paths.c.org_wide.desc(), paths.c.via_group)
+                .limit(1)
+            )
+        ).first()
+        if retained is not None:
+            org_wide, group_name, role_name = retained
+            if group_name is not None and not org_wide:
+                raise TracecatConflictError(
+                    f"User remains a member through group '{group_name}'. "
+                    "Remove them from the group first."
+                )
+            if group_name is not None:
+                raise TracecatConflictError(
+                    f"User has {role_name} in every workspace through group "
+                    f"'{group_name}'. Change the group in organization settings."
+                )
+            raise TracecatConflictError(
+                f"User has {role_name} in every workspace. "
+                "Change their organization-wide role in organization settings."
+            )
+
+        await drop_workspace_membership_mirror(
+            self.session, user_id=user_id, workspace_ids=[workspace_id]
         )
         await self.session.execute(
             delete(UserRoleAssignment).where(

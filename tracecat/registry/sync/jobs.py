@@ -81,14 +81,25 @@ def _release_tag_key(version: str) -> tuple[int, int, int, int, int, int, int]:
     )
 
 
+def _normalize_alpha_hotfix(version: str) -> str:
+    """Express alpha hotfix tags as post-releases for both version parsers."""
+    return re.sub(
+        r"^(\d+\.\d+\.\d+-alpha\.\d+)\.(\d+)$",
+        r"\1-post.\2",
+        version,
+    )
+
+
 def _is_downgrade(current_version: PlatformRegistryVersion | None, target: str) -> bool:
     """Check if target version would be a downgrade from current."""
     if current_version is None:
         return False
+    target = _normalize_alpha_hotfix(target)
+    current = _normalize_alpha_hotfix(current_version.version)
     try:
-        return Version(target) < Version(current_version.version)
+        return Version(target) < Version(current)
     except InvalidVersion:
-        return _release_tag_key(target) < _release_tag_key(current_version.version)
+        return _release_tag_key(target) < _release_tag_key(current)
 
 
 async def sync_platform_registry_on_startup() -> None:

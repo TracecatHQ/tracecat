@@ -10,7 +10,6 @@ const mockUseVercelChatResult = {
   messages: [] as UIMessage[],
   regenerate: jest.fn(),
   sendMessage: jest.fn(),
-  setMessages: jest.fn(),
   status: "ready" as const,
 }
 
@@ -48,7 +47,9 @@ jest.mock("@/components/json-viewer", () => ({
 
 jest.mock("@/hooks/use-chat", () => ({
   makeContinueMessage: jest.fn(),
-  useAdoptServerTranscript: jest.fn(),
+  useAdoptServerTranscript:
+    jest.requireActual<typeof import("@/hooks/use-chat")>("@/hooks/use-chat")
+      .useAdoptServerTranscript,
   parseChatError: (error: unknown) =>
     error instanceof Error ? error.message : "Chat error",
   useUpdateChat: () => ({
@@ -59,7 +60,15 @@ jest.mock("@/hooks/use-chat", () => ({
     cancelChatTurn: jest.fn(),
     isCancellingChatTurn: false,
   }),
-  useVercelChat: () => mockUseVercelChatResult,
+  useVercelChat: () => {
+    const { useState } = jest.requireActual<typeof import("react")>("react")
+    const [adoptedMessages, setMessages] = useState<UIMessage[] | null>(null)
+    return {
+      ...mockUseVercelChatResult,
+      messages: adoptedMessages ?? mockUseVercelChatResult.messages,
+      setMessages,
+    }
+  },
 }))
 
 jest.mock("@/lib/hooks", () => ({
@@ -133,6 +142,42 @@ describe("ChatSessionPane optimistic first send", () => {
     mockUseVercelChatResult.lastError = null
     mockUseVercelChatResult.messages = []
     mockUseVercelChatResult.status = "ready"
+  })
+
+  it("adopts persisted child history and disables direct messages", async () => {
+    const description =
+      "This subagent conversation is read-only. Message the parent conversation instead."
+    const message: UIMessage = {
+      id: "child-message",
+      role: "assistant",
+      parts: [{ type: "text", text: "Child result" }],
+    }
+    renderChatSessionPane({
+      chat: {
+        id: "child-session",
+        workspace_id: "workspace-1",
+        title: "Child",
+        created_by: "user-1",
+        is_readonly: true,
+        spawned_by_session_id: "parent-session",
+        entity_type: "agent_preset",
+        entity_id: "preset-1",
+        channel_context: null,
+        tools: [],
+        mcp_integrations: [],
+        agent_preset_id: "preset-1",
+        agent_preset_version_id: null,
+        harness_type: "pi",
+        created_at: "2026-09-25T00:00:00Z",
+        updated_at: "2026-09-25T00:00:00Z",
+        messages: [message],
+      },
+    })
+    expect(await screen.findByText("Child result")).toBeInTheDocument()
+    expect(screen.getByText(description)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(description)).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Submit" })).toBeDisabled()
+    expect(mockUseVercelChatResult.sendMessage).not.toHaveBeenCalled()
   })
 
   it("shows the submitted message and loading dots before a session exists", async () => {

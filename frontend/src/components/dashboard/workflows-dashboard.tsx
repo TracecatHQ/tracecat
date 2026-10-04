@@ -695,7 +695,7 @@ function FolderMetadataBadges({ item }: { item: FolderDirectoryItem }) {
 
       <Badge variant="secondary" className="h-5 px-2 text-[10px] font-normal">
         <WorkflowIcon className="mr-1 size-3" />
-        {item.num_items} workflows
+        {item.num_items} {item.num_items === 1 ? "item" : "items"}
       </Badge>
     </div>
   )
@@ -1239,9 +1239,19 @@ export function WorkflowsDashboard() {
     [canUseServerPaginatedList, sortedListItems, listStartIndex, limit]
   )
 
+  const directoryWorkflowCount = useMemo(
+    () =>
+      sortedDirectoryItems.reduce(
+        (total, item) =>
+          total + (item.type === "folder" ? item.num_workflows : 1),
+        0
+      ),
+    [sortedDirectoryItems]
+  )
+
   const headerTotalCount =
     view === "folders"
-      ? sortedDirectoryItems.length
+      ? directoryWorkflowCount
       : canUseServerPaginatedList
         ? workflowPagination.totalEstimate || sortedListItems.length
         : sortedListItems.length

@@ -22,6 +22,7 @@ import shutil
 import sys
 import tempfile
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +30,7 @@ import orjson
 from pydantic_core import to_json
 
 from tracecat import config
+from tracecat.contexts import ctx_secret_masks
 from tracecat.executor.action_gateway.config import (
     ACTION_GATEWAY_SANDBOX_SOCKET,
     action_gateway_socket_path,
@@ -47,7 +49,11 @@ from tracecat.sandbox.exceptions import (
     raise_for_sandbox_error_code,
     sandbox_resource_limit_message,
 )
-from tracecat.sandbox.executor import ActionSandboxConfig, NsjailExecutor
+from tracecat.sandbox.executor import (
+    ActionSandboxConfig,
+    NsjailExecutor,
+    workload_stderr_tail,
+)
 from tracecat.sandbox.types import ResourceLimits, SandboxErrorCode
 from tracecat.sandbox.utils import (
     communicate_process_group,
@@ -55,7 +61,6 @@ from tracecat.sandbox.utils import (
 )
 from tracecat.secrets.common import (
     apply_masks_object,
-    secret_error_withholding_disabled,
 )
 
 if TYPE_CHECKING:
@@ -102,24 +107,23 @@ def _get_site_packages_dir() -> Path | None:
     return None
 
 
-def _is_sandbox_available() -> bool:
-    """Check if nsjail sandbox is available."""
-    nsjail_path = Path(config.TRACECAT__SANDBOX_NSJAIL_PATH)
-    rootfs_path = Path(config.TRACECAT__SANDBOX_ROOTFS_PATH)
-
-    if not nsjail_path.exists():
-        logger.debug("nsjail binary not found", path=str(nsjail_path))
-        return False
-
-    if not rootfs_path.exists():
-        logger.debug("Sandbox rootfs not found", path=str(rootfs_path))
-        return False
-
-    return True
+# Keeps the whole message under the 2048-char cap that
+# EventFailure.sanitize_error_text applies before the UI sees it.
+_WORKLOAD_STDERR_MESSAGE_CHARS = 1900
 
 
-def _sandbox_failure_message(error_code: SandboxErrorCode | None) -> str:
-    """Return the message carried by the typed exception a sandbox code selects."""
+def _sandbox_failure_message(
+    error_code: SandboxErrorCode | None,
+    *,
+    stderr: str = "",
+    mask_values: Iterable[str] = (),
+) -> str:
+    """Return the message carried by the typed exception a sandbox code selects.
+
+    Infrastructure and resource-limit failures never quote sandbox output.
+    Other workload failures append the masked tail of the workload's stderr so
+    the action author sees the traceback that ended the run.
+    """
     match error_code:
         case SandboxErrorCode.INFRASTRUCTURE_FAILURE:
             return "Action sandbox infrastructure failed before producing a result"
@@ -129,7 +133,12 @@ def _sandbox_failure_message(error_code: SandboxErrorCode | None) -> str:
                 memory_env_var="TRACECAT__SANDBOX_DEFAULT_MEMORY_MB",
             )
         case _:
-            return "Action sandbox workload stopped before producing a result"
+            message = "Action sandbox workload stopped before producing a result"
+            tail = workload_stderr_tail(stderr, limit=_WORKLOAD_STDERR_MESSAGE_CHARS)
+            if not tail:
+                return message
+            masked_tail = apply_masks_object(tail, masks=mask_values)
+            return f"{message}. Workload stderr (tail):\n{masked_tail}"
 
 
 def _direct_subprocess_command(minimal_runner_path: Path) -> list[str]:
@@ -177,7 +186,7 @@ class ActionRunner:
         artifact_uris: list[str] | None = None,
         env_vars: dict[str, str] | None = None,
         timeout: float | None = None,
-        force_sandbox: bool = False,
+        use_sandbox: bool | None = None,
     ) -> ExecutionResult:
         """Execute an action in a subprocess (untrusted mode).
 
@@ -190,7 +199,7 @@ class ActionRunner:
             artifact_uris: List of registry artifact S3 URIs (deterministic order)
             env_vars: Additional environment variables for the subprocess
             timeout: Execution timeout in seconds
-            force_sandbox: If True, always use nsjail sandbox regardless of config
+            use_sandbox: Explicit subprocess mode; defaults to the configured backend.
             resolved_context: Pre-resolved context from service layer (optional,
                 will be resolved here if not provided)
 
@@ -199,23 +208,17 @@ class ActionRunner:
         """
         timeout = timeout or config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT
 
-        # Direct subprocesses receive host paths and can modify extracted
-        # artifacts. NsJail exposes the same paths through read-only bind mounts.
-        use_sandbox = force_sandbox or (
-            config.TRACECAT__EXECUTOR_SANDBOX_ENABLED and _is_sandbox_available()
-        )
+        # Both execution modes treat registry artifacts as shared import inputs.
+        if use_sandbox is None:
+            use_sandbox = config.TRACECAT__EXECUTOR_BACKEND.uses_nsjail
 
         # Materialize each registry artifact, collect paths in deterministic order.
         # The lease is held for the whole subprocess execution so cache eviction
         # cannot delete a directory the subprocess is still importing from.
-        async with self.registry_artifacts.lease(
-            artifact_uris,
-            paths_may_be_modified=not use_sandbox,
-        ) as registry_paths:
+        async with self.registry_artifacts.lease(artifact_uris) as registry_paths:
             logger.debug(
                 "Using sandbox execution",
                 use_sandbox=use_sandbox,
-                force_sandbox=force_sandbox,
             )
 
             secret_projection = resolved_context.secret_projection
@@ -281,7 +284,9 @@ class ActionRunner:
                 "role": role,
                 "resolved_context": resolved_context,
                 "secret_env": secret_projection.env,
-                "unsafe_disable_secret_error_withholding": secret_error_withholding_disabled(),
+                "secret_mask_values": sorted(masks.values)
+                if (masks := ctx_secret_masks.get())
+                else [],
             }
 
             # Write input JSON to job directory
@@ -365,7 +370,11 @@ class ActionRunner:
 
             raise_for_sandbox_error_code(
                 result.error_code,
-                _sandbox_failure_message(result.error_code),
+                _sandbox_failure_message(
+                    result.error_code,
+                    stderr=result.stderr,
+                    mask_values=secret_projection.mask_values,
+                ),
             )
 
             # Handle error from sandbox
@@ -418,9 +427,8 @@ class ActionRunner:
         if resolved_context is not None:
             payload["resolved_context"] = resolved_context
             payload["secret_env"] = secret_projection.env
-            payload["unsafe_disable_secret_error_withholding"] = (
-                secret_error_withholding_disabled()
-            )
+            masks = ctx_secret_masks.get()
+            payload["secret_mask_values"] = sorted(masks.values) if masks else []
         input_json = to_json(payload)
 
         # Build environment with registry paths in PYTHONPATH

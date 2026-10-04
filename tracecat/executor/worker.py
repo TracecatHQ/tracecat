@@ -5,10 +5,8 @@ This worker listens on the 'shared-action-queue' and executes:
 - Registry sync operations (when sandboxed sync is enabled)
 
 Supported backends (via TRACECAT__EXECUTOR_BACKEND):
-- ephemeral: Cold nsjail subprocess per action (multitenant, full isolation)
+- nsjail (ephemeral alias): Cold nsjail subprocess per action (multitenant, full isolation)
 - direct: Direct subprocess execution
-- test: In-process execution (tests only)
-- auto: Auto-select based on environment
 
 Architecture:
     DSLWorkflow (tracecat-task-queue)
@@ -50,6 +48,10 @@ from temporalio.worker.workflow_sandbox import (
 
 with workflow.unsafe.imports_passed_through():
     import uvloop
+    from tracecat_ee.secrets.references.workflows import (
+        SecretReferenceCheckWorkflow,
+        check_secret_reference_activity,
+    )
 
     from tracecat import config
     from tracecat.dsl.client import get_temporal_client
@@ -61,6 +63,7 @@ with workflow.unsafe.imports_passed_through():
         initialize_executor_backend,
         shutdown_executor_backend,
     )
+    from tracecat.executor.startup import executor_lifecycle
     from tracecat.logger import logger
     from tracecat.observability.otel import (
         initialize_platform_tracing,
@@ -117,99 +120,107 @@ def new_sandbox_runner() -> SandboxedWorkflowRunner:
 
 async def main(shutdown_event: asyncio.Event | None = None) -> None:
     """Run the ExecutorWorker."""
-    if shutdown_event is None:
-        shutdown_event = asyncio.Event()
+    with executor_lifecycle() as readiness:
+        if shutdown_event is None:
+            shutdown_event = asyncio.Event()
 
-    # Get configuration
-    task_queue = config.TRACECAT__EXECUTOR_QUEUE
-    max_concurrent = config.TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES
-    threadpool_max_workers = config.TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS
+        # Get configuration
+        task_queue = config.TRACECAT__EXECUTOR_QUEUE
+        max_concurrent = config.TRACECAT__EXECUTOR_MAX_CONCURRENT_ACTIVITIES
+        threadpool_max_workers = config.TRACECAT__EXECUTOR_THREADPOOL_MAX_WORKERS
 
-    logger.info(
-        "Starting ExecutorWorker",
-        task_queue=task_queue,
-        max_concurrent_activities=max_concurrent,
-        threadpool_max_workers=threadpool_max_workers,
-        executor_backend=config.TRACECAT__EXECUTOR_BACKEND,
-    )
-    initialize_platform_tracing("tracecat-executor")
-    initialize_executor_sentry_from_environment()
-    action_gateway = ActionGateway()
+        logger.info(
+            "Starting ExecutorWorker",
+            task_queue=task_queue,
+            max_concurrent_activities=max_concurrent,
+            threadpool_max_workers=threadpool_max_workers,
+            executor_backend=config.TRACECAT__EXECUTOR_BACKEND,
+        )
+        initialize_platform_tracing("tracecat-executor")
+        initialize_executor_sentry_from_environment()
+        action_gateway = ActionGateway()
 
-    try:
-        # Start the local action gateway before sandbox workers are spawned so its
-        # socket path is available in their immutable process environment.
-        await action_gateway.start()
-
-        # Warm the registry artifact cache sweep before the backend spawns
-        # workers or activities run; cache construction itself is cheap.
         try:
-            await get_action_runner().registry_artifacts.ensure_swept()
-        except OSError as e:
-            # Cache cleanup is best-effort. The failed sweep remains retryable
-            # at the first lease or materialization boundary.
-            logger.warning(
-                "Registry artifact cache warmup failed; continuing worker startup",
-                error=str(e),
+            # Start the local action gateway before sandbox workers are spawned so its
+            # socket path is available in their immutable process environment.
+            await action_gateway.start()
+
+            # Warm the registry artifact cache sweep before the backend spawns
+            # workers or activities run; cache construction itself is cheap.
+            try:
+                await get_action_runner().registry_artifacts.ensure_swept()
+            except OSError as e:
+                # Cache cleanup is best-effort. The failed sweep remains retryable
+                # at the first lease or materialization boundary.
+                logger.warning(
+                    "Registry artifact cache warmup failed; continuing worker startup",
+                    error=str(e),
+                )
+
+            # Initialize the executor backend before accepting tasks
+            await initialize_executor_backend()
+
+            client = await get_temporal_client()
+
+            # Collect all activities from executor and registry sync
+            activities = [
+                *ExecutorActivities.get_activities(),
+                *RegistrySyncActivities.get_activities(),
+                check_secret_reference_activity,
+            ]
+
+            # Collect all workflows
+            workflows = [
+                RegistrySyncWorkflow,
+                RegistryArtifactsBackfillWorkflow,
+                SecretReferenceCheckWorkflow,
+            ]
+            interceptors: list[Interceptor] = [RuntimeErrorAttributionInterceptor()]
+
+            logger.debug(
+                "Activities loaded",
+                activities=[
+                    getattr(a, "__temporal_activity_definition").name
+                    for a in activities
+                ],
+            )
+            logger.debug(
+                "Workflows loaded",
+                workflows=[w.__name__ for w in workflows],
             )
 
-        # Initialize the executor backend before accepting tasks
-        await initialize_executor_backend()
-
-        client = await get_temporal_client()
-
-        # Collect all activities from executor and registry sync
-        activities = [
-            *ExecutorActivities.get_activities(),
-            *RegistrySyncActivities.get_activities(),
-        ]
-
-        # Collect all workflows
-        workflows = [
-            RegistrySyncWorkflow,
-            RegistryArtifactsBackfillWorkflow,
-        ]
-        interceptors: list[Interceptor] = [RuntimeErrorAttributionInterceptor()]
-
-        logger.debug(
-            "Activities loaded",
-            activities=[
-                getattr(a, "__temporal_activity_definition").name for a in activities
-            ],
-        )
-        logger.debug(
-            "Workflows loaded",
-            workflows=[w.__name__ for w in workflows],
-        )
-
-        with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
-            async with Worker(
-                client,
-                task_queue=task_queue,
-                workflows=workflows,
-                activities=activities,
-                activity_executor=executor,
-                max_concurrent_activities=max_concurrent,
-                workflow_runner=new_sandbox_runner(),
-                interceptors=interceptors,
-                graceful_shutdown_timeout=timedelta(minutes=5),
-            ):
-                logger.info(
-                    "ExecutorWorker started, ctrl+c to exit",
-                    task_queue=task_queue,
-                    max_concurrent_activities=max_concurrent,
-                    num_workflows=len(workflows),
-                    num_activities=len(activities),
-                )
-                await shutdown_event.wait()
-                logger.info("ExecutorWorker shutdown requested")
-            logger.info("Temporal Worker context exited")
-    finally:
-        logger.info("Shutting down executor backend")
-        await shutdown_executor_backend()
-        await close_storage_client_cache()
-        await action_gateway.stop()
-        shutdown_platform_tracing()
+            with ThreadPoolExecutor(max_workers=threadpool_max_workers) as executor:
+                async with (
+                    Worker(
+                        client,
+                        task_queue=task_queue,
+                        workflows=workflows,
+                        activities=activities,
+                        activity_executor=executor,
+                        max_concurrent_activities=max_concurrent,
+                        workflow_runner=new_sandbox_runner(),
+                        interceptors=interceptors,
+                        graceful_shutdown_timeout=timedelta(minutes=5),
+                    ),
+                    # LIFO exit removes readiness before Temporal drains activities.
+                    readiness,
+                ):
+                    logger.info(
+                        "ExecutorWorker started, ctrl+c to exit",
+                        task_queue=task_queue,
+                        max_concurrent_activities=max_concurrent,
+                        num_workflows=len(workflows),
+                        num_activities=len(activities),
+                    )
+                    await shutdown_event.wait()
+                    logger.info("ExecutorWorker shutdown requested")
+                logger.info("Temporal Worker context exited")
+        finally:
+            logger.info("Shutting down executor backend")
+            await shutdown_executor_backend()
+            await close_storage_client_cache()
+            await action_gateway.stop()
+            shutdown_platform_tracing()
 
 
 if __name__ == "__main__":

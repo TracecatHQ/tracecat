@@ -25,6 +25,7 @@ from tracecat.dsl.common import create_default_execution_context
 from tracecat.dsl.schemas import ActionStatement, RunActionInput, RunContext
 from tracecat.executor import action_runner
 from tracecat.executor.action_runner import ActionRunner
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.executor.registry_artifacts import compute_registry_artifact_cache_key
 from tracecat.executor.schemas import (
     ActionImplementation,
@@ -183,7 +184,7 @@ class TestActionRunner:
             patch("asyncio.create_subprocess_exec") as mock_subprocess,
         ):
             mock_config.TRACECAT__EXECUTOR_CLIENT_TIMEOUT = 0.1
-            mock_config.TRACECAT__EXECUTOR_SANDBOX_ENABLED = False
+            mock_config.TRACECAT__EXECUTOR_BACKEND = ExecutorBackendType.DIRECT
             mock_config.TRACECAT__EXECUTOR_REGISTRY_CACHE_DIR = str(temp_cache_dir)
 
             # Create a mock process that hangs
@@ -673,6 +674,84 @@ class TestActionRunner:
         assert exc_info.value.error_code is error_code
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("error_code", "expect_stderr"),
+        [
+            (SandboxErrorCode.WORKLOAD_FAILURE, True),
+            (SandboxErrorCode.TIMEOUT, True),
+            (SandboxErrorCode.RESOURCE_LIMIT_EXCEEDED, False),
+        ],
+    )
+    async def test_sandbox_workload_error_message_carries_masked_stderr_tail(
+        self,
+        temp_cache_dir: Path,
+        mock_run_action_input: RunActionInput,
+        mock_role: Role,
+        monkeypatch: pytest.MonkeyPatch,
+        error_code: SandboxErrorCode,
+        expect_stderr: bool,
+    ) -> None:
+        runner = ActionRunner(cache_dir=temp_cache_dir)
+        base_dir = temp_cache_dir / "base"
+        base_dir.mkdir()
+        resolved_context = ResolvedContext(
+            action_impl=ActionImplementation(
+                type="udf",
+                action_name="core.http_request",
+                module="tracecat_registry.core.http",
+                name="http_request",
+            ),
+            evaluated_args={},
+            workspace_id=str(mock_role.workspace_id),
+            workflow_id=str(mock_run_action_input.run_context.wf_id),
+            run_id=str(mock_run_action_input.run_context.wf_run_id),
+            executor_token="synthetic-executor-token",
+        )
+        secret = "synthetic-smtp-password"
+        stderr = (
+            "[I][2026-01-01T00:00:00+0000] Mount: '/host/job' -> '/work'\n"
+            f"connecting with {secret}\n"
+            "TypeError: Type is not JSON serializable: coroutine\n"
+            "sys:1: RuntimeWarning: coroutine 'call_api' was never awaited\n"
+        )
+
+        async def execute_action(
+            _executor: action_runner.NsjailExecutor,
+            _job_dir: Path,
+            _sandbox_config: action_runner.ActionSandboxConfig,
+        ) -> SandboxResult:
+            return SandboxResult(
+                success=False,
+                error="synthetic workload diagnostic",
+                error_code=error_code,
+                stderr=stderr,
+                exit_code=1,
+            )
+
+        monkeypatch.setattr(
+            action_runner.NsjailExecutor,
+            "execute_action",
+            execute_action,
+        )
+
+        with pytest.raises(SandboxWorkloadError) as exc_info:
+            await runner._execute_sandboxed(
+                input=mock_run_action_input,
+                role=mock_role,
+                registry_paths=[base_dir],
+                secret_projection=SecretEnvProjection(env={}, mask_values={secret}),
+                resolved_context=resolved_context,
+            )
+
+        message = str(exc_info.value)
+        assert secret not in message
+        assert "/host/job" not in message
+        if expect_stderr:
+            assert "coroutine 'call_api' was never awaited" in message
+        else:
+            assert "coroutine" not in message
+
+    @pytest.mark.anyio
     async def test_execute_action_disables_new_privileges_for_direct_subprocess(
         self,
         temp_cache_dir,
@@ -841,9 +920,12 @@ class TestActionRunner:
         cache_key = compute_registry_artifact_cache_key(artifact_uri)
         entry_dir = runner.registry_artifacts._paths_for(cache_key).tarball_target_dir
         entry_dir.mkdir(parents=True)
+        await runner.registry_artifacts.ensure_swept()
 
         monkeypatch.setattr(
-            action_runner.config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False
+            action_runner.config,
+            "TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
         )
 
         success_response = orjson.dumps({"success": True, "result": {"data": "test"}})
@@ -876,20 +958,29 @@ class TestActionRunner:
             mock_proc.communicate = AsyncMock(return_value=(success_response, b""))
             return mock_proc
 
-        with patch(
-            "asyncio.create_subprocess_exec",
-            side_effect=create_subprocess_exec_side_effect,
+        with (
+            patch(
+                "asyncio.create_subprocess_exec",
+                side_effect=create_subprocess_exec_side_effect,
+            ),
+            patch.object(
+                runner.registry_artifacts,
+                "_scan_cache_snapshot",
+                side_effect=AssertionError(
+                    "warm direct actions must not scan the cache"
+                ),
+            ),
         ):
-            result = await runner.execute_action(
-                input=mock_run_action_input,
-                role=mock_role,
-                resolved_context=resolved_context,
-                artifact_uris=[artifact_uri],
-                timeout=10.0,
-            )
-
-        assert result == {"data": "test"}
-        assert refcounts == [1]
+            for _ in range(3):
+                result = await runner.execute_action(
+                    input=mock_run_action_input,
+                    role=mock_role,
+                    resolved_context=resolved_context,
+                    artifact_uris=[artifact_uri],
+                    timeout=10.0,
+                )
+                assert result == {"data": "test"}
+        assert refcounts == [1, 1, 1]
         assert registry_paths[0].startswith(str(entry_dir))
         assert runner.registry_artifacts._refcount(cache_key) == 0
 
@@ -920,7 +1011,9 @@ class TestActionRunner:
         mounted = {paths.squashfs_mount_dir}
 
         monkeypatch.setattr(
-            action_runner.config, "TRACECAT__EXECUTOR_SANDBOX_ENABLED", False
+            action_runner.config,
+            "TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
         )
 
         resolved_context = ResolvedContext(

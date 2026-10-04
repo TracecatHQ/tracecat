@@ -29,10 +29,10 @@ The `env.sh` script (next step) generates these automatically. If you need to ge
 
 ```bash
 # 1. Download the env.sh installation script
-curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0/env.sh
+curl -o env.sh https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.1/env.sh
 
 # 2. Download the .env.example template file (env.sh needs this to generate your .env file)
-curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0/.env.example
+curl -o .env.example https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.1/.env.example
 
 # 3. Make the env.sh script executable and run it
 chmod +x env.sh && ./env.sh
@@ -50,14 +50,20 @@ Tracecat uses Caddy as a reverse proxy.
 You'll need to download the following `Caddyfile` to configure this service.
 
 ```bash
-curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0/Caddyfile
+curl -o Caddyfile https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.1/Caddyfile
 ```
 
 ## Download Docker Compose file
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.0/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/TracecatHQ/tracecat/1.0.1/docker-compose.yml
 ```
+
+<Warning>
+  Docker Compose defaults to the `direct` executor backend, which does not sandbox ordinary workflow actions.
+  For supported action isolation, set `TRACECAT__EXECUTOR_BACKEND=nsjail`, then enable the container permissions described in [Security](/self-hosting/security#nsjail-sandbox-recommended-for-production).
+  The legacy `ephemeral` value remains a compatibility alias for `nsjail`.
+</Warning>
 
 ## Start Tracecat
 
@@ -217,6 +223,12 @@ For an overview of all services and networking, see [Architecture](/self-hosting
   <Accordion title="Does Tracecat support WSL?">
     Yes but you'll need to set `PUBLIC_APP_URL` to the WSL IP address instead of `localhost`.
     Run `ip addr` to find your WSL IP address (usually 172.x.x.x).
+  </Accordion>
+
+  <Accordion title="Connecting LiteLLM, vLLM, or Ollama fails with 'Host is not allowed'">
+    Tracecat rejects LLM provider and MCP endpoints that resolve to private addresses unless you allow them.
+    Set `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS` in your `.env` file to the gateway's IP or CIDR, e.g. `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS=10.0.12.34/32`, then run `docker compose up -d` to restart the services.
+    See [Private endpoints](/agents/llm-providers#private-endpoints).
   </Accordion>
 
   <Accordion title="I can see the landing page but not the login page">

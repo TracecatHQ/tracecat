@@ -21,6 +21,7 @@ from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.workflow.graph.service import EdgeDedupKey, WorkflowGraphService
 from tracecat.workflow.management.schemas import (
     AddEdgePayload,
+    AddNodePayload,
     DeleteEdgePayload,
     GraphOperation,
     GraphOperationType,
@@ -353,3 +354,94 @@ async def test_legacy_edge_without_handle_dedupes_against_success(
     ]
     assert len(udf_edges) == 1
     assert udf_edges[0]["source_handle"] == "success"
+
+
+@pytest.mark.anyio
+async def test_auto_layout_orders_success_before_error(
+    session: AsyncSession,
+    svc_role: Role,
+    workflow_pair: tuple[Workflow, Action, Action],
+) -> None:
+    """Auto-layout places success children left of error handlers."""
+    workflow, action_a, action_b = workflow_pair
+    on_error = Action(
+        id=uuid.uuid4(),
+        workspace_id=workflow.workspace_id,
+        workflow_id=workflow.id,
+        type="core.transform.reshape",
+        title="On error",
+        description="Error handler",
+        inputs="",
+        control_flow={},
+        position_x=-500,
+        position_y=0,
+        upstream_edges=[],
+    )
+    session.add(on_error)
+    await session.commit()
+    service = WorkflowGraphService(session, role=svc_role)
+    await service.apply_operations(
+        WorkflowUUID.new(workflow.id),
+        workflow.graph_version,
+        [
+            _add_edge_op(action_a.id, on_error.id, "error"),
+            _add_edge_op(action_a.id, action_b.id, "success"),
+        ],
+    )
+    version = workflow.graph_version
+
+    await service.apply_operations(
+        WorkflowUUID.new(workflow.id),
+        version,
+        [GraphOperation(type=GraphOperationType.AUTO_LAYOUT, payload={})],
+    )
+
+    await session.refresh(action_a)
+    await session.refresh(action_b)
+    await session.refresh(on_error)
+    await session.refresh(workflow)
+    assert workflow.graph_version == version
+    assert (workflow.trigger_position_x, workflow.trigger_position_y) == (0, 0)
+    assert action_b.position_y == on_error.position_y > action_a.position_y
+    assert action_b.position_x < on_error.position_x
+    assert action_a.position_x == pytest.approx(
+        (action_b.position_x + on_error.position_x) / 2
+    )
+
+
+@pytest.mark.anyio
+async def test_auto_layout_includes_changes_from_same_batch(
+    session: AsyncSession,
+    svc_role: Role,
+    workflow_pair: tuple[Workflow, Action, Action],
+) -> None:
+    """Auto-layout sees nodes and edges added earlier in the same batch."""
+    workflow, action_a, action_b = workflow_pair
+    service = WorkflowGraphService(session, role=svc_role)
+
+    await service.apply_operations(
+        WorkflowUUID.new(workflow.id),
+        workflow.graph_version,
+        [
+            GraphOperation(
+                type=GraphOperationType.ADD_NODE,
+                payload=AddNodePayload(
+                    type="core.transform.reshape",
+                    title="Added in batch",
+                    position_x=5000,
+                    position_y=5000,
+                ).model_dump(mode="json"),
+            ),
+            _add_edge_op(action_a.id, action_b.id, "success"),
+            GraphOperation(type=GraphOperationType.AUTO_LAYOUT, payload={}),
+        ],
+    )
+
+    await session.refresh(workflow, ["actions"])
+    positions = {
+        action.title: (action.position_x, action.position_y)
+        for action in workflow.actions
+    }
+    assert positions["Added in batch"] != (5000, 5000)
+    assert positions["Action B"][1] > positions["Action A"][1]
+    assert positions["Added in batch"][1] == positions["Action A"][1]

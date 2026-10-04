@@ -8,7 +8,9 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
+from tracecat import config
 from tracecat.auth import saml
+from tracecat.auth.domain_policy import is_domain_allowed_for_org
 
 
 @pytest.mark.anyio
@@ -91,43 +93,46 @@ class _FakeResult:
             raise AssertionError("Expected at least one value")
         return self._values[0]
 
+    def scalar_one_or_none(self) -> object:
+        return self._values[0] if self._values else None
 
-def test_is_normalized_domain_allowed_for_org_denies_no_domains_in_multi_tenant(
+
+def testis_domain_allowed_for_org_denies_no_domains_in_multi_tenant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", True)
-    monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
 
-    allowed = saml._is_normalized_domain_allowed_for_org(
+    allowed = is_domain_allowed_for_org(
         normalized_domain="example.com", active_domains=set()
     )
 
     assert allowed is False
 
 
-def test_is_normalized_domain_allowed_for_org_allows_no_domains_in_single_tenant_when_env_not_set(
+def testis_domain_allowed_for_org_allows_no_domains_in_single_tenant_when_env_not_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", False)
-    monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
 
-    allowed = saml._is_normalized_domain_allowed_for_org(
+    allowed = is_domain_allowed_for_org(
         normalized_domain="example.com", active_domains=set()
     )
 
     assert allowed is True
 
 
-def test_is_normalized_domain_allowed_for_org_enforces_env_domains_in_single_tenant(
+def testis_domain_allowed_for_org_enforces_env_domains_in_single_tenant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", False)
-    monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", {"acme.com"})
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", {"acme.com"})
 
-    allowed_matching = saml._is_normalized_domain_allowed_for_org(
+    allowed_matching = is_domain_allowed_for_org(
         normalized_domain="acme.com", active_domains=set()
     )
-    allowed_non_matching = saml._is_normalized_domain_allowed_for_org(
+    allowed_non_matching = is_domain_allowed_for_org(
         normalized_domain="example.com", active_domains=set()
     )
 
@@ -135,16 +140,16 @@ def test_is_normalized_domain_allowed_for_org_enforces_env_domains_in_single_ten
     assert allowed_non_matching is False
 
 
-def test_is_normalized_domain_allowed_for_org_allows_allowlisted_domain() -> None:
-    allowed = saml._is_normalized_domain_allowed_for_org(
+def testis_domain_allowed_for_org_allows_allowlisted_domain() -> None:
+    allowed = is_domain_allowed_for_org(
         normalized_domain="example.com", active_domains={"example.com"}
     )
 
     assert allowed is True
 
 
-def test_is_normalized_domain_allowed_for_org_denies_non_allowlisted_domain() -> None:
-    allowed = saml._is_normalized_domain_allowed_for_org(
+def testis_domain_allowed_for_org_denies_non_allowlisted_domain() -> None:
+    allowed = is_domain_allowed_for_org(
         normalized_domain="other.com", active_domains={"example.com"}
     )
 
@@ -276,8 +281,8 @@ async def test_select_authorized_email_rejects_invitation_without_domains(
     invitation = SimpleNamespace(token="inv-123")
     get_invitation_mock = AsyncMock(return_value=invitation)
     monkeypatch.setattr(saml, "_get_active_org_domains", AsyncMock(return_value=set()))
-    monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", True)
-    monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
     monkeypatch.setattr(
         saml,
         "is_superadmin_saml_bootstrap_allowed_for_org",
@@ -302,8 +307,8 @@ async def test_select_authorized_email_allows_invitation_without_domains_in_sing
     invitation = SimpleNamespace(token="inv-123")
     get_invitation_mock = AsyncMock(return_value=invitation)
     monkeypatch.setattr(saml, "_get_active_org_domains", AsyncMock(return_value=set()))
-    monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", False)
-    monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", False)
+    monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
     monkeypatch.setattr(
         saml,
         "is_superadmin_saml_bootstrap_allowed_for_org",
@@ -349,8 +354,8 @@ async def test_select_authorized_email_rejects_superadmin_without_domains_when_n
 ) -> None:
     fake_session = AsyncMock()
     monkeypatch.setattr(saml, "_get_active_org_domains", AsyncMock(return_value=set()))
-    monkeypatch.setattr(saml, "TRACECAT__EE_MULTI_TENANT", True)
-    monkeypatch.setattr(saml, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
+    monkeypatch.setattr(config, "TRACECAT__EE_MULTI_TENANT", True)
+    monkeypatch.setattr(config, "TRACECAT__AUTH_ALLOWED_DOMAINS", set())
     monkeypatch.setattr(
         saml,
         "is_superadmin_saml_bootstrap_allowed_for_org",
@@ -386,7 +391,7 @@ def test_should_allow_saml_user_auto_provisioning_for_first_superadmin() -> None
 
 
 def test_should_allow_saml_user_auto_provisioning_for_pending_invitation() -> None:
-    invitation = cast(saml.OrganizationInvitation, SimpleNamespace(token="inv-123"))
+    invitation = cast(saml.Invitation, SimpleNamespace(token="inv-123"))
     assert (
         saml.should_allow_saml_user_auto_provisioning(
             pending_invitation=invitation,
@@ -512,7 +517,7 @@ def test_should_allow_saml_org_access_matrix(
     expected: bool,
 ) -> None:
     pending_invitation = (
-        cast(saml.OrganizationInvitation, SimpleNamespace(token="inv-123"))
+        cast(saml.Invitation, SimpleNamespace(token="inv-123"))
         if has_pending_invitation
         else None
     )

@@ -27,6 +27,8 @@ Enterprise adds per-tool approvals on MCP integrations and the agent inbox to re
 
 Use remote MCP when the server is exposed over a URL.
 
+Tracecat rejects server URLs that resolve to private, loopback, or link-local addresses with `Host is not allowed`. For a self-hosted MCP server on your network, add its IP or CIDR to `TRACECAT__OUTBOUND_ALLOWED_PRIVATE_CIDRS`; see [Private endpoints](/agents/llm-providers#private-endpoints).
+
 Authentication modes:
 
 - No Authentication

@@ -37,7 +37,7 @@ Turning enforcement off restores access from every address and keeps the allowli
 ## What the allowlist applies to
 
 - Sign-in: password, OIDC, and SAML sign-in fail after credentials are verified when the address is denied. SAML checks the organization the connection belongs to. Password and OIDC sign-in succeed when at least one of the user's organizations admits the address; requests to a denying organization still fail.
-- REST API: every request that resolves to the organization, whether it authenticates with a session cookie or a service account API key. Requests from a denied address fail before any tenant data is read.
+- REST API: every request that resolves to the organization, whether it authenticates with a session cookie, a service account API key, or a SCIM token. Requests from a denied address fail after the credential is verified and before the endpoint runs.
 - Not covered: the Tracecat MCP server, which authenticates with its own OAuth tokens, inbound workflow webhooks, and Tracecat's internal service calls. Use [webhook CIDR allowlists](/automations/triggers/webhooks) to restrict webhook senders.
 - Platform superusers bypass the allowlist for break-glass access.
 

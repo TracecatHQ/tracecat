@@ -8,7 +8,9 @@ from sqlalchemy.exc import IntegrityError
 from tracecat.auth.dependencies import OrgActorRole, WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatNotFoundError,
+)
 from tracecat.identifiers import SecretID
 from tracecat.integrations.aws_assume_role import (
     build_workspace_external_id,
@@ -18,7 +20,7 @@ from tracecat.integrations.aws_assume_role import (
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.secrets.dependencies import AnySecretIDPath
-from tracecat.secrets.enums import SecretType
+from tracecat.secrets.enums import SecretSource, SecretType
 from tracecat.secrets.schemas import (
     AwsAssumeRoleAccessRead,
     OrganizationSecretRead,
@@ -29,7 +31,11 @@ from tracecat.secrets.schemas import (
     SecretSearch,
     SecretUpdate,
 )
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.service import (
+    SecretsService,
+    is_external_reference,
+    secret_key_names,
+)
 
 router = APIRouter(prefix="/secrets", tags=["secrets"])
 org_router = APIRouter(prefix="/organization/secrets", tags=["organization-secrets"])
@@ -40,8 +46,17 @@ def _serialize_secret_read_minimal(
     service: SecretsService,
     secret: Any,
 ) -> SecretReadMinimal:
+    source = SecretSource.LOCAL
+    store_id = None
+    store_name = None
+    remote_reference = None
+    if is_external_reference(secret):
+        source = SecretSource.AWS_SECRETS_MANAGER
+        store_id = secret.store_id
+        store_name = secret.store.name if secret.store is not None else None
+        remote_reference = secret.remote_reference
     try:
-        keys = [kv.key for kv in service.decrypt_keys(secret.encrypted_keys)]
+        keys = secret_key_names(service, secret)
         is_corrupted = False
     except (InvalidToken, ValidationError, ValueError) as e:
         keys = []
@@ -62,6 +77,10 @@ def _serialize_secret_read_minimal(
         keys=keys,
         environment=secret.environment,
         is_corrupted=is_corrupted,
+        source=source,
+        store_id=store_id,
+        store_name=store_name,
+        remote_reference=remote_reference,
     )
 
 
@@ -92,9 +111,6 @@ async def search_secrets(
     if types:
         params["types"] = types
     secrets = await service.search_secrets(SecretSearch(**params))
-    decrypted = []
-    for secret in secrets:
-        decrypted.extend(service.decrypt_keys(secret.encrypted_keys))
     return [SecretRead.from_database(secret) for secret in secrets]
 
 

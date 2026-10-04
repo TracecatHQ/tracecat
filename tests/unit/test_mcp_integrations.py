@@ -73,6 +73,7 @@ from tracecat.integrations.providers.base import (
     build_dcr_payload,
     mcp_requested_scopes,
 )
+from tracecat.integrations.providers.perplexity.mcp import PerplexityMCPProvider
 from tracecat.integrations.providers.runreveal.mcp import RunRevealMCPProvider
 from tracecat.integrations.providers.sentry.mcp import SentryMCPProvider
 from tracecat.integrations.providers.wiz.mcp import WizMCPProvider
@@ -6961,6 +6962,54 @@ class TestMCPProviderOAuth:
         assert (
             provider._get_additional_token_params()["resource"]
             == SentryMCPProvider.mcp_server_uri
+        )
+
+    async def test_perplexity_provider_uses_advertised_resource(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Perplexity's protected resource metadata names the host without /mcp."""
+
+        discovery = OAuthDiscoveryResult(
+            authorization_endpoint="https://api.perplexity.ai/oauth/authorize",
+            token_endpoint="https://api.perplexity.ai/oauth/token",
+            token_methods=["none", "client_secret_basic"],
+            registration_endpoint="https://api.perplexity.ai/oauth/register",
+            scopes_supported=["perplexity_api", "offline_access"],
+        )
+
+        async def fake_discover(
+            cls,
+            logger_instance,
+            *,
+            discovered_auth_endpoint=None,
+            discovered_token_endpoint=None,
+        ) -> OAuthDiscoveryResult:
+            _ = (
+                cls,
+                logger_instance,
+                discovered_auth_endpoint,
+                discovered_token_endpoint,
+            )
+            return discovery
+
+        monkeypatch.setattr(
+            PerplexityMCPProvider,
+            "_discover_oauth_endpoints_async",
+            classmethod(fake_discover),
+        )
+
+        provider = await PerplexityMCPProvider.instantiate(client_id="dummy-client")
+
+        auth_url, _ = await provider.get_authorization_url(state="test-state")
+        auth_query = parse_qs(urlparse(auth_url).query)
+
+        assert PerplexityMCPProvider.mcp_server_uri == "https://api.perplexity.ai/mcp"
+        assert auth_query["resource"] == ["https://api.perplexity.ai"]
+        assert auth_query["scope"] == ["perplexity_api offline_access"]
+        assert (
+            provider._get_additional_token_params()["resource"]
+            == "https://api.perplexity.ai"
         )
 
     @pytest.mark.parametrize(

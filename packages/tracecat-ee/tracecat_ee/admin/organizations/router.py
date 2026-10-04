@@ -5,12 +5,12 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy.exc import IntegrityError, NoResultFound
 
 from tracecat import config
 from tracecat.auth.credentials import SuperuserRole
 from tracecat.db.dependencies import AsyncDBSessionBypass
-from tracecat.exceptions import TracecatValidationError
+from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat_ee.admin.organizations.schemas import (
@@ -155,6 +155,12 @@ async def create_organization_invitation(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except IntegrityError as e:
+        # Race: a concurrent request already inserted a pending row for this email.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An invitation already exists for this email",
+        ) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
@@ -235,6 +241,39 @@ async def revoke_organization_invitation(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Invitation not found",
+        ) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.post(
+    "/{org_id}/invitations/{invitation_id}/resend",
+    response_model=AdminOrgInvitationRead,
+)
+async def resend_organization_invitation(
+    role: SuperuserRole,
+    session: AsyncDBSessionBypass,
+    org_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+) -> AdminOrgInvitationRead:
+    """Queue another delivery of a pending invitation email."""
+    service = AdminOrgService(session, role)
+    try:
+        return await service.resend_organization_invitation(org_id, invitation_id)
+    except NoResultFound as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invitation not found",
+        ) from e
+    except TracecatConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Invitation email was sent less than a minute ago",
         ) from e
     except TracecatValidationError as e:
         raise HTTPException(

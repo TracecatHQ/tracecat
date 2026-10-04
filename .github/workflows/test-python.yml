@@ -11,7 +11,12 @@ on:
       - packages/tracecat-registry/**
       - pyproject.toml
       - uv.lock
+      - docker-compose.yml
+      - docker-compose.local.yml
       - docker-compose.dev.yml
+      - deployments/postgres/**
+      - scripts/postgres/**
+      - scripts/tests/test_pgvector*.sh
       - .env.example
       - env.sh
       - .github/workflows/test-python.yml
@@ -25,7 +30,12 @@ on:
       - packages/tracecat-registry/**
       - pyproject.toml
       - uv.lock
+      - docker-compose.yml
+      - docker-compose.local.yml
       - docker-compose.dev.yml
+      - deployments/postgres/**
+      - scripts/postgres/**
+      - scripts/tests/test_pgvector*.sh
       - .env.example
       - env.sh
       - .github/workflows/test-python.yml
@@ -106,6 +116,13 @@ jobs:
           n
           test@tracecat.com" | bash env.sh
 
+      - name: Check automatic Compose pgvector wiring
+        run: bash scripts/tests/test_pgvector_compose.sh
+
+      # PRs test their own candidate, before its GHCR tag is published.
+      - name: Build PostgreSQL candidate image
+        run: bash scripts/postgres/build-image.sh
+
       - name: Start core Docker services and install dependencies
         run: |
           set -euo pipefail
@@ -164,6 +181,11 @@ jobs:
           echo "Waiting for Python environment sync..."
           wait "$uv_sync_pid"
           trap - EXIT
+
+      - name: Verify automatic vector provisioning completed
+        run: |
+          docker compose -f docker-compose.dev.yml exec -T postgres_db \
+            psql -X -U postgres -d postgres -f /usr/local/share/tracecat/pgvector.sql
 
       - name: Register Temporal search attributes
         if: matrix.test_group == 'temporal'

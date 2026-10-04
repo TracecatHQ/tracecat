@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import StrEnum
-from pathlib import Path
 from typing import Annotated, Any, Literal
 
 from pydantic import UUID4, BaseModel, Field
 
-from tracecat import config
 from tracecat.config import TRACECAT__APP_ENV
 from tracecat.executor.secret_preprocessors import SecretEnvProjection
-from tracecat.logger import logger
 from tracecat.secrets.common import CapturedFailure, MaskedSecretError
 
 
@@ -43,65 +39,6 @@ ExecutorResult = Annotated[
     ExecutorResultSuccess | ExecutorResultFailure,
     Field(discriminator="type"),
 ]
-
-
-class ExecutorBackendType(StrEnum):
-    """Executor backend types for action execution.
-
-    All sandbox backends use untrusted mode - DB credentials are never passed.
-
-    - EPHEMERAL: Cold nsjail subprocess per action (full isolation, multi-tenant, untrusted)
-    - DIRECT: Direct subprocess execution (no warm workers)
-    - TEST: In-process execution for tests only
-    - AUTO: Auto-select based on environment (never selects experimental backends)
-    """
-
-    EPHEMERAL = "ephemeral"
-    DIRECT = "direct"
-    TEST = "test"
-    AUTO = "auto"
-
-
-def _is_nsjail_available() -> bool:
-    """Check if nsjail is available in the current environment.
-
-    Validates that nsjail_path is an executable file and rootfs_path is a directory.
-    """
-    nsjail_path = Path(config.TRACECAT__SANDBOX_NSJAIL_PATH)
-    rootfs_path = Path(config.TRACECAT__SANDBOX_ROOTFS_PATH)
-    return nsjail_path.is_file() and rootfs_path.is_dir()
-
-
-def resolve_backend_type() -> ExecutorBackendType:
-    """Resolve the backend type from config, handling 'auto' mode."""
-
-    try:
-        backend_type = ExecutorBackendType(config.TRACECAT__EXECUTOR_BACKEND)
-    except ValueError:
-        valid = ", ".join(f"'{v.value}'" for v in ExecutorBackendType)
-        raise ValueError(
-            f"Invalid TRACECAT__EXECUTOR_BACKEND: {config.TRACECAT__EXECUTOR_BACKEND!r}. "
-            f"Valid values: {valid}"
-        ) from None
-
-    if backend_type == ExecutorBackendType.AUTO:
-        # Auto-select based on environment
-        if config.TRACECAT__DISABLE_NSJAIL:
-            logger.info(
-                "Auto-selecting 'direct' backend (DISABLE_NSJAIL=true)",
-            )
-            backend_type = ExecutorBackendType.DIRECT
-        elif _is_nsjail_available():
-            logger.info(
-                "Auto-selecting 'ephemeral' backend (nsjail available)",
-            )
-            backend_type = ExecutorBackendType.EPHEMERAL
-        else:
-            logger.warning(
-                "Auto-selecting 'direct' backend (nsjail not available)",
-            )
-            backend_type = ExecutorBackendType.DIRECT
-    return backend_type
 
 
 class ExecutorSyncInput(BaseModel):

@@ -67,6 +67,8 @@ from tracecat.registry.actions.schemas import (
 from tracecat.registry.actions.types import (
     IndexedActionResult,
     IndexEntry,
+    MissingActionAttribution,
+    RegistrySource,
     RepositorySyncOutcome,
 )
 from tracecat.registry.constants import DEFAULT_REGISTRY_ORIGIN
@@ -124,7 +126,7 @@ class _ActionIndexRow(NamedTuple):
     manifest: dict
     origin: str
     repo_id: uuid.UUID
-    source: str
+    source: RegistrySource
 
 
 class _ActionMetadataRow(NamedTuple):
@@ -144,7 +146,7 @@ class _ActionMetadataRow(NamedTuple):
     registry_version_id: uuid.UUID
     origin: str
     repo_id: uuid.UUID
-    source: str
+    source: RegistrySource
 
 
 class _VersionManifestRow(NamedTuple):
@@ -685,6 +687,7 @@ class RegistryActionsService(BaseOrgService):
                 manifest=manifest,
                 origin=row.origin,
                 repository_id=row.repo_id,
+                source=row.source,
             )
         return None
 
@@ -713,6 +716,126 @@ class RegistryActionsService(BaseOrgService):
                 "Manifest missing for a selected registry action version"
             )
         return actions
+
+    async def classify_missing_actions(
+        self, action_names: list[str]
+    ) -> MissingActionAttribution:
+        """Attribute actions that ``get_actions_from_index`` did not return.
+
+        Following lookup precedence, selectable org rows shadow platform rows.
+        An action is entitlement-denied when every selectable row needs a
+        disabled entitlement, or when the custom registry entitlement hides
+        every row. Any other platform row, including one only in a retired
+        version, marks the action as platform-provided.
+        """
+        action_parts = [
+            tuple(action_name.rsplit(".", 1))
+            for action_name in action_names
+            if "." in action_name
+        ]
+        if not action_parts:
+            return MissingActionAttribution()
+        platform_statement = (
+            select(
+                PlatformRegistryIndex.namespace,
+                PlatformRegistryIndex.name,
+                PlatformRegistryIndex.options,
+                PlatformRegistryRepository.origin,
+                (
+                    PlatformRegistryRepository.current_version_id
+                    == PlatformRegistryIndex.registry_version_id
+                ).label("is_current"),
+            )
+            .join(
+                PlatformRegistryVersion,
+                PlatformRegistryIndex.registry_version_id == PlatformRegistryVersion.id,
+            )
+            .join(
+                PlatformRegistryRepository,
+                PlatformRegistryVersion.repository_id == PlatformRegistryRepository.id,
+            )
+            .where(
+                tuple_(PlatformRegistryIndex.namespace, PlatformRegistryIndex.name).in_(
+                    action_parts
+                )
+            )
+        )
+        org_statement = (
+            select(
+                RegistryIndex.namespace,
+                RegistryIndex.name,
+                RegistryIndex.options,
+                RegistryRepository.origin,
+            )
+            .join(
+                RegistryVersion,
+                RegistryIndex.registry_version_id == RegistryVersion.id,
+            )
+            .join(
+                RegistryRepository,
+                RegistryVersion.repository_id == RegistryRepository.id,
+            )
+            .where(
+                RegistryRepository.organization_id == self.organization_id,
+                RegistryRepository.current_version_id == RegistryVersion.id,
+                tuple_(RegistryIndex.namespace, RegistryIndex.name).in_(action_parts),
+            )
+        )
+        platform: set[str] = set()
+        # (origin, required entitlements) per current row, by action name.
+        current_org: dict[str, list[tuple[str, set[str]]]] = {}
+        current_platform: dict[str, list[tuple[str, set[str]]]] = {}
+        for namespace, name, options, origin, is_current in (
+            await self.session.execute(platform_statement)
+        ).tuples():
+            action_name = f"{namespace}.{name}"
+            platform.add(action_name)
+            if is_current:
+                current_platform.setdefault(action_name, []).append(
+                    (origin, self._normalize_required_entitlements(options or {}))
+                )
+        for namespace, name, options, origin in (
+            await self.session.execute(org_statement)
+        ).tuples():
+            current_org.setdefault(f"{namespace}.{name}", []).append(
+                (origin, self._normalize_required_entitlements(options or {}))
+            )
+
+        allow_custom_origins = await self._allow_custom_origins_for_rows(
+            origin
+            for rows_by_action in (current_org, current_platform)
+            for rows in rows_by_action.values()
+            for origin, _ in rows
+        )
+        enabled_entitlements: set[str] | None = None
+        denied: set[str] = set()
+        for action_name in current_org.keys() | current_platform.keys():
+            # Mirror lookup precedence: selectable org rows shadow platform rows.
+            candidates: list[set[str]] = []
+            for rows in (
+                current_org.get(action_name, []),
+                current_platform.get(action_name, []),
+            ):
+                candidates = [
+                    required
+                    for origin, required in rows
+                    if allow_custom_origins or not self._is_custom_origin(origin)
+                ]
+                if candidates:
+                    break
+            if any(not required for required in candidates):
+                continue
+            if candidates:
+                if enabled_entitlements is None:
+                    enabled_entitlements = await self._get_enabled_entitlements()
+                if any(required <= enabled_entitlements for required in candidates):
+                    continue
+            denied.add(action_name)
+        entitlement_denied = frozenset(denied)
+        return MissingActionAttribution(
+            platform=frozenset(platform - entitlement_denied),
+            entitlement_denied=entitlement_denied,
+        )
 
     async def _get_actions_from_index_once(
         self,
@@ -874,6 +997,7 @@ class RegistryActionsService(BaseOrgService):
                 manifest=manifest,
                 origin=row.origin,
                 repository_id=row.repo_id,
+                source=row.source,
             )
 
         return actions

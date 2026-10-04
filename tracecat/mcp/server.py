@@ -79,6 +79,7 @@ from tracecat.agent.service import AgentManagementService
 from tracecat.agent.session.schemas import AgentSessionCreate
 from tracecat.agent.session.service import AgentSessionService
 from tracecat.agent.session.types import AgentSessionEntity
+from tracecat.agent.skill.folders.service import SkillFolderService
 from tracecat.agent.skill.schemas import (
     SkillCreate,
     SkillDownloadPreparedResponse,
@@ -96,6 +97,7 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.skill.service import SkillService
 from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.stream.events import StreamDelta, StreamEnd, StreamError
+from tracecat.agent.subagents import AgentSubagentsConfig, AttachedSubagentRef
 from tracecat.agent.tools import create_tool_from_registry
 from tracecat.agent.types import OutputType
 from tracecat.audit.logger import AuditEventDetails, audit_log
@@ -158,7 +160,8 @@ from tracecat.db.models import (
     Workflow,
     WorkflowDefinition,
 )
-from tracecat.dsl.common import DSLInput
+from tracecat.dsl.common import DSLInput, build_action_statements_from_actions
+from tracecat.dsl.schemas import ActionStatement
 from tracecat.dsl.validation import (
     format_input_schema_validation_error,
     normalize_trigger_inputs,
@@ -206,15 +209,24 @@ from tracecat.mcp.middleware import (
 )
 from tracecat.mcp.schemas import (
     JsonPatchOperation,
+    LayoutActionPosition,
+    LayoutPosition,
+    LayoutViewport,
     MCPPaginatedResponse,
     MCPTruncationInfo,
     MCPTruncationSummary,
     ValidationResponse,
+    WorkflowActionDetailResponse,
+    WorkflowActionIndexEntry,
+    WorkflowActionListResponse,
+    WorkflowActionSummary,
     WorkflowEditDocument,
     WorkflowEditResponse,
+    WorkflowGraphResponse,
     WorkflowLayout,
     WorkflowYamlPayload,
 )
+from tracecat.mcp.workflow_graph import build_workflow_graph
 from tracecat.pagination import CursorPaginatedResponse, CursorPaginationParams
 from tracecat.registry.actions.schemas import TemplateAction
 from tracecat.registry.actions.service import (
@@ -232,8 +244,13 @@ from tracecat.registry.repositories.schemas import RegistryRepositorySync
 from tracecat.registry.repositories.service import RegistryReposService
 from tracecat.registry.repository import Repository
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.service import SecretsService, secret_key_names
 from tracecat.storage import blob
+from tracecat.storage.object import (
+    CollectionObject,
+    ExternalObject,
+    retrieve_stored_object,
+)
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import (
     TableColumnCreate,
@@ -261,19 +278,27 @@ from tracecat.workflow.case_triggers.schemas import (
 )
 from tracecat.workflow.case_triggers.service import CaseTriggersService
 from tracecat.workflow.executions.schemas import (
+    WorkflowExecutionActionResultResponse,
     WorkflowExecutionDetailResponse,
+    WorkflowExecutionEventCompact,
     WorkflowExecutionSummaryResponse,
 )
 from tracecat.workflow.executions.service import WorkflowExecutionsService
 from tracecat.workflow.executions.shaping import (
+    DEFAULT_ACTION_RESULT_WINDOW_BYTES,
+    MAX_ACTION_RESULT_WINDOW_BYTES,
     build_execution_events,
     build_execution_summary,
+    select_execution_events,
+    strip_event_results,
+    window_result_text,
 )
 from tracecat.workflow.management.definitions import WorkflowDefinitionsService
 from tracecat.workflow.management.draft import (
     WorkflowEditError,
     apply_layout_to_workflow,
     build_workflow_edit_document,
+    canonicalize_workflow_edit_document,
     compute_workflow_edit_revision,
     extract_layout_positions,
     normalize_workflow_edit_document_for_persisted_revision,
@@ -290,6 +315,7 @@ from tracecat.workflow.management.folders.service import WorkflowFolderService
 from tracecat.workflow.management.layout import (
     WorkflowActionLayoutInput,
     auto_generate_layout,
+    graph_requires_relayout,
 )
 from tracecat.workflow.management.management import WorkflowsManagementService
 from tracecat.workflow.management.schemas import WorkflowCreate, WorkflowUpdate
@@ -511,8 +537,10 @@ def _build_output_type_context() -> dict[str, Any]:
             },
         },
         "notes": [
-            "Use a literal string output_type for simple primitive responses.",
-            "Use a JSON Schema object when you want structured agent output.",
+            "Set an output_type only when the user explicitly asks for "
+            "structured output. Otherwise leave it unset.",
+            "When the user does ask: use a literal string output_type for a "
+            "primitive response, or a JSON Schema object for structured output.",
             "Prefer no output_type at all. The agent's side effects — cases "
             "opened, messages sent, rows written — are its output.",
             "Define an output_type only when a downstream deterministic step "
@@ -925,6 +953,75 @@ class AgentPresetMoveResponse(BaseModel):
     moved_presets: list[AgentPresetMoveItem] = Field(default_factory=list)
     movable_presets: list[AgentPresetMoveItem] = Field(default_factory=list)
     errors: list[AgentPresetMoveError] = Field(default_factory=list)
+
+
+class SkillTreeFolderItem(BaseModel):
+    """Folder item in the skill tree response."""
+
+    type: Literal["folder"]
+    path: str
+    name: str
+    depth: int
+
+
+class SkillFolderCreatedResponse(BaseModel):
+    """Result of creating a skill folder."""
+
+    path: str
+    folder_id: uuid.UUID
+    created_paths: list[str] = Field(default_factory=list)
+    already_existed: bool
+
+
+class SkillTreeSkillItem(BaseModel):
+    """Skill item in the skill tree response."""
+
+    type: Literal["skill"]
+    name: str
+    slug: str
+    description: str | None = None
+    current_version_id: uuid.UUID | None = None
+    folder_path: str
+    depth: int
+    tags: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+SkillTreeItem = SkillTreeFolderItem | SkillTreeSkillItem
+
+
+class SkillTreeResponse(MCPPaginatedResponse[SkillTreeItem]):
+    """Paginated skill tree response."""
+
+    root_path: str
+    depth: int | Literal["unlimited"]
+
+
+class SkillMoveItem(BaseModel):
+    """Skill move candidate/result item."""
+
+    skill_slug: str
+    name: str
+
+
+class SkillMoveError(BaseModel):
+    """Per-skill move error."""
+
+    skill_slug: str
+    error: str
+
+
+class SkillMoveResponse(BaseModel):
+    """Bulk skill move response."""
+
+    destination_path: str
+    requested_count: int
+    moved_count: int | None = None
+    movable_count: int | None = None
+    moved_skills: list[SkillMoveItem] = Field(default_factory=list)
+    movable_skills: list[SkillMoveItem] = Field(default_factory=list)
+    errors: list[SkillMoveError] = Field(default_factory=list)
 
 
 class WorkflowPublishResponse(BaseModel):
@@ -1883,13 +1980,12 @@ def _build_import_data_from_workflow_yaml(
     if "description" not in definition and description:
         definition["description"] = description
 
-    layout = normalized.get("layout")
-    if not layout:
-        actions = definition.get("actions", [])
-        if actions:
-            normalized["layout"] = auto_generate_layout(
-                _validate_actions_for_layout(actions)
-            )
+    actions = definition.get("actions", [])
+    if actions:
+        generated = auto_generate_layout(_validate_actions_for_layout(actions))
+        layout = normalized.get("layout")
+        viewport = layout.get("viewport") if isinstance(layout, Mapping) else None
+        normalized["layout"] = {**generated, "viewport": viewport}
     return normalized
 
 
@@ -1936,6 +2032,84 @@ def _workflow_yaml_update_audit_details(
     return AuditEventDetails(data={"changed_fields": sorted(changed_fields)})
 
 
+def _layout_inputs_from_statements(
+    actions: Sequence[ActionStatement],
+) -> list[WorkflowActionLayoutInput]:
+    return [
+        WorkflowActionLayoutInput(ref=action.ref, depends_on=list(action.depends_on))
+        for action in actions
+    ]
+
+
+def _generated_workflow_layout(
+    actions: Sequence[ActionStatement],
+    *,
+    viewport: LayoutViewport | None,
+) -> WorkflowLayout:
+    generated = auto_generate_layout(_layout_inputs_from_statements(actions))
+    return WorkflowLayout(
+        trigger=LayoutPosition.model_validate(generated["trigger"]),
+        viewport=viewport,
+        actions=[
+            LayoutActionPosition.model_validate(action)
+            for action in generated["actions"]
+        ],
+    )
+
+
+def _relayout_edit_document_if_graph_changed(
+    original: WorkflowEditDocument,
+    updated: WorkflowEditDocument,
+) -> WorkflowEditDocument:
+    """Re-run auto-layout when an edit adds actions or rewires ``depends_on``."""
+    if not graph_requires_relayout(
+        _layout_inputs_from_statements(original.definition.actions),
+        _layout_inputs_from_statements(updated.definition.actions),
+    ):
+        return updated
+    layout = _generated_workflow_layout(
+        updated.definition.actions,
+        viewport=updated.layout.viewport,
+    )
+    return updated.model_copy(update={"layout": layout})
+
+
+def _resolve_workflow_yaml_update_layout(
+    *,
+    workflow: Workflow,
+    definition: DSLInput,
+    layout: WorkflowLayout | None,
+) -> WorkflowLayout | None:
+    """Pick the layout to persist alongside a replaced YAML definition.
+
+    Graph changes always get a fresh auto-layout. Otherwise an explicit layout
+    wins, and without one the current positions are kept.
+    """
+    current_actions = build_action_statements_from_actions(workflow.actions or [])
+    if not definition.actions:
+        return layout
+    if graph_requires_relayout(
+        _layout_inputs_from_statements(current_actions),
+        _layout_inputs_from_statements(definition.actions),
+    ):
+        return _generated_workflow_layout(
+            definition.actions,
+            viewport=layout.viewport if layout is not None else None,
+        )
+    if layout is not None and layout.actions:
+        return layout
+    return WorkflowLayout(
+        trigger=layout.trigger if layout is not None else None,
+        viewport=layout.viewport if layout is not None else None,
+        actions=[
+            LayoutActionPosition(
+                ref=action.ref, x=action.position_x, y=action.position_y
+            )
+            for action in workflow.actions or []
+        ],
+    )
+
+
 @audit_log(
     resource_type="workflow",
     action="update",
@@ -1953,24 +2127,6 @@ async def _apply_workflow_yaml_update(
     update_mode: Literal["replace", "patch"],
 ) -> None:
     """Apply workflow YAML sections and metadata updates."""
-    if (
-        yaml_payload is not None
-        and yaml_payload.definition is not None
-        and (yaml_payload.layout is None or not yaml_payload.layout.actions)
-    ):
-        raw = yaml.safe_load(definition_yaml) if definition_yaml else {}
-        defn_raw = raw.get("definition", raw) if isinstance(raw, dict) else {}
-        actions_raw = defn_raw.get("actions", [])
-        if actions_raw:
-            auto_layout = auto_generate_layout(
-                _validate_actions_for_layout(actions_raw)
-            )
-            yaml_payload.layout = WorkflowLayout.model_validate(auto_layout)
-
-    update_action_positions: dict[str, tuple[float, float]] | None = None
-    if yaml_payload is not None and yaml_payload.layout is not None:
-        _, _, update_action_positions = extract_layout_positions(yaml_payload.layout)
-
     if yaml_payload is not None and yaml_payload.definition is not None:
         validation_results = await validate_dsl(
             session=service.session,
@@ -1978,6 +2134,17 @@ async def _apply_workflow_yaml_update(
             role=role,
         )
         _raise_dsl_validation_tool_error(validation_results)
+        yaml_payload.layout = _resolve_workflow_yaml_update_layout(
+            workflow=workflow,
+            definition=yaml_payload.definition,
+            layout=yaml_payload.layout,
+        )
+
+    update_action_positions: dict[str, tuple[float, float]] | None = None
+    if yaml_payload is not None and yaml_payload.layout is not None:
+        _, _, update_action_positions = extract_layout_positions(yaml_payload.layout)
+
+    if yaml_payload is not None and yaml_payload.definition is not None:
         # The action graph is being rewritten. Bump graph_version so a builder
         # holding a stale base_version gets a 409 from the graph API instead of
         # silently applying graph operations against the old action graph. The
@@ -2182,6 +2349,10 @@ show candidate integrations first.
 `core.script.run_python` unless a specific integration is requested.
 - For `ai.agent`, prefer the `model` object. Use legacy top-level \
 `model_name`/`model_provider` only when requested.
+- For `ai.preset_agent`, tools come from the preset and its skills; the \
+`actions` input swaps the preset's registry actions for one run.
+- Leave `output_type` unset on `ai.*` actions unless structured output is \
+explicitly requested.
 
 ## Expression syntax (used in action `args:` values)
 - `${{ TRIGGER.<field> }}` — workflow trigger input
@@ -2246,24 +2417,25 @@ scheduler.
 the next iteration depends on prior action output.
 
 ## Graph shape
-`depends_on` is execution order, not data wiring. An action can read
-`ACTIONS.<ref>.result` from any upstream ancestor, not just its direct parents, so
-add an edge only when the action must wait. Fewer edges is better.
-- Default to one linear chain. Branch only for work that is genuinely independent,
-  and rejoin only when a later step needs both.
-- A skipped or failed parent already stops dependents on the default success edge,
-  so do not re-assert an upstream condition in `run_if`.
-- A join is different. Default `join_strategy: all` needs every parent visited, so
-  one skipped branch makes the join unreachable and fails the workflow. Give a join
-  over a conditional branch `join_strategy: any`, or repeat the branch's `run_if`
-  on the join so it self-skips first.
-- One parent is the norm. Multiple parents mean a deliberate join.
+`depends_on` is execution order, not data wiring: an action can read any upstream
+ancestor's `ACTIONS.<ref>.result`, so add an edge only when it must wait.
+- Prefer operational readability over parallelism: one linear chain ordered the
+  way the process reads. Branch only for independent work; rejoin only when a
+  later step needs both. Multiple parents mean a deliberate join.
+- A skipped or failed parent already stops its success-edge dependents. Before
+  adding or editing any `run_if`, call `get_workflow_graph` and inspect every
+  upstream action. State only the new condition; never `&&`/`||` a `gated_by`
+  condition back in. Keep it short.
+- Joins: `join_strategy: all` (default) needs all parents run; a skipped
+  branch makes it unreachable unless the join repeats its `run_if`. `any`
+  runs if any parent succeeds, even if others skip.
+- Canvas layout is automatic; omit `layout`.
 
 ## Key DSL fields (inside each action under `actions:`)
 - `ref` — unique slug identifier for the action
 - `action` — action type (e.g. `core.http_request`)
 - `args` — action arguments as key-value pairs
-- `depends_on` — refs this action waits for (execution order, not data access)
+- `depends_on` — refs this action waits for
 - `run_if` — conditional expression to skip execution
 - `for_each` — iterate over a list
 - `retry_policy` — {max_attempts, timeout}
@@ -2292,6 +2464,12 @@ docstring carries the full RFC 6902 patch rules.
 - {_SKILL_FILE_WARNING}
 - Call `prepare_skill_upload` with file metadata, upload the raw bytes to each
   returned URL, then call `complete_skill_upload` with the upload IDs.
+
+## Agent preset versions
+- Always use the latest subagent and skill. Do NOT pin agent preset versions
+  (`subagents[].preset_version`) unless the user explicitly asks to.
+- Skills always run their latest published version. After `publish_skill`,
+  do NOT call `update_agent_preset`; touch `skills` only to attach/detach.
 
 ## Structured argument quick reference
 Tool docstrings are the source of truth for every other argument shape.
@@ -2354,9 +2532,8 @@ mcp.add_middleware(
 _DSL_REFERENCE_TEXT = """\
 # Tracecat Workflow DSL Reference
 
-This resource covers workflow YAML/DSL syntax and examples. It is not the source
-of truth for MCP tool arguments; use each MCP tool schema and docstring for calls
-such as workflow updates, table management, and case field changes.
+This resource covers workflow YAML/DSL syntax and examples. For MCP arguments,
+use each tool schema and docstring.
 
 ## Workflow YAML Structure
 
@@ -2547,7 +2724,7 @@ Tables: `core.table.aggregate_rows`, `core.table.create_column`, `core.table.cre
 `core.table.delete_column`, `core.table.delete_row`, `core.table.download`,
 `core.table.get_table_metadata`, `core.table.insert_row`,
 `core.table.insert_rows`, `core.table.is_in`, `core.table.list_tables`,
-`core.table.lookup`, `core.table.lookup_many`, `core.table.search_rows`,
+`core.table.lookup`, `core.table.lookup_many`, `core.table.search`, `core.table.search_rows`,
 `core.table.update_column`, `core.table.update_row`, `core.table.update_table`
 
 Cases: `core.cases.add_case_tag`, `core.cases.aggregate_cases`, `core.cases.assign_user`,
@@ -2573,9 +2750,12 @@ Require/Python: `core.require`, `core.script.run_python`
 AI: `ai.action`, `ai.agent`, `ai.preset_agent`, `ai.agent.create_preset`,
 `ai.agent.delete_preset`, `ai.agent.get_preset`, `ai.agent.list_presets`,
 `ai.agent.update_preset`, `ai.skill.archive_skill`, `ai.skill.create_skill`,
-`ai.skill.get_skill`, `ai.skill.get_skill_version`,
+`ai.skill.get_skill`, `ai.skill.get_skill_draft`,
+`ai.skill.get_skill_draft_file`, `ai.skill.get_skill_version`,
 `ai.skill.list_skill_versions`, `ai.skill.list_skills`,
-`ai.skill.publish_skill_version`, `ai.skill.restore_skill_version`
+`ai.skill.publish_skill_draft`, `ai.skill.publish_skill_version`,
+`ai.skill.restore_skill_version`, `ai.skill.update_skill`,
+`ai.skill.update_skill_draft`
 
 ## Third-Party Integration Action Syntax
 
@@ -2675,6 +2855,17 @@ actions:
       max_tool_calls: 10
 ```
 Use top-level `model_name` and `model_provider` only when explicitly requested.
+
+### AI Preset Agent
+Tools come from the preset and its skills.
+```yaml
+actions:
+  - ref: triage
+    action: ai.preset_agent
+    args:
+      preset: security-analyst
+      user_prompt: "Triage ${{ TRIGGER.alert }}"
+```
 
 ### For-each Syntax (Avoid by Default)
 Avoid `for_each` unless the list is known and bounded and the user explicitly
@@ -2807,7 +2998,43 @@ changing what runs.
   workflow rather than skipping it. Either set `join_strategy: any`, or repeat
   the branch's condition in the join's own `run_if` so it self-skips before the
   reachability check.
+- `join_strategy: any` means any. The join runs as soon as one parent succeeds,
+  even when another parent was skipped by its own `run_if`, so an upstream
+  condition only guards an `any` join when it sits on every path into it.
+  `gated_by` already accounts for this; state any other condition the join
+  needs in its own `run_if`.
 - One parent is the norm. Multiple parents should mean a deliberate join.
+- Prefer a readable operational sequence over maximum parallelism. Two lookups
+  that could run concurrently are still clearer as a chain when the reader
+  thinks of them as steps of one process.
+
+### Before writing a `run_if`
+
+Walk every upstream ancestor first. `get_workflow_graph` returns a Mermaid
+diagram of refs and conditions plus a `gated_by` list for each action. A
+condition that appears in `gated_by` is already enforced: state only the new
+condition at this step, and keep it to one readable comparison.
+
+Too long, and it repeats an upstream gate:
+
+```yaml
+  - ref: run_recurred
+    depends_on:
+      - existing_case
+    run_if: >-
+      ${{ ACTIONS.hit.result && FN.length(FN.compact(ACTIONS.existing_case.result.fields)) > 0
+      && ACTIONS.existing_case.result.last_seen != TRIGGER.seen_at }}
+```
+
+Readable. `existing_case` already runs only on a hit, and the recurrence check is
+computed once by the step that fetched the data:
+
+```yaml
+  - ref: run_recurred
+    depends_on:
+      - existing_case
+    run_if: ${{ ACTIONS.existing_case.result.is_recurrence }}
+```
 
 ### Worked example
 
@@ -2956,6 +3183,27 @@ helpers call Tracecat APIs.
 3. `list_actions` / `get_action_context` — choose exact tools and schemas
 4. `create_agent_preset` or `update_agent_preset`
 5. `list_agent_presets`, `get_agent_preset`, or `run_agent_preset` as needed
+
+### Where tools live
+- Preset tools: registry `actions`, plus MCP integrations attached via
+`mcp_integration_ids`.
+- A skill's `metadata.tools` (registry actions or `mcp.<slug>` references) fits a
+group of tools several agents share.
+- The `actions` input on an `ai.preset_agent` action swaps the preset's registry
+actions for one run — MCP tools stay, an empty list is ignored — which is handy
+for a test or an eval.
+- Set an `output_type` only when the user explicitly asks for structured output.
+
+### Subagent and skill versions
+- Always use the latest subagent and skill. This is the default and the best
+practice: fixes and improvements to a child preset or skill reach every parent
+preset without re-editing it.
+- Do NOT pin agent preset versions unless the user explicitly asks to pin a
+specific version. Leave `preset_version` out of `subagents` refs, including
+when you copy refs from `get_agent_preset` into an update.
+- Skills cannot be pinned: bindings carry only `skill_id`.
+- If the user does ask to pin, confirm which version, set `preset_version` on
+that one ref only, and tell them the subagent will no longer pick up updates.
 """
 
 
@@ -3496,6 +3744,8 @@ async def create_workflow(
         title: Workflow title (3-100 characters).
         description: Optional workflow description (up to 1000 characters).
         definition_yaml: Optional inline workflow YAML up to the MCP input limit.
+            The canvas is auto-formatted from `definition.actions`; any
+            `layout` action or trigger positions are ignored.
 
     Returns JSON with the new workflow's id, title, description, and status.
     """
@@ -3594,6 +3844,187 @@ async def get_workflow(
         raise ToolError(f"Failed to get workflow: {e}") from None
 
 
+def _action_index_entries(
+    document: WorkflowEditDocument,
+) -> list[WorkflowActionIndexEntry]:
+    """Map each action in ``definition.actions`` to its array index."""
+    return [
+        WorkflowActionIndexEntry(index=index, ref=action.ref)
+        for index, action in enumerate(document.definition.actions)
+    ]
+
+
+async def _load_workflow_edit_document(
+    workspace_id: uuid.UUID,
+    workflow_id: MCPWorkflowUUID,
+) -> tuple[WorkflowUUID, WorkflowEditDocument]:
+    """Load the same draft document ``get_workflow`` returns, without metadata."""
+    wf_id = WorkflowUUID.new(workflow_id)
+    _, role = await _resolve_workspace_role(workspace_id)
+    async with WorkflowsManagementService.with_session(role=role) as svc:
+        workflow = await svc.get_workflow(wf_id)
+        if not workflow:
+            raise ToolError(f"Workflow {wf_id} not found")
+        return wf_id, build_workflow_edit_document(workflow)
+
+
+@mcp.tool()
+async def list_workflow_actions(
+    workspace_id: uuid.UUID,
+    workflow_id: MCPWorkflowUUID,
+) -> WorkflowActionListResponse:
+    """List the actions in a draft workflow as a compact index-and-ref table.
+
+    Use this instead of `get_workflow` when you only need to know which actions
+    exist, their order, their `depends_on` wiring, or the current array index
+    of a ref for `edit_workflow`. It returns one small row per action and no
+    `args`, so it stays cheap on large workflows. Follow up with
+    `get_workflow_action` to read one action in full, or `get_workflow` when
+    you need the whole `draft_document`.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_id: The workflow ID (short or full format).
+
+    Returns JSON with `draft_revision` (usable as `base_revision` for
+    `edit_workflow`), the definition `entrypoint`, and `actions`, each with
+    `index`, `ref`, `action`, `depends_on`, `has_run_if`, `has_for_each`, and
+    `environment`, in the order they appear in `draft_document.definition.actions`.
+    """
+
+    try:
+        wf_id, document = await _load_workflow_edit_document(workspace_id, workflow_id)
+        return WorkflowActionListResponse(
+            workflow_id=str(wf_id),
+            draft_revision=compute_workflow_edit_revision(document),
+            entrypoint=document.definition.entrypoint,
+            actions=[
+                WorkflowActionSummary(
+                    index=index,
+                    ref=action.ref,
+                    action=action.action,
+                    depends_on=list(action.depends_on),
+                    has_run_if=action.run_if is not None,
+                    has_for_each=action.for_each is not None,
+                    environment=action.environment,
+                )
+                for index, action in enumerate(document.definition.actions)
+            ],
+        )
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_tool_error(e) from e
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list workflow actions", error=str(e))
+        raise ToolError(f"Failed to list workflow actions: {e}") from None
+
+
+@mcp.tool()
+async def get_workflow_graph(
+    workspace_id: uuid.UUID,
+    workflow_id: MCPWorkflowUUID,
+) -> WorkflowGraphResponse:
+    """Get a draft workflow's control flow as a compact Mermaid flowchart.
+
+    Call this before adding or editing any `run_if`, `depends_on`, or
+    `join_strategy`. Each node shows the action ref, action type, `for_each`,
+    `join: any`, and its `run_if`; error-path edges are dotted. No `args` are
+    returned.
+
+    Use `gated_by` to see which upstream conditions already guard an action:
+    a skipped ancestor skips everything below it on the success path, so do
+    not restate those conditions in a downstream `run_if`. `join: any` means
+    any: it runs once one parent succeeds, even if another parent was skipped,
+    so its `gated_by` keeps only conditions on every path into it.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_id: The workflow ID (short or full format).
+
+    Returns JSON with `draft_revision`, `mermaid` (a `flowchart TD` diagram),
+    and `actions`, each with `ref`, `depends_on`, `run_if`, `join_strategy`,
+    and `gated_by`.
+    """
+
+    try:
+        wf_id, document = await _load_workflow_edit_document(workspace_id, workflow_id)
+        mermaid, graph_actions = build_workflow_graph(document.definition.actions)
+        return WorkflowGraphResponse(
+            workflow_id=str(wf_id),
+            draft_revision=compute_workflow_edit_revision(document),
+            mermaid=mermaid,
+            actions=graph_actions,
+        )
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_tool_error(e) from e
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to get workflow graph", error=str(e))
+        raise ToolError(f"Failed to get workflow graph: {e}") from None
+
+
+@mcp.tool()
+async def get_workflow_action(
+    workspace_id: uuid.UUID,
+    workflow_id: MCPWorkflowUUID,
+    ref: str,
+) -> WorkflowActionDetailResponse:
+    """Get one action from a draft workflow by its `ref`.
+
+    Use this instead of `get_workflow` when you need the full definition of a
+    single action (its `args`, `run_if`, `for_each`, retry policy, and so on)
+    without loading the whole `draft_document`. Pair it with
+    `list_workflow_actions` to discover refs. Edit the action afterwards with
+    `edit_workflow` using `/definition/actions/@<ref>/...` paths.
+
+    Args:
+        workspace_id: The workspace ID.
+        workflow_id: The workflow ID (short or full format).
+        ref: The action `ref` (for example `build_alert`).
+
+    Returns JSON with `draft_revision`, the action's current `index` in
+    `draft_document.definition.actions`, the full `action` object, and its
+    `layout` entry (or null when the action has no layout position).
+    """
+
+    try:
+        wf_id, document = await _load_workflow_edit_document(workspace_id, workflow_id)
+        valid_refs = [action.ref for action in document.definition.actions]
+        if ref not in valid_refs:
+            raise ToolError(
+                f"Action ref {ref!r} not found in workflow {wf_id}. "
+                f"Valid refs: {valid_refs}"
+            )
+        index = valid_refs.index(ref)
+        action = document.definition.actions[index]
+        layout = next(
+            (entry for entry in document.layout.actions if entry.ref == ref),
+            None,
+        )
+        return WorkflowActionDetailResponse(
+            workflow_id=str(wf_id),
+            draft_revision=compute_workflow_edit_revision(document),
+            index=index,
+            action=action,
+            layout=layout,
+        )
+    except WorkflowEditError as e:
+        raise _workflow_edit_error_to_tool_error(e) from e
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to get workflow action", error=str(e))
+        raise ToolError(f"Failed to get workflow action: {e}") from None
+
+
 @mcp.tool()
 async def edit_workflow(
     workspace_id: uuid.UUID,
@@ -3611,8 +4042,19 @@ async def edit_workflow(
     stale, or a revision conflict says the draft changed.
 
     Patch paths are rooted at `draft_document`, so action edits use
-    `/definition/actions/N/...`, not `/actions/N/...`. RFC 6902 array rules
-    apply: `/-` appends, and indexes shift after array edits.
+    `/definition/actions/...`, not `/actions/...`.
+
+    Address actions by ref, not index: `/definition/actions/@<ref>` (with any
+    suffix, e.g. `/definition/actions/@build_alert/args/url`) and
+    `/layout/actions/@<ref>` resolve to the action's current index when each
+    op runs, so you never need to `test` an index first or track how earlier
+    ops shifted the array. `add` to `/definition/actions/@<ref>` appends a new
+    action when the ref does not exist yet (the value's `ref` must match);
+    `remove` on `/definition/actions/@<ref>` deletes that action. An unknown
+    ref fails the whole patch and names the known refs. Numeric paths
+    (`/definition/actions/N/...`) still work with RFC 6902 array rules (`/-`
+    appends, indexes shift after array edits), but the server re-sorts
+    actions by ref on save, so prefer `@<ref>`.
 
     Args:
         workspace_id: The workspace ID.
@@ -3637,12 +4079,12 @@ async def edit_workflow(
       "patch_ops": [
         {
           "op": "replace",
-          "path": "/definition/actions/2/args/script",
+          "path": "/definition/actions/@run_script/args/script",
           "value": "def main(): return {'ok': True}"
         },
         {
           "op": "add",
-          "path": "/definition/actions/-",
+          "path": "/definition/actions/@notify_owner",
           "value": {
             "ref": "notify_owner",
             "action": "core.http_request",
@@ -3653,17 +4095,18 @@ async def edit_workflow(
               "payload": {"owner": "${{ ACTIONS.parse_event.result.owner }}"}
             }
           }
-        },
-        {
-          "op": "add",
-          "path": "/layout/actions/-",
-          "value": {"ref": "notify_owner", "x": 600, "y": 120}
         }
       ]
     }
     ```
 
-    Returns JSON with the workflow id and the new `draft_revision`.
+    The server re-runs auto-layout whenever a patch adds actions or changes
+    any `depends_on`, so do not patch `/layout` alongside graph edits. A
+    patch that only touches `/layout` is applied as given.
+
+    Returns JSON with the workflow id, the new `draft_revision`, and `actions`
+    (`[{index, ref}]`) as stored after the patch and the server's re-sort, so
+    numeric paths in a follow-up patch can be built without refetching.
     """
 
     try:
@@ -3696,7 +4139,10 @@ async def edit_workflow(
                 document=workflow_edit_document_payload(draft_document),
                 patch_ops=request.patch_ops,
             )
-            updated_document = validate_workflow_patch_payload(patched_payload)
+            updated_document = _relayout_edit_document_if_graph_changed(
+                draft_document,
+                validate_workflow_patch_payload(patched_payload),
+            )
             changed_sections = workflow_edit_document_changed_sections(
                 draft_document,
                 updated_document,
@@ -3724,6 +4170,10 @@ async def edit_workflow(
                             updated_document
                         )
                     ),
+                    # Persisting re-sorts actions by ref; report that order.
+                    actions=_action_index_entries(
+                        canonicalize_workflow_edit_document(updated_document)
+                    ),
                 )
 
             await persist_workflow_edit_document(
@@ -3743,6 +4193,7 @@ async def edit_workflow(
                 message=f"Workflow {workflow_id} updated successfully",
                 workflow_id=str(workflow.id),
                 draft_revision=compute_workflow_edit_revision(refreshed_document),
+                actions=_action_index_entries(refreshed_document),
             )
     except WorkflowEditError as e:
         raise _workflow_edit_error_to_tool_error(e) from e
@@ -3783,6 +4234,11 @@ async def update_workflow(
         definition_yaml: Optional inline workflow YAML up to the MCP input limit.
         update_mode: "patch" to update provided YAML sections, or "replace" to
             replace provided YAML state sections.
+
+    When `definition` adds actions or changes any `depends_on`, the canvas is
+    auto-formatted and any supplied `layout` positions are ignored. Otherwise a
+    supplied `layout` is applied, and without one current positions are kept.
+
     Returns a confirmation message.
     """
 
@@ -4987,10 +5443,42 @@ async def list_workflow_executions(
         raise ToolError(f"Failed to list workflow executions: {e}") from None
 
 
+async def _load_execution_with_events(
+    workspace_id: uuid.UUID,
+    execution_id: WorkflowExecutionID,
+) -> tuple[Any, list[WorkflowExecutionEventCompact[Any, Any, Any]]]:
+    """Resolve an execution in the workspace and its compact event history."""
+    _, role = await _resolve_workspace_role(workspace_id)
+
+    # Verify the execution's workflow belongs to this workspace
+    try:
+        wf_id, _ = exec_id_to_parts(execution_id)
+    except ValueError as e:
+        raise ToolError(f"Invalid execution ID: {e}") from e
+    async with WorkflowsManagementService.with_session(role=role) as mgmt_svc:
+        workflow = await mgmt_svc.get_workflow(wf_id)
+    if workflow is None:
+        raise ToolError(
+            f"Execution {execution_id} not found in workspace {workspace_id}"
+        )
+
+    exec_service = await WorkflowExecutionsService.connect(role=role)
+    execution = await exec_service.get_execution(execution_id)
+    if execution is None:
+        raise ToolError(f"Execution {execution_id} not found")
+
+    compact_events = await exec_service.list_workflow_execution_events_compact(
+        execution_id
+    )
+    return execution, compact_events
+
+
 @mcp.tool()
 async def get_workflow_execution(
     workspace_id: uuid.UUID,
     execution_id: WorkflowExecutionID,
+    action_refs: list[str] | None = None,
+    include_results: bool = True,
 ) -> WorkflowExecutionDetailResponse:
     """Get status and details of a specific workflow execution.
 
@@ -4998,46 +5486,41 @@ async def get_workflow_execution(
     showing each action's status, timing, and any errors. Use this to debug
     failed runs or check the progress of running workflows.
 
+    Each event's `result` is inlined only when its JSON is short; longer
+    results appear as a cut-off `result_truncated` preview. To read one
+    action's complete result at any size, call `get_execution_action_result`.
+
     Args:
         workspace_id: The workspace ID.
         execution_id: The workflow execution ID (returned by run_* tools or
             list_workflow_executions).
+        action_refs: When set, only events for these action refs are returned.
+            The synthetic `__workflow_trigger__`, `__workflow_completed__`, and
+            `__workflow_failure__` events are always kept.
+        include_results: Set to false to omit `result` and `result_truncated`
+            from every event, which keeps the response small when you only
+            need status and timing.
 
     Returns JSON with execution metadata (id, run_id, status, start_time,
-    close_time) and an events array with per-action status, timing, inputs,
-    results, and errors.
+    close_time) and an events array with per-action status, timing, results,
+    and errors.
     """
 
     try:
-        _, role = await _resolve_workspace_role(workspace_id)
-
-        # Verify the execution's workflow belongs to this workspace
-        try:
-            wf_id, _ = exec_id_to_parts(execution_id)
-        except ValueError as e:
-            raise ToolError(f"Invalid execution ID: {e}") from e
-        async with WorkflowsManagementService.with_session(role=role) as mgmt_svc:
-            workflow = await mgmt_svc.get_workflow(wf_id)
-        if workflow is None:
-            raise ToolError(
-                f"Execution {execution_id} not found in workspace {workspace_id}"
-            )
-
-        exec_service = await WorkflowExecutionsService.connect(role=role)
-        execution = await exec_service.get_execution(execution_id)
-        if execution is None:
-            raise ToolError(f"Execution {execution_id} not found")
-
-        # Get compact event history for action-level details
-        compact_events = await exec_service.list_workflow_execution_events_compact(
-            execution_id
+        execution, compact_events = await _load_execution_with_events(
+            workspace_id, execution_id
         )
+        events = build_execution_events(
+            select_execution_events(compact_events, action_refs=action_refs)
+        )
+        if not include_results:
+            events = strip_event_results(events)
 
         summary = build_execution_summary(execution)
         return WorkflowExecutionDetailResponse(
             **summary.model_dump(),
             history_length=execution.history_length,
-            events=build_execution_events(compact_events),
+            events=events,
         )
     except ToolError:
         raise
@@ -5046,6 +5529,119 @@ async def get_workflow_execution(
     except Exception as e:
         logger.error("Failed to get workflow execution", error=str(e))
         raise ToolError(f"Failed to get workflow execution: {e}") from None
+
+
+async def _materialize_action_result(value: Any) -> Any:
+    """Dereference externalized results through the engine's storage backend.
+
+    Compact events carry `ExternalObject`/`CollectionObject` handles for
+    results the engine offloaded to blob storage. Looped child workflows carry
+    a list of per-iteration results, each of which may be a handle.
+    """
+    match value:
+        case ExternalObject() | CollectionObject():
+            return await retrieve_stored_object(value)
+        case list():
+            return [await _materialize_action_result(item) for item in value]
+        case _:
+            return value
+
+
+@mcp.tool()
+async def get_execution_action_result(
+    workspace_id: uuid.UUID,
+    execution_id: WorkflowExecutionID,
+    action_ref: str,
+    stream_id: str | None = None,
+    max_bytes: int = DEFAULT_ACTION_RESULT_WINDOW_BYTES,
+    offset: int = 0,
+) -> WorkflowExecutionActionResultResponse:
+    """Get the full stored result of one action in a workflow execution.
+
+    Use this when `get_workflow_execution` shows `result_truncated` for an
+    action, or when the result was offloaded to blob storage, and you need the
+    whole value (a findings list, a classification summary, an API payload).
+    The result is returned as JSON text in byte windows: read `total_bytes`,
+    and if `truncated` is true call again with `offset=next_offset` until
+    `next_offset` is null. Concatenate the `result` strings in order to rebuild
+    the JSON.
+
+    Args:
+        workspace_id: The workspace ID.
+        execution_id: The workflow execution ID.
+        action_ref: The action `ref` whose result to read. The most recent
+            attempt for that ref is used.
+        stream_id: Required only when the ref ran in several execution streams
+            (for example scatter items); the error lists the available ids.
+        max_bytes: Window size in bytes (default 65536, max 1048576).
+        offset: Byte offset to start from; pass the previous `next_offset`.
+
+    Returns JSON with `result` (JSON text slice), `total_bytes`, `offset`,
+    `truncated`, and `next_offset`, plus the event's `status` and `stream_id`.
+    """
+
+    try:
+        _, compact_events = await _load_execution_with_events(
+            workspace_id, execution_id
+        )
+        matching = [event for event in compact_events if event.action_ref == action_ref]
+        if not matching:
+            available = sorted({event.action_ref for event in compact_events})
+            raise ToolError(
+                f"No event for action ref {action_ref!r} in execution "
+                f"{execution_id}. Available refs: {available}"
+            )
+        if stream_id is not None:
+            matching = [
+                event for event in matching if str(event.stream_id) == stream_id
+            ]
+            if not matching:
+                raise ToolError(
+                    f"No event for action ref {action_ref!r} in stream {stream_id!r}"
+                )
+        if len(matching) > 1:
+            stream_ids = sorted({str(event.stream_id) for event in matching})
+            raise ToolError(
+                f"Action ref {action_ref!r} has results in {len(matching)} "
+                f"streams; pass stream_id to pick one. Available stream ids: "
+                f"{stream_ids}"
+            )
+        event = matching[0]
+
+        if event.should_mask_output:
+            # Masked results are already redacted in the compact event; never
+            # dereference the stored object behind them.
+            result = event.action_result
+        else:
+            result = await _materialize_action_result(event.action_result)
+        text = json.dumps(result, default=str)
+        window = window_result_text(
+            text,
+            offset=max(offset, 0),
+            max_bytes=_normalize_limit(
+                max_bytes,
+                default=DEFAULT_ACTION_RESULT_WINDOW_BYTES,
+                max_limit=MAX_ACTION_RESULT_WINDOW_BYTES,
+            ),
+        )
+        return WorkflowExecutionActionResultResponse(
+            execution_id=execution_id,
+            action_ref=action_ref,
+            stream_id=str(event.stream_id),
+            status=str(event.status),
+            result=window.result,
+            total_bytes=window.total_bytes,
+            offset=window.offset,
+            truncated=window.truncated,
+            next_offset=window.next_offset,
+        )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to get execution action result", error=str(e))
+        raise ToolError(f"Failed to get execution action result: {e}") from None
 
 
 @mcp.tool()
@@ -6685,7 +7281,7 @@ async def remove_case_tag(
             return MCPMessageResponse(
                 message=f"Case tag {tag_identifier} removed from case {case_id}"
             )
-    except NoResultFound as e:
+    except (NoResultFound, TracecatNotFoundError) as e:
         raise ToolError(str(e)) from e
     except ValueError as e:
         raise ToolError(str(e)) from e
@@ -7878,7 +8474,7 @@ async def list_secrets_metadata(
             for secret in workspace_secrets:
                 if secret.environment != environment:
                     continue
-                keys = [kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)]
+                keys = secret_key_names(svc, secret)
                 result.append(
                     SecretMetadataResponse(
                         id=secret.id,
@@ -7935,7 +8531,7 @@ async def get_secret_metadata(
                 name=secret.name,
                 type=secret.type,
                 environment=secret.environment,
-                keys=[kv.key for kv in svc.decrypt_keys(secret.encrypted_keys)],
+                keys=secret_key_names(svc, secret),
                 tags=secret.tags,
             )
     except ToolError:
@@ -8134,10 +8730,23 @@ async def create_agent_preset(
     enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
     skills: list[AgentPresetSkillBindingBase] | None = None,
+    subagents: list[AttachedSubagentRef] | None = None,
 ) -> AgentPresetRead:
     """Create an agent preset in the selected workspace.
 
-    Use `skills` to attach published skills. Each binding contains `skill_id`.
+    Use `skills` to attach published skills. Each binding contains `skill_id`
+    only; the preset always runs each skill's latest published version, so
+    there is no version to pin.
+
+    Attach tools via `actions`, `mcp_integration_ids`, or a skill's
+    `metadata.tools`.
+
+    Use `subagents` to attach other presets as subagents. Each ref contains
+    `preset` (the child preset slug) and optional `name` (runtime alias),
+    `description`, and `max_turns`. Always omit `preset_version` so the
+    subagent follows the child preset's latest version; set it only when the
+    user explicitly asks to pin a specific version. A child preset cannot have
+    its own subagents or tools that require manual approval.
     """
 
     try:
@@ -8171,6 +8780,11 @@ async def create_agent_preset(
             "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
             "skills": skills,
+            "agents": (
+                AgentSubagentsConfig(subagents=list(subagents))
+                if subagents is not None
+                else None
+            ),
         }
         create_data.update(
             {
@@ -8216,12 +8830,29 @@ async def update_agent_preset(
     enable_thinking: bool | None = None,
     enable_internet_access: bool | None = None,
     skills: list[AgentPresetSkillBindingBase] | None = None,
+    subagents: list[AttachedSubagentRef] | None = None,
 ) -> AgentPresetRead:
     """Update an existing agent preset in the selected workspace.
 
     Use `skills` to replace attached published skills. Each binding contains
     `skill_id`. Omit `skills` to leave bindings unchanged, or pass an empty list
-    to detach all skills.
+    to detach all skills. Attached skills always run at their latest published
+    version, so do not call this after `publish_skill` just to refresh a
+    skill version; only pass `skills` when adding or removing a skill.
+
+    Attach tools via `actions`, `mcp_integration_ids`, or a skill's
+    `metadata.tools`.
+
+    Use `subagents` to replace attached preset-backed subagents. Each ref
+    contains `preset` (the child preset slug) and optional `name` (runtime
+    alias), `description`, and `max_turns`. Always omit `preset_version` so
+    the subagent follows the child preset's latest version; set it only when
+    the user explicitly asks to pin a specific version. When re-sending
+    existing subagents, drop any `preset_version` the user did not ask for.
+    Omit `subagents` to leave them unchanged, or pass an empty list to detach
+    all subagents.
+    A child preset cannot have its own subagents or tools that require
+    manual approval.
 
     Set `clear_output_type=true` to remove an existing `output_type` (agent
     returns plain text). Omitting `output_type` leaves it unchanged.
@@ -8245,6 +8876,11 @@ async def update_agent_preset(
             "enable_thinking": enable_thinking,
             "enable_internet_access": enable_internet_access,
             "skills": skills,
+            "agents": (
+                AgentSubagentsConfig(subagents=list(subagents))
+                if subagents is not None
+                else None
+            ),
         }
         update_data.update(
             {
@@ -8659,6 +9295,369 @@ async def move_agent_presets(
 
 
 @mcp.tool()
+async def list_skill_tree(
+    workspace_id: uuid.UUID,
+    path: str = "/",
+    depth: int = 1,
+    include_skills: bool = True,
+    limit: int = config.TRACECAT__LIMIT_DEFAULT,
+    cursor: str | None = None,
+) -> SkillTreeResponse:
+    """List skill folders and skills under a path."""
+
+    try:
+        if depth < 0:
+            raise ToolError("depth must be >= 0")
+        _, role = await _resolve_workspace_role(workspace_id)
+        root_path = _normalize_folder_path_arg(path)
+        limit = _normalize_limit(
+            limit,
+            default=config.TRACECAT__LIMIT_DEFAULT,
+            max_limit=config.TRACECAT__LIMIT_CURSOR_MAX,
+        )
+        filters = {"path": root_path, "depth": depth, "include_skills": include_skills}
+        fingerprint = _pagination_fingerprint("list_skill_tree", **filters)
+        start = (
+            _decode_offset_cursor(cursor, expected_fingerprint=fingerprint)
+            if cursor is not None
+            else 0
+        )
+        end = start + limit
+
+        async with SkillFolderService.with_session(role=role) as svc:
+            queue: deque[tuple[str, int]] = deque([(root_path, 1)])
+            items: list[SkillTreeItem] = []
+            seen_items = 0
+            has_more = False
+
+            def collect_item(item: SkillTreeItem) -> None:
+                nonlocal seen_items, has_more
+                if seen_items >= end:
+                    has_more = True
+                    return
+                if seen_items >= start:
+                    items.append(item)
+                seen_items += 1
+
+            while queue and not has_more:
+                current_path, current_depth = queue.popleft()
+                for item in await svc.get_directory_items(
+                    current_path, order_by="desc"
+                ):
+                    payload = item.model_dump(mode="json")
+                    if payload["type"] == "folder":
+                        collect_item(
+                            SkillTreeFolderItem(
+                                type="folder",
+                                path=payload["path"],
+                                name=payload["name"],
+                                depth=current_depth,
+                            )
+                        )
+                        if depth == 0 or current_depth < depth:
+                            queue.append((payload["path"], current_depth + 1))
+                    elif include_skills:
+                        collect_item(
+                            SkillTreeSkillItem(
+                                type="skill",
+                                name=payload["name"],
+                                slug=payload["slug"],
+                                description=payload.get("description"),
+                                current_version_id=payload.get("current_version_id"),
+                                folder_path=current_path,
+                                depth=current_depth,
+                                tags=payload.get("tags") or [],
+                                created_at=payload["created_at"],
+                                updated_at=payload["updated_at"],
+                            )
+                        )
+                    if has_more:
+                        break
+
+            next_cursor = _encode_offset_cursor(end, fingerprint) if has_more else None
+            prev_start = max(0, start - limit)
+            prev_cursor = (
+                _encode_offset_cursor(prev_start, fingerprint) if start > 0 else None
+            )
+            return SkillTreeResponse(
+                items=items,
+                next_cursor=next_cursor,
+                prev_cursor=prev_cursor,
+                has_more=next_cursor is not None,
+                has_previous=start > 0,
+                root_path=root_path,
+                depth="unlimited" if depth == 0 else depth,
+            )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to list skill tree", error=str(e))
+        raise ToolError(f"Failed to list skill tree: {e}") from None
+
+
+@mcp.tool()
+async def create_skill_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    parents: bool = False,
+) -> SkillFolderCreatedResponse:
+    """Create a skill folder by absolute path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+        parts = [part for part in normalized_path.strip("/").split("/") if part]
+
+        async with SkillFolderService.with_session(role=role) as svc:
+            if not parents:
+                parent_parts = parts[:-1]
+                parent_path = f"/{'/'.join(parent_parts)}/" if parent_parts else "/"
+                if existing := await svc.get_folder_by_path(normalized_path):
+                    folder = existing
+                    created_paths = []
+                else:
+                    folder = await svc.create_folder(
+                        name=parts[-1], parent_path=parent_path
+                    )
+                    created_paths = [normalized_path]
+            else:
+                current_path = "/"
+                created_paths: list[str] = []
+                folder = None
+                for part in parts:
+                    next_path = (
+                        f"{current_path}{part}/" if current_path != "/" else f"/{part}/"
+                    )
+                    if existing := await svc.get_folder_by_path(next_path):
+                        folder = existing
+                    else:
+                        folder = await svc.create_folder(
+                            name=part,
+                            parent_path=current_path,
+                        )
+                        created_paths.append(next_path)
+                    current_path = next_path
+
+                if folder is None:
+                    raise ToolError(f"Failed to create folder {normalized_path}")
+
+            return SkillFolderCreatedResponse(
+                path=normalized_path,
+                folder_id=folder.id,
+                created_paths=created_paths,
+                already_existed=not created_paths,
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to create skill folder", error=str(e))
+        raise ToolError(f"Failed to create skill folder: {e}") from None
+
+
+@mcp.tool()
+async def rename_skill_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    new_name: str,
+) -> FolderOperationResponse:
+    """Rename a skill folder by absolute path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+
+        async with SkillFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+            renamed = await svc.rename_folder(folder.id, new_name)
+            return FolderOperationResponse(
+                folder_id=renamed.id,
+                path=renamed.path,
+                message=f"Skill folder {normalized_path} renamed to {renamed.path}",
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to rename skill folder", error=str(e))
+        raise ToolError(f"Failed to rename skill folder: {e}") from None
+
+
+@mcp.tool()
+async def move_skill_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    destination_parent_path: str = "/",
+) -> FolderOperationResponse:
+    """Move a skill folder under a new parent path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+        normalized_parent_path = _normalize_folder_path_arg(destination_parent_path)
+
+        async with SkillFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+
+            new_parent_id = None
+            if normalized_parent_path != "/":
+                parent_folder = await svc.get_folder_by_path(normalized_parent_path)
+                if parent_folder is None:
+                    raise ToolError(f"Folder {normalized_parent_path} not found")
+                new_parent_id = parent_folder.id
+
+            moved = await svc.move_folder(folder.id, new_parent_id)
+            return FolderOperationResponse(
+                folder_id=moved.id,
+                path=moved.path,
+                message=(
+                    f"Skill folder {normalized_path} moved under "
+                    f"{normalized_parent_path}"
+                ),
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to move skill folder", error=str(e))
+        raise ToolError(f"Failed to move skill folder: {e}") from None
+
+
+@mcp.tool()
+async def delete_skill_folder(
+    workspace_id: uuid.UUID,
+    path: str,
+    recursive: bool = False,
+) -> FolderDeleteResponse:
+    """Delete a skill folder by absolute path."""
+
+    try:
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_path = _normalize_folder_path_arg(path, allow_root=False)
+
+        async with SkillFolderService.with_session(role=role) as svc:
+            folder = await svc.get_folder_by_path(normalized_path)
+            if folder is None:
+                raise ToolError(f"Folder {normalized_path} not found")
+            folder_id = folder.id
+            await svc.delete_folder(folder_id, recursive=recursive)
+            return FolderDeleteResponse(
+                folder_id=folder_id,
+                path=normalized_path,
+                recursive=recursive,
+                message=f"Skill folder {normalized_path} deleted",
+            )
+    except ToolError:
+        raise
+    except (ValueError, TracecatValidationError) as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to delete skill folder", error=str(e))
+        raise ToolError(f"Failed to delete skill folder: {e}") from None
+
+
+@mcp.tool()
+async def move_skills(
+    workspace_id: uuid.UUID,
+    skill_slugs: list[str],
+    destination_path: str = "/",
+    dry_run: bool = False,
+) -> SkillMoveResponse:
+    """Move skills by slug into a destination folder."""
+
+    try:
+        if not skill_slugs:
+            raise ToolError("skill_slugs must not be empty")
+
+        _, role = await _resolve_workspace_role(workspace_id)
+        normalized_destination = _normalize_folder_path_arg(destination_path)
+        async with SkillFolderService.with_session(role=role) as folder_svc:
+            folder = None
+            if normalized_destination != "/":
+                folder = await folder_svc.get_folder_by_path(normalized_destination)
+                if folder is None:
+                    raise ToolError(f"Folder {normalized_destination} not found")
+            async with SkillService.with_session(role=role) as skill_svc:
+                validated: list[tuple[uuid.UUID, SkillMoveItem]] = []
+                errors: list[SkillMoveError] = []
+                for slug in skill_slugs:
+                    if not slug.strip():
+                        errors.append(
+                            SkillMoveError(
+                                skill_slug=slug,
+                                error="Skill slug cannot be empty",
+                            )
+                        )
+                        continue
+                    try:
+                        skill = await skill_svc.get_skill_by_identifier(slug)
+                    except Exception as exc:
+                        errors.append(SkillMoveError(skill_slug=slug, error=str(exc)))
+                        continue
+                    if skill is None:
+                        errors.append(
+                            SkillMoveError(
+                                skill_slug=slug,
+                                error=f"Skill '{slug}' not found",
+                            )
+                        )
+                        continue
+                    validated.append(
+                        (
+                            skill.id,
+                            SkillMoveItem(
+                                skill_slug=skill.slug or slug, name=skill.name
+                            ),
+                        )
+                    )
+                if dry_run:
+                    return SkillMoveResponse(
+                        destination_path=normalized_destination,
+                        requested_count=len(skill_slugs),
+                        movable_count=len(validated),
+                        movable_skills=[item for _, item in validated],
+                        errors=errors,
+                    )
+
+                moved: list[SkillMoveItem] = []
+                for skill_id, skill_info in validated:
+                    try:
+                        await folder_svc.move_skill(skill_id, folder)
+                        moved.append(skill_info)
+                    except Exception as e:
+                        await folder_svc.session.rollback()
+                        errors.append(
+                            SkillMoveError(
+                                skill_slug=skill_info.skill_slug,
+                                error=str(e),
+                            )
+                        )
+                return SkillMoveResponse(
+                    destination_path=normalized_destination,
+                    requested_count=len(skill_slugs),
+                    moved_count=len(moved),
+                    moved_skills=moved,
+                    errors=errors,
+                )
+    except ToolError:
+        raise
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except Exception as e:
+        logger.error("Failed to move skills", error=str(e))
+        raise ToolError(f"Failed to move skills: {e}") from None
+
+
+@mcp.tool()
 async def list_skills(
     workspace_id: uuid.UUID,
     limit: int = config.TRACECAT__LIMIT_DEFAULT,
@@ -8828,6 +9827,8 @@ async def prepare_skill_upload(
     Upload every file to its short-lived URL with the returned method and
     headers, then call `complete_skill_upload` with the returned `skill_id`,
     `base_revision`, paths, and upload IDs.
+
+    Declare the skill's tools in its SKILL.md frontmatter `metadata.tools`.
     """
 
     try:
@@ -8995,7 +9996,9 @@ async def publish_skill(
 ) -> SkillVersionRead:
     """Publish a skill draft into an immutable skill version.
 
-    Only published skill versions can be attached to agent presets.
+    Only published skills can be attached to agent presets. Presets that
+    already have this skill attached pick up the new version automatically on
+    their next run; no `update_agent_preset` call is needed afterwards.
     """
 
     try:
@@ -9136,29 +10139,18 @@ async def run_agent_preset(
     workspace_id: uuid.UUID,
     preset_slug: str,
     prompt: str,
-    preset_version: Annotated[
-        int | None,
-        Field(
-            description=(
-                "Deprecated compatibility input. Agent presets always resolve the "
-                "current head."
-            ),
-            deprecated=True,
-        ),
-    ] = None,
     timeout_seconds: int = 120,
 ) -> str | AgentAwaitingApprovalResponse:
     """Run an agent preset with a prompt and return text or approval status.
 
     Creates an ephemeral session, triggers the agent workflow, and waits
-    for the response. The agent has access to all tools configured on the preset.
+    for the response. The agent has access to all tools configured on the preset
+    and its skills.
 
     Args:
         workspace_id: The workspace ID (from list_workspaces).
         preset_slug: Slug of the agent preset to run (from list_agent_presets).
         prompt: The user prompt to send to the agent.
-        preset_version: Deprecated compatibility input. The server accepts but
-            ignores this value and always resolves the current preset head.
         timeout_seconds: Max seconds to wait for response (default 120, max 300).
 
     Returns:
@@ -9174,10 +10166,7 @@ async def run_agent_preset(
             preset = await svc.get_preset_by_slug(preset_slug)
             if not preset:
                 raise ToolError(f"Agent preset '{preset_slug}' not found")
-            version = await svc.resolve_agent_preset_version(
-                slug=preset_slug,
-                preset_version=preset_version,
-            )
+            version = await svc.resolve_agent_preset_version(slug=preset_slug)
 
         # Create ephemeral session and run turn
         async with AgentSessionService.with_session(role=role) as svc:

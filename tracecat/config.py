@@ -7,6 +7,7 @@ from typing import Literal, cast
 
 from tracecat.agent.constants import AGENT_TIMEOUT_CLEANUP_BUFFER_SECONDS
 from tracecat.auth.enums import AuthType
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.feature_flags.enums import FeatureFlag
 
 # === Logger === #
@@ -103,6 +104,19 @@ TRACECAT__PUBLIC_API_URL = os.environ.get(
 TRACECAT__PUBLIC_APP_URL = os.environ.get(
     "TRACECAT__PUBLIC_APP_URL", "http://localhost"
 )
+
+# Email (SMTP relay). Invitation email delivery is enabled only when every
+# required value is configured.
+TRACECAT__SMTP_HOST = (os.environ.get("TRACECAT__SMTP_HOST") or "").strip() or None
+TRACECAT__SMTP_PORT = int(os.environ.get("TRACECAT__SMTP_PORT") or 587)
+if not 1 <= TRACECAT__SMTP_PORT <= 65535:
+    raise ValueError(f"TRACECAT__SMTP_PORT is an invalid port: {TRACECAT__SMTP_PORT}")
+TRACECAT__SMTP_USER = (os.environ.get("TRACECAT__SMTP_USER") or "").strip() or None
+# Whitespace is preserved: a stripped password is a different credential.
+_smtp_password = os.environ.get("TRACECAT__SMTP_PASSWORD") or ""
+TRACECAT__SMTP_PASSWORD = _smtp_password if _smtp_password.strip() else None
+TRACECAT__EMAIL_FROM = (os.environ.get("TRACECAT__EMAIL_FROM") or "").strip() or None
+
 TRACECAT__PLATFORM_OTEL_ENABLED = env_bool(
     "TRACECAT__PLATFORM_OTEL_ENABLED", default=False
 )
@@ -495,10 +509,9 @@ TRACECAT__UNSAFE_DISABLE_SM_MASKING = env_bool(
 TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING = env_bool(
     "TRACECAT__UNSAFE_DISABLE_SECRET_ERROR_WITHHOLDING", default=False
 )
-"""UNSAFE: surface original action and expression error details even when
-secrets are in scope, instead of the generic "Details withheld" message. The
-original text may echo transformed secret values that exact-string masking
-cannot catch. Not recommended outside debugging.
+"""Legacy setting accepted by existing deployments; no longer changes behavior.
+Action and expression errors always use selective masking of known secrets and
+observed secret-derived values.
 """
 
 # === M2M config === #
@@ -534,6 +547,14 @@ TRACECAT__BLOB_STORAGE_BUCKET_SKILLS = os.environ.get(
 
 TRACECAT__BLOB_STORAGE_ENDPOINT = os.environ.get("TRACECAT__BLOB_STORAGE_ENDPOINT", "")
 """Endpoint URL for blob storage."""
+
+TRACECAT__BLOB_STORAGE_SSL_VERIFY = env_bool(
+    "TRACECAT__BLOB_STORAGE_SSL_VERIFY", default=True
+)
+"""Verify TLS certificates when connecting to blob storage (S3/MinIO).
+
+Set to false for self-hosted S3-compatible storage that terminates TLS with a
+self-signed or otherwise unverifiable certificate. Defaults to true."""
 
 TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS = int(
     os.environ.get("TRACECAT__BLOB_STORAGE_MAX_ATTEMPTS") or 5
@@ -834,37 +855,16 @@ TRACECAT__SANDBOX_ALLOW_PUBLIC_IPV6_EGRESS = env_bool(
 )
 """Allow filtered sandboxes to reach public IPv6 destinations."""
 
-TRACECAT__DISABLE_NSJAIL = env_bool("TRACECAT__DISABLE_NSJAIL", default=True)
-"""Disable nsjail sandbox and use the unsafe PID executor instead.
+# === Execution isolation === #
+TRACECAT__EXECUTOR_BACKEND = ExecutorBackendType.from_config(
+    os.environ.get("TRACECAT__EXECUTOR_BACKEND")
+)
+"""Execution mode for actions, agents, registry sync, and Python scripts.
 
-When True (default), uses UnsafePidExecutor with best-effort PID namespace
-isolation. This mode works without privileged Docker mode but has less isolation.
-
-When False, uses nsjail sandbox for full OS-level isolation. Requires:
-- Linux with kernel >= 4.6
-- Docker privileged mode or CAP_SYS_ADMIN capability
-- nsjail binary at TRACECAT__SANDBOX_NSJAIL_PATH
-- Sandbox rootfs at TRACECAT__SANDBOX_ROOTFS_PATH
-"""
-
-# === Action Executor === #
-TRACECAT__EXECUTOR_BACKEND = os.environ.get("TRACECAT__EXECUTOR_BACKEND", "direct")
-"""Executor backend for running actions.
-
-Supported values:
-- 'ephemeral': Cold nsjail subprocess per action (multitenant, full isolation, ~4000ms)
-- 'direct': Direct subprocess execution (no warm workers, no in-process state sharing)
-- 'test': In-process execution for tests only (no isolation, no subprocess overhead)
-- 'auto': Auto-select based on environment (ephemeral if nsjail available, else direct)
-
-Trust mode is derived from the backend type:
-- ephemeral: untrusted (secrets pre-resolved, no DB creds)
-- direct: untrusted subprocess execution (secrets pre-resolved, no DB creds)
-- test: trusted in-process execution (no sandbox)
-
-WARNING: 'test' backend provides NO isolation between actions. Actions share
-the same process memory, env vars can leak, and crashes affect the whole worker.
-Only use 'test' for tests.
+- 'direct' (default): Run subprocesses without nsjail.
+- 'nsjail': Require nsjail isolation. Requires Linux, the nsjail binary,
+  sandbox rootfs, and the required container capabilities.
+- 'ephemeral': Compatibility alias for 'nsjail'.
 """
 
 TRACECAT__EXECUTOR_CLIENT_TIMEOUT = float(
@@ -880,24 +880,6 @@ TRACECAT__ACTION_GATEWAY_SOCKET = (
 """Unix socket path for the executor-local action gateway."""
 
 # === Action Executor Sandbox === #
-TRACECAT__EXECUTOR_SANDBOX_ENABLED = env_bool(
-    "TRACECAT__EXECUTOR_SANDBOX_ENABLED", default=False
-)
-"""Enable nsjail sandbox for action execution in subprocess mode.
-
-When True, actions run in an nsjail sandbox with:
-- Filesystem isolation (tmpdir VFS)
-- Resource limits (CPU, memory, file size, processes)
-- Network access (for DB, S3, external APIs)
-
-When False (default), actions run in direct subprocesses without sandboxing.
-
-Requires:
-- TRACECAT__EXECUTOR_BACKEND=ephemeral or direct
-- nsjail binary at TRACECAT__SANDBOX_NSJAIL_PATH
-- Sandbox rootfs at TRACECAT__SANDBOX_ROOTFS_PATH
-"""
-
 TRACECAT__EXECUTOR_TRACECAT_APP_DIR = os.environ.get(
     "TRACECAT__EXECUTOR_TRACECAT_APP_DIR", ""
 )
@@ -1469,7 +1451,7 @@ TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED = env_bool(
 
 When True (default), registry sync operations run on the ExecutorWorker.
 NsJail isolation on that worker is controlled separately by
-TRACECAT__DISABLE_NSJAIL.
+TRACECAT__EXECUTOR_BACKEND.
 
 When False, uses the existing subprocess approach from the API service.
 """

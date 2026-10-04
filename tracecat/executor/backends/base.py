@@ -4,9 +4,8 @@ This module defines the abstract base class for executor backends,
 enabling pluggable execution strategies for different deployment scenarios.
 
 Available backends:
-- ephemeral: Cold nsjail subprocess per action for multitenant workloads
+- nsjail (ephemeral alias): Cold nsjail subprocess per action for multitenant workloads
 - direct: Direct subprocess execution without warm workers
-- test: In-process execution for tests only
 """
 
 from __future__ import annotations
@@ -148,14 +147,10 @@ class ExecutorBackend(ABC):
             )
 
         # The lease is held for the whole sandbox run so cache eviction cannot
-        # delete a directory the script is still importing from. The sandbox
-        # service can select UnsafePidExecutor, which exposes host paths writable,
-        # so conservatively rescan their footprint after every run.
+        # delete a directory the script is still importing from. Runtime writes
+        # belong in the sandbox's working directory or dependency cache.
         registry_artifacts = get_action_runner().registry_artifacts
-        async with registry_artifacts.lease(
-            artifact_uris,
-            paths_may_be_modified=True,
-        ) as registry_paths:
+        async with registry_artifacts.lease(artifact_uris) as registry_paths:
             return await self._run_python_in_sandbox(
                 script=script,
                 args=args,

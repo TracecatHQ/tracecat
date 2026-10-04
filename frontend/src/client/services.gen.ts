@@ -87,6 +87,8 @@ import type {
   AdminRegistrySyncAllRepositoriesResponse,
   AdminRegistrySyncRepositoryData,
   AdminRegistrySyncRepositoryResponse,
+  AdminResendOrganizationInvitationData,
+  AdminResendOrganizationInvitationResponse,
   AdminRevokeOrganizationInvitationData,
   AdminRevokeOrganizationInvitationResponse,
   AdminSyncOrgRepositoryData,
@@ -189,6 +191,8 @@ import type {
   AgentSessionsGetSessionResponse,
   AgentSessionsGetSessionVercelData,
   AgentSessionsGetSessionVercelResponse,
+  AgentSessionsListAgentBackendsData,
+  AgentSessionsListAgentBackendsResponse,
   AgentSessionsListSessionsData,
   AgentSessionsListSessionsResponse,
   AgentSessionsRemoveSessionArtifactData,
@@ -203,6 +207,8 @@ import type {
   AgentSetDefaultModelResponse,
   AgentSetDefaultModelSelectionData,
   AgentSetDefaultModelSelectionResponse,
+  AgentSkillsAddSkillTagData,
+  AgentSkillsAddSkillTagResponse,
   AgentSkillsArchiveSkillData,
   AgentSkillsArchiveSkillResponse,
   AgentSkillsCreateSkillData,
@@ -221,16 +227,24 @@ import type {
   AgentSkillsGetSkillVersionResponse,
   AgentSkillsListSkillsData,
   AgentSkillsListSkillsResponse,
+  AgentSkillsListSkillTagsData,
+  AgentSkillsListSkillTagsResponse,
   AgentSkillsListSkillVersionsData,
   AgentSkillsListSkillVersionsResponse,
+  AgentSkillsMoveSkillData,
+  AgentSkillsMoveSkillResponse,
   AgentSkillsPatchSkillDraftData,
   AgentSkillsPatchSkillDraftResponse,
   AgentSkillsPublishSkillData,
   AgentSkillsPublishSkillResponse,
+  AgentSkillsRemoveSkillTagData,
+  AgentSkillsRemoveSkillTagResponse,
   AgentSkillsRestoreSkillVersionData,
   AgentSkillsRestoreSkillVersionResponse,
   AgentSkillsUploadSkillData,
   AgentSkillsUploadSkillResponse,
+  AgentSubscribeBedrockModelData,
+  AgentSubscribeBedrockModelResponse,
   AgentTagsCreateAgentTagData,
   AgentTagsCreateAgentTagResponse,
   AgentTagsDeleteAgentTagData,
@@ -466,6 +480,19 @@ import type {
   IntegrationsTestConnectionResponse,
   IntegrationsUpdateIntegrationData,
   IntegrationsUpdateIntegrationResponse,
+  InvitationsAcceptInvitationData,
+  InvitationsAcceptInvitationResponse,
+  InvitationsCreateInvitationData,
+  InvitationsCreateInvitationResponse,
+  InvitationsGetInvitationByTokenData,
+  InvitationsGetInvitationByTokenResponse,
+  InvitationsGetInvitationTokenData,
+  InvitationsGetInvitationTokenResponse,
+  InvitationsListMyPendingInvitationsResponse,
+  InvitationsResendInvitationData,
+  InvitationsResendInvitationResponse,
+  InvitationsRevokeInvitationData,
+  InvitationsRevokeInvitationResponse,
   ListCatalogData,
   ListCatalogResponse,
   ListCustomProvidersData,
@@ -504,10 +531,6 @@ import type {
   McpPersonalAccessTokensListMcpPersonalAccessTokensResponse,
   McpPersonalAccessTokensRevokeMcpPersonalAccessTokenData,
   McpPersonalAccessTokensRevokeMcpPersonalAccessTokenResponse,
-  OrganizationAcceptInvitationData,
-  OrganizationAcceptInvitationResponse,
-  OrganizationCreateInvitationData,
-  OrganizationCreateInvitationResponse,
   OrganizationDeleteOrganizationData,
   OrganizationDeleteOrganizationResponse,
   OrganizationDeleteOrgMemberData,
@@ -515,21 +538,26 @@ import type {
   OrganizationDeleteSessionData,
   OrganizationDeleteSessionResponse,
   OrganizationGetCurrentOrgMemberResponse,
-  OrganizationGetInvitationByTokenData,
-  OrganizationGetInvitationByTokenResponse,
-  OrganizationGetInvitationTokenData,
-  OrganizationGetInvitationTokenResponse,
   OrganizationGetOrganizationEntitlementsResponse,
   OrganizationGetOrganizationResponse,
   OrganizationListCurrentUserOrganizationMembershipsResponse,
-  OrganizationListInvitationsData,
-  OrganizationListInvitationsResponse,
-  OrganizationListMyPendingInvitationsResponse,
   OrganizationListOrganizationDomainsResponse,
   OrganizationListOrgMembersResponse,
   OrganizationListSessionsResponse,
-  OrganizationRevokeInvitationData,
-  OrganizationRevokeInvitationResponse,
+  OrganizationSecretStoresAuthorizeSecretStoreWorkspaceData,
+  OrganizationSecretStoresAuthorizeSecretStoreWorkspaceResponse,
+  OrganizationSecretStoresCreateSecretStoreData,
+  OrganizationSecretStoresCreateSecretStoreResponse,
+  OrganizationSecretStoresDeleteSecretStoreData,
+  OrganizationSecretStoresDeleteSecretStoreResponse,
+  OrganizationSecretStoresGetSecretStoreData,
+  OrganizationSecretStoresGetSecretStoreResponse,
+  OrganizationSecretStoresListSecretStoresData,
+  OrganizationSecretStoresListSecretStoresResponse,
+  OrganizationSecretStoresRevokeSecretStoreWorkspaceData,
+  OrganizationSecretStoresRevokeSecretStoreWorkspaceResponse,
+  OrganizationSecretStoresUpdateSecretStoreData,
+  OrganizationSecretStoresUpdateSecretStoreResponse,
   OrganizationSecretsCreateOrgSecretData,
   OrganizationSecretsCreateOrgSecretResponse,
   OrganizationSecretsDeleteOrgSecretByIdData,
@@ -540,6 +568,8 @@ import type {
   OrganizationSecretsListOrgSecretsResponse,
   OrganizationSecretsUpdateOrgSecretByIdData,
   OrganizationSecretsUpdateOrgSecretByIdResponse,
+  OrganizationTraceOrgMemberAccessData,
+  OrganizationTraceOrgMemberAccessResponse,
   OrganizationUpdateOrgMemberData,
   OrganizationUpdateOrgMemberResponse,
   ProvidersCreateCustomProviderData,
@@ -605,6 +635,8 @@ import type {
   RbacListUserAssignmentsResponse,
   RbacRemoveGroupMemberData,
   RbacRemoveGroupMemberResponse,
+  RbacReplaceUserAssignmentsData,
+  RbacReplaceUserAssignmentsResponse,
   RbacUpdateAssignmentData,
   RbacUpdateAssignmentResponse,
   RbacUpdateGroupData,
@@ -654,6 +686,57 @@ import type {
   SchedulesSearchSchedulesResponse,
   SchedulesUpdateScheduleData,
   SchedulesUpdateScheduleResponse,
+  ScimActivateScimConnectionData,
+  ScimActivateScimConnectionResponse,
+  ScimApplyScimMappingChangesData,
+  ScimApplyScimMappingChangesResponse,
+  ScimCreateGroupData,
+  ScimCreateGroupResponse,
+  ScimCreateScimMappingData,
+  ScimCreateScimMappingResponse,
+  ScimCreateUserData,
+  ScimCreateUserResponse,
+  ScimDeleteGroupData,
+  ScimDeleteGroupResponse,
+  ScimDeleteScimMappingData,
+  ScimDeleteScimMappingResponse,
+  ScimDeleteUserData,
+  ScimDeleteUserResponse,
+  ScimDisconnectScimResponse,
+  ScimGetGroupData,
+  ScimGetGroupResponse,
+  ScimGetScimConnectionResponse,
+  ScimGetScimDirectorySummaryResponse,
+  ScimGetUserData,
+  ScimGetUserResponse,
+  ScimIssueScimTokenResponse,
+  ScimListExternalGroupsData,
+  ScimListExternalGroupsResponse,
+  ScimListGroupsData,
+  ScimListGroupsResponse,
+  ScimListScimMappingsData,
+  ScimListScimMappingsResponse,
+  ScimListUsersData,
+  ScimListUsersResponse,
+  ScimPatchGroupData,
+  ScimPatchGroupResponse,
+  ScimPatchUserData,
+  ScimPatchUserResponse,
+  ScimReplaceGroupData,
+  ScimReplaceGroupResponse,
+  ScimReplaceUserData,
+  ScimReplaceUserResponse,
+  ScimResourceTypesResponse,
+  ScimReviewScimActivationData,
+  ScimReviewScimActivationResponse,
+  ScimSchemasDocumentResponse,
+  ScimServiceProviderConfigResponse,
+  SearchGetEmbeddingConfigurationData,
+  SearchGetEmbeddingConfigurationResponse,
+  SecretsCheckAwsSecretReferenceData,
+  SecretsCheckAwsSecretReferenceResponse,
+  SecretsCreateAwsSecretReferenceData,
+  SecretsCreateAwsSecretReferenceResponse,
   SecretsCreateSecretData,
   SecretsCreateSecretResponse,
   SecretsDeleteSecretByIdData,
@@ -662,12 +745,16 @@ import type {
   SecretsGetAwsAssumeRoleAccessResponse,
   SecretsGetSecretByNameData,
   SecretsGetSecretByNameResponse,
+  SecretsListAuthorizedSecretStoresData,
+  SecretsListAuthorizedSecretStoresResponse,
   SecretsListSecretDefinitionsData,
   SecretsListSecretDefinitionsResponse,
   SecretsListSecretsData,
   SecretsListSecretsResponse,
   SecretsSearchSecretsData,
   SecretsSearchSecretsResponse,
+  SecretsUpdateAwsSecretReferenceData,
+  SecretsUpdateAwsSecretReferenceResponse,
   SecretsUpdateSecretByIdData,
   SecretsUpdateSecretByIdResponse,
   ServiceAccountsCreateOrganizationServiceAccountApiKeyData,
@@ -734,6 +821,30 @@ import type {
   SettingsUpdateSamlSettingsResponse,
   SettingsUpdateSecuritySettingsData,
   SettingsUpdateSecuritySettingsResponse,
+  SkillFoldersCreateFolderData,
+  SkillFoldersCreateFolderResponse,
+  SkillFoldersDeleteFolderData,
+  SkillFoldersDeleteFolderResponse,
+  SkillFoldersGetDirectoryData,
+  SkillFoldersGetDirectoryResponse,
+  SkillFoldersGetFolderData,
+  SkillFoldersGetFolderResponse,
+  SkillFoldersListFoldersData,
+  SkillFoldersListFoldersResponse,
+  SkillFoldersMoveFolderData,
+  SkillFoldersMoveFolderResponse,
+  SkillFoldersUpdateFolderData,
+  SkillFoldersUpdateFolderResponse,
+  SkillTagsCreateSkillTagData,
+  SkillTagsCreateSkillTagResponse,
+  SkillTagsDeleteSkillTagData,
+  SkillTagsDeleteSkillTagResponse,
+  SkillTagsGetSkillTagData,
+  SkillTagsGetSkillTagResponse,
+  SkillTagsListSkillTagsData,
+  SkillTagsListSkillTagsResponse,
+  SkillTagsUpdateSkillTagData,
+  SkillTagsUpdateSkillTagResponse,
   TablesBatchDeleteRowsData,
   TablesBatchDeleteRowsResponse,
   TablesBatchInsertRowsData,
@@ -754,6 +865,10 @@ import type {
   TablesGetRowResponse,
   TablesGetTableData,
   TablesGetTableResponse,
+  TablesGetTableSearchData,
+  TablesGetTableSearchProgressData,
+  TablesGetTableSearchProgressResponse,
+  TablesGetTableSearchResponse,
   TablesImportCsvData,
   TablesImportCsvResponse,
   TablesImportTableFromCsvData,
@@ -764,6 +879,10 @@ import type {
   TablesListRowsResponse,
   TablesListTablesData,
   TablesListTablesResponse,
+  TablesRetryTableSearchData,
+  TablesRetryTableSearchResponse,
+  TablesSelectTableSearchColumnData,
+  TablesSelectTableSearchColumnResponse,
   TablesUpdateColumnData,
   TablesUpdateColumnResponse,
   TablesUpdateRowData,
@@ -829,8 +948,12 @@ import type {
   VariablesSearchVariablesResponse,
   VariablesUpdateVariableByIdData,
   VariablesUpdateVariableByIdResponse,
+  VcsDeleteBitbucketDataCenterTokenCredentialsResponse,
+  VcsDeleteBitbucketTokenCredentialsResponse,
   VcsDeleteGithubAppCredentialsResponse,
   VcsDeleteGitlabTokenCredentialsResponse,
+  VcsGetBitbucketDataCenterTokenCredentialsStatusResponse,
+  VcsGetBitbucketTokenCredentialsStatusResponse,
   VcsGetGithubAppCredentialsStatusResponse,
   VcsGetGithubAppManifestResponse,
   VcsGetGitlabTokenCredentialsStatusResponse,
@@ -838,6 +961,10 @@ import type {
   VcsGithubAppInstallCallbackResponse,
   VcsGithubWebhookData,
   VcsGithubWebhookResponse,
+  VcsSaveBitbucketDataCenterTokenCredentialsData,
+  VcsSaveBitbucketDataCenterTokenCredentialsResponse,
+  VcsSaveBitbucketTokenCredentialsData,
+  VcsSaveBitbucketTokenCredentialsResponse,
   VcsSaveGithubAppCredentialsData,
   VcsSaveGithubAppCredentialsResponse,
   VcsSaveGitlabTokenCredentialsData,
@@ -933,8 +1060,6 @@ import type {
   WorkflowsValidateWorkflowEntrypointData,
   WorkflowsValidateWorkflowEntrypointResponse,
   WorkspacesCreateWorkspaceData,
-  WorkspacesCreateWorkspaceInvitationData,
-  WorkspacesCreateWorkspaceInvitationResponse,
   WorkspacesCreateWorkspaceMembershipData,
   WorkspacesCreateWorkspaceMembershipResponse,
   WorkspacesCreateWorkspaceResponse,
@@ -946,15 +1071,11 @@ import type {
   WorkspacesGetWorkspaceMembershipData,
   WorkspacesGetWorkspaceMembershipResponse,
   WorkspacesGetWorkspaceResponse,
-  WorkspacesListWorkspaceInvitationsData,
-  WorkspacesListWorkspaceInvitationsResponse,
   WorkspacesListWorkspaceMembersData,
   WorkspacesListWorkspaceMembershipsData,
   WorkspacesListWorkspaceMembershipsResponse,
   WorkspacesListWorkspaceMembersResponse,
   WorkspacesListWorkspacesResponse,
-  WorkspacesRevokeWorkspaceInvitationData,
-  WorkspacesRevokeWorkspaceInvitationResponse,
   WorkspacesSearchWorkspacesData,
   WorkspacesSearchWorkspacesResponse,
   WorkspacesUpdateWorkspaceData,
@@ -1415,6 +1536,8 @@ export const workspacesCreateWorkspaceMembership = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      404: "User is not a member of the organization.",
+      409: "User is already a member of the workspace.",
       422: "Validation Error",
     },
   })
@@ -1465,97 +1588,36 @@ export const workspacesDeleteWorkspaceMembership = (
       user_id: data.userId,
     },
     errors: {
+      409: "User remains a member through a group.",
       422: "Validation Error",
     },
   })
 }
 
 /**
- * Create Workspace Invitation
- * Create a workspace invitation.
- *
- * Authorization
- * -------------
- * - Workspace Admin: Can create invitations for their workspace.
+ * Get Embedding Configuration
+ * Read automatic embedding availability without credential metadata.
  * @param data The data for the request.
  * @param data.workspaceId
- * @param data.requestBody
- * @returns WorkspaceInvitationRead Successful Response
+ * @returns EmbeddingConfigurationRead Successful Response
  * @throws ApiError
  */
-export const workspacesCreateWorkspaceInvitation = (
-  data: WorkspacesCreateWorkspaceInvitationData
-): CancelablePromise<WorkspacesCreateWorkspaceInvitationResponse> => {
-  return __request(OpenAPI, {
-    method: "POST",
-    url: "/workspaces/{workspace_id}/invitations",
-    path: {
-      workspace_id: data.workspaceId,
-    },
-    body: data.requestBody,
-    mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Workspace Invitations
- * List workspace invitations.
- *
- * Authorization
- * -------------
- * - Workspace Admin: Can list invitations for their workspace.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.status
- * @returns WorkspaceInvitationRead Successful Response
- * @throws ApiError
- */
-export const workspacesListWorkspaceInvitations = (
-  data: WorkspacesListWorkspaceInvitationsData
-): CancelablePromise<WorkspacesListWorkspaceInvitationsResponse> => {
+export const searchGetEmbeddingConfiguration = (
+  data: SearchGetEmbeddingConfigurationData
+): CancelablePromise<SearchGetEmbeddingConfigurationResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/workspaces/{workspace_id}/invitations",
+    url: "/workspaces/{workspace_id}/search/configuration",
     path: {
       workspace_id: data.workspaceId,
     },
-    query: {
-      status: data.status,
-    },
     errors: {
+      400: "Bad Request",
+      409: "Conflict",
       422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Revoke Workspace Invitation
- * Revoke a workspace invitation.
- *
- * Authorization
- * -------------
- * - Workspace Admin: Can revoke invitations for their workspace.
- * @param data The data for the request.
- * @param data.workspaceId
- * @param data.invitationId
- * @returns void Successful Response
- * @throws ApiError
- */
-export const workspacesRevokeWorkspaceInvitation = (
-  data: WorkspacesRevokeWorkspaceInvitationData
-): CancelablePromise<WorkspacesRevokeWorkspaceInvitationResponse> => {
-  return __request(OpenAPI, {
-    method: "DELETE",
-    url: "/workspaces/{workspace_id}/invitations/{invitation_id}",
-    path: {
-      workspace_id: data.workspaceId,
-      invitation_id: data.invitationId,
-    },
-    errors: {
-      422: "Validation Error",
+      429: "Too Many Requests",
+      502: "Bad Gateway",
+      504: "Gateway Timeout",
     },
   })
 }
@@ -3490,6 +3552,114 @@ export const workflowsPullWorkflows = (
 }
 
 /**
+ * Create Aws Secret Reference
+ * Create a custom secret whose values live in AWS Secrets Manager.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const secretsCreateAwsSecretReference = (
+  data: SecretsCreateAwsSecretReferenceData
+): CancelablePromise<SecretsCreateAwsSecretReferenceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/secrets/aws",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Aws Secret Reference
+ * Update the reference or key mapping of an AWS-backed secret.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.secretId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const secretsUpdateAwsSecretReference = (
+  data: SecretsUpdateAwsSecretReferenceData
+): CancelablePromise<SecretsUpdateAwsSecretReferenceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/secrets/aws/{secret_id}",
+    path: {
+      workspace_id: data.workspaceId,
+      secret_id: data.secretId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Check Aws Secret Reference
+ * Verify a saved AWS-backed reference resolves. Values are never returned.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.secretId
+ * @returns SecretReferenceCheckResult Successful Response
+ * @throws ApiError
+ */
+export const secretsCheckAwsSecretReference = (
+  data: SecretsCheckAwsSecretReferenceData
+): CancelablePromise<SecretsCheckAwsSecretReferenceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/secrets/aws/{secret_id}/check",
+    path: {
+      workspace_id: data.workspaceId,
+      secret_id: data.secretId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Authorized Secret Stores
+ * List external secret stores this workspace is authorized to reference.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_WorkspaceSecretStoreRead_ Successful Response
+ * @throws ApiError
+ */
+export const secretsListAuthorizedSecretStores = (
+  data: SecretsListAuthorizedSecretStoresData
+): CancelablePromise<SecretsListAuthorizedSecretStoresResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/secret-stores",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Search Secrets
  * Search secrets.
  * @param data The data for the request.
@@ -4284,6 +4454,29 @@ export const organizationListOrgMembers =
   }
 
 /**
+ * Trace Org Member Access
+ * Trace a member's roles to their direct and group sources.
+ * @param data The data for the request.
+ * @param data.userId
+ * @returns MemberAccessTrace Successful Response
+ * @throws ApiError
+ */
+export const organizationTraceOrgMemberAccess = (
+  data: OrganizationTraceOrgMemberAccessData
+): CancelablePromise<OrganizationTraceOrgMemberAccessResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/members/{user_id}/access",
+    path: {
+      user_id: data.userId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Delete Org Member
  * @param data The data for the request.
  * @param data.userId
@@ -4300,6 +4493,7 @@ export const organizationDeleteOrgMember = (
       user_id: data.userId,
     },
     errors: {
+      409: "The member is managed by the identity provider.",
       422: "Validation Error",
     },
   })
@@ -4367,91 +4561,20 @@ export const organizationDeleteSession = (
 
 /**
  * Create Invitation
- * Create an invitation to join the organization.
+ * Create an invitation carrying one or more role grants.
  * @param data The data for the request.
  * @param data.requestBody
- * @returns OrgInvitationRead Successful Response
+ * @returns InvitationRead Successful Response
  * @throws ApiError
  */
-export const organizationCreateInvitation = (
-  data: OrganizationCreateInvitationData
-): CancelablePromise<OrganizationCreateInvitationResponse> => {
+export const invitationsCreateInvitation = (
+  data: InvitationsCreateInvitationData
+): CancelablePromise<InvitationsCreateInvitationResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/organization/invitations",
+    url: "/invitations",
     body: data.requestBody,
     mediaType: "application/json",
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * List Invitations
- * List invitations for the organization.
- * @param data The data for the request.
- * @param data.status
- * @returns OrgInvitationRead Successful Response
- * @throws ApiError
- */
-export const organizationListInvitations = (
-  data: OrganizationListInvitationsData = {}
-): CancelablePromise<OrganizationListInvitationsResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/organization/invitations",
-    query: {
-      status: data.status,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Revoke Invitation
- * Revoke a pending invitation.
- * @param data The data for the request.
- * @param data.invitationId
- * @returns void Successful Response
- * @throws ApiError
- */
-export const organizationRevokeInvitation = (
-  data: OrganizationRevokeInvitationData
-): CancelablePromise<OrganizationRevokeInvitationResponse> => {
-  return __request(OpenAPI, {
-    method: "DELETE",
-    url: "/organization/invitations/{invitation_id}",
-    path: {
-      invitation_id: data.invitationId,
-    },
-    errors: {
-      422: "Validation Error",
-    },
-  })
-}
-
-/**
- * Get Invitation Token
- * Get the token for a specific invitation (admin only).
- *
- * This endpoint is used to generate shareable invitation links.
- * @param data The data for the request.
- * @param data.invitationId
- * @returns string Successful Response
- * @throws ApiError
- */
-export const organizationGetInvitationToken = (
-  data: OrganizationGetInvitationTokenData
-): CancelablePromise<OrganizationGetInvitationTokenResponse> => {
-  return __request(OpenAPI, {
-    method: "GET",
-    url: "/organization/invitations/{invitation_id}/token",
-    path: {
-      invitation_id: data.invitationId,
-    },
     errors: {
       422: "Validation Error",
     },
@@ -4470,12 +4593,12 @@ export const organizationGetInvitationToken = (
  * @returns string Successful Response
  * @throws ApiError
  */
-export const organizationAcceptInvitation = (
-  data: OrganizationAcceptInvitationData
-): CancelablePromise<OrganizationAcceptInvitationResponse> => {
+export const invitationsAcceptInvitation = (
+  data: InvitationsAcceptInvitationData
+): CancelablePromise<InvitationsAcceptInvitationResponse> => {
   return __request(OpenAPI, {
     method: "POST",
-    url: "/organization/invitations/accept",
+    url: "/invitations/accept",
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
@@ -4487,14 +4610,14 @@ export const organizationAcceptInvitation = (
 /**
  * List My Pending Invitations
  * List pending, unexpired invitations for the authenticated user.
- * @returns OrgPendingInvitationRead Successful Response
+ * @returns PendingInvitationRead Successful Response
  * @throws ApiError
  */
-export const organizationListMyPendingInvitations =
-  (): CancelablePromise<OrganizationListMyPendingInvitationsResponse> => {
+export const invitationsListMyPendingInvitations =
+  (): CancelablePromise<InvitationsListMyPendingInvitationsResponse> => {
     return __request(OpenAPI, {
       method: "GET",
-      url: "/organization/invitations/pending/me",
+      url: "/invitations/pending/me",
     })
   }
 
@@ -4506,17 +4629,88 @@ export const organizationListMyPendingInvitations =
  * If user is authenticated, also returns whether their email matches the invitation.
  * @param data The data for the request.
  * @param data.token
- * @returns OrgInvitationReadMinimal Successful Response
+ * @returns InvitationReadMinimal Successful Response
  * @throws ApiError
  */
-export const organizationGetInvitationByToken = (
-  data: OrganizationGetInvitationByTokenData
-): CancelablePromise<OrganizationGetInvitationByTokenResponse> => {
+export const invitationsGetInvitationByToken = (
+  data: InvitationsGetInvitationByTokenData
+): CancelablePromise<InvitationsGetInvitationByTokenResponse> => {
   return __request(OpenAPI, {
     method: "GET",
-    url: "/organization/invitations/token/{token}",
+    url: "/invitations/token/{token}",
     path: {
       token: data.token,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Invitation
+ * Revoke a pending invitation.
+ * @param data The data for the request.
+ * @param data.invitationId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const invitationsRevokeInvitation = (
+  data: InvitationsRevokeInvitationData
+): CancelablePromise<InvitationsRevokeInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/invitations/{invitation_id}",
+    path: {
+      invitation_id: data.invitationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Resend Invitation
+ * Queue another delivery of a pending invitation email.
+ * @param data The data for the request.
+ * @param data.invitationId
+ * @returns InvitationRead Successful Response
+ * @throws ApiError
+ */
+export const invitationsResendInvitation = (
+  data: InvitationsResendInvitationData
+): CancelablePromise<InvitationsResendInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/invitations/{invitation_id}/resend",
+    path: {
+      invitation_id: data.invitationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Invitation Token
+ * Get the token for a specific invitation (admin only).
+ *
+ * This endpoint is used to generate shareable invitation links.
+ * @param data The data for the request.
+ * @param data.invitationId
+ * @returns InvitationTokenRead Successful Response
+ * @throws ApiError
+ */
+export const invitationsGetInvitationToken = (
+  data: InvitationsGetInvitationTokenData
+): CancelablePromise<InvitationsGetInvitationTokenResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/invitations/{invitation_id}/token",
+    path: {
+      invitation_id: data.invitationId,
     },
     errors: {
       422: "Validation Error",
@@ -4906,7 +5100,7 @@ export const agentDeleteProviderCredentials = (
 
 /**
  * Refresh Provider Models
- * Re-discover models for a built-in gateway provider (Ollama, vLLM, ...).
+ * Re-discover models for Bedrock or a built-in gateway provider.
  * @param data The data for the request.
  * @param data.provider
  * @returns number Successful Response
@@ -4920,6 +5114,29 @@ export const agentRefreshProviderModels = (
     url: "/agent/providers/{provider}/refresh",
     path: {
       provider: data.provider,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Subscribe Bedrock Model
+ * Accept the AWS Marketplace offer for a Bedrock catalog model.
+ * @param data The data for the request.
+ * @param data.catalogId
+ * @returns BedrockSubscriptionRead Successful Response
+ * @throws ApiError
+ */
+export const agentSubscribeBedrockModel = (
+  data: AgentSubscribeBedrockModelData
+): CancelablePromise<AgentSubscribeBedrockModelResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/agent/providers/bedrock/models/{catalog_id}/subscribe",
+    path: {
+      catalog_id: data.catalogId,
     },
     errors: {
       422: "Validation Error",
@@ -6443,6 +6660,34 @@ export const agentSkillsArchiveSkill = (
 }
 
 /**
+ * Move Skill
+ * Move a skill to a folder or the workspace root.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsMoveSkill = (
+  data: AgentSkillsMoveSkillData
+): CancelablePromise<AgentSkillsMoveSkillResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/skills/{skill_id}/move",
+    path: {
+      skill_id: data.skillId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Get Skill Draft
  * Return the mutable draft manifest for a skill.
  * @param data The data for the request.
@@ -6696,6 +6941,447 @@ export const agentSkillsRestoreSkillVersion = (
 }
 
 /**
+ * Get Directory
+ * Get directory items (skills and folders) in the given path.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.path Folder path
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const skillFoldersGetDirectory = (
+  data: SkillFoldersGetDirectoryData
+): CancelablePromise<SkillFoldersGetDirectoryResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/skill-folders/directory",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      path: data.path,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Folders
+ * List folders under the specified parent path.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.parentPath Parent folder path
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_SkillFolderRead_ Successful Response
+ * @throws ApiError
+ */
+export const skillFoldersListFolders = (
+  data: SkillFoldersListFoldersData
+): CancelablePromise<SkillFoldersListFoldersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/skill-folders",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      parent_path: data.parentPath,
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Folder
+ * Create a new skill folder.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SkillFolderRead Successful Response
+ * @throws ApiError
+ */
+export const skillFoldersCreateFolder = (
+  data: SkillFoldersCreateFolderData
+): CancelablePromise<SkillFoldersCreateFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/skill-folders",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Folder
+ * Get folder details by ID.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @returns SkillFolderRead Successful Response
+ * @throws ApiError
+ */
+export const skillFoldersGetFolder = (
+  data: SkillFoldersGetFolderData
+): CancelablePromise<SkillFoldersGetFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/skill-folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Folder
+ * Update a folder (rename).
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SkillFolderRead Successful Response
+ * @throws ApiError
+ */
+export const skillFoldersUpdateFolder = (
+  data: SkillFoldersUpdateFolderData
+): CancelablePromise<SkillFoldersUpdateFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/skill-folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Folder
+ * Delete a skill folder.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const skillFoldersDeleteFolder = (
+  data: SkillFoldersDeleteFolderData
+): CancelablePromise<SkillFoldersDeleteFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/skill-folders/{folder_id}",
+    path: {
+      folder_id: data.folderId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Move Folder
+ * Move a folder to a new parent folder.
+ * @param data The data for the request.
+ * @param data.folderId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SkillFolderRead Successful Response
+ * @throws ApiError
+ */
+export const skillFoldersMoveFolder = (
+  data: SkillFoldersMoveFolderData
+): CancelablePromise<SkillFoldersMoveFolderResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/skill-folders/{folder_id}/move",
+    path: {
+      folder_id: data.folderId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Skill Tags
+ * List all skill tags in the workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_SkillTagRead_ Successful Response
+ * @throws ApiError
+ */
+export const skillTagsListSkillTags = (
+  data: SkillTagsListSkillTagsData
+): CancelablePromise<SkillTagsListSkillTagsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/skill-tags",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Skill Tag
+ * Create a new skill tag definition.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SkillTagRead Successful Response
+ * @throws ApiError
+ */
+export const skillTagsCreateSkillTag = (
+  data: SkillTagsCreateSkillTagData
+): CancelablePromise<SkillTagsCreateSkillTagResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/skill-tags",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Skill Tag
+ * Get a skill tag by ID.
+ * @param data The data for the request.
+ * @param data.tagId
+ * @param data.workspaceId
+ * @returns SkillTagRead Successful Response
+ * @throws ApiError
+ */
+export const skillTagsGetSkillTag = (
+  data: SkillTagsGetSkillTagData
+): CancelablePromise<SkillTagsGetSkillTagResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/skill-tags/{tag_id}",
+    path: {
+      tag_id: data.tagId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Skill Tag
+ * Update a skill tag definition.
+ * @param data The data for the request.
+ * @param data.tagId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns SkillTagRead Successful Response
+ * @throws ApiError
+ */
+export const skillTagsUpdateSkillTag = (
+  data: SkillTagsUpdateSkillTagData
+): CancelablePromise<SkillTagsUpdateSkillTagResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/skill-tags/{tag_id}",
+    path: {
+      tag_id: data.tagId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Skill Tag
+ * Delete a skill tag definition.
+ * @param data The data for the request.
+ * @param data.tagId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const skillTagsDeleteSkillTag = (
+  data: SkillTagsDeleteSkillTagData
+): CancelablePromise<SkillTagsDeleteSkillTagResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/skill-tags/{tag_id}",
+    path: {
+      tag_id: data.tagId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Skill Tags
+ * List all tags for a skill.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @returns CursorPaginatedResponse_SkillTagRead_ Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsListSkillTags = (
+  data: AgentSkillsListSkillTagsData
+): CancelablePromise<AgentSkillsListSkillTagsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/skills/{skill_id}/tags",
+    path: {
+      skill_id: data.skillId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Add Skill Tag
+ * Add a tag to a skill.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsAddSkillTag = (
+  data: AgentSkillsAddSkillTagData
+): CancelablePromise<AgentSkillsAddSkillTagResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/agent/skills/{skill_id}/tags",
+    path: {
+      skill_id: data.skillId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Remove Skill Tag
+ * Remove a tag from a skill.
+ * @param data The data for the request.
+ * @param data.skillId
+ * @param data.tagId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const agentSkillsRemoveSkillTag = (
+  data: AgentSkillsRemoveSkillTagData
+): CancelablePromise<AgentSkillsRemoveSkillTagResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/agent/skills/{skill_id}/tags/{tag_id}",
+    path: {
+      skill_id: data.skillId,
+      tag_id: data.tagId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Agent Backends
+ * List enabled installed backends available to new sessions.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns AgentBackendRead Successful Response
+ * @throws ApiError
+ */
+export const agentSessionsListAgentBackends = (
+  data: AgentSessionsListAgentBackendsData
+): CancelablePromise<AgentSessionsListAgentBackendsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/agent/sessions/backends",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Create Session
  * Create a new agent session associated with an entity.
  * @param data The data for the request.
@@ -6716,6 +7402,8 @@ export const agentSessionsCreateSession = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      403: "Workspace Chat entitlement or parent session write access required",
+      404: "Parent session not found in this workspace",
       422: "Validation Error",
     },
   })
@@ -6725,16 +7413,20 @@ export const agentSessionsCreateSession = (
  * List Sessions
  * List agent sessions for the current workspace with optional filtering.
  *
- * Returns a list of sessions including both active AgentSessions and legacy
- * Chat records. Legacy chats have is_readonly=True.
+ * Returns root sessions by default, including standalone history forks and
+ * legacy chats. Filter by spawned_by_session_id to find spawned children.
+ * Legacy chats have is_readonly=True.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.entityType Filter by entity type
  * @param data.entityId Filter by entity ID
  * @param data.createdBy Filter by session creator. Omit to list the entire workspace.
  * @param data.excludeEntityTypes Entity types to exclude from results
- * @param data.parentSessionId Filter by parent session ID (for finding forked sessions)
+ * @param data.spawnedBySessionId Filter by spawning parent session ID
+ * @param data.includeChildren Include spawned children without a parent filter
  * @param data.limit Maximum number of sessions to return
+ * @param data.forkedFromSessionId Filter by history source session ID
+ * @param data.parentSessionId Legacy alias for forked_from_session_id
  * @returns unknown Successful Response
  * @throws ApiError
  */
@@ -6752,10 +7444,14 @@ export const agentSessionsListSessions = (
       entity_id: data.entityId,
       created_by: data.createdBy,
       exclude_entity_types: data.excludeEntityTypes,
-      parent_session_id: data.parentSessionId,
+      spawned_by_session_id: data.spawnedBySessionId,
+      include_children: data.includeChildren,
       limit: data.limit,
+      forked_from_session_id: data.forkedFromSessionId,
+      parent_session_id: data.parentSessionId,
     },
     errors: {
+      400: "Conflicting parent_session_id and forked_from_session_id filters",
       422: "Validation Error",
     },
   })
@@ -6968,7 +7664,7 @@ export const agentSessionsStreamSessionEvents = (
  * Fork Session
  * Fork an existing session to continue conversation post-decision.
  *
- * Creates a new session linked to the parent session, allowing users
+ * Creates a new session linked to a history source, allowing users
  * to ask the agent for context after making approval decisions.
  *
  * Set entity_type to 'approval' for inbox forks to hide from main chat list.
@@ -7469,6 +8165,31 @@ export const adminRevokeOrganizationInvitation = (
   return __request(OpenAPI, {
     method: "DELETE",
     url: "/admin/organizations/{org_id}/invitations/{invitation_id}",
+    path: {
+      org_id: data.orgId,
+      invitation_id: data.invitationId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Resend Organization Invitation
+ * Queue another delivery of a pending invitation email.
+ * @param data The data for the request.
+ * @param data.orgId
+ * @param data.invitationId
+ * @returns AdminOrgInvitationRead Successful Response
+ * @throws ApiError
+ */
+export const adminResendOrganizationInvitation = (
+  data: AdminResendOrganizationInvitationData
+): CancelablePromise<AdminResendOrganizationInvitationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/admin/organizations/{org_id}/invitations/{invitation_id}/resend",
     path: {
       org_id: data.orgId,
       invitation_id: data.invitationId,
@@ -9330,6 +10051,176 @@ export const organizationSecretsDeleteOrgSecretById = (
 }
 
 /**
+ * List Secret Stores
+ * List external secret stores owned by the organization.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_SecretStoreRead_ Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretStoresListSecretStores = (
+  data: OrganizationSecretStoresListSecretStoresData = {}
+): CancelablePromise<OrganizationSecretStoresListSecretStoresResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/secret-stores",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Secret Store
+ * Create a store. The AssumeRole external ID is generated server-side.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns SecretStoreRead Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretStoresCreateSecretStore = (
+  data: OrganizationSecretStoresCreateSecretStoreData
+): CancelablePromise<OrganizationSecretStoresCreateSecretStoreResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/secret-stores",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Secret Store
+ * Get a store, including its persisted trust-policy inputs.
+ * @param data The data for the request.
+ * @param data.storeId
+ * @returns SecretStoreRead Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretStoresGetSecretStore = (
+  data: OrganizationSecretStoresGetSecretStoreData
+): CancelablePromise<OrganizationSecretStoresGetSecretStoreResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/organization/secret-stores/{store_id}",
+    path: {
+      store_id: data.storeId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Secret Store
+ * Update store metadata. The external ID never changes.
+ * @param data The data for the request.
+ * @param data.storeId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretStoresUpdateSecretStore = (
+  data: OrganizationSecretStoresUpdateSecretStoreData
+): CancelablePromise<OrganizationSecretStoresUpdateSecretStoreResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/organization/secret-stores/{store_id}",
+    path: {
+      store_id: data.storeId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Secret Store
+ * Delete a store. Rejected while workspace secrets still reference it.
+ * @param data The data for the request.
+ * @param data.storeId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretStoresDeleteSecretStore = (
+  data: OrganizationSecretStoresDeleteSecretStoreData
+): CancelablePromise<OrganizationSecretStoresDeleteSecretStoreResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/organization/secret-stores/{store_id}",
+    path: {
+      store_id: data.storeId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Authorize Secret Store Workspace
+ * Authorize a workspace to reference this store.
+ * @param data The data for the request.
+ * @param data.storeId
+ * @param data.requestBody
+ * @returns SecretStoreAuthorizationRead Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretStoresAuthorizeSecretStoreWorkspace = (
+  data: OrganizationSecretStoresAuthorizeSecretStoreWorkspaceData
+): CancelablePromise<OrganizationSecretStoresAuthorizeSecretStoreWorkspaceResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/secret-stores/{store_id}/authorizations",
+    path: {
+      store_id: data.storeId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Revoke Secret Store Workspace
+ * Revoke a workspace authorization. Rejected while references remain.
+ * @param data The data for the request.
+ * @param data.storeId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const organizationSecretStoresRevokeSecretStoreWorkspace = (
+  data: OrganizationSecretStoresRevokeSecretStoreWorkspaceData
+): CancelablePromise<OrganizationSecretStoresRevokeSecretStoreWorkspaceResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/organization/secret-stores/{store_id}/authorizations/{workspace_id}",
+    path: {
+      store_id: data.storeId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Tables
  * List all tables.
  * @param data The data for the request.
@@ -9826,6 +10717,129 @@ export const tablesImportCsv = (
     formData: data.formData,
     mediaType: "multipart/form-data",
     errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Table Search
+ * Read settings and provider availability; requires table:read and workspace:read.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @returns TableSearchConfiguration Successful Response
+ * @throws ApiError
+ */
+export const tablesGetTableSearch = (
+  data: TablesGetTableSearchData
+): CancelablePromise<TablesGetTableSearchResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/tables/{table_id}/search",
+    path: {
+      table_id: data.tableId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      404: "Not Found",
+      409: "Conflict",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Select Table Search Column
+ * Persist selection and backfill marker together, even without a provider.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TableSearchConfiguration Successful Response
+ * @throws ApiError
+ */
+export const tablesSelectTableSearchColumn = (
+  data: TablesSelectTableSearchColumnData
+): CancelablePromise<TablesSelectTableSearchColumnResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/tables/{table_id}/search/selection",
+    path: {
+      table_id: data.tableId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      404: "Not Found",
+      409: "Conflict",
+      422: "Unprocessable Entity",
+    },
+  })
+}
+
+/**
+ * Retry Table Search
+ * Record retry intent for a bounded explicit list of failed documents.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const tablesRetryTableSearch = (
+  data: TablesRetryTableSearchData
+): CancelablePromise<TablesRetryTableSearchResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/tables/{table_id}/search/retry",
+    path: {
+      table_id: data.tableId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      404: "Not Found",
+      409: "Conflict",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Table Search Progress
+ * Read bounded per-document progress and safe retry references.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.workspaceId
+ * @param data.generation
+ * @param data.limit
+ * @param data.cursor
+ * @returns TableSearchProgressPage Successful Response
+ * @throws ApiError
+ */
+export const tablesGetTableSearchProgress = (
+  data: TablesGetTableSearchProgressData
+): CancelablePromise<TablesGetTableSearchProgressResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/tables/{table_id}/search/documents",
+    path: {
+      table_id: data.tableId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      generation: data.generation,
+    },
+    errors: {
+      400: "Bad Request",
+      404: "Not Found",
+      409: "Conflict",
       422: "Validation Error",
     },
   })
@@ -12717,6 +13731,106 @@ export const vcsGetGitlabTokenCredentialsStatus =
   }
 
 /**
+ * Save Bitbucket Token Credentials
+ * Save Bitbucket token credentials (create if new or update existing).
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns BitbucketTokenCredentialsSaveResponse Successful Response
+ * @throws ApiError
+ */
+export const vcsSaveBitbucketTokenCredentials = (
+  data: VcsSaveBitbucketTokenCredentialsData
+): CancelablePromise<VcsSaveBitbucketTokenCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/vcs/bitbucket/credentials",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Bitbucket Token Credentials
+ * Delete Bitbucket token credentials.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const vcsDeleteBitbucketTokenCredentials =
+  (): CancelablePromise<VcsDeleteBitbucketTokenCredentialsResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/organization/vcs/bitbucket/credentials",
+    })
+  }
+
+/**
+ * Get Bitbucket Token Credentials Status
+ * Get the status of Bitbucket token credentials.
+ * @returns BitbucketTokenCredentialsStatus Successful Response
+ * @throws ApiError
+ */
+export const vcsGetBitbucketTokenCredentialsStatus =
+  (): CancelablePromise<VcsGetBitbucketTokenCredentialsStatusResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/vcs/bitbucket/credentials/status",
+    })
+  }
+
+/**
+ * Save Bitbucket Data Center Token Credentials
+ * Save Bitbucket Data Center token credentials (create if new or update existing).
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns BitbucketDataCenterTokenCredentialsSaveResponse Successful Response
+ * @throws ApiError
+ */
+export const vcsSaveBitbucketDataCenterTokenCredentials = (
+  data: VcsSaveBitbucketDataCenterTokenCredentialsData
+): CancelablePromise<VcsSaveBitbucketDataCenterTokenCredentialsResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/organization/vcs/bitbucket-data-center/credentials",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Bitbucket Data Center Token Credentials
+ * Delete Bitbucket Data Center token credentials.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const vcsDeleteBitbucketDataCenterTokenCredentials =
+  (): CancelablePromise<VcsDeleteBitbucketDataCenterTokenCredentialsResponse> => {
+    return __request(OpenAPI, {
+      method: "DELETE",
+      url: "/organization/vcs/bitbucket-data-center/credentials",
+    })
+  }
+
+/**
+ * Get Bitbucket Data Center Token Credentials Status
+ * Get the status of Bitbucket Data Center token credentials.
+ * @returns BitbucketDataCenterTokenCredentialsStatus Successful Response
+ * @throws ApiError
+ */
+export const vcsGetBitbucketDataCenterTokenCredentialsStatus =
+  (): CancelablePromise<VcsGetBitbucketDataCenterTokenCredentialsStatusResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/organization/vcs/bitbucket-data-center/credentials/status",
+    })
+  }
+
+/**
  * Get My Scopes
  * Get the current user's effective scopes.
  *
@@ -12807,6 +13921,28 @@ export const rbacListUserAssignments = (
 }
 
 /**
+ * Replace User Assignments
+ * Save a member's staged direct role changes in one transaction.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const rbacReplaceUserAssignments = (
+  data: RbacReplaceUserAssignmentsData
+): CancelablePromise<RbacReplaceUserAssignmentsResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/rbac/user-assignments",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * Create User Assignment
  * Create a user role assignment.
  *
@@ -12829,6 +13965,9 @@ export const rbacCreateUserAssignment = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Organization role assigned on a workspace.",
+      404: "User, role, or workspace not found.",
+      409: "User already has an assignment for this workspace.",
       422: "Validation Error",
     },
   })
@@ -12880,6 +14019,8 @@ export const rbacUpdateUserAssignment = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Organization role assigned on a workspace.",
+      404: "Assignment or role not found.",
       422: "Validation Error",
     },
   })
@@ -12905,6 +14046,7 @@ export const rbacDeleteUserAssignment = (
       assignment_id: data.assignmentId,
     },
     errors: {
+      404: "User role assignment not found.",
       422: "Validation Error",
     },
   })
@@ -12956,6 +14098,8 @@ export const rbacCreateScope = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Invalid or reserved scope name.",
+      409: "A scope with this name already exists.",
       422: "Validation Error",
     },
   })
@@ -13008,6 +14152,8 @@ export const rbacDeleteScope = (
       scope_id: data.scopeId,
     },
     errors: {
+      403: "Platform scope or scope from another organization.",
+      404: "Scope not found.",
       422: "Validation Error",
     },
   })
@@ -13061,6 +14207,9 @@ export const rbacUpdateRole = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      403: "System role scopes cannot change.",
+      404: "Role not found.",
+      409: "Duplicate name, or a level switch while the role is in use.",
       422: "Validation Error",
     },
   })
@@ -13097,7 +14246,7 @@ export const rbacDeleteRole = (
  * List Groups
  * List groups for the organization.
  *
- * Requires: org:rbac:read scope
+ * Requires: org:rbac:read or org:scim:manage to select mapping targets.
  * @returns GroupList Successful Response
  * @throws ApiError
  */
@@ -13274,6 +14423,7 @@ export const rbacRemoveGroupMember = (
  * Requires: org:rbac:read scope
  * @param data The data for the request.
  * @param data.groupId Filter by group ID
+ * @param data.userId Filter by group member user ID
  * @param data.workspaceId Filter by workspace ID
  * @returns GroupRoleAssignmentList Successful Response
  * @throws ApiError
@@ -13286,6 +14436,7 @@ export const rbacListAssignments = (
     url: "/rbac/assignments",
     query: {
       group_id: data.groupId,
+      user_id: data.userId,
       workspace_id: data.workspaceId,
     },
     errors: {
@@ -13317,6 +14468,9 @@ export const rbacCreateAssignment = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Organization role assigned on a workspace.",
+      404: "Group, role, or workspace not found.",
+      409: "Group already has an assignment for this workspace.",
       422: "Validation Error",
     },
   })
@@ -13370,6 +14524,8 @@ export const rbacUpdateAssignment = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Organization role assigned on a workspace.",
+      404: "Assignment or role not found.",
       422: "Validation Error",
     },
   })
@@ -13399,6 +14555,581 @@ export const rbacDeleteAssignment = (
     },
   })
 }
+
+/**
+ * Get Scim Connection
+ * Read the SCIM connection status. Never returns the token.
+ * @returns ScimConnectionRead Successful Response
+ * @throws ApiError
+ */
+export const scimGetScimConnection =
+  (): CancelablePromise<ScimGetScimConnectionResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/connection",
+    })
+  }
+
+/**
+ * Issue Scim Token
+ * Create or rotate the SCIM connection token.
+ *
+ * The raw token is returned only in this response.
+ * @returns ScimConnectionTokenRead Successful Response
+ * @throws ApiError
+ */
+export const scimIssueScimToken =
+  (): CancelablePromise<ScimIssueScimTokenResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/scim/connection",
+    })
+  }
+
+/**
+ * List External Groups
+ * List synced IdP groups available as mapping sources.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_ExternalGroupRead_ Successful Response
+ * @throws ApiError
+ */
+export const scimListExternalGroups = (
+  data: ScimListExternalGroupsData = {}
+): CancelablePromise<ScimListExternalGroupsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/external-groups",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Scim Directory Summary
+ * Count the users and groups the provider has pushed.
+ * @returns ScimDirectorySummaryRead Successful Response
+ * @throws ApiError
+ */
+export const scimGetScimDirectorySummary =
+  (): CancelablePromise<ScimGetScimDirectorySummaryResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/directory/summary",
+    })
+  }
+
+/**
+ * Disconnect Scim
+ * Remove all mappings, revoke the token, and disable the connection.
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimDisconnectScim =
+  (): CancelablePromise<ScimDisconnectScimResponse> => {
+    return __request(OpenAPI, {
+      method: "POST",
+      url: "/scim/disconnect",
+      errors: {
+        404: "SCIM connection not found.",
+      },
+    })
+  }
+
+/**
+ * Review Scim Activation
+ * Report what the provider pushed and what activating would change.
+ *
+ * A read: the returned plan is not stored, so activation recomputes it.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ScimActivationReviewRead Successful Response
+ * @throws ApiError
+ */
+export const scimReviewScimActivation = (
+  data: ScimReviewScimActivationData
+): CancelablePromise<ScimReviewScimActivationResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/activation/review",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      404: "SCIM connection, mapping, or group not found.",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Activate Scim Connection
+ * Admit the pushed directory and install the reviewed mappings.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimActivateScimConnection = (
+  data: ScimActivateScimConnectionData
+): CancelablePromise<ScimActivateScimConnectionResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/activation",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      404: "SCIM connection, external group, or group not found.",
+      409: "SCIM connection is not pending activation.",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Scim Mappings
+ * List group mappings with both sides joined in.
+ * @param data The data for the request.
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_ExternalGroupMappingRead_ Successful Response
+ * @throws ApiError
+ */
+export const scimListScimMappings = (
+  data: ScimListScimMappingsData = {}
+): CancelablePromise<ScimListScimMappingsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/mappings",
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Scim Mapping
+ * Map an external group into a Tracecat group and reconcile immediately.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ExternalGroupMappingRead Successful Response
+ * @throws ApiError
+ */
+export const scimCreateScimMapping = (
+  data: ScimCreateScimMappingData
+): CancelablePromise<ScimCreateScimMappingResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/mappings",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Apply Scim Mapping Changes
+ * Remove and add mappings together; any failure applies none of them.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimApplyScimMappingChanges = (
+  data: ScimApplyScimMappingChangesData
+): CancelablePromise<ScimApplyScimMappingChangesResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/mappings/batch",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      404: "Mapping, external group, or group not found.",
+      409: "SCIM connection is not active.",
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Scim Mapping
+ * Remove a mapping and revoke the membership only it supplied.
+ * @param data The data for the request.
+ * @param data.mappingId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimDeleteScimMapping = (
+  data: ScimDeleteScimMappingData
+): CancelablePromise<ScimDeleteScimMappingResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/scim/mappings/{mapping_id}",
+    path: {
+      mapping_id: data.mappingId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Users
+ * List provisioned users, optionally filtered by ``userName``.
+ *
+ * The filter matches case-insensitively: Okta queries with whatever casing
+ * the directory holds, and a case-sensitive match would make it create a
+ * duplicate.
+ * @param data The data for the request.
+ * @param data.filter
+ * @param data.startIndex
+ * @param data.count
+ * @returns ScimListResponse Successful Response
+ * @throws ApiError
+ */
+export const scimListUsers = (
+  data: ScimListUsersData = {}
+): CancelablePromise<ScimListUsersResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/v2/Users",
+    query: {
+      filter: data.filter,
+      startIndex: data.startIndex,
+      count: data.count,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create User
+ * Provision a user, linking an existing account rather than conflicting.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ScimUserResource Successful Response
+ * @throws ApiError
+ */
+export const scimCreateUser = (
+  data: ScimCreateUserData
+): CancelablePromise<ScimCreateUserResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/v2/Users",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get User
+ * Read one provisioned user.
+ * @param data The data for the request.
+ * @param data.resourceId
+ * @returns ScimUserResource Successful Response
+ * @throws ApiError
+ */
+export const scimGetUser = (
+  data: ScimGetUserData
+): CancelablePromise<ScimGetUserResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/v2/Users/{resource_id}",
+    path: {
+      resource_id: data.resourceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Replace User
+ * Replace the login, provider identifier, and active state of a user.
+ * @param data The data for the request.
+ * @param data.resourceId
+ * @param data.requestBody
+ * @returns ScimUserResource Successful Response
+ * @throws ApiError
+ */
+export const scimReplaceUser = (
+  data: ScimReplaceUserData
+): CancelablePromise<ScimReplaceUserResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/scim/v2/Users/{resource_id}",
+    path: {
+      resource_id: data.resourceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Patch User
+ * Apply a PatchOp to the login, the provider identifier, or ``active``.
+ * @param data The data for the request.
+ * @param data.resourceId
+ * @param data.requestBody
+ * @returns ScimUserResource Successful Response
+ * @throws ApiError
+ */
+export const scimPatchUser = (
+  data: ScimPatchUserData
+): CancelablePromise<ScimPatchUserResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/scim/v2/Users/{resource_id}",
+    path: {
+      resource_id: data.resourceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete User
+ * Deprovision a user. Already-removed is success, not an error.
+ *
+ * Known identities remain addressable and inactive. Unknown resource IDs
+ * return the same idempotent success without changing another tenant.
+ * @param data The data for the request.
+ * @param data.resourceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimDeleteUser = (
+  data: ScimDeleteUserData
+): CancelablePromise<ScimDeleteUserResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/scim/v2/Users/{resource_id}",
+    path: {
+      resource_id: data.resourceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Groups
+ * List synced external groups.
+ * @param data The data for the request.
+ * @param data.filter
+ * @param data.startIndex
+ * @param data.count
+ * @returns ScimListResponse Successful Response
+ * @throws ApiError
+ */
+export const scimListGroups = (
+  data: ScimListGroupsData = {}
+): CancelablePromise<ScimListGroupsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/v2/Groups",
+    query: {
+      filter: data.filter,
+      startIndex: data.startIndex,
+      count: data.count,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Group
+ * Create or rename a synced external group and set its members.
+ * @param data The data for the request.
+ * @param data.requestBody
+ * @returns ScimGroupResource Successful Response
+ * @throws ApiError
+ */
+export const scimCreateGroup = (
+  data: ScimCreateGroupData
+): CancelablePromise<ScimCreateGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/scim/v2/Groups",
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Group
+ * Read one synced external group.
+ * @param data The data for the request.
+ * @param data.groupId
+ * @returns ScimGroupResource Successful Response
+ * @throws ApiError
+ */
+export const scimGetGroup = (
+  data: ScimGetGroupData
+): CancelablePromise<ScimGetGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/scim/v2/Groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Replace Group
+ * Replace a group's name and its complete member list.
+ * @param data The data for the request.
+ * @param data.groupId
+ * @param data.requestBody
+ * @returns ScimGroupResource Successful Response
+ * @throws ApiError
+ */
+export const scimReplaceGroup = (
+  data: ScimReplaceGroupData
+): CancelablePromise<ScimReplaceGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "PUT",
+    url: "/scim/v2/Groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Patch Group
+ * Add or remove members, or rename the group.
+ *
+ * The projection reconciles against a complete member list, so each operation
+ * is folded into the current set and the result replaces it wholesale.
+ * @param data The data for the request.
+ * @param data.groupId
+ * @param data.requestBody
+ * @returns ScimGroupResource Successful Response
+ * @throws ApiError
+ */
+export const scimPatchGroup = (
+  data: ScimPatchGroupData
+): CancelablePromise<ScimPatchGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/scim/v2/Groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Group
+ * Delete a synced group and drop the membership it supplied.
+ * @param data The data for the request.
+ * @param data.groupId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const scimDeleteGroup = (
+  data: ScimDeleteGroupData
+): CancelablePromise<ScimDeleteGroupResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/scim/v2/Groups/{group_id}",
+    path: {
+      group_id: data.groupId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Service Provider Config
+ * Advertise the subset of the specification this surface implements.
+ * @returns unknown Successful Response
+ * @throws ApiError
+ */
+export const scimServiceProviderConfig =
+  (): CancelablePromise<ScimServiceProviderConfigResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/v2/ServiceProviderConfig",
+    })
+  }
+
+/**
+ * Resource Types
+ * List the resource types this surface serves.
+ * @returns ScimListResponse Successful Response
+ * @throws ApiError
+ */
+export const scimResourceTypes =
+  (): CancelablePromise<ScimResourceTypesResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/v2/ResourceTypes",
+    })
+  }
+
+/**
+ * Schemas Document
+ * List the resource schemas this surface understands.
+ * @returns ScimListResponse Successful Response
+ * @throws ApiError
+ */
+export const scimSchemasDocument =
+  (): CancelablePromise<ScimSchemasDocumentResponse> => {
+    return __request(OpenAPI, {
+      method: "GET",
+      url: "/scim/v2/Schemas",
+    })
+  }
 
 /**
  * Users:Current User

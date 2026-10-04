@@ -48,6 +48,8 @@ from tracecat.agent.skill.schemas import (
 from tracecat.agent.stream.events import StreamDelta, StreamEnd
 from tracecat.auth.types import Role
 from tracecat.db.models import Schedule, Workflow
+from tracecat.dsl.enums import JoinStrategy
+from tracecat.dsl.schemas import ROOT_STREAM, ActionStatement, StreamID
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
@@ -62,11 +64,23 @@ from tracecat.integrations.enums import (
     OAuthGrantType,
 )
 from tracecat.integrations.schemas import ProviderKey
+from tracecat.storage.object import ExternalObject, ObjectRef
 from tracecat.tables.service import TablesService
 from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
     ValidationResultType,
+)
+from tracecat.workflow.executions.constants import WF_COMPLETED_REF, WF_TRIGGER_REF
+from tracecat.workflow.executions.enums import (
+    WorkflowEventType,
+    WorkflowExecutionEventStatus,
+)
+from tracecat.workflow.executions.schemas import WorkflowExecutionEventCompact
+from tracecat.workflow.executions.shaping import (
+    MAX_EVENT_RESULT_CHARS,
+    select_execution_events,
+    window_result_text,
 )
 from tracecat.workflow.management import layout as layout_module
 from tracecat.workflow.schedules import bridge as schedules_bridge
@@ -78,6 +92,7 @@ try:
 finally:
     mcp_auth.create_mcp_auth = _original_create_mcp_auth
 
+from tracecat.mcp.workflow_graph import build_workflow_graph  # noqa: E402
 from tracecat.workflow.management import draft  # noqa: E402
 
 
@@ -593,6 +608,237 @@ def test_auto_generate_layout_handles_cycles():
     assert len(layout["actions"]) == 3
 
 
+def _layout_by_ref(
+    actions: list[layout_module.WorkflowActionLayoutInput],
+) -> dict[str, tuple[float, float]]:
+    layout = layout_module.auto_generate_layout(actions)
+    return {item["ref"]: (item["x"], item["y"]) for item in layout["actions"]}
+
+
+def test_auto_generate_layout_keeps_linear_chain_vertical():
+    positions = _layout_by_ref(
+        [
+            {"ref": "fetch", "depends_on": []},
+            {"ref": "enrich", "depends_on": ["fetch"]},
+            {"ref": "notify", "depends_on": ["enrich"]},
+        ]
+    )
+
+    assert {x for x, _ in positions.values()} == {0.0}
+    assert [positions[ref][1] for ref in ("fetch", "enrich", "notify")] == [
+        300.0,
+        600.0,
+        900.0,
+    ]
+
+
+def test_auto_generate_layout_centers_fan_out_and_join():
+    positions = _layout_by_ref(
+        [
+            {"ref": "lookup", "depends_on": []},
+            {"ref": "found", "depends_on": ["lookup"]},
+            {"ref": "missing", "depends_on": ["lookup"]},
+            {"ref": "close", "depends_on": ["found", "missing"]},
+        ]
+    )
+
+    left, right = sorted(positions[ref][0] for ref in ("found", "missing"))
+    assert right - left >= layout_module.NODE_WIDTH
+    assert positions["lookup"][0] == pytest.approx((left + right) / 2, abs=1)
+    assert positions["close"][0] == pytest.approx(positions["lookup"][0], abs=1)
+    assert positions["close"][1] > positions["found"][1]
+
+
+def test_auto_generate_layout_keeps_branches_local_without_crossings():
+    positions = _layout_by_ref(
+        [
+            {"ref": "root", "depends_on": []},
+            {"ref": "a", "depends_on": ["root"]},
+            {"ref": "z", "depends_on": ["root"]},
+            {"ref": "a_next", "depends_on": ["a"]},
+            {"ref": "z_next", "depends_on": ["z"]},
+        ]
+    )
+
+    assert positions["a_next"][0] == positions["a"][0]
+    assert positions["z_next"][0] == positions["z"][0]
+
+
+def test_auto_generate_layout_places_error_path_below_source():
+    positions = _layout_by_ref(
+        [
+            {"ref": "call_api", "depends_on": []},
+            {"ref": "on_error", "depends_on": ["call_api.error"]},
+        ]
+    )
+
+    assert positions["on_error"] == (positions["call_api"][0], 600.0)
+
+
+def test_auto_generate_layout_orders_success_before_error_paths():
+    positions = _layout_by_ref(
+        [
+            {"ref": "normalize", "depends_on": []},
+            {"ref": "on_error", "depends_on": ["normalize.error"]},
+            {"ref": "cleanup", "depends_on": ["normalize", "normalize.error"]},
+            {"ref": "guarded", "depends_on": ["normalize"]},
+            {"ref": "other", "depends_on": ["normalize"]},
+        ]
+    )
+
+    xs = [positions[ref][0] for ref in ("guarded", "other", "cleanup", "on_error")]
+    assert xs == sorted(xs)
+    assert len(set(xs)) == 4
+
+
+def test_auto_generate_layout_orders_error_paths_regardless_of_action_order():
+    positions = _layout_by_ref(
+        [
+            {"ref": "on_error", "depends_on": ["call_api.error"]},
+            {"ref": "parse", "depends_on": ["call_api"]},
+            {"ref": "call_api", "depends_on": []},
+        ]
+    )
+
+    assert positions["parse"][0] < positions["on_error"][0]
+
+
+def test_auto_generate_layout_keeps_error_handler_right_of_success_chain():
+    positions = _layout_by_ref(
+        [
+            {"ref": "call_api", "depends_on": []},
+            {"ref": "on_error", "depends_on": ["call_api.error"]},
+            {"ref": "parse", "depends_on": ["call_api"]},
+            {"ref": "notify", "depends_on": ["parse"]},
+        ]
+    )
+
+    assert positions["parse"][0] < positions["on_error"][0]
+    assert positions["notify"][0] == positions["parse"][0]
+
+
+@pytest.mark.parametrize(
+    ("previous", "updated", "expected"),
+    [
+        pytest.param(
+            [{"ref": "a", "depends_on": []}, {"ref": "b", "depends_on": ["a"]}],
+            [{"ref": "b", "depends_on": ["a"]}, {"ref": "a", "depends_on": []}],
+            False,
+            id="reordered",
+        ),
+        pytest.param(
+            [{"ref": "a", "depends_on": []}, {"ref": "b", "depends_on": ["a"]}],
+            [{"ref": "a", "depends_on": []}],
+            False,
+            id="leaf-removed",
+        ),
+        pytest.param(
+            [{"ref": "a", "depends_on": []}],
+            [{"ref": "a", "depends_on": []}, {"ref": "b", "depends_on": ["a"]}],
+            True,
+            id="action-added",
+        ),
+        pytest.param(
+            [
+                {"ref": "a", "depends_on": []},
+                {"ref": "b", "depends_on": ["a"]},
+                {"ref": "c", "depends_on": ["a"]},
+            ],
+            [
+                {"ref": "a", "depends_on": []},
+                {"ref": "b", "depends_on": ["a"]},
+                {"ref": "c", "depends_on": ["b"]},
+            ],
+            True,
+            id="rewired",
+        ),
+    ],
+)
+def test_graph_requires_relayout(
+    previous: list[layout_module.WorkflowActionLayoutInput],
+    updated: list[layout_module.WorkflowActionLayoutInput],
+    expected: bool,
+):
+    assert layout_module.graph_requires_relayout(previous, updated) is expected
+
+
+def test_build_import_data_from_workflow_yaml_replaces_supplied_layout():
+    import_data = mcp_server._build_import_data_from_workflow_yaml(
+        definition_yaml=yaml.safe_dump(
+            {
+                "definition": {
+                    "title": "Example",
+                    "description": "Example workflow",
+                    "entrypoint": {"ref": "fetch"},
+                    "actions": [
+                        {
+                            "ref": "fetch",
+                            "action": "core.transform.reshape",
+                            "args": {"value": 1},
+                        },
+                        {
+                            "ref": "notify",
+                            "action": "core.transform.reshape",
+                            "depends_on": ["fetch"],
+                            "args": {"value": 2},
+                        },
+                    ],
+                },
+                "layout": {
+                    "trigger": {"x": 5, "y": 5},
+                    "viewport": {"x": 1, "y": 2, "zoom": 0.5},
+                    "actions": [
+                        {"ref": "fetch", "x": 10, "y": 10},
+                        {"ref": "notify", "x": 12, "y": 12},
+                    ],
+                },
+            }
+        )
+    )
+
+    assert import_data["layout"] == {
+        "trigger": {"x": 0, "y": 0},
+        "viewport": {"x": 1, "y": 2, "zoom": 0.5},
+        "actions": [
+            {"ref": "fetch", "x": 0.0, "y": 300.0},
+            {"ref": "notify", "x": 0.0, "y": 600.0},
+        ],
+    }
+
+
+def test_relayout_edit_document_only_when_graph_changes():
+    workflow = _chained_workflow_stub(uuid.uuid4())
+    original = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
+    )
+
+    args_only = original.model_copy(deep=True)
+    args_only.definition.actions[0].args = {"value": "changed"}
+    assert (
+        mcp_server._relayout_edit_document_if_graph_changed(original, args_only)
+        is args_only
+    )
+
+    added = original.model_copy(deep=True)
+    added.definition.actions.append(
+        ActionStatement(
+            ref="notify_owner",
+            action="core.transform.reshape",
+            depends_on=["build_alert"],
+        )
+    )
+    relaid = mcp_server._relayout_edit_document_if_graph_changed(original, added)
+
+    positions = {item.ref: (item.x, item.y) for item in relaid.layout.actions}
+    assert positions == {
+        "fetch_events": (0.0, 300.0),
+        "classify": (0.0, 600.0),
+        "build_alert": (0.0, 900.0),
+        "notify_owner": (0.0, 1200.0),
+    }
+    assert relaid.layout.viewport == original.layout.viewport
+
+
 def test_extract_layout_positions_full():
     layout_data = {
         "trigger": {"x": 10, "y": 20},
@@ -924,6 +1170,289 @@ async def test_get_workflow_returns_metadata_only(monkeypatch):
     assert payload["draft_revision"]
     assert payload["draft_document"]["metadata"]["title"] == "Example workflow"
     assert "definition_yaml" not in payload
+
+
+def _chained_workflow_stub(workflow_id: uuid.UUID) -> SimpleNamespace:
+    """Three trigger-reachable actions; the edit document sorts them by ref."""
+    trigger_id = f"trigger-{workflow_id}"
+    fetch_events = _action_stub(
+        ref="fetch_events",
+        type="core.http_request",
+        inputs="url: https://example.invalid/events",
+        upstream_edges=[{"source_id": trigger_id, "source_type": "trigger"}],
+        position_x=10.0,
+        position_y=20.0,
+    )
+    classify = _action_stub(
+        ref="classify",
+        type="core.transform.reshape",
+        inputs="value: ${{ ACTIONS.fetch_events.result }}",
+        control_flow={
+            "run_if": "${{ FN.length(ACTIONS.fetch_events.result) > 0 }}",
+            "environment": "staging",
+        },
+        upstream_edges=[
+            {
+                "source_id": str(fetch_events.id),
+                "source_type": "udf",
+                "source_handle": "success",
+            }
+        ],
+        position_x=30.0,
+        position_y=40.0,
+    )
+    build_alert = _action_stub(
+        ref="build_alert",
+        type="core.transform.reshape",
+        inputs="value: ${{ var.item }}",
+        control_flow={"for_each": "${{ for var.item in ACTIONS.classify.result }}"},
+        upstream_edges=[
+            {
+                "source_id": str(classify.id),
+                "source_type": "udf",
+                "source_handle": "success",
+            }
+        ],
+        position_x=50.0,
+        position_y=60.0,
+    )
+    return _workflow_stub(
+        id=workflow_id,
+        entrypoint="fetch_events",
+        actions=[fetch_events, classify, build_alert],
+    )
+
+
+def _patch_workflow_read(monkeypatch, workflow: SimpleNamespace) -> None:
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = object()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+
+@pytest.mark.anyio
+async def test_list_workflow_actions_returns_index_map(monkeypatch):
+    workflow_id = uuid.uuid4()
+    workflow = _chained_workflow_stub(workflow_id)
+    _patch_workflow_read(monkeypatch, workflow)
+    expected_revision = draft.compute_workflow_edit_revision(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
+        )
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.list_workflow_actions)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+        )
+    )
+
+    assert payload["draft_revision"] == expected_revision
+    assert payload["entrypoint"]["ref"] == "fetch_events"
+    assert payload["actions"] == [
+        {
+            "index": 0,
+            "ref": "build_alert",
+            "action": "core.transform.reshape",
+            "depends_on": ["classify"],
+            "has_run_if": False,
+            "has_for_each": True,
+            "environment": None,
+        },
+        {
+            "index": 1,
+            "ref": "classify",
+            "action": "core.transform.reshape",
+            "depends_on": ["fetch_events"],
+            "has_run_if": True,
+            "has_for_each": False,
+            "environment": "staging",
+        },
+        {
+            "index": 2,
+            "ref": "fetch_events",
+            "action": "core.http_request",
+            "depends_on": [],
+            "has_run_if": False,
+            "has_for_each": False,
+            "environment": None,
+        },
+    ]
+    assert "args" not in json.dumps(payload)
+
+
+@pytest.mark.anyio
+async def test_get_workflow_action_returns_full_action_and_layout(monkeypatch):
+    workflow_id = uuid.uuid4()
+    workflow = _chained_workflow_stub(workflow_id)
+    _patch_workflow_read(monkeypatch, workflow)
+
+    payload = _payload(
+        await _tool(mcp_server.get_workflow_action)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            ref="classify",
+        )
+    )
+
+    assert payload["index"] == 1
+    assert payload["action"]["ref"] == "classify"
+    assert payload["action"]["args"] == {"value": "${{ ACTIONS.fetch_events.result }}"}
+    assert payload["action"]["run_if"] == (
+        "${{ FN.length(ACTIONS.fetch_events.result) > 0 }}"
+    )
+    assert payload["layout"] == {
+        "ref": "classify",
+        "x": 30.0,
+        "y": 40.0,
+        "position": None,
+    }
+    assert payload["draft_revision"]
+
+
+@pytest.mark.anyio
+async def test_get_workflow_graph_returns_mermaid_and_upstream_gates(monkeypatch):
+    workflow_id = uuid.uuid4()
+    workflow = _chained_workflow_stub(workflow_id)
+    _patch_workflow_read(monkeypatch, workflow)
+
+    payload = _payload(
+        await _tool(mcp_server.get_workflow_graph)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+        )
+    )
+
+    assert payload["mermaid"].splitlines() == [
+        "flowchart TD",
+        "  trigger([trigger])",
+        '  build_alert["build_alert<br/>core.transform.reshape'
+        '<br/>for_each: for var.item in ACTIONS.classify.result"]',
+        '  classify["classify<br/>core.transform.reshape'
+        '<br/>if: FN.length(ACTIONS.fetch_events.result) #gt; 0"]',
+        '  fetch_events["fetch_events<br/>core.http_request"]',
+        "  classify --> build_alert",
+        "  fetch_events --> classify",
+        "  trigger --> fetch_events",
+    ]
+    gates = {action["ref"]: action["gated_by"] for action in payload["actions"]}
+    assert gates == {
+        "build_alert": ["classify"],
+        "classify": [],
+        "fetch_events": [],
+    }
+    assert "args" not in json.dumps(payload)
+    assert payload["draft_revision"]
+
+
+def test_build_workflow_graph_renders_error_edges_joins_and_reserved_refs():
+    mermaid, actions = build_workflow_graph(
+        [
+            ActionStatement(
+                ref="call_api",
+                action="core.http_request",
+                run_if='${{ TRIGGER.kind == "alert" }}',
+            ),
+            ActionStatement(
+                ref="end",
+                action="core.transform.reshape",
+                depends_on=["call_api.error"],
+            ),
+            ActionStatement(
+                ref="merge",
+                action="core.transform.reshape",
+                depends_on=["call_api", "end"],
+                join_strategy=JoinStrategy.ANY,
+            ),
+        ]
+    )
+
+    assert (
+        '  call_api["call_api<br/>core.http_request'
+        '<br/>if: TRIGGER.kind == #quot;alert#quot;"]'
+    ) in mermaid
+    assert "  call_api -. error .-> end_" in mermaid
+    assert (
+        '  merge["merge<br/>core.transform.reshape'
+        '<br/>join: any (one parent is enough)"]'
+    ) in mermaid
+    assert "  end_ --> merge" in mermaid
+    assert [action.gated_by for action in actions] == [
+        [],
+        ["call_api"],
+        ["call_api"],
+    ]
+
+
+def test_build_workflow_graph_any_join_keeps_only_gates_on_every_path():
+    _, actions = build_workflow_graph(
+        [
+            ActionStatement(
+                ref="enrich",
+                action="core.http_request",
+                run_if="${{ TRIGGER.enrich }}",
+            ),
+            ActionStatement(ref="lookup", action="core.http_request"),
+            ActionStatement(
+                ref="any_merge",
+                action="core.transform.reshape",
+                depends_on=["enrich", "lookup"],
+                join_strategy=JoinStrategy.ANY,
+            ),
+            ActionStatement(
+                ref="all_merge",
+                action="core.transform.reshape",
+                depends_on=["enrich", "lookup"],
+            ),
+            ActionStatement(
+                ref="notify",
+                action="core.transform.reshape",
+                depends_on=["any_merge"],
+            ),
+        ]
+    )
+
+    gates = {action.ref: action.gated_by for action in actions}
+    assert gates == {
+        "enrich": [],
+        "lookup": [],
+        "any_merge": [],
+        "all_merge": ["enrich"],
+        "notify": [],
+    }
+
+
+@pytest.mark.anyio
+async def test_get_workflow_action_unknown_ref_lists_valid_refs(monkeypatch):
+    workflow_id = uuid.uuid4()
+    _patch_workflow_read(monkeypatch, _chained_workflow_stub(workflow_id))
+
+    with pytest.raises(ToolError, match="not found") as exc_info:
+        await _tool(mcp_server.get_workflow_action)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            ref="missing_step",
+        )
+
+    message = str(exc_info.value)
+    assert "'missing_step'" in message
+    assert "'build_alert'" in message
+    assert "'classify'" in message
+    assert "'fetch_events'" in message
 
 
 def test_build_workflow_edit_document_normalizes_null_schedule_timeout() -> None:
@@ -1953,6 +2482,150 @@ async def test_edit_workflow_validate_only_revision_drops_inert_case_trigger(
     assert payload["valid"] is True
     assert payload["validate_only"] is True
     assert payload["draft_revision"] == base_revision
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_validate_only_resolves_ref_paths_and_returns_actions(
+    monkeypatch,
+):
+    async def _validate_dsl(*_args, **_kwargs):
+        return set()
+
+    workflow_id = uuid.uuid4()
+    workflow = _chained_workflow_stub(workflow_id)
+    _patch_workflow_read(monkeypatch, workflow)
+    monkeypatch.setattr(draft, "validate_dsl", _validate_dsl)
+
+    draft_document = draft.build_workflow_edit_document(
+        cast(draft._WorkflowEditDocumentSource, workflow)
+    )
+    base_revision = draft.compute_workflow_edit_revision(draft_document)
+
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                # Remove the first action so later refs must re-resolve.
+                {"op": "remove", "path": "/definition/actions/@build_alert"},
+                {"op": "remove", "path": "/layout/actions/@build_alert"},
+                {
+                    "op": "replace",
+                    "path": "/definition/actions/@fetch_events/args/url",
+                    "value": "https://example.invalid/v2/events",
+                },
+                {
+                    "op": "add",
+                    "path": "/definition/actions/@notify_owner",
+                    "value": {
+                        "ref": "notify_owner",
+                        "action": "core.transform.reshape",
+                        "depends_on": ["classify"],
+                        "args": {"value": "${{ ACTIONS.classify.result }}"},
+                    },
+                },
+                {
+                    "op": "add",
+                    "path": "/layout/actions/@notify_owner",
+                    "value": {"ref": "notify_owner", "x": 70.0, "y": 80.0},
+                },
+            ],
+            validate_only=True,
+        )
+    )
+
+    assert payload["valid"] is True
+    # Reported in post-save (ref-sorted) order, not patch order.
+    assert payload["actions"] == [
+        {"index": 0, "ref": "classify"},
+        {"index": 1, "ref": "fetch_events"},
+        {"index": 2, "ref": "notify_owner"},
+    ]
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_unknown_ref_path_names_ref(monkeypatch):
+    workflow_id = uuid.uuid4()
+    workflow = _chained_workflow_stub(workflow_id)
+    _patch_workflow_read(monkeypatch, workflow)
+    base_revision = draft.compute_workflow_edit_revision(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
+        )
+    )
+
+    with pytest.raises(ToolError, match="Unknown action ref 'ghost'"):
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {
+                    "op": "replace",
+                    "path": "/definition/actions/@ghost/args/url",
+                    "value": "https://example.invalid",
+                }
+            ],
+            validate_only=True,
+        )
+
+
+@pytest.mark.anyio
+async def test_edit_workflow_apply_returns_post_save_action_map(monkeypatch):
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    workflow_id = uuid.uuid4()
+    workflow = _chained_workflow_stub(workflow_id)
+
+    class _FakeSession:
+        def add(self, obj):
+            _ = obj
+
+        async def commit(self):
+            return None
+
+        async def refresh(self, obj, attrs=None):
+            _ = obj, attrs
+
+    class _WorkflowService:
+        def __init__(self) -> None:
+            self.session = _FakeSession()
+
+        async def get_workflow(self, _wf_id, *, for_update: bool = False):
+            _ = for_update
+            return workflow
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+
+    base_revision = draft.compute_workflow_edit_revision(
+        draft.build_workflow_edit_document(
+            cast(draft._WorkflowEditDocumentSource, workflow)
+        )
+    )
+    payload = _payload(
+        await _tool(mcp_server.edit_workflow)(
+            workspace_id=str(uuid.uuid4()),
+            workflow_id=str(workflow_id),
+            base_revision=base_revision,
+            patch_ops=[
+                {"op": "replace", "path": "/metadata/title", "value": "Renamed flow"}
+            ],
+        )
+    )
+
+    assert payload["message"] == f"Workflow {workflow_id} updated successfully"
+    assert payload["actions"] == [
+        {"index": 0, "ref": "build_alert"},
+        {"index": 1, "ref": "classify"},
+        {"index": 2, "ref": "fetch_events"},
+    ]
 
 
 @pytest.mark.anyio
@@ -4238,6 +4911,34 @@ async def test_remove_case_tag(monkeypatch):
     payload = _payload(result)
     assert captured == {"case_id": case_id, "tag_identifier": "escalated"}
     assert "removed from case" in payload["message"]
+
+
+@pytest.mark.anyio
+async def test_remove_case_tag_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    case_id = uuid.uuid4()
+    message = f"Tag escalated not found on case {case_id}"
+    error = TracecatNotFoundError(message)
+    tag_service = SimpleNamespace(remove_case_tag=AsyncMock(side_effect=error))
+    monkeypatch.setattr(
+        mcp_server,
+        "_resolve_workspace_role",
+        AsyncMock(return_value=(uuid.uuid4(), SimpleNamespace())),
+    )
+    monkeypatch.setattr(
+        mcp_server,
+        "CaseTagsService",
+        SimpleNamespace(with_session=lambda role: _AsyncContext(tag_service)),
+    )
+
+    with pytest.raises(ToolError) as exc_info:
+        await _tool(mcp_server.remove_case_tag)(
+            workspace_id=str(uuid.uuid4()),
+            case_id=str(case_id),
+            tag_identifier="escalated",
+        )
+
+    assert str(exc_info.value) == message
+    assert exc_info.value.__cause__ is error
 
 
 # ---------------------------------------------------------------------------
@@ -7078,6 +7779,12 @@ def test_agent_preset_tools_are_registered() -> None:
     assert hasattr(mcp_server, "move_agent_folder")
     assert hasattr(mcp_server, "delete_agent_folder")
     assert hasattr(mcp_server, "move_agent_presets")
+    assert hasattr(mcp_server, "list_skill_tree")
+    assert hasattr(mcp_server, "create_skill_folder")
+    assert hasattr(mcp_server, "rename_skill_folder")
+    assert hasattr(mcp_server, "move_skill_folder")
+    assert hasattr(mcp_server, "delete_skill_folder")
+    assert hasattr(mcp_server, "move_skills")
 
 
 def test_workflow_folder_tools_are_registered() -> None:
@@ -7492,6 +8199,85 @@ async def test_list_agent_tree_paginates_and_traverses(
 
 
 @pytest.mark.anyio
+async def test_list_skill_tree_paginates_and_traverses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    calls: list[str] = []
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _Item:
+        def __init__(self, payload: dict[str, Any]) -> None:
+            self._payload = payload
+
+        def model_dump(self, *, mode: str = "json") -> dict[str, Any]:
+            assert mode == "json"
+            return self._payload
+
+    class _FolderService:
+        async def get_directory_items(
+            self, path: str, order_by: str = "desc"
+        ) -> list[_Item]:
+            assert order_by == "desc"
+            calls.append(path)
+            if path == "/":
+                return [
+                    _Item({"type": "folder", "path": "/soc/", "name": "soc"}),
+                    _Item(
+                        {
+                            "type": "skill",
+                            "name": "Triage",
+                            "slug": "triage",
+                            "description": "Triage skill",
+                            "current_version_id": None,
+                            "tags": [],
+                            "created_at": "2026-01-01T00:00:00Z",
+                            "updated_at": "2026-01-01T00:00:00Z",
+                        }
+                    ),
+                ]
+            if path == "/soc/":
+                return [
+                    _Item(
+                        {
+                            "type": "skill",
+                            "name": "Investigate",
+                            "slug": "investigate",
+                            "description": None,
+                            "current_version_id": None,
+                            "tags": [{"name": "ops"}],
+                            "created_at": "2026-01-01T00:00:00Z",
+                            "updated_at": "2026-01-01T00:00:00Z",
+                        }
+                    )
+                ]
+            return []
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+
+    result = _payload(
+        await _tool(mcp_server.list_skill_tree)(
+            workspace_id=str(workspace_id),
+            depth=2,
+            limit=1,
+        )
+    )
+
+    assert result["items"][0]["type"] == "folder"
+    assert result["has_more"] is True
+    assert result["next_cursor"] is not None
+    assert calls == ["/"]
+
+
+@pytest.mark.anyio
 async def test_create_agent_folder_creates_missing_parents(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -7529,6 +8315,56 @@ async def test_create_agent_folder_creates_missing_parents(
 
     result = _payload(
         await _tool(mcp_server.create_agent_folder)(
+            workspace_id=str(workspace_id),
+            path="/soc/triage/",
+            parents=True,
+        )
+    )
+
+    assert result["path"] == "/soc/triage/"
+    assert result["created_paths"] == ["/soc/", "/soc/triage/"]
+    assert result["already_existed"] is False
+    assert created_paths == ["/soc/", "/soc/triage/"]
+
+
+@pytest.mark.anyio
+async def test_create_skill_folder_creates_missing_parents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created_paths: list[str] = []
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        def __init__(self) -> None:
+            self.folders: dict[str, SimpleNamespace] = {}
+
+        async def get_folder_by_path(self, path: str) -> SimpleNamespace | None:
+            return self.folders.get(path)
+
+        async def create_folder(
+            self, name: str, parent_path: str = "/", commit: bool = True
+        ) -> SimpleNamespace:
+            _ = commit
+            path = f"{parent_path}{name}/" if parent_path != "/" else f"/{name}/"
+            folder = SimpleNamespace(id=uuid.uuid4(), name=name, path=path)
+            self.folders[path] = folder
+            created_paths.append(path)
+            return folder
+
+    folder_service = _FolderService()
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillFolderService,
+        "with_session",
+        lambda role: _AsyncContext(folder_service),
+    )
+
+    result = _payload(
+        await _tool(mcp_server.create_skill_folder)(
             workspace_id=str(workspace_id),
             path="/soc/triage/",
             parents=True,
@@ -7708,11 +8544,60 @@ async def test_move_agent_presets_rejects_missing_destination(
 
 
 @pytest.mark.anyio
+async def test_move_skills_dry_run_resolves_slugs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    skill_id = uuid.uuid4()
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _FolderService:
+        async def get_folder_by_path(self, _path: str) -> SimpleNamespace:
+            return SimpleNamespace(id=uuid.uuid4(), path="/soc/")
+
+    class _SkillService:
+        async def get_skill_by_identifier(self, slug: str) -> SimpleNamespace | None:
+            if slug == "missing":
+                return None
+            return SimpleNamespace(id=skill_id, slug=slug, name="Triage")
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.SkillFolderService,
+        "with_session",
+        lambda role: _AsyncContext(_FolderService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.SkillService,
+        "with_session",
+        lambda role: _AsyncContext(_SkillService()),
+    )
+
+    result = _payload(
+        await _tool(mcp_server.move_skills)(
+            workspace_id=str(workspace_id),
+            skill_slugs=["triage", "missing", " "],
+            destination_path="/soc/",
+            dry_run=True,
+        )
+    )
+
+    assert result["requested_count"] == 3
+    assert result["movable_count"] == 1
+    assert result["movable_skills"][0]["skill_slug"] == "triage"
+    assert [error["skill_slug"] for error in result["errors"]] == ["missing", " "]
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("tool_name", "service_name", "expected_path"),
     [
         ("rename_agent_folder", "AgentFolderService", "/renamed/"),
         ("rename_workflow_folder", "WorkflowFolderService", "/renamed/"),
+        ("rename_skill_folder", "SkillFolderService", "/renamed/"),
     ],
 )
 async def test_mcp_rename_folder_tools_delegate_by_path(
@@ -7765,6 +8650,7 @@ async def test_mcp_rename_folder_tools_delegate_by_path(
     [
         ("move_agent_folder", "AgentFolderService"),
         ("move_workflow_folder", "WorkflowFolderService"),
+        ("move_skill_folder", "SkillFolderService"),
     ],
 )
 async def test_mcp_move_folder_tools_delegate_by_path(
@@ -7816,6 +8702,7 @@ async def test_mcp_move_folder_tools_delegate_by_path(
     [
         ("delete_agent_folder", "AgentFolderService"),
         ("delete_workflow_folder", "WorkflowFolderService"),
+        ("delete_skill_folder", "SkillFolderService"),
     ],
 )
 async def test_mcp_delete_folder_tools_delegate_by_path(
@@ -8393,12 +9280,10 @@ async def test_get_agent_preset_returns_full_configuration(
         (None, "0-0"),
     ],
 )
-@pytest.mark.parametrize("requested_preset_version", [3, None])
 async def test_run_agent_preset_uses_session_stream_cursor(
     monkeypatch: pytest.MonkeyPatch,
     last_stream_id: str | None,
     expected_start_id: str,
-    requested_preset_version: int | None,
 ) -> None:
     workspace_id = uuid.uuid4()
     role = SimpleNamespace(workspace_id=workspace_id)
@@ -8418,10 +9303,8 @@ async def test_run_agent_preset_uses_session_stream_cursor(
             self,
             *,
             slug: str,
-            preset_version: int | None = None,
         ) -> SimpleNamespace:
             assert slug == "triage"
-            assert preset_version == requested_preset_version
             return version
 
     class _SessionService:
@@ -8468,16 +9351,10 @@ async def test_run_agent_preset_uses_session_stream_cursor(
     )
     monkeypatch.setattr(mcp_server, "_collect_agent_response", _collect)
 
-    version_kwargs = (
-        {"preset_version": requested_preset_version}
-        if requested_preset_version is not None
-        else {}
-    )
     result = await _tool(mcp_server.run_agent_preset)(
         workspace_id=str(workspace_id),
         preset_slug="triage",
         prompt="check alerts",
-        **version_kwargs,
     )
 
     assert result == "agent response"
@@ -8493,18 +9370,14 @@ async def test_run_agent_preset_uses_session_stream_cursor(
 
 
 @pytest.mark.anyio
-async def test_run_agent_preset_marks_numeric_version_deprecated() -> None:
+async def test_run_agent_preset_does_not_expose_preset_version() -> None:
     tool = next(
         tool
         for tool in await mcp_server.mcp.list_tools()
         if tool.name == "run_agent_preset"
     )
 
-    preset_version_schema = tool.parameters["properties"]["preset_version"]
-
-    assert preset_version_schema["deprecated"] is True
-    assert "Deprecated compatibility input" in preset_version_schema["description"]
-    assert "current head" in preset_version_schema["description"]
+    assert "preset_version" not in tool.parameters["properties"]
 
 
 @pytest.mark.anyio
@@ -9849,6 +10722,230 @@ async def test_update_agent_preset_can_clear_skill_bindings(
     )
 
     assert captured["params"].skills == []
+
+
+def _mcp_subagent_test_preset(workspace_id: uuid.UUID) -> SimpleNamespace:
+    now = datetime.now(UTC)
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        name="Security triage",
+        slug="security-triage",
+        description=None,
+        instructions="Original prompt",
+        model_name="gpt-4o-mini",
+        model_provider="openai",
+        catalog_id=None,
+        base_url=None,
+        output_type=None,
+        actions=None,
+        namespaces=None,
+        tool_approvals=None,
+        mcp_integrations=None,
+        agents={},
+        retries=3,
+        enable_thinking=True,
+        enable_internet_access=False,
+        current_version_id=None,
+        created_at=now,
+        updated_at=now,
+    )
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_passes_subagents(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    catalog_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_default_model_selection(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                catalog_id=catalog_id,
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
+
+    class _AccessService:
+        async def is_catalog_enabled(
+            self, requested_catalog_id: uuid.UUID, *, workspace_id: uuid.UUID
+        ) -> bool:
+            return True
+
+    class _PresetService(_PresetReadBuilder):
+        async def create_preset(self, params: Any) -> SimpleNamespace:
+            created["params"] = params
+            return _mcp_subagent_test_preset(workspace_id)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentModelAccessService,
+        "with_session",
+        lambda role: _AsyncContext(_AccessService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    await _tool(mcp_server.create_agent_preset)(
+        workspace_id=str(workspace_id),
+        name="Security triage",
+        subagents=[
+            {
+                "preset": "enrich-ioc",
+                "preset_version": 2,
+                "name": "enricher",
+                "description": "Enrich indicators",
+                "max_turns": 5,
+            },
+            {"preset": "summarize-case"},
+        ],
+    )
+
+    params = created["params"]
+    assert params.agents.model_dump(mode="json", exclude={"enabled"}) == {
+        "subagents": [
+            {
+                "preset": "enrich-ioc",
+                "preset_version": 2,
+                "name": "enricher",
+                "description": "Enrich indicators",
+                "max_turns": 5,
+            },
+            {
+                "preset": "summarize-case",
+                "preset_version": None,
+                "name": None,
+                "description": None,
+                "max_turns": None,
+            },
+        ]
+    }
+
+
+@pytest.mark.anyio
+async def test_create_agent_preset_omitted_subagents_uses_empty_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace_id = uuid.uuid4()
+    catalog_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    created: dict[str, Any] = {}
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _AgentManagementService:
+        async def get_default_model_selection(self) -> SimpleNamespace:
+            return SimpleNamespace(
+                catalog_id=catalog_id,
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+            )
+
+    class _AccessService:
+        async def is_catalog_enabled(
+            self, requested_catalog_id: uuid.UUID, *, workspace_id: uuid.UUID
+        ) -> bool:
+            return True
+
+    class _PresetService(_PresetReadBuilder):
+        async def create_preset(self, params: Any) -> SimpleNamespace:
+            created["params"] = params
+            return _mcp_subagent_test_preset(workspace_id)
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_AgentManagementService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentModelAccessService,
+        "with_session",
+        lambda role: _AsyncContext(_AccessService()),
+    )
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    await _tool(mcp_server.create_agent_preset)(
+        workspace_id=str(workspace_id),
+        name="Security triage",
+    )
+
+    assert created["params"].agents.subagents == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("subagents", "expected_set", "expected_aliases"),
+    [
+        (None, False, None),
+        ([], True, []),
+        ([{"preset": "enrich-ioc", "name": "enricher"}], True, ["enricher"]),
+    ],
+)
+async def test_update_agent_preset_subagents(
+    monkeypatch: pytest.MonkeyPatch,
+    subagents: list[dict[str, Any]] | None,
+    expected_set: bool,
+    expected_aliases: list[str] | None,
+) -> None:
+    workspace_id = uuid.uuid4()
+    role = SimpleNamespace(workspace_id=workspace_id)
+    captured: dict[str, Any] = {}
+    preset = _mcp_subagent_test_preset(workspace_id)
+
+    async def _resolve(_workspace_id: str) -> tuple[uuid.UUID, SimpleNamespace]:
+        return workspace_id, role
+
+    class _PresetService(_PresetReadBuilder):
+        async def get_preset_by_slug(self, preset_slug: str) -> SimpleNamespace:
+            assert preset_slug == "security-triage"
+            return preset
+
+        async def update_preset(
+            self, current_preset: Any, params: Any
+        ) -> SimpleNamespace:
+            assert current_preset is preset
+            captured["params"] = params
+            return preset
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.AgentPresetService,
+        "with_session",
+        lambda role: _AsyncContext(_PresetService()),
+    )
+
+    await _tool(mcp_server.update_agent_preset)(
+        workspace_id=str(workspace_id),
+        preset_slug="security-triage",
+        subagents=subagents,
+    )
+
+    params = captured["params"]
+    assert ("agents" in params.model_fields_set) is expected_set
+    if expected_aliases is None:
+        assert params.agents is None
+    else:
+        assert [ref.alias for ref in params.agents.subagents] == expected_aliases
 
 
 @pytest.mark.anyio
@@ -11306,3 +12403,330 @@ async def test_request_audit_middleware_tolerates_missing_http_request(
 
     result = await mw.on_call_tool(_make_tool_context(), _call_next)
     assert result is sentinel
+
+
+# ---------------------------------------------------------------------------
+# Execution results: filtering, result stripping, and per-action windows
+# ---------------------------------------------------------------------------
+
+
+def _compact_event(
+    ref: str,
+    *,
+    result: Any,
+    source_event_id: int = 1,
+    stream_id: StreamID = ROOT_STREAM,
+) -> WorkflowExecutionEventCompact[Any, Any, Any]:
+    now = datetime.now(UTC)
+    return WorkflowExecutionEventCompact(
+        source_event_id=source_event_id,
+        schedule_time=now,
+        start_time=now,
+        close_time=now,
+        curr_event_type=WorkflowEventType.ACTIVITY_TASK_COMPLETED,
+        status=WorkflowExecutionEventStatus.COMPLETED,
+        action_name="core.transform.reshape",
+        action_ref=ref,
+        action_result=result,
+        stream_id=stream_id,
+    )
+
+
+def _patch_execution_read(
+    monkeypatch,
+    events: list[WorkflowExecutionEventCompact[Any, Any, Any]],
+) -> str:
+    """Fake the workspace, workflow, and execution lookups; return an exec id."""
+    wf_id = mcp_server.WorkflowUUID.new(uuid.uuid4())
+    execution_id = f"{wf_id.short()}:exec-{uuid.uuid4().hex[:8]}"
+
+    async def _resolve(_workspace_id):
+        return uuid.uuid4(), SimpleNamespace()
+
+    class _WorkflowService:
+        async def get_workflow(self, _wf_id):
+            return SimpleNamespace(id=wf_id)
+
+    class _ExecService:
+        async def get_execution(self, _execution_id):
+            return SimpleNamespace(
+                id=execution_id,
+                run_id=uuid.uuid4(),
+                status=WorkflowExecutionStatus.COMPLETED,
+                start_time=datetime.now(UTC),
+                close_time=datetime.now(UTC),
+                typed_search_attributes=None,
+                history_length=len(events),
+            )
+
+        async def list_workflow_execution_events_compact(self, _execution_id):
+            return events
+
+    async def _connect(*, role):
+        return _ExecService()
+
+    monkeypatch.setattr(mcp_server, "_resolve_workspace_role", _resolve)
+    monkeypatch.setattr(
+        mcp_server.WorkflowsManagementService,
+        "with_session",
+        lambda role: _AsyncContext(_WorkflowService()),
+    )
+    monkeypatch.setattr(mcp_server.WorkflowExecutionsService, "connect", _connect)
+    return execution_id
+
+
+def test_window_result_text_pages_by_bytes() -> None:
+    text = "0123456789"
+
+    first = window_result_text(text, offset=0, max_bytes=4)
+    assert (first.result, first.total_bytes, first.offset) == ("0123", 10, 0)
+    assert first.truncated is True
+    assert first.next_offset == 4
+
+    last = window_result_text(text, offset=8, max_bytes=4)
+    assert last.result == "89"
+    assert last.truncated is False
+    assert last.next_offset is None
+
+    beyond = window_result_text(text, offset=50, max_bytes=4)
+    assert (beyond.result, beyond.offset, beyond.truncated) == ("", 10, False)
+
+
+def test_window_result_text_never_splits_multibyte_characters() -> None:
+    text = "abécd"  # "é" is two bytes in UTF-8
+
+    window = window_result_text(text, offset=0, max_bytes=3)
+    assert window.result == "ab"
+    assert window.next_offset == 2
+
+    rest = window_result_text(text, offset=2, max_bytes=100)
+    assert rest.result == "écd"
+    assert rest.truncated is False
+
+
+def test_select_execution_events_keeps_synthetic_workflow_events() -> None:
+    events = [
+        _compact_event(WF_TRIGGER_REF, result=None),
+        _compact_event("fetch_events", result=[1]),
+        _compact_event("classify", result="ok"),
+        _compact_event(WF_COMPLETED_REF, result=None),
+    ]
+
+    kept = select_execution_events(events, action_refs=["classify"])
+    assert [event.action_ref for event in kept] == [
+        WF_TRIGGER_REF,
+        "classify",
+        WF_COMPLETED_REF,
+    ]
+    assert select_execution_events(events, action_refs=None) == events
+
+
+@pytest.mark.anyio
+async def test_get_workflow_execution_filters_refs_and_strips_results(
+    monkeypatch,
+):
+    events = [
+        _compact_event(WF_TRIGGER_REF, result=None, source_event_id=1),
+        _compact_event("fetch_events", result={"count": 2}, source_event_id=2),
+        _compact_event("classify", result={"label": "benign"}, source_event_id=3),
+    ]
+    execution_id = _patch_execution_read(monkeypatch, events)
+
+    full = _payload(
+        await _tool(mcp_server.get_workflow_execution)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_refs=["classify"],
+        )
+    )
+    assert [event["action_ref"] for event in full["events"]] == [
+        WF_TRIGGER_REF,
+        "classify",
+    ]
+    assert full["events"][1]["result"] == {"label": "benign"}
+
+    lean = _payload(
+        await _tool(mcp_server.get_workflow_execution)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            include_results=False,
+        )
+    )
+    assert len(lean["events"]) == 3
+    assert all(event["result"] is None for event in lean["events"])
+    assert all(event["result_truncated"] is None for event in lean["events"])
+    assert lean["events"][2]["status"] == "COMPLETED"
+
+
+@pytest.mark.anyio
+async def test_get_execution_action_result_windows_full_inline_result(
+    monkeypatch,
+):
+    findings = [{"id": index, "note": "x" * 100} for index in range(50)]
+    execution_id = _patch_execution_read(
+        monkeypatch, [_compact_event("build_alert", result=findings)]
+    )
+    expected = json.dumps(findings, default=str)
+    assert len(expected) > MAX_EVENT_RESULT_CHARS
+
+    chunks: list[str] = []
+    offset = 0
+    while True:
+        payload = _payload(
+            await _tool(mcp_server.get_execution_action_result)(
+                workspace_id=str(uuid.uuid4()),
+                execution_id=execution_id,
+                action_ref="build_alert",
+                max_bytes=2048,
+                offset=offset,
+            )
+        )
+        assert payload["total_bytes"] == len(expected.encode())
+        assert payload["offset"] == offset
+        assert payload["stream_id"] == str(ROOT_STREAM)
+        assert payload["status"] == "COMPLETED"
+        chunks.append(payload["result"])
+        if not payload["truncated"]:
+            assert payload["next_offset"] is None
+            break
+        assert payload["next_offset"] == offset + 2048
+        offset = payload["next_offset"]
+
+    assert len(chunks) > 1
+    assert json.loads("".join(chunks)) == findings
+
+
+@pytest.mark.anyio
+async def test_get_execution_action_result_clamps_max_bytes(monkeypatch):
+    execution_id = _patch_execution_read(
+        monkeypatch, [_compact_event("build_alert", result="y" * 10)]
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.get_execution_action_result)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_ref="build_alert",
+            max_bytes=0,
+        )
+    )
+    # Clamped up to the configured minimum limit rather than returning nothing.
+    assert len(payload["result"]) == mcp_server.config.TRACECAT__LIMIT_MIN
+    assert payload["truncated"] is True
+
+    payload = _payload(
+        await _tool(mcp_server.get_execution_action_result)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_ref="build_alert",
+            max_bytes=10**9,
+        )
+    )
+    assert payload["truncated"] is False
+
+
+@pytest.mark.anyio
+async def test_get_execution_action_result_unknown_ref_lists_available(
+    monkeypatch,
+):
+    execution_id = _patch_execution_read(
+        monkeypatch,
+        [
+            _compact_event("fetch_events", result=1, source_event_id=1),
+            _compact_event("classify", result=2, source_event_id=2),
+        ],
+    )
+
+    with pytest.raises(ToolError, match="No event for action ref 'ghost'") as exc:
+        await _tool(mcp_server.get_execution_action_result)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_ref="ghost",
+        )
+    assert "'classify'" in str(exc.value)
+    assert "'fetch_events'" in str(exc.value)
+
+
+@pytest.mark.anyio
+async def test_get_execution_action_result_requires_stream_id_for_scatter(
+    monkeypatch,
+):
+    stream_a = StreamID.new("scatter_items", 0)
+    stream_b = StreamID.new("scatter_items", 1)
+    execution_id = _patch_execution_read(
+        monkeypatch,
+        [
+            _compact_event(
+                "classify", result="a", source_event_id=1, stream_id=stream_a
+            ),
+            _compact_event(
+                "classify", result="b", source_event_id=2, stream_id=stream_b
+            ),
+        ],
+    )
+
+    with pytest.raises(ToolError, match="pass stream_id") as exc:
+        await _tool(mcp_server.get_execution_action_result)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_ref="classify",
+        )
+    assert str(stream_a) in str(exc.value)
+    assert str(stream_b) in str(exc.value)
+
+    payload = _payload(
+        await _tool(mcp_server.get_execution_action_result)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_ref="classify",
+            stream_id=str(stream_b),
+        )
+    )
+    assert payload["result"] == '"b"'
+    assert payload["stream_id"] == str(stream_b)
+
+    with pytest.raises(ToolError, match="in stream 'nope'"):
+        await _tool(mcp_server.get_execution_action_result)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_ref="classify",
+            stream_id="nope",
+        )
+
+
+@pytest.mark.anyio
+async def test_get_execution_action_result_dereferences_external_result(
+    monkeypatch,
+):
+    external = ExternalObject(
+        ref=ObjectRef(
+            bucket="placeholder-bucket",
+            key="placeholder/key.json",
+            size_bytes=1,
+            sha256="0" * 64,
+        )
+    )
+    stored_payload = {"summary": "s" * 5000, "items": list(range(20))}
+    loaded: list[Any] = []
+
+    async def _fake_retrieve(stored):
+        loaded.append(stored)
+        return stored_payload
+
+    monkeypatch.setattr(mcp_server, "retrieve_stored_object", _fake_retrieve)
+    execution_id = _patch_execution_read(
+        monkeypatch, [_compact_event("classify", result=external)]
+    )
+
+    payload = _payload(
+        await _tool(mcp_server.get_execution_action_result)(
+            workspace_id=str(uuid.uuid4()),
+            execution_id=execution_id,
+            action_ref="classify",
+            max_bytes=1024 * 1024,
+        )
+    )
+
+    assert loaded == [external]
+    assert payload["truncated"] is False
+    assert json.loads(payload["result"]) == stored_payload

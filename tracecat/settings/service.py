@@ -8,6 +8,7 @@ from cryptography.fernet import InvalidToken
 from pydantic import BaseModel, SecretStr
 from pydantic_core import to_jsonable_python
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -95,20 +96,31 @@ class SettingsService(BaseOrgService):
         """The set of keys that are reserved for system settings."""
         return {key for cls in self.groups for key in cls.keys()}
 
-    async def init_default_settings(self):
+    async def init_default_settings(self) -> None:
+        """Insert missing defaults without overwriting settings from concurrent callers."""
         for cls in self.groups:
             for key, value in cls():
-                if not await self.get_org_setting(key):
-                    await self._create_org_setting(
-                        SettingCreate(
-                            key=key,
-                            value=value,
-                            is_sensitive=key in SENSITIVE_SETTINGS_KEYS,
-                        )
+                params = SettingCreate(
+                    key=key,
+                    value=value,
+                    is_sensitive=key in SENSITIVE_SETTINGS_KEYS,
+                )
+                await self.session.execute(
+                    pg_insert(OrganizationSetting)
+                    .values(
+                        organization_id=self.organization_id,
+                        key=params.key,
+                        value_type=params.value_type,
+                        value=self._encode_setting_value(params),
+                        is_encrypted=params.is_sensitive,
                     )
-                    self.logger.debug("Created setting", key=key)
-                else:
-                    self.logger.debug("Setting already exists", key=key)
+                    .on_conflict_do_nothing(
+                        index_elements=[
+                            OrganizationSetting.organization_id,
+                            OrganizationSetting.key,
+                        ]
+                    )
+                )
         await self.session.commit()
 
     def get_value(self, setting: OrganizationSetting) -> Any:
@@ -195,23 +207,21 @@ class SettingsService(BaseOrgService):
         result = await self.session.execute(statement)
         return result.scalar_one_or_none()
 
-    async def _create_org_setting(self, params: SettingCreate) -> OrganizationSetting:
-        """Create a new organization setting."""
-
-        # Convert to bytes
+    def _encode_setting_value(self, params: SettingCreate) -> bytes:
         value_bytes = self._serialize_value_bytes(params.value)
-        # Then optionally encrypt
         if params.is_sensitive:
-            value = encrypt_value(
+            return encrypt_value(
                 value_bytes, key=self._encryption_key.get_secret_value()
             )
-        else:
-            value = value_bytes
+        return value_bytes
+
+    async def _create_org_setting(self, params: SettingCreate) -> OrganizationSetting:
+        """Create a new organization setting."""
         setting = OrganizationSetting(
             organization_id=self.organization_id,
             key=params.key,
             value_type=params.value_type,
-            value=value,
+            value=self._encode_setting_value(params),
             is_encrypted=params.is_sensitive,
         )
         self.session.add(setting)

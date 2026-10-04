@@ -1,232 +1,59 @@
 from __future__ import annotations
 
-import secrets
-import uuid
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
 from typing import Any
 from typing import cast as type_cast
 
-from sqlalchemy import and_, cast, delete, func, select, update
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import contains_eager, selectinload
+from sqlalchemy import String, and_, cast, delete, func, literal, select, union_all
+from sqlalchemy.dialects.postgresql import UUID, aggregate_order_by
+from sqlalchemy.orm import contains_eager
 
-from tracecat.audit.enums import AuditEventStatus
 from tracecat.audit.logger import audit_log
-from tracecat.audit.service import AuditService
 from tracecat.auth.schemas import SessionRead, UserUpdate
-from tracecat.auth.types import Role
 from tracecat.auth.users import (
     UserManager,
     get_user_db_context,
     get_user_manager_context,
 )
 from tracecat.authz.controls import has_scope, require_scope
-from tracecat.authz.service import resolve_grantable_role
+from tracecat.authz.enums import ScimConnectionStatus
+from tracecat.authz.membership import (
+    drop_workspace_membership_mirror,
+    lock_role_changes,
+)
 from tracecat.db.models import (
     AccessToken,
+    ExternalGroup,
+    ExternalGroupMapping,
+    ExternalGroupMember,
+    ExternalUser,
     Group,
     GroupMember,
-    MCPPersonalAccessToken,
-    MCPRefreshToken,
-    Membership,
+    GroupRoleAssignment,
     Organization,
-    OrganizationInvitation,
     OrganizationMembership,
+    ScimConnection,
     User,
     UserRoleAssignment,
     Workspace,
 )
+from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatConflictError,
     TracecatNotFoundError,
-    TracecatValidationError,
 )
-from tracecat.identifiers import OrganizationID, SessionID, UserID
-from tracecat.invitations.enums import InvitationStatus
+from tracecat.identifiers import SessionID, UserID
 from tracecat.organization.management import (
     delete_organization_with_cleanup,
     validate_organization_delete_confirmation,
 )
+from tracecat.organization.schemas import (
+    MemberAccessTrace,
+    MemberRoleRead,
+)
 from tracecat.service import BaseOrgService
-
-
-async def accept_invitation_for_user(
-    session: AsyncSession,
-    *,
-    user_id: UserID,
-    token: str,
-) -> OrganizationMembership:
-    """Accept an invitation and create organization membership + RBAC assignment.
-
-    This is a standalone function (not a method) because invitation acceptance
-    doesn't require organization context - the user may not belong to any
-    organization yet.
-
-    Uses optimistic locking via conditional UPDATE to prevent TOCTOU race
-    conditions - the status check and update happen atomically in a single
-    database operation.
-
-    Args:
-        session: Database session.
-        user_id: The ID of the user accepting the invitation.
-        token: The unique invitation token.
-
-    Returns:
-        OrganizationMembership: The created membership record.
-
-    Raises:
-        TracecatNotFoundError: If the invitation doesn't exist.
-        TracecatAuthorizationError: If the invitation is expired, revoked,
-            or already accepted, or if the user's email doesn't match
-            the invitation email.
-    """
-    # Fetch invitation by token
-    invitation_result = await session.execute(
-        select(OrganizationInvitation).where(OrganizationInvitation.token == token)
-    )
-    invitation = invitation_result.scalar_one_or_none()
-    if invitation is None:
-        raise TracecatNotFoundError("Invitation not found")
-
-    # Fetch user to validate email
-    user_result = await session.execute(
-        select(User).where(User.id == user_id)  # pyright: ignore[reportArgumentType]
-    )
-    user = user_result.scalar_one_or_none()
-    if user is None:
-        raise TracecatAuthorizationError("User not found")
-    # Verify email match (case-insensitive)
-    if user.email.lower() != invitation.email.lower():
-        raise TracecatAuthorizationError(
-            "This invitation was sent to a different email address"
-        )
-
-    # Check expiry before attempting atomic update
-    if invitation.expires_at < datetime.now(UTC):
-        raise TracecatAuthorizationError("Invitation has expired")
-
-    # Create role scoped to invitation's organization for audit logging
-    audit_role = Role(
-        type="user",
-        user_id=user_id,
-        organization_id=invitation.organization_id,
-        service_id="tracecat-api",
-    )
-
-    # Log audit attempt
-    async with AuditService.with_session(audit_role, session=session) as svc:
-        await svc.create_event(
-            resource_type="organization_invitation",
-            action="accept",
-            resource_id=invitation.id,
-            status=AuditEventStatus.ATTEMPT,
-        )
-
-    try:
-        # Atomically update invitation status only if still PENDING.
-        # This prevents TOCTOU race conditions where an admin might revoke
-        # the invitation between our check and commit.
-        now = datetime.now(UTC)
-        update_result = await session.execute(
-            update(OrganizationInvitation)
-            .where(
-                OrganizationInvitation.id == invitation.id,
-                OrganizationInvitation.status == InvitationStatus.PENDING,
-            )
-            .values(status=InvitationStatus.ACCEPTED, accepted_at=now)
-        )
-
-        if update_result.rowcount == 0:  # pyright: ignore[reportAttributeAccessIssue]
-            # Status changed between fetch and update - re-fetch for accurate error
-            await session.refresh(invitation)
-            if invitation.status == InvitationStatus.ACCEPTED:
-                raise TracecatAuthorizationError("Invitation has already been accepted")
-            if invitation.status == InvitationStatus.REVOKED:
-                raise TracecatAuthorizationError("Invitation has been revoked")
-            # Shouldn't reach here, but handle gracefully
-            raise TracecatAuthorizationError("Invitation is no longer valid")
-
-        # Upsert membership — idempotent if single-tenant defaults already ran.
-        membership_stmt = (
-            pg_insert(OrganizationMembership)
-            .values(
-                user_id=user_id,
-                organization_id=invitation.organization_id,
-            )
-            .on_conflict_do_nothing(
-                index_elements=[
-                    OrganizationMembership.user_id,
-                    OrganizationMembership.organization_id,
-                ]
-            )
-            .returning(OrganizationMembership)
-        )
-        membership_result = await session.execute(membership_stmt)
-        membership = membership_result.scalar_one_or_none()
-        if membership is None:
-            # Row already existed; fetch it.
-            existing = await session.execute(
-                select(OrganizationMembership).where(
-                    OrganizationMembership.user_id == user_id,
-                    OrganizationMembership.organization_id
-                    == invitation.organization_id,
-                )
-            )
-            membership = existing.scalar_one()
-
-        # Upsert the org-wide role assignment to the invitation's role.
-        # Uses on_conflict_do_update so a pre-existing organization-member row
-        # (written by single-tenant defaults during SSO auto-provisioning) is
-        # upgraded to the role the invitation granted.
-        assignment_stmt = (
-            pg_insert(UserRoleAssignment)
-            .values(
-                organization_id=invitation.organization_id,
-                user_id=user_id,
-                workspace_id=None,
-                role_id=invitation.role_id,
-            )
-            .on_conflict_do_update(
-                index_elements=[
-                    UserRoleAssignment.organization_id,
-                    UserRoleAssignment.user_id,
-                ],
-                index_where=UserRoleAssignment.workspace_id.is_(None),
-                set_={"role_id": invitation.role_id},
-            )
-        )
-        await session.execute(assignment_stmt)
-
-        await session.commit()
-        await session.refresh(membership)
-    except TracecatAuthorizationError:
-        # Re-raise auth errors without logging as failure (expected user errors)
-        raise
-    except Exception:
-        # Log audit failure
-        async with AuditService.with_session(audit_role, session=session) as svc:
-            await svc.create_event(
-                resource_type="organization_invitation",
-                action="accept",
-                resource_id=invitation.id,
-                status=AuditEventStatus.FAILURE,
-            )
-        raise
-
-    # Log audit success
-    async with AuditService.with_session(audit_role, session=session) as svc:
-        await svc.create_event(
-            resource_type="organization_invitation",
-            action="accept",
-            resource_id=invitation.id,
-            status=AuditEventStatus.SUCCESS,
-        )
-
-    return membership
 
 
 class OrgService(BaseOrgService):
@@ -290,67 +117,85 @@ class OrgService(BaseOrgService):
 
     @require_scope("org:member:remove")
     @audit_log(resource_type="organization_member", action="delete")
-    async def delete_member(self, user_id: UserID) -> None:
+    async def delete_member(
+        self,
+        user_id: UserID,
+        *,
+        allow_idp_managed: bool = False,
+        member: User | None = None,
+        commit: bool = True,
+    ) -> None:
         """
         Remove a member of the organization.
 
         This method removes a specified member from the current organization
         without deleting the global user record, so memberships in other
-        organizations are preserved. It revokes global app sessions and
-        organization-scoped MCP tokens so removed members lose stale access
-        immediately. It raises an authorization error for superusers, as
-        superusers cannot be removed.
+        organizations are preserved. It revokes global app sessions; deleting
+        the membership row cascades the user's role paths and fires the trigger
+        that revokes their organization-scoped MCP tokens. It raises an
+        authorization error for superusers, as superusers cannot be removed.
+
+        The identity provider is the source of truth for the users it manages,
+        so an actively linked member cannot be removed here: the next sync would
+        re-provision them and the removal would silently revert. The linkage is
+        per-tenant, so another organization's admin is unaffected.
 
         Args:
             user_id (UserID): The unique identifier of the user to be removed.
+            allow_idp_managed (bool): Bypass the guard. Reserved for the SCIM
+                deprovisioning path, which removes the member precisely because
+                the provider has already deprovisioned them.
+            member (User | None): An already-resolved member, for a caller whose
+                own preceding writes remove the last row this lookup joins on.
+            commit (bool): Commit on success. The SCIM path passes ``False`` so
+                deactivation and removal land in one transaction.
 
         Raises:
             TracecatAuthorizationError: If the user is a superuser and cannot be deleted.
+            TracecatConflictError: If the user is managed by the identity
+                provider and ``allow_idp_managed`` is not set.
         """
-        user = await self.get_member(user_id)
+        await lock_role_changes(self.session, self.organization_id)
+        user = member if member is not None else await self.get_member(user_id)
+        # Checked before the provider guard: a superuser is never removable
+        # here, whichever directory happens to manage them.
         if user.is_superuser:
             raise TracecatAuthorizationError("Cannot delete superuser")
+
+        idp_managed = await self.session.scalar(
+            select(
+                select(ExternalUser.id)
+                .join(
+                    ScimConnection,
+                    ScimConnection.organization_id == ExternalUser.organization_id,
+                )
+                .where(
+                    ScimConnection.status == ScimConnectionStatus.ACTIVE,
+                    ExternalUser.user_id == user_id,
+                    ExternalUser.organization_id == self.organization_id,
+                    ExternalUser.active,
+                )
+                .exists()
+            )
+        )
+        if idp_managed and not allow_idp_managed:
+            raise TracecatConflictError(
+                "Member is managed by the identity provider; deprovision them there."
+            )
 
         await self.session.execute(
             delete(AccessToken).where(type_cast(Any, AccessToken.user_id) == user.id)
         )
-        await self.session.execute(
-            update(MCPRefreshToken)
-            .where(
-                MCPRefreshToken.user_id == user.id,
-                MCPRefreshToken.organization_id == self.organization_id,
-                MCPRefreshToken.status != "revoked",
-            )
-            .values(status="revoked")
-        )
-        await self.session.execute(
-            update(MCPPersonalAccessToken)
-            .where(
-                MCPPersonalAccessToken.user_id == user.id,
-                MCPPersonalAccessToken.organization_id == self.organization_id,
-                MCPPersonalAccessToken.revoked_at.is_(None),
-            )
-            .values(revoked_at=datetime.now(UTC), revoked_by=self.role.user_id)
-        )
-
         workspace_ids = select(Workspace.id).where(
             Workspace.organization_id == self.organization_id
         )
+        await drop_workspace_membership_mirror(
+            self.session, user_id=user.id, workspace_ids=workspace_ids
+        )
+        # Rows written by older app versions carry no organization_id, so the
+        # composite-FK cascade below cannot reach them.
         group_ids = select(Group.id).where(
             Group.organization_id == self.organization_id
-        )
-
-        await self.session.execute(
-            delete(Membership).where(
-                Membership.user_id == user.id,
-                Membership.workspace_id.in_(workspace_ids),
-            )
-        )
-        await self.session.execute(
-            delete(UserRoleAssignment).where(
-                UserRoleAssignment.user_id == user.id,
-                UserRoleAssignment.organization_id == self.organization_id,
-            )
         )
         await self.session.execute(
             delete(GroupMember).where(
@@ -358,14 +203,141 @@ class OrgService(BaseOrgService):
                 GroupMember.group_id.in_(group_ids),
             )
         )
+        # Deleting the aggregate root cascades assignments and group members.
         await self.session.execute(
             delete(OrganizationMembership).where(
                 OrganizationMembership.user_id == user.id,
                 OrganizationMembership.organization_id == self.organization_id,
             )
         )
+        if commit:
+            await self.session.commit()
 
-        await self.session.commit()
+    # Group and IdP group names are RBAC detail, not member-list detail.
+    @require_scope("org:member:read", "org:rbac:read")
+    async def trace_member_access(self, user_id: UserID) -> MemberAccessTrace:
+        """Trace a member's roles to their direct and group sources.
+
+        Group sources by role and workspace so a role appears once even when
+        held through multiple groups or a direct assignment.
+
+        Args:
+            user_id: The member whose access is being traced.
+
+        Returns:
+            The member's roles and the direct, group, or IdP group sources of each.
+
+        Raises:
+            NoResultFound: The user is not a member of this organization.
+        """
+        await self.get_member(user_id)
+        direct = (
+            select(
+                UserRoleAssignment.workspace_id,
+                DBRole.id.label("role_id"),
+                DBRole.name.label("role_name"),
+                literal(None, type_=UUID).label("group_id"),
+                literal(None, type_=String).label("group_name"),
+                literal(None, type_=UUID).label("external_group_id"),
+                literal(None, type_=String).label("external_group_display_name"),
+            )
+            .join(DBRole, DBRole.id == UserRoleAssignment.role_id)
+            .where(
+                UserRoleAssignment.user_id == user_id,
+                UserRoleAssignment.organization_id == self.organization_id,
+            )
+        )
+        via_group = (
+            select(
+                GroupRoleAssignment.workspace_id,
+                DBRole.id,
+                DBRole.name,
+                Group.id.label("group_id"),
+                Group.name.label("group_name"),
+                literal(None, type_=UUID).label("external_group_id"),
+                literal(None, type_=String).label("external_group_display_name"),
+            )
+            .join(DBRole, DBRole.id == GroupRoleAssignment.role_id)
+            .join(Group, Group.id == GroupRoleAssignment.group_id)
+            .join(GroupMember, GroupMember.group_id == GroupRoleAssignment.group_id)
+            .where(
+                GroupMember.user_id == user_id,
+                GroupRoleAssignment.organization_id == self.organization_id,
+            )
+        )
+        via_idp = (
+            select(
+                GroupRoleAssignment.workspace_id,
+                DBRole.id,
+                DBRole.name,
+                Group.id.label("group_id"),
+                Group.name.label("group_name"),
+                ExternalGroup.id.label("external_group_id"),
+                ExternalGroup.display_name.label("external_group_display_name"),
+            )
+            .join(DBRole, DBRole.id == GroupRoleAssignment.role_id)
+            .join(Group, Group.id == GroupRoleAssignment.group_id)
+            .join(
+                ExternalGroupMapping,
+                ExternalGroupMapping.group_id == GroupRoleAssignment.group_id,
+            )
+            .join(
+                ExternalGroup,
+                ExternalGroup.id == ExternalGroupMapping.external_group_id,
+            )
+            .join(
+                ExternalGroupMember,
+                ExternalGroupMember.external_group_id == ExternalGroup.id,
+            )
+            .join(ExternalUser, ExternalUser.id == ExternalGroupMember.external_user_id)
+            .where(
+                ExternalUser.user_id == user_id,
+                ExternalUser.active,
+                GroupRoleAssignment.organization_id == self.organization_id,
+            )
+        )
+        sources = union_all(
+            direct.add_columns(literal("direct").label("type")),
+            via_group.add_columns(literal("group").label("type")),
+            via_idp.add_columns(literal("idp_group").label("type")),
+        ).subquery()
+        stmt = (
+            select(
+                sources.c.role_id,
+                sources.c.role_name,
+                sources.c.workspace_id,
+                func.jsonb_agg(
+                    aggregate_order_by(
+                        func.jsonb_build_object(
+                            "type",
+                            sources.c.type,
+                            "group_id",
+                            sources.c.group_id,
+                            "group_name",
+                            sources.c.group_name,
+                            "external_group_id",
+                            sources.c.external_group_id,
+                            "external_group_display_name",
+                            sources.c.external_group_display_name,
+                        ),
+                        sources.c.type,
+                        sources.c.group_id,
+                        sources.c.external_group_id,
+                    )
+                ).label("sources"),
+            )
+            .group_by(sources.c.role_id, sources.c.role_name, sources.c.workspace_id)
+            .order_by(
+                sources.c.workspace_id.nulls_first(),
+                sources.c.role_name,
+                sources.c.role_id,
+            )
+        )
+        rows = (await self.session.execute(stmt)).mappings().all()
+        return MemberAccessTrace(
+            user_id=user_id,
+            roles=[MemberRoleRead.model_validate(row) for row in rows],
+        )
 
     @require_scope("org:member:update")
     @audit_log(resource_type="organization_member", action="update")
@@ -394,39 +366,6 @@ class OrgService(BaseOrgService):
                 user_update=params, user=user, safe=True
             )
         return updated_user
-
-    @audit_log(resource_type="organization_member", action="create")
-    async def add_member(
-        self,
-        *,
-        user_id: UserID,
-        organization_id: OrganizationID,
-    ) -> OrganizationMembership:
-        """Add a user to an organization.
-
-        This method creates an OrganizationMembership record linking a user
-        to an organization. It is typically called from the invitation flow
-        when a user accepts an invitation.
-
-        Note: This method does not require scope checks as it is
-        intended to be called by internal services (e.g., invitation service).
-        RBAC role assignment is handled separately.
-
-        Args:
-            user_id: The unique identifier of the user to add.
-            organization_id: The unique identifier of the organization.
-
-        Returns:
-            OrganizationMembership: The created membership record.
-        """
-        membership = OrganizationMembership(
-            user_id=user_id,
-            organization_id=organization_id,
-        )
-        self.session.add(membership)
-        await self.session.commit()
-        await self.session.refresh(membership)
-        return membership
 
     @audit_log(resource_type="organization", action="delete")
     @require_scope("org:delete")
@@ -513,325 +452,3 @@ class OrgService(BaseOrgService):
         db_token = result.scalar_one()
         await self.session.delete(db_token)
         await self.session.commit()
-
-    # === Manage invitations ===
-
-    @require_scope("org:member:invite")
-    @audit_log(resource_type="organization_invitation", action="create")
-    async def create_invitation(
-        self,
-        *,
-        email: str,
-        role_id: uuid.UUID,
-    ) -> OrganizationInvitation:
-        """Create an invitation to join the organization.
-
-        Args:
-            email: Email address of the invitee.
-            role_id: RBAC role to assign upon acceptance.
-
-        Returns:
-            OrganizationInvitation: The created invitation record.
-        """
-        if self.role is None or self.role.user_id is None:
-            raise TracecatAuthorizationError(
-                "User must be authenticated to create invitation"
-            )
-
-        try:
-            await resolve_grantable_role(
-                self.session, self.role, self.organization_id, role_id
-            )
-        except TracecatNotFoundError as e:
-            raise TracecatValidationError(
-                "Invalid role ID for this organization"
-            ) from e
-
-        # Check if user with this email is already a member (case-insensitive)
-        existing_member_stmt = (
-            select(OrganizationMembership)
-            .join(User, OrganizationMembership.user_id == User.id)
-            .where(
-                OrganizationMembership.organization_id == self.organization_id,
-                func.lower(User.email) == email.lower(),
-            )
-        )
-        existing_member_result = await self.session.execute(existing_member_stmt)
-        if existing_member_result.scalar_one_or_none() is not None:
-            raise TracecatValidationError(
-                f"{email} is already a member of this organization"
-            )
-
-        # Check for existing invitation (case-insensitive)
-        existing_stmt = select(OrganizationInvitation).where(
-            OrganizationInvitation.organization_id == self.organization_id,
-            func.lower(OrganizationInvitation.email) == email.lower(),
-        )
-        existing_result = await self.session.execute(existing_stmt)
-        existing = existing_result.scalar_one_or_none()
-
-        if existing:
-            # Only block if invitation is pending and not expired
-            if (
-                existing.status == InvitationStatus.PENDING
-                and existing.expires_at >= datetime.now(UTC)
-            ):
-                raise TracecatValidationError(
-                    f"An invitation already exists for {email} in this organization"
-                )
-            # Expired or revoked/accepted - delete it to allow new invitation
-            await self.session.delete(existing)
-            await self.session.flush()
-
-        invitation = OrganizationInvitation(
-            organization_id=self.organization_id,
-            email=email,
-            role_id=role_id,
-            invited_by=self.role.user_id,
-            token=secrets.token_urlsafe(32),
-            expires_at=datetime.now(UTC) + timedelta(days=7),
-            status=InvitationStatus.PENDING,
-            created_by_platform_admin=self.role.is_platform_superuser,
-        )
-        self.session.add(invitation)
-        await self.session.commit()
-        result = await self.session.execute(
-            select(OrganizationInvitation)
-            .where(OrganizationInvitation.id == invitation.id)
-            .options(selectinload(OrganizationInvitation.role_obj))
-        )
-        return result.scalar_one()
-
-    async def list_invitations(
-        self,
-        *,
-        status: InvitationStatus | None = None,
-    ) -> Sequence[OrganizationInvitation]:
-        """List invitations for the organization.
-
-        Args:
-            status: Optional filter by invitation status.
-
-        Returns:
-            Sequence[OrganizationInvitation]: List of invitations.
-        """
-        statement = select(OrganizationInvitation).where(
-            OrganizationInvitation.organization_id == self.organization_id
-        )
-        if status is not None:
-            statement = statement.where(OrganizationInvitation.status == status)
-        statement = statement.options(selectinload(OrganizationInvitation.role_obj))
-        result = await self.session.execute(statement)
-        return result.scalars().all()
-
-    async def get_invitation(self, invitation_id: uuid.UUID) -> OrganizationInvitation:
-        """Get an invitation by ID (must belong to this organization).
-
-        Args:
-            invitation_id: The invitation UUID.
-
-        Returns:
-            OrganizationInvitation: The invitation record.
-
-        Raises:
-            NoResultFound: If the invitation doesn't exist or belongs to another org.
-        """
-        statement = select(OrganizationInvitation).where(
-            and_(
-                OrganizationInvitation.id == invitation_id,
-                OrganizationInvitation.organization_id == self.organization_id,
-            )
-        )
-        result = await self.session.execute(statement)
-        return result.scalar_one()
-
-    async def get_invitation_by_token(self, token: str) -> OrganizationInvitation:
-        """Get an invitation by its unique token.
-
-        This method does not require scope checks as it is used
-        during the public invitation acceptance flow.
-
-        Args:
-            token: The unique invitation token.
-
-        Returns:
-            OrganizationInvitation: The invitation record.
-
-        Raises:
-            TracecatNotFoundError: If no invitation with the token exists.
-        """
-        statement = select(OrganizationInvitation).where(
-            OrganizationInvitation.token == token
-        )
-        result = await self.session.execute(statement)
-        invitation = result.scalar_one_or_none()
-        if invitation is None:
-            raise TracecatNotFoundError("Invitation not found")
-        return invitation
-
-    async def accept_invitation(self, token: str) -> OrganizationMembership:
-        """Accept an invitation and create organization membership + RBAC assignment.
-
-        This method validates the invitation token, checks expiry and status,
-        then creates the membership record and RBAC role assignment.
-        Audit events are logged to the invitation's target organization,
-        not the user's current organization.
-
-        Uses optimistic locking via conditional UPDATE to prevent TOCTOU race
-        conditions - the status check and update happen atomically in a single
-        database operation.
-
-        Args:
-            token: The unique invitation token.
-
-        Returns:
-            OrganizationMembership: The created membership record.
-
-        Raises:
-            TracecatNotFoundError: If the invitation doesn't exist.
-            TracecatAuthorizationError: If the invitation is expired, revoked,
-                or already accepted, if the user is not authenticated, or if
-                the user's email doesn't match the invitation email.
-        """
-        if self.role is None or self.role.user_id is None:
-            raise TracecatAuthorizationError(
-                "User must be authenticated to accept invitation"
-            )
-
-        # First fetch to validate email match and get invitation details
-        invitation = await self.get_invitation_by_token(token)
-
-        # Verify user's email matches invitation email (case-insensitive)
-        user_result = await self.session.execute(
-            select(User).where(User.id == self.role.user_id)  # pyright: ignore[reportArgumentType]
-        )
-        user = user_result.scalar_one_or_none()
-        if user is None:
-            raise TracecatAuthorizationError("User not found")
-        if user.email.lower() != invitation.email.lower():
-            raise TracecatAuthorizationError(
-                "This invitation was sent to a different email address"
-            )
-
-        # Check expiry before attempting atomic update
-        if invitation.expires_at < datetime.now(UTC):
-            raise TracecatAuthorizationError("Invitation has expired")
-
-        # Create role scoped to invitation's organization for audit logging
-        audit_role = self.role.model_copy(
-            update={"organization_id": invitation.organization_id}
-        )
-
-        # Log audit attempt to the invitation's organization
-        async with AuditService.with_session(audit_role, session=self.session) as svc:
-            await svc.create_event(
-                resource_type="organization_invitation",
-                action="accept",
-                resource_id=invitation.id,
-                status=AuditEventStatus.ATTEMPT,
-            )
-
-        try:
-            # Atomically update invitation status only if still PENDING.
-            # This prevents TOCTOU race conditions where an admin might revoke
-            # the invitation between our check and commit.
-            now = datetime.now(UTC)
-            update_result = await self.session.execute(
-                update(OrganizationInvitation)
-                .where(
-                    OrganizationInvitation.id == invitation.id,
-                    OrganizationInvitation.status == InvitationStatus.PENDING,
-                )
-                .values(status=InvitationStatus.ACCEPTED, accepted_at=now)
-            )
-
-            if update_result.rowcount == 0:  # pyright: ignore[reportAttributeAccessIssue]
-                # Status changed between fetch and update - re-fetch for accurate error
-                await self.session.refresh(invitation)
-                if invitation.status == InvitationStatus.ACCEPTED:
-                    raise TracecatAuthorizationError(
-                        "Invitation has already been accepted"
-                    )
-                if invitation.status == InvitationStatus.REVOKED:
-                    raise TracecatAuthorizationError("Invitation has been revoked")
-                # Shouldn't reach here, but handle gracefully
-                raise TracecatAuthorizationError("Invitation is no longer valid")
-
-            # Create membership (still needed for org membership existence checks)
-            membership = OrganizationMembership(
-                user_id=self.role.user_id,
-                organization_id=invitation.organization_id,
-            )
-            self.session.add(membership)
-
-            # Create RBAC role assignment from invitation's role_id
-            assignment = UserRoleAssignment(
-                organization_id=invitation.organization_id,
-                user_id=self.role.user_id,
-                workspace_id=None,
-                role_id=invitation.role_id,
-            )
-            self.session.add(assignment)
-
-            await self.session.commit()
-            await self.session.refresh(membership)
-        except TracecatAuthorizationError:
-            # Re-raise auth errors without logging as failure (expected user errors)
-            raise
-        except Exception:
-            # Log audit failure to the invitation's organization
-            async with AuditService.with_session(
-                audit_role, session=self.session
-            ) as svc:
-                await svc.create_event(
-                    resource_type="organization_invitation",
-                    action="accept",
-                    resource_id=invitation.id,
-                    status=AuditEventStatus.FAILURE,
-                )
-            raise
-
-        # Log audit success outside the try-except to avoid logging FAILURE
-        # if only audit logging fails after a successful commit
-        async with AuditService.with_session(audit_role, session=self.session) as svc:
-            await svc.create_event(
-                resource_type="organization_invitation",
-                action="accept",
-                resource_id=invitation.id,
-                status=AuditEventStatus.SUCCESS,
-            )
-
-        return membership
-
-    @require_scope("org:member:invite")
-    @audit_log(
-        resource_type="organization_invitation",
-        action="revoke",
-        resource_id_attr="invitation_id",
-    )
-    async def revoke_invitation(
-        self, invitation_id: uuid.UUID
-    ) -> OrganizationInvitation:
-        """Revoke a pending invitation.
-
-        Args:
-            invitation_id: The invitation UUID.
-
-        Returns:
-            OrganizationInvitation: The updated invitation record.
-
-        Raises:
-            NoResultFound: If the invitation doesn't exist or belongs to another org.
-            TracecatAuthorizationError: If the invitation is not in pending status.
-        """
-        invitation = await self.get_invitation(invitation_id)
-
-        if invitation.status != InvitationStatus.PENDING:
-            raise TracecatAuthorizationError(
-                f"Cannot revoke invitation with status '{invitation.status}'"
-            )
-
-        invitation.status = InvitationStatus.REVOKED
-        await self.session.commit()
-        await self.session.refresh(invitation)
-        return invitation

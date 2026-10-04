@@ -301,12 +301,69 @@ class WorkflowEditRequest(BaseModel):
     validate_only: bool = False
 
 
+class WorkflowActionIndexEntry(BaseModel):
+    """Position of an action inside ``draft_document.definition.actions``."""
+
+    index: int
+    ref: str
+
+
+class WorkflowActionSummary(WorkflowActionIndexEntry):
+    """Compact per-action row returned by ``list_workflow_actions``."""
+
+    action: str
+    depends_on: list[str] = Field(default_factory=list)
+    has_run_if: bool = False
+    has_for_each: bool = False
+    environment: str | None = None
+
+
+class WorkflowActionListResponse(BaseModel):
+    workflow_id: str
+    draft_revision: str
+    entrypoint: DSLEntrypoint
+    actions: list[WorkflowActionSummary] = Field(default_factory=list)
+
+
+class WorkflowActionDetailResponse(BaseModel):
+    workflow_id: str
+    draft_revision: str
+    index: int
+    action: ActionStatement
+    layout: LayoutActionPosition | None = None
+
+
 class WorkflowEditResponse(BaseModel):
     message: str
     workflow_id: str
     draft_revision: str
     valid: bool | None = None
     validate_only: bool = False
+    actions: list[WorkflowActionIndexEntry] = Field(default_factory=list)
+
+
+class WorkflowGraphAction(BaseModel):
+    """Control-flow view of one action returned by ``get_workflow_graph``."""
+
+    ref: str
+    depends_on: list[str] = Field(default_factory=list)
+    run_if: str | None = None
+    join_strategy: Literal["all", "any"] = "all"
+    gated_by: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Upstream ancestor refs with their own `run_if` that must have run "
+            "for this action to run. An `any` join runs when one parent "
+            "succeeds, so it keeps only conditions on every path into it."
+        ),
+    )
+
+
+class WorkflowGraphResponse(BaseModel):
+    workflow_id: str
+    draft_revision: str
+    mermaid: str
+    actions: list[WorkflowGraphAction] = Field(default_factory=list)
 
 
 class WorkflowAuthoringContextRequest(BaseModel):

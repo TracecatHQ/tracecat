@@ -1,6 +1,8 @@
 "use client"
 import {
   type ApiError,
+  type InvitationCreate,
+  invitationsCreateInvitation,
   type WorkspaceMember,
   type WorkspaceRead,
   type WorkspacesCreateWorkspaceMembershipData,
@@ -41,20 +43,36 @@ export function useWorkspaceMutations() {
   const workspaceId = useWorkspaceId()
   const qc = useQueryClient()
 
+  const invalidateMembers = async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["workspace", workspaceId] }),
+      qc.invalidateQueries({
+        queryKey: ["workspace", workspaceId, "members"],
+      }),
+    ])
+  }
+
+  // Callers render add/invite failures inline, so skip the global error toast.
   const { mutateAsync: addMember, isPending: addPending } = useMutation<
     WorkspacesCreateWorkspaceMembershipResponse,
     Error,
     WorkspacesCreateWorkspaceMembershipData
   >({
     mutationFn: workspacesCreateWorkspaceMembership,
+    onSuccess: invalidateMembers,
+    meta: { suppressErrorToast: true },
+  })
+
+  const { mutateAsync: inviteMember, isPending: invitePending } = useMutation({
+    mutationFn: (params: InvitationCreate) =>
+      invitationsCreateInvitation({ requestBody: params }),
     onSuccess: async () => {
       await Promise.all([
-        qc.invalidateQueries({ queryKey: ["workspace", workspaceId] }),
-        qc.invalidateQueries({
-          queryKey: ["workspace", workspaceId, "members"],
-        }),
+        qc.invalidateQueries({ queryKey: ["org-members"] }),
+        qc.invalidateQueries({ queryKey: ["org-invitations", "pending"] }),
       ])
     },
+    meta: { suppressErrorToast: true },
   })
 
   const { mutateAsync: removeMember, isPending: removePending } = useMutation<
@@ -67,19 +85,14 @@ export function useWorkspaceMutations() {
         workspaceId,
         userId,
       }),
-    onSuccess: async () => {
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["workspace", workspaceId] }),
-        qc.invalidateQueries({
-          queryKey: ["workspace", workspaceId, "members"],
-        }),
-      ])
-    },
+    onSuccess: invalidateMembers,
   })
 
   return {
     addMember,
     addPending,
+    inviteMember,
+    invitePending,
     removeMember,
     removePending,
   }

@@ -138,6 +138,23 @@ _NSJAIL_RESOURCE_LIMIT_EXIT_CODES = {
 _WORKLOAD_LAUNCHER_NAME = ".tracecat-workload-launcher.py"
 _WORKLOAD_STARTED_MARKER = b"\x00tracecat-workload-started\x00"
 _FAILURE_STDERR_TAIL_CHARS = 8192
+_NSJAIL_LOG_LINE_PATTERN = re.compile(r"^\[[A-Z]\]\[")
+
+
+def workload_stderr_tail(stderr: str, *, limit: int) -> str:
+    """Return the trailing workload-authored stderr with nsjail log lines removed.
+
+    NsJail logs ``[I][<timestamp>] ...`` lines that carry host paths; the
+    workload's own output (Python tracebacks, warnings) is what a caller
+    debugging a crashed action needs.
+    """
+    lines = [
+        line for line in stderr.splitlines() if not _NSJAIL_LOG_LINE_PATTERN.match(line)
+    ]
+    text = "\n".join(lines).strip()
+    return text[-limit:]
+
+
 _WORKLOAD_LAUNCHER_SCRIPT = f"""\
 import os
 import resource
@@ -286,10 +303,12 @@ class NsjailExecutor:
         nsjail_path: str = TRACECAT__SANDBOX_NSJAIL_PATH,
         rootfs_path: str = TRACECAT__SANDBOX_ROOTFS_PATH,
         cache_dir: str = TRACECAT__SANDBOX_CACHE_DIR,
+        cgroup_mount: Path | None = None,
     ):
         self.nsjail_path = Path(nsjail_path)
         self.rootfs = Path(rootfs_path)
         self.cache_dir = Path(cache_dir)
+        self.cgroup_mount = cgroup_mount
         self.package_cache = self.cache_dir / "packages"
 
     def _build_config(
@@ -318,6 +337,8 @@ class NsjailExecutor:
         # Validate inputs to prevent injection into protobuf config
         _validate_path(job_dir, "job_dir")
         _validate_path(self.rootfs, "rootfs")
+        if self.cgroup_mount is not None:
+            _validate_path(self.cgroup_mount, "cgroup_mount")
         for i, python_path_dir in enumerate(config.python_path_dirs):
             _validate_path(python_path_dir, f"python_path_dir_{i}")
         for i, bind_mount in enumerate(config.bind_mounts):
@@ -473,7 +494,7 @@ class NsjailExecutor:
             [
                 "",
                 "# Resource limits",
-                f"rlimit_as: {config.resources.memory_mb}",
+                f"rlimit_as: {config.resources.address_space_limit_mb}",
                 f"rlimit_cpu: {config.resources.cpu_seconds}",
                 f"rlimit_fsize: {config.resources.max_file_size_mb}",
                 f"rlimit_nofile: {config.resources.max_open_files}",
@@ -481,6 +502,15 @@ class NsjailExecutor:
                 f"time_limit: {config.resources.timeout_seconds}",
             ]
         )
+        if self.cgroup_mount is not None:
+            lines.extend(
+                [
+                    "use_cgroupv2: true",
+                    f'cgroupv2_mount: "{self.cgroup_mount}"',
+                    f"cgroup_mem_max: {config.resources.memory_mb * 1024 * 1024}",
+                    "cgroup_mem_swap_max: 0",
+                ]
+            )
 
         # Launch through an executor-owned shim that proves workload start on the
         # invocation's captured stderr pipe before execing the requested script.
@@ -892,7 +922,7 @@ class NsjailExecutor:
             [
                 "",
                 "# Resource limits",
-                f"rlimit_as: {config.resources.memory_mb}",
+                f"rlimit_as: {config.resources.address_space_limit_mb}",
                 f"rlimit_cpu: {config.resources.cpu_seconds}",
                 f"rlimit_fsize: {config.resources.max_file_size_mb}",
                 f"rlimit_nofile: {config.resources.max_open_files}",
@@ -1045,7 +1075,7 @@ class NsjailExecutor:
             error=error_msg,
             error_code=error_code,
             stdout=stdout,
-            stderr=stderr[:2000],
+            stderr=workload_stderr_tail(stderr, limit=_FAILURE_STDERR_TAIL_CHARS),
             exit_code=returncode,
             execution_time_ms=execution_time_ms,
         )

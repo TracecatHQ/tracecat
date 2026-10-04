@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy import Table
 
 from tracecat.auth.types import Role
 from tracecat.cases.service import CaseFieldsService
@@ -18,6 +19,7 @@ from tracecat.db.tenant_rls import (
     SPECIAL_WORKSPACE_POLICY_TABLES,
     WORKSPACE_POLICY_TABLES,
     enable_agent_tag_link_table_rls,
+    enable_skill_tag_link_table_rls,
 )
 from tracecat.tables.service import TablesService
 
@@ -28,23 +30,21 @@ def workflow_bucket() -> Iterator[None]:
     yield
 
 
+def _schema_tables() -> list[Table]:
+    """Every table the schema declares, mapped or not.
+
+    Subquery-mapped relations (derived membership) never appear here: they are
+    not database objects, and RLS applies through the tables they select from.
+    """
+    return list(Base.metadata.tables.values())
+
+
 def _mapped_table_names() -> set[str]:
-    table_names: set[str] = set()
-    for mapper in Base.registry.mappers:
-        table_name = getattr(mapper.local_table, "name", None)
-        if isinstance(table_name, str):
-            table_names.add(table_name)
-    return table_names
+    return {table.name for table in _schema_tables()}
 
 
 def _mapped_table_names_with_column(column_name: str) -> set[str]:
-    table_names: set[str] = set()
-    for mapper in Base.registry.mappers:
-        local_table = mapper.local_table
-        table_name = getattr(local_table, "name", None)
-        if isinstance(table_name, str) and column_name in local_table.columns:
-            table_names.add(table_name)
-    return table_names
+    return {table.name for table in _schema_tables() if column_name in table.columns}
 
 
 def test_all_workspace_keyed_models_are_registered_for_tenant_rls() -> None:
@@ -104,6 +104,24 @@ def test_agent_tag_link_rls_policy_uses_parent_workspace_scopes() -> None:
     assert "FROM agent_preset" in policy_sql
     assert "agent_preset.id = agent_tag_link.preset_id" in policy_sql
     assert "agent_preset.workspace_id = NULLIF(current_setting" in policy_sql
+    assert "WITH CHECK" in policy_sql
+
+
+def test_skill_tag_link_is_registered_for_tenant_rls() -> None:
+    assert "skill_tag_link" in SPECIAL_TENANT_POLICY_TABLES
+
+
+def test_skill_tag_link_rls_policy_uses_parent_workspace_scopes() -> None:
+    policy_sql = enable_skill_tag_link_table_rls()
+
+    assert 'ALTER TABLE "skill_tag_link" ENABLE ROW LEVEL SECURITY' in policy_sql
+    assert "CREATE POLICY rls_policy_skill_tag_link" in policy_sql
+    assert "FROM skill_tag" in policy_sql
+    assert "skill_tag.id = skill_tag_link.tag_id" in policy_sql
+    assert "skill_tag.workspace_id = NULLIF(current_setting" in policy_sql
+    assert "FROM skill" in policy_sql
+    assert "skill.id = skill_tag_link.skill_id" in policy_sql
+    assert "skill.workspace_id = NULLIF(current_setting" in policy_sql
     assert "WITH CHECK" in policy_sql
 
 

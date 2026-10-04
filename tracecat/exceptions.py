@@ -60,6 +60,10 @@ class TracecatAuthorizationError(TracecatException):
     """Tracecat user-facing authorization error"""
 
 
+class AgentModelNotEnabledError(TracecatAuthorizationError):
+    """Raised when workspace model access does not enable a catalog model."""
+
+
 class ScopeDeniedError(TracecatAuthorizationError):
     """Raised when a user lacks required scopes for an operation.
 
@@ -154,6 +158,28 @@ class BuiltinRegistryHasNoSelectionError(RegistryError):
 
 class RegistryLockInvalidDataError(RegistryError):
     """Raised when registry lock resolution finds deterministic invalid data."""
+
+
+class RegistryLockAmbiguousActionError(RegistryLockInvalidDataError):
+    """Raised when an action name resolves to more than one registry origin.
+
+    The collision is caused by an org registry defining an action whose
+    namespace and name shadow another registry's action, so the message is
+    safe to surface and actionable for the org's registry maintainers.
+    """
+
+    def __init__(self, action_name: str, origins: list[str]):
+        message = (
+            f"Action '{action_name}' is defined in multiple registries: "
+            f"{origins}. Rename or remove the duplicate action in your custom "
+            "registry so each action name resolves to a single registry."
+        )
+        super().__init__(
+            message,
+            detail={"action_name": action_name, "origins": origins},
+        )
+        self.action_name = action_name
+        self.origins = origins
 
 
 class RegistryActionError(RegistryError):

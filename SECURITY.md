@@ -6,7 +6,7 @@ We always recommend using the latest version of Tracecat to ensure you get all s
 If possible, do not expose Tracecat's UI and API to the public internet.
 If you need to receive webhooks from 3rd party sources, scope ingress on the `/api/webhooks` endpoint to the allowed IP addresses.
 
-We also highly recommend using our `AWS Fargate` or `Kubernetes` deployment for production over `Docker Compose`.
+We also highly recommend using our `Kubernetes` deployment for production over `Docker Compose` or `AWS Fargate`.
 
 For more hardening guidelines, check out https://docs.tracecat.com/self-hosting/security
 
@@ -17,6 +17,12 @@ The following security features are available in Tracecat open source:
 - Audit logs
 - Workspaces to isolate resources
 - `nsjail` sandbox or `pid` runtime for isolated code and agent execution
+
+> [!WARNING]
+> The `direct` executor backend does not provide the supported `nsjail` boundary for ordinary workflow actions.
+> Use `TRACECAT__EXECUTOR_BACKEND=nsjail` for supported action isolation.
+> The legacy `ephemeral` value remains a compatibility alias for `nsjail`.
+> See the [self-hosting security guide](https://docs.tracecat.com/self-hosting/security#nsjail-sandbox-recommended-for-production) for deployment requirements.
 
 ## Reporting Vulnerabilities
 

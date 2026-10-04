@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
+import tarfile
 import uuid
 from collections import Counter
 from math import ceil
@@ -11,7 +13,9 @@ from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
+import httpx
 import pytest
+import respx
 from github.GithubException import GithubException
 
 from tests.support.fake_vcs import FakeVcsServer
@@ -26,8 +30,10 @@ from tracecat.exceptions import (
     TracecatSettingsError,
     TracecatValidationError,
 )
+from tracecat.feature_flags import FeatureFlag
 from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
+from tracecat.logger import logger
 from tracecat.sync import CommitInfo, PullOptions, PushStatus
 from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.store.schemas import RemoteCaseTrigger, RemoteWorkflowSchedule
@@ -64,7 +70,7 @@ from tracecat.workspace_sync.transport import (
     GitHubWorkspaceSyncTransport,
     VcsTreeSnapshot,
     _git_blob_sha,
-    unsupported_transport,
+    _git_blob_sha_bytes,
 )
 from tracecat.workspace_sync.workflow import (
     serialize_workflow_spec,
@@ -2216,11 +2222,266 @@ async def test_github_read_files_uses_commit_tree_sha(
     assert MANIFEST_FILENAME in snapshot.files
 
 
-def test_bitbucket_transport_is_explicitly_unsupported() -> None:
-    error = unsupported_transport(VcsProvider.BITBUCKET)
+_ARCHIVE_URL = "https://codeload.github.com/TracecatHQ/sync/legacy.tar.gz/archive"
+_ARCHIVE_GIT_URL = GitUrl(host="github.com", org="TracecatHQ", repo="sync")
 
-    assert isinstance(error, TracecatValidationError)
-    assert VcsProvider.BITBUCKET.value in str(error)
+
+def _archive_repo_files() -> dict[str, bytes]:
+    manifest = canonical_json_text(WorkspaceManifest()).encode()
+    return {
+        MANIFEST_FILENAME: manifest,
+        "workflows/a/definition.yml": b"title: a\n",
+        "workflows/b/definition.yml": b"title: b\n",
+        "workflows/c/logo.bin": b"\xff\xfe\x00",
+        "README.md": b"# unmanaged\n",
+    }
+
+
+def _tarball(members: dict[str, bytes], *, prefix: str = "TracecatHQ-sync-c") -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
+        root = tarfile.TarInfo(prefix)
+        root.type = tarfile.DIRTYPE
+        tar.addfile(root)
+        for path, content in members.items():
+            info = tarfile.TarInfo(f"{prefix}/{path}")
+            info.size = len(content)
+            tar.addfile(info, io.BytesIO(content))
+    return buffer.getvalue()
+
+
+class _FakeGitHubArchiveRepo:
+    """GitHub repo fake that serves the same commit via blobs and a tarball."""
+
+    def __init__(
+        self,
+        files: dict[str, bytes],
+        *,
+        archive_link_error: GithubException | None = None,
+    ) -> None:
+        self._files = files
+        self._shas = {
+            path: _git_blob_sha_bytes(content) for path, content in files.items()
+        }
+        self._contents_by_sha = {
+            self._shas[path]: content for path, content in files.items()
+        }
+        self._archive_link_error = archive_link_error
+        self.blob_calls: list[str] = []
+        self.archive_link_calls: list[tuple[str, str]] = []
+
+    def get_commit(self, ref: str):
+        return SimpleNamespace(
+            sha="c" * 40,
+            commit=SimpleNamespace(tree=SimpleNamespace(sha="t" * 40)),
+        )
+
+    def get_git_tree(self, *, sha: str, recursive: bool):
+        return SimpleNamespace(
+            tree=[
+                SimpleNamespace(path=path, sha=blob_sha, type="blob")
+                for path, blob_sha in sorted(self._shas.items())
+            ]
+        )
+
+    def get_git_blob(self, sha: str):
+        self.blob_calls.append(sha)
+        content = self._contents_by_sha[sha]
+        return SimpleNamespace(content=base64.b64encode(content).decode())
+
+    def get_archive_link(self, archive_format: str, ref: str) -> str:
+        self.archive_link_calls.append((archive_format, ref))
+        if self._archive_link_error is not None:
+            raise self._archive_link_error
+        return _ARCHIVE_URL
+
+
+async def _read_with_archive_repo(
+    repo: _FakeGitHubArchiveRepo,
+    service: WorkspaceSyncService,
+) -> VcsTreeSnapshot:
+    gh = Mock()
+    gh.get_repo.return_value = repo
+    gh_service = AsyncMock()
+    gh_service.get_github_client_for_repo.return_value = gh
+    transport = GitHubWorkspaceSyncTransport(session=service.session, role=service.role)
+    with patch(
+        "tracecat.workspace_sync.transport.GitHubAppService",
+        return_value=gh_service,
+    ):
+        return await transport.read_files(url=_ARCHIVE_GIT_URL, ref="main")
+
+
+@pytest.fixture
+def github_archive_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "tracecat.feature_flags.config.TRACECAT__FEATURE_FLAGS",
+        {FeatureFlag.WORKSPACE_SYNC_GITHUB_ARCHIVE},
+    )
+
+
+@pytest.mark.anyio
+async def test_github_read_files_skips_archive_when_flag_disabled(
+    workspace_sync_service: WorkspaceSyncService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("tracecat.feature_flags.config.TRACECAT__FEATURE_FLAGS", set())
+    repo = _FakeGitHubArchiveRepo(_archive_repo_files())
+
+    snapshot = await _read_with_archive_repo(repo, workspace_sync_service)
+
+    assert repo.archive_link_calls == []
+    assert len(repo.blob_calls) == 4
+    assert set(snapshot.files) == {
+        MANIFEST_FILENAME,
+        "workflows/a/definition.yml",
+        "workflows/b/definition.yml",
+    }
+
+
+@pytest.mark.anyio
+async def test_github_read_files_archive_matches_blob_reads(
+    workspace_sync_service: WorkspaceSyncService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    files = _archive_repo_files()
+    monkeypatch.setattr("tracecat.feature_flags.config.TRACECAT__FEATURE_FLAGS", set())
+    blob_repo = _FakeGitHubArchiveRepo(files)
+    blob_snapshot = await _read_with_archive_repo(blob_repo, workspace_sync_service)
+
+    monkeypatch.setattr(
+        "tracecat.feature_flags.config.TRACECAT__FEATURE_FLAGS",
+        {FeatureFlag.WORKSPACE_SYNC_GITHUB_ARCHIVE},
+    )
+    archive_repo = _FakeGitHubArchiveRepo(files)
+    with respx.mock(assert_all_called=True) as router:
+        router.get(_ARCHIVE_URL).mock(
+            return_value=httpx.Response(200, content=_tarball(files))
+        )
+        archive_snapshot = await _read_with_archive_repo(
+            archive_repo, workspace_sync_service
+        )
+
+    assert archive_snapshot == blob_snapshot
+    assert archive_repo.archive_link_calls == [("tarball", "c" * 40)]
+    assert archive_repo.blob_calls == []
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("github_archive_enabled")
+async def test_github_read_files_falls_back_per_path_for_unverified_members(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = _archive_repo_files()
+    archive_members = dict(files)
+    # export-subst rewrites content; export-ignore drops the member entirely.
+    archive_members["workflows/a/definition.yml"] = b"title: substituted\n"
+    del archive_members["workflows/b/definition.yml"]
+    repo = _FakeGitHubArchiveRepo(files)
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get(_ARCHIVE_URL).mock(
+            return_value=httpx.Response(200, content=_tarball(archive_members))
+        )
+        snapshot = await _read_with_archive_repo(repo, workspace_sync_service)
+
+    assert snapshot.files["workflows/a/definition.yml"] == "title: a\n"
+    assert snapshot.files["workflows/b/definition.yml"] == "title: b\n"
+    assert sorted(repo.blob_calls) == sorted(
+        _git_blob_sha_bytes(files[path])
+        for path in ("workflows/a/definition.yml", "workflows/b/definition.yml")
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("github_archive_enabled")
+@pytest.mark.parametrize(
+    "archive_response",
+    [
+        httpx.Response(404),
+        httpx.Response(200, content=b"not a tarball"),
+    ],
+    ids=["http-error", "corrupt-archive"],
+)
+async def test_github_read_files_falls_back_to_blobs_when_archive_unusable(
+    workspace_sync_service: WorkspaceSyncService,
+    archive_response: httpx.Response,
+) -> None:
+    repo = _FakeGitHubArchiveRepo(_archive_repo_files())
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get(_ARCHIVE_URL).mock(return_value=archive_response)
+        snapshot = await _read_with_archive_repo(repo, workspace_sync_service)
+
+    assert len(repo.blob_calls) == 4
+    assert snapshot.files["workflows/a/definition.yml"] == "title: a\n"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("github_archive_enabled")
+async def test_github_archive_http_error_does_not_log_download_credentials(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    repo = _FakeGitHubArchiveRepo(_archive_repo_files())
+    token = "synthetic-secret"
+    archive_url = f"{_ARCHIVE_URL}?token={token}"
+    logs = io.StringIO()
+    sink_id = logger.add(logs, format="{message} {extra}", level="WARNING")
+    try:
+        with (
+            patch.object(repo, "get_archive_link", return_value=archive_url),
+            respx.mock(assert_all_called=True) as router,
+        ):
+            router.get(archive_url).mock(return_value=httpx.Response(503))
+            snapshot = await _read_with_archive_repo(repo, workspace_sync_service)
+    finally:
+        logger.remove(sink_id)
+
+    assert len(repo.blob_calls) == 4
+    assert snapshot.files["workflows/a/definition.yml"] == "title: a\n"
+    captured_logs = logs.getvalue()
+    assert "falling back to blob reads" in captured_logs
+    assert "HTTPStatusError" in captured_logs
+    assert token not in captured_logs
+    assert archive_url not in captured_logs
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("github_archive_enabled")
+async def test_github_read_files_falls_back_when_archive_link_fails(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    repo = _FakeGitHubArchiveRepo(
+        _archive_repo_files(),
+        archive_link_error=GithubException(status=403, data={"message": "nope"}),
+    )
+
+    snapshot = await _read_with_archive_repo(repo, workspace_sync_service)
+
+    assert len(repo.blob_calls) == 4
+    assert snapshot.files["workflows/b/definition.yml"] == "title: b\n"
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("github_archive_enabled")
+async def test_github_read_files_falls_back_when_archive_exceeds_size_cap(
+    workspace_sync_service: WorkspaceSyncService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.workspace_sync.transport._GITHUB_ARCHIVE_MAX_BYTES", 8
+    )
+    files = _archive_repo_files()
+    repo = _FakeGitHubArchiveRepo(files)
+
+    with respx.mock(assert_all_called=True) as router:
+        router.get(_ARCHIVE_URL).mock(
+            return_value=httpx.Response(200, content=_tarball(files))
+        )
+        snapshot = await _read_with_archive_repo(repo, workspace_sync_service)
+
+    assert len(repo.blob_calls) == 4
+    assert MANIFEST_FILENAME in snapshot.files
 
 
 def _legacy_workflow_yaml(source_id: str, *, title: str) -> str:

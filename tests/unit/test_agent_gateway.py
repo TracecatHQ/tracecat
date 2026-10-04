@@ -1,4 +1,7 @@
 import json
+import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -29,10 +32,12 @@ from tracecat.agent.gateway import (
     _filter_allowed_model_settings,
     _inject_provider_credentials,
     _resolve_bedrock_runtime_credentials,
+    get_provider_credentials,
     user_api_key_auth,
 )
 from tracecat.agent.sandbox.llm_proxy import _http_error_classification
 from tracecat.agent.tokens import verify_llm_token
+from tracecat.exceptions import AgentModelNotEnabledError, TracecatAuthorizationError
 from tracecat.runtime.errors import (
     RetryDisposition,
     RuntimeErrorKind,
@@ -401,6 +406,70 @@ def test_missing_provider_credentials_have_distinct_wire_code(provider: str) -> 
     )
     assert classification.kind is RuntimeErrorKind.AGENT_LLM_PROVIDER_AUTH_FAILED
     assert classification.owner is RuntimeErrorOwner.USER
+
+
+def _patch_catalog_credentials_error(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    class _FailingCatalogService:
+        async def get_catalog_credentials(self, catalog_id: uuid.UUID) -> None:
+            del catalog_id
+            raise error
+
+    @asynccontextmanager
+    async def _with_session(**_: object) -> AsyncIterator[_FailingCatalogService]:
+        yield _FailingCatalogService()
+
+    monkeypatch.setattr(
+        "tracecat.agent.gateway.AgentManagementService.with_session",
+        _with_session,
+    )
+
+
+@pytest.mark.anyio
+async def test_disabled_catalog_model_has_distinct_wire_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_catalog_credentials_error(
+        monkeypatch,
+        AgentModelNotEnabledError("Catalog row is not enabled for this workspace"),
+    )
+
+    with pytest.raises(ProxyException) as exc_info:
+        await get_provider_credentials(
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            provider="anthropic",
+            catalog_id=uuid.uuid4(),
+        )
+
+    assert exc_info.value.code == "403"
+    assert exc_info.value.to_dict()["type"] == "tracecat_llm_model_not_enabled"
+    classification = _http_error_classification(
+        int(exc_info.value.code),
+        route_is_direct=False,
+        body=json.dumps({"error": exc_info.value.to_dict()}).encode(),
+    )
+    assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
+    assert classification.owner is RuntimeErrorOwner.USER
+    assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+
+
+@pytest.mark.anyio
+async def test_other_catalog_authorization_errors_are_not_model_not_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_catalog_credentials_error(
+        monkeypatch, TracecatAuthorizationError("Synthetic authorization failure")
+    )
+
+    with pytest.raises(TracecatAuthorizationError):
+        await get_provider_credentials(
+            workspace_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            provider="anthropic",
+            catalog_id=uuid.uuid4(),
+        )
 
 
 @pytest.mark.anyio
@@ -784,6 +853,63 @@ async def test_provider_auth_signal_survives_litellm_serialization(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("llm_provider", "message", "expected_type"),
+    [
+        (
+            "bedrock",
+            "BedrockException - not authorized to perform the required AWS "
+            "Marketplace actions (aws-marketplace:ViewSubscriptions, "
+            "aws-marketplace:Subscribe) synthetic-sensitive-detail",
+            "tracecat_llm_provider_subscription_required",
+        ),
+        (
+            "bedrock",
+            "BedrockException - AccessDenied synthetic-sensitive-detail",
+            "tracecat_llm_provider_auth_failed",
+        ),
+        (
+            "openai",
+            "aws-marketplace:Subscribe synthetic-sensitive-detail",
+            "tracecat_llm_provider_auth_failed",
+        ),
+    ],
+)
+async def test_bedrock_marketplace_denial_survives_litellm_serialization(
+    llm_provider: str,
+    message: str,
+    expected_type: str,
+) -> None:
+    response = httpx.Response(
+        403,
+        request=httpx.Request("POST", "https://provider.example.invalid/v1/messages"),
+    )
+    original = PermissionDeniedError(
+        message=message,
+        llm_provider=llm_provider,
+        model="synthetic-model",
+        response=response,
+    )
+    callback = TracecatCallbackHandler()
+    proxy_logging = AsyncMock(spec=ProxyLogging)
+    proxy_logging.post_call_failure_hook.side_effect = (
+        callback.async_post_call_failure_hook
+    )
+    proxy_logging.post_call_response_headers_hook.return_value = {}
+    processor = ProxyBaseLLMRequestProcessing(data={})
+
+    with pytest.raises(ProxyException) as exc_info:
+        await processor._handle_llm_api_exception(
+            original, UserAPIKeyAuth(), proxy_logging
+        )
+
+    assert exc_info.value.code == "403"
+    wire_error = exc_info.value.to_dict()
+    assert wire_error["type"] == expected_type
+    assert "synthetic-sensitive-detail" not in json.dumps(wire_error)
+
+
+@pytest.mark.anyio
 async def test_failure_hook_preserves_budget_exception_for_litellm_auth_handler() -> (
     None
 ):
@@ -915,7 +1041,13 @@ async def test_throttling_callback_uses_safe_message_without_provider_response(
     assert result.status_code == 429
     assert result.detail == "LLM provider rate limit exceeded; retry later"
     assert error.type == "throttling_error"
-    assert error.message == "LLM provider rate limit exceeded; retry later"
+    assert json.loads(error.message) == {
+        "type": "error",
+        "error": {
+            "type": "throttling_error",
+            "message": "LLM provider rate limit exceeded; retry later",
+        },
+    }
     wire_body = json.dumps(
         {
             "error": {

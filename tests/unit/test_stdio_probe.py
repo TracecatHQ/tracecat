@@ -14,6 +14,7 @@ from tracecat.agent.mcp.stdio_probe import (
     probe_stdio_mcp_tools_in_sandbox,
     sanitize_stdio_probe_error,
 )
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.sandbox.exceptions import SandboxTimeoutError
 from tracecat.sandbox.types import (
     SandboxErrorCode,
@@ -146,8 +147,8 @@ async def test_probe_falls_back_to_pid_isolation_without_nsjail() -> None:
     """Without nsjail, the probe runs under the best-effort PID fallback."""
     with (
         patch(
-            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
-            return_value=False,
+            "tracecat.agent.mcp.stdio_probe.config.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
         ),
         patch("tracecat.agent.mcp.stdio_probe.NsjailExecutor") as executor_cls,
         patch(
@@ -175,7 +176,21 @@ async def test_probe_falls_back_to_pid_isolation_without_nsjail() -> None:
 
 
 @pytest.mark.anyio
-async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
+@pytest.mark.parametrize(
+    (
+        "memory_mb",
+        "address_space_mb",
+        "expected_memory_mb",
+        "expected_address_space_mb",
+    ),
+    [(4096, None, 1024, 2048), (512, None, 512, 1024), (4096, 8192, 1024, 8192)],
+)
+async def test_probe_runs_in_sandbox_when_nsjail_enabled(
+    memory_mb: int,
+    address_space_mb: int | None,
+    expected_memory_mb: int,
+    expected_address_space_mb: int,
+) -> None:
     """With nsjail available, the probe executes inside the sandbox."""
     sandbox_result = MagicMock(
         success=True,
@@ -191,8 +206,20 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
 
     with (
         patch(
-            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
-            return_value=True,
+            "tracecat.agent.mcp.stdio_probe.config.TRACECAT__AGENT_SANDBOX_MEMORY_MB",
+            memory_mb,
+        ),
+        patch(
+            "tracecat.agent.sandbox.config.TRACECAT__AGENT_SANDBOX_ADDRESS_SPACE_MB",
+            address_space_mb,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.config.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.NSJAIL,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.sandbox_cgroup",
+            return_value=Path("/cgroup"),
         ),
         patch(
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
@@ -210,6 +237,8 @@ async def test_probe_runs_in_sandbox_when_nsjail_available() -> None:
     assert [tool.name for tool in result.tools] == ["list_alerts"]
     executor.execute.assert_awaited_once()
     config = executor.execute.await_args.args[1]
+    assert config.resources.memory_mb == expected_memory_mb
+    assert config.resources.address_space_limit_mb == expected_address_space_mb
     assert config.network is not None
     assert config.network.purpose is SandboxNetworkPurpose.AGENT
     assert config.network.policy is None
@@ -228,8 +257,12 @@ async def test_probe_timeout_leaves_buffer_before_nsjail_limit() -> None:
 
     with (
         patch(
-            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
-            return_value=True,
+            "tracecat.agent.mcp.stdio_probe.config.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.NSJAIL,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.sandbox_cgroup",
+            return_value=Path("/cgroup"),
         ),
         patch(
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
@@ -268,8 +301,12 @@ async def test_probe_returns_friendly_structured_timeout() -> None:
 
     with (
         patch(
-            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
-            return_value=True,
+            "tracecat.agent.mcp.stdio_probe.config.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.NSJAIL,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.sandbox_cgroup",
+            return_value=Path("/cgroup"),
         ),
         patch(
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
@@ -297,8 +334,12 @@ async def test_probe_returns_friendly_sandbox_timeout() -> None:
 
     with (
         patch(
-            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
-            return_value=True,
+            "tracecat.agent.mcp.stdio_probe.config.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.NSJAIL,
+        ),
+        patch(
+            "tracecat.agent.mcp.stdio_probe.sandbox_cgroup",
+            return_value=Path("/cgroup"),
         ),
         patch(
             "tracecat.agent.mcp.stdio_probe.NsjailExecutor",
@@ -322,8 +363,8 @@ async def test_probe_filters_unsupported_stdio_tool_names() -> None:
     """Probe results only persist tool names the runtime can expose."""
     with (
         patch(
-            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
-            return_value=False,
+            "tracecat.agent.mcp.stdio_probe.config.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
         ),
         patch(
             "tracecat.agent.mcp.stdio_probe._execute_probe_without_nsjail",
@@ -362,8 +403,8 @@ async def test_pid_fallback_probes_real_stdio_mcp_server(tmp_path: Path) -> None
 
     with (
         patch(
-            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
-            return_value=False,
+            "tracecat.agent.mcp.stdio_probe.config.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
         ),
         # Force the plain-subprocess path so the test behaves the same on
         # hosts with and without unshare.
@@ -391,8 +432,8 @@ async def test_pid_fallback_reports_launch_failure(tmp_path: Path) -> None:
     """A command that is not an MCP server yields a clean failure result."""
     with (
         patch(
-            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
-            return_value=False,
+            "tracecat.agent.mcp.stdio_probe.config.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
         ),
         patch(
             "tracecat.agent.mcp.stdio_probe.pid_namespace_available",
@@ -417,8 +458,8 @@ async def test_pid_fallback_reports_friendly_timeout() -> None:
     """The real probe script reports a timeout without sandbox diagnostics."""
     with (
         patch(
-            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
-            return_value=False,
+            "tracecat.agent.mcp.stdio_probe.config.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
         ),
         patch(
             "tracecat.agent.mcp.stdio_probe.pid_namespace_available",
@@ -460,8 +501,8 @@ raise RuntimeError("synthetic startup failure")
 
     with (
         patch(
-            "tracecat.agent.mcp.stdio_probe.is_nsjail_available",
-            return_value=False,
+            "tracecat.agent.mcp.stdio_probe.config.TRACECAT__EXECUTOR_BACKEND",
+            ExecutorBackendType.DIRECT,
         ),
         patch(
             "tracecat.agent.mcp.stdio_probe.pid_namespace_available",

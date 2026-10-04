@@ -1,12 +1,7 @@
 "use client"
 
 import { zodResolver } from "@hookform/resolvers/zod"
-import {
-  AlertTriangleIcon,
-  CheckCircle2Icon,
-  GitBranchIcon,
-  Trash2Icon,
-} from "lucide-react"
+import { GitlabIcon, Trash2Icon } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -98,13 +93,7 @@ export function GitLabTokenSetup() {
     <>
       <div className="flex items-center justify-between rounded-lg border p-4">
         <div className="flex items-center gap-3">
-          {isCorrupted ? (
-            <AlertTriangleIcon className="size-5 text-amber-500" />
-          ) : isConfigured ? (
-            <CheckCircle2Icon className="size-5 text-green-500" />
-          ) : (
-            <GitBranchIcon className="size-5 text-muted-foreground" />
-          )}
+          <GitlabIcon className="size-5 text-muted-foreground" />
           <div>
             <p className="text-sm font-medium">GitLab</p>
             <p className="text-xs text-muted-foreground">

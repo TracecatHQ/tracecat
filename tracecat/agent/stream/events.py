@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Annotated, Literal
 
@@ -21,6 +22,34 @@ class StreamDelta:
 
     def sse(self) -> str:
         return f"id: {self.id}\nevent: delta\ndata: {orjson.dumps(self.event).decode()}\n\n"
+
+
+@dataclass(slots=True, kw_only=True)
+class StreamSessionEvent:
+    """An event addressed to a child session, carried on the parent's stream.
+
+    Child events are rendered separately from the root transcript and must never
+    be merged into it.
+    """
+
+    kind: Literal["session-event"] = "session-event"
+    id: str
+    """Redis entry id of the envelope on the parent's stream."""
+    session_id: uuid.UUID
+    """The child session the event belongs to."""
+    event_id: str
+    """Runtime-assigned stable id for the event, used for client dedupe."""
+    event: UnifiedStreamEvent
+
+    def sse(self) -> str:
+        payload = orjson.dumps(
+            {
+                "session_id": str(self.session_id),
+                "event_id": self.event_id,
+                "event": self.event,
+            }
+        ).decode()
+        return f"id: {self.id}\nevent: session-event\ndata: {payload}\n\n"
 
 
 @dataclass(slots=True, kw_only=True)
@@ -72,7 +101,12 @@ class StreamKeepAlive:
 
 
 type StreamEvent = Annotated[
-    StreamDelta | StreamConnected | StreamEnd | StreamError | StreamKeepAlive,
+    StreamDelta
+    | StreamSessionEvent
+    | StreamConnected
+    | StreamEnd
+    | StreamError
+    | StreamKeepAlive,
     Discriminator("kind"),
 ]
 

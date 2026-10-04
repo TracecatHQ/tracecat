@@ -37,6 +37,13 @@ TriggerInputs = Any
 """Trigger inputs JSON type."""
 
 
+class DSLDependencyPlan(BaseModel):
+    """Direct action refs read by each action and the workflow return value."""
+
+    actions: dict[str, list[str]]
+    returns: list[str]
+
+
 class ExecutionContext(TypedDict):
     """Workflow execution context with typed fields.
 
@@ -382,11 +389,8 @@ class ActionStatement(BaseModel):
     unsafe_disable_secret_error_withholding: bool = Field(
         default=False,
         description=(
-            "UNSAFE: if true, surface this action's original error message even "
-            "when secrets are in scope, instead of the generic 'Details withheld' "
-            "message. Known secret values are still masked, but the original text "
-            "may echo transformed secret values that exact-string masking cannot "
-            "catch."
+            "Legacy field, ignored. Error diagnostics always mask known secrets "
+            "and observed secret-derived values."
         ),
     )
 

@@ -65,6 +65,7 @@ describe("InboxDetail", () => {
     mockUseGetChatVercel.mockReturnValue({
       chat,
       chatLoading: false,
+      chatFetching: false,
       chatError: null,
     })
     mockUseChatReadiness.mockReturnValue({

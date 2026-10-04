@@ -1,19 +1,24 @@
 "use client"
 
-import { zodResolver } from "@hookform/resolvers/zod"
 import { DialogTrigger } from "@radix-ui/react-dialog"
 import { DotsHorizontalIcon, PlusIcon } from "@radix-ui/react-icons"
 import { FolderIcon, GlobeIcon, Trash2Icon } from "lucide-react"
-import { useState } from "react"
-import { useForm } from "react-hook-form"
-import { z } from "zod"
-import { type OrgMemberRead, organizationGetInvitationToken } from "@/client"
+import { useRef, useState } from "react"
+import {
+  type GroupRoleAssignmentReadWithDetails,
+  invitationsGetInvitationToken,
+  type OrgMemberRead,
+  rbacListAssignments,
+  rbacReplaceUserAssignments,
+  type UserRoleAssignmentReadWithDetails,
+} from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   DataTable,
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import { InviteMemberDialogButton } from "@/components/organization/invite-member-dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,15 +48,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -62,6 +58,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { useEntitlements } from "@/hooks/use-entitlements"
+import { getApiErrorDetail, type TracecatApiError } from "@/lib/errors"
 import { getRelativeTime } from "@/lib/event-history"
 import {
   useOrgMembers,
@@ -69,150 +67,43 @@ import {
   useRbacUserAssignments,
   useWorkspaceManager,
 } from "@/lib/hooks"
+import { invitationGrantsSummary } from "@/lib/invitations"
+import { useQuery, useQueryClient } from "@/lib/query"
+import { rolesForScope } from "@/lib/rbac"
 import { toast } from "../ui/use-toast"
-
-const invitationFormSchema = z.object({
-  email: z.string().email("Invalid email address"),
-  role_id: z.string().uuid("Please select a role"),
-})
-
-type InvitationFormValues = z.infer<typeof invitationFormSchema>
-
-function InviteMemberDialogButton() {
-  const canInviteMembers = useScopeCheck("org:member:invite") === true
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const { createInvitation, createInvitationIsPending } = useOrgMembers()
-  const { roles } = useRbacRoles()
-
-  // Include organization preset roles and custom roles (custom roles have no slug prefix)
-  const orgRoles = roles.filter(
-    (r) => !r.slug || r.slug.startsWith("organization-")
-  )
-
-  const form = useForm<InvitationFormValues>({
-    resolver: zodResolver(invitationFormSchema),
-    defaultValues: {
-      email: "",
-      role_id: "",
-    },
-  })
-
-  const handleCreateInvitation = async (values: InvitationFormValues) => {
-    try {
-      await createInvitation({
-        email: values.email,
-        role_id: values.role_id,
-      })
-      form.reset()
-      setIsCreateDialogOpen(false)
-    } catch {
-      // Error handled in hook
-    }
-  }
-
-  if (!canInviteMembers) {
-    return null
-  }
-
-  return (
-    <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm">
-          <PlusIcon className="mr-2 size-4" />
-          Invite member
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Invite member</DialogTitle>
-          <DialogDescription>
-            Send an invitation to join this organization.
-          </DialogDescription>
-        </DialogHeader>
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit(handleCreateInvitation)}
-            className="space-y-4"
-          >
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="user@example.com"
-                      type="email"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormDescription>
-                    The email address of the person to invite.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="role_id"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Role</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a role" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {orgRoles.map((role) => (
-                        <SelectItem key={role.id} value={role.id}>
-                          {role.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    The role to assign when the invitation is accepted.
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setIsCreateDialogOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={createInvitationIsPending}>
-                {createInvitationIsPending ? "Sending..." : "Send invitation"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </Form>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 export function OrgMembersTable() {
   const [selectedMember, setSelectedMember] = useState<OrgMemberRead | null>(
     null
   )
   const [isChangeRoleOpen, setIsChangeRoleOpen] = useState(false)
+  const [isSavingRoles, setIsSavingRoles] = useState(false)
+  const [isRemoveMemberOpen, setIsRemoveMemberOpen] = useState(false)
   const [removeConfirmationEmail, setRemoveConfirmationEmail] = useState("")
   const canInviteMembers = useScopeCheck("org:member:invite") === true
   const canRemoveMembers = useScopeCheck("org:member:remove") === true
   const canReadRbac = useScopeCheck("org:rbac:read") === true
-  const { orgMembers, deleteOrgMember, revokeInvitation } = useOrgMembers()
+  const {
+    orgMembers,
+    deleteOrgMember,
+    revokeInvitation,
+    resendInvitation,
+    resendInvitationIsPending,
+  } = useOrgMembers()
+  const { roles, isLoading: rolesIsLoading, error: rolesError } = useRbacRoles()
+  const { workspaces } = useWorkspaceManager()
+  const roleMenuTrigger = useRef<HTMLButtonElement | null>(null)
+
+  function roleText(member: OrgMemberRead): string {
+    if (member.invitation_id) {
+      return invitationGrantsSummary(
+        { grants: member.grants ?? [] },
+        rolesIsLoading || rolesError ? null : roles,
+        workspaces ?? []
+      )
+    }
+    return member.role_name
+  }
 
   const handleRemoveMember = async () => {
     if (
@@ -252,9 +143,16 @@ export function OrgMembersTable() {
 
   return (
     <div className="space-y-4">
-      <Dialog open={isChangeRoleOpen} onOpenChange={setIsChangeRoleOpen}>
+      <Dialog
+        open={isChangeRoleOpen}
+        onOpenChange={(open) => {
+          if (!isSavingRoles) setIsChangeRoleOpen(open)
+        }}
+      >
         <AlertDialog
+          open={isRemoveMemberOpen}
           onOpenChange={(isOpen) => {
+            setIsRemoveMemberOpen(isOpen)
             if (!isOpen) {
               setSelectedMember(null)
               setRemoveConfirmationEmail("")
@@ -300,7 +198,8 @@ export function OrgMembersTable() {
                 enableHiding: false,
               },
               {
-                accessorKey: "role_name",
+                id: "role_name",
+                accessorFn: roleText,
                 header: ({ column }) => (
                   <DataTableColumnHeader
                     className="text-xs"
@@ -309,9 +208,7 @@ export function OrgMembersTable() {
                   />
                 ),
                 cell: ({ row }) => (
-                  <div className="text-xs">
-                    {row.getValue<string>("role_name")}
-                  </div>
+                  <div className="text-xs">{roleText(row.original)}</div>
                 ),
                 enableSorting: true,
                 enableHiding: false,
@@ -383,7 +280,16 @@ export function OrgMembersTable() {
                   return (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" className="size-8 p-0">
+                        <Button
+                          variant="ghost"
+                          className="size-8 p-0"
+                          onFocus={(event) => {
+                            roleMenuTrigger.current = event.currentTarget
+                          }}
+                          onPointerDown={(event) => {
+                            roleMenuTrigger.current = event.currentTarget
+                          }}
+                        >
                           <span className="sr-only">Open menu</span>
                           <DotsHorizontalIcon className="size-4" />
                         </Button>
@@ -398,7 +304,7 @@ export function OrgMembersTable() {
                                     if (!member.invitation_id) return
                                     try {
                                       const { token } =
-                                        await organizationGetInvitationToken({
+                                        await invitationsGetInvitationToken({
                                           invitationId: member.invitation_id,
                                         })
                                       const url = `${window.location.origin}/invitations/accept?token=${token}`
@@ -419,6 +325,41 @@ export function OrgMembersTable() {
                                   }}
                                 >
                                   Copy invitation link
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  disabled={resendInvitationIsPending}
+                                  onSelect={async () => {
+                                    if (!member.invitation_id) return
+                                    try {
+                                      await resendInvitation(
+                                        member.invitation_id
+                                      )
+                                      toast({
+                                        title: "Invitation email queued",
+                                        description: member.email,
+                                      })
+                                    } catch (error) {
+                                      const apiError = error as TracecatApiError
+                                      if (apiError.status === 409) {
+                                        toast({
+                                          title:
+                                            "You just sent an invitation email",
+                                          description:
+                                            "Please try again shortly.",
+                                        })
+                                        return
+                                      }
+                                      toast({
+                                        title: "Failed to resend invitation",
+                                        description:
+                                          getApiErrorDetail(apiError) ??
+                                          undefined,
+                                        variant: "destructive",
+                                      })
+                                    }
+                                  }}
+                                >
+                                  Resend invitation email
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <AlertDialogTrigger asChild>
@@ -535,10 +476,16 @@ export function OrgMembersTable() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-        {selectedMember && (
+        {isChangeRoleOpen && selectedMember && (
           <ManageUserRolesDialog
+            key={selectedMember.user_id ?? selectedMember.email}
             member={selectedMember}
             onOpenChange={setIsChangeRoleOpen}
+            onSavingChange={setIsSavingRoles}
+            onCloseAutoFocus={(event) => {
+              event.preventDefault()
+              roleMenuTrigger.current?.focus()
+            }}
           />
         )}
       </Dialog>
@@ -546,139 +493,332 @@ export function OrgMembersTable() {
   )
 }
 
-function ManageUserRolesDialog({
+type DraftAssignment = Pick<
+  UserRoleAssignmentReadWithDetails,
+  "role_id" | "role_name" | "workspace_id" | "workspace_name"
+>
+
+async function readGroupAssignments(userId: string) {
+  return (await rbacListAssignments({ userId })).items
+}
+
+/** Stage direct role edits while showing the group paths that retain access. */
+export function ManageUserRolesDialog({
   member,
   onOpenChange,
+  onSavingChange,
+  onCloseAutoFocus,
 }: {
   member: OrgMemberRead
   onOpenChange: (open: boolean) => void
+  onSavingChange: (saving: boolean) => void
+  onCloseAutoFocus?: (event: Event) => void
 }) {
   const [roleId, setRoleId] = useState("")
-  const [workspaceId, setWorkspaceId] = useState<string>("org-wide")
+  const [workspaceId, setWorkspaceId] = useState("org-wide")
+  const [draft, setDraft] = useState<{
+    original: UserRoleAssignmentReadWithDetails[]
+    assignments: DraftAssignment[]
+    groups: GroupRoleAssignmentReadWithDetails[] | null
+  } | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isRemovalConfirmationOpen, setIsRemovalConfirmationOpen] =
+    useState(false)
+  const [saveError, setSaveError] = useState("")
   const userId = member.user_id ?? undefined
-
-  const {
-    userAssignments,
-    createUserAssignment,
-    createUserAssignmentIsPending,
-    deleteUserAssignment,
-    deleteUserAssignmentIsPending,
-  } = useRbacUserAssignments({ userId })
-  const { roles } = useRbacRoles()
-  const { workspaces } = useWorkspaceManager()
+  const queryClient = useQueryClient()
   const canReadRbac = useScopeCheck("org:rbac:read") === true
   const canCreateAssignment = useScopeCheck("org:rbac:create") === true
+  const canUpdateAssignment = useScopeCheck("org:rbac:update") === true
   const canDeleteAssignment = useScopeCheck("org:rbac:delete") === true
+  const {
+    userAssignments,
+    isLoading: userAssignmentsIsLoading,
+    error: userAssignmentsError,
+  } = useRbacUserAssignments({
+    userId,
+    enabled: canReadRbac && Boolean(userId),
+  })
+  const {
+    roles,
+    isLoading: rolesIsLoading,
+    error: rolesError,
+  } = useRbacRoles({ enabled: canReadRbac })
+  const { workspaces } = useWorkspaceManager()
+  const { hasEntitlement, hasEntitlementData } = useEntitlements()
+  const canReadGroups = hasEntitlementData && hasEntitlement("rbac_addons")
+  const groupQueryKey = ["rbac-groups", "user-assignments", userId]
+  const {
+    data: groupAssignments = [],
+    isLoading: groupsIsLoading,
+    error: groupsError,
+    isSuccess: groupsLoaded,
+  } = useQuery({
+    queryKey: groupQueryKey,
+    queryFn: () => readGroupAssignments(userId!),
+    enabled: canReadRbac && Boolean(userId) && canReadGroups,
+    meta: { suppressErrorToast: true },
+  })
+  const ready =
+    canReadRbac &&
+    Boolean(userId) &&
+    !userAssignmentsIsLoading &&
+    !userAssignmentsError &&
+    !rolesIsLoading &&
+    !rolesError
+  const groupAccessKnown = canReadGroups && groupsLoaded && !groupsError
+  const assignments = draft?.assignments ?? userAssignments
+  const original = draft?.original ?? userAssignments
+  const visibleAssignments = assignments
+  const visibleGroupAssignments = groupAssignments
+  const selectedWorkspaceId = workspaceId === "org-wide" ? null : workspaceId
+  const selectedOriginal = original.find(
+    (assignment) => (assignment.workspace_id ?? null) === selectedWorkspaceId
+  )
+  const canAdd = selectedOriginal ? canUpdateAssignment : canCreateAssignment
+  const updates = assignments.flatMap((assignment) => {
+    const previous = original.find(
+      (item) =>
+        (item.workspace_id ?? null) === (assignment.workspace_id ?? null)
+    )
+    return previous && previous.role_id !== assignment.role_id
+      ? [{ ...assignment, id: previous.id }]
+      : []
+  })
+  const creates = assignments.filter(
+    (assignment) =>
+      !original.some(
+        (item) =>
+          (item.workspace_id ?? null) === (assignment.workspace_id ?? null)
+      )
+  )
+  const deletes = original.filter(
+    (assignment) =>
+      !assignments.some(
+        (item) =>
+          (item.workspace_id ?? null) === (assignment.workspace_id ?? null)
+      )
+  )
+  const hasChanges = updates.length + creates.length + deletes.length > 0
+  // An empty final set is a valid save: the user stays a member on the floor.
+  const leavesNoRoles =
+    hasChanges &&
+    visibleAssignments.length === 0 &&
+    groupAccessKnown &&
+    visibleGroupAssignments.length === 0
+  const canSave =
+    ready &&
+    !isSaving &&
+    (!updates.length || canUpdateAssignment) &&
+    (!creates.length || canCreateAssignment) &&
+    (!deletes.length || canDeleteAssignment)
+  const removedRoles = deletes.map(
+    (assignment) =>
+      `${assignment.role_name} in ${assignment.workspace_name ?? "the organization"}`
+  )
 
-  const handleAddRole = async () => {
-    if (!roleId || !userId) return
-    await createUserAssignment({
-      user_id: userId,
-      role_id: roleId,
-      workspace_id: workspaceId === "org-wide" ? null : workspaceId,
+  function stageAssignments(next: DraftAssignment[]) {
+    const groups = groupAccessKnown ? groupAssignments : null
+    setDraft({
+      original,
+      assignments: next,
+      groups: draft ? draft.groups : groups,
     })
-    setRoleId("")
-    setWorkspaceId("org-wide")
+    setSaveError("")
   }
 
-  const handleRemoveRole = async (assignmentId: string) => {
-    await deleteUserAssignment(assignmentId)
+  function handleAddRole() {
+    const role = roles.find((item) => item.id === roleId)
+    if (!ready || isSaving || !role || !canAdd) return
+    const assignment = {
+      role_id: role.id,
+      role_name: role.name,
+      workspace_id: selectedWorkspaceId,
+      workspace_name: workspaces?.find(
+        (workspace) => workspace.id === selectedWorkspaceId
+      )?.name,
+    }
+    stageAssignments([
+      ...assignments.filter(
+        (item) => (item.workspace_id ?? null) !== selectedWorkspaceId
+      ),
+      assignment,
+    ])
+    setRoleId("")
+  }
+
+  function handleRemoveRole(assignment: DraftAssignment) {
+    const previous = original.find(
+      (item) =>
+        (item.workspace_id ?? null) === (assignment.workspace_id ?? null)
+    )
+    const next = assignments.filter((item) => item !== assignment)
+    // Removing an unsaved promotion or replacement undoes it; it must not
+    // delete the persisted source assignment hidden underneath the draft.
+    if (previous && previous.role_id !== assignment.role_id) next.push(previous)
+    stageAssignments(next)
+  }
+
+  async function handleDone(removalConfirmed = false) {
+    if (!hasChanges) {
+      onOpenChange(false)
+      return
+    }
+    if (!canSave || !userId || !draft) return
+    if (!removalConfirmed && removedRoles.length > 0) {
+      setIsRemovalConfirmationOpen(true)
+      return
+    }
+    setIsSaving(true)
+    onSavingChange(true)
+    setSaveError("")
+    try {
+      await rbacReplaceUserAssignments({
+        requestBody: {
+          user_id: userId,
+          assignments: assignments.map(({ role_id, workspace_id }) => ({
+            role_id,
+            workspace_id: workspace_id ?? null,
+          })),
+          expected_assignments: original,
+          expected_group_assignments:
+            draft.groups ?? (groupAccessKnown ? groupAssignments : null),
+        },
+      })
+      await Promise.all([
+        ...["rbac-user-assignments", "user-scopes", "org-members"].map((key) =>
+          queryClient.invalidateQueries({ queryKey: [key] })
+        ),
+        queryClient.invalidateQueries({
+          queryKey: ["workspace"],
+          predicate: (query) => query.queryKey[2] === "members",
+        }),
+      ])
+      onOpenChange(false)
+    } catch (error) {
+      setDraft(null)
+      await queryClient.invalidateQueries({
+        queryKey: ["rbac-user-assignments", userId],
+      })
+      await queryClient.invalidateQueries({ queryKey: groupQueryKey })
+      setSaveError(
+        error &&
+          typeof error === "object" &&
+          "status" in error &&
+          error.status === 409
+          ? "Roles or group access changed while this dialog was open. Review the current roles and try again."
+          : "Changes could not be confirmed. Review the current roles before trying again."
+      )
+    } finally {
+      setIsSaving(false)
+      onSavingChange(false)
+    }
   }
 
   return (
-    <DialogContent className="max-w-lg">
+    <DialogContent className="max-w-lg" onCloseAutoFocus={onCloseAutoFocus}>
       <DialogHeader>
         <DialogTitle>Manage roles - {member.email}</DialogTitle>
         <DialogDescription>
-          Assign or remove roles for this user. Roles grant permissions within
-          workspaces or across the organization.
+          Organization and workspace roles grant access directly or through
+          groups. Changes to direct roles are saved when you select Done.
         </DialogDescription>
       </DialogHeader>
       <div className="space-y-4 py-4">
-        {canCreateAssignment && (
+        {(canCreateAssignment || canUpdateAssignment) && (
           <div className="space-y-2">
             <Label>Add role assignment</Label>
             <div className="flex gap-2">
-              <Select value={roleId} onValueChange={setRoleId}>
-                <SelectTrigger className="flex-1">
+              <Select
+                value={roleId}
+                onValueChange={setRoleId}
+                disabled={!ready || isSaving}
+              >
+                <SelectTrigger className="min-w-0 flex-1" aria-label="Role">
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
                 <SelectContent>
-                  {roles.map((role) => (
+                  {rolesForScope(roles, selectedWorkspaceId).map((role) => (
                     <SelectItem key={role.id} value={role.id}>
                       {role.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={workspaceId} onValueChange={setWorkspaceId}>
-                <SelectTrigger className="w-[180px]">
+              <Select
+                value={workspaceId}
+                onValueChange={(value) => {
+                  setWorkspaceId(value)
+                  setRoleId("")
+                }}
+                disabled={!ready || isSaving}
+              >
+                <SelectTrigger
+                  className="w-[180px] min-w-0 shrink"
+                  aria-label="Scope"
+                >
                   <SelectValue placeholder="Scope" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="org-wide">
-                    <div className="flex items-center gap-2">
-                      <GlobeIcon className="size-4 text-blue-500" />
-                      Organization
-                    </div>
-                  </SelectItem>
+                <SelectContent className="max-w-[calc(100vw-2rem)]">
+                  <SelectItem value="org-wide">Organization</SelectItem>
                   {workspaces?.map((workspace) => (
-                    <SelectItem key={workspace.id} value={workspace.id}>
-                      <div className="flex items-center gap-2">
-                        <FolderIcon className="size-4 text-muted-foreground" />
-                        {workspace.name}
-                      </div>
+                    <SelectItem
+                      key={workspace.id}
+                      value={workspace.id}
+                      className="break-words whitespace-normal"
+                    >
+                      {workspace.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <Button
                 type="button"
+                aria-label="Add role"
                 onClick={handleAddRole}
-                disabled={!roleId || createUserAssignmentIsPending}
+                disabled={!roleId || !ready || isSaving || !canAdd}
               >
                 <PlusIcon className="size-4" />
               </Button>
             </div>
           </div>
         )}
-
         <div className="space-y-2">
-          <Label>Current role assignments ({userAssignments.length})</Label>
+          <Label>
+            Direct roles ({ready ? visibleAssignments.length : "…"})
+          </Label>
           <ScrollArea className="h-[200px] rounded-md border">
-            {userAssignments.length > 0 ? (
-              <div className="space-y-2 p-4">
-                {userAssignments.map((assignment) => (
+            <div className="space-y-2 p-4">
+              {ready &&
+                visibleAssignments.map((assignment) => (
                   <div
-                    key={assignment.id}
-                    className="flex items-center justify-between rounded-md border p-2"
+                    key={assignment.workspace_id ?? "org-wide"}
+                    className="flex items-center justify-between border-b py-2 last:border-0"
                   >
                     <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary">
-                          {assignment.role_name}
-                        </Badge>
-                      </div>
+                      <Badge variant="secondary">{assignment.role_name}</Badge>
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                        {assignment.workspace_name ? (
-                          <>
-                            <FolderIcon className="size-3" />
-                            {assignment.workspace_name}
-                          </>
+                        {assignment.workspace_id ? (
+                          <FolderIcon className="size-3" />
                         ) : (
-                          <>
-                            <GlobeIcon className="size-3 text-blue-500" />
-                            Organization-wide
-                          </>
+                          <GlobeIcon className="size-3" />
                         )}
+                        {assignment.workspace_name ?? "Organization-wide"}
                       </span>
                     </div>
-                    {canDeleteAssignment && (
+                    {(canDeleteAssignment ||
+                      !original.some(
+                        (item) =>
+                          (item.workspace_id ?? null) ===
+                            (assignment.workspace_id ?? null) &&
+                          item.role_id === assignment.role_id
+                      )) && (
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleRemoveRole(assignment.id)}
-                        disabled={deleteUserAssignmentIsPending}
+                        aria-label={`Remove ${assignment.role_name} from ${assignment.workspace_name ?? "organization"}`}
+                        onClick={() => handleRemoveRole(assignment)}
+                        disabled={isSaving}
                         className="text-rose-500 hover:text-rose-600"
                       >
                         <Trash2Icon className="size-4" />
@@ -686,27 +826,91 @@ function ManageUserRolesDialog({
                     )}
                   </div>
                 ))}
-              </div>
-            ) : (
-              <div className="flex h-full items-center justify-center p-4">
-                <p className="text-sm text-muted-foreground">
-                  No role assignments
+              {ready && visibleAssignments.length === 0 && (
+                <p className="text-sm text-muted-foreground">No direct roles</p>
+              )}
+              {!ready && (
+                <p role="status" className="text-sm text-muted-foreground">
+                  {userAssignmentsError || rolesError || groupsError
+                    ? "Unable to load roles and group access. Close and reopen to retry."
+                    : "Loading roles and group access…"}
                 </p>
-              </div>
-            )}
+              )}
+            </div>
           </ScrollArea>
         </div>
+        {ready && groupAccessKnown && visibleGroupAssignments.length > 0 && (
+          <div className="space-y-2">
+            <Label>Roles from groups</Label>
+            {visibleGroupAssignments.map((assignment) => (
+              <p key={assignment.id} className="text-sm">
+                {assignment.role_name} ·{" "}
+                {assignment.workspace_name ?? "Organization-wide"}
+                <span className="text-muted-foreground">
+                  {" "}
+                  via {assignment.group_name}
+                </span>
+              </p>
+            ))}
+            <p className="text-xs text-muted-foreground">
+              Manage these roles through the group.
+            </p>
+          </div>
+        )}
+        {ready && !groupAccessKnown && !groupsIsLoading && (
+          <p role="status" className="text-sm text-muted-foreground">
+            Group access cannot be checked. Only direct roles are shown.
+          </p>
+        )}
+        {saveError && (
+          <p role="alert" className="text-sm text-destructive">
+            {saveError}
+          </p>
+        )}
       </div>
-      {!canReadRbac && (
-        <p className="text-sm text-muted-foreground">
-          You do not have permission to manage RBAC assignments.
-        </p>
-      )}
       <DialogFooter>
-        <Button variant="outline" onClick={() => onOpenChange(false)}>
-          Done
+        <Button
+          variant="outline"
+          disabled={isSaving}
+          onClick={() => onOpenChange(false)}
+        >
+          Cancel
+        </Button>
+        <Button
+          disabled={isSaving || (hasChanges && !canSave)}
+          onClick={() => handleDone()}
+        >
+          {isSaving ? "Saving…" : "Done"}
         </Button>
       </DialogFooter>
+      <AlertDialog
+        open={isRemovalConfirmationOpen}
+        onOpenChange={setIsRemovalConfirmationOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save role changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove {removedRoles.join(", ")} from {member.email}.
+              {visibleGroupAssignments.length > 0 &&
+                " Access from groups is unchanged."}
+              {leavesNoRoles &&
+                " This leaves the user with no roles. They stay a member with baseline access. Use Remove member to remove them."}
+              {(updates.length > 0 || creates.length > 0) &&
+                " Your other role changes will also be saved."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!canSave}
+              onClick={() => handleDone(true)}
+            >
+              Confirm changes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DialogContent>
   )
 }

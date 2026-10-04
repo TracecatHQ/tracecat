@@ -42,6 +42,7 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 
 from tests.database import TEST_DB_CONFIG
+from tests.support.executor_backend import TestBackend
 from tracecat import config
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import (
@@ -63,11 +64,14 @@ from tracecat.db.models import (
     PlatformRegistryVersion,
     Workspace,
 )
+from tracecat.dsl.action import DSLActivities
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities, new_sandbox_runner
 from tracecat.dsl.workflow import DSLWorkflow
+from tracecat.executor import backends as executor_backends
 from tracecat.executor.backends import ExecutorBackend
+from tracecat.executor.enums import ExecutorBackendType
 from tracecat.logger import logger
 from tracecat.registry.repositories.schemas import RegistryRepositoryCreate
 from tracecat.registry.repositories.service import RegistryReposService
@@ -112,6 +116,55 @@ def pytest_xdist_auto_num_workers(config: pytest.Config) -> int:
 
 # Port configuration - reads from environment for worktree cluster support
 # Default ports are for cluster 1, override with PG_PORT, TEMPORAL_PORT, MINIO_PORT, REDIS_PORT
+
+
+def _install_membership_token_revoker(conn: Any) -> None:
+    """Mirror the production trigger that revokes MCP tokens on member removal."""
+    conn.execute(
+        text(
+            """
+            CREATE OR REPLACE FUNCTION revoke_mcp_tokens_on_membership_delete()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                UPDATE mcp_personal_access_token
+                SET revoked_at = now(),
+                    revoked_by = NULLIF(
+                        current_setting('app.current_user_id', true), ''
+                    )::uuid
+                WHERE user_id = OLD.user_id
+                  AND organization_id = OLD.organization_id
+                  AND revoked_at IS NULL;
+
+                UPDATE mcp_refresh_token
+                SET status = 'revoked'
+                WHERE user_id = OLD.user_id
+                  AND organization_id = OLD.organization_id
+                  AND status = 'active';
+
+                RETURN OLD;
+            END;
+            $$;
+            """
+        )
+    )
+    conn.execute(
+        text(
+            "DROP TRIGGER IF EXISTS trg_organization_membership_revoke_mcp_tokens "
+            "ON organization_membership"
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE TRIGGER trg_organization_membership_revoke_mcp_tokens
+            AFTER DELETE ON organization_membership
+            FOR EACH ROW
+            EXECUTE FUNCTION revoke_mcp_tokens_on_membership_delete()
+            """
+        )
+    )
 
 
 def _install_case_number_allocator(conn: Any) -> None:
@@ -416,8 +469,13 @@ def db() -> Iterator[None]:
         test_engine = create_engine(TEST_DB_CONFIG.test_url_sync)
         with test_engine.begin() as conn:
             logger.info("Creating all tables")
+            # Each isolated test database needs its own extension registration.
+            conn.execute(
+                text("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public")
+            )
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
+            _install_membership_token_revoker(conn)
         yield
     finally:
         if test_engine is not None:
@@ -453,6 +511,7 @@ def default_org(db: None, env_sandbox: None) -> Iterator[None]:
             _lock_test_db_setup(conn, sync_db_uri)
             Base.metadata.create_all(conn)
             _install_case_number_allocator(conn)
+            _install_membership_token_revoker(conn)
 
         with Session(sync_engine) as session:
             base_org_slug = f"test-org-{TEST_ORG_ID.hex[:8]}"
@@ -1295,10 +1354,16 @@ def env_sandbox(monkeysession: pytest.MonkeyPatch):
         "TRACECAT__ACTION_GATEWAY_SOCKET",
         str(ACTION_GATEWAY_TEST_SOCKET),
     )
-    # Use TestBackend for in-process executor (no sandbox overhead) unless overridden
+    # Use TestBackend for in-process executor (no sandbox overhead) unless overridden.
+    # Isolation checks see the direct backend; only worker backend creation changes.
     if not IN_DOCKER:
-        monkeysession.setattr(config, "TRACECAT__EXECUTOR_BACKEND", "test")
-        monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", "test")
+        monkeysession.setattr(
+            config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
+        )
+        monkeysession.setenv("TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT)
+        monkeysession.setattr(
+            executor_backends, "_create_backend", lambda _backend_type: TestBackend()
+        )
     monkeysession.setenv("TRACECAT__PUBLIC_API_URL", f"http://{api_host}/api")
     service_key = os.environ["TRACECAT__SERVICE_KEY"]
     monkeysession.setattr(config, "TRACECAT__SERVICE_KEY", service_key)
@@ -1957,6 +2022,10 @@ async def test_worker_factory(
         """Create a worker with the same configuration as production."""
 
         activities = get_activities() if activities is None else activities
+        # DSL workers always need the dependency compilation bootstrap activity.
+        compile_activity = DSLActivities.compile_dsl_dependencies_activity
+        if compile_activity not in activities:
+            activities = [*activities, compile_activity]
         return Worker(
             client=client,
             task_queue=task_queue or os.environ["TEMPORAL__CLUSTER_QUEUE"],

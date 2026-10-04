@@ -45,6 +45,11 @@ from tracecat_ee.agent.activities import (
 
 from tracecat import config
 from tracecat.agent.common.config import build_agent_runtime_uv_env
+from tracecat.agent.common.exceptions import (
+    AgentToolLimitExceededError,
+    UserMCPDiscoveryAuthError,
+    UserMCPDiscoveryTimeoutError,
+)
 from tracecat.agent.common.fs import force_rmtree
 from tracecat.agent.common.protocol import RuntimeInitPayload
 from tracecat.agent.common.stream_types import HarnessType
@@ -101,12 +106,18 @@ from tracecat.agent.types import AgentConfig, Tool, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.chat.schemas import ChatMessage
-from tracecat.exceptions import BuiltinRegistryHasNoSelectionError, EntitlementRequired
+from tracecat.exceptions import (
+    BuiltinRegistryHasNoSelectionError,
+    EntitlementRequired,
+    RegistryLockAmbiguousActionError,
+    RegistryLockInvalidDataError,
+)
 from tracecat.integrations.schemas import MCPToolSummary
 from tracecat.observability.otel import (
     initialize_platform_tracing,
     shutdown_platform_tracing,
 )
+from tracecat.observability.types import PlatformErrorCapture
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import (
@@ -333,7 +344,7 @@ class TestBuildToolDefinitionsActivity:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
-            raise ValueError("Cannot request more than 100 tools")
+            raise AgentToolLimitExceededError(requested=101, limit=100)
 
         monkeypatch.setattr(
             agent_activities, "build_agent_tools", mock_build_agent_tools
@@ -353,8 +364,7 @@ class TestBuildToolDefinitionsActivity:
         assert classification.owner is RuntimeErrorOwner.USER
         assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
         assert app_error.non_retryable is True
-        assert app_error.message == "Agent configuration is invalid"
-        assert "Cannot request more than 100 tools" not in str(app_error)
+        assert app_error.message == "Agent requests 101 tools; the limit is 100"
 
     @pytest.mark.anyio
     async def test_maps_builtin_sync_pending_to_application_error(
@@ -448,9 +458,108 @@ class TestBuildToolDefinitionsActivity:
         assert exc_info.value.non_retryable is True
 
     @pytest.mark.anyio
+    async def test_classifies_registry_lock_invalid_data_as_platform_registry(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        class _LockService:
+            async def resolve_lock_with_bindings(self, _actions: set[str]) -> None:
+                raise RegistryLockInvalidDataError(
+                    "Ambiguous action 'tools.example.get' found in multiple registries"
+                )
+
+        class _AsyncContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            RegistryLockService,
+            "with_session",
+            lambda: _AsyncContext(),
+        )
+
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=[]),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities().build_tool_definitions(args)
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.PLATFORM
+        assert classification.kind is RuntimeErrorKind.REGISTRY_LOCK_INVALID_DATA
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert exc_info.value.non_retryable is True
+
+    @pytest.mark.anyio
+    async def test_classifies_ambiguous_registry_action_as_user_owned(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def mock_build_agent_tools(**_kwargs: Any) -> BuildToolsResult:
+            return BuildToolsResult(tools=[], collected_secrets=set())
+
+        class _LockService:
+            async def resolve_lock_with_bindings(self, _actions: set[str]) -> None:
+                raise RegistryLockAmbiguousActionError(
+                    "tools.example.get",
+                    ["tracecat_registry", "git+ssh://git@example.com/acme/reg.git"],
+                )
+
+        class _AsyncContext:
+            async def __aenter__(self) -> _LockService:
+                return _LockService()
+
+            async def __aexit__(
+                self, exc_type: object, exc: object, tb: object
+            ) -> None:
+                return None
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(
+            RegistryLockService,
+            "with_session",
+            lambda: _AsyncContext(),
+        )
+
+        args = BuildToolDefsArgs(
+            role=Role(type="service", service_id="tracecat-api"),
+            tool_filters=ToolFilters(actions=[]),
+        )
+
+        with pytest.raises(ApplicationError) as exc_info:
+            await AgentActivities().build_tool_definitions(args)
+
+        classification = extract_error_classification(exc_info.value)
+        assert classification is not None
+        assert classification.owner is RuntimeErrorOwner.USER
+        assert classification.kind is RuntimeErrorKind.REGISTRY_LOCK_ACTION_AMBIGUOUS
+        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
+        assert "tools.example.get" in classification.message
+        assert "tracecat_registry" in classification.message
+        assert exc_info.value.non_retryable is True
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("timed_out", [False, True])
     async def test_strict_mcp_discovery_failure_fails_scope_compilation(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        timed_out: bool,
     ) -> None:
         from tracecat.agent.mcp import user_client
 
@@ -465,7 +574,9 @@ class TestBuildToolDefinitionsActivity:
             fail_on_error: bool = False,
         ) -> dict[str, Any]:
             discover_fail_flags.append(fail_on_error)
-            raise RuntimeError("server unavailable")
+            if timed_out:
+                raise UserMCPDiscoveryTimeoutError("broken")
+            raise UserMCPDiscoveryAuthError("broken")
 
         class _LockService:
             async def resolve_lock_with_bindings(
@@ -517,9 +628,22 @@ class TestBuildToolDefinitionsActivity:
         classification = extract_error_classification(exc_info.value)
         assert classification is not None
         assert classification.owner is RuntimeErrorOwner.USER
-        assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
-        assert exc_info.value.message == "Agent configuration is invalid"
-        assert exc_info.value.non_retryable is True
+        assert classification.kind is (
+            RuntimeErrorKind.AGENT_MCP_UNAVAILABLE
+            if timed_out
+            else RuntimeErrorKind.AGENT_MCP_AUTH_FAILED
+        )
+        assert exc_info.value.message == (
+            "MCP server 'broken' timed out during tool discovery; "
+            "check availability and retry"
+            if timed_out
+            else "MCP server 'broken' rejected the configured credentials; "
+            "reconnect the integration"
+        )
+        assert classification.retry_disposition is (
+            RetryDisposition.RETRYABLE if timed_out else RetryDisposition.NON_RETRYABLE
+        )
+        assert exc_info.value.non_retryable is (not timed_out)
 
     @pytest.mark.anyio
     async def test_mcp_tool_policy_filters_and_maps_approvals(
@@ -939,7 +1063,10 @@ class TestCreateSessionActivity:
 
         # Set up the mock service
         mock_service = AsyncMock()
-        mock_service.get_or_create_session.return_value = (MagicMock(), True)
+        mock_service.get_or_create_session.return_value = (
+            MagicMock(backend_id="oss", harness_type="claude_code"),
+            True,
+        )
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
@@ -967,10 +1094,10 @@ class TestCreateSessionActivity:
         )
 
         # Set up the mock service
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (mock_agent_session, False)
 
@@ -999,10 +1126,10 @@ class TestCreateSessionActivity:
             agents_binding=agents_binding,
         )
 
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (
             mock_agent_session,
@@ -1029,7 +1156,7 @@ class TestCreateSessionActivity:
             "incoming_agents_binding",
             "persisted_agents_binding",
             "sdk_session_id",
-            "parent_session_id",
+            "source_session_id",
             "expected_success",
             "expected_backfill",
         ),
@@ -1120,7 +1247,7 @@ class TestCreateSessionActivity:
         incoming_agents_binding: ResolvedAgentsConfig | None,
         persisted_agents_binding: dict[str, object] | None,
         sdk_session_id: str | None,
-        parent_session_id: uuid.UUID | None,
+        source_session_id: uuid.UUID | None,
         expected_success: bool,
         expected_backfill: bool,
         enforce_session_agents_binding: bool,
@@ -1135,10 +1262,10 @@ class TestCreateSessionActivity:
             enforce_session_agents_binding=enforce_session_agents_binding,
         )
 
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = persisted_agents_binding
         mock_agent_session.sdk_session_id = sdk_session_id
-        mock_agent_session.parent_session_id = parent_session_id
+        mock_agent_session.forked_from_session_id = source_session_id
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (
             mock_agent_session,
@@ -1192,10 +1319,10 @@ class TestCreateSessionActivity:
         )
 
         mock_service = AsyncMock()
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
         mock_service.get_session.return_value = mock_agent_session
 
         mock_ctx = AsyncMock()
@@ -1258,7 +1385,10 @@ class TestCreateSessionActivity:
 
         # Set up the mock service
         mock_service = AsyncMock()
-        mock_service.get_or_create_session.return_value = (MagicMock(), True)
+        mock_service.get_or_create_session.return_value = (
+            MagicMock(backend_id="oss", harness_type="claude_code"),
+            True,
+        )
 
         # Set up the context manager's __aenter__ to return the mock service
         mock_ctx = AsyncMock()
@@ -1286,7 +1416,7 @@ class TestCreateSessionActivity:
             initial_user_prompt="Investigate login failures",
         )
 
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (mock_agent_session, True)
@@ -1319,10 +1449,10 @@ class TestCreateSessionActivity:
             initial_user_prompt="Investigate repeated login failures",
         )
 
-        mock_agent_session = MagicMock()
+        mock_agent_session = MagicMock(backend_id="oss", harness_type="claude_code")
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
         mock_service = AsyncMock()
         mock_service.get_or_create_session.return_value = (mock_agent_session, False)
         mock_service.auto_title_session_on_first_prompt = AsyncMock()
@@ -1379,7 +1509,7 @@ class TestLoadSessionActivity:
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
 
         # Set up the mock service
         mock_service = AsyncMock()
@@ -1414,7 +1544,7 @@ class TestLoadSessionActivity:
         agents_binding = ResolvedAgentsConfig.model_validate({"subagents": []})
         mock_agent_session.agents_binding = agents_binding.model_dump(mode="json")
         mock_agent_session.sdk_session_id = "sdk-session-123"
-        mock_agent_session.parent_session_id = None
+        mock_agent_session.forked_from_session_id = None
 
         # Set up the mock service
         mock_service = AsyncMock()
@@ -1436,11 +1566,16 @@ class TestLoadSessionActivity:
 
     @pytest.mark.anyio
     @patch("tracecat.agent.session.activities.AgentSessionService.with_session")
-    async def test_loads_forked_parent_session_metadata(
-        self, mock_with_session, mock_role: Role, mock_session_id: uuid.UUID
+    @pytest.mark.parametrize("source_sdk_id", ["source-sdk-session", None])
+    async def test_loads_forked_source_session_metadata(
+        self,
+        mock_with_session,
+        mock_role: Role,
+        mock_session_id: uuid.UUID,
+        source_sdk_id: str | None,
     ):
-        """Forked first turns resume from parent metadata without SDK JSONL."""
-        parent_session_id = uuid.uuid4()
+        """Forked first turns use captured native identity when one exists."""
+        source_session_id = uuid.uuid4()
         input = LoadSessionInput(
             role=mock_role,
             session_id=mock_session_id,
@@ -1449,14 +1584,15 @@ class TestLoadSessionActivity:
         mock_agent_session = MagicMock()
         mock_agent_session.agents_binding = None
         mock_agent_session.sdk_session_id = None
-        mock_agent_session.parent_session_id = parent_session_id
-        mock_parent_session = MagicMock()
-        mock_parent_session.sdk_session_id = "parent-sdk-session"
+        mock_agent_session.forked_from_session_id = source_session_id
+        mock_agent_session.forked_from_sdk_session_id = source_sdk_id
+        mock_source_session = MagicMock()
+        mock_source_session.sdk_session_id = "later-sdk-session"
 
         mock_service = AsyncMock()
         mock_service.get_session.side_effect = [
             mock_agent_session,
-            mock_parent_session,
+            mock_source_session,
         ]
 
         mock_ctx = AsyncMock()
@@ -1466,9 +1602,9 @@ class TestLoadSessionActivity:
         result = await load_session_activity(input)
 
         assert result.found is True
-        assert result.sdk_session_id == "parent-sdk-session"
+        assert result.sdk_session_id == source_sdk_id
         assert result.sdk_session_data is None
-        assert result.is_fork is True
+        assert result.is_fork is (source_sdk_id is not None)
         assert result.agents_binding is None
         assert result.has_resume_state is True
 
@@ -2048,9 +2184,12 @@ class TestSandboxedAgentExecutorHelpers:
         tmp_path: Path,
     ) -> None:
         executor = SandboxedAgentExecutor(input=executor_input)
+        classification = agent_executor_timed_out(TimeoutError("secret"))
+        capture = PlatformErrorCapture.for_error("a" * 32, classification)
         executor._fatal_error = LLMProxyError(
             message="raw gateway timeout",
-            classification=agent_executor_timed_out(TimeoutError("secret")),
+            classification=classification,
+            sentry_capture=capture,
             diagnostic=LLMErrorDiagnostics(
                 route="managed", provider_configuration="custom"
             ),
@@ -2068,6 +2207,9 @@ class TestSandboxedAgentExecutorHelpers:
         assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_TIMED_OUT
         assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
         assert "secret" not in result.classification.message
+        assert result.sentry_capture == capture
+        restored = AgentExecutorResult.model_validate_json(result.model_dump_json())
+        assert restored.sentry_capture == capture
         assert result.diagnostic == executor._fatal_error.diagnostic
         assert "llm" not in result.model_dump(mode="json")["classification"]
         assert result.terminal_stream_error_emitted is True
@@ -2182,7 +2324,9 @@ class TestSandboxedAgentExecutorHelpers:
         )
 
         assert result.classification is not None
-        assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        assert (
+            result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+        )
         assert result.diagnostic is None
 
     @pytest.mark.anyio
@@ -2224,7 +2368,9 @@ class TestSandboxedAgentExecutorHelpers:
 
         assert result.classification is not None
         assert result.classification.owner is RuntimeErrorOwner.PLATFORM
-        assert result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNAVAILABLE
+        assert (
+            result.classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+        )
         assert result.classification.retry_disposition is RetryDisposition.RETRYABLE
         assert result.terminal_stream_error_emitted is True
 
@@ -2395,6 +2541,61 @@ class TestSandboxedAgentExecutorCancellation:
         return result
 
     @pytest.mark.anyio
+    async def test_cancellation_after_turn_finishes_does_not_interrupt(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        executor = SandboxedAgentExecutor(input=executor_input)
+        executor._job_dir = tmp_path
+        executor._llm_proxy = AsyncMock()
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor_input.session_id,
+                workspace_id=executor_input.workspace_id,
+            )
+        )
+        interrupt = AsyncMock(side_effect=AssertionError("Turn already finished"))
+
+        class FakeBroker:
+            @asynccontextmanager
+            async def session_turn_lease(self, _session_id: str) -> AsyncIterator[None]:
+                yield
+                # Deliver Temporal cancellation after the broker task finishes
+                # but before the executor has returned from the turn lease.
+                task = asyncio.current_task()
+                assert task is not None
+                task.cancel()
+                await asyncio.sleep(0)
+
+            async def run_turn_in_session_lease(
+                self, _request: ClaudeTurnRequest, _handler: LoopbackHandler
+            ) -> None:
+                pass
+
+            interrupt_turn = interrupt
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker", FakeBroker
+        )
+        result = AgentExecutorResult(success=False, terminal_stream_error_emitted=False)
+        await executor._run_with_broker(
+            result=result,
+            handler=handler,
+            init_payload=executor._build_runtime_init_payload(),
+            socket_dir=tmp_path / "sockets",
+            llm_socket_path=tmp_path / "sockets" / "llm.sock",
+            artifact_working_set=None,
+            otel_socket_path=None,
+        )
+        interrupt.assert_not_awaited()
+        assert result.cancelled is True
+        assert result.success is True
+        assert result.error is None
+        assert result.sentry_capture is None
+
+    @pytest.mark.anyio
     async def test_cancellation_preserves_error_when_interrupted_turn_failed(
         self,
         executor_input: AgentExecutorInput,
@@ -2442,6 +2643,146 @@ class TestSandboxedAgentExecutorCancellation:
         assert result.cancelled_reason == "user_cancel"
         assert result.error is None
         assert result.success is True
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("interrupt_delivered", [False, True])
+    @pytest.mark.parametrize("runtime_failed", [False, True])
+    async def test_cancellation_cleanup_timeout_preserves_outcome(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        interrupt_delivered: bool,
+        runtime_failed: bool,
+    ) -> None:
+        """A stuck shutdown must not escape as an executor-unavailable error."""
+        executor = SandboxedAgentExecutor(input=executor_input)
+        executor._job_dir = tmp_path
+        executor._llm_proxy = AsyncMock()
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor_input.session_id,
+                workspace_id=executor_input.workspace_id,
+            )
+        )
+        if runtime_failed:
+            handler._result = LoopbackResult(
+                success=False,
+                error="runtime crashed",
+                classification=user_agent_execution_failed(),
+            )
+
+        started = asyncio.Event()
+        stopped = asyncio.Event()
+        hard_cancel = AsyncMock()
+
+        class FakeBroker:
+            @asynccontextmanager
+            async def session_turn_lease(self, _session_id: str) -> AsyncIterator[None]:
+                yield
+
+            async def run_turn_in_session_lease(
+                self, _request: ClaudeTurnRequest, _handler: LoopbackHandler
+            ) -> None:
+                started.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    stopped.set()
+
+            async def interrupt_turn(self, _session_id: str, _reason: str) -> bool:
+                # Cover both startup that cannot accept an interrupt and a
+                # runtime that accepts it but never finishes shutting down.
+                return interrupt_delivered
+
+            cancel_turn = hard_cancel
+
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.get_claude_runtime_broker",
+            FakeBroker,
+        )
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.GRACEFUL_CANCEL_TIMEOUT_SECONDS", 0.01
+        )
+        capture_failure = MagicMock()
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.capture_activity_failure",
+            capture_failure,
+        )
+        result = AgentExecutorResult(success=False, terminal_stream_error_emitted=False)
+        task = asyncio.create_task(
+            executor._run_with_broker(
+                result=result,
+                handler=handler,
+                init_payload=executor._build_runtime_init_payload(),
+                socket_dir=tmp_path / "sockets",
+                llm_socket_path=tmp_path / "sockets" / "llm.sock",
+                artifact_working_set=None,
+                otel_socket_path=None,
+            )
+        )
+        await asyncio.wait_for(started.wait(), timeout=5)
+        task.cancel()
+        await asyncio.wait_for(task, timeout=5)
+
+        hard_cancel.assert_awaited_once_with(str(executor_input.session_id))
+        assert stopped.is_set()
+        assert result.cancelled is True
+        assert result.cancelled_reason == "user_cancel"
+        assert result.success is not runtime_failed
+        assert result.error == ("runtime crashed" if runtime_failed else None)
+        assert result.classification == (
+            user_agent_execution_failed() if runtime_failed else None
+        )
+        assert result.sentry_capture is None
+        capture_failure.assert_not_called()
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("outcome", ["success", "failed", "cancelled"])
+    async def test_cancel_signal_does_not_interrupt_finished_task(
+        self,
+        executor_input: AgentExecutorInput,
+        monkeypatch: pytest.MonkeyPatch,
+        outcome: str,
+    ) -> None:
+        executor_input.curr_run_id = uuid.uuid4()
+        executor = SandboxedAgentExecutor(input=executor_input)
+        handler = LoopbackHandler(
+            input=LoopbackInput(
+                session_id=executor_input.session_id,
+                workspace_id=executor_input.workspace_id,
+            )
+        )
+        broker = MagicMock()
+        broker.interrupt_turn = AsyncMock()
+        broker.cancel_turn = AsyncMock()
+        monkeypatch.setattr(
+            "tracecat.agent.executor.activity.read_turn_cancel_signal",
+            AsyncMock(return_value="user_cancel"),
+        )
+
+        async def finished_turn() -> None:
+            if outcome == "failed":
+                raise RuntimeError("synthetic runtime failure")
+            if outcome == "cancelled":
+                raise asyncio.CancelledError
+
+        broker_task = asyncio.create_task(finished_turn())
+        await asyncio.wait({broker_task})
+        await executor._watch_cancel_signal(
+            broker=broker, handler=handler, broker_task=broker_task
+        )
+        broker.interrupt_turn.assert_not_awaited()
+        broker.cancel_turn.assert_not_awaited()
+        # The watcher does not consume or replace the main wait loop's outcome.
+        if outcome == "failed":
+            with pytest.raises(RuntimeError, match="synthetic runtime failure"):
+                await broker_task
+        elif outcome == "cancelled":
+            with pytest.raises(asyncio.CancelledError):
+                await broker_task
+        else:
+            await broker_task
 
     @pytest.mark.anyio
     async def test_cancel_signal_interrupts_turn_without_task_cancellation(

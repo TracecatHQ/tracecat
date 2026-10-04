@@ -302,7 +302,7 @@ class TestColdStartLatency:
 
         Expected: < 10ms
         """
-        from tracecat.executor.backends.test import TestBackend
+        from tests.support.executor_backend import TestBackend
 
         async def cold_start():
             backend = TestBackend()
@@ -335,7 +335,7 @@ class TestColdStartLatency:
         This simulates the real-world scenario where a new worker
         starts and immediately executes an action.
         """
-        from tracecat.executor.backends.test import TestBackend
+        from tests.support.executor_backend import TestBackend
 
         input_data = simple_action_input_factory()
         resolved_context = resolved_context_factory(role=benchmark_role)

@@ -33,11 +33,13 @@ from tracecat.dsl.common import (
     ResolvedSubflowBatch,
     ResolvedSubflowConfig,
 )
+from tracecat.dsl.compiler import compile_dsl_dependencies
 from tracecat.dsl.enums import StreamErrorHandlingStrategy
 from tracecat.dsl.error_transport import is_classified_action_error_payload
 from tracecat.dsl.schemas import (
     ActionStatement,
     DSLConfig,
+    DSLDependencyPlan,
     ExecutionContext,
     MaterializedExecutionContext,
     MaterializedTaskResult,
@@ -685,6 +687,23 @@ class DSLActivities:
                 "__temporal_activity_definition",
             )
         ]
+
+    @staticmethod
+    @activity.defn
+    async def compile_dsl_dependencies_activity(
+        dsl: DSLInput,
+    ) -> DSLDependencyPlan | None:
+        """Compile optional dependencies, falling back to legacy context selection."""
+        try:
+            return compile_dsl_dependencies(dsl)
+        except Exception as error:
+            # Dependency selection is an optimization. Leave expression validation
+            # to normal evaluation and do not log potentially sensitive operands.
+            logger.warning(
+                "Dependency compilation failed; using legacy context selection",
+                error_type=type(error).__name__,
+            )
+            return None
 
     @staticmethod
     @activity.defn

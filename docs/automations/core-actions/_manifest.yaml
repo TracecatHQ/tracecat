@@ -153,7 +153,7 @@ pages:
 
           Set `allow_network: true` when your script makes outbound network
           requests. When the executor runs with
-          `TRACECAT__EXECUTOR_SANDBOX_ENABLED=true`, deployment-wide
+          `TRACECAT__EXECUTOR_BACKEND=nsjail`, deployment-wide
           [CA certificates](/self-hosting/tls#trust-an-internal-ca-for-outbound-connections)
           do not reach sandboxed scripts.
 
@@ -403,6 +403,7 @@ pages:
         examples:
           - sql-duckdb-query
           - sql-duckdb-s3
+          - sql-duckdb-s3-cross-account
 
   - slug: request-actions/ssh
     title: SSH

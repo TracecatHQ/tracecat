@@ -96,6 +96,8 @@ jobs:
     timeout-minutes: 5 # short fail-fast window
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       # Load the private deploy key into an ssh-agent.
       # The secret value MUST be the *raw* PEM text, not base64.
@@ -138,6 +140,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
         uses: useblacksmith/setup-uv@f4588471335f14dcb60198856207b916701a9e9f # v4
@@ -175,6 +179,33 @@ jobs:
           target: production
           load: true
           tags: tracecat-ci:integration-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Test production image sandboxes on native AMD64
+        timeout-minutes: 5
+        env:
+          CI_IMAGE: tracecat-ci:integration-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = x86_64
+          docker run --rm --privileged \
+            --user 0:0 \
+            --cgroupns private \
+            --security-opt seccomp=unconfined \
+            --security-opt systempaths=unconfined \
+            --device /dev/net/tun \
+            --mount "type=bind,source=$PWD/tests,target=/app/tests,readonly" \
+            -e TRACECAT__EXECUTOR_BACKEND=nsjail \
+            -e TRACECAT__EXECUTOR_ACTION_SMOKE_DOCKER_CHILD=1 \
+            -e TRACECAT__AGENT_NSJAIL_DOCKER_FALLBACK_CHILD=1 \
+            -e PYTHONDONTWRITEBYTECODE=1 \
+            -e PYTHONPATH=/tmp/tracecat-smoke-deps:/app \
+            "$CI_IMAGE" python -m tracecat.agent.sandbox.cgroup /bin/sh -ec '
+              uv pip install --target /tmp/tracecat-smoke-deps pytest==8.3.2
+              exec /app/.venv/bin/python /app/tests/smoke_app_image.py
+            '
+
+      - name: Build PostgreSQL candidate image
+        run: bash scripts/postgres/build-image.sh
 
       - name: Start core Docker services
         env:
@@ -249,7 +280,7 @@ jobs:
           TRACECAT__REGISTRY_SYNC_SANDBOX_ENABLED: "true"
           # Tests run on the host, so Temporal must be reachable via localhost
           TEMPORAL__CLUSTER_URL: "localhost:7233"
-          TRACECAT__DISABLE_NSJAIL: "true"
+          TRACECAT__EXECUTOR_BACKEND: "direct"
           # Privileged loop-device regression reuses the exact image built above.
           TRACECAT__REGISTRY_LOOP_HOTPLUG_IMAGE: tracecat-ci:integration-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
@@ -263,7 +294,7 @@ jobs:
           TRACECAT_TEST_API_MODE: "external"
           TRACECAT_TEST_EXTERNAL_API_URL: "http://localhost/api"
           TEMPORAL__CLUSTER_URL: "localhost:7233"
-          TRACECAT__DISABLE_NSJAIL: "true"
+          TRACECAT__EXECUTOR_BACKEND: "direct"
         run: |
           uv run --no-sync pytest tests/temporal -m "requires_api and not live_secret" -n auto -ra -v -o faulthandler_timeout=300
 

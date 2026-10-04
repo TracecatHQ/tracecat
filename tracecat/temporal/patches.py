@@ -8,6 +8,7 @@ class WorkflowPatch(StrEnum):
     """Patch IDs recorded in Temporal workflow histories."""
 
     ACTION_HEARTBEAT_TIMEOUT_RETRY = "dsl-action-heartbeat-timeout-retry-v1"
+    COMPILE_DSL_DEPENDENCIES = "dsl-compile-dependencies-v1"
     ERROR_OWNER_SEARCH_ATTRIBUTE = "dsl-error-owner-search-attribute-v1"
     ERROR_OWNER_CONTROL_FLOW = "dsl-error-owner-control-flow-v1"
     ERROR_OWNER_AFTER_HANDLER = "dsl-error-owner-after-handler-v1"

@@ -29,9 +29,10 @@ from tracecat.agent.cancellation import (
 )
 from tracecat.agent.common.config import (
     TRACECAT__AGENT_SANDBOX_MEMORY_MB,
-    TRACECAT__DISABLE_NSJAIL,
+    TRACECAT__EXECUTOR_BACKEND,
 )
 from tracecat.agent.common.exceptions import (
+    AgentPreparationError,
     AgentSandboxExecutionError,
     AgentSandboxValidationError,
 )
@@ -251,7 +252,7 @@ class AgentExecutorResult(BaseModel):
     diagnostic: LLMErrorDiagnostics | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
-    sentry_capture: PlatformErrorCapture | None = Field(default=None, exclude=True)
+    sentry_capture: PlatformErrorCapture | None = Field(default=None)
     # None means a legacy activity result did not carry this field. The
     # workflow treats unknown failed results as already terminal-emitted so old
     # histories keep their original command shape.
@@ -417,7 +418,7 @@ class SandboxedAgentExecutor:
             phase=phase,
             elapsed_ms=round((perf_counter() - self._turn_started_at) * 1000, 2),
             session_id=self.input.session_id,
-            sandbox_mode="direct" if TRACECAT__DISABLE_NSJAIL else "nsjail",
+            sandbox_mode=TRACECAT__EXECUTOR_BACKEND.value,
             **extra,
         )
 
@@ -535,11 +536,11 @@ class SandboxedAgentExecutor:
             Direct route for the model config.
 
         Raises:
-            AgentSandboxValidationError: If passthrough is enabled without a
+            AgentPreparationError: If passthrough is enabled without a
                 resolved base URL.
         """
         if base_url is None:
-            raise AgentSandboxValidationError(
+            raise AgentPreparationError(
                 "Model provider passthrough requires a resolved base_url."
             )
         return LLMRoute(
@@ -930,6 +931,7 @@ class SandboxedAgentExecutor:
                             proxy_error.classification,
                             diagnostic=proxy_error.diagnostic,
                         )
+                        result.sentry_capture = proxy_error.sentry_capture
                         result.terminal_stream_error_emitted = (
                             await handler.emit_terminal_error(
                                 proxy_error.message,
@@ -961,7 +963,7 @@ class SandboxedAgentExecutor:
                         else:
                             path_mapping = build_agent_sandbox_path_mapping(
                                 session_id=str(self.input.session_id),
-                                disable_nsjail=TRACECAT__DISABLE_NSJAIL,
+                                disable_nsjail=not TRACECAT__EXECUTOR_BACKEND.uses_nsjail,
                             )
                             await self._persist_agent_filesystem(
                                 path_mapping.host_work_dir
@@ -1023,10 +1025,10 @@ class SandboxedAgentExecutor:
                     # runtime or the turn ends on its own, mirroring the Redis
                     # cancel-signal watcher. The runtime dedupes the interrupt
                     # if both paths deliver it.
-                    while not await broker.interrupt_turn(
-                        str(self.input.session_id), reason
-                    ):
-                        if broker_task is None or broker_task.done():
+                    while broker_task is not None and not broker_task.done():
+                        if await broker.interrupt_turn(
+                            str(self.input.session_id), reason
+                        ):
                             break
                         await asyncio.sleep(TURN_CANCEL_POLL_INTERVAL_SECONDS)
                     if broker_task is not None:
@@ -1037,7 +1039,9 @@ class SandboxedAgentExecutor:
                     session_id=self.input.session_id,
                 )
                 await broker.cancel_turn(str(self.input.session_id))
-                raise
+                # A missed shutdown deadline does not change the cancelled
+                # outcome into an executor failure. Preserve any runtime error
+                # already recorded by the handler below.
             except asyncio.CancelledError:
                 await broker.cancel_turn(str(self.input.session_id))
                 raise
@@ -1098,11 +1102,9 @@ class SandboxedAgentExecutor:
                 # interrupt_turn no-ops while the runtime is still starting up
                 # (work-dir hydration) - retry until it reaches a live runtime
                 # or the turn ends on its own.
-                while not await broker.interrupt_turn(
-                    str(self.input.session_id), reason
-                ):
-                    if broker_task.done():
-                        return
+                while not broker_task.done():
+                    if await broker.interrupt_turn(str(self.input.session_id), reason):
+                        break
                     await asyncio.sleep(TURN_CANCEL_POLL_INTERVAL_SECONDS)
                 # Interrupt delivered; the runtime should now wind down and
                 # complete the broker turn. Exceptions surface to the main
@@ -1464,7 +1466,7 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
     3. Returns runtime status, approval state, usage, and terminal output
 
     The broker-owned transport decides whether the runtime shim runs with nsjail
-    or as a direct subprocess based on TRACECAT__DISABLE_NSJAIL.
+    or as a direct subprocess based on TRACECAT__EXECUTOR_BACKEND.
 
     The activity is designed to be retryable - if it fails due to transient
     errors, Temporal will retry it. Session state is persisted on success
@@ -1485,9 +1487,9 @@ async def run_agent_activity(input: AgentExecutorInput) -> AgentExecutorResult:
         }
     )
 
-    sandbox_mode = "direct" if TRACECAT__DISABLE_NSJAIL else "nsjail"
     activity.heartbeat(
-        f"Starting agent execution ({sandbox_mode} mode): {input.session_id}"
+        f"Starting agent execution ({TRACECAT__EXECUTOR_BACKEND.value} mode): "
+        f"{input.session_id}"
     )
 
     with platform_span("tracecat.agent.prepare"):

@@ -11,6 +11,7 @@ from tracecat.dsl.common import DSLInput
 from tracecat.exceptions import (
     BuiltinRegistryHasNoSelectionError,
     EntitlementRequired,
+    RegistryLockAmbiguousActionError,
     RegistryLockInvalidDataError,
     TracecatValidationError,
 )
@@ -250,6 +251,14 @@ async def resolve_registry_lock_activity(
             kind=RuntimeErrorKind.WORKFLOW_BOOTSTRAP_UNAVAILABLE,
             message="Tracecat is still preparing the workflow registry",
             retry_disposition=RetryDisposition.RETRYABLE,
+            cause=e,
+        )
+        raise_application_error_from_classification(classification, e.detail)
+    except RegistryLockAmbiguousActionError as e:
+        classification = RuntimeErrorClassification.user(
+            kind=RuntimeErrorKind.REGISTRY_LOCK_ACTION_AMBIGUOUS,
+            message=str(e),
+            retry_disposition=RetryDisposition.NON_RETRYABLE,
             cause=e,
         )
         raise_application_error_from_classification(classification, e.detail)
