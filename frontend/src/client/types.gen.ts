@@ -16423,6 +16423,10 @@ export type $OpenApiTs = {
          */
         201: WorkspaceMembershipRead
         /**
+         * User is not a member of the organization.
+         */
+        404: unknown
+        /**
          * User is already a member of the workspace.
          */
         409: unknown
