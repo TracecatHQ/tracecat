@@ -1,0 +1,95 @@
+frontend/src/components/organization/org-rbac-groups.test.tsx
+  s_398c8b1c67f67e::t_e90eee98811f52 124,129-132,135-136,151-157,160,164,168,170,174,185-187,190,193,195
+  s_398c8b1c67f67e::t_40d6110bfe5d6c 1-123,125-128,133-134,137-144,148-150,158-159,161-163,165-167,169,171-173,175-177,181-184,188-189,191-192,194,196-222
+  s_b78ad323bed3d4::t_bbf91c724e3447 145-147,178-180
+frontend/src/lib/hooks.tsx
+  s_398c8b1c67f67e::t_be788fb06ba0d9 6924,6978,7032-7047,7084,7144,7187
+  s_398c8b1c67f67e::t_463eeb7ee2081f 6650,6698,6834,6876
+tracecat/organization/service.py
+  s_241bcc0302c2a0::t_ec6179f8f0aeaa 3,12,47,51,53,74-75
+  s_b78ad323bed3d4::t_dbae16ee2c664d 9-11,13-20
+  s_b78ad323bed3d4::t_bd29210f4d2a6b 427
+  s_241bcc0302c2a0::t_9890bff0bac6b4 304,437,440-445,448-450,467-472,475-477
+  s_b78ad323bed3d4::t_dc88645c450b56 21,37,48,57,73,78,238-239,241-243,245-249,251-259,262-263,280-282,284-286,288,290,310,313,323,379,426
+  s_241bcc0302c2a0::t_ad47b164707a6b 240,244,250,260-261,264-279,283,287,289,291-303,305-309,311-312,314-322,324-378,380-425,428-436,438-439,446-447,451-466,473-474,478-526
+  s_241bcc0302c2a0::t_130d4aeb05eccd 527
+frontend/src/client/schemas.gen.ts
+  s_398c8b1c67f67e::t_4c0419ce3ee8dc 20806-20822,20875-20895,20966-20982,20989-21004
+  s_398c8b1c67f67e::t_b8c7fb52f4652e 21005
+frontend/src/client/types.gen.ts
+  s_398c8b1c67f67e::t_4c0419ce3ee8dc 6420-6424,6435-6437,6446-6450,6453-6456
+  s_398c8b1c67f67e::t_ddb3a4aadc47ef 6457
+frontend/src/components/organization/abbreviated-badge-list.tsx
+  s_398c8b1c67f67e::t_4d8ce5ef86386f 1-52
+tests/unit/api/test_api_organization_members.py
+  s_b78ad323bed3d4::t_bd29210f4d2a6b 235
+  s_241bcc0302c2a0::t_6b44e682c7188c 115,117-120,123-128,130,139,148,150-153,156-157,159,167,171,180,183,189-194,198-199,205-214,216-219,223-225,227-229,241-247,249
+  s_b78ad323bed3d4::t_28ae14d32f96b2 19-24,168-170,172-179,181-182,184-188,195-197,200-204,215,220-222,226,230-234,236-240,248
+tracecat/organization/router.py
+  s_241bcc0302c2a0::t_161045b19314bc 309-310,329,331,336-337,339-341
+  s_b78ad323bed3d4::t_dc88645c450b56 299,311-313
+  s_241bcc0302c2a0::t_4c28ab76475fed 35,304
+  s_241bcc0302c2a0::t_9890bff0bac6b4 328
+frontend/src/components/organization/org-rbac-groups.tsx
+  s_398c8b1c67f67e::t_57b417d7c21d62 7,84-85,104-106,167,359,549,551,612,634,637,641,717,719,756-787,789-790,793-806
+  s_398c8b1c67f67e::t_eb6d4f9dad243c 27-31,75,82-83,86-99,125-130,164-166,189-234,278,342-343,346,352-353,356,358,360,397-401,403,420-424,433-437,441-445,448,452-548,552-611,613-633,635-636,638-640,642-696,710-716,718,720-755,788,792,811-817,882
+  s_398c8b1c67f67e::t_e29c218bc94c67 26,791
+frontend/src/lib/rbac.test.ts
+  s_398c8b1c67f67e::t_4d8ce5ef86386f 3-4,7,70-97
+frontend/src/lib/rbac.ts
+  s_398c8b1c67f67e::t_4d8ce5ef86386f 300-328
+tracecat/organization/schemas.py
+  s_b78ad323bed3d4::t_dc88645c450b56 6,20-35,38-42,53-55
+  s_241bcc0302c2a0::t_b212a676b8791f 36-37,52
+frontend/src/components/organization/abbreviated-badge-list.test.tsx
+  s_398c8b1c67f67e::t_4d8ce5ef86386f 1-4,6-12,14-28,30-33,36-42,45-48
+frontend/src/components/organization/org-members-table.tsx
+  s_398c8b1c67f67e::t_55ca1eb4e76e36 813-817
+  s_398c8b1c67f67e::t_463eeb7ee2081f 7,103-118,153,215,224-226,520-543
+  s_398c8b1c67f67e::t_c364646582cf3c 5,22,72-77,98-100,220,231,512-519,544-588
+  s_398c8b1c67f67e::t_57b417d7c21d62 6,884-885,890,892,894,916,918,939-963
+  s_398c8b1c67f67e::t_3372c4dca475b3 589
+tests/unit/test_organization_service.py
+  s_241bcc0302c2a0::t_e07ce1ebdb3ec1 2428-2430,2436,2438,2440-2443
+  s_241bcc0302c2a0::t_4c28ab76475fed 2342-2347,2350,2575-2580,2582,2605-2614
+  s_b78ad323bed3d4::t_bd29210f4d2a6b 2341,2489,2509
+  s_b78ad323bed3d4::t_f3ee6e91374d2c 2208-2340,2349,2351,2354-2365,2367-2368,2370-2374,2395-2400,2459,2461,2472-2488,2490-2508,2514-2524
+  s_b78ad323bed3d4::t_cb4ea7d8c98c4c 2366
+  s_241bcc0302c2a0::t_9890bff0bac6b4 2376,2431
+  s_241bcc0302c2a0::t_b643495e58ad14 2352-2353,2369,2375,2377-2394,2401-2427,2433-2435,2437,2439,2444-2458,2460,2462-2471
+  s_b78ad323bed3d4::t_0f0b2151bedd50 8,2348,2510-2513
+  s_241bcc0302c2a0::t_547b5665865dbb 2432
+  s_241bcc0302c2a0::t_b72d019bb7234f 2525-2574,2581,2583-2604,2615-2621
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bafebb7d03f88044c81523d78a52ebda3fcc39d4",
+  "prompts": {},
+  "sessions": {
+    "s_241bcc0302c2a0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10de5-b660-7943-bc47-ed4e379d64cb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_398c8b1c67f67e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3dd9f2e-1b77-4a42-9ceb-4805e7016552",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_b78ad323bed3d4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10d91-ad2b-7a90-9681-0a5c5082ba5a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
