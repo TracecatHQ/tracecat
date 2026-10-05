@@ -33,6 +33,7 @@ from tracecat.storage.object import (
     CollectionObject,
     ObjectRef,
     StoredObjectValidator,
+    content_addressed_key,
     retrieve_stored_object,
 )
 from tracecat.storage.utils import (
@@ -50,7 +51,7 @@ if TYPE_CHECKING:
 
 
 class CollectionManifestV1(BaseModel):
-    """Manifest stored at {prefix}/manifest.json.
+    """Manifest stored at {prefix}/manifest.{sha256}.json.
 
     Contains references to all chunk blobs and collection metadata.
     """
@@ -75,7 +76,7 @@ class CollectionManifestV1(BaseModel):
 
 
 class CollectionChunkV1(BaseModel):
-    """Chunk stored at {prefix}/chunks/{index}.json.
+    """Chunk stored at {prefix}/chunks/{index}.{sha256}.json.
 
     Contains a slice of items from the collection.
     """
@@ -146,8 +147,9 @@ async def store_collection(
             start=start,
             items=chunk_items,
         )
-        chunk_key = f"{prefix}/chunks/{i}.json"
         chunk_bytes = serialize_object(chunk.model_dump())
+        chunk_sha256 = compute_sha256(chunk_bytes)
+        chunk_key = content_addressed_key(f"{prefix}/chunks/{i}.json", chunk_sha256)
 
         await blob.upload_file(
             content=chunk_bytes,
@@ -161,7 +163,7 @@ async def store_collection(
             bucket=bucket,
             key=chunk_key,
             size_bytes=len(chunk_bytes),
-            sha256=compute_sha256(chunk_bytes),
+            sha256=chunk_sha256,
             content_type="application/json",
             encoding="json",
         )
@@ -174,8 +176,9 @@ async def store_collection(
         element_kind=element_kind,
         chunks=chunk_refs,
     )
-    manifest_key = f"{prefix}/manifest.json"
     manifest_bytes = serialize_object(manifest.model_dump())
+    manifest_sha256 = compute_sha256(manifest_bytes)
+    manifest_key = content_addressed_key(f"{prefix}/manifest.json", manifest_sha256)
 
     await blob.upload_file(
         content=manifest_bytes,
@@ -189,7 +192,7 @@ async def store_collection(
         bucket=bucket,
         key=manifest_key,
         size_bytes=len(manifest_bytes),
-        sha256=compute_sha256(manifest_bytes),
+        sha256=manifest_sha256,
         content_type="application/json",
         encoding="json",
     )
