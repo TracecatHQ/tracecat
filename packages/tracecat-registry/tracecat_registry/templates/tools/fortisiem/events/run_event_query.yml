@@ -76,7 +76,8 @@ definition:
         verify_ssl: ${{ inputs.verify_ssl }}
         poll_interval: ${{ inputs.poll_interval }}
         poll_max_attempts: ${{ inputs.poll_max_attempts }}
-        poll_condition: 'lambda r: not str(r["data"]).strip().isdigit() or int(str(r["data"]).strip()) >= 100'
+        # Progress is a bare percentage; keep polling only while it is a number below 100.
+      poll_condition: 'lambda r: not str(r["data"]).strip().isdigit() or int(str(r["data"]).strip()) >= 100'
     - ref: get_results
       action: core.http_request
       args:
