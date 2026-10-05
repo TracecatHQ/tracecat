@@ -1,0 +1,81 @@
+type: action
+definition:
+  title: Get system info
+  description: Get hostname, model, serial, PAN-OS version, and content versions with the XML API operational command show system info.
+  display_group: Palo Alto PAN-OS (NGFW and Panorama)
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/run-operational-mode-commands-api
+  namespace: tools.paloalto_panos
+  name: get_system_info
+  secrets:
+    - name: paloalto_panos
+      keys:
+        - PANOS_API_KEY
+  expects:
+    target:
+      type: str | None
+      description: Managed firewall serial number when calling through Panorama.
+      default: null
+    base_url:
+      type: str | None
+      description: Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable paloalto_panos.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+      default: true
+  steps:
+    - ref: get
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.paloalto_panos.base_url }}/api/
+        method: POST
+        headers:
+          X-PAN-KEY: ${{ SECRETS.paloalto_panos.PANOS_API_KEY }}
+        form_data: '${{ {"type": "op", "cmd": "<show><system><info></info></system></show>", "target": inputs.target} if inputs.target else {"type": "op", "cmd": "<show><system><info></info></system></show>"} }}'
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: parse
+      action: core.script.run_python
+      args:
+        inputs:
+          text: ${{ steps.get.result.data }}
+        script: |
+          import xml.etree.ElementTree as ET
+          from xml.sax.saxutils import escape, quoteattr
+
+          def _to_dict(element):
+              node = {f"@{key}": value for key, value in element.attrib.items()}
+              children = list(element)
+              text = (element.text or "").strip()
+              if not children:
+                  if not node:
+                      return text
+                  if text:
+                      node["#text"] = text
+                  return node
+              for child in children:
+                  value = _to_dict(child)
+                  if child.tag in node:
+                      if not isinstance(node[child.tag], list):
+                          node[child.tag] = [node[child.tag]]
+                      node[child.tag].append(value)
+                  else:
+                      node[child.tag] = value
+              return node
+
+          def _parse(text):
+              root = ET.fromstring(text)
+              if root.get("status") != "success":
+                  detail = ET.tostring(root, encoding="unicode")[:2000]
+                  raise ValueError(f"PAN-OS XML API error (code {root.get('code')}): {detail}")
+              return root
+
+          def _lines(element):
+              if element is None:
+                  return []
+              return [line.strip() for line in element.itertext() if line.strip()]
+
+
+          def main(text):
+              system = _parse(text).find("./result/system")
+              return _to_dict(system) if system is not None else {}
+  returns: ${{ steps.parse.result }}

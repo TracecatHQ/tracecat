@@ -1,0 +1,112 @@
+type: action
+definition:
+  title: Get security rule
+  description: Get a security rule by ID with GET /config/security/v1/security-rules/{id}, or by name and container with GET /config/security/v1/security-rules?name=.
+  display_group: Palo Alto Strata Cloud Manager (SCM)
+  doc_url: https://pan.dev/scm/api/config/ngfw/security/get-security-rules-by-id/
+  namespace: tools.paloalto_scm
+  name: get_security_rule
+  secrets:
+    - type: oauth
+      provider_id: paloalto_scm
+      grant_type: client_credentials
+  expects:
+    rule_id:
+      type: str | None
+      description: Security rule UUID.
+      default: null
+    name:
+      type: str | None
+      description: Name of the security rule. Requires exactly one of folder, snippet, or device. Ignored when the ID is set.
+      default: null
+    folder:
+      type: str | None
+      description: Folder that contains the configuration, e.g. Shared or All Firewalls. Provide exactly one of folder, snippet, or device.
+      default: null
+    snippet:
+      type: str | None
+      description: Snippet that contains the configuration. Provide exactly one of folder, snippet, or device.
+      default: null
+    device:
+      type: str | None
+      description: Device (serial number) that contains the configuration. Provide exactly one of folder, snippet, or device.
+      default: null
+    position:
+      type: enum["pre", "post"]
+      description: Rulebase position of the rule.
+      default: pre
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable paloalto_scm.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: build_request
+      action: core.script.run_python
+      args:
+        inputs:
+          object_id: ${{ inputs.rule_id }}
+          name: ${{ inputs.name }}
+          folder: ${{ inputs.folder }}
+          snippet: ${{ inputs.snippet }}
+          device: ${{ inputs.device }}
+          position: ${{ inputs.position }}
+        script: |
+          from urllib.parse import quote
+
+          def _container(folder, snippet, device):
+              container = {
+                  key: value
+                  for key, value in (("folder", folder), ("snippet", snippet), ("device", device))
+                  if value
+              }
+              if len(container) != 1:
+                  raise ValueError("Provide exactly one of folder, snippet, or device.")
+              return container
+
+
+          def main(object_id, name, folder, snippet, device, position):
+              params = {}
+              params["position"] = position
+              if object_id:
+                  return {"path": "/config/security/v1/security-rules/" + quote(str(object_id), safe=""), "params": params}
+              if not name:
+                  raise ValueError("Provide either the object ID or a name with its container.")
+              params.update(_container(folder, snippet, device))
+              params["name"] = name
+              return {"path": "/config/security/v1/security-rules", "params": params}
+    - ref: get
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.paloalto_scm.base_url || "https://api.strata.paloaltonetworks.com" }}${{ steps.build_request.result.path }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.paloalto_scm_oauth.PALOALTO_SCM_SERVICE_TOKEN }}
+          Accept: application/json
+        params: ${{ steps.build_request.result.params }}
+        ignore_status_codes:
+          - 404
+    - ref: normalize
+      action: core.script.run_python
+      args:
+        inputs:
+          response: ${{ steps.get.result }}
+          kind: security rule
+          ident: ${{ inputs.rule_id || inputs.name }}
+        script: |
+          def _first(response):
+              if response.get("status_code") == 404:
+                  return None
+              data = response.get("data")
+              if isinstance(data, dict) and isinstance(data.get("data"), list):
+                  data = data["data"][0] if data["data"] else None
+              if isinstance(data, dict) and data.get("id"):
+                  return data
+              return None
+
+
+          def main(response, kind, ident):
+              found = _first(response)
+              if found is None:
+                  raise ValueError(f"{kind} {ident} not found: {{response.get('data')}}")
+              return found
+  returns: ${{ steps.normalize.result }}

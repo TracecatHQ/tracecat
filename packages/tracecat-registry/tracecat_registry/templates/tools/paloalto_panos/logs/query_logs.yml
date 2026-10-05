@@ -1,0 +1,183 @@
+type: action
+definition:
+  title: Query logs
+  description: Search firewall or Panorama logs with the XML API log retrieval (type=log). Submits the query, polls the log job until it finishes, and returns the log entries.
+  display_group: Palo Alto PAN-OS (NGFW and Panorama)
+  doc_url: https://pan.dev/panos/docs/xmlapi/
+  namespace: tools.paloalto_panos
+  name: query_logs
+  secrets:
+    - name: paloalto_panos
+      keys:
+        - PANOS_API_KEY
+  expects:
+    log_type:
+      type: enum["traffic", "threat", "url", "wildfire", "data", "auth", "decryption", "userid", "gtp", "tunnel", "sctp", "system", "config", "hipmatch", "globalprotect"]
+      description: Log type to search.
+    query:
+      type: str | None
+      description: Log filter, e.g. (addr.src in 203.0.113.10) and (severity geq high).
+      default: null
+    nlogs:
+      type: int
+      description: Number of logs to return (max 5000).
+      default: 100
+    skip:
+      type: int
+      description: Number of logs to skip.
+      default: 0
+    direction:
+      type: enum["backward", "forward"]
+      description: backward returns newest first.
+      default: backward
+    poll_interval:
+      type: float
+      description: Seconds between log job polls.
+      default: 2
+    poll_max_attempts:
+      type: int
+      description: Maximum number of log job polls.
+      default: 30
+    base_url:
+      type: str | None
+      description: Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable paloalto_panos.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+      default: true
+  steps:
+    - ref: build_query
+      action: core.script.run_python
+      args:
+        inputs:
+          log_type: ${{ inputs.log_type }}
+          query: ${{ inputs.query }}
+          nlogs: ${{ inputs.nlogs }}
+          skip: ${{ inputs.skip }}
+          direction: ${{ inputs.direction }}
+        script: |
+          def main(log_type, query, nlogs, skip, direction):
+              form = {"type": "log", "log-type": log_type, "nlogs": str(nlogs), "skip": str(skip), "dir": direction}
+              if query:
+                  form["query"] = query
+              return form
+    - ref: submit
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.paloalto_panos.base_url }}/api/
+        method: POST
+        headers: &id001
+          X-PAN-KEY: ${{ SECRETS.paloalto_panos.PANOS_API_KEY }}
+        form_data: ${{ steps.build_query.result }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: build_fetch
+      action: core.script.run_python
+      args:
+        inputs:
+          text: ${{ steps.submit.result.data }}
+        script: |
+          import xml.etree.ElementTree as ET
+          from xml.sax.saxutils import escape, quoteattr
+
+          def _to_dict(element):
+              node = {f"@{key}": value for key, value in element.attrib.items()}
+              children = list(element)
+              text = (element.text or "").strip()
+              if not children:
+                  if not node:
+                      return text
+                  if text:
+                      node["#text"] = text
+                  return node
+              for child in children:
+                  value = _to_dict(child)
+                  if child.tag in node:
+                      if not isinstance(node[child.tag], list):
+                          node[child.tag] = [node[child.tag]]
+                      node[child.tag].append(value)
+                  else:
+                      node[child.tag] = value
+              return node
+
+          def _parse(text):
+              root = ET.fromstring(text)
+              if root.get("status") != "success":
+                  detail = ET.tostring(root, encoding="unicode")[:2000]
+                  raise ValueError(f"PAN-OS XML API error (code {root.get('code')}): {detail}")
+              return root
+
+          def _lines(element):
+              if element is None:
+                  return []
+              return [line.strip() for line in element.itertext() if line.strip()]
+
+
+          def main(text):
+              job_id = _parse(text).findtext("./result/job")
+              if not job_id:
+                  raise ValueError(f"PAN-OS did not return a log job: {text[:2000]}")
+              return {"type": "log", "action": "get", "job-id": job_id}
+    - ref: poll
+      action: core.http_poll
+      args:
+        url: ${{ inputs.base_url || VARS.paloalto_panos.base_url }}/api/
+        method: POST
+        headers: *id001
+        form_data: ${{ steps.build_fetch.result }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        poll_condition: 'lambda r: "<status>FIN</status>" in str(r["data"]) or ''status="error"'' in str(r["data"])'
+        poll_interval: ${{ inputs.poll_interval }}
+        poll_max_attempts: ${{ inputs.poll_max_attempts }}
+    - ref: parse
+      action: core.script.run_python
+      args:
+        inputs:
+          text: ${{ steps.poll.result.data }}
+        script: |
+          import xml.etree.ElementTree as ET
+          from xml.sax.saxutils import escape, quoteattr
+
+          def _to_dict(element):
+              node = {f"@{key}": value for key, value in element.attrib.items()}
+              children = list(element)
+              text = (element.text or "").strip()
+              if not children:
+                  if not node:
+                      return text
+                  if text:
+                      node["#text"] = text
+                  return node
+              for child in children:
+                  value = _to_dict(child)
+                  if child.tag in node:
+                      if not isinstance(node[child.tag], list):
+                          node[child.tag] = [node[child.tag]]
+                      node[child.tag].append(value)
+                  else:
+                      node[child.tag] = value
+              return node
+
+          def _parse(text):
+              root = ET.fromstring(text)
+              if root.get("status") != "success":
+                  detail = ET.tostring(root, encoding="unicode")[:2000]
+                  raise ValueError(f"PAN-OS XML API error (code {root.get('code')}): {detail}")
+              return root
+
+          def _lines(element):
+              if element is None:
+                  return []
+              return [line.strip() for line in element.itertext() if line.strip()]
+
+
+          def main(text):
+              root = _parse(text)
+              logs = root.find("./result/log/logs")
+              entries = [] if logs is None else [_to_dict(entry) for entry in logs.findall("entry")]
+              return {
+                  "count": len(entries),
+                  "progress": logs.get("progress") if logs is not None else None,
+                  "entries": entries,
+              }
+  returns: ${{ steps.parse.result }}

@@ -1,0 +1,36 @@
+type: action
+definition:
+  title: Quarantine device
+  description: Add a GlobalProtect device to the quarantine list with POST /config/objects/v1/quarantined-devices. Quarantined devices can be blocked by security rules that match the quarantine list.
+  display_group: Palo Alto Strata Cloud Manager (SCM)
+  doc_url: https://pan.dev/scm/api/config/ngfw/objects/create-quarantined-devices/
+  namespace: tools.paloalto_scm
+  name: create_quarantined_device
+  secrets:
+    - type: oauth
+      provider_id: paloalto_scm
+      grant_type: client_credentials
+  expects:
+    host_id:
+      type: str
+      description: Device host ID.
+    serial_number:
+      type: str | None
+      description: Device serial number.
+      default: null
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable paloalto_scm.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: create
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.paloalto_scm.base_url || "https://api.strata.paloaltonetworks.com" }}/config/objects/v1/quarantined-devices
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.paloalto_scm_oauth.PALOALTO_SCM_SERVICE_TOKEN }}
+          Accept: application/json
+          Content-Type: application/json
+        payload: '${{ {"host_id": inputs.host_id, "serial_number": inputs.serial_number} if inputs.serial_number else {"host_id": inputs.host_id} }}'
+  returns: ${{ steps.create.result.data }}

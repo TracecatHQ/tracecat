@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: List snippets
+  description: List snippets with GET /config/setup/v1/snippets, following offset pagination until the limit is reached.
+  display_group: Palo Alto Strata Cloud Manager (SCM)
+  doc_url: https://pan.dev/scm/api/config/ngfw/setup/list-snippets/
+  namespace: tools.paloalto_scm
+  name: list_snippets
+  secrets:
+    - type: oauth
+      provider_id: paloalto_scm
+      grant_type: client_credentials
+  expects:
+    limit:
+      type: int
+      description: Maximum number of items to return across all pages.
+      default: 1000
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable paloalto_scm.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: list
+      action: core.http_paginate
+      args:
+        url: ${{ inputs.base_url || VARS.paloalto_scm.base_url || "https://api.strata.paloaltonetworks.com" }}/config/setup/v1/snippets
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.paloalto_scm_oauth.PALOALTO_SCM_SERVICE_TOKEN }}
+          Accept: application/json
+        params:
+          limit: 200
+          offset: 0
+        items_jsonpath: $.data
+        stop_condition: 'lambda r: len(r["data"].get("data") or []) == 0 or r["data"].get("offset", 0) + len(r["data"].get("data") or []) >= r["data"].get("total", 0)'
+        next_request: 'lambda r: {"params": {"limit": 200, "offset": r["data"].get("offset", 0) + len(r["data"].get("data") or [])}}'
+        limit: ${{ inputs.limit }}
+  returns: ${{ steps.list.result }}

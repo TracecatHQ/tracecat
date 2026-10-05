@@ -1,0 +1,107 @@
+type: action
+definition:
+  title: Update security rule
+  description: Update a security rule in the candidate configuration. Reads it with GET /restapi/{version}/Policies/${{ "SecurityPreRules" if inputs.rulebase == "pre" else ("SecurityPostRules" if inputs.rulebase == "post" else "SecurityRules") }}?name=, applies only the provided fields, and writes it with PUT. Commit to apply the change.
+  display_group: Palo Alto PAN-OS (NGFW and Panorama)
+  doc_url: https://pan.dev/panos/docs/restapi/
+  namespace: tools.paloalto_panos
+  name: update_security_rule
+  secrets:
+    - name: paloalto_panos
+      keys:
+        - PANOS_API_KEY
+  expects:
+    name:
+      type: str
+      description: Name of the security rule.
+    updates:
+      type: dict[str, Any]
+      description: 'API-native entry fields to replace, e.g. {"action": "deny", "source": {"member": ["blocked-ips"]}}.'
+    location:
+      type: enum["vsys", "shared", "device-group"]
+      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      default: vsys
+    vsys:
+      type: str
+      description: Virtual system when location is vsys.
+      default: vsys1
+    device_group:
+      type: str | None
+      description: Panorama device group when location is device-group.
+      default: null
+    rulebase:
+      type: enum["security", "pre", "post"]
+      description: Rulebase. Use security on firewalls, pre or post on Panorama.
+      default: security
+    base_url:
+      type: str | None
+      description: Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable paloalto_panos.base_url.
+      default: null
+    api_version:
+      type: str | None
+      description: PAN-OS REST API version, e.g. v11.1 or v10.2. Falls back to the workspace variable paloalto_panos.api_version, then v11.1.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+      default: true
+  steps:
+    - ref: get
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.paloalto_panos.base_url }}/restapi/${{ inputs.api_version || VARS.paloalto_panos.api_version || "v11.1" }}/Policies/${{ "SecurityPreRules" if inputs.rulebase == "pre" else ("SecurityPostRules" if inputs.rulebase == "post" else "SecurityRules") }}
+        method: GET
+        headers:
+          X-PAN-KEY: ${{ SECRETS.paloalto_panos.PANOS_API_KEY }}
+          Accept: application/json
+        params:
+          location: ${{ inputs.location }}
+          vsys: ${{ inputs.vsys if inputs.location == "vsys" else None }}
+          device-group: ${{ inputs.device_group if inputs.location == "device-group" else None }}
+          name: ${{ inputs.name }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          response: ${{ steps.get.result }}
+          updates: ${{ inputs.updates }}
+        script: |
+          def _entries(response):
+              data = response.get("data") if isinstance(response, dict) else None
+              if not isinstance(data, dict) or response.get("status_code") == 404:
+                  return []
+              entries = (data.get("result") or {}).get("entry") or []
+              return entries if isinstance(entries, list) else [entries]
+
+          def _sanitize(entry):
+              # Location attributes are read-only metadata; keep only @name and config.
+              body = {key: value for key, value in entry.items() if not key.startswith("@")}
+              body["@name"] = entry["@name"]
+              return body
+
+
+          def main(response, updates):
+              entries = _entries(response)
+              if not entries:
+                  raise ValueError(f"Security rule not found: {response.get('data')}")
+              body = _sanitize(entries[0])
+              body.update(updates)
+              return {"entry": body}
+    - ref: update
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.paloalto_panos.base_url }}/restapi/${{ inputs.api_version || VARS.paloalto_panos.api_version || "v11.1" }}/Policies/${{ "SecurityPreRules" if inputs.rulebase == "pre" else ("SecurityPostRules" if inputs.rulebase == "post" else "SecurityRules") }}
+        method: PUT
+        headers:
+          X-PAN-KEY: ${{ SECRETS.paloalto_panos.PANOS_API_KEY }}
+          Accept: application/json
+          Content-Type: application/json
+        params:
+          location: ${{ inputs.location }}
+          vsys: ${{ inputs.vsys if inputs.location == "vsys" else None }}
+          device-group: ${{ inputs.device_group if inputs.location == "device-group" else None }}
+          name: ${{ inputs.name }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.update.result.data }}

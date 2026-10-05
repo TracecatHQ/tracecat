@@ -1,0 +1,38 @@
+type: action
+definition:
+  title: List quarantined devices
+  description: List GlobalProtect devices on the quarantine list with GET /config/objects/v1/quarantined-devices, optionally filtered by host ID or serial number.
+  display_group: Palo Alto Strata Cloud Manager (SCM)
+  doc_url: https://pan.dev/scm/api/config/ngfw/objects/list-quarantined-devices/
+  namespace: tools.paloalto_scm
+  name: list_quarantined_devices
+  secrets:
+    - type: oauth
+      provider_id: paloalto_scm
+      grant_type: client_credentials
+  expects:
+    host_id:
+      type: str | None
+      description: Filter by device host ID.
+      default: null
+    serial_number:
+      type: str | None
+      description: Filter by device serial number.
+      default: null
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable paloalto_scm.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: list
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.paloalto_scm.base_url || "https://api.strata.paloaltonetworks.com" }}/config/objects/v1/quarantined-devices
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.paloalto_scm_oauth.PALOALTO_SCM_SERVICE_TOKEN }}
+          Accept: application/json
+        params:
+          host_id: ${{ inputs.host_id }}
+          serial_number: ${{ inputs.serial_number }}
+  returns: ${{ steps.list.result.data }}

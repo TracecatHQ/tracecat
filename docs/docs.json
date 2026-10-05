@@ -312,6 +312,8 @@
               "tools/opensearch",
               "tools/osv",
               "tools/pagerduty",
+              "tools/paloalto_panos",
+              "tools/paloalto_scm",
               "tools/panther",
               "tools/phishlabs",
               "tools/pipe0",

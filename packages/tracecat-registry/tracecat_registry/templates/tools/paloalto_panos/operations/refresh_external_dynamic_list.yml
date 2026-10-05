@@ -1,0 +1,118 @@
+type: action
+definition:
+  title: Refresh external dynamic list
+  description: Refresh an external dynamic list now instead of waiting for its schedule, with the XML API operational command request system external-list refresh. Use after updating an EDL feed with new indicators.
+  display_group: Palo Alto PAN-OS (NGFW and Panorama)
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/run-operational-mode-commands-api
+  namespace: tools.paloalto_panos
+  name: refresh_external_dynamic_list
+  secrets:
+    - name: paloalto_panos
+      keys:
+        - PANOS_API_KEY
+  expects:
+    name:
+      type: str
+      description: External dynamic list name.
+    list_type:
+      type: enum["ip", "domain", "url"]
+      description: External dynamic list type.
+      default: ip
+    vsys:
+      type: str | None
+      description: Virtual system on multi-vsys firewalls.
+      default: null
+    target:
+      type: str | None
+      description: Managed firewall serial number when calling through Panorama.
+      default: null
+    base_url:
+      type: str | None
+      description: Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable paloalto_panos.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+      default: true
+  steps:
+    - ref: build_command
+      action: core.script.run_python
+      args:
+        inputs:
+          name: ${{ inputs.name }}
+          list_type: ${{ inputs.list_type }}
+          vsys: ${{ inputs.vsys }}
+          target: ${{ inputs.target }}
+        script: |
+          def _form(form, vsys=None, target=None):
+              if vsys:
+                  form["vsys"] = vsys
+              if target:
+                  form["target"] = target
+              return form
+
+          from xml.sax.saxutils import escape
+
+          def main(name, list_type, vsys, target):
+              if list_type not in ("ip", "domain", "url"):
+                  raise ValueError(f"Unsupported list_type: {list_type}")
+              cmd = (
+                  "<request><system><external-list><refresh><type>"
+                  f"<{list_type}><name>{escape(name)}</name></{list_type}>"
+                  "</type></refresh></external-list></system></request>"
+              )
+              return _form({"type": "op", "cmd": cmd}, vsys, target)
+    - ref: refresh
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.paloalto_panos.base_url }}/api/
+        method: POST
+        headers:
+          X-PAN-KEY: ${{ SECRETS.paloalto_panos.PANOS_API_KEY }}
+        form_data: ${{ steps.build_command.result }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: parse
+      action: core.script.run_python
+      args:
+        inputs:
+          text: ${{ steps.refresh.result.data }}
+        script: |
+          import xml.etree.ElementTree as ET
+          from xml.sax.saxutils import escape, quoteattr
+
+          def _to_dict(element):
+              node = {f"@{key}": value for key, value in element.attrib.items()}
+              children = list(element)
+              text = (element.text or "").strip()
+              if not children:
+                  if not node:
+                      return text
+                  if text:
+                      node["#text"] = text
+                  return node
+              for child in children:
+                  value = _to_dict(child)
+                  if child.tag in node:
+                      if not isinstance(node[child.tag], list):
+                          node[child.tag] = [node[child.tag]]
+                      node[child.tag].append(value)
+                  else:
+                      node[child.tag] = value
+              return node
+
+          def _parse(text):
+              root = ET.fromstring(text)
+              if root.get("status") != "success":
+                  detail = ET.tostring(root, encoding="unicode")[:2000]
+                  raise ValueError(f"PAN-OS XML API error (code {root.get('code')}): {detail}")
+              return root
+
+          def _lines(element):
+              if element is None:
+                  return []
+              return [line.strip() for line in element.itertext() if line.strip()]
+
+
+          def main(text):
+              return _to_dict(_parse(text))
+  returns: ${{ steps.parse.result }}

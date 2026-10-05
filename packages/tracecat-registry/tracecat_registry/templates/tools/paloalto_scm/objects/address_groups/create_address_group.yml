@@ -1,0 +1,97 @@
+type: action
+definition:
+  title: Create address group
+  description: Create a static or dynamic address group in the candidate configuration with POST /config/objects/v1/address-groups. Provide exactly one of static_members or dynamic_filter. Push the candidate configuration to apply the change.
+  display_group: Palo Alto Strata Cloud Manager (SCM)
+  doc_url: https://pan.dev/scm/api/config/ngfw/objects/create-address-groups/
+  namespace: tools.paloalto_scm
+  name: create_address_group
+  secrets:
+    - type: oauth
+      provider_id: paloalto_scm
+      grant_type: client_credentials
+  expects:
+    name:
+      type: str
+      description: Address group name (max 63 characters).
+    folder:
+      type: str | None
+      description: Folder that contains the configuration, e.g. Shared or All Firewalls. Provide exactly one of folder, snippet, or device.
+      default: null
+    snippet:
+      type: str | None
+      description: Snippet that contains the configuration. Provide exactly one of folder, snippet, or device.
+      default: null
+    device:
+      type: str | None
+      description: Device (serial number) that contains the configuration. Provide exactly one of folder, snippet, or device.
+      default: null
+    static_members:
+      type: list[str] | None
+      description: Names of address objects or groups for a static group.
+      default: null
+    dynamic_filter:
+      type: str | None
+      description: Tag filter for a dynamic group, e.g. 'quarantine' or 'malicious' and 'external'.
+      default: null
+    description:
+      type: str | None
+      description: Address group description.
+      default: null
+    tags:
+      type: list[str] | None
+      description: Tags to apply to the group.
+      default: null
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable paloalto_scm.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          name: ${{ inputs.name }}
+          folder: ${{ inputs.folder }}
+          snippet: ${{ inputs.snippet }}
+          device: ${{ inputs.device }}
+          static_members: ${{ inputs.static_members }}
+          dynamic_filter: ${{ inputs.dynamic_filter }}
+          description: ${{ inputs.description }}
+          tags: ${{ inputs.tags }}
+        script: |
+          def _container(folder, snippet, device):
+              container = {
+                  key: value
+                  for key, value in (("folder", folder), ("snippet", snippet), ("device", device))
+                  if value
+              }
+              if len(container) != 1:
+                  raise ValueError("Provide exactly one of folder, snippet, or device.")
+              return container
+
+
+          def main(name, folder, snippet, device, static_members, dynamic_filter, description, tags):
+              if bool(static_members) == bool(dynamic_filter):
+                  raise ValueError("Provide exactly one of static_members or dynamic_filter.")
+              payload = {"name": name, **_container(folder, snippet, device)}
+              if static_members:
+                  payload["static"] = static_members
+              else:
+                  payload["dynamic"] = {"filter": dynamic_filter}
+              if description is not None:
+                  payload["description"] = description
+              if tags:
+                  payload["tag"] = tags
+              return payload
+    - ref: create
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.paloalto_scm.base_url || "https://api.strata.paloaltonetworks.com" }}/config/objects/v1/address-groups
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.paloalto_scm_oauth.PALOALTO_SCM_SERVICE_TOKEN }}
+          Accept: application/json
+          Content-Type: application/json
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create.result.data }}

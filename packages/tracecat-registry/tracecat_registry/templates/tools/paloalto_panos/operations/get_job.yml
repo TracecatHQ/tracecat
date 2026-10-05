@@ -1,0 +1,111 @@
+type: action
+definition:
+  title: Get job
+  description: Get a job (commit, push, content install) with the XML API operational command show jobs id. Returns normalized status, result, done, and succeeded fields.
+  display_group: Palo Alto PAN-OS (NGFW and Panorama)
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/run-operational-mode-commands-api
+  namespace: tools.paloalto_panos
+  name: get_job
+  secrets:
+    - name: paloalto_panos
+      keys:
+        - PANOS_API_KEY
+  expects:
+    job_id:
+      type: str
+      description: Job ID, e.g. the job_id returned by commit.
+    base_url:
+      type: str | None
+      description: Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable paloalto_panos.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+      default: true
+  steps:
+    - ref: build_command
+      action: core.script.run_python
+      args:
+        inputs:
+          job_id: ${{ inputs.job_id }}
+        script: |
+          def main(job_id):
+              return {"type": "op", "cmd": f"<show><jobs><id>{int(job_id)}</id></jobs></show>"}
+    - ref: get
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.paloalto_panos.base_url }}/api/
+        method: POST
+        headers:
+          X-PAN-KEY: ${{ SECRETS.paloalto_panos.PANOS_API_KEY }}
+        form_data: ${{ steps.build_command.result }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: parse
+      action: core.script.run_python
+      args:
+        inputs:
+          text: ${{ steps.get.result.data }}
+          job_id: ${{ inputs.job_id }}
+        script: |
+          import xml.etree.ElementTree as ET
+          from xml.sax.saxutils import escape, quoteattr
+
+          def _to_dict(element):
+              node = {f"@{key}": value for key, value in element.attrib.items()}
+              children = list(element)
+              text = (element.text or "").strip()
+              if not children:
+                  if not node:
+                      return text
+                  if text:
+                      node["#text"] = text
+                  return node
+              for child in children:
+                  value = _to_dict(child)
+                  if child.tag in node:
+                      if not isinstance(node[child.tag], list):
+                          node[child.tag] = [node[child.tag]]
+                      node[child.tag].append(value)
+                  else:
+                      node[child.tag] = value
+              return node
+
+          def _parse(text):
+              root = ET.fromstring(text)
+              if root.get("status") != "success":
+                  detail = ET.tostring(root, encoding="unicode")[:2000]
+                  raise ValueError(f"PAN-OS XML API error (code {root.get('code')}): {detail}")
+              return root
+
+          def _lines(element):
+              if element is None:
+                  return []
+              return [line.strip() for line in element.itertext() if line.strip()]
+
+          def _job(root, job_id, raise_on_failure):
+              job = root.find("./result/job")
+              if job is None:
+                  raise ValueError(f"PAN-OS job {job_id} not found")
+              status = job.findtext("status")
+              result = job.findtext("result")
+              done = status == "FIN"
+              succeeded = done and result == "OK"
+              details = _lines(job.find("details"))
+              if raise_on_failure and done and not succeeded:
+                  raise ValueError(f"PAN-OS job {job_id} finished with result {result}: {' '.join(details)}")
+              return {
+                  "job_id": job.findtext("id") or str(job_id),
+                  "type": job.findtext("type"),
+                  "status": status,
+                  "result": result,
+                  "progress": job.findtext("progress"),
+                  "details": details,
+                  "done": done,
+                  "succeeded": succeeded,
+                  "job": _to_dict(job),
+              }
+
+
+          def main(text, job_id):
+              return _job(_parse(text), job_id, False)
+  returns: ${{ steps.parse.result }}

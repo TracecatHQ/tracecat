@@ -1,0 +1,168 @@
+type: action
+definition:
+  title: Create security rule
+  description: Create a security rule in the candidate configuration with POST /config/security/v1/security-rules?position=. The rule is added at the bottom of the rulebase; use move_security_rule to place it. Push the candidate configuration to apply the change.
+  display_group: Palo Alto Strata Cloud Manager (SCM)
+  doc_url: https://pan.dev/scm/api/config/ngfw/security/create-security-rules/
+  namespace: tools.paloalto_scm
+  name: create_security_rule
+  secrets:
+    - type: oauth
+      provider_id: paloalto_scm
+      grant_type: client_credentials
+  expects:
+    name:
+      type: str
+      description: Security rule name.
+    folder:
+      type: str | None
+      description: Folder that contains the configuration, e.g. Shared or All Firewalls. Provide exactly one of folder, snippet, or device.
+      default: null
+    snippet:
+      type: str | None
+      description: Snippet that contains the configuration. Provide exactly one of folder, snippet, or device.
+      default: null
+    device:
+      type: str | None
+      description: Device (serial number) that contains the configuration. Provide exactly one of folder, snippet, or device.
+      default: null
+    position:
+      type: enum["pre", "post"]
+      description: Rulebase position of the rule.
+      default: pre
+    action:
+      type: enum["allow", "deny", "drop", "reset-client", "reset-server", "reset-both"]
+      description: Action to take when the rule matches.
+    from_zones:
+      type: list[str]
+      description: Source zones. Defaults to any.
+      default:
+        - any
+    to_zones:
+      type: list[str]
+      description: Destination zones. Defaults to any.
+      default:
+        - any
+    source:
+      type: list[str]
+      description: Source addresses, address groups, or EDLs. Defaults to any.
+      default:
+        - any
+    destination:
+      type: list[str]
+      description: Destination addresses, address groups, or EDLs. Defaults to any.
+      default:
+        - any
+    source_user:
+      type: list[str]
+      description: Source users or groups. Defaults to any.
+      default:
+        - any
+    application:
+      type: list[str]
+      description: Applications. Defaults to any.
+      default:
+        - any
+    service:
+      type: list[str]
+      description: Services, e.g. application-default or any. Defaults to any.
+      default:
+        - any
+    category:
+      type: list[str]
+      description: URL categories. Defaults to any.
+      default:
+        - any
+    description:
+      type: str | None
+      description: Rule description.
+      default: null
+    tags:
+      type: list[str] | None
+      description: Tags to apply to the rule.
+      default: null
+    disabled:
+      type: bool
+      description: Create the rule disabled.
+      default: false
+    log_setting:
+      type: str | None
+      description: Log forwarding profile.
+      default: null
+    profile_group:
+      type: str | None
+      description: Security profile group to attach.
+      default: null
+    extra_fields:
+      type: dict[str, Any] | None
+      description: Additional API-native rule fields, e.g. negate_source or schedule.
+      default: null
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable paloalto_scm.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          name: ${{ inputs.name }}
+          folder: ${{ inputs.folder }}
+          snippet: ${{ inputs.snippet }}
+          device: ${{ inputs.device }}
+          action: ${{ inputs.action }}
+          from_zones: ${{ inputs.from_zones }}
+          to_zones: ${{ inputs.to_zones }}
+          source: ${{ inputs.source }}
+          destination: ${{ inputs.destination }}
+          source_user: ${{ inputs.source_user }}
+          application: ${{ inputs.application }}
+          service: ${{ inputs.service }}
+          category: ${{ inputs.category }}
+          description: ${{ inputs.description }}
+          tags: ${{ inputs.tags }}
+          disabled: ${{ inputs.disabled }}
+          log_setting: ${{ inputs.log_setting }}
+          profile_group: ${{ inputs.profile_group }}
+          extra_fields: ${{ inputs.extra_fields }}
+        script: |
+          def _container(folder, snippet, device):
+              container = {
+                  key: value
+                  for key, value in (("folder", folder), ("snippet", snippet), ("device", device))
+                  if value
+              }
+              if len(container) != 1:
+                  raise ValueError("Provide exactly one of folder, snippet, or device.")
+              return container
+
+
+          def main(name, folder, snippet, device, action, from_zones, to_zones, source, destination, source_user, application, service, category, description, tags, disabled, log_setting, profile_group, extra_fields):
+              payload = {"name": name, **_container(folder, snippet, device), "action": action}
+              for key, value in (("from", from_zones), ("to", to_zones), ("source", source), ("destination", destination), ("source_user", source_user), ("application", application), ("service", service), ("category", category)):
+                  payload[key] = value or ["any"]
+              if description is not None:
+                  payload["description"] = description
+              if tags:
+                  payload["tag"] = tags
+              if disabled:
+                  payload["disabled"] = True
+              if log_setting is not None:
+                  payload["log_setting"] = log_setting
+              if profile_group is not None:
+                  payload["profile_setting"] = {"group": [profile_group]}
+              payload.update(extra_fields or {})
+              return payload
+    - ref: create
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.paloalto_scm.base_url || "https://api.strata.paloaltonetworks.com" }}/config/security/v1/security-rules
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.paloalto_scm_oauth.PALOALTO_SCM_SERVICE_TOKEN }}
+          Accept: application/json
+          Content-Type: application/json
+        params:
+          position: ${{ inputs.position }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.create.result.data }}
