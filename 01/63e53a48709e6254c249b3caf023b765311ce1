@@ -1,0 +1,48 @@
+tests/unit/test_organization_service.py
+  s_0057b206ae4869::t_ef136150bb7e87 94-133,2568-2574,2581-2587,2589-2602,2609,2614-2638,2648,2650,2655-2659,2714
+  s_0057b206ae4869::t_ee5e504e26e9cd 2575-2580,2588,2603-2608,2610-2613,2639-2647,2649,2651-2654
+frontend/src/components/organization/org-rbac-groups.tsx
+  s_398c8b1c67f67e::t_eb40bcc01ab7aa 590,665,667,729-730,751,834-838
+tests/unit/api/test_api_organization_members.py
+  s_0057b206ae4869::t_4b484903a4025e 4,187
+tracecat/organization/service.py
+  s_0057b206ae4869::t_3ec49c78309a7f 467-468
+  s_0057b206ae4869::t_ee5e504e26e9cd 511
+  s_0057b206ae4869::t_4b484903a4025e 460,462-466,470-471,474-476,482-510,512,571-576
+frontend/src/components/organization/org-rbac-groups.test.tsx
+  s_398c8b1c67f67e::t_9b67ee66693842 258-318
+frontend/src/lib/hooks.tsx
+  s_398c8b1c67f67e::t_eb40bcc01ab7aa 2220-2224,2360-2361,6760-6778,6946-6949,6954,6959-6960,6962-6963,6966,6974-6976
+  s_398c8b1c67f67e::t_9b67ee66693842 6950-6953,6955-6958
+tracecat/db/models.py
+  s_0057b206ae4869::t_4b484903a4025e 5731
+alembic/versions/76748dd71c3d_add_invitation_groups.py
+  s_0057b206ae4869::t_4b484903a4025e 51-55,67-70
+  s_0057b206ae4869::t_6728f9527e6780 50
+frontend/src/lib/hooks-rbac-groups.test.tsx
+  s_398c8b1c67f67e::t_47f83f5bf973f3 1-147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0163e53a48709e6254c249b3caf023b765311ce1",
+  "prompts": {},
+  "sessions": {
+    "s_0057b206ae4869": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e24-1c12-7f10-a15a-5193ee3b31bd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_398c8b1c67f67e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3dd9f2e-1b77-4a42-9ceb-4805e7016552",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
