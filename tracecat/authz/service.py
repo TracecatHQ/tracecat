@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
 
+from tracecat.audit.logger import audit_log
 from tracecat.auth.types import Role
-from tracecat.authz.controls import ensure_can_grant_scopes, require_scope
+from tracecat.authz.controls import ensure_can_grant_scopes, has_scope, require_scope
 from tracecat.authz.membership import (
     drop_workspace_membership_mirror,
     lock_role_changes,
@@ -48,6 +49,7 @@ from tracecat.service import BaseService
 from tracecat.workspaces.schemas import (
     WorkspaceMember,
     WorkspaceMembershipCreate,
+    WorkspaceMembershipUpdate,
 )
 
 
@@ -280,7 +282,7 @@ class MembershipService(BaseService):
         # One row per member; a workspace grant wins over an org-wide one, and a
         # direct grant over a group one.
         statement = (
-            select(User, DBRole.name, paths.c.via_group)
+            select(User, DBRole.id, DBRole.name, paths.c.via_group, paths.c.org_wide)
             .select_from(paths)
             .join(User, User.id == paths.c.user_id)  # pyright: ignore[reportArgumentType]
             .join(DBRole, DBRole.id == paths.c.role_id)
@@ -295,10 +297,51 @@ class MembershipService(BaseService):
                 first_name=user.first_name,
                 last_name=user.last_name,
                 email=user.email,
+                role_id=role_id,
                 role_name=role_name,
                 via_group=via_group,
+                org_wide=org_wide,
             )
-            for user, role_name, via_group in rows
+            for user, role_id, role_name, via_group, org_wide in rows
+        ]
+
+    @require_scope(
+        "workspace:member:invite",
+        "workspace:member:update",
+        "org:member:invite",
+        require_all=False,
+    )
+    async def list_assignable_roles(self, workspace_id: WorkspaceID) -> list[DBRole]:
+        """List roles the caller may grant on this workspace.
+
+        Mirrors the grant checks: workspace-level roles within the caller's
+        live scope ceiling.
+        """
+        if self.role is None:
+            raise TracecatAuthorizationError("Operator context is required")
+        organization_id = await self._workspace_organization_id(workspace_id)
+        statement = (
+            select(DBRole)
+            .where(
+                DBRole.organization_id == organization_id,
+                DBRole.slug.is_distinct_from(ORG_MEMBER_ROLE_SLUG),
+                ~exists().where(
+                    RoleScope.role_id == DBRole.id,
+                    RoleScope.scope_id == Scope.id,
+                    Scope.name.startswith("org:"),
+                ),
+            )
+            .options(selectinload(DBRole.scopes))
+            .order_by(DBRole.name)
+        )
+        roles = (await self.session.execute(statement)).scalars().all()
+        if self.role.is_platform_superuser:
+            return list(roles)
+        granter_scopes = await resolve_granter_scopes(self.session, self.role)
+        return [
+            role
+            for role in roles
+            if all(has_scope(granter_scopes, scope.name) for scope in role.scopes)
         ]
 
     async def get_membership(
@@ -323,19 +366,25 @@ class MembershipService(BaseService):
         if organization_id is None:
             raise TracecatValidationError("Workspace or default role not found")
 
-        # Membership grants the editor role, so it is a role grant: apply the
-        # same scope ceiling as invitations rather than assigning unconditionally.
+        # Membership is a role grant: apply the same scope ceiling as
+        # invitations rather than assigning unconditionally.
         if self.role is None:
             raise TracecatAuthorizationError(
                 "Operator context is required to grant workspace membership"
             )
         await lock_role_changes(self.session, organization_id)
         try:
-            granted_role = await resolve_grantable_role_by_slug(
-                self.session, self.role, organization_id, "workspace-editor"
-            )
+            if params.role_id is None:
+                granted_role = await resolve_grantable_role_by_slug(
+                    self.session, self.role, organization_id, "workspace-editor"
+                )
+            else:
+                granted_role = await resolve_grantable_role(
+                    self.session, self.role, organization_id, params.role_id
+                )
         except TracecatNotFoundError as e:
-            raise TracecatValidationError("Workspace or default role not found") from e
+            raise TracecatValidationError("Workspace or role not found") from e
+        ensure_role_fits_scope(granted_role, workspace_id)
         role_id = granted_role.id
 
         existing_member_stmt = select(Membership.user_id).where(
@@ -370,6 +419,88 @@ class MembershipService(BaseService):
             )
         )
         await self.session.commit()
+
+    @require_scope("workspace:member:update")
+    @audit_log(
+        resource_type="rbac_user_assignment",
+        action="update",
+        resource_id_attr="user_id",
+    )
+    async def update_membership_role(
+        self,
+        workspace_id: WorkspaceID,
+        user_id: UserID,
+        params: WorkspaceMembershipUpdate,
+    ) -> None:
+        """Change a member's direct role on a workspace.
+
+        Raises:
+            TracecatAuthorizationError: If the caller targets themselves, or the
+                member's current or new role exceeds the caller's scopes.
+            TracecatConflictError: If the role comes from a group or an
+                org-wide grant.
+            TracecatNotFoundError: If the user is not a workspace member.
+        """
+        if self.role is None:
+            raise TracecatAuthorizationError("Operator context is required")
+        if user_id == self.role.user_id:
+            raise TracecatAuthorizationError("You cannot change your own role")
+        organization_id = await self._workspace_organization_id(workspace_id)
+        await lock_role_changes(self.session, organization_id)
+
+        assignment = (
+            await self.session.execute(
+                select(UserRoleAssignment)
+                .where(
+                    UserRoleAssignment.workspace_id == workspace_id,
+                    UserRoleAssignment.user_id == user_id,
+                )
+                .options(
+                    selectinload(UserRoleAssignment.role).selectinload(DBRole.scopes)
+                )
+            )
+        ).scalar_one_or_none()
+        if assignment is None:
+            if await workspace_membership_exists(
+                self.session, user_id=user_id, workspace_id=workspace_id
+            ):
+                raise TracecatConflictError(
+                    "User's role comes from a group or an organization-wide grant. "
+                    "Change it in organization settings."
+                )
+            raise TracecatNotFoundError("User is not a member of this workspace")
+
+        # Changing a role also revokes the old one, so it must fit the ceiling too.
+        if not self.role.is_platform_superuser:
+            granter_scopes = await resolve_granter_scopes(self.session, self.role)
+            current_scopes = [scope.name for scope in assignment.role.scopes]
+            if not all(has_scope(granter_scopes, name) for name in current_scopes):
+                raise TracecatAuthorizationError(
+                    "Cannot change the role of a member with scopes you do not hold"
+                )
+        new_role = await resolve_grantable_role(
+            self.session, self.role, organization_id, params.role_id
+        )
+        ensure_role_fits_scope(new_role, workspace_id)
+        assignment.role_id = new_role.id
+        await self.session.commit()
+
+    async def _workspace_organization_id(
+        self, workspace_id: WorkspaceID
+    ) -> OrganizationID:
+        """Return the workspace's organization.
+
+        Raises:
+            TracecatNotFoundError: If the workspace does not exist.
+        """
+        organization_id = (
+            await self.session.execute(
+                select(Workspace.organization_id).where(Workspace.id == workspace_id)
+            )
+        ).scalar_one_or_none()
+        if organization_id is None:
+            raise TracecatNotFoundError("Workspace not found")
+        return organization_id
 
     @require_scope("workspace:member:remove")
     async def delete_membership(

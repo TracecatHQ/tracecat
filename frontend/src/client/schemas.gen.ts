@@ -38119,6 +38119,45 @@ export const $WorkflowUpdate = {
   title: "WorkflowUpdate",
 } as const
 
+export const $WorkspaceAssignableRole = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    slug: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+  },
+  type: "object",
+  required: ["id", "name", "slug", "description"],
+  title: "WorkspaceAssignableRole",
+} as const
+
 export const $WorkspaceCreate = {
   properties: {
     name: {
@@ -38189,6 +38228,11 @@ export const $WorkspaceMember = {
       format: "email",
       title: "Email",
     },
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
     role_name: {
       type: "string",
       title: "Role Name",
@@ -38197,6 +38241,10 @@ export const $WorkspaceMember = {
       type: "boolean",
       title: "Via Group",
     },
+    org_wide: {
+      type: "boolean",
+      title: "Org Wide",
+    },
   },
   type: "object",
   required: [
@@ -38204,8 +38252,10 @@ export const $WorkspaceMember = {
     "first_name",
     "last_name",
     "email",
+    "role_id",
     "role_name",
     "via_group",
+    "org_wide",
   ],
   title: "WorkspaceMember",
 } as const
@@ -38216,6 +38266,18 @@ export const $WorkspaceMembershipCreate = {
       type: "string",
       format: "uuid",
       title: "User Id",
+    },
+    role_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Role Id",
     },
   },
   type: "object",
@@ -38239,6 +38301,19 @@ export const $WorkspaceMembershipRead = {
   type: "object",
   required: ["user_id", "workspace_id"],
   title: "WorkspaceMembershipRead",
+} as const
+
+export const $WorkspaceMembershipUpdate = {
+  properties: {
+    role_id: {
+      type: "string",
+      format: "uuid",
+      title: "Role Id",
+    },
+  },
+  type: "object",
+  required: ["role_id"],
+  title: "WorkspaceMembershipUpdate",
 } as const
 
 export const $WorkspaceRead = {

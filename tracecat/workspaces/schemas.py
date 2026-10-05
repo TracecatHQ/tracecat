@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import NotRequired, Self, TypedDict
+from uuid import UUID
 
 from pydantic import EmailStr, Field, computed_field, field_validator, model_validator
 
@@ -141,9 +142,11 @@ class WorkspaceMember(Schema):
     first_name: str | None
     last_name: str | None
     email: EmailStr
+    role_id: UUID
     role_name: str
-    # Group-derived roles are managed in org settings, not here.
+    # Group-derived and org-wide roles are managed in org settings, not here.
     via_group: bool
+    org_wide: bool
 
 
 class WorkspaceRead(Schema):
@@ -167,6 +170,19 @@ WorkspaceSettingsUpdate.model_rebuild()
 # === Membership === #
 class WorkspaceMembershipCreate(Schema):
     user_id: UserID
+    # Defaults to workspace-editor when omitted.
+    role_id: UUID | None = None
+
+
+class WorkspaceMembershipUpdate(Schema):
+    role_id: UUID
+
+
+class WorkspaceAssignableRole(Schema):
+    id: UUID
+    name: str
+    slug: str | None
+    description: str | None
 
 
 class WorkspaceMembershipRead(Schema):

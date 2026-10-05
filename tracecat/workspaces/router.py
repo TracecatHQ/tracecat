@@ -25,10 +25,12 @@ from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.logger import logger
 from tracecat.settings.service import workspace_allows_error_details
 from tracecat.workspaces.schemas import (
+    WorkspaceAssignableRole,
     WorkspaceCreate,
     WorkspaceMember,
     WorkspaceMembershipCreate,
     WorkspaceMembershipRead,
+    WorkspaceMembershipUpdate,
     WorkspaceRead,
     WorkspaceReadMinimal,
     WorkspaceSearch,
@@ -233,6 +235,30 @@ async def list_workspace_members(
     return memberships
 
 
+@router.get("/{workspace_id}/assignable-roles")
+@require_scope(
+    "workspace:member:invite",
+    "workspace:member:update",
+    "org:member:invite",
+    require_all=False,
+)
+async def list_workspace_assignable_roles(
+    *,
+    role: WorkspaceUserInPath,
+    workspace_id: WorkspaceID,
+    session: AsyncDBSession,
+) -> list[WorkspaceAssignableRole]:
+    """List roles the caller may grant on this workspace."""
+    service = MembershipService(session, role=role)
+    roles = await service.list_assignable_roles(workspace_id)
+    return [
+        WorkspaceAssignableRole(
+            id=r.id, name=r.name, slug=r.slug, description=r.description
+        )
+        for r in roles
+    ]
+
+
 @router.get("/{workspace_id}/memberships")
 @require_scope("workspace:member:read")
 async def list_workspace_memberships(
@@ -322,6 +348,42 @@ async def get_workspace_membership(
         user_id=membership.user_id,
         workspace_id=membership.workspace_id,
     )
+
+
+@router.patch(
+    "/{workspace_id}/memberships/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        status.HTTP_404_NOT_FOUND: {
+            "description": "User is not a member of the workspace."
+        },
+        status.HTTP_409_CONFLICT: {
+            "description": "Role comes from a group or an organization-wide grant."
+        },
+    },
+)
+@require_scope("workspace:member:update")
+async def update_workspace_membership(
+    *,
+    role: WorkspaceUserInPath,
+    workspace_id: WorkspaceID,
+    user_id: UserID,
+    params: WorkspaceMembershipUpdate,
+    session: AsyncDBSession,
+) -> None:
+    """Change a member's direct role on a workspace."""
+    service = MembershipService(session, role=role)
+    try:
+        # TracecatAuthorizationError propagates to the API-wide 403 handler.
+        await service.update_membership_role(workspace_id, user_id, params=params)
+    except TracecatNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except TracecatConflictError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
 
 
 @router.delete(

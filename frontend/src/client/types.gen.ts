@@ -11438,6 +11438,13 @@ export type WorkflowUpdate = {
   error_handler?: string | null
 }
 
+export type WorkspaceAssignableRole = {
+  id: string
+  name: string
+  slug: string | null
+  description: string | null
+}
+
 export type WorkspaceCreate = {
   name: string
   settings?: WorkspaceSettingsUpdate | null
@@ -11449,17 +11456,24 @@ export type WorkspaceMember = {
   first_name: string | null
   last_name: string | null
   email: string
+  role_id: string
   role_name: string
   via_group: boolean
+  org_wide: boolean
 }
 
 export type WorkspaceMembershipCreate = {
   user_id: string
+  role_id?: string | null
 }
 
 export type WorkspaceMembershipRead = {
   user_id: string
   workspace_id: string
+}
+
+export type WorkspaceMembershipUpdate = {
+  role_id: string
 }
 
 export type WorkspaceRead = {
@@ -11906,6 +11920,13 @@ export type WorkspacesListWorkspaceMembersData = {
 
 export type WorkspacesListWorkspaceMembersResponse = Array<WorkspaceMember>
 
+export type WorkspacesListWorkspaceAssignableRolesData = {
+  workspaceId: string
+}
+
+export type WorkspacesListWorkspaceAssignableRolesResponse =
+  Array<WorkspaceAssignableRole>
+
 export type WorkspacesListWorkspaceMembershipsData = {
   workspaceId: string
 }
@@ -11927,6 +11948,14 @@ export type WorkspacesGetWorkspaceMembershipData = {
 }
 
 export type WorkspacesGetWorkspaceMembershipResponse = WorkspaceMembershipRead
+
+export type WorkspacesUpdateWorkspaceMembershipData = {
+  requestBody: WorkspaceMembershipUpdate
+  userId: string
+  workspaceId: string
+}
+
+export type WorkspacesUpdateWorkspaceMembershipResponse = void
 
 export type WorkspacesDeleteWorkspaceMembershipData = {
   userId: string
@@ -16401,6 +16430,21 @@ export type $OpenApiTs = {
       }
     }
   }
+  "/workspaces/{workspace_id}/assignable-roles": {
+    get: {
+      req: WorkspacesListWorkspaceAssignableRolesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<WorkspaceAssignableRole>
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
   "/workspaces/{workspace_id}/memberships": {
     get: {
       req: WorkspacesListWorkspaceMembershipsData
@@ -16445,6 +16489,27 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: WorkspaceMembershipRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    patch: {
+      req: WorkspacesUpdateWorkspaceMembershipData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * User is not a member of the workspace.
+         */
+        404: unknown
+        /**
+         * Role comes from a group or an organization-wide grant.
+         */
+        409: unknown
         /**
          * Validation Error
          */

@@ -1071,6 +1071,8 @@ import type {
   WorkspacesGetWorkspaceMembershipData,
   WorkspacesGetWorkspaceMembershipResponse,
   WorkspacesGetWorkspaceResponse,
+  WorkspacesListWorkspaceAssignableRolesData,
+  WorkspacesListWorkspaceAssignableRolesResponse,
   WorkspacesListWorkspaceMembersData,
   WorkspacesListWorkspaceMembershipsData,
   WorkspacesListWorkspaceMembershipsResponse,
@@ -1079,6 +1081,8 @@ import type {
   WorkspacesSearchWorkspacesData,
   WorkspacesSearchWorkspacesResponse,
   WorkspacesUpdateWorkspaceData,
+  WorkspacesUpdateWorkspaceMembershipData,
+  WorkspacesUpdateWorkspaceMembershipResponse,
   WorkspacesUpdateWorkspaceResponse,
 } from "./types.gen"
 
@@ -1493,6 +1497,29 @@ export const workspacesListWorkspaceMembers = (
 }
 
 /**
+ * List Workspace Assignable Roles
+ * List roles the caller may grant on this workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @returns WorkspaceAssignableRole Successful Response
+ * @throws ApiError
+ */
+export const workspacesListWorkspaceAssignableRoles = (
+  data: WorkspacesListWorkspaceAssignableRolesData
+): CancelablePromise<WorkspacesListWorkspaceAssignableRolesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/assignable-roles",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
  * List Workspace Memberships
  * List memberships of a workspace.
  * @param data The data for the request.
@@ -1563,6 +1590,36 @@ export const workspacesGetWorkspaceMembership = (
       user_id: data.userId,
     },
     errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Workspace Membership
+ * Change a member's direct role on a workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.userId
+ * @param data.requestBody
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const workspacesUpdateWorkspaceMembership = (
+  data: WorkspacesUpdateWorkspaceMembershipData
+): CancelablePromise<WorkspacesUpdateWorkspaceMembershipResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/memberships/{user_id}",
+    path: {
+      workspace_id: data.workspaceId,
+      user_id: data.userId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      404: "User is not a member of the workspace.",
+      409: "Role comes from a group or an organization-wide grant.",
       422: "Validation Error",
     },
   })

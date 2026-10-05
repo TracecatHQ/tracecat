@@ -6,15 +6,17 @@ import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import {
   ApiError,
-  type RoleReadWithScopes,
   usersSearchUser,
+  type WorkspaceAssignableRole,
   type WorkspaceRead,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { toast } from "@/components/ui/use-toast"
 import { AddWorkspaceMember } from "@/components/workspaces/add-workspace-member"
-import { useWorkspaceMutations } from "@/hooks/use-workspace"
-import { useRbacRoles } from "@/lib/hooks"
+import {
+  useWorkspaceAssignableRoles,
+  useWorkspaceMutations,
+} from "@/hooks/use-workspace"
 
 jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
@@ -30,11 +32,8 @@ jest.mock("@/components/ui/use-toast", () => ({
 }))
 
 jest.mock("@/hooks/use-workspace", () => ({
+  useWorkspaceAssignableRoles: jest.fn(),
   useWorkspaceMutations: jest.fn(),
-}))
-
-jest.mock("@/lib/hooks", () => ({
-  useRbacRoles: jest.fn(),
 }))
 
 jest.mock("@/components/ui/dialog", () => ({
@@ -60,9 +59,22 @@ jest.mock("@/components/ui/dialog", () => ({
 
 const WORKSPACE = { id: "ws-1", name: "SecOps" } as WorkspaceRead
 const EDITOR_ROLE_ID = "33333333-3333-3333-3333-333333333333"
-const ROLES = [
-  { id: EDITOR_ROLE_ID, name: "Editor", slug: "workspace-editor", scopes: [] },
-] as unknown as RoleReadWithScopes[]
+const VIEWER_ROLE_ID = "44444444-4444-4444-4444-444444444444"
+const VIEWER: WorkspaceAssignableRole = {
+  id: VIEWER_ROLE_ID,
+  name: "Viewer",
+  slug: "workspace-viewer",
+  description: null,
+}
+const ROLES: WorkspaceAssignableRole[] = [
+  VIEWER,
+  {
+    id: EDITOR_ROLE_ID,
+    name: "Editor",
+    slug: "workspace-editor",
+    description: null,
+  },
+]
 
 const mockUseScopeCheck = useScopeCheck as jest.MockedFunction<
   typeof useScopeCheck
@@ -74,9 +86,18 @@ const mockToast = toast as jest.MockedFunction<typeof toast>
 const mockUseWorkspaceMutations = useWorkspaceMutations as jest.MockedFunction<
   typeof useWorkspaceMutations
 >
-const mockUseRbacRoles = useRbacRoles as jest.MockedFunction<
-  typeof useRbacRoles
->
+const mockUseAssignableRoles =
+  useWorkspaceAssignableRoles as jest.MockedFunction<
+    typeof useWorkspaceAssignableRoles
+  >
+
+function assignable(roles: WorkspaceAssignableRole[]) {
+  mockUseAssignableRoles.mockReturnValue({
+    assignableRoles: roles,
+    assignableRolesLoading: false,
+    assignableRolesError: null,
+  })
+}
 
 function notFound(): ApiError {
   return new ApiError(
@@ -108,10 +129,7 @@ beforeEach(() => {
     addMember,
     inviteMember,
   } as unknown as ReturnType<typeof useWorkspaceMutations>)
-  mockUseRbacRoles.mockReturnValue({
-    roles: ROLES,
-    isLoading: false,
-  } as unknown as ReturnType<typeof useRbacRoles>)
+  assignable(ROLES)
 })
 
 afterEach(() => {
@@ -153,7 +171,7 @@ describe("AddWorkspaceMember", () => {
     await waitFor(() =>
       expect(addMember).toHaveBeenCalledWith({
         workspaceId: WORKSPACE.id,
-        requestBody: { user_id: "user-1" },
+        requestBody: { user_id: "user-1", role_id: EDITOR_ROLE_ID },
       })
     )
     expect(inviteMember).not.toHaveBeenCalled()
@@ -189,6 +207,34 @@ describe("AddWorkspaceMember", () => {
         grants: [{ workspace_id: WORKSPACE.id, role_id: EDITOR_ROLE_ID }],
       })
     )
+  })
+
+  it("falls back to the first assignable role when editor is not grantable", async () => {
+    grantScopes(["workspace:member:invite"])
+    assignable([VIEWER])
+    mockUsersSearchUser.mockResolvedValue({
+      id: "user-1",
+    } as Awaited<ReturnType<typeof usersSearchUser>>)
+
+    await submitEmail("a@b.com")
+
+    await waitFor(() =>
+      expect(addMember).toHaveBeenCalledWith({
+        workspaceId: WORKSPACE.id,
+        requestBody: { user_id: "user-1", role_id: VIEWER_ROLE_ID },
+      })
+    )
+  })
+
+  it("blocks submission when the caller can grant no roles", async () => {
+    grantScopes(["workspace:member:invite"])
+    assignable([])
+    const user = userEvent.setup()
+    render(<AddWorkspaceMember workspace={WORKSPACE} />)
+    await user.click(screen.getByRole("button", { name: /Add member/ }))
+
+    const buttons = screen.getAllByRole("button", { name: /Add member/ })
+    expect(buttons[buttons.length - 1]).toBeDisabled()
   })
 
   it("asks for an org admin when the caller cannot invite to the organization", async () => {

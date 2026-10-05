@@ -17,7 +17,7 @@ from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.membership import ensure_member
 from tracecat.authz.scopes import ADMIN_SCOPES, EDITOR_SCOPES, ORG_ADMIN_SCOPES
-from tracecat.authz.seeding import seed_system_scopes
+from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
 from tracecat.authz.service import MembershipService
 from tracecat.db.models import (
     ExternalGroupMapping,
@@ -39,8 +39,12 @@ from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
     TracecatNotFoundError,
+    TracecatValidationError,
 )
-from tracecat.workspaces.schemas import WorkspaceMembershipCreate
+from tracecat.workspaces.schemas import (
+    WorkspaceMembershipCreate,
+    WorkspaceMembershipUpdate,
+)
 
 pytestmark = [pytest.mark.anyio, pytest.mark.usefixtures("db")]
 
@@ -139,8 +143,7 @@ def actor_role(
         organization_id=organization.id,
         workspace_id=workspace.id,
         service_id="tracecat-api",
-        # Presets no longer carry the add scope; API callers hold it explicitly.
-        scopes=ADMIN_SCOPES | {"workspace:member:invite"},
+        scopes=ADMIN_SCOPES,
     )
 
 
@@ -477,8 +480,7 @@ async def test_create_membership_allows_org_admin_inviter(
     actor_user: User,
     scoped_workspace_editor_role: DBRole,
 ) -> None:
-    """An org admin adds an org member without holding workspace:member:invite."""
-    assert "workspace:member:invite" not in ORG_ADMIN_SCOPES
+    """An org inviter adds an org member without holding workspace:member:invite."""
     org_admin_role = DBRole(
         id=uuid.uuid4(),
         name="Organization Admin",
@@ -512,7 +514,7 @@ async def test_create_membership_allows_org_admin_inviter(
             organization_id=organization.id,
             workspace_id=workspace.id,
             service_id="tracecat-api",
-            scopes=ORG_ADMIN_SCOPES,
+            scopes=ORG_ADMIN_SCOPES - {"workspace:member:invite"},
         ),
     )
     await service.create_membership(
@@ -768,4 +770,291 @@ async def test_delete_membership_rejects_when_org_wide_workspace_role_remains(
                 UserRoleAssignment.user_id == user_id,
                 UserRoleAssignment.workspace_id.is_(None),
             )
+        )
+
+
+@pytest.fixture
+async def preset_roles(
+    session: AsyncSession, organization: Organization
+) -> dict[str, DBRole]:
+    """Seed real preset roles and scopes, keyed by slug."""
+    await seed_system_scopes(session)
+    await seed_system_roles_for_org(session, organization.id)
+    await session.commit()
+    result = await session.execute(
+        select(DBRole).where(
+            DBRole.organization_id == organization.id, DBRole.slug.is_not(None)
+        )
+    )
+    return {role.slug: role for role in result.scalars().all() if role.slug}
+
+
+async def _custom_role(
+    session: AsyncSession, organization: Organization, name: str, scopes: set[str]
+) -> DBRole:
+    role = DBRole(name=name, slug=None, organization_id=organization.id)
+    session.add(role)
+    await session.flush()
+    result = await session.execute(select(Scope).where(Scope.name.in_(sorted(scopes))))
+    for scope in result.scalars().all():
+        session.add(RoleScope(role_id=role.id, scope_id=scope.id))
+    await session.commit()
+    return role
+
+
+async def _assign(
+    session: AsyncSession,
+    organization: Organization,
+    user: User,
+    role: DBRole,
+    workspace: Workspace | None,
+) -> None:
+    await ensure_member(session, organization.id, user.id)
+    session.add(
+        UserRoleAssignment(
+            organization_id=organization.id,
+            user_id=user.id,
+            workspace_id=workspace.id if workspace else None,
+            role_id=role.id,
+        )
+    )
+    await session.commit()
+
+
+@pytest.fixture
+async def workspace_admin_service(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    actor_user: User,
+    preset_roles: dict[str, DBRole],
+) -> MembershipService:
+    """A workspace admin with no org-level role."""
+    await _assign(
+        session, organization, actor_user, preset_roles["workspace-admin"], workspace
+    )
+    return MembershipService(
+        session=session,
+        role=Role(
+            type="user",
+            user_id=actor_user.id,
+            organization_id=organization.id,
+            workspace_id=workspace.id,
+            service_id="tracecat-api",
+            scopes=ADMIN_SCOPES,
+        ),
+    )
+
+
+async def _direct_role_id(
+    session: AsyncSession, user: User, workspace: Workspace
+) -> uuid.UUID:
+    return (
+        await session.execute(
+            select(UserRoleAssignment.role_id).where(
+                UserRoleAssignment.user_id == user.id,
+                UserRoleAssignment.workspace_id == workspace.id,
+            )
+        )
+    ).scalar_one()
+
+
+async def test_list_assignable_roles_mirrors_grant_checks(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    preset_roles: dict[str, DBRole],
+    workspace_admin_service: MembershipService,
+) -> None:
+    """Only workspace-level roles within the caller's ceiling are offered."""
+    await _custom_role(session, organization, "Above ceiling", {"workspace:create"})
+    # Floor scopes pass the ceiling, so only the org-level rule excludes this.
+    await _custom_role(session, organization, "Org reader", {"org:read"})
+    analyst = await _custom_role(session, organization, "Analyst", {"case:read"})
+
+    roles = await workspace_admin_service.list_assignable_roles(workspace.id)
+
+    assert {role.id for role in roles} == {
+        preset_roles["workspace-viewer"].id,
+        preset_roles["workspace-editor"].id,
+        preset_roles["workspace-admin"].id,
+        analyst.id,
+    }
+
+
+async def test_create_membership_grants_chosen_role(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    preset_roles: dict[str, DBRole],
+    workspace_admin_service: MembershipService,
+) -> None:
+    await ensure_member(session, organization.id, member_user.id)
+    await session.commit()
+
+    await workspace_admin_service.create_membership(
+        workspace.id,
+        params=WorkspaceMembershipCreate(
+            user_id=member_user.id, role_id=preset_roles["workspace-viewer"].id
+        ),
+    )
+
+    assert (
+        await _direct_role_id(session, member_user, workspace)
+        == preset_roles["workspace-viewer"].id
+    )
+
+
+async def test_create_membership_rejects_org_level_role(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    workspace_admin_service: MembershipService,
+) -> None:
+    org_reader = await _custom_role(session, organization, "Org reader", {"org:read"})
+    await ensure_member(session, organization.id, member_user.id)
+    await session.commit()
+
+    with pytest.raises(TracecatValidationError, match="organization role"):
+        await workspace_admin_service.create_membership(
+            workspace.id,
+            params=WorkspaceMembershipCreate(
+                user_id=member_user.id, role_id=org_reader.id
+            ),
+        )
+
+
+async def test_update_membership_role_changes_direct_role(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    preset_roles: dict[str, DBRole],
+    workspace_admin_service: MembershipService,
+) -> None:
+    await _assign(
+        session, organization, member_user, preset_roles["workspace-editor"], workspace
+    )
+
+    await workspace_admin_service.update_membership_role(
+        workspace.id,
+        member_user.id,
+        params=WorkspaceMembershipUpdate(role_id=preset_roles["workspace-viewer"].id),
+    )
+
+    assert (
+        await _direct_role_id(session, member_user, workspace)
+        == preset_roles["workspace-viewer"].id
+    )
+
+
+async def test_update_membership_role_rejects_self(
+    workspace: Workspace,
+    actor_user: User,
+    preset_roles: dict[str, DBRole],
+    workspace_admin_service: MembershipService,
+) -> None:
+    with pytest.raises(TracecatAuthorizationError, match="your own role"):
+        await workspace_admin_service.update_membership_role(
+            workspace.id,
+            actor_user.id,
+            params=WorkspaceMembershipUpdate(
+                role_id=preset_roles["workspace-viewer"].id
+            ),
+        )
+
+
+async def test_update_membership_role_rejects_member_above_ceiling(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    preset_roles: dict[str, DBRole],
+    workspace_admin_service: MembershipService,
+) -> None:
+    """A caller cannot demote a member who holds scopes the caller lacks."""
+    senior = await _custom_role(
+        session, organization, "Senior", set(ADMIN_SCOPES) | {"workspace:create"}
+    )
+    await _assign(session, organization, member_user, senior, workspace)
+
+    with pytest.raises(TracecatAuthorizationError, match="scopes you do not hold"):
+        await workspace_admin_service.update_membership_role(
+            workspace.id,
+            member_user.id,
+            params=WorkspaceMembershipUpdate(
+                role_id=preset_roles["workspace-viewer"].id
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    ("role_name", "role_scopes", "error"),
+    [
+        ("Above ceiling", {"workspace:create"}, TracecatAuthorizationError),
+        ("Org reader", {"org:read"}, TracecatValidationError),
+    ],
+)
+async def test_update_membership_role_rejects_ungrantable_role(
+    role_name: str,
+    role_scopes: set[str],
+    error: type[Exception],
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    preset_roles: dict[str, DBRole],
+    workspace_admin_service: MembershipService,
+) -> None:
+    target = await _custom_role(session, organization, role_name, role_scopes)
+    await _assign(
+        session, organization, member_user, preset_roles["workspace-viewer"], workspace
+    )
+
+    with pytest.raises(error):
+        await workspace_admin_service.update_membership_role(
+            workspace.id,
+            member_user.id,
+            params=WorkspaceMembershipUpdate(role_id=target.id),
+        )
+
+
+async def test_update_membership_role_rejects_org_wide_grant(
+    session: AsyncSession,
+    organization: Organization,
+    workspace: Workspace,
+    member_user: User,
+    preset_roles: dict[str, DBRole],
+    workspace_admin_service: MembershipService,
+) -> None:
+    """Org-wide grants are changed in organization settings, not per workspace."""
+    await _assign(
+        session, organization, member_user, preset_roles["workspace-editor"], None
+    )
+
+    with pytest.raises(TracecatConflictError, match="organization settings"):
+        await workspace_admin_service.update_membership_role(
+            workspace.id,
+            member_user.id,
+            params=WorkspaceMembershipUpdate(
+                role_id=preset_roles["workspace-viewer"].id
+            ),
+        )
+
+
+async def test_update_membership_role_rejects_non_member(
+    workspace: Workspace,
+    member_user: User,
+    preset_roles: dict[str, DBRole],
+    workspace_admin_service: MembershipService,
+) -> None:
+    with pytest.raises(TracecatNotFoundError):
+        await workspace_admin_service.update_membership_role(
+            workspace.id,
+            member_user.id,
+            params=WorkspaceMembershipUpdate(
+                role_id=preset_roles["workspace-viewer"].id
+            ),
         )

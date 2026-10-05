@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Plus } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import {
@@ -30,16 +30,26 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { toast } from "@/components/ui/use-toast"
-import { useWorkspaceMutations } from "@/hooks/use-workspace"
+import {
+  useWorkspaceAssignableRoles,
+  useWorkspaceMutations,
+} from "@/hooks/use-workspace"
 import { getApiErrorDetail } from "@/lib/errors"
-import { useRbacRoles } from "@/lib/hooks"
 
-/** Role granted on the workspace, matching direct membership creation. */
+/** Preselected when the caller may grant it, matching the API default. */
 const DEFAULT_WORKSPACE_ROLE_SLUG = "workspace-editor"
 
 const addMemberSchema = z.object({
   email: z.string().email("Invalid email address"),
+  role_id: z.string().uuid("Select a role"),
 })
 type AddMemberValues = z.infer<typeof addMemberSchema>
 
@@ -116,28 +126,28 @@ function AddWorkspaceMemberForm({
   onOpenChange: (open: boolean) => void
 }) {
   const { addMember, inviteMember } = useWorkspaceMutations()
-  const { roles, isLoading: rolesLoading } = useRbacRoles({
-    enabled: canInviteOrgMembers,
-  })
+  const { assignableRoles, assignableRolesLoading } =
+    useWorkspaceAssignableRoles(workspace.id)
   const form = useForm<AddMemberValues>({
     resolver: zodResolver(addMemberSchema),
-    defaultValues: { email: "" },
+    defaultValues: { email: "", role_id: "" },
   })
 
-  const inviteToOrganization = async (email: string) => {
-    const workspaceRole = roles?.find(
-      (role) => role.slug === DEFAULT_WORKSPACE_ROLE_SLUG
-    )
-    if (!workspaceRole) {
-      form.setError("email", {
-        message:
-          "Couldn't load the workspace editor role needed to invite this user.",
-      })
+  useEffect(() => {
+    if (!assignableRoles?.length || form.getValues("role_id")) {
       return
     }
+    const defaultRole =
+      assignableRoles.find(
+        (role) => role.slug === DEFAULT_WORKSPACE_ROLE_SLUG
+      ) ?? assignableRoles[0]
+    form.setValue("role_id", defaultRole.id)
+  }, [assignableRoles, form])
+
+  const inviteToOrganization = async (email: string, roleId: string) => {
     await inviteMember({
       email,
-      grants: [{ workspace_id: workspace.id, role_id: workspaceRole.id }],
+      grants: [{ workspace_id: workspace.id, role_id: roleId }],
     })
     toast({
       title: "Invitation sent",
@@ -146,7 +156,7 @@ function AddWorkspaceMemberForm({
     onOpenChange(false)
   }
 
-  const onSubmit = async ({ email }: AddMemberValues) => {
+  const onSubmit = async ({ email, role_id }: AddMemberValues) => {
     try {
       let user: UserRead | null = null
       try {
@@ -161,7 +171,7 @@ function AddWorkspaceMemberForm({
         try {
           await addMember({
             workspaceId: workspace.id,
-            requestBody: { user_id: user.id },
+            requestBody: { user_id: user.id, role_id },
           })
           toast({
             title: "Member added",
@@ -184,7 +194,7 @@ function AddWorkspaceMemberForm({
         })
         return
       }
-      await inviteToOrganization(email)
+      await inviteToOrganization(email, role_id)
     } catch (error) {
       console.error("Failed to add workspace member", error)
       form.setError("email", {
@@ -195,7 +205,10 @@ function AddWorkspaceMemberForm({
   }
 
   const isSubmitting = form.formState.isSubmitting
-  const submitDisabled = isSubmitting || (canInviteOrgMembers && rolesLoading)
+  const noAssignableRoles =
+    !assignableRolesLoading && (assignableRoles?.length ?? 0) === 0
+  const submitDisabled =
+    isSubmitting || assignableRolesLoading || noAssignableRoles
 
   return (
     <>
@@ -203,7 +216,7 @@ function AddWorkspaceMemberForm({
         <DialogTitle>Add workspace member</DialogTitle>
         <DialogDescription>
           {canInviteOrgMembers
-            ? `Add a user to ${workspace.name}. Anyone not yet in the organization is invited to it with the editor role on this workspace.`
+            ? `Add a user to ${workspace.name}. Anyone not yet in the organization is invited to it with this role.`
             : `Add an existing organization member to ${workspace.name}.`}
         </DialogDescription>
       </DialogHeader>
@@ -222,6 +235,40 @@ function AddWorkspaceMemberForm({
                     {...field}
                   />
                 </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="role_id"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Role</FormLabel>
+                <Select
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  disabled={assignableRolesLoading || noAssignableRoles}
+                >
+                  <FormControl>
+                    <SelectTrigger aria-label="Role">
+                      <SelectValue
+                        placeholder={
+                          noAssignableRoles
+                            ? "No roles you can grant"
+                            : "Select a role"
+                        }
+                      />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    {assignableRoles?.map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
                 <FormMessage />
               </FormItem>
             )}

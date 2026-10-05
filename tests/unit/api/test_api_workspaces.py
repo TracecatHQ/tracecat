@@ -13,8 +13,13 @@ from tracecat.auth.types import Role
 from tracecat.authz.enums import WorkspaceRole
 from tracecat.authz.scopes import ORG_MEMBER_SCOPES
 from tracecat.contexts import ctx_role
+from tracecat.db.models import Role as DBRole
 from tracecat.db.models import Workspace
-from tracecat.exceptions import TracecatAuthorizationError, TracecatNotFoundError
+from tracecat.exceptions import (
+    TracecatAuthorizationError,
+    TracecatConflictError,
+    TracecatNotFoundError,
+)
 from tracecat.logger import logger
 from tracecat.workspaces import router as workspaces_router
 
@@ -217,15 +222,6 @@ async def test_create_workspace_membership_conflict(
     test_admin_role: Role,
 ) -> None:
     """Test POST /workspaces/{workspace_id}/memberships duplicate returns 409."""
-    # Presets no longer carry the add scope; API callers hold it explicitly.
-    ctx_role.set(
-        test_admin_role.model_copy(
-            update={
-                "scopes": (test_admin_role.scopes or frozenset())
-                | {"workspace:member:invite"}
-            }
-        )
-    )
     with patch.object(workspaces_router, "MembershipService") as MockService:
         mock_svc = AsyncMock()
         mock_svc.create_membership.side_effect = IntegrityError(
@@ -323,6 +319,114 @@ async def test_create_workspace_membership_requires_invite_scope(
         )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.anyio
+async def test_list_workspace_assignable_roles(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    role = DBRole(
+        id=uuid.uuid4(),
+        name="Workspace Viewer",
+        slug="workspace-viewer",
+        description=None,
+        organization_id=uuid.uuid4(),
+    )
+    with patch.object(workspaces_router, "MembershipService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.list_assignable_roles.return_value = [role]
+        MockService.return_value = mock_svc
+
+        response = client.get(f"/workspaces/{uuid.uuid4()}/assignable-roles")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == [
+        {
+            "id": str(role.id),
+            "name": "Workspace Viewer",
+            "slug": "workspace-viewer",
+            "description": None,
+        }
+    ]
+
+
+@pytest.mark.anyio
+async def test_list_workspace_assignable_roles_requires_member_scope(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    ctx_role.set(
+        test_admin_role.model_copy(
+            update={
+                "scopes": (test_admin_role.scopes or frozenset())
+                - {
+                    "workspace:member:invite",
+                    "workspace:member:update",
+                    "org:member:invite",
+                }
+            }
+        )
+    )
+    with patch.object(workspaces_router, "MembershipService") as MockService:
+        MockService.return_value = AsyncMock()
+
+        response = client.get(f"/workspaces/{uuid.uuid4()}/assignable-roles")
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        (None, status.HTTP_204_NO_CONTENT),
+        (TracecatConflictError("via group"), status.HTTP_409_CONFLICT),
+        (TracecatNotFoundError("not a member"), status.HTTP_404_NOT_FOUND),
+        (TracecatAuthorizationError("ceiling"), status.HTTP_403_FORBIDDEN),
+    ],
+)
+async def test_update_workspace_membership_maps_errors(
+    error: Exception | None,
+    expected_status: int,
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    with patch.object(workspaces_router, "MembershipService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.update_membership_role.side_effect = error
+        MockService.return_value = mock_svc
+
+        response = client.patch(
+            f"/workspaces/{uuid.uuid4()}/memberships/{uuid.uuid4()}",
+            json={"role_id": str(uuid.uuid4())},
+        )
+
+    assert response.status_code == expected_status
+
+
+@pytest.mark.anyio
+async def test_update_workspace_membership_requires_update_scope(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    ctx_role.set(
+        test_admin_role.model_copy(
+            update={
+                "scopes": (test_admin_role.scopes or frozenset())
+                - {"workspace:member:update"}
+            }
+        )
+    )
+    with patch.object(workspaces_router, "MembershipService") as MockService:
+        MockService.return_value = AsyncMock()
+
+        response = client.patch(
+            f"/workspaces/{uuid.uuid4()}/memberships/{uuid.uuid4()}",
+            json={"role_id": str(uuid.uuid4())},
+        )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 @pytest.mark.anyio
