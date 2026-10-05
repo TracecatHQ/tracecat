@@ -1,0 +1,94 @@
+type: action
+definition:
+  name: search_vulnerabilities
+  namespace: tools.wazuh
+  title: Search vulnerabilities
+  description: Search vulnerabilities detected on agents in the Wazuh indexer by agent, CVE, severity, package, or minimum CVSS score.
+  display_group: Wazuh
+  doc_url: https://documentation.wazuh.com/current/user-manual/capabilities/vulnerability-detection/index.html
+  secrets:
+    - name: wazuh_indexer
+      keys: ["WAZUH_INDEXER_USERNAME", "WAZUH_INDEXER_PASSWORD"]
+  expects:
+    agent_ids:
+      type: list[str] | None
+      description: Filter by agent IDs (`agent.id`).
+      default: null
+    cve_ids:
+      type: list[str] | None
+      description: Filter by CVE IDs (`vulnerability.id`, e.g. `CVE-2024-3094`).
+      default: null
+    severities:
+      type: list[str] | None
+      description: Filter by severity (`vulnerability.severity`). One or more of `Critical`, `High`, `Medium`, `Low`.
+      default: null
+    package_name:
+      type: str | None
+      description: Filter by affected package name (`package.name`).
+      default: null
+    min_score:
+      type: float | None
+      description: Minimum CVSS base score (`vulnerability.score.base`).
+      default: null
+    extra_filters:
+      type: list[dict[str, Any]] | None
+      description: Additional OpenSearch query DSL clauses added to the bool filter.
+      default: null
+    size:
+      type: int
+      description: Maximum number of vulnerabilities to return.
+      default: 100
+    index:
+      type: str
+      description: Vulnerability states index pattern.
+      default: wazuh-states-vulnerabilities-*
+    base_url:
+      type: str | None
+      description: Wazuh indexer URL (e.g. https://wazuh-indexer:9200). Defaults to the `wazuh_indexer.base_url` variable.
+      default: null
+    verify_ssl:
+      type: bool
+      description: If false, disables SSL verification for internal networks.
+      default: true
+  steps:
+    - ref: build_query
+      action: core.script.run_python
+      args:
+        inputs:
+          agent_ids: ${{ inputs.agent_ids }}
+          cve_ids: ${{ inputs.cve_ids }}
+          severities: ${{ inputs.severities }}
+          package_name: ${{ inputs.package_name }}
+          min_score: ${{ inputs.min_score }}
+          extra_filters: ${{ inputs.extra_filters }}
+          size: ${{ inputs.size }}
+        script: |
+          def main(agent_ids, cve_ids, severities, package_name, min_score, extra_filters, size):
+              filters = []
+              if agent_ids:
+                  filters.append({"terms": {"agent.id": agent_ids}})
+              if cve_ids:
+                  filters.append({"terms": {"vulnerability.id": [c.upper() for c in cve_ids]}})
+              if severities:
+                  filters.append({"terms": {"vulnerability.severity": [s.capitalize() for s in severities]}})
+              if package_name:
+                  filters.append({"term": {"package.name": package_name}})
+              if min_score is not None:
+                  filters.append({"range": {"vulnerability.score.base": {"gte": min_score}}})
+              filters.extend(extra_filters or [])
+              return {
+                  "size": size,
+                  "sort": [{"vulnerability.score.base": {"order": "desc", "unmapped_type": "float"}}],
+                  "query": {"bool": {"filter": filters}},
+              }
+    - ref: request
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.wazuh_indexer.base_url }}/${{ FN.url_encode(inputs.index, "*,-_") }}/_search
+        method: POST
+        headers:
+          Authorization: Basic ${{ FN.to_base64(SECRETS.wazuh_indexer.WAZUH_INDEXER_USERNAME + ":" + SECRETS.wazuh_indexer.WAZUH_INDEXER_PASSWORD) }}
+          Content-Type: application/json
+        payload: ${{ steps.build_query.result }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.request.result.data }}

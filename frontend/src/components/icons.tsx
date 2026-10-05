@@ -60,7 +60,6 @@ import {
   Server,
   ShieldAlert,
   ShieldBan,
-  ShieldCheck,
   ShieldPlus,
   Sparkles,
   SplitIcon,
@@ -836,10 +835,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       Link,
       "bg-rose-500/10 text-rose-600 dark:text-rose-400"
     ),
-    "tools.wazuh": createColoredLucideRenderer(
-      ShieldCheck,
-      "bg-blue-500/10 text-blue-600 dark:text-blue-400"
-    ),
+    "tools.wazuh": createIconRenderer(WazuhIcon),
     // AI namespace
     "ai.slackbot": createIconRenderer(SlackIcon),
   }
@@ -1517,6 +1513,27 @@ export function EmailrepIcon({ className, ...rest }: IconProps) {
 
 export function SublimeIcon(props: IconProps) {
   return <EmailrepIcon {...props} />
+}
+
+export function WazuhIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="100%"
+      height="100%"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="xMidYMid meet"
+      className={className}
+      {...rest}
+    >
+      <circle cx="50" cy="50" r="50" style={{ fill: "#3595f9" }} />
+      <polygon
+        points="51.91 56.54 44.71 33.07 39.02 33.07 31.75 56.54 24.62 33 18 33 28.51 67.27 33.84 67.27 41.83 42.5 49.82 67.27 55.15 67.27 65.66 33.07 59.11 33.07"
+        style={{ fill: "#fff" }}
+      />
+      <circle cx="74" cy="62.5" r="4.8" style={{ fill: "#fff" }} />
+    </svg>
+  )
 }
 
 export function VirusTotalIcon({ className, ...rest }: IconProps) {
