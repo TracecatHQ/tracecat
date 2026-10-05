@@ -80,6 +80,10 @@ describe("validateAwsSecretId", () => {
     ["", /Enter the secret name or ARN/],
     ["arn:aws:secretsmanager:us-east-1:secret:x", /full Secrets Manager/],
     ["prod app key", /no spaces/],
+    [
+      `arn:aws:secretsmanager:us-east-1:123456789012:secret:${"a".repeat(2048)}`,
+      /at most 2048 characters/,
+    ],
   ])("explains %s", (value, message) => {
     expect(validateAwsSecretId(value)).toMatch(message)
   })

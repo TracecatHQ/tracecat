@@ -10066,7 +10066,7 @@ export const organizationSecretStoresCreateSecretStore = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
-      422: "Validation Error",
+      422: "Unprocessable Entity",
     },
   })
 }
@@ -10115,7 +10115,7 @@ export const organizationSecretStoresUpdateSecretStore = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
-      422: "Validation Error",
+      422: "Unprocessable Entity",
     },
   })
 }

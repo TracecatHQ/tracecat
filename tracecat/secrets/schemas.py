@@ -16,6 +16,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    JsonValue,
     SecretStr,
     StringConstraints,
     field_validator,
@@ -543,6 +544,10 @@ class SecretStoreRead(BaseModel):
     all_workspaces: bool
     tracecat_aws_account_id: str | None = None
     tracecat_aws_principal_arn: str | None = None
+    aws_partition: str | None = Field(
+        default=None,
+        description="AWS partition of the store region, when botocore knows it.",
+    )
     authorized_workspace_ids: list[WorkspaceID] = Field(default_factory=list)
     reference_count: int = 0
     created_at: datetime
@@ -557,22 +562,40 @@ class SecretStoreRead(BaseModel):
         tracecat_aws_account_id: str | None,
         tracecat_aws_principal_arn: str | None,
     ) -> SecretStoreRead:
+        config = SecretStoreConfig.model_validate(obj.config)
         return SecretStoreRead(
             id=obj.id,
             organization_id=obj.organization_id,
             name=obj.name,
             description=obj.description,
             provider=SecretStoreProvider(obj.provider),
-            config=SecretStoreConfig.model_validate(obj.config),
+            config=config,
             enabled=obj.enabled,
             all_workspaces=obj.all_workspaces,
             tracecat_aws_account_id=tracecat_aws_account_id,
             tracecat_aws_principal_arn=tracecat_aws_principal_arn,
+            aws_partition=aws_partition_for_region(config.region),
             authorized_workspace_ids=authorized_workspace_ids,
             reference_count=reference_count,
             created_at=obj.created_at,
             updated_at=obj.updated_at,
         )
+
+
+class SecretStoreRequestValidationError(BaseModel):
+    """Standard FastAPI request validation fields for the shared 422 response."""
+
+    loc: list[str | int]
+    msg: str
+    type: str
+    input: JsonValue = Field(default=None)
+    ctx: dict[str, JsonValue] | None = Field(default=None)
+
+
+class SecretStoreErrorResponse(BaseModel):
+    """Invalid store configuration, or enabling a store before setup finishes."""
+
+    detail: str | list[SecretStoreRequestValidationError]
 
 
 class SecretStoreAuthorizationCreate(BaseModel):

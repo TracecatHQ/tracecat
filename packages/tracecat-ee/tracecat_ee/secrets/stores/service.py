@@ -148,11 +148,13 @@ class SecretStoresService(BaseOrgService):
         """Update store metadata. Server-owned config fields are never changed."""
         fields = params.model_dump(exclude_unset=True)
         fields.pop("config", None)
+        backend = get_backend(store.provider)
+        config = parse_store_config(store)
         if params.config is not None:
             # Block concurrent reference creation between the check and commit.
             await self.session.refresh(store, with_for_update=True)
             current = parse_store_config(store)
-            config = get_backend(store.provider).update_config(current, params.config)
+            config = backend.update_config(current, params.config)
             # Saved ARN references were validated against the current region.
             if config.region != current.region and await self._has_arn_references(
                 store.id
@@ -161,13 +163,12 @@ class SecretStoresService(BaseOrgService):
                     "Update or remove secrets that reference this store by ARN"
                     " before changing its region."
                 )
+        if fields.get("enabled", store.enabled) and not backend.is_ready(config):
+            raise ValueError(_NOT_READY_MESSAGE)
+        if params.config is not None:
             store.config = config.model_dump(mode="json")
         for field, value in fields.items():
             setattr(store, field, value)
-        if store.enabled and not get_backend(store.provider).is_ready(
-            parse_store_config(store)
-        ):
-            raise ValueError(_NOT_READY_MESSAGE)
         self.session.add(store)
         await self.session.commit()
 

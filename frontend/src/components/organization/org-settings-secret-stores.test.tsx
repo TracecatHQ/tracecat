@@ -8,11 +8,13 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 const mockCreateStore = jest.fn()
 const mockUpdateStore = jest.fn()
 let mockStores: SecretStoreRead[] = []
+let mockCanUpdate = true
 let mockWorkspaces: { id: string; name: string }[] = []
 
 jest.mock("@/components/auth/scope-guard", () => ({
   ScopeGuard: ({ children }: { children: ReactNode }) => children,
-  useScopeCheck: () => true,
+  useScopeCheck: (scope?: string) =>
+    scope === "org:secret:update" ? mockCanUpdate : true,
 }))
 jest.mock("@/lib/hooks", () => ({
   useWorkspaceManager: () => ({ workspaces: mockWorkspaces }),
@@ -57,6 +59,7 @@ function renderSettings() {
 
 beforeEach(() => {
   mockStores = []
+  mockCanUpdate = true
   mockWorkspaces = []
   mockCreateStore.mockReset()
   mockUpdateStore.mockReset()
@@ -179,5 +182,29 @@ describe("Workspace picker", () => {
     await user.clear(screen.getByLabelText("Search workspaces"))
     await user.type(screen.getByLabelText("Search workspaces"), "zzz")
     expect(screen.getByText("No workspaces match.")).toBeInTheDocument()
+  })
+})
+
+describe("StoreSetupDialogContent", () => {
+  it("tells create-only users who can finish setup instead of offering to enable", async () => {
+    mockCanUpdate = false
+    mockCreateStore.mockResolvedValue(draftStore())
+    renderSettings()
+    fireEvent.click(screen.getByRole("button", { name: /Add store/ }))
+    fireEvent.change(screen.getByLabelText("Name"), {
+      target: { value: "prod" },
+    })
+    fireEvent.change(screen.getByLabelText("Region"), {
+      target: { value: "us-east-1" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+
+    expect(
+      await screen.findByText(/permission to update secret stores/)
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText("Role ARN")).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Save and enable" })
+    ).not.toBeInTheDocument()
   })
 })

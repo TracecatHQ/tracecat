@@ -238,6 +238,8 @@ function StoreSetupDialogContent({
   onClose: () => void
 }) {
   const { updateStore } = useOrgSecretStores()
+  // Finishing setup is a store update; creators may lack that scope.
+  const canUpdate = useScopeCheck("org:secret:update") !== false
   const [config, setConfig] = React.useState<CreateConfigState>({})
   const [pending, setPending] = React.useState(false)
   const [showErrors, setShowErrors] = React.useState(false)
@@ -276,6 +278,7 @@ function StoreSetupDialogContent({
           config={config}
           onChange={setConfig}
           errors={showErrors ? configErrors : {}}
+          canEdit={canUpdate}
         />
         <DialogFooter className="gap-2 sm:gap-0">
           <Button
@@ -287,9 +290,11 @@ function StoreSetupDialogContent({
           >
             {cancelLabel}
           </Button>
-          <Button type="submit" className="shadow-none" disabled={pending}>
-            {pending ? "Saving…" : "Save and enable"}
-          </Button>
+          {canUpdate && (
+            <Button type="submit" className="shadow-none" disabled={pending}>
+              {pending ? "Saving…" : "Save and enable"}
+            </Button>
+          )}
         </DialogFooter>
       </form>
     </DialogContent>

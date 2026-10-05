@@ -379,7 +379,11 @@ class AwsSecretsManagerBackend:
             raise ValueError(
                 f"Secret ARN region must match the store region {config.region!r}."
             )
-        partition = aws_partition_for_region(config.region)
+        partition = (
+            config.role_arn.split(":")[1]
+            if config.role_arn is not None
+            else aws_partition_for_region(config.region)
+        )
         if (
             partition is not None
             and is_secret_arn(key)

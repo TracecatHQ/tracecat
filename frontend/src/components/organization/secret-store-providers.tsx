@@ -46,7 +46,7 @@ export type SecretStoreProviderEntry = {
   setupDescription: string
   isSetupComplete: (store: SecretStoreRead) => boolean
   SetupFields: React.ComponentType<
-    ConfigFieldsProps & { store: SecretStoreRead }
+    ConfigFieldsProps & { store: SecretStoreRead; canEdit: boolean }
   >
   validateSetup: (config: CreateConfigState) => CreateConfigErrors
   toSetupConfig: (config: CreateConfigState) => SecretStoreUpdate["config"]
@@ -85,20 +85,13 @@ function buildStoreTrustPolicy(store: SecretStoreRead): string {
   )
 }
 
-/** Best-effort AWS partition for a region; the role ARN wins once set. */
-function regionPartition(region: string): string {
-  if (region.startsWith("cn-")) return "aws-cn"
-  if (region.startsWith("us-gov-")) return "aws-us-gov"
-  return "aws"
-}
-
 /**
  * Minimal read-only permissions the store role needs. No ListSecrets,
  * write, delete, or rotation permissions are requested.
  */
 export function buildStorePermissionPolicy(store: SecretStoreRead): string {
   const partition =
-    store.config.role_arn?.split(":")[1] ?? regionPartition(store.config.region)
+    store.config.role_arn?.split(":")[1] ?? store.aws_partition ?? "aws"
   return JSON.stringify(
     {
       Version: "2012-10-17",
@@ -132,11 +125,13 @@ function RoleArnField({
   value,
   onChange,
   error,
+  autoFocus,
 }: {
   id: string
   value: string
   onChange: (value: string) => void
   error?: string
+  autoFocus?: boolean
 }) {
   return (
     <div className="space-y-2">
@@ -146,6 +141,7 @@ function RoleArnField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={EXAMPLE_ROLE_ARN}
+        autoFocus={autoFocus}
         aria-invalid={Boolean(error)}
         aria-describedby={error ? `${id}-error` : undefined}
       />
@@ -210,16 +206,26 @@ function AwsSecretsManagerSetupFields({
   config,
   onChange,
   errors,
-}: ConfigFieldsProps & { store: SecretStoreRead }) {
+  canEdit,
+}: ConfigFieldsProps & { store: SecretStoreRead; canEdit: boolean }) {
   return (
     <>
       <StorePolicies store={store} />
-      <RoleArnField
-        id="setup-role-arn"
-        value={config.role_arn ?? ""}
-        onChange={(role_arn) => onChange({ ...config, role_arn })}
-        error={errors.role_arn}
-      />
+      {canEdit ? (
+        <RoleArnField
+          id="setup-role-arn"
+          // Otherwise the dialog focuses the first copy button and opens its tooltip.
+          autoFocus
+          value={config.role_arn ?? ""}
+          onChange={(role_arn) => onChange({ ...config, role_arn })}
+          error={errors.role_arn}
+        />
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          You need permission to update secret stores to enter the role ARN.
+          Share these policies with an organization admin to finish setup.
+        </p>
+      )}
     </>
   )
 }

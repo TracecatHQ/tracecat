@@ -8296,6 +8296,13 @@ export type SecretStoreCreate = {
 }
 
 /**
+ * Invalid store configuration, or enabling a store before setup finishes.
+ */
+export type SecretStoreErrorResponse = {
+  detail: string | Array<SecretStoreRequestValidationError>
+}
+
+/**
  * Supported external secret store providers.
  */
 export type SecretStoreProvider = "aws_secrets_manager"
@@ -8314,10 +8321,27 @@ export type SecretStoreRead = {
   all_workspaces: boolean
   tracecat_aws_account_id?: string | null
   tracecat_aws_principal_arn?: string | null
+  /**
+   * AWS partition of the store region, when botocore knows it.
+   */
+  aws_partition?: string | null
   authorized_workspace_ids?: Array<string>
   reference_count?: number
   created_at: string
   updated_at: string
+}
+
+/**
+ * Standard FastAPI request validation fields for the shared 422 response.
+ */
+export type SecretStoreRequestValidationError = {
+  loc: Array<string | number>
+  msg: string
+  type: string
+  input?: JsonValue
+  ctx?: {
+    [key: string]: JsonValue
+  } | null
 }
 
 /**
@@ -21164,9 +21188,9 @@ export type $OpenApiTs = {
          */
         201: SecretStoreRead
         /**
-         * Validation Error
+         * Unprocessable Entity
          */
-        422: HTTPValidationError
+        422: SecretStoreErrorResponse
       }
     }
   }
@@ -21192,9 +21216,9 @@ export type $OpenApiTs = {
          */
         204: void
         /**
-         * Validation Error
+         * Unprocessable Entity
          */
-        422: HTTPValidationError
+        422: SecretStoreErrorResponse
       }
     }
     delete: {

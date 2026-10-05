@@ -10,6 +10,7 @@ const AWS_REGION_REGEX = /^[a-z]{2}(?:-[a-z]+)+-\d$/
 const AWS_SECRET_ARN_REGEX =
   /^arn:aws(?:-[a-z]+)*:secretsmanager:[a-z0-9-]+:\d{12}:secret:\S+$/
 const AWS_SECRET_NAME_REGEX = /^[A-Za-z0-9/_+=.@-]{1,512}$/
+const AWS_SECRET_ID_MAX_LENGTH = 2048
 const SECRET_NAME_REGEX = /^[a-z_][a-z0-9_]*$/
 const SECRET_KEY_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/
 
@@ -76,6 +77,12 @@ export function validateSecretName(value: string): string | null {
 /** Explain why a value is not a Secrets Manager secret name or ARN. */
 export function validateAwsSecretId(value: string): string | null {
   const secretId = value.trim()
+  if (
+    secretId.startsWith("arn:") &&
+    secretId.length > AWS_SECRET_ID_MAX_LENGTH
+  ) {
+    return `Secret ARNs are at most ${AWS_SECRET_ID_MAX_LENGTH} characters.`
+  }
   if (
     AWS_SECRET_ARN_REGEX.test(secretId) ||
     AWS_SECRET_NAME_REGEX.test(secretId)

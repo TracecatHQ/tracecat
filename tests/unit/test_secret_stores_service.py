@@ -186,9 +186,9 @@ async def test_store_without_role_arn_cannot_be_enabled_until_set(
 
     with pytest.raises(ValueError, match="Finish setting up"):
         await stores.update_store(store, SecretStoreUpdate(enabled=True))
-    await stores.session.rollback()
+    # The rejected update leaves the store unchanged in the session.
+    assert store.enabled is False
 
-    store = await stores.get_store(store_id)
     await stores.update_store(
         store,
         SecretStoreUpdate(

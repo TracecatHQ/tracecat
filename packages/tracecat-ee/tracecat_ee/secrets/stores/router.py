@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -19,6 +20,7 @@ from tracecat.secrets.schemas import (
     SecretStoreAuthorizationCreate,
     SecretStoreAuthorizationRead,
     SecretStoreCreate,
+    SecretStoreErrorResponse,
     SecretStoreRead,
     SecretStoreUpdate,
 )
@@ -85,7 +87,12 @@ async def list_secret_stores(
     )
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+_INVALID_STORE_RESPONSE: dict[int | str, dict[str, Any]] = {
+    422: {"model": SecretStoreErrorResponse}
+}
+
+
+@router.post("", status_code=status.HTTP_201_CREATED, responses=_INVALID_STORE_RESPONSE)
 @require_scope("org:secret:create")
 async def create_secret_store(
     *,
@@ -128,7 +135,11 @@ async def get_secret_store(
     return await _serialize_store_read(service, store)
 
 
-@router.patch("/{store_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.patch(
+    "/{store_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=_INVALID_STORE_RESPONSE,
+)
 @require_scope("org:secret:update")
 async def update_secret_store(
     *,

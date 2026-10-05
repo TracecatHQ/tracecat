@@ -27258,6 +27258,30 @@ export const $SecretStoreCreate = {
   description: "Create an organization-owned external secret store.",
 } as const
 
+export const $SecretStoreErrorResponse = {
+  properties: {
+    detail: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            $ref: "#/components/schemas/SecretStoreRequestValidationError",
+          },
+          type: "array",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "SecretStoreErrorResponse",
+  description:
+    "Invalid store configuration, or enabling a store before setup finishes.",
+} as const
+
 export const $SecretStoreProvider = {
   type: "string",
   enum: ["aws_secrets_manager"],
@@ -27328,6 +27352,18 @@ export const $SecretStoreRead = {
       ],
       title: "Tracecat Aws Principal Arn",
     },
+    aws_partition: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Aws Partition",
+      description: "AWS partition of the store region, when botocore knows it.",
+    },
     authorized_workspace_ids: {
       items: {
         type: "string",
@@ -27367,6 +27403,55 @@ export const $SecretStoreRead = {
   title: "SecretStoreRead",
   description:
     "Organization view of a secret store, including trust-policy inputs.",
+} as const
+
+export const $SecretStoreRequestValidationError = {
+  properties: {
+    loc: {
+      items: {
+        anyOf: [
+          {
+            type: "string",
+          },
+          {
+            type: "integer",
+          },
+        ],
+      },
+      type: "array",
+      title: "Loc",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+    },
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    input: {
+      $ref: "#/components/schemas/JsonValue",
+    },
+    ctx: {
+      anyOf: [
+        {
+          additionalProperties: {
+            $ref: "#/components/schemas/JsonValue",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ctx",
+    },
+  },
+  type: "object",
+  required: ["loc", "msg", "type"],
+  title: "SecretStoreRequestValidationError",
+  description:
+    "Standard FastAPI request validation fields for the shared 422 response.",
 } as const
 
 export const $SecretStoreUpdate = {
