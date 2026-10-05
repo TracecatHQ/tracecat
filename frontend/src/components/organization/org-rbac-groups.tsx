@@ -587,7 +587,7 @@ function GroupMembersSection({
         </p>
       )}
       <div>
-        {canUpdateMembers && (
+        {canUpdateMembers && !isLoading && !error && (
           <Button
             type="button"
             variant="ghost"
@@ -662,8 +662,9 @@ function GroupAddMembersDialogBody({
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(
     () => new Set()
   )
-  const { orgMembers } = useOrgMembers()
+  const { orgMembers, orgMembersIsLoading, orgMembersError } = useOrgMembers()
   const { addGroupMembers, addGroupMembersIsPending } = useRbacGroups()
+  const loadFailed = Boolean(orgMembersError)
 
   // Only real users who are not already in the group; invitations have no user.
   const existing = new Set(existingMemberIds)
@@ -725,7 +726,8 @@ function GroupAddMembersDialogBody({
   }
 
   function getEmptyMessage(): string {
-    if (!orgMembers) return "Loading members..."
+    if (loadFailed) return "Failed to load members"
+    if (orgMembersIsLoading) return "Loading members..."
     if (query && addableMembers.length > 0)
       return "No members match your search"
     return "No members to add"
@@ -746,7 +748,7 @@ function GroupAddMembersDialogBody({
         </div>
       </div>
       <div className="min-h-0 flex-1 border-y [&>div]:h-full">
-        {filteredMembers.length === 0 ? (
+        {loadFailed || filteredMembers.length === 0 ? (
           <div className="flex items-center justify-center p-6">
             <p className="text-sm text-muted-foreground">{getEmptyMessage()}</p>
           </div>
@@ -829,7 +831,11 @@ function GroupAddMembersDialogBody({
         <Button
           type="button"
           onClick={handleAdd}
-          disabled={selectedUserIds.length === 0 || addGroupMembersIsPending}
+          disabled={
+            loadFailed ||
+            selectedUserIds.length === 0 ||
+            addGroupMembersIsPending
+          }
         >
           {getAddMembersLabel(selectedUserIds.length)}
         </Button>

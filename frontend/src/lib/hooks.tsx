@@ -2217,7 +2217,11 @@ export function useRepositoryCommits(
 
 export function useOrgMembers() {
   const queryClient = useQueryClient()
-  const { data: orgMembers } = useQuery<OrgMemberRead[]>({
+  const {
+    data: orgMembers,
+    isLoading: orgMembersIsLoading,
+    error: orgMembersError,
+  } = useQuery<OrgMemberRead[]>({
     queryKey: ["org-members"],
     queryFn: async () => await organizationListOrgMembers(),
   })
@@ -2353,6 +2357,8 @@ export function useOrgMembers() {
 
   return {
     orgMembers,
+    orgMembersIsLoading,
+    orgMembersError,
     updateOrgMember,
     updateOrgMemberIsPending,
     updateOrgMemberError,
@@ -6751,6 +6757,25 @@ export function useRbacRoles(options: { enabled?: boolean } = {}) {
   }
 }
 
+/** Short reason for a failed add of one user to an RBAC group. */
+function getAddGroupMemberFailureReason(error: unknown): string {
+  const apiError = error as Partial<TracecatApiError>
+  const detail = apiError.body?.detail
+  if (typeof detail === "string") {
+    return detail
+  }
+  switch (apiError.status) {
+    case 403:
+      return "You don't have permission to add group members."
+    case 404:
+      return "The group or user does not exist."
+    case 409:
+      return "This user is already a member of the group."
+    default:
+      return "Failed to add member"
+  }
+}
+
 /**
  * Hook to manage RBAC groups.
  */
@@ -6918,18 +6943,27 @@ export function useRbacGroups() {
       groupId: string
       userIds: string[]
     }) => {
-      const results = await Promise.allSettled(
-        userIds.map((userId) =>
-          rbacAddGroupMember({ groupId, requestBody: { user_id: userId } })
-        )
-      )
+      // Each add takes an organization-wide lock, so run them one at a time.
+      const failures: { userId: string; reason: string }[] = []
+      for (const userId of userIds) {
+        try {
+          await rbacAddGroupMember({
+            groupId,
+            requestBody: { user_id: userId },
+          })
+        } catch (error) {
+          failures.push({
+            userId,
+            reason: getAddGroupMemberFailureReason(error),
+          })
+        }
+      }
       return {
-        failedUserIds: userIds.filter(
-          (_, index) => results[index].status === "rejected"
-        ),
+        failedUserIds: failures.map((failure) => failure.userId),
+        failures,
       }
     },
-    onSuccess: ({ failedUserIds }, { userIds }) => {
+    onSuccess: ({ failedUserIds, failures }, { userIds }) => {
       queryClient.invalidateQueries({ queryKey: ["rbac-groups", "org"] })
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
       const total = userIds.length
@@ -6937,6 +6971,9 @@ export function useRbacGroups() {
       if (failedUserIds.length > 0) {
         toast({
           title: `Added ${total - failedUserIds.length} of ${total} ${noun}`,
+          description: [
+            ...new Set(failures.map((failure) => failure.reason)),
+          ].join("\n"),
           variant: "destructive",
         })
         return

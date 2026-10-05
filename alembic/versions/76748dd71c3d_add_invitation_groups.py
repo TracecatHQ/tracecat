@@ -48,6 +48,12 @@ def upgrade() -> None:
         ),
     )
     op.create_index(
+        op.f("ix_invitation_group_group_id"),
+        "invitation_group",
+        ["group_id"],
+        unique=False,
+    )
+    op.create_index(
         op.f("ix_invitation_group_organization_id"),
         "invitation_group",
         ["organization_id"],
@@ -58,6 +64,10 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute(disable_org_table_rls("invitation_group"))
+    op.drop_index(
+        op.f("ix_invitation_group_group_id"),
+        table_name="invitation_group",
+    )
     op.drop_index(
         op.f("ix_invitation_group_organization_id"),
         table_name="invitation_group",

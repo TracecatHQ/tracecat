@@ -457,25 +457,58 @@ class OrgService(BaseOrgService):
         role_slugs = {role_id: slug for role_id, _name, slug in role_rows}
 
         workspaces_by_id: dict[uuid.UUID, OrgMemberWorkspaceRead] = {}
+        all_workspace_role_ids: set[uuid.UUID] = set()
         if can_read_rbac:
+            org_wide_role_ids = {
+                grant.role_id
+                for invitation in invitations
+                for grant in invitation.grants
+                if grant.workspace_id is None
+                and grant.role_id in role_slugs
+                and role_slugs[grant.role_id] != ORG_MEMBER_ROLE_SLUG
+            }
+            if org_wide_role_ids:
+                role_scope_rows = (
+                    (
+                        await self.session.execute(
+                            select(RoleScope.role_id, Scope.name)
+                            .join(Scope, Scope.id == RoleScope.scope_id)
+                            .where(RoleScope.role_id.in_(org_wide_role_ids))
+                        )
+                    )
+                    .tuples()
+                    .all()
+                )
+                org_scoped_role_ids = {
+                    role_id
+                    for role_id, scope_name in role_scope_rows
+                    if scope_name.startswith("org:")
+                }
+                workspace_read_role_ids = {
+                    role_id
+                    for role_id, scope_name in role_scope_rows
+                    if scope_name == "org:workspace:read"
+                }
+                all_workspace_role_ids = (
+                    org_wide_role_ids - org_scoped_role_ids
+                ) | workspace_read_role_ids
+
             workspace_ids = {
                 grant.workspace_id
                 for inv in invitations
                 for grant in inv.grants
                 if grant.workspace_id is not None
             }
-            if workspace_ids:
-                workspace_rows = (
-                    (
-                        await self.session.execute(
-                            select(Workspace.id, Workspace.name).where(
-                                Workspace.organization_id == self.organization_id,
-                                Workspace.id.in_(workspace_ids),
-                            )
-                        )
+            if workspace_ids or all_workspace_role_ids:
+                workspace_stmt = select(Workspace.id, Workspace.name).where(
+                    Workspace.organization_id == self.organization_id
+                )
+                if not all_workspace_role_ids:
+                    workspace_stmt = workspace_stmt.where(
+                        Workspace.id.in_(workspace_ids)
                     )
-                    .tuples()
-                    .all()
+                workspace_rows = (
+                    (await self.session.execute(workspace_stmt)).tuples().all()
                 )
                 workspaces_by_id = {
                     workspace_id: OrgMemberWorkspaceRead(
@@ -535,6 +568,12 @@ class OrgService(BaseOrgService):
                     for grant in invitation.grants
                     if grant.workspace_id is not None
                 }
+                if any(
+                    grant.workspace_id is None
+                    and grant.role_id in all_workspace_role_ids
+                    for grant in invitation.grants
+                ):
+                    invitation_workspace_ids.update(workspaces_by_id)
                 workspaces = sorted(
                     (
                         workspaces_by_id[workspace_id]

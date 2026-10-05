@@ -5728,6 +5728,7 @@ class InvitationGroup(Base):
         UUID,
         ForeignKey("group.id", ondelete="CASCADE"),
         primary_key=True,
+        index=True,
     )
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True

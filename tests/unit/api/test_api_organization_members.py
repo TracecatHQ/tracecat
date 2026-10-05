@@ -1,7 +1,7 @@
 """HTTP-level tests for organization members API endpoints."""
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import get_args
 from unittest.mock import AsyncMock, Mock, patch
@@ -184,7 +184,7 @@ async def test_list_org_members_serializes_member_and_invitation_access(
     invitation = SimpleNamespace(
         id=invitation_id,
         email="invitee@example.com",
-        expires_at=now.replace(year=now.year + 1),
+        expires_at=now + timedelta(days=365),
         created_at=now,
         grants=[
             SimpleNamespace(workspace_id=None, role_id=invitation_role_id),

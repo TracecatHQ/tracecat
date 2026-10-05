@@ -255,6 +255,67 @@ describe("OrgRbacGroups", () => {
     expect(useOrgMembers).not.toHaveBeenCalled()
   })
 
+  it("hides add members while the group is loading", async () => {
+    jest.mocked(useRbacGroup).mockReturnValue({
+      group: undefined,
+      isLoading: true,
+      error: null,
+    } as ReturnType<typeof useRbacGroup>)
+    const user = renderGroups()
+    await user.click(screen.getByText("Operators"))
+
+    expect(
+      screen.queryByRole("button", { name: "Add members" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("hides add members when the group fails to load", async () => {
+    jest.mocked(useRbacGroup).mockReturnValue({
+      group: undefined,
+      isLoading: false,
+      error: new Error("boom"),
+    } as ReturnType<typeof useRbacGroup>)
+    const user = renderGroups()
+    await user.click(screen.getByText("Operators"))
+
+    expect(screen.getByText("Failed to load members")).toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Add members" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("shows the loading state while org members load", async () => {
+    jest.mocked(useOrgMembers).mockReturnValue({
+      orgMembers: undefined,
+      orgMembersIsLoading: true,
+      orgMembersError: null,
+    } as unknown as ReturnType<typeof useOrgMembers>)
+    const user = renderGroups()
+    const dialog = await openAddMembersDialog(user)
+
+    expect(within(dialog).getByText("Loading members...")).toBeInTheDocument()
+  })
+
+  it("shows an error when org members fail to load", async () => {
+    jest.mocked(useOrgMembers).mockReturnValue({
+      orgMembers: undefined,
+      orgMembersIsLoading: false,
+      orgMembersError: new Error("boom"),
+    } as unknown as ReturnType<typeof useOrgMembers>)
+    const user = renderGroups()
+    const dialog = await openAddMembersDialog(user)
+
+    expect(
+      within(dialog).getByText("Failed to load members")
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).queryByText("Loading members...")
+    ).not.toBeInTheDocument()
+    expect(
+      within(dialog).getByRole("button", { name: "Add members" })
+    ).toBeDisabled()
+  })
+
   it("lists only addable users in the add members dialog", async () => {
     const user = renderGroups()
     const dialog = await openAddMembersDialog(user)
