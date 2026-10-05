@@ -4,11 +4,9 @@ import { DotsHorizontalIcon } from "@radix-ui/react-icons"
 import {
   FolderIcon,
   GlobeIcon,
+  MinusIcon,
   PlusIcon,
   SearchIcon,
-  ShieldIcon,
-  Trash2Icon,
-  UserMinusIcon,
   UserPlusIcon,
   UsersIcon,
 } from "lucide-react"
@@ -25,6 +23,12 @@ import {
   RbacListHeader,
   RbacListItem,
 } from "@/components/organization/rbac-list-item"
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,7 +60,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -65,45 +68,66 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import {
   useOrgMembers,
   useRbacAssignments,
+  useRbacGroup,
   useRbacGroups,
   useRbacRoles,
   useWorkspaceManager,
 } from "@/lib/hooks"
 import { rolesForScope } from "@/lib/rbac"
 
+type GroupSection = "members" | "roles"
+
+const DEFAULT_OPEN_SECTIONS: GroupSection[] = ["members", "roles"]
+
+interface GroupPermissions {
+  canUpdateGroup: boolean
+  canDeleteGroup: boolean
+  canCreateAssignments: boolean
+  canDeleteAssignments: boolean
+}
+
+function isGroupSection(value: string): value is GroupSection {
+  return value === "members" || value === "roles"
+}
+
+/**
+ * Organization groups list with inline member and role management.
+ */
 export function OrgRbacGroups() {
   const [selectedGroup, setSelectedGroup] =
     useState<GroupReadWithMembers | null>(null)
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null)
+  const [openSections, setOpenSections] = useState<GroupSection[]>(
+    DEFAULT_OPEN_SECTIONS
+  )
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
-  const [isManageOpen, setIsManageOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const {
     groups,
     isLoading,
     error,
-    getGroup,
     createGroup,
     createGroupIsPending,
     updateGroup,
     updateGroupIsPending,
     deleteGroup,
     deleteGroupIsPending,
-    addGroupMember,
-    addGroupMemberIsPending,
-    removeGroupMember,
-    removeGroupMemberIsPending,
   } = useRbacGroups()
   const { assignments: allAssignments = [] } = useRbacAssignments()
   const canCreateGroup = useScopeCheck("org:rbac:create") === true
   const canUpdateGroup = useScopeCheck("org:rbac:update") === true
   const canDeleteGroup = useScopeCheck("org:rbac:delete") === true
+  const permissions: GroupPermissions = {
+    canUpdateGroup,
+    canDeleteGroup,
+    canCreateAssignments: canCreateGroup,
+    canDeleteAssignments: canDeleteGroup,
+  }
 
   const filteredGroups = useMemo(() => {
     if (!searchQuery.trim()) return groups
@@ -137,46 +161,10 @@ export function OrgRbacGroups() {
     }
   }
 
-  const handleOpenManage = async (group: GroupReadWithMembers) => {
-    try {
-      // Fetch fresh group data with members
-      const freshGroup = await getGroup(group.id)
-      setSelectedGroup(freshGroup)
-      setIsManageOpen(true)
-    } catch (error) {
-      console.error("Failed to load group details", error)
-      setSelectedGroup(null)
-      setIsManageOpen(false)
-    }
-  }
-
-  const handleAddMember = async (userId: string) => {
-    if (selectedGroup) {
-      try {
-        await addGroupMember({ groupId: selectedGroup.id, userId })
-        // Refresh group data
-        const freshGroup = await getGroup(selectedGroup.id)
-        setSelectedGroup(freshGroup)
-      } catch (error) {
-        console.error("Failed to add group member", error)
-        setSelectedGroup(null)
-        setIsManageOpen(false)
-      }
-    }
-  }
-
-  const handleRemoveMember = async (userId: string) => {
-    if (selectedGroup) {
-      try {
-        await removeGroupMember({ groupId: selectedGroup.id, userId })
-        // Refresh group data
-        const freshGroup = await getGroup(selectedGroup.id)
-        setSelectedGroup(freshGroup)
-      } catch (error) {
-        console.error("Failed to remove group member", error)
-        setSelectedGroup(null)
-        setIsManageOpen(false)
-      }
+  function handleExpandedChange(groupId: string, expanded: boolean) {
+    setExpandedGroupId(expanded ? groupId : null)
+    if (expanded) {
+      setOpenSections(DEFAULT_OPEN_SECTIONS)
     }
   }
 
@@ -196,6 +184,52 @@ export function OrgRbacGroups() {
         Failed to load groups
       </div>
     )
+  }
+
+  function renderGroups() {
+    if (isLoading) {
+      return [1, 2, 3].map((i) => (
+        <div
+          key={i}
+          className="flex items-center gap-3 border-b border-border/50 px-3 py-2.5 last:border-b-0"
+        >
+          <Skeleton className="size-6" />
+          <Skeleton className="size-4" />
+          <div className="flex-1 space-y-1.5">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-3 w-48" />
+          </div>
+        </div>
+      ))
+    }
+    if (filteredGroups.length === 0) {
+      return (
+        <RbacListEmpty
+          message={
+            searchQuery ? "No groups match your search" : "No groups found"
+          }
+        />
+      )
+    }
+    return filteredGroups.map((group) => (
+      <GroupListItem
+        key={group.id}
+        group={group}
+        assignments={assignmentsByGroupId.get(group.id) ?? []}
+        isExpanded={expandedGroupId === group.id}
+        onExpandedChange={(expanded) =>
+          handleExpandedChange(group.id, expanded)
+        }
+        openSections={openSections}
+        onOpenSectionsChange={setOpenSections}
+        onEdit={() => {
+          setSelectedGroup(group)
+          setIsEditOpen(true)
+        }}
+        onDelete={() => setSelectedGroup(group)}
+        permissions={permissions}
+      />
+    ))
   }
 
   return (
@@ -241,55 +275,7 @@ export function OrgRbacGroups() {
             }
           />
 
-          {isLoading ? (
-            <RbacListContainer>
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-3 border-b border-border/50 px-3 py-2.5 last:border-b-0"
-                >
-                  <Skeleton className="size-6" />
-                  <Skeleton className="size-4" />
-                  <div className="flex-1 space-y-1.5">
-                    <Skeleton className="h-4 w-32" />
-                    <Skeleton className="h-3 w-48" />
-                  </div>
-                </div>
-              ))}
-            </RbacListContainer>
-          ) : filteredGroups.length === 0 ? (
-            <RbacListContainer>
-              <RbacListEmpty
-                message={
-                  searchQuery
-                    ? "No groups match your search"
-                    : "No groups found"
-                }
-              />
-            </RbacListContainer>
-          ) : (
-            <RbacListContainer>
-              {filteredGroups.map((group) => (
-                <GroupListItem
-                  key={group.id}
-                  group={group}
-                  assignments={assignmentsByGroupId.get(group.id) ?? []}
-                  isExpanded={expandedGroupId === group.id}
-                  onExpandedChange={(expanded) =>
-                    setExpandedGroupId(expanded ? group.id : null)
-                  }
-                  onManage={() => handleOpenManage(group)}
-                  onEdit={() => {
-                    setSelectedGroup(group)
-                    setIsEditOpen(true)
-                  }}
-                  onDelete={() => setSelectedGroup(group)}
-                  canManageGroups={canUpdateGroup}
-                  canDeleteGroups={canDeleteGroup}
-                />
-              ))}
-            </RbacListContainer>
-          )}
+          <RbacListContainer>{renderGroups()}</RbacListContainer>
         </div>
 
         <AlertDialogContent>
@@ -344,22 +330,6 @@ export function OrgRbacGroups() {
           }}
         />
       )}
-
-      <Dialog open={isManageOpen} onOpenChange={setIsManageOpen}>
-        {selectedGroup && canUpdateGroup && (
-          <GroupManageDialog
-            group={selectedGroup}
-            onAddMember={handleAddMember}
-            onRemoveMember={handleRemoveMember}
-            isAddingMember={addGroupMemberIsPending}
-            isRemovingMember={removeGroupMemberIsPending}
-            onOpenChange={setIsManageOpen}
-            canManageMembers={canUpdateGroup}
-            canCreateAssignments={canCreateGroup}
-            canDeleteAssignments={canDeleteGroup}
-          />
-        )}
-      </Dialog>
     </Dialog>
   )
 }
@@ -369,30 +339,29 @@ function GroupListItem({
   assignments,
   isExpanded,
   onExpandedChange,
-  onManage,
+  openSections,
+  onOpenSectionsChange,
   onEdit,
   onDelete,
-  canManageGroups,
-  canDeleteGroups,
+  permissions,
 }: {
   group: GroupReadWithMembers
   assignments: GroupRoleAssignmentReadWithDetails[]
   isExpanded: boolean
   onExpandedChange: (expanded: boolean) => void
-  onManage: () => void
+  openSections: GroupSection[]
+  onOpenSectionsChange: (sections: GroupSection[]) => void
   onEdit: () => void
   onDelete: () => void
-  canManageGroups: boolean
-  canDeleteGroups: boolean
+  permissions: GroupPermissions
 }) {
+  const canUpdateMembers = permissions.canUpdateGroup && !group.is_idp_managed
+  const hasGatedItems = permissions.canUpdateGroup || permissions.canDeleteGroup
+
   return (
     <RbacListItem
       icon={<UsersIcon className="size-4" />}
       title={group.name}
-      subtitle={
-        group.description ||
-        `${group.member_count} member${group.member_count !== 1 ? "s" : ""}`
-      }
       badges={
         <>
           <Badge variant="secondary" className="text-[10px]">
@@ -425,21 +394,13 @@ function GroupListItem({
             >
               Copy group ID
             </DropdownMenuItem>
-            {(canManageGroups || canDeleteGroups) && <DropdownMenuSeparator />}
-            {canManageGroups && (
-              <>
-                <DropdownMenuItem onClick={onManage}>
-                  <UserPlusIcon className="mr-2 size-4" />
-                  Manage group
-                </DropdownMenuItem>
-                <DialogTrigger asChild>
-                  <DropdownMenuItem onClick={onEdit}>
-                    Edit group
-                  </DropdownMenuItem>
-                </DialogTrigger>
-              </>
+            {hasGatedItems && <DropdownMenuSeparator />}
+            {permissions.canUpdateGroup && (
+              <DialogTrigger asChild>
+                <DropdownMenuItem onClick={onEdit}>Edit group</DropdownMenuItem>
+              </DialogTrigger>
             )}
-            {canDeleteGroups && (
+            {permissions.canDeleteGroup && (
               <AlertDialogTrigger asChild>
                 <DropdownMenuItem
                   className="text-rose-500 focus:text-rose-600"
@@ -456,8 +417,11 @@ function GroupListItem({
       <GroupExpandedContent
         group={group}
         assignments={assignments}
-        onManage={onManage}
-        canManageGroups={canManageGroups}
+        openSections={openSections}
+        onOpenSectionsChange={onOpenSectionsChange}
+        canUpdateMembers={canUpdateMembers}
+        canCreateAssignments={permissions.canCreateAssignments}
+        canDeleteAssignments={permissions.canDeleteAssignments}
       />
     </RbacListItem>
   )
@@ -466,48 +430,270 @@ function GroupListItem({
 function GroupExpandedContent({
   group,
   assignments,
-  onManage,
-  canManageGroups,
+  openSections,
+  onOpenSectionsChange,
+  canUpdateMembers,
+  canCreateAssignments,
+  canDeleteAssignments,
 }: {
   group: GroupReadWithMembers
   assignments: GroupRoleAssignmentReadWithDetails[]
-  onManage: () => void
-  canManageGroups: boolean
+  openSections: GroupSection[]
+  onOpenSectionsChange: (sections: GroupSection[]) => void
+  canUpdateMembers: boolean
+  canCreateAssignments: boolean
+  canDeleteAssignments: boolean
 }) {
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {group.description && (
         <RbacDetailRow label="Description">{group.description}</RbacDetailRow>
       )}
-      <RbacDetailRow label="Members">
-        <div className="flex items-center gap-2">
-          <span className="text-muted-foreground">
-            {group.member_count} member
-            {group.member_count !== 1 && "s"}
-          </span>
-          {canManageGroups && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-xs"
-              onClick={onManage}
-            >
-              <UserPlusIcon className="mr-1 size-3" />
-              Manage
-            </Button>
-          )}
-        </div>
-      </RbacDetailRow>
-      <RbacDetailRow label="Role assignments">
-        {assignments.length === 0 ? (
-          <span className="text-muted-foreground">No role assignments</span>
-        ) : (
-          <div className="space-y-1.5">
-            {assignments.map((assignment) => (
-              <div
-                key={assignment.id}
-                className="flex items-center gap-2 text-xs"
+      <Accordion
+        type="multiple"
+        value={openSections}
+        onValueChange={(sections) =>
+          onOpenSectionsChange(sections.filter(isGroupSection))
+        }
+      >
+        <AccordionItem value="members" className="border-border/50">
+          <AccordionTrigger className="py-1.5 text-xs hover:no-underline">
+            Members ({group.member_count ?? 0})
+          </AccordionTrigger>
+          <AccordionContent className="pb-2">
+            <GroupMembersSection
+              groupId={group.id}
+              isIdpManaged={group.is_idp_managed === true}
+              canUpdateMembers={canUpdateMembers}
+            />
+          </AccordionContent>
+        </AccordionItem>
+        <AccordionItem value="roles" className="border-b-0">
+          <AccordionTrigger className="py-1.5 text-xs hover:no-underline">
+            Roles ({assignments.length})
+          </AccordionTrigger>
+          <AccordionContent className="pb-0">
+            <GroupRolesSection
+              groupId={group.id}
+              assignments={assignments}
+              canCreateAssignments={canCreateAssignments}
+              canDeleteAssignments={canDeleteAssignments}
+            />
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    </div>
+  )
+}
+
+function GroupMembersSection({
+  groupId,
+  isIdpManaged,
+  canUpdateMembers,
+}: {
+  groupId: string
+  isIdpManaged: boolean
+  canUpdateMembers: boolean
+}) {
+  const { group, isLoading, error } = useRbacGroup(groupId)
+  const {
+    addGroupMember,
+    addGroupMemberIsPending,
+    removeGroupMember,
+    removeGroupMemberIsPending,
+  } = useRbacGroups()
+  const members = group?.members ?? []
+
+  async function handleRemoveMember(userId: string) {
+    try {
+      await removeGroupMember({ groupId, userId })
+    } catch (error) {
+      console.error("Failed to remove group member", error)
+    }
+  }
+
+  function renderMembers() {
+    if (isLoading) {
+      return <Skeleton className="h-4 w-48" />
+    }
+    if (error) {
+      return <p className="text-xs text-destructive">Failed to load members</p>
+    }
+    if (members.length === 0) {
+      return <p className="text-xs text-muted-foreground">No members yet</p>
+    }
+    return (
+      <div className="max-h-64 overflow-y-auto">
+        {members.map((member) => (
+          <div
+            key={member.user_id}
+            className="flex items-center justify-between gap-2 py-1 text-xs"
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate font-medium">{member.email}</span>
+              {(member.first_name || member.last_name) && (
+                <span className="truncate text-muted-foreground">
+                  {[member.first_name, member.last_name]
+                    .filter(Boolean)
+                    .join(" ")}
+                </span>
+              )}
+            </div>
+            {canUpdateMembers && (
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Remove member"
+                onClick={() => handleRemoveMember(member.user_id)}
+                disabled={removeGroupMemberIsPending}
+                className="size-6 p-0 text-muted-foreground hover:text-foreground"
               >
+                <MinusIcon className="size-3.5" />
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {isIdpManaged && (
+        <p className="text-xs text-muted-foreground">
+          Membership is managed by your identity provider. Edit members there.
+        </p>
+      )}
+      {canUpdateMembers && (
+        <GroupAddMemberControl
+          existingMemberIds={members.map((member) => member.user_id)}
+          onAdd={(userId) => addGroupMember({ groupId, userId })}
+          isPending={addGroupMemberIsPending}
+        />
+      )}
+      {renderMembers()}
+    </div>
+  )
+}
+
+function GroupAddMemberControl({
+  existingMemberIds,
+  onAdd,
+  isPending,
+}: {
+  existingMemberIds: string[]
+  onAdd: (userId: string) => Promise<unknown>
+  isPending: boolean
+}) {
+  const [selectedUserId, setSelectedUserId] = useState("")
+  const { orgMembers } = useOrgMembers()
+
+  // Filter out users who are already members
+  const existing = new Set(existingMemberIds)
+  const availableMembers = (orgMembers ?? []).flatMap((member) => {
+    const userId = member.user_id
+    if (!userId || existing.has(userId)) {
+      return []
+    }
+    return [{ ...member, user_id: userId }]
+  })
+
+  async function handleAddMember() {
+    if (!selectedUserId) return
+    try {
+      await onAdd(selectedUserId)
+      setSelectedUserId("")
+    } catch (error) {
+      console.error("Failed to add group member", error)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+        <SelectTrigger className="h-8 flex-1 text-xs" aria-label="User">
+          <SelectValue placeholder="Select a user" />
+        </SelectTrigger>
+        <SelectContent>
+          {availableMembers.length === 0 ? (
+            <p className="p-2 text-center text-sm text-muted-foreground">
+              No available users
+            </p>
+          ) : (
+            availableMembers.map((member) => (
+              <SelectItem key={member.user_id} value={member.user_id}>
+                {member.email}
+                {member.first_name && ` (${member.first_name})`}
+              </SelectItem>
+            ))
+          )}
+        </SelectContent>
+      </Select>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        aria-label="Add member"
+        className="size-6 p-0"
+        onClick={handleAddMember}
+        disabled={!selectedUserId || isPending}
+      >
+        <UserPlusIcon className="size-3.5" />
+      </Button>
+    </div>
+  )
+}
+
+function GroupRolesSection({
+  groupId,
+  assignments,
+  canCreateAssignments,
+  canDeleteAssignments,
+}: {
+  groupId: string
+  assignments: GroupRoleAssignmentReadWithDetails[]
+  canCreateAssignments: boolean
+  canDeleteAssignments: boolean
+}) {
+  const {
+    createAssignment,
+    createAssignmentIsPending,
+    deleteAssignment,
+    deleteAssignmentIsPending,
+  } = useRbacAssignments()
+
+  async function handleRemoveRole(assignmentId: string) {
+    try {
+      await deleteAssignment(assignmentId)
+    } catch (error) {
+      console.error("Failed to remove role assignment", error)
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      {canCreateAssignments && (
+        <GroupAddRoleControl
+          onAdd={(roleId, workspaceId) =>
+            createAssignment({
+              group_id: groupId,
+              role_id: roleId,
+              workspace_id: workspaceId,
+            })
+          }
+          isPending={createAssignmentIsPending}
+        />
+      )}
+      {assignments.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No roles</p>
+      ) : (
+        <div className="max-h-64 overflow-y-auto">
+          {assignments.map((assignment) => (
+            <div
+              key={assignment.id}
+              className="flex items-center justify-between gap-2 py-1 text-xs"
+            >
+              <div className="flex min-w-0 items-center gap-2">
                 <Badge variant="secondary">{assignment.role_name}</Badge>
                 {assignment.workspace_name ? (
                   <span className="flex items-center gap-1 text-muted-foreground">
@@ -521,12 +707,112 @@ function GroupExpandedContent({
                   </span>
                 )}
               </div>
-            ))}
-          </div>
-        )}
-      </RbacDetailRow>
+              {canDeleteAssignments && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Remove role"
+                  onClick={() => handleRemoveRole(assignment.id)}
+                  disabled={deleteAssignmentIsPending}
+                  className="size-6 p-0 text-muted-foreground hover:text-foreground"
+                >
+                  <MinusIcon className="size-3.5" />
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
+}
+
+function GroupAddRoleControl({
+  onAdd,
+  isPending,
+}: {
+  onAdd: (roleId: string, workspaceId: string | null) => Promise<unknown>
+  isPending: boolean
+}) {
+  const [selectedRoleId, setSelectedRoleId] = useState("")
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("org-wide")
+  const { roles } = useRbacRoles()
+  const { workspaces } = useWorkspaceManager()
+  const workspaceId =
+    selectedWorkspaceId === "org-wide" ? null : selectedWorkspaceId
+
+  async function handleAddRole() {
+    if (!selectedRoleId) return
+    try {
+      await onAdd(selectedRoleId, workspaceId)
+      setSelectedRoleId("")
+      setSelectedWorkspaceId("org-wide")
+    } catch (error) {
+      console.error("Failed to add role assignment", error)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Select value={selectedRoleId} onValueChange={setSelectedRoleId}>
+        <SelectTrigger className="h-8 flex-1 text-xs" aria-label="Role">
+          <SelectValue placeholder="Select a role" />
+        </SelectTrigger>
+        <SelectContent>
+          {rolesForScope(roles, workspaceId).map((role) => (
+            <SelectItem key={role.id} value={role.id}>
+              {role.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select
+        value={selectedWorkspaceId}
+        onValueChange={(value) => {
+          setSelectedWorkspaceId(value)
+          setSelectedRoleId("")
+        }}
+      >
+        <SelectTrigger className="h-8 w-[180px] text-xs" aria-label="Scope">
+          <SelectValue placeholder="Scope" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="org-wide">
+            <div className="flex items-center gap-2">
+              <GlobeIcon className="size-4 text-blue-500" />
+              Organization
+            </div>
+          </SelectItem>
+          {workspaces?.map((workspace) => (
+            <SelectItem key={workspace.id} value={workspace.id}>
+              <div className="flex items-center gap-2">
+                <FolderIcon className="size-4 text-muted-foreground" />
+                {workspace.name}
+              </div>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        aria-label="Add role"
+        className="size-6 p-0"
+        onClick={handleAddRole}
+        disabled={!selectedRoleId || isPending}
+      >
+        <PlusIcon className="size-3.5" />
+      </Button>
+    </div>
+  )
+}
+
+function getSubmitLabel(isEdit: boolean, isPending: boolean): string {
+  if (isPending) {
+    return isEdit ? "Saving..." : "Creating..."
+  }
+  return isEdit ? "Save changes" : "Create group"
 }
 
 function GroupFormDialog({
@@ -593,325 +879,10 @@ function GroupFormDialog({
             Cancel
           </Button>
           <Button type="submit" disabled={!name.trim() || isPending}>
-            {isPending
-              ? initialData
-                ? "Saving..."
-                : "Creating..."
-              : initialData
-                ? "Save changes"
-                : "Create group"}
+            {getSubmitLabel(Boolean(initialData), isPending)}
           </Button>
         </DialogFooter>
       </form>
-    </DialogContent>
-  )
-}
-
-function GroupManageDialog({
-  group,
-  onAddMember,
-  onRemoveMember,
-  isAddingMember,
-  isRemovingMember,
-  onOpenChange,
-  canManageMembers,
-  canCreateAssignments,
-  canDeleteAssignments,
-}: {
-  group: GroupReadWithMembers
-  onAddMember: (userId: string) => Promise<void>
-  onRemoveMember: (userId: string) => Promise<void>
-  isAddingMember: boolean
-  isRemovingMember: boolean
-  onOpenChange: (open: boolean) => void
-  canManageMembers: boolean
-  canCreateAssignments: boolean
-  canDeleteAssignments: boolean
-}) {
-  const [selectedUserId, setSelectedUserId] = useState<string>("")
-  const [selectedRoleId, setSelectedRoleId] = useState<string>("")
-  const [selectedWorkspaceId, setSelectedWorkspaceId] =
-    useState<string>("org-wide")
-  const { orgMembers } = useOrgMembers()
-  const { roles } = useRbacRoles()
-  const { workspaces } = useWorkspaceManager()
-  const {
-    assignments,
-    createAssignment,
-    createAssignmentIsPending,
-    deleteAssignment,
-    deleteAssignmentIsPending,
-  } = useRbacAssignments({ groupId: group.id })
-
-  // Filter out users who are already members
-  const existingMemberIds = new Set(group.members?.map((m) => m.user_id) ?? [])
-  const availableMembers = (orgMembers ?? []).flatMap((member) => {
-    const userId = member.user_id
-    if (!userId || existingMemberIds.has(userId)) {
-      return []
-    }
-    return [{ ...member, user_id: userId }]
-  })
-
-  const handleAddMember = async () => {
-    if (!canManageMembers || !selectedUserId) return
-    await onAddMember(selectedUserId)
-    setSelectedUserId("")
-  }
-
-  const handleAddRole = async () => {
-    if (!canCreateAssignments || !selectedRoleId) return
-    await createAssignment({
-      group_id: group.id,
-      role_id: selectedRoleId,
-      workspace_id:
-        selectedWorkspaceId === "org-wide" ? null : selectedWorkspaceId,
-    })
-    setSelectedRoleId("")
-    setSelectedWorkspaceId("org-wide")
-  }
-
-  const handleRemoveRole = async (assignmentId: string) => {
-    if (!canDeleteAssignments) return
-    await deleteAssignment(assignmentId)
-  }
-
-  return (
-    <DialogContent className="max-w-xl">
-      <DialogHeader>
-        <DialogTitle>Manage group - {group.name}</DialogTitle>
-        <DialogDescription>
-          Add or remove members and role assignments for this group.
-        </DialogDescription>
-      </DialogHeader>
-      <Tabs defaultValue="members" className="w-full">
-        <TabsList className="w-full">
-          <TabsTrigger value="members" className="flex-1">
-            <UsersIcon className="mr-2 size-4" />
-            Members ({group.members?.length ?? 0})
-          </TabsTrigger>
-          <TabsTrigger value="roles" className="flex-1">
-            <ShieldIcon className="mr-2 size-4" />
-            Roles ({assignments.length})
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="members" className="mt-4 space-y-4">
-          {group.is_idp_managed && (
-            <p className="text-sm text-muted-foreground">
-              Membership is managed by your identity provider. Edit members
-              there.
-            </p>
-          )}
-          {canManageMembers && !group.is_idp_managed && (
-            <div className="space-y-2">
-              <Label>Add member</Label>
-              <div className="flex gap-2">
-                <Select
-                  value={selectedUserId}
-                  onValueChange={setSelectedUserId}
-                >
-                  <SelectTrigger className="flex-1">
-                    <SelectValue placeholder="Select a user" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableMembers.length === 0 ? (
-                      <p className="p-2 text-center text-sm text-muted-foreground">
-                        No available users
-                      </p>
-                    ) : (
-                      availableMembers.map((member) => (
-                        <SelectItem key={member.user_id} value={member.user_id}>
-                          {member.email}
-                          {member.first_name && ` (${member.first_name})`}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-                <Button
-                  type="button"
-                  onClick={handleAddMember}
-                  disabled={!selectedUserId || isAddingMember}
-                >
-                  <UserPlusIcon className="size-4" />
-                </Button>
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <Label>Current members ({group.members?.length ?? 0})</Label>
-            <ScrollArea className="h-[200px] rounded-md border">
-              {group.members && group.members.length > 0 ? (
-                <div className="space-y-2 p-4">
-                  {group.members.map((member) => (
-                    <div
-                      key={member.user_id}
-                      className="flex items-center justify-between rounded-md border p-2"
-                    >
-                      <div className="flex flex-col">
-                        <span className="text-sm font-medium">
-                          {member.email}
-                        </span>
-                        {(member.first_name || member.last_name) && (
-                          <span className="text-xs text-muted-foreground">
-                            {[member.first_name, member.last_name]
-                              .filter(Boolean)
-                              .join(" ")}
-                          </span>
-                        )}
-                      </div>
-                      {canManageMembers && !group.is_idp_managed && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onRemoveMember(member.user_id)}
-                          disabled={isRemovingMember}
-                          className="text-rose-500 hover:text-rose-600"
-                        >
-                          <UserMinusIcon className="size-4" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex h-full items-center justify-center p-4">
-                  <p className="text-sm text-muted-foreground">
-                    No members yet
-                  </p>
-                </div>
-              )}
-            </ScrollArea>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="roles" className="mt-4 space-y-4">
-          {canCreateAssignments && (
-            <div className="space-y-2">
-              <Label>Add role assignment</Label>
-              <div className="flex gap-2">
-                <Select
-                  value={selectedRoleId}
-                  onValueChange={setSelectedRoleId}
-                >
-                  <SelectTrigger className="flex-1">
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {rolesForScope(
-                      roles,
-                      selectedWorkspaceId === "org-wide"
-                        ? null
-                        : selectedWorkspaceId
-                    ).map((role) => (
-                      <SelectItem key={role.id} value={role.id}>
-                        {role.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={selectedWorkspaceId}
-                  onValueChange={(value) => {
-                    setSelectedWorkspaceId(value)
-                    setSelectedRoleId("")
-                  }}
-                >
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Scope" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="org-wide">
-                      <div className="flex items-center gap-2">
-                        <GlobeIcon className="size-4 text-blue-500" />
-                        Organization
-                      </div>
-                    </SelectItem>
-                    {workspaces?.map((workspace) => (
-                      <SelectItem key={workspace.id} value={workspace.id}>
-                        <div className="flex items-center gap-2">
-                          <FolderIcon className="size-4 text-muted-foreground" />
-                          {workspace.name}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  type="button"
-                  onClick={handleAddRole}
-                  disabled={!selectedRoleId || createAssignmentIsPending}
-                >
-                  <PlusIcon className="size-4" />
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                All members of this group will inherit the assigned roles.
-              </p>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <Label>Current role assignments ({assignments.length})</Label>
-            <ScrollArea className="h-[200px] rounded-md border">
-              {assignments.length > 0 ? (
-                <div className="space-y-2 p-4">
-                  {assignments.map((assignment) => (
-                    <div
-                      key={assignment.id}
-                      className="flex items-center justify-between rounded-md border p-2"
-                    >
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary">
-                            {assignment.role_name}
-                          </Badge>
-                        </div>
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                          {assignment.workspace_name ? (
-                            <>
-                              <FolderIcon className="size-3" />
-                              {assignment.workspace_name}
-                            </>
-                          ) : (
-                            <>
-                              <GlobeIcon className="size-3 text-blue-500" />
-                              Organization-wide
-                            </>
-                          )}
-                        </span>
-                      </div>
-                      {canDeleteAssignments && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleRemoveRole(assignment.id)}
-                          disabled={deleteAssignmentIsPending}
-                          className="text-rose-500 hover:text-rose-600"
-                        >
-                          <Trash2Icon className="size-4" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex h-full items-center justify-center p-4">
-                  <p className="text-sm text-muted-foreground">
-                    No role assignments
-                  </p>
-                </div>
-              )}
-            </ScrollArea>
-          </div>
-        </TabsContent>
-      </Tabs>
-      <DialogFooter>
-        <Button variant="outline" onClick={() => onOpenChange(false)}>
-          Done
-        </Button>
-      </DialogFooter>
     </DialogContent>
   )
 }

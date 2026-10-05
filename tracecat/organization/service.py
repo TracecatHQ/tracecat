@@ -1,12 +1,24 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncGenerator, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
 from typing import cast as type_cast
 
-from sqlalchemy import String, and_, cast, delete, func, literal, select, union_all
-from sqlalchemy.dialects.postgresql import UUID, aggregate_order_by
+from sqlalchemy import (
+    String,
+    and_,
+    case,
+    cast,
+    delete,
+    func,
+    literal,
+    select,
+    union,
+    union_all,
+)
+from sqlalchemy.dialects.postgresql import JSONB, UUID, aggregate_order_by
 from sqlalchemy.orm import contains_eager
 
 from tracecat.audit.logger import audit_log
@@ -22,6 +34,7 @@ from tracecat.authz.membership import (
     drop_workspace_membership_mirror,
     lock_role_changes,
 )
+from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG
 from tracecat.db.models import (
     AccessToken,
     ExternalGroup,
@@ -31,12 +44,17 @@ from tracecat.db.models import (
     Group,
     GroupMember,
     GroupRoleAssignment,
+    Invitation,
+    Membership,
     Organization,
     OrganizationMembership,
+    RoleScope,
     ScimConnection,
+    Scope,
     User,
     UserRoleAssignment,
     Workspace,
+    effective_group_members,
 )
 from tracecat.db.models import Role as DBRole
 from tracecat.exceptions import (
@@ -52,8 +70,12 @@ from tracecat.organization.management import (
 from tracecat.organization.schemas import (
     MemberAccessTrace,
     MemberRoleRead,
+    OrgMemberAccess,
+    OrgMemberRoleRead,
+    OrgMemberWorkspaceRead,
 )
 from tracecat.service import BaseOrgService
+from tracecat.tiers.enums import Entitlement
 
 
 class OrgService(BaseOrgService):
@@ -212,6 +234,296 @@ class OrgService(BaseOrgService):
         )
         if commit:
             await self.session.commit()
+
+    @require_scope("org:member:read")
+    async def list_member_access(self) -> dict[UserID, OrgMemberAccess]:
+        """List each member's display role and caller-visible RBAC access."""
+        direct_roles = select(
+            UserRoleAssignment.user_id.label("user_id"),
+            UserRoleAssignment.role_id.label("role_id"),
+            UserRoleAssignment.workspace_id.label("workspace_id"),
+        ).where(UserRoleAssignment.organization_id == self.organization_id)
+        group_roles = (
+            select(
+                effective_group_members.c.user_id.label("user_id"),
+                GroupRoleAssignment.role_id.label("role_id"),
+                GroupRoleAssignment.workspace_id.label("workspace_id"),
+            )
+            .join_from(
+                GroupRoleAssignment,
+                effective_group_members,
+                effective_group_members.c.group_id == GroupRoleAssignment.group_id,
+            )
+            .where(GroupRoleAssignment.organization_id == self.organization_id)
+        )
+        role_assignments = union(direct_roles, group_roles).subquery()
+
+        ranked_org_roles = (
+            select(
+                role_assignments.c.user_id,
+                DBRole.name.label("role_name"),
+                DBRole.slug.label("role_slug"),
+                func.row_number()
+                .over(
+                    partition_by=role_assignments.c.user_id,
+                    order_by=(
+                        case(
+                            (DBRole.slug == "organization-owner", 0),
+                            (DBRole.slug == "organization-admin", 1),
+                            else_=2,
+                        ),
+                        DBRole.name,
+                        DBRole.id,
+                    ),
+                )
+                .label("rank"),
+            )
+            .join(DBRole, DBRole.id == role_assignments.c.role_id)
+            .where(
+                role_assignments.c.workspace_id.is_(None),
+                DBRole.organization_id == self.organization_id,
+                DBRole.slug.is_distinct_from(ORG_MEMBER_ROLE_SLUG),
+            )
+            .subquery("ranked_org_roles")
+        )
+        display_roles = (
+            select(
+                ranked_org_roles.c.user_id,
+                ranked_org_roles.c.role_name,
+                ranked_org_roles.c.role_slug,
+            )
+            .where(ranked_org_roles.c.rank == 1)
+            .subquery("display_roles")
+        )
+
+        members = (
+            select(OrganizationMembership.user_id.label("user_id"))
+            .where(OrganizationMembership.organization_id == self.organization_id)
+            .subquery("organization_members")
+        )
+        can_read_rbac = has_scope(self.role.scopes or frozenset(), "org:rbac:read")
+        stmt = (
+            select(
+                members.c.user_id,
+                func.coalesce(display_roles.c.role_name, "Member").label("role_name"),
+                display_roles.c.role_slug,
+            )
+            .outerjoin(display_roles, display_roles.c.user_id == members.c.user_id)
+            .order_by(members.c.user_id)
+        )
+        if not can_read_rbac:
+            empty = literal([], type_=JSONB)
+            stmt = stmt.add_columns(
+                empty.label("roles"),
+                empty.label("workspaces"),
+                empty.label("groups"),
+            )
+        else:
+            roles = (
+                select(
+                    role_assignments.c.user_id,
+                    literal("role").label("kind"),
+                    DBRole.id.label("id"),
+                    DBRole.name.label("name"),
+                )
+                .join(DBRole, DBRole.id == role_assignments.c.role_id)
+                .where(
+                    DBRole.organization_id == self.organization_id,
+                    DBRole.slug.is_distinct_from(ORG_MEMBER_ROLE_SLUG),
+                )
+                .distinct()
+            )
+            membership_workspaces = (
+                select(
+                    Membership.user_id,
+                    literal("workspace").label("kind"),
+                    Workspace.id.label("id"),
+                    Workspace.name.label("name"),
+                )
+                .join(Workspace, Workspace.id == Membership.workspace_id)
+                .where(
+                    Membership.organization_id == self.organization_id,
+                    Workspace.organization_id == self.organization_id,
+                )
+            )
+            all_workspace_users = (
+                select(role_assignments.c.user_id)
+                .join(RoleScope, RoleScope.role_id == role_assignments.c.role_id)
+                .join(Scope, Scope.id == RoleScope.scope_id)
+                .where(
+                    role_assignments.c.workspace_id.is_(None),
+                    Scope.name == "org:workspace:read",
+                )
+                .distinct()
+                .subquery("all_workspace_users")
+            )
+            org_wide_workspaces = (
+                select(
+                    all_workspace_users.c.user_id,
+                    literal("workspace").label("kind"),
+                    Workspace.id.label("id"),
+                    Workspace.name.label("name"),
+                )
+                .join(Workspace, Workspace.organization_id == self.organization_id)
+                .where(Workspace.organization_id == self.organization_id)
+            )
+            workspaces = union(membership_workspaces, org_wide_workspaces)
+            arms = [roles, workspaces]
+            if await self.has_entitlement(Entitlement.RBAC_ADDONS):
+                groups = (
+                    select(
+                        effective_group_members.c.user_id,
+                        literal("group").label("kind"),
+                        Group.id.label("id"),
+                        Group.name.label("name"),
+                    )
+                    .join(Group, Group.id == effective_group_members.c.group_id)
+                    .where(Group.organization_id == self.organization_id)
+                )
+                arms.append(groups)
+
+            access = union(*arms).subquery()
+
+            def aggregate_kind(kind: str):
+                return func.coalesce(
+                    func.jsonb_agg(
+                        aggregate_order_by(
+                            func.jsonb_build_object(
+                                "id", access.c.id, "name", access.c.name
+                            ),
+                            access.c.name,
+                            access.c.id,
+                        )
+                    ).filter(access.c.kind == kind),
+                    literal([], type_=JSONB),
+                )
+
+            aggregated_access = (
+                select(
+                    access.c.user_id,
+                    aggregate_kind("role").label("roles"),
+                    aggregate_kind("workspace").label("workspaces"),
+                    aggregate_kind("group").label("groups"),
+                )
+                .group_by(access.c.user_id)
+                .subquery("aggregated_member_access")
+            )
+            stmt = stmt.add_columns(
+                func.coalesce(
+                    aggregated_access.c.roles, literal([], type_=JSONB)
+                ).label("roles"),
+                func.coalesce(
+                    aggregated_access.c.workspaces, literal([], type_=JSONB)
+                ).label("workspaces"),
+                func.coalesce(
+                    aggregated_access.c.groups, literal([], type_=JSONB)
+                ).label("groups"),
+            ).outerjoin(
+                aggregated_access,
+                aggregated_access.c.user_id == members.c.user_id,
+            )
+
+        rows = (await self.session.execute(stmt)).mappings().all()
+        return {row["user_id"]: OrgMemberAccess.model_validate(row) for row in rows}
+
+    @require_scope("org:member:read")
+    async def list_invitation_access(
+        self, invitations: Sequence[Invitation]
+    ) -> dict[uuid.UUID, OrgMemberAccess]:
+        """Resolve display roles and caller-visible access for invitations."""
+        if not invitations:
+            return {}
+
+        can_read_rbac = has_scope(self.role.scopes or frozenset(), "org:rbac:read")
+        role_ids = {grant.role_id for inv in invitations for grant in inv.grants}
+        role_rows = (
+            (
+                await self.session.execute(
+                    select(DBRole.id, DBRole.name, DBRole.slug).where(
+                        DBRole.organization_id == self.organization_id,
+                        DBRole.id.in_(role_ids),
+                    )
+                )
+            )
+            .tuples()
+            .all()
+        )
+        roles_by_id = {
+            role_id: OrgMemberRoleRead(id=role_id, name=name)
+            for role_id, name, _slug in role_rows
+        }
+        role_slugs = {role_id: slug for role_id, _name, slug in role_rows}
+
+        workspaces_by_id: dict[uuid.UUID, OrgMemberWorkspaceRead] = {}
+        if can_read_rbac:
+            workspace_ids = {
+                grant.workspace_id
+                for inv in invitations
+                for grant in inv.grants
+                if grant.workspace_id is not None
+            }
+            if workspace_ids:
+                workspace_rows = (
+                    (
+                        await self.session.execute(
+                            select(Workspace.id, Workspace.name).where(
+                                Workspace.organization_id == self.organization_id,
+                                Workspace.id.in_(workspace_ids),
+                            )
+                        )
+                    )
+                    .tuples()
+                    .all()
+                )
+                workspaces_by_id = {
+                    workspace_id: OrgMemberWorkspaceRead(
+                        id=workspace_id, name=workspace_name
+                    )
+                    for workspace_id, workspace_name in workspace_rows
+                }
+
+        access_by_invitation: dict[uuid.UUID, OrgMemberAccess] = {}
+        for invitation in invitations:
+            org_grant = next(
+                (grant for grant in invitation.grants if grant.workspace_id is None),
+                None,
+            )
+            roles = []
+            workspaces = []
+            if can_read_rbac:
+                invitation_role_ids = {
+                    grant.role_id
+                    for grant in invitation.grants
+                    if role_slugs.get(grant.role_id) != ORG_MEMBER_ROLE_SLUG
+                }
+                roles = sorted(
+                    (
+                        roles_by_id[role_id]
+                        for role_id in invitation_role_ids
+                        if role_id in roles_by_id
+                    ),
+                    key=lambda item: (item.name, item.id),
+                )
+                invitation_workspace_ids = {
+                    grant.workspace_id
+                    for grant in invitation.grants
+                    if grant.workspace_id is not None
+                }
+                workspaces = sorted(
+                    (
+                        workspaces_by_id[workspace_id]
+                        for workspace_id in invitation_workspace_ids
+                        if workspace_id in workspaces_by_id
+                    ),
+                    key=lambda item: (item.name, item.id),
+                )
+            access_by_invitation[invitation.id] = OrgMemberAccess(
+                role_name="Invited",
+                role_slug=role_slugs.get(org_grant.role_id) if org_grant else None,
+                roles=roles,
+                workspaces=workspaces,
+            )
+        return access_by_invitation
 
     # Group and IdP group names are RBAC detail, not member-list detail.
     @require_scope("org:member:read", "org:rbac:read")

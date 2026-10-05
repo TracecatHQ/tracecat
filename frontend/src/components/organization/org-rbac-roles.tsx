@@ -297,7 +297,6 @@ function RoleListItem({
     <RbacListItem
       icon={<ShieldIcon className="size-4" />}
       title={role.name}
-      subtitle={role.description || `${role.scopes?.length ?? 0} scopes`}
       badges={
         role.is_system ? <RbacBadge variant="preset">Preset</RbacBadge> : null
       }

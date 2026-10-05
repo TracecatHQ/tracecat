@@ -20803,6 +20803,23 @@ export const $OrgMemberDetail = {
   description: "Detailed member info for /me and update endpoints.",
 } as const
 
+export const $OrgMemberGroupRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["id", "name"],
+  title: "OrgMemberGroupRead",
+} as const
+
 export const $OrgMemberRead = {
   properties: {
     user_id: {
@@ -20855,7 +20872,27 @@ export const $OrgMemberRead = {
       },
       type: "array",
       title: "Grants",
-      default: [],
+    },
+    roles: {
+      items: {
+        $ref: "#/components/schemas/OrgMemberRoleRead",
+      },
+      type: "array",
+      title: "Roles",
+    },
+    workspaces: {
+      items: {
+        $ref: "#/components/schemas/OrgMemberWorkspaceRead",
+      },
+      type: "array",
+      title: "Workspaces",
+    },
+    groups: {
+      items: {
+        $ref: "#/components/schemas/OrgMemberGroupRead",
+      },
+      type: "array",
+      title: "Groups",
     },
     status: {
       $ref: "#/components/schemas/OrgMemberStatus",
@@ -20926,10 +20963,44 @@ export const $OrgMemberRead = {
     "Unified member representation — covers active, inactive, and pending (invited) members.",
 } as const
 
+export const $OrgMemberRoleRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["id", "name"],
+  title: "OrgMemberRoleRead",
+} as const
+
 export const $OrgMemberStatus = {
   type: "string",
   enum: ["active", "inactive", "invited"],
   title: "OrgMemberStatus",
+} as const
+
+export const $OrgMemberWorkspaceRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+  },
+  type: "object",
+  required: ["id", "name"],
+  title: "OrgMemberWorkspaceRead",
 } as const
 
 export const $OrgRegistryRepositoryRead = {

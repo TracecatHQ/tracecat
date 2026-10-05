@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.invitations.schemas import InvitationGrant
@@ -17,6 +17,29 @@ class OrgMemberStatus(StrEnum):
     INVITED = "invited"
 
 
+class OrgMemberRoleRead(BaseModel):
+    id: UUID
+    name: str
+
+
+class OrgMemberWorkspaceRead(BaseModel):
+    id: WorkspaceID
+    name: str
+
+
+class OrgMemberGroupRead(BaseModel):
+    id: UUID
+    name: str
+
+
+class OrgMemberAccess(BaseModel):
+    role_name: str = "Member"
+    role_slug: str | None = None
+    roles: list[OrgMemberRoleRead] = Field(default_factory=list)
+    workspaces: list[OrgMemberWorkspaceRead] = Field(default_factory=list)
+    groups: list[OrgMemberGroupRead] = Field(default_factory=list)
+
+
 class OrgMemberRead(BaseModel):
     """Unified member representation — covers active, inactive, and pending (invited) members."""
 
@@ -26,7 +49,10 @@ class OrgMemberRead(BaseModel):
     role_name: str
     role_slug: str | None = None
     # Populated for invited rows only: the grants the invitation will confer.
-    grants: list[InvitationGrant] = []
+    grants: list[InvitationGrant] = Field(default_factory=list)
+    roles: list[OrgMemberRoleRead] = Field(default_factory=list)
+    workspaces: list[OrgMemberWorkspaceRead] = Field(default_factory=list)
+    groups: list[OrgMemberGroupRead] = Field(default_factory=list)
     status: OrgMemberStatus
     first_name: str | None = None
     last_name: str | None = None
