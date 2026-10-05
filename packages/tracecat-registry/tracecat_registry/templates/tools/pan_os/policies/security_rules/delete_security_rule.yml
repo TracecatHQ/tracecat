@@ -1,0 +1,60 @@
+type: action
+definition:
+  title: Delete security rule
+  description: Delete a security rule from the candidate configuration with DELETE /restapi/{version}/Policies/${{ "SecurityPreRules" if inputs.rulebase == "pre" else ("SecurityPostRules" if inputs.rulebase == "post" else "SecurityRules") }}?name=. Commit to apply the change.
+  display_group: Palo Alto Networks (PAN-OS)
+  doc_url: https://pan.dev/panos/docs/restapi/
+  namespace: tools.pan_os
+  name: delete_security_rule
+  secrets:
+    - name: pan_os
+      keys:
+        - PANOS_API_KEY
+  expects:
+    name:
+      type: str
+      description: Name of the security rule.
+    location:
+      type: enum["vsys", "shared", "device-group"]
+      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      default: vsys
+    vsys:
+      type: str
+      description: Virtual system when location is vsys.
+      default: vsys1
+    device_group:
+      type: str | None
+      description: Panorama device group when location is device-group.
+      default: null
+    rulebase:
+      type: enum["security", "pre", "post"]
+      description: Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
+      default: security
+    base_url:
+      type: str | None
+      description: Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable pan_os.base_url.
+      default: null
+    api_version:
+      type: str | None
+      description: PAN-OS REST API version, e.g. v11.1 or v10.2. Falls back to the workspace variable pan_os.api_version, then v11.1.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+      default: true
+  steps:
+    - ref: delete
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_os.base_url }}/restapi/${{ inputs.api_version || VARS.pan_os.api_version || "v11.1" }}/Policies/${{ "SecurityPreRules" if inputs.rulebase == "pre" else ("SecurityPostRules" if inputs.rulebase == "post" else "SecurityRules") }}
+        method: DELETE
+        headers:
+          X-PAN-KEY: ${{ SECRETS.pan_os.PANOS_API_KEY }}
+          Accept: application/json
+        params:
+          location: ${{ inputs.location }}
+          vsys: ${{ inputs.vsys if inputs.location == "vsys" else None }}
+          device-group: ${{ inputs.device_group if inputs.location == "device-group" else None }}
+          name: ${{ inputs.name }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.delete.result.data }}

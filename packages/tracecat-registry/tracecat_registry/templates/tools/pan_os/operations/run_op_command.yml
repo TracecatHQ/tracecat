@@ -1,0 +1,107 @@
+type: action
+definition:
+  title: Run operational command
+  description: Run an operational command with the XML API (type=op) and return the parsed response, e.g. <show><session><all><filter><source>203.0.113.10</source></filter></all></session></show>.
+  display_group: Palo Alto Networks (PAN-OS)
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/run-operational-mode-commands-api
+  namespace: tools.pan_os
+  name: run_op_command
+  secrets:
+    - name: pan_os
+      keys:
+        - PANOS_API_KEY
+  expects:
+    cmd:
+      type: str
+      description: Operational command in XML form.
+    vsys:
+      type: str | None
+      description: Virtual system on multi-vsys firewalls.
+      default: null
+    target:
+      type: str | None
+      description: Managed firewall serial number when calling through Panorama.
+      default: null
+    base_url:
+      type: str | None
+      description: Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable pan_os.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+      default: true
+  steps:
+    - ref: build_command
+      action: core.script.run_python
+      args:
+        inputs:
+          cmd: ${{ inputs.cmd }}
+          vsys: ${{ inputs.vsys }}
+          target: ${{ inputs.target }}
+        script: |
+          def _form(form, vsys=None, target=None):
+              if vsys:
+                  form["vsys"] = vsys
+              if target:
+                  form["target"] = target
+              return form
+
+          def main(cmd, vsys, target):
+              return _form({"type": "op", "cmd": cmd}, vsys, target)
+    - ref: run
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_os.base_url }}/api/
+        method: POST
+        headers:
+          X-PAN-KEY: ${{ SECRETS.pan_os.PANOS_API_KEY }}
+        form_data: ${{ steps.build_command.result }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+        timeout: 60
+    - ref: parse
+      action: core.script.run_python
+      args:
+        inputs:
+          text: ${{ steps.run.result.data }}
+        script: |
+          import xml.etree.ElementTree as ET
+          from xml.sax.saxutils import escape, quoteattr
+
+          def _to_dict(element):
+              node = {f"@{key}": value for key, value in element.attrib.items()}
+              children = list(element)
+              text = (element.text or "").strip()
+              if not children:
+                  if not node:
+                      return text
+                  if text:
+                      node["#text"] = text
+                  return node
+              for child in children:
+                  value = _to_dict(child)
+                  if child.tag in node:
+                      if not isinstance(node[child.tag], list):
+                          node[child.tag] = [node[child.tag]]
+                      node[child.tag].append(value)
+                  else:
+                      node[child.tag] = value
+              return node
+
+          def _parse(text):
+              root = ET.fromstring(text)
+              if root.get("status") != "success":
+                  detail = ET.tostring(root, encoding="unicode")[:2000]
+                  raise ValueError(f"PAN-OS XML API error (code {root.get('code')}): {detail}")
+              return root
+
+          def _lines(element):
+              if element is None:
+                  return []
+              return [line.strip() for line in element.itertext() if line.strip()]
+
+
+          def main(text):
+              root = _parse(text)
+              result = root.find("./result")
+              return _to_dict(result) if result is not None else _to_dict(root)
+  returns: ${{ steps.parse.result }}

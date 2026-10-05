@@ -1,0 +1,68 @@
+type: action
+definition:
+  title: List external dynamic lists
+  description: List external dynamic lists with GET /restapi/{version}/Objects/ExternalDynamicLists.
+  display_group: Palo Alto Networks (PAN-OS)
+  doc_url: https://pan.dev/panos/docs/restapi/
+  namespace: tools.pan_os
+  name: list_external_dynamic_lists
+  secrets:
+    - name: pan_os
+      keys:
+        - PANOS_API_KEY
+  expects:
+    location:
+      type: enum["vsys", "shared", "device-group"]
+      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      default: vsys
+    vsys:
+      type: str
+      description: Virtual system when location is vsys.
+      default: vsys1
+    device_group:
+      type: str | None
+      description: Panorama device group when location is device-group.
+      default: null
+    base_url:
+      type: str | None
+      description: Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable pan_os.base_url.
+      default: null
+    api_version:
+      type: str | None
+      description: PAN-OS REST API version, e.g. v11.1 or v10.2. Falls back to the workspace variable pan_os.api_version, then v11.1.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+      default: true
+  steps:
+    - ref: list
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_os.base_url }}/restapi/${{ inputs.api_version || VARS.pan_os.api_version || "v11.1" }}/Objects/ExternalDynamicLists
+        method: GET
+        headers:
+          X-PAN-KEY: ${{ SECRETS.pan_os.PANOS_API_KEY }}
+          Accept: application/json
+        params:
+          location: ${{ inputs.location }}
+          vsys: ${{ inputs.vsys if inputs.location == "vsys" else None }}
+          device-group: ${{ inputs.device_group if inputs.location == "device-group" else None }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: normalize
+      action: core.script.run_python
+      args:
+        inputs:
+          response: ${{ steps.list.result }}
+        script: |
+          def _entries(response):
+              data = response.get("data") if isinstance(response, dict) else None
+              if not isinstance(data, dict) or response.get("status_code") == 404:
+                  return []
+              entries = (data.get("result") or {}).get("entry") or []
+              return entries if isinstance(entries, list) else [entries]
+
+
+          def main(response):
+              return _entries(response)
+  returns: ${{ steps.normalize.result }}
