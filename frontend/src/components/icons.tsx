@@ -619,6 +619,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.pagerduty": createIconRenderer(PagerDutyToolIcon, {
       wrapperClassName: "rounded-xl",
     }),
+    "tools.fortisiem": createIconRenderer(FortinetIcon),
     "tools.gophish": createIconRenderer(GophishToolIcon, {
       wrapperClassName: "rounded-full",
       iconClassName: "h-full w-auto",
@@ -1171,6 +1172,11 @@ export const secretIcons: Record<
   pan_prisma: ({ className, ...rest }) => (
     <div className={className}>
       <PaloAltoIcon {...rest} />
+    </div>
+  ),
+  fortisiem: ({ className, ...rest }) => (
+    <div className={className}>
+      <FortinetIcon {...rest} />
     </div>
   ),
   jamf: createCatalogIconRenderer("jamf_mcp"),
@@ -2927,6 +2933,23 @@ export function VaultIcon({ className, ...rest }: IconProps) {
       <path
         fill="#FFEC6E"
         d="M0 0l11.955 24L24 0zm13.366 4.827h1.393v1.38h-1.393zm-2.77 5.569H9.22V8.993h1.389zm0-2.087H9.22V6.906h1.389zm0-2.086H9.22V4.819h1.389zm2.087 6.263h-1.377V11.08h1.388zm0-2.09h-1.377V8.993h1.388zm0-2.087h-1.377V6.906h1.388zm0-2.086h-1.377V4.819h1.388zm.683.683h1.393v1.389h-1.393zm0 3.475V8.993h1.389v1.388Z"
+      />
+    </svg>
+  )
+}
+
+export function FortinetIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      role="img"
+      viewBox="65.7 -11.85 78.5 78.5"
+      className={className}
+      {...rest}
+    >
+      <title>Fortinet</title>
+      <path
+        fill="#DA291C"
+        d="M144.2 20.4v14.2H122V20.4h22.2zM93.9 54.8H116V40.6H93.9v14.2zm50.3-42.9c0-6.6-5.3-11.9-11.9-11.9h-10.2v14.2h22.1v-2.3zM93.9 0v14.2H116V0H93.9zM65.7 20.4v14.2h22.1V20.4H65.7zM122 54.8h10.2c6.6 0 11.9-5.3 11.9-11.9v-2.3H122v14.2zM65.7 42.9c0 6.6 5.3 11.9 11.9 11.9h10.2V40.6H65.7v2.3zm0-31v2.3h22.1V0H77.6C71 0 65.7 5.3 65.7 11.9z"
       />
     </svg>
   )

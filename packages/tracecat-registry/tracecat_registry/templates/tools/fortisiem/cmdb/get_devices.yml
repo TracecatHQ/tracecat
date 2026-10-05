@@ -1,0 +1,49 @@
+type: action
+definition:
+  title: Get devices
+  description: Get a short description of all CMDB devices, optionally limited to an access IP range. Returns XML.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/700505/get-short-description-of-all-devices-in-an-address-range
+  namespace: tools.fortisiem
+  name: get_devices
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    includeIps:
+      type: str | None
+      description: Access IPs to include. Accepts IPaddress, IPaddress1,IPaddress2, IPaddress1-IPaddress2, or a comma-separated mix of these.
+      default: null
+    excludeIps:
+      type: str | None
+      description: Access IPs to exclude, in the same format as includeIps.
+      default: null
+    organization:
+      type: str | None
+      description: Organization name. Required for Service Provider deployments, e.g. ACME.
+      default: null
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/cmdbDeviceInfo/devices
+        method: GET
+        params:
+          includeIps: ${{ inputs.includeIps }}
+          excludeIps: ${{ inputs.excludeIps }}
+          organization: ${{ inputs.organization }}
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.call_api.result }}
