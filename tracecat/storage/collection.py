@@ -176,7 +176,10 @@ async def store_collection(
         element_kind=element_kind,
         chunks=chunk_refs,
     )
-    manifest_bytes = serialize_object(manifest.model_dump())
+    # created_at differs per attempt; hashing it would give identical retries new keys.
+    manifest_bytes = serialize_object(
+        manifest.model_dump(exclude={"chunks": {"__all__": {"created_at"}}})
+    )
     manifest_sha256 = compute_sha256(manifest_bytes)
     manifest_key = content_addressed_key(f"{prefix}/manifest.json", manifest_sha256)
 

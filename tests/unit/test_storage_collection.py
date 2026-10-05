@@ -365,6 +365,46 @@ class TestCollectionStorageFunctions:
         assert await materialize_collection_values(late) == [4, 5, 6]
 
     @pytest.mark.anyio
+    async def test_store_collection_identical_retry_reuses_keys(
+        self, mock_blob_storage
+    ):
+        """Identical retries hash to the same manifest and chunk keys."""
+        from tracecat.storage.collection import store_collection
+
+        prefix = "wf-123/stream-0/action-1/col-retry"
+        first = await store_collection(
+            prefix=prefix, items=[1, 2, 3], chunk_size=2, bucket="test-bucket"
+        )
+        blob_count = len(mock_blob_storage)
+        second = await store_collection(
+            prefix=prefix, items=[1, 2, 3], chunk_size=2, bucket="test-bucket"
+        )
+
+        assert first.manifest_ref.key == second.manifest_ref.key
+        assert len(mock_blob_storage) == blob_count
+
+    @pytest.mark.anyio
+    async def test_store_collection_as_refs_identical_retry_reuses_keys(
+        self, mock_blob_storage
+    ):
+        """Item refs in stored_object chunks must not vary between attempts."""
+        from tracecat.dsl.action import _store_collection_as_refs
+        from tracecat.storage.backends import S3ObjectStorage
+        from tracecat.storage.object import reset_object_storage, set_object_storage
+
+        set_object_storage(S3ObjectStorage(bucket="test-bucket", threshold_bytes=0))
+        try:
+            prefix = "wf-123/stream-0/action-1/col-refs"
+            first = await _store_collection_as_refs(prefix, [{"a": 1}, {"b": 2}])
+            blob_count = len(mock_blob_storage)
+            second = await _store_collection_as_refs(prefix, [{"a": 1}, {"b": 2}])
+        finally:
+            reset_object_storage()
+
+        assert first.manifest_ref.key == second.manifest_ref.key
+        assert len(mock_blob_storage) == blob_count
+
+    @pytest.mark.anyio
     async def test_store_collection_empty_list(self, mock_blob_storage):
         """Test store_collection handles empty list."""
         from tracecat.storage.collection import store_collection
