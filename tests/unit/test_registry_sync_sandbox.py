@@ -30,6 +30,16 @@ from tracecat.sandbox.types import (
 from tracecat.ssh import SshEnv
 
 
+@pytest.fixture(autouse=True)
+def delegated_cgroup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    root = tmp_path / "cgroup"
+    root.mkdir()
+    (root / "cgroup.subtree_control").write_text("memory")
+    (root / "cgroup.procs").touch()
+    monkeypatch.setenv("TRACECAT__SANDBOX_CGROUP_PATH", str(root))
+    return root
+
+
 @pytest.mark.anyio
 async def test_registry_install_runs_in_nsjail_with_private_cache(
     tmp_path: Path,
@@ -73,7 +83,8 @@ async def test_registry_install_runs_in_nsjail_with_private_cache(
 
     assert result == expected_site_packages
     executor_cls.assert_called_once_with(
-        cache_dir=str(output_dir / "sandbox-install" / "sandbox-cache")
+        cache_dir=str(output_dir / "sandbox-install" / "sandbox-cache"),
+        cgroup_mount=tmp_path / "cgroup",
     )
 
 

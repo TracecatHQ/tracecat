@@ -1,14 +1,17 @@
 """The worker must reject missing delegation before accepting activities."""
 
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import Mock, call
 
 import pytest
 
-from tracecat.agent import executor_worker
-from tracecat.agent.sandbox import cgroup
-from tracecat.agent.sandbox.cgroup import CGROUP_PATH_ENV, sandbox_cgroup
+from tracecat.agent import executor_worker as agent_worker
+from tracecat.agent.sandbox import cgroup as agent_cgroup
+from tracecat.executor import worker as executor_worker
 from tracecat.executor.enums import ExecutorBackendType
+from tracecat.sandbox import cgroup
+from tracecat.sandbox.cgroup import CGROUP_PATH_ENV, sandbox_cgroup
 
 
 def test_missing_delegation_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -18,18 +21,60 @@ def test_missing_delegation_fails_closed(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("backend", ["nsjail", "ephemeral"])
+@pytest.mark.parametrize(
+    "worker", [executor_worker, agent_worker], ids=["executor", "agent"]
+)
 async def test_worker_rejects_missing_delegation(
+    backend: str,
+    worker: ModuleType,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    ready = tmp_path / "ready"
+    ready.touch()
+    monkeypatch.setattr("tracecat.executor.startup.WORKER_READY_FILE", ready)
     monkeypatch.setattr(
         "tracecat.executor.startup.validate_execution_backend", lambda: None
     )
     monkeypatch.setattr(
-        executor_worker.config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.NSJAIL
+        cgroup.config,
+        "TRACECAT__EXECUTOR_BACKEND",
+        ExecutorBackendType.from_config(backend),
     )
+    monkeypatch.setenv("TRACECAT__DISABLE_NSJAIL", "true")
     monkeypatch.delenv(CGROUP_PATH_ENV, raising=False)
+    monkeypatch.delenv(agent_cgroup.CGROUP_PATH_ENV, raising=False)
+    initialize_tracing = Mock()
+    monkeypatch.setattr(worker, "initialize_platform_tracing", initialize_tracing)
     with pytest.raises(RuntimeError, match="requires cgroup v2 delegation"):
-        await executor_worker.main()
+        await worker.main()
+    initialize_tracing.assert_not_called()
+    assert not ready.exists()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "worker", [executor_worker, agent_worker], ids=["executor", "agent"]
+)
+async def test_direct_worker_does_not_require_delegation(
+    worker: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "tracecat.executor.startup.WORKER_READY_FILE", tmp_path / "ready"
+    )
+    monkeypatch.setattr(
+        cgroup.config, "TRACECAT__EXECUTOR_BACKEND", ExecutorBackendType.DIRECT
+    )
+    monkeypatch.setenv("TRACECAT__DISABLE_NSJAIL", "false")
+    monkeypatch.delenv(CGROUP_PATH_ENV, raising=False)
+    monkeypatch.delenv(agent_cgroup.CGROUP_PATH_ENV, raising=False)
+    # Stop at the first service initialization, after startup validation.
+    initialize_tracing = Mock(side_effect=RuntimeError("reached service startup"))
+    monkeypatch.setattr(worker, "initialize_platform_tracing", initialize_tracing)
+    with pytest.raises(RuntimeError, match="reached service startup"):
+        await worker.main()
+    initialize_tracing.assert_called_once()
 
 
 def test_memory_controller_is_required(
@@ -59,7 +104,7 @@ def bootstrap_process(monkeypatch: pytest.MonkeyPatch) -> Mock:
     )
     # The removed flag must not disable cgroup delegation.
     monkeypatch.setenv("TRACECAT__DISABLE_NSJAIL", "true")
-    monkeypatch.delenv(CGROUP_PATH_ENV, raising=False)
+    monkeypatch.setenv(CGROUP_PATH_ENV, "")
     for name in ("HOME", "USER", "LOGNAME"):
         monkeypatch.setenv(name, "original")
     return process
@@ -97,7 +142,7 @@ def test_bootstrap_selects_and_validates_subtree_as_apiuser(
         call.setgroups([]),
         call.setgid(cgroup.APIUSER_ID),
         call.setuid(cgroup.APIUSER_ID),
-        call.validate(),
+        call.validate(CGROUP_PATH_ENV),
         call.execvp("python", ["python", "-m", "worker"]),
     ]
 
@@ -127,7 +172,7 @@ def test_bootstrap_rejects_unusable_explicit_subtree(
         call.setgroups([]),
         call.setgid(cgroup.APIUSER_ID),
         call.setuid(cgroup.APIUSER_ID),
-        call.validate(),
+        call.validate(CGROUP_PATH_ENV),
     ]
 
 
@@ -148,3 +193,72 @@ def test_bootstrap_skips_cgroups_in_direct_mode(
     bootstrap_process.execvp.assert_called_once_with(
         "python", ["python", "-m", "worker"]
     )
+
+
+@pytest.mark.parametrize("shared_path", [None, "", "explicit"])
+def test_agent_bootstrap_preserves_its_delegation_contract(
+    shared_path: str | None,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bootstrap_process: Mock,
+) -> None:
+    monkeypatch.setenv(agent_cgroup.CGROUP_PATH_ENV, "")
+    (tmp_path / "cgroup.subtree_control").write_text("memory")
+    (tmp_path / "cgroup.procs").touch()
+    shared_root = tmp_path / "python"
+    shared_root.mkdir()
+    (shared_root / "cgroup.subtree_control").write_text("memory")
+    (shared_root / "cgroup.procs").touch()
+    if shared_path is None:
+        monkeypatch.delenv(CGROUP_PATH_ENV, raising=False)
+    else:
+        monkeypatch.setenv(CGROUP_PATH_ENV, str(shared_root) if shared_path else "")
+    monkeypatch.setattr(cgroup, "delegate_cgroup", Mock(return_value=tmp_path))
+
+    agent_cgroup.main()
+
+    assert cgroup.os.environ[agent_cgroup.CGROUP_PATH_ENV] == str(tmp_path)
+    assert cgroup.os.environ[CGROUP_PATH_ENV] == str(
+        shared_root if shared_path else tmp_path
+    )
+    assert bootstrap_process.mock_calls == [
+        call.setgroups([]),
+        call.setgid(cgroup.APIUSER_ID),
+        call.setuid(cgroup.APIUSER_ID),
+        call.validate(agent_cgroup.CGROUP_PATH_ENV),
+        call.validate(CGROUP_PATH_ENV),
+        call.execvp("python", ["python", "-m", "worker"]),
+    ]
+
+
+@pytest.mark.parametrize("memory_enabled", [False, True])
+def test_agent_bootstrap_rejects_unusable_shared_subtree(
+    memory_enabled: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    bootstrap_process: Mock,
+) -> None:
+    monkeypatch.setenv(agent_cgroup.CGROUP_PATH_ENV, str(tmp_path))
+    (tmp_path / "cgroup.subtree_control").write_text("memory")
+    (tmp_path / "cgroup.procs").touch()
+    shared_root = tmp_path / "python"
+    shared_root.mkdir()
+    (shared_root / "cgroup.subtree_control").write_text(
+        "memory" if memory_enabled else "cpu"
+    )
+    (shared_root / "cgroup.procs").touch()
+    monkeypatch.setenv(CGROUP_PATH_ENV, str(shared_root))
+    monkeypatch.setattr(cgroup.os, "access", lambda path, mode: path != shared_root)
+
+    expected_error = PermissionError if memory_enabled else RuntimeError
+    with pytest.raises(expected_error):
+        agent_cgroup.main()
+
+    assert cgroup.os.environ[CGROUP_PATH_ENV] == str(shared_root)
+    assert bootstrap_process.mock_calls == [
+        call.setgroups([]),
+        call.setgid(cgroup.APIUSER_ID),
+        call.setuid(cgroup.APIUSER_ID),
+        call.validate(agent_cgroup.CGROUP_PATH_ENV),
+        call.validate(CGROUP_PATH_ENV),
+    ]

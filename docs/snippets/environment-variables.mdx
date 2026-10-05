@@ -73,7 +73,8 @@
 | Variable | Default | Description |
 | :------- | :------ | :---------- |
 | `TRACECAT__EXECUTOR_BACKEND` | `direct` | Execution mode for actions, agents, registry sync, and Python scripts. `direct` runs without nsjail; `nsjail` requires nsjail isolation. `ephemeral` is a compatibility alias for `nsjail`. |
-| `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` | `2048` | Address-space cap (`rlimit_as`) in MB for each `core.script.run_python` and custom action sandbox. A workload that exceeds it fails as `sandbox.resource_limit_exceeded`. The container memory limit still applies on top. See [Resource limits](/self-hosting/security#resource-limits). |
+| `TRACECAT__SANDBOX_DEFAULT_MEMORY_MB` | `2048` | Aggregate cgroup v2 memory limit in MiB per `core.script.run_python`, dependency-install, and custom action sandbox, shared by its processes. Applied by the nsjail backend. Exceeding it during script or action execution fails as `sandbox.resource_limit_exceeded`; an over-budget dependency installation fails as a package installation failure. The container memory limit still applies on top. See [Resource limits](/self-hosting/security#resource-limits). |
+| `TRACECAT__SANDBOX_ADDRESS_SPACE_MB` | Twice the memory budget | Per-process virtual address-space cap in MiB for action, Python, and dependency-install sandboxes. Requires nsjail. Set a positive integer to override the computed default. |
 | `TRACECAT__RESULT_EXTERNALIZATION_ENABLED` | `true` | Store large action results in blob storage instead of Temporal history. |
 | `TRACECAT__RESULT_EXTERNALIZATION_THRESHOLD_BYTES` | `128000` | Byte threshold above which payloads are externalized to blob storage. |
 | `TRACECAT__WORKFLOW_ARTIFACT_RETENTION_DAYS` | `30` | Retention period in days for workflow artifacts. Objects older than this are automatically deleted via S3 lifecycle rules. Set to `0` to disable. |

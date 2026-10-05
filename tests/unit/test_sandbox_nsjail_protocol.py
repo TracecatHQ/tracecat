@@ -331,6 +331,9 @@ async def test_package_install_preserves_structural_failure_attribution(
 ) -> None:
     service = SandboxService(cache_dir=str(tmp_path / "sandbox-cache"))
     monkeypatch.setattr(
+        service, "_nsjail_executor", NsjailExecutor(cgroup_mount=tmp_path / "cgroup")
+    )
+    monkeypatch.setattr(
         service.nsjail_executor,
         "execute_install",
         AsyncMock(
