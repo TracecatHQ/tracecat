@@ -1,0 +1,62 @@
+type: action
+definition:
+  title: Update security rule
+  description: Update a security rule in the candidate configuration. Reads it with GET /config/security/v1/security-rules/{id}, merges the provided API-native fields, and writes it with PUT /config/security/v1/security-rules/{id}. Push the candidate configuration to apply the change.
+  display_group: Palo Alto Networks (Strata Cloud Manager)
+  doc_url: https://pan.dev/scm/api/config/ngfw/security/update-security-rules-by-id/
+  namespace: tools.pan_strata
+  name: update_security_rule
+  secrets:
+    - type: oauth
+      provider_id: pan_strata
+      grant_type: client_credentials
+  expects:
+    rule_id:
+      type: str
+      description: Security rule UUID.
+    position:
+      type: str
+      description: 'Rulebase position of the rule. Allowed values: pre, post.'
+      default: pre
+    updates:
+      type: dict[str, Any]
+      description: 'API-native fields to replace, e.g. {"action": "deny", "source": ["blocked-ips"]}.'
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: get
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/security/v1/security-rules/${{ FN.url_encode(inputs.rule_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+          Accept: application/json
+        params:
+          position: ${{ inputs.position }}
+    - ref: build_payload
+      action: core.script.run_python
+      args:
+        inputs:
+          current: ${{ steps.get.result.data }}
+          updates: ${{ inputs.updates }}
+        script: |
+          def main(current, updates):
+              body = {key: value for key, value in current.items() if key != "id"}
+              body.update(updates)
+              return body
+    - ref: update
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/security/v1/security-rules/${{ FN.url_encode(inputs.rule_id) }}
+        method: PUT
+        headers:
+          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+          Accept: application/json
+          Content-Type: application/json
+        params:
+          position: ${{ inputs.position }}
+        payload: ${{ steps.build_payload.result }}
+  returns: ${{ steps.update.result }}

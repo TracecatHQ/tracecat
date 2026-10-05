@@ -665,6 +665,9 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.okta": createIconRenderer(OktaIcon),
     "tools.okta_oar": createIconRenderer(OktaIcon),
     "tools.okta_sdk": createIconRenderer(OktaIcon),
+    "tools.pan_os": createIconRenderer(PaloAltoIcon),
+    "tools.pan_prisma": createIconRenderer(PaloAltoIcon),
+    "tools.pan_strata": createIconRenderer(PaloAltoIcon),
     "tools.runreveal": createIconRenderer(RunRevealIcon),
     "tools.sentry": createIconRenderer(SentryIcon),
     "tools.slack_sdk": createIconRenderer(SlackIcon),
@@ -1040,6 +1043,11 @@ export const providerIcons: Record<
       <SnowflakeIcon {...rest} />
     </div>
   ),
+  pan_strata: ({ className, ...rest }) => (
+    <div className={className}>
+      <PaloAltoIcon {...rest} />
+    </div>
+  ),
   jamf: createCatalogIconRenderer("jamf_mcp"),
   google_chronicle: createCatalogIconRenderer("google_cloud_secops_mcp"),
   rapid7: createCatalogIconRenderer("rapid7_mcp"),
@@ -1153,6 +1161,16 @@ export const secretIcons: Record<
   jira: ({ className, ...rest }) => (
     <div className={className}>
       <JiraIcon {...rest} />
+    </div>
+  ),
+  pan_os: ({ className, ...rest }) => (
+    <div className={className}>
+      <PaloAltoIcon {...rest} />
+    </div>
+  ),
+  pan_prisma: ({ className, ...rest }) => (
+    <div className={className}>
+      <PaloAltoIcon {...rest} />
     </div>
   ),
   jamf: createCatalogIconRenderer("jamf_mcp"),

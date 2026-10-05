@@ -1,0 +1,55 @@
+type: action
+definition:
+  title: Get alert remediation commands
+  description: Generates and returns a list of remediation commands for the specified alerts and policies. Data returned for a successful call include fully constructed commands for remediation. Calls POST /alert/remediation directly.
+  display_group: Palo Alto Networks (Prisma Cloud)
+  doc_url: https://pan.dev/prisma-cloud/api/cspm/get-alerts-remediation/
+  namespace: tools.pan_prisma
+  name: get_alert_remediation_commands
+  secrets:
+  - name: pan_prisma
+    keys:
+    - PRISMA_ACCESS_KEY_ID
+    - PRISMA_SECRET_KEY
+  expects:
+    alerts:
+      type: list[str] | None
+      description: List of alert IDs. One or more alert IDs associated with a single policy are required if no policies are specified. If a policy is specified, then all the alerts specified must belong to that policy.
+      default: null
+    policies:
+      type: list[str] | None
+      description: List of policy IDs. A single policy ID is required if no alerts are specified.
+      default: null
+    filter:
+      type: dict[str, Any]
+      description: 'Filter to narrow or manage the search. filter.timeRange.type and filter.timeRange.value are required; other filter parameters are ignored, e.g. {"timeRange": {"type": "to_now", "value": "epoch"}}.'
+    base_url:
+      type: str | None
+      description: Prisma Cloud API URL for your tenant's stack, e.g. https://api.prismacloud.io, https://api2.prismacloud.io or https://api.eu.prismacloud.io. Falls back to the workspace variable pan_prisma.base_url.
+      default: null
+  steps:
+  - ref: login
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/login
+      method: POST
+      headers:
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        username: ${{ SECRETS.pan_prisma.PRISMA_ACCESS_KEY_ID }}
+        password: ${{ SECRETS.pan_prisma.PRISMA_SECRET_KEY }}
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/alert/remediation
+      method: POST
+      headers:
+        x-redlock-auth: ${{ steps.login.result.data.token }}
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        alerts: ${{ inputs.alerts }}
+        policies: ${{ inputs.policies }}
+        filter: ${{ inputs.filter }}
+  returns: ${{ steps.request.result }}

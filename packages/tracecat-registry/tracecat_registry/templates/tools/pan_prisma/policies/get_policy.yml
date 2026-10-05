@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Get policy
+  description: Returns the policy that has the specified policy ID. Calls GET /policy/{id} directly.
+  display_group: Palo Alto Networks (Prisma Cloud)
+  doc_url: https://pan.dev/prisma-cloud/api/cspm/get-policy/
+  namespace: tools.pan_prisma
+  name: get_policy
+  secrets:
+  - name: pan_prisma
+    keys:
+    - PRISMA_ACCESS_KEY_ID
+    - PRISMA_SECRET_KEY
+  expects:
+    id:
+      type: str
+      description: Policy ID.
+    base_url:
+      type: str | None
+      description: Prisma Cloud API URL for your tenant's stack, e.g. https://api.prismacloud.io, https://api2.prismacloud.io or https://api.eu.prismacloud.io. Falls back to the workspace variable pan_prisma.base_url.
+      default: null
+  steps:
+  - ref: login
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/login
+      method: POST
+      headers:
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        username: ${{ SECRETS.pan_prisma.PRISMA_ACCESS_KEY_ID }}
+        password: ${{ SECRETS.pan_prisma.PRISMA_SECRET_KEY }}
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/policy/${{ FN.url_encode(inputs.id) }}
+      method: GET
+      headers:
+        x-redlock-auth: ${{ steps.login.result.data.token }}
+        Accept: application/json
+  returns: ${{ steps.request.result }}
