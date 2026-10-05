@@ -3,7 +3,7 @@ definition:
   title: Update security rule
   description: Update a security rule in the candidate configuration. Reads it with GET /restapi/{version}/Policies/${{ "SecurityPreRules" if inputs.rulebase == "pre" else ("SecurityPostRules" if inputs.rulebase == "post" else "SecurityRules") }}?name=, applies only the provided fields, and writes it with PUT. Commit to apply the change.
   display_group: Palo Alto Networks (PAN-OS)
-  doc_url: https://pan.dev/panos/docs/restapi/
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api
   namespace: tools.pan_os
   name: update_security_rule
   secrets:
@@ -18,8 +18,8 @@ definition:
       type: dict[str, Any]
       description: 'API-native entry fields to replace, e.g. {"action": "deny", "source": {"member": ["blocked-ips"]}}.'
     location:
-      type: enum["vsys", "shared", "device-group"]
-      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      type: str
+      description: 'Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.'
       default: vsys
     vsys:
       type: str
@@ -30,8 +30,8 @@ definition:
       description: Panorama device group when location is device-group.
       default: null
     rulebase:
-      type: enum["security", "pre", "post"]
-      description: Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
+      type: str
+      description: 'Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group. Allowed values: security, pre, post.'
       default: security
     base_url:
       type: str | None
@@ -103,4 +103,4 @@ definition:
           name: ${{ inputs.name }}
         verify_ssl: ${{ inputs.verify_ssl }}
         payload: ${{ steps.build_payload.result }}
-  returns: ${{ steps.update.result.data }}
+  returns: ${{ steps.update.result }}

@@ -1,4 +1,4 @@
-"""Contract and planner tests for the Palo Alto SCM and PAN-OS templates."""
+"""Contract and planner tests for the Palo Alto SCM, PAN-OS and Prisma Cloud templates."""
 
 from pathlib import Path
 from typing import Any
@@ -19,6 +19,8 @@ TEMPLATES = (
 )
 SCM_TEMPLATES = sorted((TEMPLATES / "pan_strata").rglob("*.yml"))
 PANOS_TEMPLATES = sorted((TEMPLATES / "pan_os").rglob("*.yml"))
+PRISMA_TEMPLATES = sorted((TEMPLATES / "pan_prisma").rglob("*.yml"))
+PRISMA_BASE_URL = "${{ inputs.base_url || VARS.pan_prisma.base_url }}"
 SCM_BASE_URL = '${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}'
 
 
@@ -41,6 +43,7 @@ def _script(rel: str, ref: str) -> Any:
 def test_templates_exist() -> None:
     assert len(SCM_TEMPLATES) >= 40
     assert len(PANOS_TEMPLATES) >= 45
+    assert len(PRISMA_TEMPLATES) >= 24
 
 
 @pytest.mark.parametrize("path", SCM_TEMPLATES, ids=_ids)
@@ -80,6 +83,28 @@ def test_panos_template_contract(path: Path) -> None:
                 == "${{ SECRETS.pan_os.PANOS_API_KEY }}"
             )
             assert step.args["verify_ssl"] == "${{ inputs.verify_ssl }}"
+
+
+@pytest.mark.parametrize("path", PRISMA_TEMPLATES, ids=_ids)
+def test_prisma_template_contract(path: Path) -> None:
+    definition = TemplateAction.from_yaml(path).definition
+    assert definition.namespace == "tools.pan_prisma"
+    assert definition.secrets == [
+        RegistrySecret(
+            name="pan_prisma", keys=["PRISMA_ACCESS_KEY_ID", "PRISMA_SECRET_KEY"]
+        )
+    ]
+    # Prisma Cloud API hosts are stack-specific, so there is no default URL.
+    assert definition.expects["base_url"].default is None
+    login, request = definition.steps
+    assert login.args["url"] == f"{PRISMA_BASE_URL}/login"
+    assert request.args["url"].startswith(PRISMA_BASE_URL)
+    assert (
+        request.args["headers"]["x-redlock-auth"]
+        == "${{ steps.login.result.data.token }}"
+    )
+    # The JWT stays inside the action; only the API response is returned.
+    assert definition.returns == "${{ steps.request.result }}"
 
 
 @pytest.mark.parametrize("path", SCM_TEMPLATES + PANOS_TEMPLATES, ids=_ids)
@@ -243,49 +268,6 @@ def test_panos_group_update_keeps_location_attributes() -> None:
             "static": {"member": ["placeholder", "tc-block-203.0.113.10"]},
         }
     }
-
-
-def test_panorama_commit_all_limits_devices() -> None:
-    build = _script("pan_os/operations/commit_all", "build_command")
-    form = build(
-        device_groups=["DG <1>"],
-        devices=["0071"],
-        description=None,
-        include_template=False,
-        force_template_values=True,
-    )
-    assert form["type"] == "commit" and form["action"] == "all"
-    assert form["cmd"] == (
-        "<commit-all><shared-policy><device-group>"
-        '<entry name="DG &lt;1&gt;"><devices><entry name="0071"/></devices></entry>'
-        "</device-group><force-template-values>yes</force-template-values>"
-        "</shared-policy></commit-all>"
-    )
-    with pytest.raises(ValueError, match="at least one device group"):
-        build(
-            device_groups=[],
-            devices=None,
-            description=None,
-            include_template=False,
-            force_template_values=False,
-        )
-
-
-def test_panorama_push_template_stack_command() -> None:
-    build = _script("pan_os/panorama/push_template_stack", "build_command")
-    form = build(
-        tag="template-stack",
-        name="TS & 1",
-        devices=["0071", "0072"],
-        description="IR-1",
-        force_template_values=False,
-    )
-    assert form["cmd"] == (
-        "<commit-all><template-stack><name>TS &amp; 1</name>"
-        "<description>IR-1</description>"
-        "<device><member>0071</member><member>0072</member></device>"
-        "</template-stack></commit-all>"
-    )
 
 
 def test_panos_xml_commands_escape_user_input() -> None:

@@ -3,7 +3,7 @@ definition:
   title: Create tag
   description: Create a tag in the candidate configuration with POST /restapi/{version}/Objects/Tags?name=. Commit to apply the change.
   display_group: Palo Alto Networks (PAN-OS)
-  doc_url: https://pan.dev/panos/docs/restapi/
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-a-tag-rest-api
   namespace: tools.pan_os
   name: create_tag
   secrets:
@@ -23,8 +23,8 @@ definition:
       description: Tag comments.
       default: null
     location:
-      type: enum["vsys", "shared", "device-group"]
-      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      type: str
+      description: 'Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.'
       default: vsys
     vsys:
       type: str
@@ -78,4 +78,4 @@ definition:
           name: ${{ inputs.name }}
         verify_ssl: ${{ inputs.verify_ssl }}
         payload: ${{ steps.build_payload.result }}
-  returns: ${{ steps.create.result.data }}
+  returns: ${{ steps.create.result }}

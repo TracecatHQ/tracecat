@@ -3,7 +3,7 @@ definition:
   title: Create address group
   description: Create a static or dynamic address group in the candidate configuration with POST /restapi/{version}/Objects/AddressGroups?name=. Provide exactly one of static_members or dynamic_filter. Commit to apply the change.
   display_group: Palo Alto Networks (PAN-OS)
-  doc_url: https://pan.dev/panos/docs/restapi/
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api
   namespace: tools.pan_os
   name: create_address_group
   secrets:
@@ -31,8 +31,8 @@ definition:
       description: Tags to apply to the group.
       default: null
     location:
-      type: enum["vsys", "shared", "device-group"]
-      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      type: str
+      description: 'Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.'
       default: vsys
     vsys:
       type: str
@@ -94,4 +94,4 @@ definition:
           name: ${{ inputs.name }}
         verify_ssl: ${{ inputs.verify_ssl }}
         payload: ${{ steps.build_payload.result }}
-  returns: ${{ steps.create.result.data }}
+  returns: ${{ steps.create.result }}

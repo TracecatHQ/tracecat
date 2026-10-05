@@ -12,8 +12,8 @@ definition:
         - PANOS_API_KEY
   expects:
     location:
-      type: enum["vsys", "shared", "device-group"]
-      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      type: str
+      description: 'Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.'
       default: vsys
     vsys:
       type: str

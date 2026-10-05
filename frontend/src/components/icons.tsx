@@ -667,6 +667,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.okta_oar": createIconRenderer(OktaIcon),
     "tools.okta_sdk": createIconRenderer(OktaIcon),
     "tools.pan_os": createIconRenderer(PaloAltoIcon),
+    "tools.pan_prisma": createIconRenderer(PaloAltoIcon),
     "tools.pan_strata": createIconRenderer(PaloAltoIcon),
     "tools.runreveal": createIconRenderer(RunRevealIcon),
     "tools.sentry": createIconRenderer(SentryIcon),
@@ -1167,6 +1168,11 @@ export const secretIcons: Record<
     </div>
   ),
   pan_os: ({ className, ...rest }) => (
+    <div className={className}>
+      <PaloAltoIcon {...rest} />
+    </div>
+  ),
+  pan_prisma: ({ className, ...rest }) => (
     <div className={className}>
       <PaloAltoIcon {...rest} />
     </div>

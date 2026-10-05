@@ -1,15 +1,15 @@
 type: action
 definition:
   title: List security rules
-  description: List security rules with GET /config/security/v1/security-rules, following offset pagination until the limit is reached.
+  description: List security rules. Calls GET /config/security/v1/security-rules directly; page with limit and offset.
   display_group: Palo Alto Networks (Strata Cloud Manager)
   doc_url: https://pan.dev/scm/api/config/ngfw/security/list-rules/
   namespace: tools.pan_strata
   name: list_security_rules
   secrets:
-    - type: oauth
-      provider_id: pan_strata
-      grant_type: client_credentials
+  - type: oauth
+    provider_id: pan_strata
+    grant_type: client_credentials
   expects:
     folder:
       type: str | None
@@ -24,59 +24,35 @@ definition:
       description: Device (serial number) that contains the configuration. Provide exactly one of folder, snippet, or device.
       default: null
     position:
-      type: enum["pre", "post"]
-      description: Rulebase position of the rule.
+      type: str
+      description: 'Rulebase position of the rule. Allowed values: pre, post.'
       default: pre
     limit:
-      type: int
-      description: Maximum number of items to return across all pages.
-      default: 1000
+      type: int | None
+      description: Maximum number of results per page. SCM defaults to 200.
+      default: null
+    offset:
+      type: int | None
+      description: Number of results to skip before the first returned result. Use the response's total to page.
+      default: null
     base_url:
       type: str | None
       description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
       default: null
   steps:
-    - ref: build_query
-      action: core.script.run_python
-      args:
-        inputs:
-          folder: ${{ inputs.folder }}
-          snippet: ${{ inputs.snippet }}
-          device: ${{ inputs.device }}
-          position: ${{ inputs.position }}
-        script: |
-          def _container(folder, snippet, device):
-              container = {
-                  key: value
-                  for key, value in (("folder", folder), ("snippet", snippet), ("device", device))
-                  if value
-              }
-              if len(container) != 1:
-                  raise ValueError("Provide exactly one of folder, snippet, or device.")
-              return container
-
-
-          def main(folder, snippet, device, position=None):
-              query = _container(folder, snippet, device)
-              if position is not None:
-                  query["position"] = position
-              fixed = ", ".join(f"{key!r}: {value!r}" for key, value in query.items())
-              next_offset = 'r["data"].get("offset", 0) + len(r["data"].get("data") or [])'
-              return {
-                  "params": {**query, "limit": 200, "offset": 0},
-                  "next_request": f"lambda r: {{'params': {{{fixed}, 'limit': 200, 'offset': {next_offset}}}}}",
-              }
-    - ref: list
-      action: core.http_paginate
-      args:
-        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/security/v1/security-rules
-        method: GET
-        headers:
-          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
-          Accept: application/json
-        params: ${{ steps.build_query.result.params }}
-        items_jsonpath: $.data
-        stop_condition: 'lambda r: len(r["data"].get("data") or []) == 0 or r["data"].get("offset", 0) + len(r["data"].get("data") or []) >= r["data"].get("total", 0)'
-        next_request: ${{ steps.build_query.result.next_request }}
+  - ref: list
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/security/v1/security-rules
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+        Accept: application/json
+      params:
+        folder: ${{ inputs.folder }}
+        snippet: ${{ inputs.snippet }}
+        device: ${{ inputs.device }}
+        position: ${{ inputs.position }}
         limit: ${{ inputs.limit }}
+        offset: ${{ inputs.offset }}
   returns: ${{ steps.list.result }}

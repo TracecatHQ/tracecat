@@ -3,7 +3,7 @@ definition:
   title: Unblock FQDN
   description: Unblock an FQDN blocked with the matching block action. Removes the address object from the static address group with PUT /restapi/{version}/Objects/AddressGroups if it is a member, then deletes the address object with DELETE /restapi/{version}/Objects/Addresses if it exists. Repeated calls are no-ops. Changes stay in the candidate configuration; run commit (and commit_all on Panorama) to enforce them.
   display_group: Palo Alto Networks (PAN-OS)
-  doc_url: https://pan.dev/panos/docs/restapi/
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api
   namespace: tools.pan_os
   name: unblock_fqdn
   secrets:
@@ -26,8 +26,8 @@ definition:
       description: Address object name to use instead of the generated name.
       default: null
     location:
-      type: enum["vsys", "shared", "device-group"]
-      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      type: str
+      description: 'Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.'
       default: vsys
     vsys:
       type: str

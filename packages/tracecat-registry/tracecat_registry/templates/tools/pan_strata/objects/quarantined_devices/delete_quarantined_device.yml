@@ -29,4 +29,4 @@ definition:
           Accept: application/json
         params:
           host_id: ${{ inputs.host_id }}
-  returns: ${{ steps.delete.result.data }}
+  returns: ${{ steps.delete.result }}

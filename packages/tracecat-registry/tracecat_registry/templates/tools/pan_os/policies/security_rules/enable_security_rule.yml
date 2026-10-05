@@ -3,7 +3,7 @@ definition:
   title: Enable security rule
   description: Enable a security rule in the candidate configuration. Reads it with GET /restapi/{version}/Policies/SecurityRules?name= and writes it with PUT only when the state changes, so repeated calls are idempotent. Commit to apply the change.
   display_group: Palo Alto Networks (PAN-OS)
-  doc_url: https://pan.dev/panos/docs/restapi/
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api
   namespace: tools.pan_os
   name: enable_security_rule
   secrets:
@@ -15,12 +15,12 @@ definition:
       type: str
       description: Security rule name.
     rulebase:
-      type: enum["security", "pre", "post"]
-      description: Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
+      type: str
+      description: 'Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group. Allowed values: security, pre, post.'
       default: security
     location:
-      type: enum["vsys", "shared", "device-group"]
-      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      type: str
+      description: 'Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.'
       default: vsys
     vsys:
       type: str

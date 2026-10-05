@@ -63,4 +63,4 @@ definition:
           X-PANW-Region: ${{ inputs.region }}
           Content-Type: application/json
         payload: ${{ steps.build_payload.result }}
-  returns: ${{ steps.search.result.data }}
+  returns: ${{ steps.search.result }}

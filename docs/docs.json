@@ -313,6 +313,7 @@
               "tools/osv",
               "tools/pagerduty",
               "tools/pan_os",
+              "tools/pan_prisma",
               "tools/pan_strata",
               "tools/panther",
               "tools/phishlabs",

@@ -3,7 +3,7 @@ definition:
   title: Create security rule
   description: Create a security rule in the candidate configuration with POST /restapi/{version}/Policies/SecurityRules?name= (SecurityPreRules or SecurityPostRules on Panorama). The rule is added at the bottom; use move_security_rule to place it. Commit to apply the change.
   display_group: Palo Alto Networks (PAN-OS)
-  doc_url: https://pan.dev/panos/docs/restapi/
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api
   namespace: tools.pan_os
   name: create_security_rule
   secrets:
@@ -15,8 +15,8 @@ definition:
       type: str
       description: Security rule name.
     action:
-      type: enum["allow", "deny", "drop", "reset-client", "reset-server", "reset-both"]
-      description: Action to take when the rule matches.
+      type: str
+      description: 'Action to take when the rule matches. Allowed values: allow, deny, drop, reset-client, reset-server, reset-both.'
     from_zones:
       type: list[str]
       description: Source zones. Defaults to any.
@@ -82,12 +82,12 @@ definition:
       description: 'Additional API-native entry fields, e.g. {"negate-source": "yes"}.'
       default: null
     rulebase:
-      type: enum["security", "pre", "post"]
-      description: Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
+      type: str
+      description: 'Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group. Allowed values: security, pre, post.'
       default: security
     location:
-      type: enum["vsys", "shared", "device-group"]
-      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      type: str
+      description: 'Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.'
       default: vsys
     vsys:
       type: str
@@ -163,4 +163,4 @@ definition:
           name: ${{ inputs.name }}
         verify_ssl: ${{ inputs.verify_ssl }}
         payload: ${{ steps.build_payload.result }}
-  returns: ${{ steps.create.result.data }}
+  returns: ${{ steps.create.result }}

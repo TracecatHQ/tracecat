@@ -35,4 +35,4 @@ definition:
         params:
           host_id: ${{ inputs.host_id }}
           serial_number: ${{ inputs.serial_number }}
-  returns: ${{ steps.list.result.data }}
+  returns: ${{ steps.list.result }}

@@ -31,4 +31,4 @@ definition:
           Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
           Accept: application/json
           X-PANW-Region: ${{ inputs.region }}
-  returns: ${{ steps.get.result.data }}
+  returns: ${{ steps.get.result }}

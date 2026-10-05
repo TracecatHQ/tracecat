@@ -15,8 +15,8 @@ definition:
       type: str
       description: External dynamic list name.
     list_type:
-      type: enum["ip", "domain", "url"]
-      description: External dynamic list type.
+      type: str
+      description: 'External dynamic list type. Allowed values: ip, domain, url.'
       default: ip
     vsys:
       type: str | None

@@ -10,7 +10,7 @@ Action ID: `tools.pan_os.add_address_group_members`
 
 Add members of a static address group in the candidate configuration. Reads the group with GET /restapi/&#123;version&#125;/Objects/AddressGroups?name= and writes it with PUT only when membership changes, so repeated calls are idempotent. Commit to apply the change.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -58,11 +58,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -88,7 +86,7 @@ Action ID: `tools.pan_os.block_cidr`
 
 Block a CIDR range by adding an address object to a static address group referenced by a deny rule. Looks up the address object by name, creates it with POST /restapi/&#123;version&#125;/Objects/Addresses if missing, then adds it to the group with PUT /restapi/&#123;version&#125;/Objects/AddressGroups if it is not already a member, so repeated calls do not create duplicates. Changes stay in the candidate configuration; run commit (and commit_all on Panorama) to enforce them. For temporary blocks without a commit, use register_ip_tags with a dynamic address group.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -152,11 +150,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -198,7 +194,7 @@ Action ID: `tools.pan_os.block_fqdn`
 
 Block an FQDN by adding an address object to a static address group referenced by a deny rule. Looks up the address object by name, creates it with POST /restapi/&#123;version&#125;/Objects/Addresses if missing, then adds it to the group with PUT /restapi/&#123;version&#125;/Objects/AddressGroups if it is not already a member, so repeated calls do not create duplicates. Changes stay in the candidate configuration; run commit (and commit_all on Panorama) to enforce them. For temporary blocks without a commit, use register_ip_tags with a dynamic address group.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -262,11 +258,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -308,7 +302,7 @@ Action ID: `tools.pan_os.block_ip`
 
 Block an IP address by adding an address object to a static address group referenced by a deny rule. Looks up the address object by name, creates it with POST /restapi/&#123;version&#125;/Objects/Addresses if missing, then adds it to the group with PUT /restapi/&#123;version&#125;/Objects/AddressGroups if it is not already a member, so repeated calls do not create duplicates. Changes stay in the candidate configuration; run commit (and commit_all on Panorama) to enforce them. For temporary blocks without a commit, use register_ip_tags with a dynamic address group.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -372,11 +366,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -466,7 +458,7 @@ Action ID: `tools.pan_os.create_address`
 
 Create an address object in the candidate configuration with POST /restapi/&#123;version&#125;/Objects/Addresses?name=. Provide exactly one of ip_netmask, ip_range, ip_wildcard, or fqdn. Commit to apply the change.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -548,11 +540,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -586,7 +576,7 @@ Action ID: `tools.pan_os.create_address_group`
 
 Create a static or dynamic address group in the candidate configuration with POST /restapi/&#123;version&#125;/Objects/AddressGroups?name=. Provide exactly one of static_members or dynamic_filter. Commit to apply the change.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -644,11 +634,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -690,7 +678,7 @@ Action ID: `tools.pan_os.create_security_rule`
 
 Create a security rule in the candidate configuration with POST /restapi/&#123;version&#125;/Policies/SecurityRules?name= (SecurityPreRules or SecurityPostRules on Panorama). The rule is added at the bottom; use move_security_rule to place it. Commit to apply the change.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api)
 
 ### Secrets
 
@@ -702,9 +690,7 @@ Required secrets:
 
 <ParamField path="action" type="string" required>
 
-Action to take when the rule matches.
-
-Allowed values: `allow`, `deny`, `drop`, `reset-client`, `reset-server`, `reset-both`.
+Action to take when the rule matches. Allowed values: allow, deny, drop, reset-client, reset-server, reset-both.
 
 </ParamField>
 
@@ -804,11 +790,9 @@ Default: `[
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -830,11 +814,9 @@ Default: `null`.
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group. Allowed values: security, pre, post.
 
 Default: `"security"`.
-
-Allowed values: `security`, `pre`, `post`.
 
 </ParamField>
 
@@ -908,7 +890,7 @@ Action ID: `tools.pan_os.create_tag`
 
 Create a tag in the candidate configuration with POST /restapi/&#123;version&#125;/Objects/Tags?name=. Commit to apply the change.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-a-tag-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-a-tag-rest-api)
 
 ### Secrets
 
@@ -966,11 +948,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -996,7 +976,7 @@ Action ID: `tools.pan_os.delete_address`
 
 Delete a address object from the candidate configuration with DELETE /restapi/&#123;version&#125;/Objects/Addresses?name=. Commit to apply the change.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -1038,11 +1018,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -1068,7 +1046,7 @@ Action ID: `tools.pan_os.delete_address_group`
 
 Delete a address group from the candidate configuration with DELETE /restapi/&#123;version&#125;/Objects/AddressGroups?name=. Commit to apply the change.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -1110,11 +1088,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -1140,7 +1116,7 @@ Action ID: `tools.pan_os.delete_security_rule`
 
 Delete a security rule from the candidate configuration with DELETE /restapi/&#123;version&#125;/Policies/$&#123;&#123; "SecurityPreRules" if inputs.rulebase == "pre" else ("SecurityPostRules" if inputs.rulebase == "post" else "SecurityRules") &#125;&#125;?name=. Commit to apply the change.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api)
 
 ### Secrets
 
@@ -1182,21 +1158,17 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group. Allowed values: security, pre, post.
 
 Default: `"security"`.
-
-Allowed values: `security`, `pre`, `post`.
 
 </ParamField>
 
@@ -1222,7 +1194,7 @@ Action ID: `tools.pan_os.disable_security_rule`
 
 Disable a security rule in the candidate configuration. Reads it with GET /restapi/&#123;version&#125;/Policies/SecurityRules?name= and writes it with PUT only when the state changes, so repeated calls are idempotent. Commit to apply the change.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api)
 
 ### Secrets
 
@@ -1264,21 +1236,17 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group. Allowed values: security, pre, post.
 
 Default: `"security"`.
-
-Allowed values: `security`, `pre`, `post`.
 
 </ParamField>
 
@@ -1304,7 +1272,7 @@ Action ID: `tools.pan_os.enable_security_rule`
 
 Enable a security rule in the candidate configuration. Reads it with GET /restapi/&#123;version&#125;/Policies/SecurityRules?name= and writes it with PUT only when the state changes, so repeated calls are idempotent. Commit to apply the change.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api)
 
 ### Secrets
 
@@ -1346,21 +1314,17 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group. Allowed values: security, pre, post.
 
 Default: `"security"`.
-
-Allowed values: `security`, `pre`, `post`.
 
 </ParamField>
 
@@ -1386,7 +1350,7 @@ Action ID: `tools.pan_os.get_address`
 
 Get a address object by name with GET /restapi/&#123;version&#125;/Objects/Addresses?name=.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -1428,11 +1392,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -1458,7 +1420,7 @@ Action ID: `tools.pan_os.get_address_group`
 
 Get a address group by name with GET /restapi/&#123;version&#125;/Objects/AddressGroups?name=.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -1500,11 +1462,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -1568,7 +1528,7 @@ Action ID: `tools.pan_os.get_security_rule`
 
 Get a security rule by name with GET /restapi/&#123;version&#125;/Policies/$&#123;&#123; "SecurityPreRules" if inputs.rulebase == "pre" else ("SecurityPostRules" if inputs.rulebase == "post" else "SecurityRules") &#125;&#125;?name=.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api)
 
 ### Secrets
 
@@ -1610,21 +1570,17 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group. Allowed values: security, pre, post.
 
 Default: `"security"`.
-
-Allowed values: `security`, `pre`, `post`.
 
 </ParamField>
 
@@ -1690,7 +1646,7 @@ Action ID: `tools.pan_os.list_address_groups`
 
 List address groups with GET /restapi/&#123;version&#125;/Objects/AddressGroups.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -1726,11 +1682,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -1756,7 +1710,7 @@ Action ID: `tools.pan_os.list_addresses`
 
 List address objects with GET /restapi/&#123;version&#125;/Objects/Addresses.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -1792,11 +1746,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -1890,11 +1842,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -2024,7 +1974,7 @@ Action ID: `tools.pan_os.list_security_rules`
 
 List security rules with GET /restapi/&#123;version&#125;/Policies/$&#123;&#123; "SecurityPreRules" if inputs.rulebase == "pre" else ("SecurityPostRules" if inputs.rulebase == "post" else "SecurityRules") &#125;&#125;.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api)
 
 ### Secrets
 
@@ -2060,21 +2010,17 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group. Allowed values: security, pre, post.
 
 Default: `"security"`.
-
-Allowed values: `security`, `pre`, `post`.
 
 </ParamField>
 
@@ -2100,7 +2046,7 @@ Action ID: `tools.pan_os.list_tags`
 
 List tags with GET /restapi/&#123;version&#125;/Objects/Tags.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-a-tag-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-a-tag-rest-api)
 
 ### Secrets
 
@@ -2136,11 +2082,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -2230,7 +2174,7 @@ Action ID: `tools.pan_os.move_security_rule`
 
 Move a security rule with POST /restapi/&#123;version&#125;/Policies/SecurityRules:move?where=&amp;dst= (SecurityPreRules or SecurityPostRules on Panorama). Commit to apply the change.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api)
 
 ### Secrets
 
@@ -2242,9 +2186,7 @@ Required secrets:
 
 <ParamField path="destination" type="string" required>
 
-Where to move the rule.
-
-Allowed values: `top`, `bottom`, `before`, `after`.
+Where to move the rule. Allowed values: top, bottom, before, after.
 
 </ParamField>
 
@@ -2288,21 +2230,17 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group. Allowed values: security, pre, post.
 
 Default: `"security"`.
-
-Allowed values: `security`, `pre`, `post`.
 
 </ParamField>
 
@@ -2534,9 +2472,7 @@ Required secrets:
 
 <ParamField path="log_type" type="string" required>
 
-Log type to search.
-
-Allowed values: `traffic`, `threat`, `url`, `wildfire`, `data`, `auth`, `decryption`, `userid`, `gtp`, `tunnel`, `sctp`, `system`, `config`, `hipmatch`, `globalprotect`.
+Log type to search. Allowed values: traffic, threat, url, wildfire, data, auth, decryption, userid, gtp, tunnel, sctp, system, config, hipmatch, globalprotect.
 
 </ParamField>
 
@@ -2550,11 +2486,9 @@ Default: `null`.
 
 <ParamField path="direction" type="string">
 
-backward returns newest first.
+backward returns newest first. Allowed values: backward, forward.
 
 Default: `"backward"`.
-
-Allowed values: `backward`, `forward`.
 
 </ParamField>
 
@@ -2638,11 +2572,9 @@ Default: `null`.
 
 <ParamField path="list_type" type="string">
 
-External dynamic list type.
+External dynamic list type. Allowed values: ip, domain, url.
 
 Default: `"ip"`.
-
-Allowed values: `ip`, `domain`, `url`.
 
 </ParamField>
 
@@ -2752,7 +2684,7 @@ Action ID: `tools.pan_os.remove_address_group_members`
 
 Remove members of a static address group in the candidate configuration. Reads the group with GET /restapi/&#123;version&#125;/Objects/AddressGroups?name= and writes it with PUT only when membership changes, so repeated calls are idempotent. Commit to apply the change.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -2800,11 +2732,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -2984,7 +2914,7 @@ Action ID: `tools.pan_os.unblock_fqdn`
 
 Unblock an FQDN blocked with the matching block action. Removes the address object from the static address group with PUT /restapi/&#123;version&#125;/Objects/AddressGroups if it is a member, then deletes the address object with DELETE /restapi/&#123;version&#125;/Objects/Addresses if it exists. Repeated calls are no-ops. Changes stay in the candidate configuration; run commit (and commit_all on Panorama) to enforce them.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -3048,11 +2978,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -3086,7 +3014,7 @@ Action ID: `tools.pan_os.unblock_ip`
 
 Unblock an IP address or CIDR range blocked with the matching block action. Removes the address object from the static address group with PUT /restapi/&#123;version&#125;/Objects/AddressGroups if it is a member, then deletes the address object with DELETE /restapi/&#123;version&#125;/Objects/Addresses if it exists. Repeated calls are no-ops. Changes stay in the candidate configuration; run commit (and commit_all on Panorama) to enforce them.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -3150,11 +3078,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -3248,7 +3174,7 @@ Action ID: `tools.pan_os.update_address`
 
 Update a address object in the candidate configuration. Reads it with GET /restapi/&#123;version&#125;/Objects/Addresses?name=, applies only the provided fields, and writes it with PUT. Commit to apply the change.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api)
 
 ### Secrets
 
@@ -3330,11 +3256,9 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
@@ -3368,7 +3292,7 @@ Action ID: `tools.pan_os.update_security_rule`
 
 Update a security rule in the candidate configuration. Reads it with GET /restapi/&#123;version&#125;/Policies/$&#123;&#123; "SecurityPreRules" if inputs.rulebase == "pre" else ("SecurityPostRules" if inputs.rulebase == "post" else "SecurityRules") &#125;&#125;?name=, applies only the provided fields, and writes it with PUT. Commit to apply the change.
 
-Reference: [https://pan.dev/panos/docs/restapi/](https://pan.dev/panos/docs/restapi/)
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api)
 
 ### Secrets
 
@@ -3416,21 +3340,17 @@ Default: `null`.
 
 <ParamField path="location" type="string">
 
-Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.
 
 Default: `"vsys"`.
-
-Allowed values: `vsys`, `shared`, `device-group`.
 
 </ParamField>
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group. Allowed values: security, pre, post.
 
 Default: `"security"`.
-
-Allowed values: `security`, `pre`, `post`.
 
 </ParamField>
 

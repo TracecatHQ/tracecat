@@ -1,0 +1,51 @@
+type: action
+definition:
+  title: Get cloud account
+  description: Returns details of a cloud account based on cloud type and cloud ID. Calls GET /cloud/{cloud_type}/{id} directly.
+  display_group: Palo Alto Networks (Prisma Cloud)
+  doc_url: https://pan.dev/prisma-cloud/api/cspm/get-cloud-account/
+  namespace: tools.pan_prisma
+  name: get_cloud_account
+  secrets:
+  - name: pan_prisma
+    keys:
+    - PRISMA_ACCESS_KEY_ID
+    - PRISMA_SECRET_KEY
+  expects:
+    cloud_type:
+      type: str
+      description: 'Cloud type: aws, azure, gcp, alibaba_cloud or oci.'
+    id:
+      type: str
+      description: Account ID.
+    includeGroupInfo:
+      type: bool | None
+      description: true = Include account group info. Default is false.
+      default: null
+    base_url:
+      type: str | None
+      description: Prisma Cloud API URL for your tenant's stack, e.g. https://api.prismacloud.io, https://api2.prismacloud.io or https://api.eu.prismacloud.io. Falls back to the workspace variable pan_prisma.base_url.
+      default: null
+  steps:
+  - ref: login
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/login
+      method: POST
+      headers:
+        Accept: application/json
+        Content-Type: application/json
+      payload:
+        username: ${{ SECRETS.pan_prisma.PRISMA_ACCESS_KEY_ID }}
+        password: ${{ SECRETS.pan_prisma.PRISMA_SECRET_KEY }}
+  - ref: request
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/cloud/${{ FN.url_encode(inputs.cloud_type) }}/${{ FN.url_encode(inputs.id) }}
+      method: GET
+      headers:
+        x-redlock-auth: ${{ steps.login.result.data.token }}
+        Accept: application/json
+      params:
+        includeGroupInfo: ${{ inputs.includeGroupInfo }}
+  returns: ${{ steps.request.result }}

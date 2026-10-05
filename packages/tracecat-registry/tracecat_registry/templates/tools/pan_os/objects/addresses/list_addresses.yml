@@ -3,7 +3,7 @@ definition:
   title: List addresses
   description: List address objects with GET /restapi/{version}/Objects/Addresses.
   display_group: Palo Alto Networks (PAN-OS)
-  doc_url: https://pan.dev/panos/docs/restapi/
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api
   namespace: tools.pan_os
   name: list_addresses
   secrets:
@@ -12,8 +12,8 @@ definition:
         - PANOS_API_KEY
   expects:
     location:
-      type: enum["vsys", "shared", "device-group"]
-      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      type: str
+      description: 'Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.'
       default: vsys
     vsys:
       type: str

@@ -12,8 +12,8 @@ definition:
         - PANOS_API_KEY
   expects:
     log_type:
-      type: enum["traffic", "threat", "url", "wildfire", "data", "auth", "decryption", "userid", "gtp", "tunnel", "sctp", "system", "config", "hipmatch", "globalprotect"]
-      description: Log type to search.
+      type: str
+      description: 'Log type to search. Allowed values: traffic, threat, url, wildfire, data, auth, decryption, userid, gtp, tunnel, sctp, system, config, hipmatch, globalprotect.'
     query:
       type: str | None
       description: Log filter, e.g. (addr.src in 203.0.113.10) and (severity geq high).
@@ -27,8 +27,8 @@ definition:
       description: Number of logs to skip.
       default: 0
     direction:
-      type: enum["backward", "forward"]
-      description: backward returns newest first.
+      type: str
+      description: 'backward returns newest first. Allowed values: backward, forward.'
       default: backward
     poll_interval:
       type: float

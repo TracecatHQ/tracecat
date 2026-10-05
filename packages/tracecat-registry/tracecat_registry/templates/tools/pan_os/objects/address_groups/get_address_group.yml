@@ -3,7 +3,7 @@ definition:
   title: Get address group
   description: Get a address group by name with GET /restapi/{version}/Objects/AddressGroups?name=.
   display_group: Palo Alto Networks (PAN-OS)
-  doc_url: https://pan.dev/panos/docs/restapi/
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api
   namespace: tools.pan_os
   name: get_address_group
   secrets:
@@ -15,8 +15,8 @@ definition:
       type: str
       description: Name of the address group.
     location:
-      type: enum["vsys", "shared", "device-group"]
-      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      type: str
+      description: 'Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.'
       default: vsys
     vsys:
       type: str

@@ -1,38 +1,38 @@
 type: action
 definition:
   title: List folders
-  description: List folders with GET /config/setup/v1/folders, following offset pagination until the limit is reached.
+  description: List folders. Calls GET /config/setup/v1/folders directly; page with limit and offset.
   display_group: Palo Alto Networks (Strata Cloud Manager)
   doc_url: https://pan.dev/scm/api/config/ngfw/setup/list-folders/
   namespace: tools.pan_strata
   name: list_folders
   secrets:
-    - type: oauth
-      provider_id: pan_strata
-      grant_type: client_credentials
+  - type: oauth
+    provider_id: pan_strata
+    grant_type: client_credentials
   expects:
     limit:
-      type: int
-      description: Maximum number of items to return across all pages.
-      default: 1000
+      type: int | None
+      description: Maximum number of results per page. SCM defaults to 200.
+      default: null
+    offset:
+      type: int | None
+      description: Number of results to skip before the first returned result. Use the response's total to page.
+      default: null
     base_url:
       type: str | None
       description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
       default: null
   steps:
-    - ref: list
-      action: core.http_paginate
-      args:
-        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/setup/v1/folders
-        method: GET
-        headers:
-          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
-          Accept: application/json
-        params:
-          limit: 200
-          offset: 0
-        items_jsonpath: $.data
-        stop_condition: 'lambda r: len(r["data"].get("data") or []) == 0 or r["data"].get("offset", 0) + len(r["data"].get("data") or []) >= r["data"].get("total", 0)'
-        next_request: 'lambda r: {"params": {"limit": 200, "offset": r["data"].get("offset", 0) + len(r["data"].get("data") or [])}}'
+  - ref: list
+    action: core.http_request
+    args:
+      url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/setup/v1/folders
+      method: GET
+      headers:
+        Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+        Accept: application/json
+      params:
         limit: ${{ inputs.limit }}
+        offset: ${{ inputs.offset }}
   returns: ${{ steps.list.result }}

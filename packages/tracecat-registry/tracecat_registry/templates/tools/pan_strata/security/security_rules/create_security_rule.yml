@@ -27,12 +27,12 @@ definition:
       description: Device (serial number) that contains the configuration. Provide exactly one of folder, snippet, or device.
       default: null
     position:
-      type: enum["pre", "post"]
-      description: Rulebase position of the rule.
+      type: str
+      description: 'Rulebase position of the rule. Allowed values: pre, post.'
       default: pre
     action:
-      type: enum["allow", "deny", "drop", "reset-client", "reset-server", "reset-both"]
-      description: Action to take when the rule matches.
+      type: str
+      description: 'Action to take when the rule matches. Allowed values: allow, deny, drop, reset-client, reset-server, reset-both.'
     from_zones:
       type: list[str]
       description: Source zones. Defaults to any.
@@ -165,4 +165,4 @@ definition:
         params:
           position: ${{ inputs.position }}
         payload: ${{ steps.build_payload.result }}
-  returns: ${{ steps.create.result.data }}
+  returns: ${{ steps.create.result }}

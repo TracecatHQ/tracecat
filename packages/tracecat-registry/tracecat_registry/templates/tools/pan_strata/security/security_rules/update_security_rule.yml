@@ -15,8 +15,8 @@ definition:
       type: str
       description: Security rule UUID.
     position:
-      type: enum["pre", "post"]
-      description: Rulebase position of the rule.
+      type: str
+      description: 'Rulebase position of the rule. Allowed values: pre, post.'
       default: pre
     updates:
       type: dict[str, Any]
@@ -59,4 +59,4 @@ definition:
         params:
           position: ${{ inputs.position }}
         payload: ${{ steps.build_payload.result }}
-  returns: ${{ steps.update.result.data }}
+  returns: ${{ steps.update.result }}

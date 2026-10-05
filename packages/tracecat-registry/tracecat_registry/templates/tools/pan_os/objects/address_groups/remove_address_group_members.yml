@@ -3,7 +3,7 @@ definition:
   title: Remove address group members
   description: Remove members of a static address group in the candidate configuration. Reads the group with GET /restapi/{version}/Objects/AddressGroups?name= and writes it with PUT only when membership changes, so repeated calls are idempotent. Commit to apply the change.
   display_group: Palo Alto Networks (PAN-OS)
-  doc_url: https://pan.dev/panos/docs/restapi/
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api
   namespace: tools.pan_os
   name: remove_address_group_members
   secrets:
@@ -18,8 +18,8 @@ definition:
       type: list[str]
       description: Address objects or address groups.
     location:
-      type: enum["vsys", "shared", "device-group"]
-      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      type: str
+      description: 'Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.'
       default: vsys
     vsys:
       type: str

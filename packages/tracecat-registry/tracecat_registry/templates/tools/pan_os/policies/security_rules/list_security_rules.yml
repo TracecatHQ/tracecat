@@ -3,7 +3,7 @@ definition:
   title: List security rules
   description: List security rules with GET /restapi/{version}/Policies/${{ "SecurityPreRules" if inputs.rulebase == "pre" else ("SecurityPostRules" if inputs.rulebase == "post" else "SecurityRules") }}.
   display_group: Palo Alto Networks (PAN-OS)
-  doc_url: https://pan.dev/panos/docs/restapi/
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/create-security-policy-rule-rest-api
   namespace: tools.pan_os
   name: list_security_rules
   secrets:
@@ -12,8 +12,8 @@ definition:
         - PANOS_API_KEY
   expects:
     location:
-      type: enum["vsys", "shared", "device-group"]
-      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      type: str
+      description: 'Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.'
       default: vsys
     vsys:
       type: str
@@ -24,8 +24,8 @@ definition:
       description: Panorama device group when location is device-group.
       default: null
     rulebase:
-      type: enum["security", "pre", "post"]
-      description: Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
+      type: str
+      description: 'Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group. Allowed values: security, pre, post.'
       default: security
     base_url:
       type: str | None

@@ -3,7 +3,7 @@ definition:
   title: Delete address group
   description: Delete a address group from the candidate configuration with DELETE /restapi/{version}/Objects/AddressGroups?name=. Commit to apply the change.
   display_group: Palo Alto Networks (PAN-OS)
-  doc_url: https://pan.dev/panos/docs/restapi/
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/get-started-with-the-pan-os-rest-api/work-with-address-objects-rest-api
   namespace: tools.pan_os
   name: delete_address_group
   secrets:
@@ -15,8 +15,8 @@ definition:
       type: str
       description: Name of the address group.
     location:
-      type: enum["vsys", "shared", "device-group"]
-      description: Configuration location. Use vsys on firewalls, device-group or shared on Panorama.
+      type: str
+      description: 'Configuration location. Use vsys on firewalls, device-group or shared on Panorama. Allowed values: vsys, shared, device-group.'
       default: vsys
     vsys:
       type: str
@@ -53,4 +53,4 @@ definition:
           device-group: ${{ inputs.device_group if inputs.location == "device-group" else None }}
           name: ${{ inputs.name }}
         verify_ssl: ${{ inputs.verify_ssl }}
-  returns: ${{ steps.delete.result.data }}
+  returns: ${{ steps.delete.result }}
