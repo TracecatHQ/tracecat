@@ -1,0 +1,75 @@
+type: action
+definition:
+  title: List addresses
+  description: List address objects with GET /config/objects/v1/addresses, following offset pagination until the limit is reached.
+  display_group: Palo Alto Networks (Strata Cloud Manager)
+  doc_url: https://pan.dev/scm/api/config/ngfw/objects/list-addresses/
+  namespace: tools.pan_strata
+  name: list_addresses
+  secrets:
+    - type: oauth
+      provider_id: pan_strata
+      grant_type: client_credentials
+  expects:
+    folder:
+      type: str | None
+      description: Folder that contains the configuration, e.g. Shared or All Firewalls. Provide exactly one of folder, snippet, or device.
+      default: null
+    snippet:
+      type: str | None
+      description: Snippet that contains the configuration. Provide exactly one of folder, snippet, or device.
+      default: null
+    device:
+      type: str | None
+      description: Device (serial number) that contains the configuration. Provide exactly one of folder, snippet, or device.
+      default: null
+    limit:
+      type: int
+      description: Maximum number of items to return across all pages.
+      default: 1000
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: build_query
+      action: core.script.run_python
+      args:
+        inputs:
+          folder: ${{ inputs.folder }}
+          snippet: ${{ inputs.snippet }}
+          device: ${{ inputs.device }}
+        script: |
+          def _container(folder, snippet, device):
+              container = {
+                  key: value
+                  for key, value in (("folder", folder), ("snippet", snippet), ("device", device))
+                  if value
+              }
+              if len(container) != 1:
+                  raise ValueError("Provide exactly one of folder, snippet, or device.")
+              return container
+
+
+          def main(folder, snippet, device):
+              query = _container(folder, snippet, device)
+              fixed = ", ".join(f"{key!r}: {value!r}" for key, value in query.items())
+              next_offset = 'r["data"].get("offset", 0) + len(r["data"].get("data") or [])'
+              return {
+                  "params": {**query, "limit": 200, "offset": 0},
+                  "next_request": f"lambda r: {{'params': {{{fixed}, 'limit': 200, 'offset': {next_offset}}}}}",
+              }
+    - ref: list
+      action: core.http_paginate
+      args:
+        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/objects/v1/addresses
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+          Accept: application/json
+        params: ${{ steps.build_query.result.params }}
+        items_jsonpath: $.data
+        stop_condition: 'lambda r: len(r["data"].get("data") or []) == 0 or r["data"].get("offset", 0) + len(r["data"].get("data") or []) >= r["data"].get("total", 0)'
+        next_request: ${{ steps.build_query.result.next_request }}
+        limit: ${{ inputs.limit }}
+  returns: ${{ steps.list.result }}

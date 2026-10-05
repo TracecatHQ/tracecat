@@ -1,0 +1,34 @@
+type: action
+definition:
+  title: Get incident
+  description: Get the details of a Strata Cloud Manager incident with GET /incidents/v1/details/{incident-id}.
+  display_group: Palo Alto Networks (Strata Cloud Manager)
+  doc_url: https://pan.dev/scm/api/config/incidents/get-incident-details/
+  namespace: tools.pan_strata
+  name: get_incident
+  secrets:
+    - type: oauth
+      provider_id: pan_strata
+      grant_type: client_credentials
+  expects:
+    incident_id:
+      type: str
+      description: Incident ID.
+    region:
+      type: str
+      description: Tenant region sent as the X-PANW-Region header, e.g. americas, europe, uk, or au.
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: get
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/incidents/v1/details/${{ FN.url_encode(inputs.incident_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+          Accept: application/json
+          X-PANW-Region: ${{ inputs.region }}
+  returns: ${{ steps.get.result.data }}

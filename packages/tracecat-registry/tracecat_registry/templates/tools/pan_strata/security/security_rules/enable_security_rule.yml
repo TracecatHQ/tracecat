@@ -1,0 +1,68 @@
+type: action
+definition:
+  title: Enable security rule
+  description: Enable a security rule in the candidate configuration. Reads it with GET /config/security/v1/security-rules/{id} and writes it with PUT /config/security/v1/security-rules/{id} only when the state changes, so repeated calls are idempotent. Push the candidate configuration to apply the change.
+  display_group: Palo Alto Networks (Strata Cloud Manager)
+  doc_url: https://pan.dev/scm/api/config/ngfw/security/update-security-rules-by-id/
+  namespace: tools.pan_strata
+  name: enable_security_rule
+  secrets:
+    - type: oauth
+      provider_id: pan_strata
+      grant_type: client_credentials
+  expects:
+    rule_id:
+      type: str
+      description: Security rule UUID.
+    position:
+      type: enum["pre", "post"]
+      description: Rulebase position of the rule.
+      default: pre
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: get
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/security/v1/security-rules/${{ FN.url_encode(inputs.rule_id) }}
+        method: GET
+        headers:
+          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+          Accept: application/json
+        params:
+          position: ${{ inputs.position }}
+    - ref: plan
+      action: core.script.run_python
+      args:
+        inputs:
+          current: ${{ steps.get.result.data }}
+          disabled: false
+        script: |
+          def main(current, disabled):
+              if bool(current.get("disabled")) == disabled:
+                  # Already in the requested state: re-read the rule instead of writing it.
+                  return {"method": "GET", "payload": None, "changed": False}
+              body = {key: value for key, value in current.items() if key != "id"}
+              # SCM rejects explicit false booleans on some fields, so enabling drops the key.
+              if disabled:
+                  body["disabled"] = True
+              else:
+                  body.pop("disabled", None)
+              return {"method": "PUT", "payload": body, "changed": True}
+    - ref: apply
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/security/v1/security-rules/${{ FN.url_encode(inputs.rule_id) }}
+        method: ${{ steps.plan.result.method }}
+        headers:
+          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+          Accept: application/json
+          Content-Type: application/json
+        params:
+          position: ${{ inputs.position }}
+        payload: ${{ steps.plan.result.payload }}
+  returns:
+    security_rule: ${{ steps.apply.result.data }}
+    changed: ${{ steps.plan.result.changed }}

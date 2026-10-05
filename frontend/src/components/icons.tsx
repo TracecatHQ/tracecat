@@ -666,8 +666,8 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
     "tools.okta": createIconRenderer(OktaIcon),
     "tools.okta_oar": createIconRenderer(OktaIcon),
     "tools.okta_sdk": createIconRenderer(OktaIcon),
-    "tools.paloalto_panos": createIconRenderer(PaloAltoIcon),
-    "tools.paloalto_scm": createIconRenderer(PaloAltoIcon),
+    "tools.pan_os": createIconRenderer(PaloAltoIcon),
+    "tools.pan_strata": createIconRenderer(PaloAltoIcon),
     "tools.runreveal": createIconRenderer(RunRevealIcon),
     "tools.sentry": createIconRenderer(SentryIcon),
     "tools.slack_sdk": createIconRenderer(SlackIcon),
@@ -1046,7 +1046,7 @@ export const providerIcons: Record<
       <SnowflakeIcon {...rest} />
     </div>
   ),
-  paloalto_scm: ({ className, ...rest }) => (
+  pan_strata: ({ className, ...rest }) => (
     <div className={className}>
       <PaloAltoIcon {...rest} />
     </div>
@@ -1166,7 +1166,7 @@ export const secretIcons: Record<
       <JiraIcon {...rest} />
     </div>
   ),
-  paloalto_panos: ({ className, ...rest }) => (
+  pan_os: ({ className, ...rest }) => (
     <div className={className}>
       <PaloAltoIcon {...rest} />
     </div>

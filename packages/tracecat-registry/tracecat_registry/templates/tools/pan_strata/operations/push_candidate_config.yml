@@ -1,0 +1,40 @@
+type: action
+definition:
+  title: Push candidate configuration
+  description: Push the candidate configuration of one or more folders to devices with POST /config/operations/v1/config-versions/candidate:push. Returns the job ID; use wait_for_job to wait for completion. Put this behind an approval step in containment workflows.
+  display_group: Palo Alto Networks (Strata Cloud Manager)
+  doc_url: https://pan.dev/scm/api/config/ngfw/operations/push-candidate-config-versions/
+  namespace: tools.pan_strata
+  name: push_candidate_config
+  secrets:
+    - type: oauth
+      provider_id: pan_strata
+      grant_type: client_credentials
+  expects:
+    folders:
+      type: list[str]
+      description: Folders to push, e.g. ["All Firewalls"] or ["Mobile Users", "Remote Networks"].
+    description:
+      type: str | None
+      description: Description of the change, e.g. the case or incident ID.
+      default: null
+    admin:
+      type: list[str] | None
+      description: Push only changes made by these administrators or service accounts, e.g. the client ID of this integration. Omit to push all changes in the folders.
+      default: null
+    base_url:
+      type: str | None
+      description: SCM API base URL. Falls back to the workspace variable pan_strata.base_url, then https://api.strata.paloaltonetworks.com. Set this for FedRAMP tenants.
+      default: null
+  steps:
+    - ref: push
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.pan_strata.base_url || "https://api.strata.paloaltonetworks.com" }}/config/operations/v1/config-versions/candidate:push
+        method: POST
+        headers:
+          Authorization: Bearer ${{ SECRETS.pan_strata_oauth.PAN_STRATA_SERVICE_TOKEN }}
+          Accept: application/json
+          Content-Type: application/json
+        payload: '${{ {"folder": inputs.folders, "description": inputs.description, "admin": inputs.admin} if inputs.admin else {"folder": inputs.folders, "description": inputs.description} }}'
+  returns: ${{ steps.push.result.data }}

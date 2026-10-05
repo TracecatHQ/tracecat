@@ -13,13 +13,13 @@ SCM_TOKEN_ENDPOINT = "https://auth.apps.paloaltonetworks.com/oauth2/access_token
 class PaloAltoSCMOAuthProvider(ClientCredentialsOAuthProvider):
     """Strata Cloud Manager service account using the client credentials grant."""
 
-    id: ClassVar[str] = "paloalto_scm"
+    id: ClassVar[str] = "pan_strata"
     # SCM scopes every token to a tenant service group (TSG), so the scope is
     # tenant-specific and must be set per integration: tsg_id:<TSG_ID>.
     scopes: ClassVar[ProviderScopes] = ProviderScopes(default=[])
     metadata: ClassVar[ProviderMetadata] = ProviderMetadata(
-        id="paloalto_scm",
-        name="Palo Alto Strata Cloud Manager (SCM)",
+        id="pan_strata",
+        name="Palo Alto Networks (Strata Cloud Manager)",
         description=(
             "Strata Cloud Manager service account (client credentials) for SCM "
             "configuration, operations, and incidents APIs. Supports commercial "
@@ -45,7 +45,7 @@ class PaloAltoSCMOAuthProvider(ClientCredentialsOAuthProvider):
         "\n",
         "FedRAMP tenants: replace this with the OAuth token URL that Palo Alto "
         "Networks provides for your FedRAMP Strata Cloud Manager tenant, and set "
-        "the workspace variable paloalto_scm.base_url to the matching API host.",
+        "the workspace variable pan_strata.base_url to the matching API host.",
         "\n",
         "Set the scope to tsg_id:<TSG_ID> for the tenant service group that the "
         "service account belongs to.",
