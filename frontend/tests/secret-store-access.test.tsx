@@ -212,7 +212,6 @@ test("update-only users can edit a store from its menu without changing its exte
       params: {
         name: "example-renamed",
         config: {
-          provider: "aws_secrets_manager",
           role_arn: "arn:aws:iam::123456789012:role/example-replacement",
           region: "us-west-2",
         },
