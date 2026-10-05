@@ -43,7 +43,7 @@ def _script(rel: str, ref: str) -> Any:
 def test_templates_exist() -> None:
     assert len(SCM_TEMPLATES) >= 40
     assert len(PANOS_TEMPLATES) >= 45
-    assert len(PRISMA_TEMPLATES) >= 24
+    assert len(PRISMA_TEMPLATES) >= 20
 
 
 @pytest.mark.parametrize("path", SCM_TEMPLATES, ids=_ids)

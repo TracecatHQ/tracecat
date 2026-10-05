@@ -1,21 +1,20 @@
 type: action
 definition:
-  title: List account groups
-  description: Returns an array of accessible account groups. Calls GET /cloud/group directly.
+  title: Delete policy
+  description: Delete a policy. Calls DELETE /policy/{id} directly.
   display_group: Palo Alto Networks (Prisma Cloud)
-  doc_url: https://pan.dev/prisma-cloud/api/cspm/get-account-groups/
+  doc_url: https://pan.dev/prisma-cloud/api/cspm/delete-policy/
   namespace: tools.pan_prisma
-  name: list_account_groups
+  name: delete_policy
   secrets:
   - name: pan_prisma
     keys:
     - PRISMA_ACCESS_KEY_ID
     - PRISMA_SECRET_KEY
   expects:
-    excludeCloudAccountDetails:
-      type: bool | None
-      description: true = Exclude cloud account details. Default is false.
-      default: null
+    id:
+      type: str
+      description: Policy ID.
     base_url:
       type: str | None
       description: Prisma Cloud API URL for your tenant's stack, e.g. https://api.prismacloud.io, https://api2.prismacloud.io or https://api.eu.prismacloud.io. Falls back to the workspace variable pan_prisma.base_url.
@@ -35,11 +34,9 @@ definition:
   - ref: request
     action: core.http_request
     args:
-      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/cloud/group
-      method: GET
+      url: ${{ inputs.base_url || VARS.pan_prisma.base_url }}/policy/${{ FN.url_encode(inputs.id) }}
+      method: DELETE
       headers:
         x-redlock-auth: ${{ steps.login.result.data.token }}
         Accept: application/json
-      params:
-        excludeCloudAccountDetails: ${{ inputs.excludeCloudAccountDetails }}
   returns: ${{ steps.request.result }}
