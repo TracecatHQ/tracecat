@@ -17773,6 +17773,14 @@ export const $InvitationCreate = {
       minItems: 1,
       title: "Grants",
     },
+    group_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Group Ids",
+    },
   },
   type: "object",
   required: ["email", "grants"],
@@ -17870,6 +17878,14 @@ export const $InvitationRead = {
       },
       type: "array",
       title: "Grants",
+    },
+    group_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      title: "Group Ids",
     },
     warning: {
       anyOf: [

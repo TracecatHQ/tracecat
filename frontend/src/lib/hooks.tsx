@@ -6905,58 +6905,43 @@ export function useRbacGroups() {
     },
   })
 
-  // Add group member
+  // Add group members. There is no bulk endpoint, so add users one by one.
   const {
-    mutateAsync: addGroupMember,
-    isPending: addGroupMemberIsPending,
-    error: addGroupMemberError,
+    mutateAsync: addGroupMembers,
+    isPending: addGroupMembersIsPending,
+    error: addGroupMembersError,
   } = useMutation({
     mutationFn: async ({
       groupId,
-      userId,
+      userIds,
     }: {
       groupId: string
-      userId: string
-    }) =>
-      await rbacAddGroupMember({ groupId, requestBody: { user_id: userId } }),
-    onSuccess: () => {
+      userIds: string[]
+    }) => {
+      const results = await Promise.allSettled(
+        userIds.map((userId) =>
+          rbacAddGroupMember({ groupId, requestBody: { user_id: userId } })
+        )
+      )
+      return {
+        failedUserIds: userIds.filter(
+          (_, index) => results[index].status === "rejected"
+        ),
+      }
+    },
+    onSuccess: ({ failedUserIds }, { userIds }) => {
       queryClient.invalidateQueries({ queryKey: ["rbac-groups", "org"] })
       queryClient.invalidateQueries({ queryKey: ["org-members"] })
-      toast({
-        title: "Member added",
-        description: "Member added to the group successfully.",
-      })
-    },
-    onError: (error: TracecatApiError) => {
-      switch (error.status) {
-        case 403:
-          toast({
-            title: "Permission denied",
-            description: "You don't have permission to add group members.",
-            variant: "destructive",
-          })
-          break
-        case 404:
-          toast({
-            title: "Not found",
-            description: "The group or user does not exist.",
-            variant: "destructive",
-          })
-          break
-        case 409:
-          toast({
-            title: "Already a member",
-            description: "This user is already a member of the group.",
-            variant: "destructive",
-          })
-          break
-        default:
-          toast({
-            title: "Failed to add member",
-            description: String(error.body?.detail ?? error.message),
-            variant: "destructive",
-          })
+      const total = userIds.length
+      const noun = total === 1 ? "member" : "members"
+      if (failedUserIds.length > 0) {
+        toast({
+          title: `Added ${total - failedUserIds.length} of ${total} ${noun}`,
+          variant: "destructive",
+        })
+        return
       }
+      toast({ title: `${total} ${noun} added` })
     },
   })
 
@@ -7020,9 +7005,9 @@ export function useRbacGroups() {
     deleteGroup,
     deleteGroupIsPending,
     deleteGroupError,
-    addGroupMember,
-    addGroupMemberIsPending,
-    addGroupMemberError,
+    addGroupMembers,
+    addGroupMembersIsPending,
+    addGroupMembersError,
     removeGroupMember,
     removeGroupMemberIsPending,
     removeGroupMemberError,

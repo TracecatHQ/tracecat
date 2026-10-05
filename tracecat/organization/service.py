@@ -45,6 +45,7 @@ from tracecat.db.models import (
     GroupMember,
     GroupRoleAssignment,
     Invitation,
+    InvitationGroup,
     Membership,
     Organization,
     OrganizationMembership,
@@ -71,6 +72,7 @@ from tracecat.organization.schemas import (
     MemberAccessTrace,
     MemberRoleRead,
     OrgMemberAccess,
+    OrgMemberGroupRead,
     OrgMemberRoleRead,
     OrgMemberWorkspaceRead,
 )
@@ -482,6 +484,30 @@ class OrgService(BaseOrgService):
                     for workspace_id, workspace_name in workspace_rows
                 }
 
+        groups_by_invitation: dict[uuid.UUID, list[OrgMemberGroupRead]] = {}
+        if can_read_rbac and await self.has_entitlement(Entitlement.RBAC_ADDONS):
+            invitation_ids = {invitation.id for invitation in invitations}
+            group_rows = (
+                (
+                    await self.session.execute(
+                        select(InvitationGroup.invitation_id, Group.id, Group.name)
+                        .join(Group, Group.id == InvitationGroup.group_id)
+                        .where(
+                            InvitationGroup.organization_id == self.organization_id,
+                            InvitationGroup.invitation_id.in_(invitation_ids),
+                            Group.organization_id == self.organization_id,
+                        )
+                        .order_by(Group.name, Group.id)
+                    )
+                )
+                .tuples()
+                .all()
+            )
+            for invitation_id, group_id, group_name in group_rows:
+                groups_by_invitation.setdefault(invitation_id, []).append(
+                    OrgMemberGroupRead(id=group_id, name=group_name)
+                )
+
         access_by_invitation: dict[uuid.UUID, OrgMemberAccess] = {}
         for invitation in invitations:
             org_grant = next(
@@ -522,6 +548,7 @@ class OrgService(BaseOrgService):
                 role_slug=role_slugs.get(org_grant.role_id) if org_grant else None,
                 roles=roles,
                 workspaces=workspaces,
+                groups=groups_by_invitation.get(invitation.id, []),
             )
         return access_by_invitation
 

@@ -7,15 +7,17 @@ import {
   MinusIcon,
   PlusIcon,
   SearchIcon,
-  UserPlusIcon,
+  SquarePlusIcon,
   UsersIcon,
 } from "lucide-react"
 import { useMemo, useState } from "react"
 import type {
   GroupReadWithMembers,
   GroupRoleAssignmentReadWithDetails,
+  OrgMemberRead,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { AbbreviatedBadgeList } from "@/components/organization/abbreviated-badge-list"
 import {
   RbacDetailRow,
   RbacListContainer,
@@ -42,6 +44,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -68,6 +71,14 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import {
   useOrgMembers,
@@ -77,11 +88,23 @@ import {
   useRbacRoles,
   useWorkspaceManager,
 } from "@/lib/hooks"
-import { rolesForScope } from "@/lib/rbac"
+import {
+  abbreviateName,
+  abbreviateRoleName,
+  organizationTier,
+  rolesForScope,
+} from "@/lib/rbac"
 
 type GroupSection = "members" | "roles"
 
 const DEFAULT_OPEN_SECTIONS: GroupSection[] = ["members", "roles"]
+
+// The add/remove buttons below are size-6 with a centred size-3.5 icon, so the
+// icon sits 5px in from the right edge. Match the chevron to that column.
+const SECTION_TRIGGER_CLASS_NAME =
+  "py-1.5 text-xs hover:no-underline [&>svg]:mr-[5px] [&>svg]:size-3.5"
+
+type AddableMember = OrgMemberRead & { user_id: string }
 
 interface GroupPermissions {
   canUpdateGroup: boolean
@@ -457,19 +480,20 @@ function GroupExpandedContent({
         }
       >
         <AccordionItem value="members" className="border-border/50">
-          <AccordionTrigger className="py-1.5 text-xs hover:no-underline">
+          <AccordionTrigger className={SECTION_TRIGGER_CLASS_NAME}>
             Members ({group.member_count ?? 0})
           </AccordionTrigger>
           <AccordionContent className="pb-2">
             <GroupMembersSection
               groupId={group.id}
+              groupName={group.name}
               isIdpManaged={group.is_idp_managed === true}
               canUpdateMembers={canUpdateMembers}
             />
           </AccordionContent>
         </AccordionItem>
         <AccordionItem value="roles" className="border-b-0">
-          <AccordionTrigger className="py-1.5 text-xs hover:no-underline">
+          <AccordionTrigger className={SECTION_TRIGGER_CLASS_NAME}>
             Roles ({assignments.length})
           </AccordionTrigger>
           <AccordionContent className="pb-0">
@@ -488,20 +512,18 @@ function GroupExpandedContent({
 
 function GroupMembersSection({
   groupId,
+  groupName,
   isIdpManaged,
   canUpdateMembers,
 }: {
   groupId: string
+  groupName: string
   isIdpManaged: boolean
   canUpdateMembers: boolean
 }) {
+  const [isAddOpen, setIsAddOpen] = useState(false)
   const { group, isLoading, error } = useRbacGroup(groupId)
-  const {
-    addGroupMember,
-    addGroupMemberIsPending,
-    removeGroupMember,
-    removeGroupMemberIsPending,
-  } = useRbacGroups()
+  const { removeGroupMember, removeGroupMemberIsPending } = useRbacGroups()
   const members = group?.members ?? []
 
   async function handleRemoveMember(userId: string) {
@@ -564,83 +586,255 @@ function GroupMembersSection({
           Membership is managed by your identity provider. Edit members there.
         </p>
       )}
-      {canUpdateMembers && (
-        <GroupAddMemberControl
-          existingMemberIds={members.map((member) => member.user_id)}
-          onAdd={(userId) => addGroupMember({ groupId, userId })}
-          isPending={addGroupMemberIsPending}
-        />
-      )}
-      {renderMembers()}
+      <div>
+        {canUpdateMembers && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-label="Add members"
+            className="w-full justify-between gap-2 px-0 font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
+            onClick={() => setIsAddOpen(true)}
+          >
+            Add members
+            <span className="flex size-6 shrink-0 items-center justify-center">
+              <SquarePlusIcon className="size-3.5" />
+            </span>
+          </Button>
+        )}
+        {canUpdateMembers && (
+          <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+            <DialogContent
+              aria-describedby={undefined}
+              className="flex h-[min(85dvh,720px)] max-w-4xl flex-col gap-0 overflow-hidden p-0"
+            >
+              <DialogTitle className="px-6 pt-6 pr-10">
+                Add members - {groupName}
+              </DialogTitle>
+              {/* Radix unmounts the body on close, so it only fetches while open. */}
+              <GroupAddMembersDialogBody
+                groupId={groupId}
+                existingMemberIds={members.map((member) => member.user_id)}
+                onClose={() => setIsAddOpen(false)}
+              />
+            </DialogContent>
+          </Dialog>
+        )}
+        {renderMembers()}
+      </div>
     </div>
   )
 }
 
-function GroupAddMemberControl({
+function memberName(member: OrgMemberRead): string {
+  return [member.first_name, member.last_name].filter(Boolean).join(" ")
+}
+
+function statusBadgeVariant(
+  status: OrgMemberRead["status"]
+): "default" | "secondary" | "outline" {
+  switch (status) {
+    case "active":
+      return "default"
+    case "inactive":
+      return "secondary"
+    default:
+      return "outline"
+  }
+}
+
+function getAddMembersLabel(count: number): string {
+  if (count === 0) return "Add members"
+  if (count === 1) return "Add 1 member"
+  return `Add ${count} members`
+}
+
+function GroupAddMembersDialogBody({
+  groupId,
   existingMemberIds,
-  onAdd,
-  isPending,
+  onClose,
 }: {
+  groupId: string
   existingMemberIds: string[]
-  onAdd: (userId: string) => Promise<unknown>
-  isPending: boolean
+  onClose: () => void
 }) {
-  const [selectedUserId, setSelectedUserId] = useState("")
+  const [searchQuery, setSearchQuery] = useState("")
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  )
   const { orgMembers } = useOrgMembers()
+  const { addGroupMembers, addGroupMembersIsPending } = useRbacGroups()
 
-  // Filter out users who are already members
+  // Only real users who are not already in the group; invitations have no user.
   const existing = new Set(existingMemberIds)
-  const availableMembers = (orgMembers ?? []).flatMap((member) => {
-    const userId = member.user_id
-    if (!userId || existing.has(userId)) {
-      return []
+  const addableMembers: AddableMember[] = (orgMembers ?? []).flatMap(
+    (member) => {
+      const userId = member.user_id
+      if (!userId || existing.has(userId)) {
+        return []
+      }
+      return [{ ...member, user_id: userId }]
     }
-    return [{ ...member, user_id: userId }]
-  })
+  )
+  const query = searchQuery.trim().toLowerCase()
+  const filteredMembers = addableMembers.filter(
+    (member) =>
+      !query ||
+      member.email.toLowerCase().includes(query) ||
+      memberName(member).toLowerCase().includes(query)
+  )
+  const selectedUserIds = addableMembers
+    .filter((member) => selectedIds.has(member.user_id))
+    .map((member) => member.user_id)
+  const allFilteredSelected =
+    filteredMembers.length > 0 &&
+    filteredMembers.every((member) => selectedIds.has(member.user_id))
 
-  async function handleAddMember() {
-    if (!selectedUserId) return
-    try {
-      await onAdd(selectedUserId)
-      setSelectedUserId("")
-    } catch (error) {
-      console.error("Failed to add group member", error)
+  function toggleMember(userId: string) {
+    const next = new Set(selectedIds)
+    if (!next.delete(userId)) {
+      next.add(userId)
     }
+    setSelectedIds(next)
+  }
+
+  function toggleAllFiltered() {
+    const next = new Set(selectedIds)
+    for (const member of filteredMembers) {
+      if (allFilteredSelected) {
+        next.delete(member.user_id)
+      } else {
+        next.add(member.user_id)
+      }
+    }
+    setSelectedIds(next)
+  }
+
+  async function handleAdd() {
+    if (selectedUserIds.length === 0) return
+    const { failedUserIds } = await addGroupMembers({
+      groupId,
+      userIds: selectedUserIds,
+    })
+    if (failedUserIds.length === 0) {
+      onClose()
+      return
+    }
+    // Keep the dialog open with only the failed users still selected.
+    setSelectedIds(new Set(failedUserIds))
+  }
+
+  function getEmptyMessage(): string {
+    if (!orgMembers) return "Loading members..."
+    if (query && addableMembers.length > 0)
+      return "No members match your search"
+    return "No members to add"
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-        <SelectTrigger className="h-8 flex-1 text-xs" aria-label="User">
-          <SelectValue placeholder="Select a user" />
-        </SelectTrigger>
-        <SelectContent>
-          {availableMembers.length === 0 ? (
-            <p className="p-2 text-center text-sm text-muted-foreground">
-              No available users
-            </p>
-          ) : (
-            availableMembers.map((member) => (
-              <SelectItem key={member.user_id} value={member.user_id}>
-                {member.email}
-                {member.first_name && ` (${member.first_name})`}
-              </SelectItem>
-            ))
-          )}
-        </SelectContent>
-      </Select>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        aria-label="Add member"
-        className="size-6 p-0"
-        onClick={handleAddMember}
-        disabled={!selectedUserId || isPending}
-      >
-        <UserPlusIcon className="size-3.5" />
-      </Button>
-    </div>
+    <>
+      <div className="px-6 py-4">
+        <div className="relative">
+          <SearchIcon className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search by email or name..."
+            aria-label="Search members"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="h-9 w-[280px] pl-8"
+          />
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 border-y [&>div]:h-full">
+        {filteredMembers.length === 0 ? (
+          <div className="flex items-center justify-center p-6">
+            <p className="text-sm text-muted-foreground">{getEmptyMessage()}</p>
+          </div>
+        ) : (
+          <Table className="text-xs">
+            <TableHeader className="sticky top-0 z-10 bg-background">
+              <TableRow className="hover:bg-transparent">
+                <TableHead className="w-10 pl-6">
+                  <Checkbox
+                    aria-label="Select all"
+                    checked={allFilteredSelected}
+                    onCheckedChange={toggleAllFiltered}
+                  />
+                </TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Name</TableHead>
+                <TableHead>Organization</TableHead>
+                <TableHead>Roles</TableHead>
+                <TableHead>Workspace</TableHead>
+                <TableHead>Groups</TableHead>
+                <TableHead className="pr-6">Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filteredMembers.map((member) => {
+                const isSelected = selectedIds.has(member.user_id)
+                return (
+                  <TableRow
+                    key={member.user_id}
+                    data-state={isSelected ? "selected" : undefined}
+                    className="cursor-pointer"
+                    onClick={() => toggleMember(member.user_id)}
+                  >
+                    <TableCell className="w-10 pl-6">
+                      <Checkbox
+                        aria-label={`Select ${member.email}`}
+                        checked={isSelected}
+                        onClick={(event) => event.stopPropagation()}
+                        onCheckedChange={() => toggleMember(member.user_id)}
+                      />
+                    </TableCell>
+                    <TableCell>{member.email}</TableCell>
+                    <TableCell>{memberName(member) || "-"}</TableCell>
+                    <TableCell>{organizationTier(member.role_slug)}</TableCell>
+                    <TableCell>
+                      <AbbreviatedBadgeList
+                        items={member.roles ?? []}
+                        abbreviate={abbreviateRoleName}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <AbbreviatedBadgeList
+                        items={member.workspaces ?? []}
+                        abbreviate={abbreviateName}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <AbbreviatedBadgeList
+                        items={member.groups ?? []}
+                        abbreviate={abbreviateName}
+                      />
+                    </TableCell>
+                    <TableCell className="pr-6">
+                      <Badge variant={statusBadgeVariant(member.status)}>
+                        {member.status.charAt(0).toUpperCase() +
+                          member.status.slice(1)}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </div>
+      <div className="flex items-center justify-end gap-2 px-6 py-4">
+        <Button type="button" variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          onClick={handleAdd}
+          disabled={selectedUserIds.length === 0 || addGroupMembersIsPending}
+        >
+          {getAddMembersLabel(selectedUserIds.length)}
+        </Button>
+      </div>
+    </>
   )
 }
 
@@ -802,7 +996,7 @@ function GroupAddRoleControl({
         onClick={handleAddRole}
         disabled={!selectedRoleId || isPending}
       >
-        <PlusIcon className="size-3.5" />
+        <SquarePlusIcon className="size-3.5" />
       </Button>
     </div>
   )

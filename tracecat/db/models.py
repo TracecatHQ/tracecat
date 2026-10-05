@@ -5669,6 +5669,11 @@ class Invitation(InvitationMixin, TimestampMixin, Base):
         back_populates="invitation",
         cascade="all, delete-orphan",
     )
+    groups: Mapped[list[InvitationGroup]] = relationship(
+        "InvitationGroup",
+        back_populates="invitation",
+        cascade="all, delete-orphan",
+    )
 
 
 class InvitationGrant(Base, TimestampMixin):
@@ -5707,6 +5712,28 @@ class InvitationGrant(Base, TimestampMixin):
 
     # Relationships
     invitation: Mapped[Invitation] = relationship("Invitation", back_populates="grants")
+
+
+class InvitationGroup(Base):
+    """One group membership an invitation confers upon acceptance."""
+
+    __tablename__ = "invitation_group"
+
+    invitation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("invitation.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    group_id: Mapped[uuid.UUID] = mapped_column(
+        UUID,
+        ForeignKey("group.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID, ForeignKey("organization.id", ondelete="CASCADE"), index=True
+    )
+
+    invitation: Mapped[Invitation] = relationship("Invitation", back_populates="groups")
 
 
 class Tier(Base, TimestampMixin):

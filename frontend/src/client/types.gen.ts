@@ -5533,6 +5533,7 @@ export type InvitationAccept = {
 export type InvitationCreate = {
   email: string
   grants: Array<InvitationGrant>
+  group_ids?: Array<string>
 }
 
 /**
@@ -5557,6 +5558,7 @@ export type InvitationRead = {
   accepted_at: string | null
   created_by_platform_admin: boolean
   grants: Array<InvitationGrant>
+  group_ids?: Array<string>
   warning?: string | null
 }
 
