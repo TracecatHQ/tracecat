@@ -73,10 +73,9 @@ definition:
               return entries if isinstance(entries, list) else [entries]
 
           def _sanitize(entry):
-              # Location attributes are read-only metadata; keep only @name and config.
-              body = {key: value for key, value in entry.items() if not key.startswith("@")}
-              body["@name"] = entry["@name"]
-              return body
+              # PAN-OS REST docs build PUT bodies from the GET entry, including the
+              # @name/@location/@vsys/@device-group attributes that match the query.
+              return dict(entry)
 
           def _members(entry):
               members = (entry.get("static") or {}).get("member") or []

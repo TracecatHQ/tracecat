@@ -23,7 +23,7 @@ definition:
       default: null
     rulebase:
       type: enum["security", "pre", "post"]
-      description: Rulebase. Use security on firewalls, pre or post on Panorama.
+      description: Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
       default: security
     location:
       type: enum["vsys", "shared", "device-group"]

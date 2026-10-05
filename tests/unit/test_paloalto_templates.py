@@ -40,7 +40,7 @@ def _script(rel: str, ref: str) -> Any:
 
 def test_templates_exist() -> None:
     assert len(SCM_TEMPLATES) >= 40
-    assert len(PANOS_TEMPLATES) >= 35
+    assert len(PANOS_TEMPLATES) >= 45
 
 
 @pytest.mark.parametrize("path", SCM_TEMPLATES, ids=_ids)
@@ -218,7 +218,7 @@ def test_scm_unblock_refuses_to_empty_static_group() -> None:
         plan_group({"status_code": 200, "data": group}, "blk", "tc-block-203.0.113.10")
 
 
-def test_panos_group_update_drops_read_only_attributes() -> None:
+def test_panos_group_update_keeps_location_attributes() -> None:
     plan_group = _script("paloalto_panos/containment/block_ip", "plan_group")
     response = {
         "status_code": 200,
@@ -240,9 +240,54 @@ def test_panos_group_update_drops_read_only_attributes() -> None:
     assert plan["payload"] == {
         "entry": {
             "@name": "blk",
+            "@location": "vsys",
+            "@vsys": "vsys1",
             "static": {"member": ["placeholder", "tc-block-203.0.113.10"]},
         }
     }
+
+
+def test_panorama_commit_all_limits_devices() -> None:
+    build = _script("paloalto_panos/operations/commit_all", "build_command")
+    form = build(
+        device_groups=["DG <1>"],
+        devices=["0071"],
+        description=None,
+        include_template=False,
+        force_template_values=True,
+    )
+    assert form["type"] == "commit" and form["action"] == "all"
+    assert form["cmd"] == (
+        "<commit-all><shared-policy><device-group>"
+        '<entry name="DG &lt;1&gt;"><devices><entry name="0071"/></devices></entry>'
+        "</device-group><force-template-values>yes</force-template-values>"
+        "</shared-policy></commit-all>"
+    )
+    with pytest.raises(ValueError, match="at least one device group"):
+        build(
+            device_groups=[],
+            devices=None,
+            description=None,
+            include_template=False,
+            force_template_values=False,
+        )
+
+
+def test_panorama_push_template_stack_command() -> None:
+    build = _script("paloalto_panos/panorama/push_template_stack", "build_command")
+    form = build(
+        tag="template-stack",
+        name="TS & 1",
+        devices=["0071", "0072"],
+        description="IR-1",
+        force_template_values=False,
+    )
+    assert form["cmd"] == (
+        "<commit-all><template-stack><name>TS &amp; 1</name>"
+        "<description>IR-1</description>"
+        "<device><member>0071</member><member>0072</member></device>"
+        "</template-stack></commit-all>"
+    )
 
 
 def test_panos_xml_commands_escape_user_input() -> None:

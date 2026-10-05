@@ -460,60 +460,6 @@ Default: `true`.
 
 </ParamField>
 
-## Commit all (push to device groups)
-
-Action ID: `tools.paloalto_panos.commit_all`
-
-Push committed Panorama configuration to the firewalls in one or more device groups with the XML API (type=commit, action=all). Commit on Panorama first. Returns the job ID; use wait_for_job to wait for completion.
-
-Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/commit-configuration-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/commit-configuration-api)
-
-### Secrets
-
-Required secrets:
-
-- `paloalto_panos`: required values `PANOS_API_KEY`.
-
-### Input fields
-
-<ParamField path="device_groups" type="array[string]" required>
-
-Device groups to push to.
-
-</ParamField>
-
-<ParamField path="base_url" type="string | null">
-
-Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable paloalto_panos.base_url.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="description" type="string | null">
-
-Push description.
-
-Default: `null`.
-
-</ParamField>
-
-<ParamField path="include_template" type="boolean">
-
-Also push the template stack configuration.
-
-Default: `false`.
-
-</ParamField>
-
-<ParamField path="verify_ssl" type="boolean">
-
-Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
-
-Default: `true`.
-
-</ParamField>
-
 ## Create address
 
 Action ID: `tools.paloalto_panos.create_address`
@@ -884,7 +830,7 @@ Default: `null`.
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls, pre or post on Panorama.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
 
 Default: `"security"`.
 
@@ -1246,7 +1192,7 @@ Allowed values: `vsys`, `shared`, `device-group`.
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls, pre or post on Panorama.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
 
 Default: `"security"`.
 
@@ -1328,7 +1274,7 @@ Allowed values: `vsys`, `shared`, `device-group`.
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls, pre or post on Panorama.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
 
 Default: `"security"`.
 
@@ -1410,7 +1356,7 @@ Allowed values: `vsys`, `shared`, `device-group`.
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls, pre or post on Panorama.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
 
 Default: `"security"`.
 
@@ -1674,7 +1620,7 @@ Allowed values: `vsys`, `shared`, `device-group`.
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls, pre or post on Panorama.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
 
 Default: `"security"`.
 
@@ -1870,6 +1816,38 @@ Default: `"vsys1"`.
 
 </ParamField>
 
+## List device groups
+
+Action ID: `tools.paloalto_panos.list_device_groups`
+
+List Panorama device groups and their member firewalls with the XML API operational command show devicegroups. Use the names as device_group with location device-group in object and security rule actions, and with commit_all.
+
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/run-operational-mode-commands-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/run-operational-mode-commands-api)
+
+### Secrets
+
+Required secrets:
+
+- `paloalto_panos`: required values `PANOS_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable paloalto_panos.base_url.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+
+Default: `true`.
+
+</ParamField>
+
 ## List external dynamic lists
 
 Action ID: `tools.paloalto_panos.list_external_dynamic_lists`
@@ -1933,6 +1911,46 @@ Default: `true`.
 Virtual system when location is vsys.
 
 Default: `"vsys1"`.
+
+</ParamField>
+
+## List managed firewalls
+
+Action ID: `tools.paloalto_panos.list_managed_devices`
+
+List firewalls managed by Panorama with the XML API operational command show devices all (or show devices connected). Returns serial, hostname, management IP, model, PAN-OS version, connection state, and the remaining API-native fields for each firewall.
+
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/run-operational-mode-commands-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/run-operational-mode-commands-api)
+
+### Secrets
+
+Required secrets:
+
+- `paloalto_panos`: required values `PANOS_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable paloalto_panos.base_url.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="connected_only" type="boolean">
+
+Only return firewalls currently connected to Panorama.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+
+Default: `true`.
 
 </ParamField>
 
@@ -2052,7 +2070,7 @@ Allowed values: `vsys`, `shared`, `device-group`.
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls, pre or post on Panorama.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
 
 Default: `"security"`.
 
@@ -2142,6 +2160,70 @@ Default: `"vsys1"`.
 
 </ParamField>
 
+## List template stacks
+
+Action ID: `tools.paloalto_panos.list_template_stacks`
+
+List Panorama template stacks with the XML API (type=config, action=get) for /config/devices/entry[@name='localhost.localdomain']/template-stack. Returns each name, description, member templates (stacks only), and assigned firewall serial numbers.
+
+Reference: [https://docs.paloaltonetworks.com/ngfw/api/pan-os-xml-api-request-types-and-actions/configuration-api](https://docs.paloaltonetworks.com/ngfw/api/pan-os-xml-api-request-types-and-actions/configuration-api)
+
+### Secrets
+
+Required secrets:
+
+- `paloalto_panos`: required values `PANOS_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable paloalto_panos.base_url.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+
+Default: `true`.
+
+</ParamField>
+
+## List templates
+
+Action ID: `tools.paloalto_panos.list_templates`
+
+List Panorama templates with the XML API (type=config, action=get) for /config/devices/entry[@name='localhost.localdomain']/template. Returns each name, description, member templates (stacks only), and assigned firewall serial numbers.
+
+Reference: [https://docs.paloaltonetworks.com/ngfw/api/pan-os-xml-api-request-types-and-actions/configuration-api](https://docs.paloaltonetworks.com/ngfw/api/pan-os-xml-api-request-types-and-actions/configuration-api)
+
+### Secrets
+
+Required secrets:
+
+- `paloalto_panos`: required values `PANOS_API_KEY`.
+
+### Input fields
+
+<ParamField path="base_url" type="string | null">
+
+Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable paloalto_panos.base_url.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+
+Default: `true`.
+
+</ParamField>
+
 ## Move security rule
 
 Action ID: `tools.paloalto_panos.move_security_rule`
@@ -2216,7 +2298,7 @@ Allowed values: `vsys`, `shared`, `device-group`.
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls, pre or post on Panorama.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
 
 Default: `"security"`.
 
@@ -2237,6 +2319,200 @@ Default: `true`.
 Virtual system when location is vsys.
 
 Default: `"vsys1"`.
+
+</ParamField>
+
+## Push template
+
+Action ID: `tools.paloalto_panos.push_template`
+
+Push template configuration from Panorama to its firewalls with the XML API (type=commit, action=all, commit-all template). Optionally limit the push to specific firewall serial numbers. Commit on Panorama first. Returns the job ID; use wait_for_job to wait for completion.
+
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/commit-configuration-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/commit-configuration-api)
+
+### Secrets
+
+Required secrets:
+
+- `paloalto_panos`: required values `PANOS_API_KEY`.
+
+### Input fields
+
+<ParamField path="name" type="string" required>
+
+Template name.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable paloalto_panos.base_url.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="description" type="string | null">
+
+Push description, e.g. the case or incident ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="devices" type="array[string] | null">
+
+Limit the push to these firewall serial numbers.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="force_template_values" type="boolean">
+
+Overwrite local firewall values with template values.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+
+Default: `true`.
+
+</ParamField>
+
+## Push template stack
+
+Action ID: `tools.paloalto_panos.push_template_stack`
+
+Push template stack configuration from Panorama to its firewalls with the XML API (type=commit, action=all, commit-all template-stack). Optionally limit the push to specific firewall serial numbers. Commit on Panorama first. Returns the job ID; use wait_for_job to wait for completion.
+
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/commit-configuration-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/commit-configuration-api)
+
+### Secrets
+
+Required secrets:
+
+- `paloalto_panos`: required values `PANOS_API_KEY`.
+
+### Input fields
+
+<ParamField path="name" type="string" required>
+
+Template stack name.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable paloalto_panos.base_url.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="description" type="string | null">
+
+Push description, e.g. the case or incident ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="devices" type="array[string] | null">
+
+Limit the push to these firewall serial numbers.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="force_template_values" type="boolean">
+
+Overwrite local firewall values with template values.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+
+Default: `true`.
+
+</ParamField>
+
+## Push to device groups (Panorama)
+
+Action ID: `tools.paloalto_panos.commit_all`
+
+Push committed Panorama configuration to the firewalls in one or more device groups with the XML API (type=commit, action=all, commit-all shared-policy). Optionally limit the push to specific firewall serial numbers. Commit on Panorama first. Returns the job ID; use wait_for_job to wait for completion.
+
+Reference: [https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/commit-configuration-api](https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/commit-configuration-api)
+
+### Secrets
+
+Required secrets:
+
+- `paloalto_panos`: required values `PANOS_API_KEY`.
+
+### Input fields
+
+<ParamField path="device_groups" type="array[string]" required>
+
+Device groups to push to.
+
+</ParamField>
+
+<ParamField path="base_url" type="string | null">
+
+Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable paloalto_panos.base_url.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="description" type="string | null">
+
+Push description, e.g. the case or incident ID.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="devices" type="array[string] | null">
+
+Limit the push to these firewall serial numbers in each device group.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="force_template_values" type="boolean">
+
+Overwrite local firewall values with template values.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="include_template" type="boolean">
+
+Also push the template and template stack configuration.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="verify_ssl" type="boolean">
+
+Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+
+Default: `true`.
 
 </ParamField>
 
@@ -3150,7 +3426,7 @@ Allowed values: `vsys`, `shared`, `device-group`.
 
 <ParamField path="rulebase" type="string">
 
-Rulebase. Use security on firewalls, pre or post on Panorama.
+Rulebase. Use security on firewalls; pre or post on Panorama, with location shared or device-group.
 
 Default: `"security"`.
 

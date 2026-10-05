@@ -1,0 +1,91 @@
+type: action
+definition:
+  title: List device groups
+  description: List Panorama device groups and their member firewalls with the XML API operational command show devicegroups. Use the names as device_group with location device-group in object and security rule actions, and with commit_all.
+  display_group: Palo Alto PAN-OS (NGFW and Panorama)
+  doc_url: https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-panorama-api/pan-os-xml-api-request-types/run-operational-mode-commands-api
+  namespace: tools.paloalto_panos
+  name: list_device_groups
+  secrets:
+    - name: paloalto_panos
+      keys:
+        - PANOS_API_KEY
+  expects:
+    base_url:
+      type: str | None
+      description: Firewall or Panorama management URL, e.g. https://fw.example.com. Falls back to the workspace variable paloalto_panos.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the management TLS certificate. Prefer adding a CA_CERTIFICATE secret over disabling this.
+      default: true
+  steps:
+    - ref: list
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.paloalto_panos.base_url }}/api/
+        method: POST
+        headers:
+          X-PAN-KEY: ${{ SECRETS.paloalto_panos.PANOS_API_KEY }}
+        form_data:
+          type: op
+          cmd: <show><devicegroups></devicegroups></show>
+        verify_ssl: ${{ inputs.verify_ssl }}
+    - ref: parse
+      action: core.script.run_python
+      args:
+        inputs:
+          text: ${{ steps.list.result.data }}
+        script: |
+          import xml.etree.ElementTree as ET
+          from xml.sax.saxutils import escape, quoteattr
+
+          def _to_dict(element):
+              node = {f"@{key}": value for key, value in element.attrib.items()}
+              children = list(element)
+              text = (element.text or "").strip()
+              if not children:
+                  if not node:
+                      return text
+                  if text:
+                      node["#text"] = text
+                  return node
+              for child in children:
+                  value = _to_dict(child)
+                  if child.tag in node:
+                      if not isinstance(node[child.tag], list):
+                          node[child.tag] = [node[child.tag]]
+                      node[child.tag].append(value)
+                  else:
+                      node[child.tag] = value
+              return node
+
+          def _parse(text):
+              root = ET.fromstring(text)
+              if root.get("status") != "success":
+                  detail = ET.tostring(root, encoding="unicode")[:2000]
+                  raise ValueError(f"PAN-OS XML API error (code {root.get('code')}): {detail}")
+              return root
+
+          def _lines(element):
+              if element is None:
+                  return []
+              return [line.strip() for line in element.itertext() if line.strip()]
+
+
+          def main(text):
+              groups = _parse(text).find("./result/devicegroups")
+              if groups is None:
+                  return []
+              result = []
+              for entry in groups.findall("entry"):
+                  devices = []
+                  for device in entry.findall("./devices/entry"):
+                      info = _to_dict(device)
+                      info = info if isinstance(info, dict) else {}
+                      info["serial"] = device.findtext("serial") or device.get("name")
+                      info["connected"] = device.findtext("connected") == "yes"
+                      devices.append(info)
+                  result.append({"name": entry.get("name"), "devices": devices})
+              return result
+  returns: ${{ steps.parse.result }}
