@@ -1,0 +1,82 @@
+alembic/versions/76748dd71c3d_add_invitation_groups.py
+  s_04004b1164084b::t_6fed1191509e71 1-65
+frontend/src/lib/hooks.tsx
+  s_398c8b1c67f67e::t_bd12250949d110 6908,6910-6912,6916,6919-6932,6935-6942,6944,7008-7010
+tests/unit/test_tenant_rls_registry.py
+  s_04004b1164084b::t_31161545585c3a 92-95
+tracecat/invitations/service.py
+  s_04004b1164084b::t_c15fd8384b0d6b 28,34-37,42,44,60,62-63,149-155,167,211,223-236,238,240-291,304,316-317,319-375,535,665,720-729,793
+  s_04004b1164084b::t_f2e0917453bc65 40
+  s_04004b1164084b::t_ecb1475eaffecd 237,239,292
+  s_04004b1164084b::t_d63d6cb95ba4a4 318
+tests/unit/api/test_api_invitations.py
+  s_04004b1164084b::t_d63d6cb95ba4a4 136
+  s_04004b1164084b::t_68a56ff14d0396 21,120-122,164,168-199
+  s_04004b1164084b::t_561a2921e533d5 200-201
+frontend/src/client/schemas.gen.ts
+  s_398c8b1c67f67e::t_bf79fb03656275 17776-17783,17882-17889
+frontend/src/client/types.gen.ts
+  s_398c8b1c67f67e::t_bf79fb03656275 5536,5561
+frontend/tests/invite-member-dialog.test.tsx
+  s_398c8b1c67f67e::t_f245d9182c0bb9 5,400-402
+  s_398c8b1c67f67e::t_e0e9a381da4deb 7-12,14-20,24,29-32,34,195-209,234-238,241-256,359-399,403-425
+tracecat/db/models.py
+  s_04004b1164084b::t_c15fd8384b0d6b 5672-5676,5717-5736
+  s_04004b1164084b::t_de19b222b50680 5737-5738
+frontend/src/components/organization/invite-member-dialog.tsx
+  s_398c8b1c67f67e::t_4e64d4294f0a52 9
+  s_398c8b1c67f67e::t_9e29a9124c9669 344,346
+  s_398c8b1c67f67e::t_f74beac1d0f22d 463
+  s_398c8b1c67f67e::t_e0e9a381da4deb 6,18-26,46-50,58-64,66,73,114,132-139,145,165-166,193-240,243-272,274,276-277,280-282,285-343,345,347-366,387-462,464-473
+  s_398c8b1c67f67e::t_f85b85a0a92e2d 474-476
+tracecat/organization/service.py
+  s_04004b1164084b::t_c15fd8384b0d6b 48,75,487-510,551
+tracecat/invitations/schemas.py
+  s_04004b1164084b::t_c15fd8384b0d6b 8-15,35-42,70
+tracecat/invitations/router.py
+  s_04004b1164084b::t_c15fd8384b0d6b 44-50,96,298
+frontend/src/components/organization/org-rbac-groups.test.tsx
+  s_04004b1164084b::t_2afded0c0d23ac 6,10,72-95,111-115,119-124,132,148,150,213,215-218,222,250,258-355
+  s_398c8b1c67f67e::t_e3038c2864fd70 356
+tests/unit/test_invitation_grants.py
+  s_04004b1164084b::t_3c000e1db083b0 61,460-462,467-536
+  s_04004b1164084b::t_075a8ed7c82973 7,28-32,34,192-203,427-459,537-706
+  s_04004b1164084b::t_3ce2b336fe0431 155-167
+  s_04004b1164084b::t_d63d6cb95ba4a4 191,463-465
+  s_04004b1164084b::t_7fe76801786fcc 466
+  s_04004b1164084b::t_704db432f2cfe1 929-1107
+  s_04004b1164084b::t_bc8ee6bf4dfc17 1405-1414
+  s_04004b1164084b::t_c037d1ac2c546c 707-708
+frontend/src/components/organization/org-rbac-groups.tsx
+  s_398c8b1c67f67e::t_d0325709242f7c 10,17,20,47,74-81,91-96,102-108,483,489,496,515,520,524,526,591-595,597-598,603,606-610,614-621,629-653,655,657,659,661-664,666,668,670-676,678-699,701-714,728,731,735,737-750,752-837,999
+  s_04004b1164084b::t_2afded0c0d23ac 715-721,723-727,729-730,751
+  s_398c8b1c67f67e::t_12f67a07ffdd1e 589-590,596,599-602,604-605
+  s_398c8b1c67f67e::t_fe2a3651e25804 611-613,736
+  s_398c8b1c67f67e::t_3269b41defbd36 622-624
+tracecat/db/tenant_rls.py
+  s_04004b1164084b::t_c15fd8384b0d6b 108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b83ada7b7cd9f6c3c2b3d34aa4fea81505ce2fb9",
+  "prompts": {},
+  "sessions": {
+    "s_04004b1164084b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10dfc-25fd-7890-837a-02d96d57ff45",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_398c8b1c67f67e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3dd9f2e-1b77-4a42-9ceb-4805e7016552",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
