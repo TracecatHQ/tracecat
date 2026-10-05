@@ -47,13 +47,13 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
-import defusedxml.ElementTree as ET
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi_users.exceptions import UserAlreadyExists
 from pydantic import BaseModel
 from saml2 import BINDING_HTTP_POST
 from saml2.client import Saml2Client
 from saml2.config import Config as Saml2Config
+from saml2.saml import Assertion
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -120,28 +120,21 @@ class SAMLAttribute:
 
 
 class SAMLParser:
-    """Parser for SAML AttributeStatement responses"""
+    """Read attributes only from the assertion validated by pysaml2."""
 
-    NAMESPACES = {
-        "saml2": "urn:oasis:names:tc:SAML:2.0:assertion",
-        "xs": "http://www.w3.org/2001/XMLSchema",
-        "xsi": "http://www.w3.org/2001/XMLSchema-instance",
-    }
-
-    def __init__(self, xml_string: str):
-        """Initialize parser with SAML XML string"""
-        self.xml_string = xml_string.strip()
+    def __init__(self, assertion: Assertion | None):
+        self.assertion = assertion
         self.attributes = None
-
-    def _register_namespaces(self):
-        """Register namespaces for proper XML handling"""
-        pass
 
     def _extract_attribute(self, attribute_elem) -> SAMLAttribute:
         """Extract a single SAML attribute from an XML element"""
 
-        name = attribute_elem.get("Name")
-        value_elem = attribute_elem.find("saml2:AttributeValue", self.NAMESPACES)
+        name = attribute_elem.name
+        value_elem = (
+            attribute_elem.attribute_value[0]
+            if attribute_elem.attribute_value
+            else None
+        )
 
         if not name:
             logger.error(
@@ -176,19 +169,12 @@ class SAMLParser:
         return self.attributes.get(attribute_name, {}).get("value", "")
 
     def parse_to_dict(self) -> dict[str, Any]:
-        """Parse SAML XML and return attributes as a dictionary"""
-        self._register_namespaces()
-        try:
-            root = ET.fromstring(self.xml_string)
-        except ET.ParseError as e:
-            logger.error(f"SAML response parsing failed: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid authentication response",
-            ) from e
-
-        # Find AttributeStatement
-        attr_statement = root.find(".//saml2:AttributeStatement", self.NAMESPACES)
+        """Return attributes from the validated assertion as a dictionary."""
+        attr_statement = (
+            self.assertion.attribute_statement[0]
+            if self.assertion is not None and self.assertion.attribute_statement
+            else None
+        )
         if attr_statement is None:
             logger.error("SAML response failed: AttributeStatement not found")
             raise HTTPException(
@@ -198,7 +184,7 @@ class SAMLParser:
 
         # Process all attributes
         attributes = {}
-        for attr_elem in attr_statement.findall("saml2:Attribute", self.NAMESPACES):
+        for attr_elem in attr_statement.attribute:
             saml_attr = self._extract_attribute(attr_elem)
             attributes[saml_attr.name] = asdict(saml_attr)
 
@@ -831,7 +817,7 @@ async def sso_acs(
 
     logger.info("SAML response validated successfully")
 
-    parser = SAMLParser(str(authn_response))
+    parser = SAMLParser(authn_response.assertion)
     candidate_emails = _extract_candidate_emails(parser)
     if not candidate_emails:
         attributes = parser.attributes or {}

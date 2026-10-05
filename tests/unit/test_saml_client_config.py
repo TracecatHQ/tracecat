@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
+from saml2.saml import assertion_from_string
 
 from tracecat import config
 from tracecat.auth import saml
@@ -531,3 +532,34 @@ def test_should_allow_saml_org_access_matrix(
         )
         is expected
     )
+
+
+def test_extract_candidate_emails_reads_parsed_assertion() -> None:
+    assertion = assertion_from_string("""
+        <saml2:Assertion xmlns:saml2="urn:oasis:names:tc:SAML:2.0:assertion">
+          <saml2:AttributeStatement>
+            <saml2:Attribute Name="http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress">
+              <saml2:AttributeValue>user@example.com</saml2:AttributeValue>
+            </saml2:Attribute>
+            <saml2:Attribute Name="email">
+              <saml2:AttributeValue>primary@example.com</saml2:AttributeValue>
+            </saml2:Attribute>
+          </saml2:AttributeStatement>
+        </saml2:Assertion>
+    """)
+
+    assert saml._extract_candidate_emails(saml.SAMLParser(assertion)) == [
+        "primary@example.com",
+        "user@example.com",
+    ]
+
+
+def test_saml_parser_rejects_assertion_without_attributes() -> None:
+    assertion = assertion_from_string(
+        '<saml2:Assertion xmlns:saml2="urn:oasis:names:tc:SAML:2.0:assertion"/>'
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        saml.SAMLParser(assertion).parse_to_dict()
+
+    assert exc_info.value.status_code == 400
