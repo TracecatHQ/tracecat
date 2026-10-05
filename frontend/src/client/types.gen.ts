@@ -8327,6 +8327,10 @@ export type SecretStoreRead = {
   aws_partition?: string | null
   authorized_workspace_ids?: Array<string>
   reference_count?: number
+  /**
+   * Referencing secret counts per workspace, most used first.
+   */
+  workspace_usage?: Array<SecretStoreWorkspaceUsage>
   created_at: string
   updated_at: string
 }
@@ -8356,6 +8360,14 @@ export type SecretStoreUpdate = {
    * Allow all current and future workspaces.
    */
   all_workspaces?: boolean
+}
+
+/**
+ * Number of secrets in one workspace that reference a store.
+ */
+export type SecretStoreWorkspaceUsage = {
+  workspace_id: string
+  secret_count: number
 }
 
 /**

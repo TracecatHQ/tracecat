@@ -23,6 +23,7 @@ from tracecat.secrets.schemas import (
     SecretStoreErrorResponse,
     SecretStoreRead,
     SecretStoreUpdate,
+    SecretStoreWorkspaceUsage,
 )
 from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
@@ -41,12 +42,13 @@ router = APIRouter(
 
 
 def _store_read(
-    store: OrganizationSecretStore, counts: dict[UUID, int]
+    store: OrganizationSecretStore,
+    usage: dict[UUID, list[SecretStoreWorkspaceUsage]],
 ) -> SecretStoreRead:
     return SecretStoreRead.from_database(
         store,
         authorized_workspace_ids=[a.workspace_id for a in store.authorizations],
-        reference_count=counts.get(store.id, 0),
+        workspace_usage=usage.get(store.id, []),
         tracecat_aws_account_id=config.TRACECAT__AWS_ASSUME_ROLE_ACCOUNT_ID or None,
         tracecat_aws_principal_arn=config.TRACECAT__AWS_ASSUME_ROLE_PRINCIPAL_ARN
         or None,
@@ -56,8 +58,8 @@ def _store_read(
 async def _serialize_store_read(
     service: SecretStoresService, store: OrganizationSecretStore
 ) -> SecretStoreRead:
-    counts = await service.count_references([store.id])
-    return _store_read(store, counts)
+    usage = await service.workspace_usage([store.id])
+    return _store_read(store, usage)
 
 
 @router.get("")
@@ -79,9 +81,9 @@ async def list_secret_stores(
         stores = await service.list_stores(PageParams(limit=limit, cursor=cursor))
     except PaginationError as exc:
         raise HTTPException(status_code=400, detail=exc.detail) from exc
-    counts = await service.count_references([store.id for store in stores.items])
+    usage = await service.workspace_usage([store.id for store in stores.items])
     return Page(
-        items=[_store_read(store, counts) for store in stores.items],
+        items=[_store_read(store, usage) for store in stores.items],
         next_cursor=stores.next_cursor,
         prev_cursor=stores.prev_cursor,
     )

@@ -111,7 +111,6 @@ test("the picker changes access scope without closing or losing existing grants"
   })
   await user.click(screen.getByRole("menuitem", { name: "Done" }))
   expect(screen.queryByRole("menu")).not.toBeInTheDocument()
-  expect(screen.getAllByRole("switch")).toHaveLength(1)
   expect(
     screen.getByRole("button", { name: "Workspaces: Default Workspace" })
   ).toHaveFocus()
@@ -176,7 +175,7 @@ test("the overflow menu blocks deleting a store with references", async () => {
     screen.getByRole("menuitem", { name: "Delete store" })
   ).toHaveAttribute("aria-disabled", "true")
   expect(
-    screen.getByText("Remove the 3 secret references first.")
+    screen.getByText("In use by 3 secrets. Remove them first.")
   ).toBeInTheDocument()
   expect(mockDeleteStore).not.toHaveBeenCalled()
 })

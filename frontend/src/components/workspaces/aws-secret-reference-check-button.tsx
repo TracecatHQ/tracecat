@@ -1,6 +1,6 @@
 "use client"
 
-import { CheckCircle2Icon, XCircleIcon } from "lucide-react"
+import { CheckCircle2Icon, Loader2Icon, XCircleIcon } from "lucide-react"
 import React from "react"
 import {
   ApiError,
@@ -12,6 +12,7 @@ import {
   describeApiError,
   useAwsSecretReferences,
 } from "@/hooks/use-secret-stores"
+import { cn } from "@/lib/utils"
 
 /** Short label and fix hint for each sanitized check failure code. */
 export const CHECK_ERROR_MESSAGES: Record<
@@ -80,81 +81,134 @@ export const CHECK_ERROR_MESSAGES: Record<
   },
 }
 
-interface AwsSecretReferenceCheckButtonProps {
-  workspaceId: string
-  secretId: string
-}
+/** Result of the most recent check, held only for this page view. */
+export type AwsReferenceCheckState =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "ok"; resolvedKeys: string[] }
+  | { status: "failed"; label: string; hint: string; detail: string | null }
 
 /**
  * Runs a server-side reference check for an AWS-backed secret. The result is
  * only a sanitized ok/failure plus resolved key names; the browser never sees
  * the remote value.
  */
-export function AwsSecretReferenceCheckButton({
-  workspaceId,
-  secretId,
-}: AwsSecretReferenceCheckButtonProps) {
-  const { checkReference, checkReferencePending } =
-    useAwsSecretReferences(workspaceId)
-  const [result, setResult] = React.useState<SecretReferenceCheckResult | null>(
-    null
-  )
+export function useAwsSecretReferenceCheck(
+  workspaceId: string,
+  secretId: string
+) {
+  const { checkReference } = useAwsSecretReferences(workspaceId)
+  const [state, setState] = React.useState<AwsReferenceCheckState>({
+    status: "idle",
+  })
 
-  async function handleCheck(event: React.MouseEvent) {
-    event.stopPropagation()
+  async function run() {
+    setState({ status: "checking" })
+    let result: SecretReferenceCheckResult
     try {
-      setResult(await checkReference(secretId))
+      result = await checkReference(secretId)
     } catch (error) {
-      setResult({
+      result = {
         ok: false,
         message:
           error instanceof ApiError
             ? describeApiError(error)
             : "The check could not run. Try again.",
-      })
+      }
     }
-  }
-
-  let status: React.ReactNode = null
-  if (result?.ok) {
-    status = (
-      <span
-        className="flex items-center gap-1 text-[11px] text-muted-foreground"
-        title={`Resolved keys: ${(result.resolved_keys ?? []).join(", ")}`}
-      >
-        <CheckCircle2Icon className="size-3.5 text-green-600" />
-        Reachable
-      </span>
-    )
-  } else if (result) {
+    if (result.ok) {
+      setState({ status: "ok", resolvedKeys: result.resolved_keys ?? [] })
+      return
+    }
     const failure = result.error_code
       ? CHECK_ERROR_MESSAGES[result.error_code]
       : null
-    // The API message carries the AWS error code; keep it for troubleshooting.
-    const title = [failure?.hint, result.message].filter(Boolean).join("\n\n")
-    status = (
-      <span
-        className="flex items-center gap-1 text-[11px] text-muted-foreground"
-        title={title || undefined}
-      >
-        <XCircleIcon className="size-3.5 text-destructive" />
-        {failure?.label ?? "Check failed"}
-      </span>
-    )
+    setState({
+      status: "failed",
+      label: failure?.label ?? "Check failed",
+      hint: failure?.hint ?? result.message ?? "The check could not run.",
+      // The API message carries the AWS error code; keep it for troubleshooting.
+      detail: failure ? (result.message ?? null) : null,
+    })
   }
 
+  return { state, run }
+}
+
+/** Check state and runner for one AWS-backed secret. */
+export type AwsSecretReferenceCheck = ReturnType<
+  typeof useAwsSecretReferenceCheck
+>
+
+/** Gives a list row its own check state without a component per row type. */
+export function AwsSecretReferenceCheckScope({
+  workspaceId,
+  secretId,
+  children,
+}: {
+  workspaceId: string
+  secretId: string
+  children: (check: AwsSecretReferenceCheck) => React.ReactNode
+}) {
+  return children(useAwsSecretReferenceCheck(workspaceId, secretId))
+}
+
+/** One button for the check and its result. Clicking it checks again. */
+export function AwsSecretReferenceCheckButton({
+  state,
+  onCheck,
+}: {
+  state: AwsReferenceCheckState
+  onCheck: () => void
+}) {
+  let label = "Check access"
+  let icon: React.ReactNode = null
+  let title = "Check that Tracecat can read this secret"
+  if (state.status === "checking") {
+    label = "Checking…"
+    icon = <Loader2Icon className="size-3.5 animate-spin" />
+  } else if (state.status === "ok") {
+    label = "Reachable"
+    icon = <CheckCircle2Icon className="size-3.5 text-green-600" />
+    title = `Resolved keys: ${state.resolvedKeys.join(", ")}. Click to check again.`
+  } else if (state.status === "failed") {
+    label = state.label
+    icon = <XCircleIcon className="size-3.5 text-destructive" />
+    title = "Click to check again."
+  }
   return (
-    <>
-      {status}
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:bg-muted"
-        disabled={checkReferencePending}
-        onClick={handleCheck}
-      >
-        {checkReferencePending ? "Checking…" : "Check"}
-      </Button>
-    </>
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-6 gap-1 border-input bg-background px-2.5 text-[11px] text-foreground hover:bg-muted"
+      disabled={state.status === "checking"}
+      title={title}
+      onClick={(event) => {
+        event.stopPropagation()
+        onCheck()
+      }}
+    >
+      {icon}
+      {label}
+    </Button>
+  )
+}
+
+/** The fix for a failed check, shown under the row. */
+export function AwsSecretReferenceCheckHint({
+  state,
+  className,
+}: {
+  state: AwsReferenceCheckState
+  className?: string
+}) {
+  if (state.status !== "failed") return null
+  return (
+    <p
+      className={cn("text-xs text-muted-foreground", className)}
+      title={state.detail ?? undefined}
+    >
+      {state.hint}
+    </p>
   )
 }

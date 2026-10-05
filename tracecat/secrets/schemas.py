@@ -531,6 +531,13 @@ class SecretStoreUpdate(BaseModel):
         return value
 
 
+class SecretStoreWorkspaceUsage(BaseModel):
+    """Number of secrets in one workspace that reference a store."""
+
+    workspace_id: WorkspaceID
+    secret_count: int
+
+
 class SecretStoreRead(BaseModel):
     """Organization view of a secret store, including trust-policy inputs."""
 
@@ -550,6 +557,10 @@ class SecretStoreRead(BaseModel):
     )
     authorized_workspace_ids: list[WorkspaceID] = Field(default_factory=list)
     reference_count: int = 0
+    workspace_usage: list[SecretStoreWorkspaceUsage] = Field(
+        default_factory=list,
+        description="Referencing secret counts per workspace, most used first.",
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -558,7 +569,7 @@ class SecretStoreRead(BaseModel):
         obj: OrganizationSecretStore,
         *,
         authorized_workspace_ids: list[WorkspaceID],
-        reference_count: int,
+        workspace_usage: list[SecretStoreWorkspaceUsage],
         tracecat_aws_account_id: str | None,
         tracecat_aws_principal_arn: str | None,
     ) -> SecretStoreRead:
@@ -576,7 +587,8 @@ class SecretStoreRead(BaseModel):
             tracecat_aws_principal_arn=tracecat_aws_principal_arn,
             aws_partition=aws_partition_for_region(config.region),
             authorized_workspace_ids=authorized_workspace_ids,
-            reference_count=reference_count,
+            reference_count=sum(u.secret_count for u in workspace_usage),
+            workspace_usage=workspace_usage,
             created_at=obj.created_at,
             updated_at=obj.updated_at,
         )

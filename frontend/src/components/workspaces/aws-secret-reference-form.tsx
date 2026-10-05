@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { CloudIcon, PlusCircle, Trash2Icon } from "lucide-react"
+import React from "react"
 import { useFieldArray, useForm } from "react-hook-form"
 import { z } from "zod"
 import type {
@@ -141,6 +142,8 @@ interface AwsSecretReferenceFormProps {
   initialName?: string
   /** Declared keys to seed the JSON mapping with. */
   initialKeys?: string[]
+  /** Store chosen by the parent's source picker; hides the store field. */
+  storeId?: string
   onSaved: () => void
 }
 
@@ -153,6 +156,7 @@ export function AwsSecretReferenceForm({
   secret,
   initialName = "",
   initialKeys = [],
+  storeId,
   onSaved,
 }: AwsSecretReferenceFormProps) {
   const workspaceId = useWorkspaceId()
@@ -171,7 +175,7 @@ export function AwsSecretReferenceForm({
       name: secret?.name ?? initialName,
       description: secret?.description ?? "",
       environment: secret?.environment ?? "",
-      store_id: secret?.store_id ?? "",
+      store_id: storeId ?? secret?.store_id ?? "",
       remote_reference: secret?.remote_reference ?? "",
       mode: mapping?.mode ?? (initialKeys.length > 1 ? "json" : "whole_string"),
       whole_string_key:
@@ -183,6 +187,12 @@ export function AwsSecretReferenceForm({
   const mode = methods.watch("mode")
   const name = methods.watch("name")
   const { fields, append, remove } = useFieldArray({ control, name: "fields" })
+  const storeControlled = storeId !== undefined
+  React.useEffect(() => {
+    if (storeId !== undefined) {
+      methods.setValue("store_id", storeId, { shouldValidate: true })
+    }
+  }, [storeId, methods])
 
   const availableStores = (stores ?? []).filter(
     (store) => store.enabled || store.id === secret?.store_id
@@ -217,7 +227,7 @@ export function AwsSecretReferenceForm({
         data-testid="aws-secret-reference-form"
       >
         <div className="space-y-4 overflow-y-auto flex-1 py-2 px-1">
-          {storesError && (
+          {!storeControlled && storesError && (
             <Alert variant="destructive">
               <AlertTitle>Could not load secret stores</AlertTitle>
               <AlertDescription>
@@ -225,17 +235,20 @@ export function AwsSecretReferenceForm({
               </AlertDescription>
             </Alert>
           )}
-          {!storesLoading && !storesError && availableStores.length === 0 && (
-            <Alert>
-              <CloudIcon className="size-4" />
-              <AlertTitle>No authorized AWS stores</AlertTitle>
-              <AlertDescription>
-                An organization admin must add an AWS Secrets Manager store and
-                authorize this workspace before you can reference secrets from
-                it.
-              </AlertDescription>
-            </Alert>
-          )}
+          {!storeControlled &&
+            !storesLoading &&
+            !storesError &&
+            availableStores.length === 0 && (
+              <Alert>
+                <CloudIcon className="size-4" />
+                <AlertTitle>No authorized AWS stores</AlertTitle>
+                <AlertDescription>
+                  An organization admin must add an AWS Secrets Manager store
+                  and authorize this workspace before you can reference secrets
+                  from it.
+                </AlertDescription>
+              </Alert>
+            )}
           <FormField
             control={control}
             name="name"
@@ -296,36 +309,38 @@ export function AwsSecretReferenceForm({
               </FormItem>
             )}
           />
-          <FormField
-            control={control}
-            name="store_id"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel className="text-sm">AWS secret store</FormLabel>
-                <FormDescription className="text-sm">
-                  Only stores authorized for this workspace are listed.
-                </FormDescription>
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl>
-                    <SelectTrigger className="text-sm">
-                      <SelectValue placeholder="Select a store" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {availableStores.map((store) => (
-                      <SelectItem key={store.id} value={store.id}>
-                        {store.name}{" "}
-                        <span className="text-muted-foreground">
-                          ({store.region}){!store.enabled && " · Disabled"}
-                        </span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+          {!storeControlled && (
+            <FormField
+              control={control}
+              name="store_id"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="text-sm">AWS secret store</FormLabel>
+                  <FormDescription className="text-sm">
+                    Only stores authorized for this workspace are listed.
+                  </FormDescription>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger className="text-sm">
+                        <SelectValue placeholder="Select a store" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {availableStores.map((store) => (
+                        <SelectItem key={store.id} value={store.id}>
+                          {store.name}{" "}
+                          <span className="text-muted-foreground">
+                            ({store.region}){!store.enabled && " · Disabled"}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
           <FormField
             control={control}
             name="remote_reference"

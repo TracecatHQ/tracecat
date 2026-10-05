@@ -1,6 +1,7 @@
 "use client"
 
-import type * as React from "react"
+import { CopyIcon } from "lucide-react"
+import React from "react"
 import type {
   SecretStoreCreate,
   SecretStoreProvider,
@@ -8,14 +9,17 @@ import type {
   SecretStoreUpdate,
 } from "@/client"
 import { CopyButton } from "@/components/copy-button"
+import { AwsIcon } from "@/components/icons"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   EXAMPLE_ROLE_ARN,
   validateAwsRegion,
   validateAwsRoleArn,
 } from "@/lib/aws-secret-validation"
+import { cn, copyToClipboard } from "@/lib/utils"
 
 /** Draft provider config held by the create dialog before submission. */
 export type CreateConfigState = Record<string, string>
@@ -36,6 +40,11 @@ type ConfigFieldsProps = {
  */
 export type SecretStoreProviderEntry = {
   label: string
+  /** How Tracecat authenticates, shown in the provider picker. */
+  method: string
+  /** Column heading for `summary`, e.g. the store region. */
+  locationLabel: string
+  Icon: React.ComponentType<{ className?: string }>
   summary: (store: SecretStoreRead) => string
   createTitle: string
   createDescription: string
@@ -46,7 +55,11 @@ export type SecretStoreProviderEntry = {
   setupDescription: string
   isSetupComplete: (store: SecretStoreRead) => boolean
   SetupFields: React.ComponentType<
-    ConfigFieldsProps & { store: SecretStoreRead; canEdit: boolean }
+    ConfigFieldsProps & {
+      store: SecretStoreRead
+      // `undefined` while scopes load: render neither the field nor the notice.
+      canEdit: boolean | undefined
+    }
   >
   validateSetup: (config: CreateConfigState) => CreateConfigErrors
   toSetupConfig: (config: CreateConfigState) => SecretStoreUpdate["config"]
@@ -56,7 +69,10 @@ export type SecretStoreProviderEntry = {
     store: SecretStoreRead
   ) => CreateConfigErrors
   toUpdateConfig: (config: CreateConfigState) => SecretStoreUpdate["config"]
-  Details: React.ComponentType<{ store: SecretStoreRead }>
+  Details: React.ComponentType<{
+    store: SecretStoreRead
+    usage: React.ReactNode
+  }>
 }
 
 /**
@@ -207,11 +223,13 @@ function AwsSecretsManagerSetupFields({
   onChange,
   errors,
   canEdit,
-}: ConfigFieldsProps & { store: SecretStoreRead; canEdit: boolean }) {
+}: ConfigFieldsProps & {
+  store: SecretStoreRead
+  canEdit: boolean | undefined
+}) {
   return (
     <>
-      <StorePolicies store={store} />
-      {canEdit ? (
+      {canEdit === true && (
         <RoleArnField
           id="setup-role-arn"
           // Otherwise the dialog focuses the first copy button and opens its tooltip.
@@ -220,12 +238,14 @@ function AwsSecretsManagerSetupFields({
           onChange={(role_arn) => onChange({ ...config, role_arn })}
           error={errors.role_arn}
         />
-      ) : (
+      )}
+      {canEdit === false && (
         <p className="text-xs text-muted-foreground">
           You need permission to update secret stores to enter the role ARN.
           Share these policies with an organization admin to finish setup.
         </p>
       )}
+      <StorePolicies store={store} />
     </>
   )
 }
@@ -263,101 +283,160 @@ function compactErrors(
   )
 }
 
-function StorePolicies({ store }: { store: SecretStoreRead }) {
-  const trustPolicy = buildStoreTrustPolicy(store)
-  const permissionPolicy = buildStorePermissionPolicy(store)
-
+function PolicyBlock({
+  description,
+  policy,
+  highlight,
+}: {
+  description: string
+  policy: string
+  highlight: (line: string) => boolean
+}) {
+  // Lines repeat (braces), so position is the only stable key.
+  const lines = policy.split("\n").map((text, position) => ({ text, position }))
   return (
-    <div className="grid gap-5 md:grid-cols-2">
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <Label htmlFor={`trust-policy-${store.id}`} className="text-xs">
-            Trust policy
-          </Label>
-          <CopyButton
-            value={trustPolicy}
-            toastMessage="Copied trust policy"
-            tooltipMessage="Copy trust policy"
-          />
-        </div>
-        <p
-          id={`trust-policy-help-${store.id}`}
-          className="text-xs text-muted-foreground md:min-h-8"
+    <>
+      <p className="border-b px-3 py-2 text-xs text-muted-foreground">
+        {description}
+      </p>
+      <pre className="max-h-80 overflow-auto rounded-b-md bg-muted/40 py-2 font-mono text-xs leading-relaxed">
+        {lines.map((line) => (
+          <span
+            key={line.position}
+            className={cn(
+              "block px-3",
+              highlight(line.text)
+                ? "bg-primary/10 text-foreground"
+                : "text-muted-foreground"
+            )}
+          >
+            {line.text}
+          </span>
+        ))}
+      </pre>
+    </>
+  )
+}
+
+function StorePolicies({ store }: { store: SecretStoreRead }) {
+  const [activeId, setActiveId] = React.useState("trust")
+  const policies = [
+    {
+      id: "trust",
+      title: "Trust policy",
+      description:
+        "Attach to the role. The highlighted line is this store's external ID.",
+      policy: buildStoreTrustPolicy(store),
+      highlight: (line: string) => line.includes("sts:ExternalId"),
+    },
+    {
+      id: "permissions",
+      title: "Permissions policy",
+      description:
+        "Read-only. Narrow the highlighted Resource to the secrets you share.",
+      policy: buildStorePermissionPolicy(store),
+      highlight: (line: string) => line.includes('"Resource": "arn:'),
+    },
+  ]
+  const active = policies.find((item) => item.id === activeId) ?? policies[0]
+  return (
+    <Tabs
+      value={active.id}
+      onValueChange={setActiveId}
+      className="min-w-0 rounded-md border"
+    >
+      <div className="flex items-center justify-between gap-2 border-b pr-2">
+        <TabsList className="h-9 justify-start rounded-none bg-transparent p-0">
+          {policies.map((item) => (
+            <TabsTrigger
+              key={item.id}
+              value={item.id}
+              className="h-full rounded-none text-xs"
+            >
+              {item.title}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+          aria-label={`Copy ${active.title.toLowerCase()}`}
+          onClick={() =>
+            copyToClipboard({
+              value: active.policy,
+              message: `Copied ${active.title.toLowerCase()}`,
+            })
+          }
         >
-          Attach to the role in AWS. Includes the external ID for this store.
-        </p>
-        <Textarea
-          id={`trust-policy-${store.id}`}
-          aria-describedby={`trust-policy-help-${store.id}`}
-          readOnly
-          className="h-48 resize-none bg-muted/30 font-mono text-xs"
-          value={trustPolicy}
-        />
+          <CopyIcon className="size-3.5" />
+          Copy
+        </Button>
       </div>
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <Label htmlFor={`permissions-policy-${store.id}`} className="text-xs">
-            Permissions policy
-          </Label>
+      {policies.map((item) => (
+        <TabsContent key={item.id} value={item.id} className="mt-0">
+          <PolicyBlock {...item} />
+        </TabsContent>
+      ))}
+    </Tabs>
+  )
+}
+
+function DetailItem({
+  label,
+  value,
+  copyLabel,
+}: {
+  label: string
+  value: string | null | undefined
+  copyLabel: string
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <dt className="text-xs font-medium">{label}</dt>
+      <dd className="flex items-center gap-1.5">
+        <code className="break-all font-mono text-xs text-muted-foreground">
+          {value ?? "Not set"}
+        </code>
+        {value && (
           <CopyButton
-            value={permissionPolicy}
-            toastMessage="Copied permissions policy"
-            tooltipMessage="Copy permissions policy"
+            value={value}
+            toastMessage={`Copied ${copyLabel}`}
+            tooltipMessage={`Copy ${copyLabel}`}
           />
-        </div>
-        <p
-          id={`permissions-policy-help-${store.id}`}
-          className="text-xs text-muted-foreground md:min-h-8"
-        >
-          Read-only access. Limit the resource ARNs to the secrets you want to
-          share.
-        </p>
-        <Textarea
-          id={`permissions-policy-${store.id}`}
-          aria-describedby={`permissions-policy-help-${store.id}`}
-          readOnly
-          className="h-48 resize-none bg-muted/30 font-mono text-xs"
-          value={permissionPolicy}
-        />
-      </div>
+        )}
+      </dd>
     </div>
   )
 }
 
-function AwsSecretsManagerDetails({ store }: { store: SecretStoreRead }) {
+function AwsSecretsManagerDetails({
+  store,
+  usage,
+}: {
+  store: SecretStoreRead
+  usage: React.ReactNode
+}) {
   return (
     <>
-      <dl className="space-y-4 border-b pb-5">
-        <div className="space-y-1.5">
-          <dt className="flex items-center gap-2 text-xs font-medium">
-            Role ARN
-            {store.config.role_arn && (
-              <CopyButton
-                value={store.config.role_arn}
-                toastMessage="Copied role ARN"
-                tooltipMessage="Copy role ARN"
-              />
-            )}
-          </dt>
-          <dd className="break-all font-mono text-xs text-muted-foreground">
-            {store.config.role_arn ?? "Not set"}
-          </dd>
-        </div>
-        <div className="space-y-1.5">
-          <dt className="flex items-center gap-2 text-xs font-medium">
-            External ID
-            <CopyButton
-              value={store.config.external_id}
-              toastMessage="Copied external ID"
-              tooltipMessage="Copy external ID"
-            />
-          </dt>
-          <dd className="break-all font-mono text-xs text-muted-foreground">
-            {store.config.external_id}
-          </dd>
+      <StorePolicies store={store} />
+      <dl className="grid gap-x-8 gap-y-4 border-t pt-4 sm:grid-cols-3">
+        <DetailItem
+          label="Role ARN"
+          value={store.config.role_arn}
+          copyLabel="role ARN"
+        />
+        <DetailItem
+          label="External ID"
+          value={store.config.external_id}
+          copyLabel="external ID"
+        />
+        <div className="min-w-0 space-y-1">
+          <dt className="text-xs font-medium">Used by</dt>
+          <dd>{usage}</dd>
         </div>
       </dl>
-      <StorePolicies store={store} />
     </>
   )
 }
@@ -369,10 +448,13 @@ export const SECRET_STORE_PROVIDERS: Record<
 > = {
   aws_secrets_manager: {
     label: "AWS Secrets Manager",
+    method: "IAM role with an external ID",
+    locationLabel: "Region",
+    Icon: ({ className }) => <AwsIcon className={className} />,
     summary: (store) => store.config.region,
     createTitle: "Add AWS Secrets Manager store",
     createDescription:
-      "Choose a name and the region that holds your secrets. Next, Tracecat generates the trust policy for the AWS role.",
+      "Enter a name and the region that holds your secrets. Saving generates the external ID and trust policy.",
     CreateFields: AwsSecretsManagerCreateFields,
     validateCreate: (config) =>
       compactErrors({ region: validateAwsRegion(config.region ?? "") }),
@@ -382,7 +464,7 @@ export const SECRET_STORE_PROVIDERS: Record<
     }),
     setupTitle: "Connect the AWS role",
     setupDescription:
-      "Create an IAM role in AWS with these policies, then enter its ARN. Saving enables the store.",
+      "Create an IAM role in AWS with these policies, then enter its ARN.",
     isSetupComplete: (store) => Boolean(store.config.role_arn),
     SetupFields: AwsSecretsManagerSetupFields,
     validateSetup: (config) =>

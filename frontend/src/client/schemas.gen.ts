@@ -27377,6 +27377,14 @@ export const $SecretStoreRead = {
       title: "Reference Count",
       default: 0,
     },
+    workspace_usage: {
+      items: {
+        $ref: "#/components/schemas/SecretStoreWorkspaceUsage",
+      },
+      type: "array",
+      title: "Workspace Usage",
+      description: "Referencing secret counts per workspace, most used first.",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -27513,6 +27521,24 @@ export const $SecretStoreUpdate = {
   title: "SecretStoreUpdate",
   description:
     "Update an organization-owned secret store. Server-owned fields are immutable.",
+} as const
+
+export const $SecretStoreWorkspaceUsage = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    secret_count: {
+      type: "integer",
+      title: "Secret Count",
+    },
+  },
+  type: "object",
+  required: ["workspace_id", "secret_count"],
+  title: "SecretStoreWorkspaceUsage",
+  description: "Number of secrets in one workspace that reference a store.",
 } as const
 
 export const $SecretType = {

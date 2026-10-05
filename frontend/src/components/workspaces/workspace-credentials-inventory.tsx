@@ -14,7 +14,7 @@ import {
   CatalogHeader,
   type CatalogHeaderSelectFilter,
 } from "@/components/catalog/catalog-header"
-import { SecretIcon } from "@/components/icons"
+import { AwsIcon, SecretIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { AlertNotification } from "@/components/notifications"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -38,7 +38,12 @@ import {
   ItemTitle,
 } from "@/components/ui/item"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { AwsSecretReferenceCheckButton } from "@/components/workspaces/aws-secret-reference-check-button"
+import {
+  type AwsSecretReferenceCheck,
+  AwsSecretReferenceCheckButton,
+  AwsSecretReferenceCheckHint,
+  AwsSecretReferenceCheckScope,
+} from "@/components/workspaces/aws-secret-reference-check-button"
 import { CreateCredentialDialog } from "@/components/workspaces/create-credential-dialog"
 import {
   buildCredentialGroups,
@@ -361,79 +366,105 @@ export function WorkspaceCredentialsInventory() {
                         {isExpandable ? (
                           <CollapsibleContent>
                             <div className="divide-y divide-border/50">
-                              {group.secrets.map((secret) => (
-                                <Item
-                                  key={secret.id}
-                                  variant="default"
-                                  size="sm"
-                                  className="w-full flex-nowrap rounded-none border-none px-3 py-1.5 pl-12 text-left"
-                                >
-                                  <ItemMedia className="translate-y-0 self-center">
-                                    <SecretIcon
-                                      secretName={group.name}
-                                      className="size-6 rounded"
-                                    />
-                                  </ItemMedia>
-                                  <ItemContent className="min-w-0 gap-1">
-                                    <ItemTitle className="flex w-full min-w-0 flex-wrap items-center gap-2 text-xs">
-                                      <span className="truncate font-medium">
-                                        {normalizeSecretEnvironment(
-                                          secret.environment
-                                        )}
-                                      </span>
-                                      {secret.source ===
-                                      "aws_secrets_manager" ? (
-                                        <Badge
-                                          variant="outline"
-                                          className="text-[10px]"
+                              {group.secrets.map((secret) => {
+                                const isAws =
+                                  secret.source === "aws_secrets_manager"
+                                const renderItem = (
+                                  check: AwsSecretReferenceCheck | null
+                                ) => (
+                                  <Item
+                                    key={secret.id}
+                                    variant="default"
+                                    size="sm"
+                                    className="w-full flex-nowrap rounded-none border-none px-3 py-1.5 pl-12 text-left"
+                                  >
+                                    <ItemMedia className="translate-y-0 self-center">
+                                      {isAws ? (
+                                        <AwsIcon
+                                          aria-label="AWS Secrets Manager"
+                                          className="size-6 rounded"
+                                        />
+                                      ) : (
+                                        <SecretIcon
+                                          secretName={group.name}
+                                          className="size-6 rounded"
+                                        />
+                                      )}
+                                    </ItemMedia>
+                                    <ItemContent className="min-w-0 gap-1">
+                                      <ItemTitle className="flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                                        <span className="truncate font-medium">
+                                          {normalizeSecretEnvironment(
+                                            secret.environment
+                                          )}
+                                        </span>
+                                        {isAws &&
+                                          secret.keys.map((key) => (
+                                            <Badge
+                                              key={`${secret.id}-${key}`}
+                                              variant="secondary"
+                                              className="font-mono text-[10px]"
+                                            >
+                                              {key}
+                                            </Badge>
+                                          ))}
+                                        {secret.is_corrupted ? (
+                                          <Badge
+                                            variant="secondary"
+                                            className="text-[10px] text-amber-700"
+                                          >
+                                            Reconfigure required
+                                          </Badge>
+                                        ) : null}
+                                      </ItemTitle>
+                                      {isAws ? (
+                                        <p
+                                          className="truncate text-xs text-muted-foreground"
                                           title={
                                             secret.remote_reference ?? undefined
                                           }
                                         >
-                                          AWS · {secret.store_name ?? "store"}
-                                        </Badge>
-                                      ) : null}
-                                      {secret.is_corrupted ? (
-                                        <Badge
-                                          variant="secondary"
-                                          className="text-[10px] text-amber-700"
-                                        >
-                                          Reconfigure required
-                                        </Badge>
-                                      ) : null}
-                                    </ItemTitle>
-                                    <div className="flex flex-wrap gap-1">
-                                      {secret.keys.length > 0 ? (
-                                        secret.keys.map((key) => (
-                                          <Badge
-                                            key={`${secret.id}-${key}`}
-                                            variant="secondary"
-                                            className="font-mono text-[10px]"
-                                          >
-                                            {key}
-                                          </Badge>
-                                        ))
+                                          {secret.store_name ?? "Unknown store"}
+                                          {" · "}
+                                          <code className="font-mono text-[11px]">
+                                            {secret.remote_reference}
+                                          </code>
+                                        </p>
                                       ) : (
-                                        <span className="text-xs text-muted-foreground">
-                                          No keys available
-                                        </span>
+                                        <div className="flex flex-wrap gap-1">
+                                          {secret.keys.length > 0 ? (
+                                            secret.keys.map((key) => (
+                                              <Badge
+                                                key={`${secret.id}-${key}`}
+                                                variant="secondary"
+                                                className="font-mono text-[10px]"
+                                              >
+                                                {key}
+                                              </Badge>
+                                            ))
+                                          ) : (
+                                            <span className="text-xs text-muted-foreground">
+                                              No keys available
+                                            </span>
+                                          )}
+                                        </div>
                                       )}
-                                    </div>
-                                  </ItemContent>
-                                  <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 pl-3">
-                                    {secret.source === "aws_secrets_manager" ? (
-                                      externalSecretStoresEnabled && (
-                                        <>
-                                          <AwsSecretReferenceCheckButton
-                                            key={
-                                              editingAwsSecret?.id === secret.id
-                                                ? "editing"
-                                                : secret.id
-                                            }
-                                            workspaceId={workspaceId}
-                                            secretId={secret.id}
-                                          />
-                                          {canUpdateSecrets && (
+                                      {check && (
+                                        <AwsSecretReferenceCheckHint
+                                          state={check.state}
+                                        />
+                                      )}
+                                    </ItemContent>
+                                    <ItemActions className="ml-auto flex shrink-0 items-center gap-1.5 self-start pl-3">
+                                      {check && (
+                                        <AwsSecretReferenceCheckButton
+                                          state={check.state}
+                                          onCheck={check.run}
+                                        />
+                                      )}
+                                      {isAws
+                                        ? externalSecretStoresEnabled &&
+                                          canUpdateSecrets && (
                                             <Button
                                               variant="outline"
                                               size="sm"
@@ -445,42 +476,60 @@ export function WorkspaceCredentialsInventory() {
                                             >
                                               Edit
                                             </Button>
+                                          )
+                                        : canUpdateSecrets && (
+                                            <EditCredentialsDialogTrigger
+                                              asChild
+                                            >
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:bg-muted"
+                                                onClick={(event) => {
+                                                  event.stopPropagation()
+                                                  setSelectedSecret(secret)
+                                                }}
+                                              >
+                                                Edit
+                                              </Button>
+                                            </EditCredentialsDialogTrigger>
                                           )}
-                                        </>
-                                      )
-                                    ) : canUpdateSecrets ? (
-                                      <EditCredentialsDialogTrigger asChild>
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:bg-muted"
-                                          onClick={(event) => {
-                                            event.stopPropagation()
-                                            setSelectedSecret(secret)
-                                          }}
-                                        >
-                                          Edit
-                                        </Button>
-                                      </EditCredentialsDialogTrigger>
-                                    ) : null}
-                                    {canDeleteSecrets && (
-                                      <DeleteSecretAlertDialogTrigger asChild>
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
-                                          onClick={(event) => {
-                                            event.stopPropagation()
-                                            setSelectedSecret(secret)
-                                          }}
-                                        >
-                                          Delete
-                                        </Button>
-                                      </DeleteSecretAlertDialogTrigger>
-                                    )}
-                                  </ItemActions>
-                                </Item>
-                              ))}
+                                      {canDeleteSecrets && (
+                                        <DeleteSecretAlertDialogTrigger asChild>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-6 border-input bg-background px-2.5 text-[11px] text-foreground hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
+                                            onClick={(event) => {
+                                              event.stopPropagation()
+                                              setSelectedSecret(secret)
+                                            }}
+                                          >
+                                            Delete
+                                          </Button>
+                                        </DeleteSecretAlertDialogTrigger>
+                                      )}
+                                    </ItemActions>
+                                  </Item>
+                                )
+                                if (!isAws || !externalSecretStoresEnabled) {
+                                  return renderItem(null)
+                                }
+                                return (
+                                  <AwsSecretReferenceCheckScope
+                                    // Editing the reference clears a stale result.
+                                    key={
+                                      editingAwsSecret?.id === secret.id
+                                        ? `${secret.id}-editing`
+                                        : secret.id
+                                    }
+                                    workspaceId={workspaceId}
+                                    secretId={secret.id}
+                                  >
+                                    {renderItem}
+                                  </AwsSecretReferenceCheckScope>
+                                )
+                              })}
                             </div>
                           </CollapsibleContent>
                         ) : null}

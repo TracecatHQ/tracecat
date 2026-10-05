@@ -1,5 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { AwsSecretReferenceCheckButton } from "@/components/workspaces/aws-secret-reference-check-button"
+import {
+  AwsSecretReferenceCheckButton,
+  AwsSecretReferenceCheckHint,
+  AwsSecretReferenceCheckScope,
+} from "@/components/workspaces/aws-secret-reference-check-button"
 
 const mockCheckReference = jest.fn()
 
@@ -7,36 +11,68 @@ jest.mock("@/hooks/use-secret-stores", () => ({
   describeApiError: () => "API error",
   useAwsSecretReferences: () => ({
     checkReference: mockCheckReference,
-    checkReferencePending: false,
   }),
 }))
 
+function renderCheck() {
+  render(
+    <AwsSecretReferenceCheckScope
+      workspaceId="workspace-synthetic"
+      secretId="secret-synthetic"
+    >
+      {(check) => (
+        <>
+          <AwsSecretReferenceCheckButton
+            state={check.state}
+            onCheck={check.run}
+          />
+          <AwsSecretReferenceCheckHint state={check.state} />
+        </>
+      )}
+    </AwsSecretReferenceCheckScope>
+  )
+}
+
+beforeEach(() => {
+  mockCheckReference.mockReset()
+})
+
 describe("AwsSecretReferenceCheckButton", () => {
-  it("renders a readable label and hint for a failure code", async () => {
+  it("shows the failure on the button and the fix inline", async () => {
     mockCheckReference.mockResolvedValue({
       ok: false,
       error_code: "access_denied",
       message:
         "Reference check failed: access_denied (AWS error code AccessDeniedException)",
     })
-    render(
-      <AwsSecretReferenceCheckButton
-        workspaceId="workspace-synthetic"
-        secretId="secret-synthetic"
-      />
-    )
+    renderCheck()
 
-    fireEvent.click(screen.getByRole("button", { name: "Check" }))
+    fireEvent.click(screen.getByRole("button", { name: "Check access" }))
 
-    const status = await screen.findByText("Access denied")
+    expect(
+      await screen.findByRole("button", { name: "Access denied" })
+    ).toBeInTheDocument()
     expect(screen.queryByText("access_denied")).not.toBeInTheDocument()
-    expect(status).toHaveAttribute(
-      "title",
-      expect.stringContaining("secretsmanager:GetSecretValue")
-    )
-    expect(status).toHaveAttribute(
+    const hint = screen.getByText(/secretsmanager:GetSecretValue/)
+    expect(hint).toHaveAttribute(
       "title",
       expect.stringContaining("AccessDeniedException")
     )
+  })
+
+  it("checks again from the result button", async () => {
+    mockCheckReference
+      .mockResolvedValueOnce({ ok: false, error_code: "throttled" })
+      .mockResolvedValueOnce({ ok: true, resolved_keys: ["API_TOKEN"] })
+    renderCheck()
+
+    fireEvent.click(screen.getByRole("button", { name: "Check access" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Rate limited" }))
+
+    expect(
+      await screen.findByRole("button", { name: "Reachable" })
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/throttled the request/)).not.toBeInTheDocument()
+    expect(mockCheckReference).toHaveBeenCalledTimes(2)
   })
 })
