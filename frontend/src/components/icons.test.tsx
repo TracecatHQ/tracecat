@@ -191,6 +191,27 @@ describe("action namespace icons", () => {
   })
 })
 
+describe("Palo Alto Networks registry icon mappings", () => {
+  it.each([
+    "tools.pan_os",
+    "tools.pan_strata",
+    "tools.pan_os.block_ip",
+    "tools.pan_strata.push_candidate_config",
+  ])("renders the Palo Alto Networks mark for %s", (key) => {
+    expect(svgTitle(getIcon(key))).toBe("Palo Alto Networks")
+  })
+
+  it("renders the Palo Alto Networks mark for the pan_strata provider", () => {
+    const Icon = providerIcons.pan_strata
+    expect(svgTitle(<Icon />)).toBe("Palo Alto Networks")
+  })
+
+  it("renders the Palo Alto Networks mark for the pan_os secret", () => {
+    const Icon = secretIcons.pan_os
+    expect(svgTitle(<Icon />)).toBe("Palo Alto Networks")
+  })
+})
+
 describe("OAuth provider and credential icons", () => {
   const providerCases: [providerId: string, title: string][] = [
     ["databricks", "Databricks"],
