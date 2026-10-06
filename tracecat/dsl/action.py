@@ -480,9 +480,6 @@ async def _materialize_task_result(task_result: TaskResult) -> MaterializedTaskR
         result_typename=task_result.result_typename,
         error=task_result.error,
         error_typename=task_result.error_typename,
-        interaction=task_result.interaction,
-        interaction_id=task_result.interaction_id,
-        interaction_type=task_result.interaction_type,
     )
 
 

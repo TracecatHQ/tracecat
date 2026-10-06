@@ -59,8 +59,6 @@ class WorkflowActionService(BaseWorkspaceService):
             description=params.description,
             inputs=params.inputs,
             control_flow=control_flow.model_dump(),
-            is_interactive=params.is_interactive,
-            interaction=params.interaction.model_dump() if params.interaction else None,
             position_x=params.position_x,
             position_y=params.position_y,
             upstream_edges=params.upstream_edges,

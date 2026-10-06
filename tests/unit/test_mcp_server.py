@@ -12329,25 +12329,6 @@ def test_validate_patch_payload_rejects_invented_on_error_field() -> None:
     assert ".error" in error.message
 
 
-def test_validate_patch_payload_wraps_nested_tracecat_validation_error() -> None:
-    """A nested ActionStatement validator raising a raw TracecatValidationError
-    (e.g. interaction + for_each) must surface as a structured WorkflowEditError,
-    not escape as a raw exception that the edit endpoint reports as a 500.
-    """
-    payload = _minimal_edit_document_payload()
-    payload["definition"]["actions"][0]["for_each"] = "${{ for var.x in [1, 2] }}"
-    payload["definition"]["actions"][0]["interaction"] = {"type": "response"}
-
-    with pytest.raises(draft.WorkflowEditError) as exc_info:
-        draft.validate_workflow_patch_payload(payload)
-
-    error = exc_info.value
-    assert error.code == "validation_error"
-    assert error.details is not None
-    assert error.details["type"] == "validation_error"
-    assert "interaction" in error.message.lower()
-
-
 @pytest.mark.anyio
 async def test_request_audit_middleware_sets_context_during_tool_call(
     monkeypatch: pytest.MonkeyPatch,

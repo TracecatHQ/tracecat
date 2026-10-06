@@ -261,7 +261,6 @@ def test_action_read_uses_lowered_deployment_ceiling(
         status="offline",
         inputs="",
         control_flow=ActionControlFlow.model_validate(control_flow),
-        is_interactive=False,
     )
 
     assert action.control_flow.retry_policy.timeout == 900
@@ -282,7 +281,6 @@ def test_action_read_does_not_clamp_non_agent_timeout(
         control_flow=ActionControlFlow.model_validate(
             {"retry_policy": {"timeout": 1800}}
         ),
-        is_interactive=False,
     )
 
     assert action.control_flow.retry_policy.timeout == 1800

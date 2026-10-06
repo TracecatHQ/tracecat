@@ -33,15 +33,12 @@ from tracecat import config
 from tracecat.audit.logger import AuditEventDetails, audit_log
 from tracecat.auth.types import Role
 from tracecat.contexts import ctx_role
-from tracecat.db.models import Interaction
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES, DSLInput, DSLRunArgs
 from tracecat.dsl.enums import PlatformAction
 from tracecat.dsl.schemas import TriggerInputs
 from tracecat.dsl.types import Task
 from tracecat.dsl.workflow import DSLWorkflow
-from tracecat.ee.interactions.schemas import InteractionInput
-from tracecat.ee.interactions.service import InteractionService
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.identifiers.workflow import (
     WorkflowExecutionID,
@@ -290,14 +287,6 @@ class WorkflowExecutionsService:
             return datetime.timedelta(seconds=float(seconds))
 
         return None
-
-    async def query_interaction_states(
-        self,
-        wf_exec_id: WorkflowExecutionID,
-    ) -> Sequence[Interaction]:
-        """Query the interaction states for a workflow execution."""
-        async with InteractionService.with_session(role=self.role) as svc:
-            return await svc.list_interactions(wf_exec_id=wf_exec_id)
 
     async def query_executions(
         self,
@@ -1263,15 +1252,10 @@ class WorkflowExecutionsService:
                             event_group=group,
                         )
                     )
-                # === Workflow Execution Interaction Events ===
+                # === Workflow Execution Signal Events ===
                 case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED:
                     attrs = event.workflow_execution_signaled_event_attributes
-                    data = await extract_first(attrs.input)
-                    result = (
-                        data
-                        if is_unreadable_temporal_payload(data)
-                        else InteractionInput(**data)
-                    )
+                    result = await extract_first(attrs.input)
                     events.append(
                         WorkflowExecutionEvent(
                             event_id=event.event_id,
@@ -1281,60 +1265,6 @@ class WorkflowExecutionsService:
                             result=result,
                         )
                     )
-                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED:
-                    group = await EventGroup.from_accepted_workflow_update(event)
-                    event_group_names[event.event_id] = group
-                    events.append(
-                        WorkflowExecutionEvent(
-                            event_id=event.event_id,
-                            event_time=event.event_time.ToDatetime(datetime.UTC),
-                            event_type=WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_ACCEPTED,
-                            event_group=group,
-                            task_id=event.task_id,
-                        )
-                    )
-                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_REJECTED:
-                    # TODO: Handle this
-                    logger.warning(
-                        "Received a workflow execution update rejected event",
-                        event_id=event.event_id,
-                        event_type=event.event_type,
-                    )
-                case EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:
-                    attrs = event.workflow_execution_update_completed_event_attributes
-                    parent_event_id = attrs.accepted_event_id
-                    if not (group := event_group_names.get(parent_event_id)):
-                        logger.warning(
-                            "Received a workflow execution update completed event with an unexpected parent event id",
-                            event_id=event.event_id,
-                            parent_event_id=parent_event_id,
-                        )
-                        continue
-                    event_group_names[event.event_id] = group
-                    outcome = attrs.outcome
-                    if outcome.HasField("success"):
-                        result = await extract_first(outcome.success)
-                        events.append(
-                            WorkflowExecutionEvent(
-                                event_id=event.event_id,
-                                event_time=event.event_time.ToDatetime(datetime.UTC),
-                                event_type=WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_COMPLETED,
-                                event_group=group,
-                                task_id=event.task_id,
-                                result=result,
-                            )
-                        )
-                    elif outcome.HasField("failure"):
-                        events.append(
-                            WorkflowExecutionEvent(
-                                event_id=event.event_id,
-                                event_time=event.event_time.ToDatetime(datetime.UTC),
-                                event_type=WorkflowEventType.WORKFLOW_EXECUTION_UPDATE_COMPLETED,
-                                event_group=group,
-                                task_id=event.task_id,
-                                failure=await EventFailure.from_history_event(event),
-                            )
-                        )
                 case _:
                     logger.trace("Unhandled event type", event_type=event.event_type)
         return events

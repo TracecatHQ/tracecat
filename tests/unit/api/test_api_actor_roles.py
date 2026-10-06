@@ -368,18 +368,10 @@ async def test_service_account_can_get_workflow_execution_by_workflow_route(
     mock_service.get_execution.return_value = mock_execution
     mock_service.list_workflow_execution_events.return_value = []
 
-    with (
-        patch.object(
-            WorkflowExecutionsService, "connect", new_callable=AsyncMock
-        ) as mock_connect,
-        patch.object(
-            workflow_executions_router,
-            "_list_interactions",
-            new_callable=AsyncMock,
-        ) as mock_list_interactions,
-    ):
+    with patch.object(
+        WorkflowExecutionsService, "connect", new_callable=AsyncMock
+    ) as mock_connect:
         mock_connect.return_value = mock_service
-        mock_list_interactions.return_value = []
 
         token = ctx_role.set(workspace_targeted_service_account_role)
         try:
@@ -395,7 +387,6 @@ async def test_service_account_can_get_workflow_execution_by_workflow_route(
     assert response.json()["id"] == wf_exec_id
     mock_service.get_execution.assert_awaited_once_with(wf_exec_id)
     mock_service.list_workflow_execution_events.assert_awaited_once_with(wf_exec_id)
-    mock_list_interactions.assert_awaited_once()
 
 
 @pytest.mark.anyio

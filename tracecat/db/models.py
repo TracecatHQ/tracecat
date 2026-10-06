@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Any, Literal
 
 import numpy as np
@@ -86,7 +87,6 @@ from tracecat.identifiers import (
 )
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.integrations.enums import IntegrationStatus, MCPAuthType, OAuthGrantType
-from tracecat.interactions.enums import InteractionStatus, InteractionType
 from tracecat.invitations.enums import InvitationStatus
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.tiers.types import EntitlementsDict
@@ -99,6 +99,25 @@ CASE_SEVERITY_ENUM = Enum(CaseSeverity, name="caseseverity")
 CASE_STATUS_ENUM = Enum(CaseStatus, name="casestatus")
 CASE_TASK_STATUS_ENUM = Enum(CaseTaskStatus, name="casetaskstatus")
 CASE_VERSION_FIELD_ENUM = Enum(CaseVersionField, name="caseversionfield")
+
+
+class InteractionStatus(StrEnum):
+    """Status of a legacy workflow interaction row."""
+
+    IDLE = "idle"
+    PENDING = "pending"
+    ERROR = "error"
+    TIMED_OUT = "timed_out"
+    COMPLETED = "completed"
+
+
+class InteractionType(StrEnum):
+    """Type of a legacy workflow interaction row."""
+
+    APPROVAL = "approval"
+    RESPONSE = "response"
+
+
 INTERACTION_STATUS_ENUM = Enum(InteractionStatus, name="interactionstatus")
 APPROVAL_STATUS_ENUM = Enum(ApprovalStatus, name="approvalstatus")
 INVITATION_STATUS_ENUM = Enum(InvitationStatus, name="invitationstatus")

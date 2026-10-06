@@ -21,7 +21,6 @@ import { useOrgAppSettings } from "@/lib/hooks"
 const appFormSchema = z.object({
   app_registry_validation_enabled: z.boolean(),
   app_executions_query_limit: z.number().min(1).max(1000),
-  app_interactions_enabled: z.boolean(),
   app_workflow_export_enabled: z.boolean(),
   app_create_workspace_on_register: z.boolean(),
   app_action_form_mode_enabled: z.boolean(),
@@ -46,7 +45,6 @@ export function OrgSettingsAppForm() {
         appSettings?.app_registry_validation_enabled ?? false,
       app_executions_query_limit:
         appSettings?.app_executions_query_limit ?? 100,
-      app_interactions_enabled: appSettings?.app_interactions_enabled ?? false,
       app_workflow_export_enabled:
         appSettings?.app_workflow_export_enabled ?? true,
       app_create_workspace_on_register:
@@ -64,7 +62,6 @@ export function OrgSettingsAppForm() {
         requestBody: {
           app_registry_validation_enabled: data.app_registry_validation_enabled,
           app_executions_query_limit: data.app_executions_query_limit,
-          app_interactions_enabled: data.app_interactions_enabled,
           app_workflow_export_enabled: data.app_workflow_export_enabled,
           app_create_workspace_on_register:
             data.app_create_workspace_on_register,
@@ -131,27 +128,6 @@ export function OrgSettingsAppForm() {
                   {...field}
                   onChange={(e) => field.onChange(Number(e.target.value))}
                   className="w-24"
-                />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="app_interactions_enabled"
-          render={({ field }) => (
-            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-              <div className="space-y-0.5">
-                <FormLabel>Enable interactions</FormLabel>
-                <FormDescription>
-                  Enable application interactions functionality.
-                </FormDescription>
-              </div>
-              <FormControl>
-                <Switch
-                  checked={field.value}
-                  onCheckedChange={field.onChange}
                 />
               </FormControl>
             </FormItem>

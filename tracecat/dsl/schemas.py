@@ -21,11 +21,9 @@ from tracecat.dsl.enums import (
     PlatformAction,
     StreamErrorHandlingStrategy,
 )
-from tracecat.exceptions import TracecatValidationError
 from tracecat.expressions.validation import ExpressionStr, RequiredExpressionStr
 from tracecat.identifiers import WorkflowExecutionID, WorkflowRunID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
-from tracecat.interactions.schemas import ActionInteraction, InteractionContext
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.storage.object import InlineObject, StoredObject
@@ -106,15 +104,6 @@ class MaterializedTaskResult(TypedDict):
     error_typename: str | None
     """The Python type name of the error if one occurred."""
 
-    interaction: Any | None
-    """Interaction metadata for interactive actions."""
-
-    interaction_id: str | None
-    """ID of the interaction if this was an interactive action."""
-
-    interaction_type: str | None
-    """Type of interaction if this was an interactive action."""
-
 
 class MaterializedExecutionContext(TypedDict, total=False):
     """ExecutionContext with all StoredObjects materialized to raw values.
@@ -161,15 +150,6 @@ class TaskResult(BaseModel):
 
     error_typename: str | None = None
     """The Python type name of the error if one occurred."""
-
-    interaction: Any | None = None
-    """Interaction metadata for interactive actions."""
-
-    interaction_id: str | None = None
-    """ID of the interaction if this was an interactive action."""
-
-    interaction_type: str | None = None
-    """Type of interaction if this was an interactive action."""
 
     collection_index: int | None = None
     """Index into a stored collection for scatter items.
@@ -289,9 +269,6 @@ class TaskResult(BaseModel):
             result_typename=self.result_typename,
             error=self.error,
             error_typename=self.error_typename,
-            interaction=self.interaction,
-            interaction_id=self.interaction_id,
-            interaction_type=self.interaction_type,
         )
 
 
@@ -337,11 +314,6 @@ class ActionStatement(BaseModel):
     )
 
     depends_on: list[str] = Field(default_factory=list, description="Task dependencies")
-
-    interaction: ActionInteraction | None = Field(
-        default=None,
-        description="Whether the action is interactive.",
-    )
 
     """Control flow options"""
 
@@ -397,14 +369,6 @@ class ActionStatement(BaseModel):
     @property
     def title(self) -> str:
         return self.ref.capitalize().replace("_", " ")
-
-    @model_validator(mode="after")
-    def validate_interaction(self):
-        if self.interaction and self.for_each:
-            raise TracecatValidationError(
-                "Interaction is not allowed when for_each is provided."
-            )
-        return self
 
     @model_validator(mode="after")
     def apply_agent_timeout_policy(self) -> Self:
@@ -585,7 +549,6 @@ class RunActionInput(BaseModel):
     exec_context: ExecutionContext
     run_context: RunContext
     # This gets passed in from the worker
-    interaction_context: InteractionContext | None = None
     stream_id: StreamID = ROOT_STREAM
     session_id: uuid.UUID | None = None
     """ID for a streamable session, if any."""

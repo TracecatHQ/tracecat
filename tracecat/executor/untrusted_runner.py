@@ -25,7 +25,6 @@ from tracecat_registry.context import RegistryContext, set_context
 
 from tracecat.auth.types import Role
 from tracecat.contexts import (
-    ctx_interaction,
     ctx_logger,
     ctx_role,
     ctx_run,
@@ -88,8 +87,6 @@ async def run_action_untrusted(
     ctx_role.set(role)
     ctx_run.set(input.run_context)
     ctx_session_id.set(input.session_id)
-    # Always set interaction context (even if None) to prevent stale context leakage
-    ctx_interaction.set(input.interaction_context)
 
     # Initialize SDK context for any registry operations
     _setup_registry_sdk_context()

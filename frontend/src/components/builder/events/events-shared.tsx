@@ -4,14 +4,12 @@ import {
   CalendarSearchIcon,
   FileInputIcon,
   type LucideIcon,
-  MessagesSquare,
   ShapesIcon,
   WorkflowIcon,
 } from "lucide-react"
 import type { ReactNode } from "react"
 import { $TriggerType, type TriggerType } from "@/client"
 import { ActionEventPane } from "@/components/builder/events/events-selected-action"
-import { WorkflowInteractions } from "@/components/builder/events/events-sidebar-interactions"
 import {
   WorkflowEvents,
   WorkflowEventsHeader,
@@ -38,7 +36,6 @@ export type EventsSidebarTabs =
   | "workflow-events"
   | "action-input"
   | "action-result"
-  | "action-interaction"
 
 /** A single tab in the workflow events viewer. */
 export interface EventsTabItem {
@@ -146,17 +143,14 @@ function NoWorkflowRuns() {
 }
 
 /**
- * Build the tab descriptors (Events / Input / Result / Interaction) for a
- * workflow execution. The interaction tab is only included when interactions
- * are enabled, and the header switches to its compact form when `embedded`.
+ * Build the tab descriptors (Events / Input / Result) for a workflow
+ * execution. The header switches to its compact form when `embedded`.
  */
 export function buildEventsTabItems({
   execution,
-  interactionsEnabled,
   embedded = false,
 }: {
   execution: WorkflowExecutionReadCompact
-  interactionsEnabled: boolean
   embedded?: boolean
 }): EventsTabItem[] {
   const tabItems: EventsTabItem[] = [
@@ -167,9 +161,6 @@ export function buildEventsTabItems({
       content: (
         <>
           <WorkflowEventsHeader execution={execution} embedded={embedded} />
-          {interactionsEnabled && (
-            <WorkflowInteractions execution={execution} />
-          )}
           <WorkflowEvents events={execution.events} status={execution.status} />
         </>
       ),
@@ -187,13 +178,5 @@ export function buildEventsTabItems({
       content: <ActionEventPane execution={execution} type="result" />,
     },
   ]
-  if (interactionsEnabled) {
-    tabItems.push({
-      value: "action-interaction",
-      label: "Interaction",
-      icon: MessagesSquare,
-      content: <ActionEventPane execution={execution} type="interaction" />,
-    })
-  }
   return tabItems
 }

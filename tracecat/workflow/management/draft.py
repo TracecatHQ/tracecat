@@ -581,7 +581,7 @@ def validate_workflow_patch_payload(payload: dict[str, Any]) -> WorkflowEditDocu
             },
         ) from exc
     except TracecatValidationError as exc:
-        # Nested ActionStatement validators (e.g. interaction + for_each) raise
+        # Nested ActionStatement validators can raise
         # a raw TracecatValidationError, not a Pydantic ValidationError, so it
         # bypasses the branch above. Surface it as a structured WorkflowEditError
         # too so the caller gets a 400/tool error to correct, never a 500.

@@ -4,20 +4,18 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta
-from typing import Annotated, Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    TypeAdapter,
     field_validator,
     model_validator,
 )
 
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionRetryPolicy, ActionStatement, DSLConfig
-from tracecat.interactions.schemas import ApprovalInteraction, ResponseInteraction
 from tracecat.workflow.case_triggers.schemas import CaseTriggerConfig
 
 T = TypeVar("T")
@@ -147,26 +145,6 @@ class _StrictWorkflowEditActionRetryPolicy(ActionRetryPolicy):
     model_config = ConfigDict(extra="forbid")
 
 
-class _StrictWorkflowEditResponseInteraction(ResponseInteraction):
-    model_config = ConfigDict(extra="forbid")
-
-
-class _StrictWorkflowEditApprovalInteraction(ApprovalInteraction):
-    model_config = ConfigDict(extra="forbid")
-
-
-type _StrictWorkflowEditActionInteraction = Annotated[
-    _StrictWorkflowEditResponseInteraction | _StrictWorkflowEditApprovalInteraction,
-    Field(
-        discriminator="type",
-        description="An interaction configuration",
-    ),
-]
-_STRICT_WORKFLOW_EDIT_ACTION_INTERACTION_ADAPTER: TypeAdapter[
-    _StrictWorkflowEditActionInteraction
-] = TypeAdapter(_StrictWorkflowEditActionInteraction)
-
-
 class _StrictWorkflowEditAction(ActionStatement):
     model_config = ConfigDict(extra="forbid")
 
@@ -177,10 +155,6 @@ class _StrictWorkflowEditAction(ActionStatement):
             return value
         if (retry_policy := value.get("retry_policy")) is not None:
             _StrictWorkflowEditActionRetryPolicy.model_validate(retry_policy)
-        if (interaction := value.get("interaction")) is not None:
-            _STRICT_WORKFLOW_EDIT_ACTION_INTERACTION_ADAPTER.validate_python(
-                interaction
-            )
         return value
 
 

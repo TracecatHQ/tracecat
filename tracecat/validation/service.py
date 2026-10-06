@@ -33,7 +33,6 @@ from tracecat.expressions.validator.validator import (
 from tracecat.integrations.enums import OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
-from tracecat.interactions.schemas import ResponseInteraction
 from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.versions.schemas import RegistryVersionManifest
@@ -50,11 +49,6 @@ from tracecat.validation.schemas import (
     ValidationDetail,
     ValidationResult,
 )
-
-PERMITTED_INTERACTION_ACTIONS = [
-    "tools.slack.post_message",
-    "tools.slack.update_message",
-]
 
 
 def get_effective_environment(stmt: ActionStatement, default_environment: str) -> str:
@@ -455,28 +449,6 @@ async def validate_dsl_actions(
                         type="action",
                         msg=f"Invalid `for_each` of type {type(act_stmt.for_each)}.",
                         loc=(act_stmt.ref, "for_each"),
-                    )
-                )
-        # Validate `interaction`
-        match act_stmt.interaction:
-            case ResponseInteraction():
-                if act_stmt.action not in PERMITTED_INTERACTION_ACTIONS:
-                    details.append(
-                        ValidationDetail(
-                            type="action",
-                            msg=f"Response interactions are only supported for the following actions:\n"
-                            f"{('\n'.join(f'- {x}' for x in PERMITTED_INTERACTION_ACTIONS))}\n",
-                            loc=(act_stmt.ref, "interaction"),
-                        )
-                    )
-            case None:
-                pass
-            case _:
-                details.append(
-                    ValidationDetail(
-                        type="action",
-                        msg=f"Unsupported `interaction` of type {type(act_stmt.interaction)}.",
-                        loc=(act_stmt.ref, "interaction"),
                     )
                 )
         if details:

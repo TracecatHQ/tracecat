@@ -4,7 +4,6 @@
 
 import { render, screen } from "@testing-library/react"
 import type React from "react"
-import { ActionEventPane } from "@/components/builder/events/events-selected-action"
 import { SuccessEvent } from "@/components/executions/action-event-details"
 import {
   WF_TRIGGER_EVENT_REF,
@@ -326,41 +325,6 @@ describe("SuccessEvent", () => {
     expect(screen.getByTestId("collection-result")).toHaveAttribute(
       "data-copy-prefix",
       "ACTIONS.reshape.result"
-    )
-  })
-
-  it("passes dual copy mode to interaction viewers", () => {
-    render(
-      <ActionEventPane
-        execution={
-          {
-            id: "exec-1",
-            status: "COMPLETED",
-            events: [
-              createEvent({
-                action_ref: "reshape",
-                action_name: "Reshape",
-              }),
-            ],
-            interactions: [
-              {
-                action_ref: "reshape",
-                response_payload: { approved: true },
-              },
-            ],
-          } as never
-        }
-        type="interaction"
-      />
-    )
-
-    expect(screen.getByTestId("json-view")).toHaveAttribute(
-      "data-copy-mode",
-      "jsonpath-and-payload"
-    )
-    expect(screen.getByTestId("json-view")).toHaveAttribute(
-      "data-copy-prefix",
-      "ACTIONS.reshape.interaction"
     )
   })
 
