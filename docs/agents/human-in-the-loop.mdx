@@ -13,7 +13,7 @@ The agent pauses before it calls an approval-gated tool, and a reviewer approves
 Choose where to set approvals based on how you run the agent:
 
 - `ai.agent`: Set `tool_approvals` on the action. Keys are action names, and `true` requires approval.
-- Agent presets: Open the preset, select `Approvals`, then click `Add rule` and turn on `Manual approval` for each tool.
+- Agent presets: Open the preset, select the `Tools` tab, then under `Approval rules` click `Add rule`, choose the tool, and set `Manual approval` to `Required`.
 - MCP integrations: Turn on `Approval` for a tool on a remote MCP integration. Approvals are not supported for `stdio` MCP servers.
 
 ```yaml
