@@ -231,7 +231,7 @@ export function RbacBadge({
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium",
+        "inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-medium",
         variant === "preset" && "bg-muted text-muted-foreground",
         variant === "custom" && "bg-primary/10 text-primary",
         variant === "default" && "bg-secondary text-secondary-foreground",
