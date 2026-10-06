@@ -105,7 +105,9 @@ export function CaseLinkedRowsSection({
             columns={linkedTable.columns}
             canUpdate={canUpdate}
             canLink={canLink}
-            canAddRow={canAddRow}
+            // A deleted source table keeps its links but has no name or
+            // columns: there is nothing left to insert into.
+            canAddRow={canAddRow && linkedTable.table_name != null}
             canEditCells={canEditCells}
             onLinkRows={() => openDialog(linkedTable.table_id)}
           />
