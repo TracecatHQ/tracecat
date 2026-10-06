@@ -6,7 +6,6 @@ import { type MouseEvent, useMemo, useState } from "react"
 import type { RoleReadWithScopes } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
-  RbacBadge,
   RbacListContainer,
   RbacListEmpty,
   RbacListHeader,
@@ -300,7 +299,11 @@ function RoleListItem({
       title={role.name}
       badges={
         <>
-          {role.is_system && <RbacBadge variant="preset">Preset</RbacBadge>}
+          {role.is_system && (
+            <Badge variant="outline" className="text-[10px]">
+              Preset
+            </Badge>
+          )}
           <Badge variant="secondary" className="text-[10px]">
             {scopeCount} scope{scopeCount !== 1 && "s"}
           </Badge>

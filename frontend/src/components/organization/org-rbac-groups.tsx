@@ -391,7 +391,7 @@ function GroupListItem({
             {group.member_count !== 1 && "s"}
           </Badge>
           {assignments.length > 0 && (
-            <Badge variant="outline" className="text-[10px]">
+            <Badge variant="secondary" className="text-[10px]">
               {assignments.length} role{assignments.length !== 1 && "s"}
             </Badge>
           )}
@@ -870,7 +870,7 @@ function GroupRolesSection({
   }
 
   return (
-    <div className="space-y-2">
+    <div>
       {assignments.length === 0 ? (
         <p className="text-xs text-muted-foreground">No roles</p>
       ) : (

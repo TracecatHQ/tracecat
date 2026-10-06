@@ -98,7 +98,7 @@ export function RbacListItem({
           {/* Actions */}
           {actions && (
             <div
-              className="flex-shrink-0"
+              className="-mr-1 flex-shrink-0"
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => e.stopPropagation()}
             >
