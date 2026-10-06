@@ -1,0 +1,42 @@
+type: action
+definition:
+  title: Update incident ticket
+  description: Update the external ticket status fields of an incident.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/895612/json-api-incident-integration#update-incidents
+  namespace: tools.fortisiem
+  name: update_incident
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    incidentId:
+      type: int
+      description: FortiSIEM incident ID.
+    payload:
+      # Generic: these are partial updates and the body is not null-pruned, so a
+      # literal map would send null for every unset field and could clear it.
+      type: dict[str, Any]
+      description: 'API-native request body. Send only the fields to update. Documented fields: incidentExtTicketId, incidentExtUser, incidentExtClearedTime (epoch milliseconds), incidentExtTicketState (e.g. Open or Closed), incidentExtTicketType. Example: {"incidentExtTicketId": "INS00456", "incidentExtTicketState": "Open"}.'
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/pub/incident/update/${{ inputs.incidentId }}
+        method: POST
+        payload: ${{ inputs.payload }}
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.call_api.result }}

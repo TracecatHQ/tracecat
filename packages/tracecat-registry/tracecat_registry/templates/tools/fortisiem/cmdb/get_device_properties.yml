@@ -1,0 +1,53 @@
+type: action
+definition:
+  title: Get device custom properties
+  description: Get the custom properties that are set for a device. Returns XML.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/766084/get-device-custom-property
+  namespace: tools.fortisiem
+  name: get_device_properties
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    orgId:
+      type: int
+      description: Organization ID.
+    ip:
+      type: str | None
+      description: Device access IP. Must be an exact match. Either ip or name is required.
+      default: null
+    name:
+      type: str | None
+      description: Host name of the device. Either ip or name is required.
+      default: null
+    organization:
+      type: str | None
+      description: Organization name.
+      default: null
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/cmdbDeviceInfo/properties
+        method: GET
+        params:
+          organization: ${{ inputs.organization }}
+          orgId: ${{ inputs.orgId }}
+          ip: ${{ inputs.ip }}
+          name: ${{ inputs.name }}
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.call_api.result }}

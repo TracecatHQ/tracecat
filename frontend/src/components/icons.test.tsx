@@ -191,6 +191,20 @@ describe("action namespace icons", () => {
   })
 })
 
+describe("Fortinet registry icon mappings", () => {
+  it.each(["tools.fortisiem", "tools.fortisiem.run_event_query"])(
+    "renders the Fortinet mark for %s",
+    (key) => {
+      expect(svgTitle(getIcon(key))).toBe("Fortinet")
+    }
+  )
+
+  it("renders the Fortinet mark for the fortisiem secret", () => {
+    const Icon = secretIcons.fortisiem
+    expect(svgTitle(<Icon />)).toBe("Fortinet")
+  })
+})
+
 describe("Palo Alto Networks registry icon mappings", () => {
   it.each([
     "tools.pan_os",

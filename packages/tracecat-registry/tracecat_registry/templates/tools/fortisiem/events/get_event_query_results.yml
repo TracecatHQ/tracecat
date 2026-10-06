@@ -1,0 +1,44 @@
+type: action
+definition:
+  title: Get event query results
+  description: Get one chunk of results for a completed event query. The XML response contains totalCount and the event attributes.
+  display_group: Fortinet FortiSIEM
+  doc_url: https://docs.fortinet.com/document/fortisiem/7.5.1/integration-api-guide/451674/events-and-report-integration#results-api-specifications
+  namespace: tools.fortisiem
+  name: get_event_query_results
+  secrets:
+    - name: fortisiem
+      keys:
+        - FORTISIEM_USERNAME
+        - FORTISIEM_PASSWORD
+  expects:
+    queryId:
+      type: str
+      description: Query ID returned by the eventQuery request API.
+    begin:
+      type: int
+      description: Result offset to start from. Use 0 for the first call.
+      default: 0
+    end:
+      type: int
+      description: Result range end for this chunk. For the first call, begin = 0 and end can be 1000; increase begin and end on later calls until totalCount is reached.
+      default: 1000
+    base_url:
+      type: str | None
+      description: FortiSIEM Supervisor URL, e.g. https://fortisiem.example.com. Falls back to the workspace variable fortisiem.base_url.
+      default: null
+    verify_ssl:
+      type: bool
+      description: Verify the Supervisor TLS certificate.
+      default: true
+  steps:
+    - ref: call_api
+      action: core.http_request
+      args:
+        url: ${{ inputs.base_url || VARS.fortisiem.base_url }}/phoenix/rest/query/events/${{ inputs.queryId }}/${{ inputs.begin }}/${{ inputs.end }}
+        method: GET
+        auth:
+          username: ${{ SECRETS.fortisiem.FORTISIEM_USERNAME }}
+          password: ${{ SECRETS.fortisiem.FORTISIEM_PASSWORD }}
+        verify_ssl: ${{ inputs.verify_ssl }}
+  returns: ${{ steps.call_api.result }}
