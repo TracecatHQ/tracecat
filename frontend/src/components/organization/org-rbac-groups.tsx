@@ -396,7 +396,10 @@ function GroupListItem({
             </Badge>
           )}
           {group.description && (
-            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+            <span
+              className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+              title={group.description}
+            >
               {group.description}
             </span>
           )}
@@ -551,7 +554,13 @@ function GroupMembersSection({
             className="flex items-center justify-between gap-2 py-1 text-xs"
           >
             <div className="flex min-w-0 items-center gap-2">
-              <Badge variant="secondary">{member.email}</Badge>
+              <Badge
+                variant="secondary"
+                className="block min-w-0 truncate"
+                title={member.email}
+              >
+                {member.email}
+              </Badge>
               {(member.first_name || member.last_name) && (
                 <span className="truncate text-muted-foreground">
                   {[member.first_name, member.last_name]

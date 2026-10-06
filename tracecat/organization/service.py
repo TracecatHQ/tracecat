@@ -497,6 +497,14 @@ class OrgService(BaseOrgService):
                             InvitationGroup.organization_id == self.organization_id,
                             InvitationGroup.invitation_id.in_(invitation_ids),
                             Group.organization_id == self.organization_id,
+                            # Acceptance skips IdP-managed groups.
+                            ~select(ExternalGroupMapping.id)
+                            .where(
+                                ExternalGroupMapping.group_id == Group.id,
+                                ExternalGroupMapping.organization_id
+                                == self.organization_id,
+                            )
+                            .exists(),
                         )
                         .order_by(Group.name, Group.id)
                     )
