@@ -1606,6 +1606,10 @@ class ClaudeAgentRuntime:
         env["ENABLE_TOOL_SEARCH"] = (
             "false" if payload.config.model_provider == "bedrock" else "true"
         )
+        # The CLI backgrounds subagents and Bash by default, ending the turn
+        # before results arrive. The sandbox never re-invokes the agent, so
+        # force synchronous execution.
+        env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1"
         # Sandbox-safe Claude OTel env (no headers, no tenant endpoint — the
         # shim points the SDK at its OtelBridge).
         if payload.agent_otel_sandbox_env:

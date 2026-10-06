@@ -1397,6 +1397,14 @@ class TestClaudeAgentRuntimeRun:
 
         assert env["ENABLE_TOOL_SEARCH"] == expected
 
+    def test_disables_background_tasks(
+        self,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        env = ClaudeAgentRuntime._sdk_env(sample_init_payload)
+
+        assert env["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] == "1"
+
     def test_passthrough_keeps_experimental_beta_features_enabled(
         self,
         sample_init_payload: RuntimeInitPayload,
