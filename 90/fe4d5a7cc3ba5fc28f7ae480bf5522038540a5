@@ -1,0 +1,55 @@
+tracecat/organization/service.py
+  s_652469c23e6fdd::t_a7106ad4ac4e7c 703-707
+  s_652469c23e6fdd::t_2505d39431d370 459-531,543-549,582-587,612,621-625,639-643,648-650,661-675,678,685-702,708-710
+  s_652469c23e6fdd::t_a02e9ce1608430 711
+frontend/src/components/organization/org-rbac-groups.tsx
+  s_398c8b1c67f67e::t_83ac60a9ea6d63 554
+  s_398c8b1c67f67e::t_930a2452c8c79a 399
+  s_398c8b1c67f67e::t_d6e3aa27845e7c 398,400-402
+  s_398c8b1c67f67e::t_16c3b31af58a0a 589
+  s_398c8b1c67f67e::t_ea6efc3852f310 913-924
+  s_398c8b1c67f67e::t_d2c5d9d894dd63 475-508
+tests/unit/test_organization_service.py
+  s_652469c23e6fdd::t_e780cad6c706cb 39,135-161,163-176
+  s_652469c23e6fdd::t_1752889fd130e7 2687-2692,2695
+  s_652469c23e6fdd::t_f6331f142569aa 162,2644,2727,2751
+  s_652469c23e6fdd::t_12b6b4e3aaf8d1 2613-2643,2645-2686,2693-2694,2696-2726,2728-2750,2752-2827
+  s_652469c23e6fdd::t_5848bfd476ce6b 177-178
+frontend/src/components/organization/org-rbac-groups.test.tsx
+  s_398c8b1c67f67e::t_000f07b4a299d4 186-187
+  s_398c8b1c67f67e::t_00b01e8311ab19 201,235
+  s_398c8b1c67f67e::t_7108e8e438c452 176
+  s_398c8b1c67f67e::t_175ff39837cc8d 205
+docs/manage-platform/custom-roles.mdx
+  s_398c8b1c67f67e::t_1062851922b55a 49
+  s_398c8b1c67f67e::t_561d53c876e5b9 46
+frontend/src/components/organization/org-rbac-roles.tsx
+  s_398c8b1c67f67e::t_7cb368ec03940e 302-312
+  s_398c8b1c67f67e::t_bdda732124d66c 370-373,375-390,392
+  s_398c8b1c67f67e::t_555c1e56cb9d41 27
+  s_398c8b1c67f67e::t_b3148e930591ae 296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "90fe4d5a7cc3ba5fc28f7ae480bf5522038540a5",
+  "prompts": {},
+  "sessions": {
+    "s_398c8b1c67f67e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3dd9f2e-1b77-4a42-9ceb-4805e7016552",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_652469c23e6fdd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10ec8-987b-7ff2-8489-1bfe5eb77d90",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
