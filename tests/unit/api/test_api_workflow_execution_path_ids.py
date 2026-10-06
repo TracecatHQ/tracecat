@@ -724,17 +724,10 @@ async def test_get_workflow_execution_compact_accepts_slash_id(
     mock_svc.get_execution.return_value = mock_execution
     mock_svc.list_workflow_execution_events_compact.return_value = []
 
-    with (
-        patch.object(
-            executions_router.WorkflowExecutionsService,
-            "connect",
-            AsyncMock(return_value=mock_svc),
-        ),
-        patch.object(
-            executions_router,
-            "_list_interactions",
-            AsyncMock(return_value=[]),
-        ),
+    with patch.object(
+        executions_router.WorkflowExecutionsService,
+        "connect",
+        AsyncMock(return_value=mock_svc),
     ):
         response = client.get(f"/workflow-executions/{wf_exec_id}/compact")
 
