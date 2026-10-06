@@ -50,6 +50,35 @@ const EMPTY_SELECTION: ReadonlySet<string> = new Set()
 /** Breathing room added to each measured column, on top of the cell padding. */
 const CONTENT_SIZED_PADDING_PX = 8
 
+/**
+ * Whether a content-sized grid has something real to measure: a laid-out
+ * width, no load in flight, and `rowCount` rows on screen with their cells
+ * filled in. React cell renderers land a commit after their cells do, so an
+ * empty cell means the grid is still rendering.
+ */
+export function isReadyToMeasure({
+  wrapper,
+  isLoading,
+  rowCount,
+}: {
+  wrapper: HTMLElement | null
+  isLoading: boolean
+  rowCount: number
+}): boolean {
+  if (!wrapper || wrapper.clientWidth <= 0 || isLoading) return false
+  if (rowCount === 0) return true
+  const renderedRows = wrapper.querySelectorAll(
+    ".ag-center-cols-container .ag-row"
+  )
+  if (renderedRows.length < rowCount) return false
+  for (const cell of wrapper.querySelectorAll(
+    ".ag-center-cols-container .ag-cell"
+  )) {
+    if (cell.childElementCount === 0) return false
+  }
+  return true
+}
+
 /** One committed cell edit reported by an editable {@link TableRowsGrid}. */
 export interface TableRowCellChange {
   /** `TableRowRead.id` of the edited row. */
@@ -199,11 +228,24 @@ export function TableRowsGrid({
   // -- Content sizing ------------------------------------------------------
   // Two steps, both the grid's own: `autoSizeColumns` measures the columns the
   // user has not dragged, then `sizeColumnsToFit` shares out what is left with
-  // each measured width as that column's floor. Measuring is asynchronous (the
-  // grid waits for React cells to render), so the fit runs off its event.
+  // each measured width as that column's floor.
+  //
+  // A measurement is only worth taking once there is something to measure, so
+  // a request waits until the grid has a width and the rows it was asked about
+  // are on screen with their cells rendered. Measuring is also asynchronous,
+  // and the grid reports each one through the same event, so requests are
+  // counted: only the answer to the last one outstanding is kept. Taking an
+  // earlier answer (headers alone, from before the rows arrived) as the
+  // measurement is what once squeezed every column to a near-equal share.
+  const wrapperRef = useRef<HTMLDivElement>(null)
   const measuredWidthsRef = useRef<Map<string, number>>(new Map())
-  const isMeasuringRef = useRef(false)
+  const needsMeasureRef = useRef(false)
+  const pendingMeasuresRef = useRef(0)
   const lastGridWidthRef = useRef(0)
+  const isLoadingRef = useRef(isLoading)
+  isLoadingRef.current = isLoading
+  const rowCountRef = useRef(rows.length)
+  rowCountRef.current = rows.length
 
   const fitColumns = useCallback((api: GridApi<TableRowRead>) => {
     if (api.isDestroyed()) return
@@ -225,8 +267,20 @@ export function TableRowsGrid({
     })
   }, [])
 
-  const measureColumns = useCallback((api: GridApi<TableRowRead>) => {
-    if (api.isDestroyed()) return
+  /** Measures if a measurement is wanted and the grid is ready to give one. */
+  const measureWhenReady = useCallback((api: GridApi<TableRowRead>) => {
+    if (!needsMeasureRef.current || api.isDestroyed()) return
+    // A tall page is virtualised, so expect the rows the grid means to draw,
+    // not every row it was handed. None yet means it has not taken them in.
+    const drawnRows = api.getRenderedNodes().length
+    if (rowCountRef.current > 0 && drawnRows === 0) return
+    const ready = isReadyToMeasure({
+      wrapper: wrapperRef.current,
+      isLoading: isLoadingRef.current === true,
+      rowCount: Math.min(rowCountRef.current, drawnRows),
+    })
+    if (!ready) return
+    needsMeasureRef.current = false
     const saved = savedWidthsRef.current
     const colIds = api
       .getAllDisplayedColumns()
@@ -234,7 +288,7 @@ export function TableRowsGrid({
       .map((column) => column.getColId())
       .filter((colId) => saved[colId] === undefined)
     if (colIds.length === 0) return
-    isMeasuringRef.current = true
+    pendingMeasuresRef.current += 1
     api.autoSizeColumns({
       colIds,
       defaultMinWidth: CONTENT_SIZED_MIN_WIDTH_PX,
@@ -249,20 +303,40 @@ export function TableRowsGrid({
   )
   useEffect(() => {
     if (!gridApi || !sizeColumnsToContent) return
-    // Let the grid take the new rows before it is asked to measure them.
-    const frame = requestAnimationFrame(() => measureColumns(gridApi))
-    return () => cancelAnimationFrame(frame)
-  }, [gridApi, sizeColumnsToContent, measureColumns, rowIdsKey, columns])
+    needsMeasureRef.current = true
+    measureWhenReady(gridApi)
+    if (!needsMeasureRef.current) return
+    // Not ready yet: the rows, or their React cells, are still on their way
+    // into the DOM. Try again as they land, and stop watching once measured.
+    const wrapper = wrapperRef.current
+    if (!wrapper) return
+    const observer = new MutationObserver(() => {
+      measureWhenReady(gridApi)
+      if (!needsMeasureRef.current) observer.disconnect()
+    })
+    observer.observe(wrapper, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [
+    gridApi,
+    sizeColumnsToContent,
+    measureWhenReady,
+    rowIdsKey,
+    columns,
+    isLoading,
+  ])
 
   const handleGridSizeChanged = useCallback(
     (event: GridSizeChangedEvent<TableRowRead>) => {
       // Height changes with every row; only a new width moves the columns.
       if (event.clientWidth === lastGridWidthRef.current) return
       lastGridWidthRef.current = event.clientWidth
-      if (event.clientWidth <= 0 || isMeasuringRef.current) return
+      if (event.clientWidth <= 0) return
+      // A grid that mounted hidden gets its first real width here.
+      measureWhenReady(event.api)
+      if (needsMeasureRef.current || pendingMeasuresRef.current > 0) return
       fitColumns(event.api)
     },
-    [fitColumns]
+    [fitColumns, measureWhenReady]
   )
 
   const applySelection = useCallback(
@@ -310,8 +384,13 @@ export function TableRowsGrid({
     (event: ColumnResizedEvent<TableRowRead>) => {
       if (!event.finished || !event.api) return
       if (sizeColumnsToContent) {
-        if (event.source === "autosizeColumns" && isMeasuringRef.current) {
-          isMeasuringRef.current = false
+        if (
+          event.source === "autosizeColumns" &&
+          pendingMeasuresRef.current > 0
+        ) {
+          pendingMeasuresRef.current -= 1
+          // An answer to a request since superseded: the next one decides.
+          if (pendingMeasuresRef.current > 0) return
           const measured = new Map<string, number>()
           for (const column of event.columns ?? []) {
             measured.set(column.getColId(), column.getActualWidth())
@@ -379,6 +458,7 @@ export function TableRowsGrid({
 
   return (
     <div
+      ref={wrapperRef}
       className={autoHeight ? "" : "h-full"}
       // Copy is always fine; paste only lands in rows whose edits are saved,
       // anywhere else it would fabricate cell values locally.

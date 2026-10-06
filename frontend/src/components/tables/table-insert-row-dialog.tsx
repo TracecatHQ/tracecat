@@ -32,6 +32,44 @@ import type { SqlType } from "@/lib/data-type"
 import { useGetTable, useInsertRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
+/**
+ * Whether a new row must carry a value for this column. Mirrors the backend's
+ * insert check: only a non-nullable column with no default is required, since
+ * anything else falls back to null or the column default when left out.
+ */
+export function isColumnRequired(column: TableColumnRead): boolean {
+  const hasDefault = column.default !== null && column.default !== undefined
+  return column.nullable === false && !hasDefault
+}
+
+/** Whether an input was left blank: nothing typed, nothing picked. */
+function isBlankInput(value: unknown): boolean {
+  if (value === undefined || value === null || value === "") return true
+  return Array.isArray(value) && value.length === 0
+}
+
+/**
+ * Lets a column's input be left blank, which parses to `undefined`. Anything
+ * else goes through the column's own rule and keeps that rule's messages,
+ * which a plain union of the two would swap for a generic one.
+ */
+function optionalInput(rule: z.ZodType): z.ZodType {
+  return z.unknown().transform((value, ctx) => {
+    if (isBlankInput(value)) return undefined
+    const result = rule.safeParse(value)
+    if (result.success) return result.data
+    for (const issue of result.error.issues) {
+      ctx.addIssue({ code: "custom", message: issue.message })
+    }
+    return z.NEVER
+  })
+}
+
+/** What a column's input holds before the user touches it. */
+function blankValueFor(column: TableColumnRead): string | string[] {
+  return column.type.toUpperCase() === "MULTI_SELECT" ? [] : ""
+}
+
 // Update the schema to be dynamic based on table columns
 const createInsertTableRowSchema = (columns: readonly TableColumnRead[]) => {
   const columnValidations: Record<string, z.ZodType> = {}
@@ -160,6 +198,14 @@ const createInsertTableRowSchema = (columns: readonly TableColumnRead[]) => {
           .string()
           .min(1, `${column.name} is required`)
     }
+
+    // An optional column may be left blank; a value typed into it is still
+    // held to the rule for its type.
+    if (!isColumnRequired(column)) {
+      columnValidations[column.name] = optionalInput(
+        columnValidations[column.name]
+      )
+    }
   })
 
   return z.object(columnValidations)
@@ -191,6 +237,10 @@ export interface TableRowFormDialogProps {
  * The "Add new row" form: one typed field per column, validated against the
  * column types. It knows nothing about where the row is written, so the
  * tables route and the case page each wrap it with their own insert.
+ *
+ * Only columns the backend insists on are required. A blank optional field is
+ * left out of the submitted row altogether, so the column takes null or its
+ * default rather than an empty string.
  */
 export function TableRowFormDialog({
   open,
@@ -203,21 +253,33 @@ export function TableRowFormDialog({
 }: TableRowFormDialogProps) {
   const schema = useMemo(() => createInsertTableRowSchema(columns), [columns])
 
+  const defaultValues = useMemo<TableRowFormData>(
+    () =>
+      Object.fromEntries(
+        columns.map((column) => [column.name, blankValueFor(column)])
+      ),
+    [columns]
+  )
+
   const form = useForm<TableRowFormData>({
     resolver: zodResolver(schema),
-    defaultValues: {},
+    defaultValues,
   })
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
-      form.reset()
+      form.reset(defaultValues)
     }
     onOpenChange(nextOpen)
   }
 
   const handleSubmit = async (data: TableRowFormData) => {
+    // Blank optional fields parse to `undefined`: leave them out of the row.
+    const row = Object.fromEntries(
+      Object.entries(data).filter(([, value]) => value !== undefined)
+    )
     try {
-      await onSubmit(data)
+      await onSubmit(row)
       handleOpenChange(false)
     } catch (error) {
       console.error(error)
@@ -255,6 +317,11 @@ export function TableRowFormDialog({
                         <FormLabel className="flex items-center gap-2">
                           <span>{column.name}</span>
                           <SqlTypeBadge type={column.type as SqlType} />
+                          {isColumnRequired(column) && (
+                            <span className="text-xs text-muted-foreground">
+                              (required)
+                            </span>
+                          )}
                         </FormLabel>
                         <FormControl>
                           <DynamicInput column={column} field={field} />
