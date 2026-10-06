@@ -12,6 +12,11 @@ interface AgGridCellRendererParams extends CustomCellRendererProps {
    * that may not swaps the edit buttons for read-only views.
    */
   canEditRow?: (row: unknown) => boolean
+  /**
+   * Keeps the hover buttons in the layout while hidden, so a grid that sizes
+   * columns to their content measures them and hovering never clips the value.
+   */
+  reserveButtonSpace?: boolean
 }
 
 const JSON_TYPES = new Set(["JSON", "JSONB"])
@@ -54,7 +59,13 @@ export function AgGridCellRenderer(params: AgGridCellRendererParams) {
       <div className="flex-1 min-w-0 overflow-hidden">
         <CellDisplay value={params.value} column={params.tableColumn} />
       </div>
-      <div className="shrink-0 hidden group-hover:flex items-center">
+      <div
+        className={
+          params.reserveButtonSpace
+            ? "invisible flex shrink-0 items-center group-hover:visible"
+            : "shrink-0 hidden group-hover:flex items-center"
+        }
+      >
         {/* TEXT columns only: open full text editor in side panel */}
         {isStringValue && isTextType && canEdit && (
           <button

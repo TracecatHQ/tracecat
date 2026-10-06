@@ -59,8 +59,10 @@ interface CaseValueDrawerShellProps {
  * hides nothing from assistive tech, so the rest of the page (the chat on the
  * right in particular) stays fully usable while a value is open.
  *
- * Nothing outside dismisses it: only its close button, or Escape while focus
- * is inside it, so Escape in the chat stays the chat's.
+ * It closes only through its close button, the editor's own Save, or another
+ * value taking it over. Nothing outside dismisses it, and neither does Escape:
+ * the dialogs this replaced blocked Escape so a draft could not be lost to it,
+ * and Escape elsewhere on the page stays that surface's own.
  */
 function CaseValueDrawerShell({
   open,
@@ -70,8 +72,6 @@ function CaseValueDrawerShell({
   bodyRef,
   children,
 }: CaseValueDrawerShellProps) {
-  const contentRef = useRef<HTMLDivElement>(null)
-
   return (
     <Sheet
       modal={false}
@@ -81,17 +81,12 @@ function CaseValueDrawerShell({
       }}
     >
       <SheetContent
-        ref={contentRef}
         side="left"
         className="flex w-[min(36rem,100vw)] max-w-none flex-col gap-0 p-0 shadow-none sm:max-w-none"
         onPointerDownOutside={preventDismiss}
         onInteractOutside={preventDismiss}
         onFocusOutside={preventDismiss}
-        onEscapeKeyDown={(event) => {
-          if (!contentRef.current?.contains(document.activeElement)) {
-            event.preventDefault()
-          }
-        }}
+        onEscapeKeyDown={preventDismiss}
       >
         <SheetHeader className="shrink-0 space-y-1 border-b px-4 py-3 pr-12 text-left">
           <SheetTitle className="truncate text-sm font-medium">

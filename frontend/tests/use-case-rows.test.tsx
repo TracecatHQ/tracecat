@@ -327,6 +327,16 @@ describe("useInsertCaseRow", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ["case-events", "case-1", "ws-1"],
     })
+    // The row is new to the table as well, so its own lists go stale.
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["table-search", "ws-1", "table-1"],
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["rows", "table-1"],
+    })
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ["rows", "paginated", "table-1", "ws-1"],
+    })
   })
 
   it("rejects without refreshing when the insert fails", async () => {
@@ -341,6 +351,9 @@ describe("useInsertCaseRow", () => {
     ).rejects.toBe(failure)
     expect(invalidateSpy).not.toHaveBeenCalledWith({
       queryKey: ["case-rows", "case-1"],
+    })
+    expect(invalidateSpy).not.toHaveBeenCalledWith({
+      queryKey: ["rows", "table-1"],
     })
   })
 })

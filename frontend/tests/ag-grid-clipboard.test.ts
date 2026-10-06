@@ -10,11 +10,17 @@ function createRowNode() {
   return { data: { name: "before" }, setDataValue: jest.fn() }
 }
 
-function createGridApi(rowNode: ReturnType<typeof createRowNode>) {
+function createGridApi(
+  rowNode: ReturnType<typeof createRowNode>,
+  isCellEditable: (node: unknown) => boolean = () => true
+) {
   return {
     getEditingCells: () => [],
     getSelectedRows: () => [],
-    getFocusedCell: () => ({ rowIndex: 0, column: { getColId: () => "name" } }),
+    getFocusedCell: () => ({
+      rowIndex: 0,
+      column: { getColId: () => "name", isCellEditable },
+    }),
     getDisplayedRowAtIndex: () => rowNode,
     getColumns: () => null,
   } as unknown as GridApi
@@ -112,6 +118,22 @@ describe("handleGridKeyDown", () => {
     await Promise.resolve()
 
     expect(rowNode.setDataValue).toHaveBeenCalledWith("name", "pasted")
+  })
+
+  it("skips paste into a cell its column does not let the user edit", async () => {
+    const rowNode = createRowNode()
+    const isCellEditable = jest.fn().mockReturnValue(false)
+
+    handleGridKeyDown(
+      createKeyEvent("v"),
+      createGridApi(rowNode, isCellEditable)
+    )
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(isCellEditable).toHaveBeenCalledWith(rowNode)
+    expect(clipboard.readText).not.toHaveBeenCalled()
+    expect(rowNode.setDataValue).not.toHaveBeenCalled()
   })
 
   it("does nothing without a grid api", () => {

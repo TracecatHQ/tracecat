@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { render, screen, waitFor } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type {
   ApiError,
@@ -12,6 +12,7 @@ import type {
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CaseLinkedRowsSection } from "@/components/cases/case-linked-rows-section"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { useCaseRowsPagination } from "@/hooks/pagination/use-case-rows-pagination"
 import {
@@ -58,6 +59,8 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
     cellPanel,
     onCellValueChange,
     isRowEditable,
+    autoHeight,
+    sizeColumnsToContent,
   }: {
     columns: readonly { name: string }[]
     rows: readonly { id: string }[]
@@ -72,6 +75,8 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
       value: unknown
     }) => void
     isRowEditable?: (row: { id: string }) => boolean
+    autoHeight?: boolean
+    sizeColumnsToContent?: boolean
   }) => {
     mockRowsByTable.set(tableId, [
       ...(mockRowsByTable.get(tableId) ?? []),
@@ -83,6 +88,8 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
         data-selectable={String(Boolean(selectable))}
         data-cell-panel={String(Boolean(cellPanel))}
         data-editable={String(Boolean(onCellValueChange))}
+        data-auto-height={String(Boolean(autoHeight))}
+        data-content-sized={String(Boolean(sizeColumnsToContent))}
         data-columns={columns.map((column) => column.name).join(",")}
       >
         {rows.map((row) => (
@@ -102,7 +109,7 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
                 onSelectedRowIdsChange?.([...next])
               }}
             />
-            {onCellValueChange && (
+            {onCellValueChange && (isRowEditable?.(row) ?? true) && (
               <button
                 type="button"
                 onClick={() =>
@@ -121,6 +128,26 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
       </div>
     )
   },
+}))
+
+// The real pagination bar carries a Radix Select; one button exercising the
+// page-size callback is all the expanded dialog's tests need.
+jest.mock("@/components/tables/ag-grid-pagination", () => ({
+  AgGridPagination: ({
+    pageSize,
+    onPageSizeChange,
+  }: {
+    pageSize: number
+    onPageSizeChange: (pageSize: number) => void
+  }) => (
+    <button
+      type="button"
+      data-page-size={pageSize}
+      onClick={() => onPageSizeChange(50)}
+    >
+      Set page size 50
+    </button>
+  ),
 }))
 
 // The cell panel body pulls in the rich-text and JSON editors; the sheet that
@@ -270,7 +297,12 @@ function setLinkedTables(
 }
 
 function renderSection() {
-  return render(<CaseLinkedRowsSection caseId="case-1" workspaceId="ws-1" />)
+  // The app mounts one TooltipProvider at its root; the expand button needs it.
+  return render(
+    <TooltipProvider>
+      <CaseLinkedRowsSection caseId="case-1" workspaceId="ws-1" />
+    </TooltipProvider>
+  )
 }
 
 const grantedScopes = new Set<string>()
@@ -696,17 +728,194 @@ describe("CaseLinkedRowsSection", () => {
     try {
       renderSection()
 
-      expect(screen.getByTestId("row-r1")).toHaveAttribute(
-        "data-row-editable",
-        "true"
-      )
+      expect(
+        screen.getByRole("button", { name: "Edit r1" })
+      ).toBeInTheDocument()
       expect(screen.getByTestId("row-r3")).toHaveAttribute(
         "data-row-editable",
         "false"
       )
+      expect(
+        screen.queryByRole("button", { name: "Edit r3" })
+      ).not.toBeInTheDocument()
     } finally {
       LINKS_BY_TABLE["table-2"] = [makeLink("table-2", "r3")]
     }
+  })
+
+  it("sizes the inline grids' columns to their content", () => {
+    renderSection()
+
+    for (const grid of screen.getAllByTestId("rows-grid")) {
+      expect(grid).toHaveAttribute("data-content-sized", "true")
+      expect(grid).toHaveAttribute("data-auto-height", "true")
+    }
+  })
+
+  describe("expanded table dialog", () => {
+    async function expandFirstTable(user: ReturnType<typeof userEvent.setup>) {
+      const [expand] = screen.getAllByRole("button", { name: "Expand table" })
+      await user.click(expand)
+      // The link dialog is mocked to a marker, so this is the only dialog.
+      return screen.findByRole("dialog")
+    }
+
+    it("puts the expand button after Add row and before the page arrows", () => {
+      setPage("table-1", { hasNextPage: true, startItem: 1, endItem: 20 })
+      renderSection()
+
+      const [addRow] = screen.getAllByRole("button", { name: "Add row" })
+      const [expand] = screen.getAllByRole("button", { name: "Expand table" })
+      const previous = screen.getByRole("button", { name: "Previous page" })
+      expect(
+        addRow.compareDocumentPosition(expand) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+      expect(
+        expand.compareDocumentPosition(previous) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    })
+
+    it("opens the same table with a grid that fills the dialog", async () => {
+      const user = userEvent.setup()
+      renderSection()
+
+      const dialog = await expandFirstTable(user)
+
+      expect(dialog).toHaveAccessibleName("Alerts")
+      expect(within(dialog).getByText("2 rows")).toBeInTheDocument()
+      const grid = within(dialog).getByTestId("rows-grid")
+      expect(grid).toHaveAttribute("data-auto-height", "false")
+      expect(grid).toHaveAttribute("data-content-sized", "true")
+      expect(grid).toHaveAttribute("data-editable", "true")
+      expect(grid).toHaveAttribute("data-columns", "name")
+      expect(within(dialog).getByTestId("row-r1")).toBeInTheDocument()
+      expect(within(dialog).getByTestId("row-r2")).toBeInTheDocument()
+    })
+
+    it("offers link and add, but no second expand or header arrows", async () => {
+      const user = userEvent.setup()
+      setPage("table-1", { hasNextPage: true, startItem: 1, endItem: 20 })
+      renderSection()
+
+      const dialog = await expandFirstTable(user)
+
+      expect(
+        within(dialog).getByRole("button", { name: "Link rows" })
+      ).toBeInTheDocument()
+      expect(
+        within(dialog).getByRole("button", { name: "Add row" })
+      ).toBeInTheDocument()
+      expect(
+        within(dialog).queryByRole("button", { name: "Expand table" })
+      ).not.toBeInTheDocument()
+      expect(
+        within(dialog).queryByRole("button", { name: "Next page" })
+      ).not.toBeInTheDocument()
+      expect(
+        within(dialog).getByRole("button", { name: "Set page size 50" })
+      ).toBeInTheDocument()
+    })
+
+    it("pages at the size picked in its pagination bar", async () => {
+      const user = userEvent.setup()
+      renderSection()
+
+      const dialog = await expandFirstTable(user)
+      await user.click(
+        within(dialog).getByRole("button", { name: "Set page size 50" })
+      )
+
+      expect(mockUseCaseRowsPagination).toHaveBeenCalledWith({
+        caseId: "case-1",
+        tableId: "table-1",
+        workspaceId: "ws-1",
+        limit: 50,
+      })
+    })
+
+    it("keeps its own selection and unlinks from it", async () => {
+      const user = userEvent.setup()
+      renderSection()
+
+      await user.click(screen.getByTestId("row-r1"))
+      expect(screen.getByText("1 selected")).toBeInTheDocument()
+
+      const dialog = await expandFirstTable(user)
+      // Expanding drops the inline picks; the dialog starts with none.
+      expect(screen.queryByText("1 selected")).not.toBeInTheDocument()
+
+      await user.click(within(dialog).getByTestId("row-r2"))
+      await user.click(within(dialog).getByRole("button", { name: "Unlink" }))
+
+      await waitFor(() => {
+        expect(mockUnlinkCaseRows).toHaveBeenCalledWith({
+          tableId: "table-1",
+          rowIds: ["r2"],
+        })
+      })
+    })
+
+    it("saves a cell edit made in the dialog", async () => {
+      const user = userEvent.setup()
+      renderSection()
+
+      const dialog = await expandFirstTable(user)
+      await user.click(within(dialog).getByRole("button", { name: "Edit r2" }))
+
+      await waitFor(() => {
+        expect(mockUpdateCaseRow).toHaveBeenCalledWith({
+          tableId: "table-1",
+          rowId: "r2",
+          data: { name: "edited" },
+        })
+      })
+    })
+
+    it("opens the link dialog on its table from inside the dialog", async () => {
+      const user = userEvent.setup()
+      renderSection()
+
+      const dialog = await expandFirstTable(user)
+      await user.click(
+        within(dialog).getByRole("button", { name: "Link rows" })
+      )
+
+      const linkDialog = screen.getByTestId("link-rows-dialog")
+      expect(linkDialog).toHaveAttribute("data-open", "true")
+      expect(linkDialog).toHaveAttribute("data-initial-table-id", "table-1")
+    })
+
+    it("closes on Escape", async () => {
+      const user = userEvent.setup()
+      renderSection()
+
+      await expandFirstTable(user)
+      await user.keyboard("{Escape}")
+
+      await waitFor(() => {
+        expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+      })
+    })
+
+    it("is offered without any scopes, read-only", async () => {
+      const user = userEvent.setup()
+      grantScopes()
+      renderSection()
+
+      const dialog = await expandFirstTable(user)
+
+      const grid = within(dialog).getByTestId("rows-grid")
+      expect(grid).toHaveAttribute("data-editable", "false")
+      expect(grid).toHaveAttribute("data-selectable", "false")
+      expect(
+        within(dialog).queryByRole("button", { name: "Link rows" })
+      ).not.toBeInTheDocument()
+      expect(
+        within(dialog).queryByRole("button", { name: "Add row" })
+      ).not.toBeInTheDocument()
+    })
   })
 
   describe("without table:update", () => {

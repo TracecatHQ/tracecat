@@ -9,7 +9,7 @@ import {
   casesListCaseLinkedTables,
 } from "@/client"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
-import { useUpdateRow } from "@/lib/hooks"
+import { invalidateTableRowQueries, useUpdateRow } from "@/lib/hooks"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 // Mirrors backend MAX_CASE_ROW_BATCH_SIZE: the most row IDs one batch link or
@@ -247,9 +247,11 @@ export function useInsertCaseRow({ caseId, workspaceId }: CaseRowsScope) {
           workspaceId,
           requestBody: { table_id: tableId, row: { data } },
         }),
-      onSuccess: () => {
+      onSuccess: (_, { tableId }) => {
         queryClient.invalidateQueries({ queryKey: caseRowsQueryKey(caseId) })
         invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
+        // The row is new to the table too, not just to the case.
+        invalidateTableRowQueries(queryClient, workspaceId, tableId)
       },
     })
 

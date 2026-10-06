@@ -16,9 +16,9 @@ export interface GridKeyDownOptions {
  * Handles Ctrl/Cmd+C and Ctrl/Cmd+V on a grid container.
  *
  * Copy writes the selected rows as TSV, or the focused cell when nothing is
- * selected. Paste writes the clipboard text into the focused cell, so pass
- * `readOnly` on grids that never persist cell edits and `canPasteRow` when
- * only some rows do.
+ * selected. Paste writes the clipboard text into the focused cell, and only
+ * into a cell its column marks editable for that row. Pass `readOnly` on grids
+ * that never persist cell edits and `canPasteRow` when only some rows do.
  */
 export function handleGridKeyDown(
   e: React.KeyboardEvent,
@@ -108,6 +108,9 @@ async function handlePaste(
   if (colId === "checkbox" || colId === "rowNumber" || colId === "actions") {
     return
   }
+  // A cell the grid would not let the user type into takes no paste either:
+  // JSON columns, for one, are only written through the panel that parses them.
+  if (!focusedCell.column.isCellEditable(rowNode)) return
 
   try {
     const text = await navigator.clipboard.readText()

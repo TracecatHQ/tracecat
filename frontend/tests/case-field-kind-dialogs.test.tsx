@@ -191,7 +191,7 @@ describe.each(drawerCases)("$name", ({ editorLabel, renderDrawer }) => {
     expect(onOpenChange).not.toHaveBeenCalled()
   })
 
-  it("closes on Escape while focus is inside the drawer", async () => {
+  it("keeps the draft on Escape while focus is inside the drawer", async () => {
     const user = userEvent.setup()
     const onOpenChange = jest.fn()
     renderDrawer(onOpenChange)
@@ -199,7 +199,10 @@ describe.each(drawerCases)("$name", ({ editorLabel, renderDrawer }) => {
     await user.click(screen.getByRole("textbox", { name: editorLabel }))
     await user.keyboard("{Escape}")
 
-    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(onOpenChange).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole("textbox", { name: editorLabel })
+    ).toBeInTheDocument()
   })
 
   it("closes through the close button", () => {

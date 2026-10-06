@@ -8,6 +8,7 @@ import type {
   ColumnResizedEvent,
   GridApi,
   GridReadyEvent,
+  GridSizeChangedEvent,
   IRowNode,
   RowClassRules,
   RowSelectionOptions,
@@ -21,6 +22,9 @@ import { handleGridKeyDown } from "@/components/tables/ag-grid-clipboard"
 import {
   buildEditableColumnDef,
   buildReadOnlyColumnDefs,
+  CONTENT_SIZED_MAX_WIDTH_PX,
+  CONTENT_SIZED_MIN_WIDTH_PX,
+  toContentSizedColumnDef,
 } from "@/components/tables/ag-grid-column-defs"
 import {
   isUserSelectionSource,
@@ -42,6 +46,9 @@ const SELECTION_COLUMN_DEF: SelectionColumnDef = {
 }
 
 const EMPTY_SELECTION: ReadonlySet<string> = new Set()
+
+/** Breathing room added to each measured column, on top of the cell padding. */
+const CONTENT_SIZED_PADDING_PX = 8
 
 /** One committed cell edit reported by an editable {@link TableRowsGrid}. */
 export interface TableRowCellChange {
@@ -93,6 +100,17 @@ export interface TableRowsGridProps {
    * reference, since a new one rebuilds the column defs.
    */
   isRowEditable?: (row: TableRowRead) => boolean
+  /**
+   * Sizes each column to its header and visible values, between a floor and a
+   * cap, then shares any width left over so the grid is never ragged; columns
+   * that still do not fit scroll. Measured again when the page of rows changes
+   * and re-fitted when the grid's width does, but not on a cell edit.
+   *
+   * A column the user drags keeps that width. Only those columns are
+   * persisted, under their own storage key, so a width the grid chose is never
+   * mistaken for one the user did.
+   */
+  sizeColumnsToContent?: boolean
 }
 
 /**
@@ -121,14 +139,18 @@ export function TableRowsGrid({
   cellPanel = false,
   onCellValueChange,
   isRowEditable,
+  sizeColumnsToContent = false,
 }: TableRowsGridProps) {
   const [gridApi, setGridApi] = useState<GridApi<TableRowRead> | null>(null)
+  const widthStorageScope = widthScope ? `${widthScope}:${tableId}` : tableId
   const [savedWidths, setSavedWidths] = useLocalStorage<Record<string, number>>(
-    widthScope
-      ? `ag-grid-col-widths:${widthScope}:${tableId}`
-      : `ag-grid-col-widths:${tableId}`,
+    sizeColumnsToContent
+      ? `ag-grid-user-col-widths:${widthStorageScope}`
+      : `ag-grid-col-widths:${widthStorageScope}`,
     {}
   )
+  const savedWidthsRef = useRef(savedWidths)
+  savedWidthsRef.current = savedWidths
 
   // Grid callbacks are registered once, so read the live selection from a ref.
   const selectedRowIdsRef = useRef<ReadonlySet<string>>(
@@ -150,15 +172,98 @@ export function TableRowsGrid({
   )
 
   const columnDefs = useMemo(() => {
-    if (!cellPanel) return buildReadOnlyColumnDefs(columns, savedWidths)
-    return columns.map(
-      (column): ColDef<TableRowRead> => ({
-        ...buildEditableColumnDef(column, savedWidths, { canEditRow }),
-        // One cursor page, as in the read-only defs: no client-side sort.
-        sortable: false,
-      })
+    let defs: ColDef<TableRowRead>[]
+    if (cellPanel) {
+      defs = columns.map(
+        (column): ColDef<TableRowRead> => ({
+          ...buildEditableColumnDef(column, savedWidths, {
+            canEditRow,
+            reserveButtonSpace: sizeColumnsToContent,
+          }),
+          // One cursor page, as in the read-only defs: no client-side sort.
+          sortable: false,
+        })
+      )
+    } else {
+      defs = buildReadOnlyColumnDefs(columns, savedWidths)
+    }
+    if (!sizeColumnsToContent) return defs
+    return defs.map((def) =>
+      toContentSizedColumnDef(
+        def,
+        def.field ? savedWidths[def.field] : undefined
+      )
     )
-  }, [cellPanel, columns, savedWidths, canEditRow])
+  }, [cellPanel, columns, savedWidths, canEditRow, sizeColumnsToContent])
+
+  // -- Content sizing ------------------------------------------------------
+  // Two steps, both the grid's own: `autoSizeColumns` measures the columns the
+  // user has not dragged, then `sizeColumnsToFit` shares out what is left with
+  // each measured width as that column's floor. Measuring is asynchronous (the
+  // grid waits for React cells to render), so the fit runs off its event.
+  const measuredWidthsRef = useRef<Map<string, number>>(new Map())
+  const isMeasuringRef = useRef(false)
+  const lastGridWidthRef = useRef(0)
+
+  const fitColumns = useCallback((api: GridApi<TableRowRead>) => {
+    if (api.isDestroyed()) return
+    const measured = measuredWidthsRef.current
+    if (measured.size === 0) return
+    const saved = savedWidthsRef.current
+    api.sizeColumnsToFit({
+      columnLimits: api.getAllDisplayedColumns().map((column) => {
+        const colId = column.getColId()
+        const measuredWidth =
+          saved[colId] === undefined ? measured.get(colId) : undefined
+        if (measuredWidth !== undefined) {
+          return { key: colId, minWidth: measuredWidth }
+        }
+        // Dragged columns and the checkbox column stay exactly as they are.
+        const width = column.getActualWidth()
+        return { key: colId, minWidth: width, maxWidth: width }
+      }),
+    })
+  }, [])
+
+  const measureColumns = useCallback((api: GridApi<TableRowRead>) => {
+    if (api.isDestroyed()) return
+    const saved = savedWidthsRef.current
+    const colIds = api
+      .getAllDisplayedColumns()
+      .filter((column) => column.getColDef().field !== undefined)
+      .map((column) => column.getColId())
+      .filter((colId) => saved[colId] === undefined)
+    if (colIds.length === 0) return
+    isMeasuringRef.current = true
+    api.autoSizeColumns({
+      colIds,
+      defaultMinWidth: CONTENT_SIZED_MIN_WIDTH_PX,
+      defaultMaxWidth: CONTENT_SIZED_MAX_WIDTH_PX,
+    })
+  }, [])
+
+  // The set of rows on screen: a new page is measured, an edited cell is not.
+  const rowIdsKey = useMemo(
+    () => (sizeColumnsToContent ? rows.map((row) => row.id).join(",") : ""),
+    [rows, sizeColumnsToContent]
+  )
+  useEffect(() => {
+    if (!gridApi || !sizeColumnsToContent) return
+    // Let the grid take the new rows before it is asked to measure them.
+    const frame = requestAnimationFrame(() => measureColumns(gridApi))
+    return () => cancelAnimationFrame(frame)
+  }, [gridApi, sizeColumnsToContent, measureColumns, rowIdsKey, columns])
+
+  const handleGridSizeChanged = useCallback(
+    (event: GridSizeChangedEvent<TableRowRead>) => {
+      // Height changes with every row; only a new width moves the columns.
+      if (event.clientWidth === lastGridWidthRef.current) return
+      lastGridWidthRef.current = event.clientWidth
+      if (event.clientWidth <= 0 || isMeasuringRef.current) return
+      fitColumns(event.api)
+    },
+    [fitColumns]
+  )
 
   const applySelection = useCallback(
     (api: GridApi<TableRowRead>) => {
@@ -204,13 +309,35 @@ export function TableRowsGrid({
   const handleColumnResized = useCallback(
     (event: ColumnResizedEvent<TableRowRead>) => {
       if (!event.finished || !event.api) return
+      if (sizeColumnsToContent) {
+        if (event.source === "autosizeColumns" && isMeasuringRef.current) {
+          isMeasuringRef.current = false
+          const measured = new Map<string, number>()
+          for (const column of event.columns ?? []) {
+            measured.set(column.getColId(), column.getActualWidth())
+          }
+          measuredWidthsRef.current = measured
+          fitColumns(event.api)
+          return
+        }
+        // Only a drag is the user's choice; the grid's own sizing is not.
+        if (event.source !== "uiColumnResized") return
+        const dragged = event.columns ?? []
+        if (dragged.length === 0) return
+        const widths = { ...savedWidthsRef.current }
+        for (const column of dragged) {
+          widths[column.getColId()] = column.getActualWidth()
+        }
+        setSavedWidths(widths)
+        return
+      }
       const widths: Record<string, number> = {}
       for (const col of event.api.getColumns() ?? []) {
         widths[col.getColId()] = col.getActualWidth()
       }
       setSavedWidths(widths)
     },
-    [setSavedWidths]
+    [setSavedWidths, sizeColumnsToContent, fitColumns]
   )
 
   const handleCellValueChanged = useCallback(
@@ -271,6 +398,14 @@ export function TableRowsGrid({
         getRowId={(params) => params.data.id}
         onGridReady={handleGridReady}
         onColumnResized={handleColumnResized}
+        onGridSizeChanged={
+          sizeColumnsToContent ? handleGridSizeChanged : undefined
+        }
+        // Columns scrolled out of view have no cells to measure.
+        suppressColumnVirtualisation={sizeColumnsToContent}
+        autoSizePadding={
+          sizeColumnsToContent ? CONTENT_SIZED_PADDING_PX : undefined
+        }
         onCellValueChanged={editable ? handleCellValueChanged : undefined}
         onFirstDataRendered={(event) => applySelection(event.api)}
         onRowDataUpdated={(event) => applySelection(event.api)}

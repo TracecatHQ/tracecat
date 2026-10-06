@@ -131,6 +131,37 @@ export interface EditableColumnDefOptions {
    * that may not keep the renderer's read-only text and JSON views.
    */
   canEditRow?: (row: unknown) => boolean
+  /**
+   * For grids that size columns to their content: keep the renderer's hover
+   * buttons in the layout so they are part of what gets measured.
+   */
+  reserveButtonSpace?: boolean
+}
+
+/** Narrowest a content-sized column may get. */
+export const CONTENT_SIZED_MIN_WIDTH_PX = 80
+/**
+ * Widest a content-sized column may get on its content alone. Long text and
+ * JSON stop here and are read in the cell panel instead.
+ */
+export const CONTENT_SIZED_MAX_WIDTH_PX = 320
+/**
+ * Rewrites a column def for a grid that sizes columns to their content. A
+ * width the user dragged stays authoritative; every other column drops its
+ * per-type default, so re-rendering the defs never undoes a measured width.
+ * Unmeasured columns start at the floor, which is also where the grid's fit
+ * pass resets them before growing each to its measured width.
+ */
+export function toContentSizedColumnDef<T extends ColDef>(
+  def: T,
+  savedWidth: number | undefined
+): T {
+  return {
+    ...def,
+    width: savedWidth,
+    initialWidth: savedWidth ?? CONTENT_SIZED_MIN_WIDTH_PX,
+    minWidth: CONTENT_SIZED_MIN_WIDTH_PX,
+  }
 }
 
 /**
@@ -140,7 +171,7 @@ export interface EditableColumnDefOptions {
 export function buildEditableColumnDef(
   column: TableColumnRead,
   savedWidths: Record<string, number>,
-  { canEditRow }: EditableColumnDefOptions = {}
+  { canEditRow, reserveButtonSpace }: EditableColumnDefOptions = {}
 ): ColDef {
   return {
     ...buildBaseColumnDef(column, savedWidths),
@@ -148,6 +179,7 @@ export function buildEditableColumnDef(
     cellRendererParams: {
       tableColumn: column,
       canEditRow,
+      reserveButtonSpace,
     },
     // JSON columns are edited only via the side panel
     ...(isJsonColumn(column)
