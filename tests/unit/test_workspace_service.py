@@ -23,6 +23,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.exceptions import (
+    ScopeDeniedError,
     TracecatAuthorizationError,
     TracecatValidationError,
 )
@@ -133,6 +134,61 @@ class TestWorkspaceService:
                 svc_workspace,
                 WorkspaceUpdate(
                     settings=WorkspaceSettingsUpdate(default_agent_preset_id=preset_id)
+                ),
+            )
+
+        await session.refresh(svc_workspace)
+        assert svc_workspace.settings == original_settings
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            WorkspaceUpdate(name="Renamed workspace"),
+            WorkspaceUpdate(settings=WorkspaceSettingsUpdate()),
+            WorkspaceUpdate(
+                settings=WorkspaceSettingsUpdate(validate_attachment_magic_number=True)
+            ),
+        ],
+    )
+    async def test_unrelated_updates_preserve_default_agent(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+        default_agent_preset: AgentPreset,
+        params: WorkspaceUpdate,
+    ) -> None:
+        svc_workspace.settings = {
+            "default_agent_preset_id": str(default_agent_preset.id)
+        }
+        await session.commit()
+
+        updated = await service.update_workspace(svc_workspace, params)
+
+        assert updated.settings.get("default_agent_preset_id") == str(
+            default_agent_preset.id
+        )
+
+    async def test_setting_default_agent_requires_workspace_update_scope(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        svc_workspace: Workspace,
+        default_agent_preset: AgentPreset,
+    ) -> None:
+        read_only_role = svc_role.model_copy(
+            update={"scopes": frozenset({"workspace:read", "agent:update"})}
+        )
+        service = WorkspaceService(session, role=read_only_role)
+        original_settings = dict(svc_workspace.settings)
+
+        with pytest.raises(ScopeDeniedError):
+            await service.update_workspace(
+                svc_workspace,
+                WorkspaceUpdate(
+                    settings=WorkspaceSettingsUpdate(
+                        default_agent_preset_id=default_agent_preset.id
+                    )
                 ),
             )
 
