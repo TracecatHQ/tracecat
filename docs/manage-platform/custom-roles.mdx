@@ -1,6 +1,6 @@
 ---
 title: Custom roles and groups
-description: "Create custom roles, groups, and scopes for your organization, and assign roles to users and groups organization-wide or per workspace."
+description: "Create custom roles and groups, add members to groups, assign roles to groups, and invite members into groups."
 icon: "lock"
 ---
 
@@ -8,54 +8,141 @@ icon: "lock"
 
 ## Overview
 
-Roles bundle scopes, groups bundle users, and assignments bind a role to a user or a group.
+A custom role bundles the scopes you pick. A group holds members, and every member inherits the group's roles.
 
-Open Members in the organization sidebar. With the entitlement active the page reads `Members and access control` and gains Roles and Groups tabs beside Members.
+Open `Members` in the organization sidebar (`/organization/members`). The Roles and Groups tabs sit beside Members.
 
 ## Turn it on
 
 Custom roles, groups, and scopes require the `rbac_addons` entitlement. A single-tenant deployment turns it on with `TRACECAT__FEATURE_FLAGS=rbac`, and a multi-tenant deployment reads it from the organization's tier.
 
-Without the entitlement the pages are absent rather than locked. The Members page shows a plain member list, and Access control redirects to it.
+Without the entitlement, or without `org:rbac:read`, the Members page shows the member table with no tabs.
 
-## Create a role
+## Create a custom role
 
-Open the Roles tab and select `Create role`. The dialog takes a `Role name` and `Description`, then a permission picker with one row per category: Workflows, Cases, Data, Agents, Secrets, Integrations, Workspace, Organization, and Actions.
+Creating a role requires `org:rbac:create`.
 
-Each row sets a level of None, Read, Write, Execute (workflows and agents only), Admin, or Custom for individual scopes. The Actions category takes a namespace selector instead.
+<Steps>
+  <Step title="Open the Roles tab">
+    Open the Roles tab and click `Create role`.
+  </Step>
+  <Step title="Name the role and set permissions">
+    Enter a `Role name` and an optional `Description`. Set a level for each category under `Permissions`, or expand a category to select individual scopes.
 
-![Workspace Editor scopes](/img/manage-platform/rbac-assignment.png)
+    <Frame>
+      ![Create role dialog with read access to workflows and write access to cases](/img/manage-platform/rbac-create-role.png)
+    </Frame>
 
-You can grant only scopes you hold yourself, and Tracecat refuses the rest with `Cannot grant scopes not held by the caller`. Built-in roles have no Edit or Delete in their row menu.
+    | Category | Levels |
+    | --- | --- |
+    | Workflows, Agents | None, Read, Write, Execute, Admin, Custom |
+    | Cases, Data, Secrets, Integrations, Workspace | None, Read, Write, Admin, Custom |
+    | Organization | None, Read, Admin, Custom |
+    | Actions | None, All namespaces, one namespace, Custom |
 
-Tracecat refuses deleting a role that is still assigned with `Cannot delete role that is assigned to groups. Remove all group assignments first.`, the user-assignment equivalent, or `Cannot delete role offered in pending invitations` — remove the role's assignments or revoke the invitations, then delete it.
+    You can grant only scopes you hold yourself. Tracecat refuses the rest with `Cannot grant scopes not held by the caller`.
+  </Step>
+  <Step title="Create the role">
+    Click `Create role`. The role appears in the list. Expand a row to see its description and scopes.
+
+    <Frame>
+      ![Roles tab with a custom role expanded to show its description and scopes](/img/manage-platform/rbac-roles.png)
+    </Frame>
+  </Step>
+</Steps>
+
+A role with any `Organization` scope is an organization role and is assigned organization-wide only.
+
+A custom role's row menu has `Copy role ID`, `Edit role`, and `Delete role`. Preset roles carry a `Preset` badge and have `Copy role ID` only.
+
+Tracecat refuses deleting a role that is in use:
+
+| Message | Fix |
+| --- | --- |
+| `Cannot delete role that is assigned to groups. Remove all group assignments first.` | Remove the role from each group. |
+| `Cannot delete role that is assigned to users. Remove all user assignments first.` | Remove the role from each member. |
+| `Cannot delete role offered in pending invitations. Revoke those invitations first.` | Revoke the invitations. |
+
+## Create a group
+
+<Steps>
+  <Step title="Create the group">
+    Open the Groups tab and click `Create group`. Enter a `Group name` and an optional description, then click `Create group`. This requires `org:rbac:create`. Tracecat refuses a duplicate name with `A group with this name already exists.`
+  </Step>
+  <Step title="Expand the group">
+    Click the group's row. It expands to a `Members` section and a `Roles` section.
+
+    <Frame>
+      ![Groups tab with a group expanded to show its members and roles](/img/manage-platform/rbac-groups.png)
+    </Frame>
+  </Step>
+  <Step title="Add members">
+    Click `Add members`. Search by email or name, tick the members to add, then click `Add N members`. The header checkbox selects every listed member.
+
+    <Frame>
+      ![Add members dialog with two members selected](/img/manage-platform/rbac-group-add-members.png)
+    </Frame>
+
+    The dialog lists organization members who are not in the group. Pending invitations are not listed. When some members fail, the dialog stays open with those members selected.
+
+    Adding and removing members requires `org:rbac:update`. You must hold every scope in the group's roles.
+  </Step>
+  <Step title="Assign roles">
+    In the `Roles` section, select a scope of `Organization` or one workspace, select a role, then click the plus button. This requires `org:rbac:create`.
+
+    A group holds one role per scope. Tracecat refuses a second with `Group already has an assignment for this workspace`.
+  </Step>
+</Steps>
+
+Click the minus button on a member or a role to remove it. Removing a role requires `org:rbac:delete`.
+
+The group's row menu has `Copy group ID`, `Edit group`, and `Delete group`. Deleting a group removes its role assignments.
+
+An identity provider manages the membership of a group mapped through [SCIM](/authentication/scim). That group shows `Membership is managed by your identity provider. Edit members there.` and has no `Add members` or remove buttons. You can still change its roles.
+
+## Invite a member into groups
+
+The invite dialog shows `Groups` when you hold `org:rbac:update` and `org:rbac:read`.
+
+<Steps>
+  <Step title="Open the invite dialog">
+    On the Members tab, click `Invite member` and enter the `Email`.
+  </Step>
+  <Step title="Select groups">
+    Open `Groups` and tick each group the invitee joins.
+
+    <Frame>
+      ![Invite member dialog with a group selected above the role grants](/img/manage-platform/users-invitations.png)
+    </Frame>
+  </Step>
+  <Step title="Add role grants and send">
+    Add at least one row under `Role grants`, then click `Send invitation`.
+  </Step>
+</Steps>
+
+On acceptance the invitee receives the role grants and joins the groups.
+
+| Rule | Detail |
+| --- | --- |
+| Offered groups | `Groups` lists the organization's groups, except groups an identity provider manages. |
+| Scope ceiling | You must hold every scope in the selected groups' roles. Tracecat refuses the rest with `Cannot grant scopes not held by the caller`. |
+| Changes before acceptance | Tracecat skips a group that was deleted or became identity provider-managed, and adds the invitee to the rest. |
 
 ## Custom scopes
 
-The Scopes tab lists every scope in the organization by name, and Filter by source narrows it to Platform or Custom scopes. It lives on the Access control page at `/organization/settings/rbac`, alongside Group assignments and User assignments tabs that list every assignment in one place.
+Open `/organization/settings/rbac` and select the Scopes tab. It lists every scope in the organization, and `Filter by source` narrows it to Platform or Custom scopes. The Group assignments and User assignments tabs on the same page list every assignment.
 
-Select `Create scope` to add your own: names follow `resource:action` and use only lowercase letters, numbers, colons, underscores, dots, asterisks, and hyphens. Names cannot use the reserved prefixes `org:` or `workspace:`, including through a wildcard such as `*:` or `o*:`.
+Click `Create scope` to add your own. Names follow `resource:action` and use only lowercase letters, numbers, colons, underscores, dots, asterisks, and hyphens. Names cannot use the reserved prefixes `org:` or `workspace:`, including through a wildcard such as `*:` or `o*:`.
 
-You can delete a custom scope; platform scopes have no Delete action.
-
-## Groups
-
-Open the Groups tab and select `Create group`, which takes a name and a description. Tracecat refuses a duplicate name with `A group with this name already exists`.
-
-`Manage group` opens Members and Roles tabs. Membership is flat — there is no group nesting — and every member inherits the group's roles.
-
-## Assign roles
-
-Assign a role to a user from the Members tab: open the member's row menu, choose `Manage roles`, then pick a scope of Organization-wide or a single workspace, then a role, under `Add role assignment`. Organization roles can only be assigned organization-wide. A workspace role assigned organization-wide applies in every workspace. Assign a role to a group from `Manage group` on the Groups tab.
-
-Effective permissions are the union of direct and group assignments; no assignment overrides another.
+You can delete a custom scope. Platform scopes have no Delete action.
 
 ## In a workspace
 
-A workspace's Members page lists users who hold a workspace role there: assigned on that workspace or organization-wide, directly or through a group. Organization owners and admins reach every workspace without appearing in this list. Manage roles and groups from the organization Members page.
+A workspace's Members page lists users who hold a workspace role there: assigned on that workspace or organization-wide, directly or through a group. Organization owners and admins reach every workspace without appearing in this list.
 
 ## Related pages
 
-- See [Roles and permissions](/manage-platform/rbac) for the built-in roles and how assignments compute effective permissions.
+- See [Roles and permissions](/manage-platform/rbac) for the built-in roles, the Members tab, and changing a member's roles.
+- See [User management](/manage-platform/users) for invitation links, resending, and acceptance.
 - See [Service accounts](/manage-platform/service-accounts) for machine identities that hold scopes directly, with no role.
-- See [Organization audit logs](/audit-logs/organization) for the `rbac_role`, `rbac_group`, `rbac_assignment`, and `rbac_user_assignment` events.
+- See [Organization audit logs](/audit-logs/organization) for the `rbac_role`, `rbac_group`, `rbac_group_member`, `rbac_assignment`, and `rbac_user_assignment` events.
