@@ -245,7 +245,7 @@ PAGES: list[dict[str, Any]] = [
 
             <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
-            Approving tool calls from Slack or Microsoft Teams through agent channels is Enterprise-only.
+            Chatting with agents and approving tool calls from Slack through [agent channels](/agents/channels) is Enterprise-only.
 
             Internet access is controlled by the root preset for the shared sandbox process. Subagent presets can define their own tools and MCP integrations, but their internet setting does not grant network access unless the root preset also enables it.
 
