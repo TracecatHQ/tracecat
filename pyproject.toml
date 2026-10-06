@@ -115,7 +115,7 @@ override-dependencies = [
     "fickling==0.1.12",
     "anthropic==0.87.0",
     "python-dotenv==1.2.2",
-    "urllib3==2.7.0",
+    "urllib3==2.8.0",
     "orjson==3.11.7",
     "fastapi==0.137.1",
     "cryptography==50.0.0",
