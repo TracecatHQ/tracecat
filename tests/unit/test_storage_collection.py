@@ -4,6 +4,7 @@ Tests CollectionObject variant and chunked manifest storage.
 """
 
 import asyncio
+import json
 
 import pytest
 from botocore.exceptions import ClientError
@@ -330,26 +331,78 @@ class TestCollectionStorageFunctions:
         assert collection.element_kind == "value"
 
         # Verify blobs were created (100 items / 30 per chunk = 4 chunks)
-        assert (
-            "test-bucket/wf-123/stream-0/action-1/col-abc/manifest.json"
-            in mock_blob_storage
+        prefix = "wf-123/stream-0/action-1/col-abc"
+        manifest_ref = collection.manifest_ref
+        assert manifest_ref.key == f"{prefix}/manifest.{manifest_ref.sha256}.json"
+        assert f"test-bucket/{manifest_ref.key}" in mock_blob_storage
+
+        manifest = json.loads(mock_blob_storage[f"test-bucket/{manifest_ref.key}"])
+        assert len(manifest["chunks"]) == 4
+        for i, chunk_ref in enumerate(manifest["chunks"]):
+            assert chunk_ref["key"] == f"{prefix}/chunks/{i}.{chunk_ref['sha256']}.json"
+            assert f"test-bucket/{chunk_ref['key']}" in mock_blob_storage
+
+    @pytest.mark.anyio
+    async def test_store_collection_duplicate_attempts_do_not_overwrite(
+        self, mock_blob_storage
+    ):
+        """A late attempt with different content cannot change an accepted ref."""
+        from tracecat.storage.collection import (
+            materialize_collection_values,
+            store_collection,
         )
-        assert (
-            "test-bucket/wf-123/stream-0/action-1/col-abc/chunks/0.json"
-            in mock_blob_storage
+
+        prefix = "wf-123/stream-0/action-1/col-race"
+        accepted = await store_collection(
+            prefix=prefix, items=[1, 2, 3], chunk_size=2, bucket="test-bucket"
         )
-        assert (
-            "test-bucket/wf-123/stream-0/action-1/col-abc/chunks/1.json"
-            in mock_blob_storage
+        late = await store_collection(
+            prefix=prefix, items=[4, 5, 6], chunk_size=2, bucket="test-bucket"
         )
-        assert (
-            "test-bucket/wf-123/stream-0/action-1/col-abc/chunks/2.json"
-            in mock_blob_storage
+
+        assert accepted.manifest_ref.key != late.manifest_ref.key
+        assert await materialize_collection_values(accepted) == [1, 2, 3]
+        assert await materialize_collection_values(late) == [4, 5, 6]
+
+    @pytest.mark.anyio
+    async def test_store_collection_identical_retry_reuses_keys(
+        self, mock_blob_storage
+    ):
+        """Identical retries hash to the same manifest and chunk keys."""
+        from tracecat.storage.collection import store_collection
+
+        prefix = "wf-123/stream-0/action-1/col-retry"
+        first = await store_collection(
+            prefix=prefix, items=[1, 2, 3], chunk_size=2, bucket="test-bucket"
         )
-        assert (
-            "test-bucket/wf-123/stream-0/action-1/col-abc/chunks/3.json"
-            in mock_blob_storage
+        blob_count = len(mock_blob_storage)
+        second = await store_collection(
+            prefix=prefix, items=[1, 2, 3], chunk_size=2, bucket="test-bucket"
         )
+
+        assert first.manifest_ref.key == second.manifest_ref.key
+        assert len(mock_blob_storage) == blob_count
+
+    @pytest.mark.anyio
+    async def test_store_collection_as_refs_identical_retry_reuses_keys(
+        self, mock_blob_storage
+    ):
+        """Item refs in stored_object chunks must not vary between attempts."""
+        from tracecat.dsl.action import _store_collection_as_refs
+        from tracecat.storage.backends import S3ObjectStorage
+        from tracecat.storage.object import reset_object_storage, set_object_storage
+
+        set_object_storage(S3ObjectStorage(bucket="test-bucket", threshold_bytes=0))
+        try:
+            prefix = "wf-123/stream-0/action-1/col-refs"
+            first = await _store_collection_as_refs(prefix, [{"a": 1}, {"b": 2}])
+            blob_count = len(mock_blob_storage)
+            second = await _store_collection_as_refs(prefix, [{"a": 1}, {"b": 2}])
+        finally:
+            reset_object_storage()
+
+        assert first.manifest_ref.key == second.manifest_ref.key
+        assert len(mock_blob_storage) == blob_count
 
     @pytest.mark.anyio
     async def test_store_collection_empty_list(self, mock_blob_storage):
@@ -365,7 +418,7 @@ class TestCollectionStorageFunctions:
         )
 
         assert collection.count == 0
-        assert "test-bucket/wf-123/empty/manifest.json" in mock_blob_storage
+        assert f"test-bucket/{collection.manifest_ref.key}" in mock_blob_storage
 
     @pytest.mark.anyio
     async def test_get_collection_page(self, mock_blob_storage):

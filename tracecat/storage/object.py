@@ -414,6 +414,18 @@ def action_collection_prefix(
     return f"{workspace_id}/{wf_exec_id}/actions/{stream_id}/{ref}"
 
 
+def content_addressed_key(key: str, sha256: str) -> str:
+    """Embed the content hash so a duplicate attempt cannot overwrite accepted bytes.
+
+    Format: {stem}.{sha256}.{ext}, e.g. a/b.json -> a/b.<sha256>.json
+    """
+    head, sep, name = key.rpartition("/")
+    stem, dot, ext = name.rpartition(".")
+    if not dot:
+        return f"{key}.{sha256}"
+    return f"{head}{sep}{stem}.{sha256}.{ext}"
+
+
 def collection_item_key(prefix: str, index: int) -> str:
     """Generate S3 key for the i-th collection item blob.
 
@@ -441,6 +453,7 @@ __all__ = [
     "action_collection_prefix",
     "action_key",
     "collection_item_key",
+    "content_addressed_key",
     "return_key",
     "trigger_key",
 ]

@@ -1,3 +1,4 @@
+import posixpath
 import uuid
 from itertools import batched
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
@@ -173,7 +174,7 @@ async def _to_collection_download_response(
 ) -> WebhookStoredObjectDownloadResponse:
     materialized = await _materialize_collection_values_for_wait(collection)
     serialized = serialize_object(materialized)
-    prefix = collection.manifest_ref.key.removesuffix("/manifest.json")
+    prefix = posixpath.dirname(collection.manifest_ref.key)
     export_key = f"{prefix}/downloads/{uuid.uuid4().hex}.json"
 
     await blob.upload_file(
