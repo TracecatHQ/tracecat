@@ -205,6 +205,7 @@ def _build_tracecat_agent_config_payload() -> Payload:
         raise AssertionError("Expected JSON payload for AgentConfig")
     # History written before reasoning levels carries the legacy flag.
     data = json.loads(payload.data)
+    del data["reasoning_effort"]
     data["enable_thinking"] = False
     payload.data = json.dumps(data).encode()
     return payload

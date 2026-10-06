@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, Self
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -7,7 +7,7 @@ from tracecat import config
 from tracecat.agent.common.types import (
     MCPServerConfig,
     ReasoningEffort,
-    reasoning_effort_from_enable_thinking,
+    migrate_legacy_enable_thinking,
 )
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import OutputType
@@ -70,19 +70,14 @@ class AgentActionArgs(BaseModel):
     )
     retries: int = 3
     reasoning_effort: ReasoningEffort | None = None
-    enable_thinking: bool = True
-    """Deprecated: use ``reasoning_effort``. Only ``False`` has an effect."""
     base_url: str | None = None
     tool_approvals: dict[str, bool] | None = None
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
 
-    @model_validator(mode="after")
-    def apply_legacy_enable_thinking(self) -> Self:
-        if self.reasoning_effort is None:
-            self.reasoning_effort = reasoning_effort_from_enable_thinking(
-                self.enable_thinking
-            )
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_enable_thinking(cls, data: Any) -> Any:
+        return migrate_legacy_enable_thinking(data)
 
     @field_validator("agents", mode="before")
     @classmethod

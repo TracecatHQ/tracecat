@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validato
 
 from tracecat.agent.common.types import (
     ReasoningEffort,
-    reasoning_effort_from_enable_thinking,
+    migrate_legacy_enable_thinking,
 )
 from tracecat.agent.skill.types import SkillOrigin
 from tracecat.agent.subagents import AgentSubagentsConfig
@@ -120,18 +120,13 @@ class AgentConfigPayload(BaseModel):
         if not isinstance(value, dict):
             return value
 
-        normalized = {
-            key: item
-            for key, item in value.items()
-            if key not in _LEGACY_AGENT_CONFIG_KEYS
-        }
-        if (
-            isinstance(enable_thinking := normalized.pop("enable_thinking", None), bool)
-            and normalized.get("reasoning_effort") is None
-        ):
-            normalized["reasoning_effort"] = reasoning_effort_from_enable_thinking(
-                enable_thinking
-            )
+        normalized = migrate_legacy_enable_thinking(
+            {
+                key: item
+                for key, item in value.items()
+                if key not in _LEGACY_AGENT_CONFIG_KEYS
+            }
+        )
         if isinstance(mcp_servers := normalized.get("mcp_servers"), list):
             normalized["mcp_servers"] = [
                 _normalize_legacy_mcp_server_payload(server) for server in mcp_servers

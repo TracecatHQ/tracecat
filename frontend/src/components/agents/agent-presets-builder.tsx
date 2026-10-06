@@ -47,7 +47,6 @@ import type {
   AnyAttachedSubagentRef,
   LibrarySkillRead,
   MCPIntegrationRead,
-  ReasoningEffort,
   RegistryActionReadMinimal,
   SkillReadMinimal,
 } from "@/client"
@@ -207,6 +206,16 @@ function AgentPresetLoadError({
   )
 }
 
+// "default" stands in for null because Radix Select items cannot be empty.
+const reasoningEffortSchema = z.enum([
+  "default",
+  "off",
+  "low",
+  "medium",
+  "high",
+  "max",
+])
+
 /** Validation shared by the preset editor and its panel tests. */
 export const agentPresetSchema = z
   .object({
@@ -257,9 +266,7 @@ export const agentPresetSchema = z
       .number({ invalid_type_error: "Retries must be a number" })
       .int()
       .min(0, "Retries must be 0 or more"),
-    reasoningEffort: z
-      .enum(["default", "off", "low", "medium", "high", "max"])
-      .default("default"),
+    reasoningEffort: reasoningEffortSchema.default("default"),
     enableInternetAccess: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
@@ -410,18 +417,17 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   enableInternetAccess: false,
 }
 
-// "default" stands in for null because Radix Select items cannot be empty.
-const REASONING_EFFORT_OPTIONS: {
-  value: AgentPresetFormValues["reasoningEffort"]
-  label: string
-}[] = [
-  { value: "default", label: "Model default" },
-  { value: "off", label: "Off" },
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "max", label: "Max" },
-]
+const REASONING_EFFORT_LABELS: Record<
+  z.infer<typeof reasoningEffortSchema>,
+  string
+> = {
+  default: "Model default",
+  off: "Off",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  max: "Max",
+}
 
 export function AgentPresetsBuilder({
   presetId,
@@ -2044,7 +2050,7 @@ export function AgentPresetConfigurationPanel({
                 onValueChange={(value) =>
                   form.setValue(
                     "reasoningEffort",
-                    value as AgentPresetFormValues["reasoningEffort"],
+                    reasoningEffortSchema.parse(value),
                     { shouldDirty: true }
                   )
                 }
@@ -2057,13 +2063,9 @@ export function AgentPresetConfigurationPanel({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {REASONING_EFFORT_OPTIONS.map((option) => (
-                    <SelectItem
-                      key={option.value}
-                      value={option.value}
-                      className="text-xs"
-                    >
-                      {option.label}
+                  {reasoningEffortSchema.options.map((value) => (
+                    <SelectItem key={value} value={value} className="text-xs">
+                      {REASONING_EFFORT_LABELS[value]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -3504,16 +3506,11 @@ export function formValuesToPayload(
       values.librarySkills.length > 0 ? values.librarySkills : null,
     tool_approvals: toToolApprovalMap(values.toolApprovals),
     retries: values.retries,
-    reasoning_effort: toReasoningEffort(values.reasoningEffort),
+    reasoning_effort:
+      values.reasoningEffort === "default" ? null : values.reasoningEffort,
     enable_internet_access:
       values.enableInternetAccess || options?.forceInternetAccess === true,
   }
-}
-
-function toReasoningEffort(
-  value: AgentPresetFormValues["reasoningEffort"]
-): ReasoningEffort | null {
-  return value === "default" ? null : value
 }
 
 function formValuesToAgentsPayload(

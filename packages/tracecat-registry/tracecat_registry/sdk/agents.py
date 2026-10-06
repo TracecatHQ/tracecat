@@ -6,13 +6,11 @@ import uuid
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
 from tracecat_registry.sdk.types import UNSET, Unset, is_set
+from tracecat_registry.types import ReasoningEffort
 
 if TYPE_CHECKING:
     from tracecat_registry.sdk.client import TracecatClient
 
-
-type ReasoningEffort = Literal["off", "low", "medium", "high", "max"]
-"""Reasoning level. ``None`` uses the model default."""
 
 type OutputType = (
     Literal[

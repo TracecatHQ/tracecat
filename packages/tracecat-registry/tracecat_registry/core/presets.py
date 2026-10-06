@@ -7,7 +7,7 @@ from typing import Annotated, Any, Literal
 from typing_extensions import Doc
 
 from tracecat_registry import ctx, registry
-from tracecat_registry.sdk.agents import ReasoningEffort
+from tracecat_registry.types import ReasoningEffort
 
 OutputTypeLiteral = Literal[
     "bool",
@@ -300,6 +300,10 @@ async def update_preset(
         ReasoningEffort | None,
         Doc("Reasoning level for the preset. Leave empty to keep the current level."),
     ] = None,
+    clear_reasoning_effort: Annotated[
+        bool,
+        Doc("Reset the preset to the model's default reasoning level."),
+    ] = False,
     enable_thinking: Annotated[
         bool | None,
         Doc("Deprecated. Use `reasoning_effort` instead."),
@@ -347,7 +351,13 @@ async def update_preset(
         kwargs["agents"] = agents
     if retries is not None:
         kwargs["retries"] = retries
-    if reasoning_effort is not None:
+    if clear_reasoning_effort and reasoning_effort is not None:
+        raise ValueError(
+            "Pass either reasoning_effort or clear_reasoning_effort, not both"
+        )
+    if clear_reasoning_effort:
+        kwargs["reasoning_effort"] = None
+    elif reasoning_effort is not None:
         kwargs["reasoning_effort"] = reasoning_effort
     elif enable_thinking is not None:
         # Legacy flag: on means the model default, off disables reasoning.

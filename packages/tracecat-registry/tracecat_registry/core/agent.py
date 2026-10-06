@@ -15,7 +15,8 @@ from tracecat_registry.fields import (
     ModelSelection,
     TextArea,
 )
-from tracecat_registry.sdk.agents import OutputType, ReasoningEffort
+from tracecat_registry.sdk.agents import OutputType
+from tracecat_registry.types import ReasoningEffort
 
 LEGACY_MODEL_FIELD_DEPRECATION_MESSAGE = "Use `model` instead."
 """Deprecation message for raw model selection fields."""

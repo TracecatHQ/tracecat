@@ -18,9 +18,19 @@ type ReasoningEffort = Literal["off", "low", "medium", "high", "max"]
 """Provider-neutral reasoning level. ``None`` means the model's default."""
 
 
-def reasoning_effort_from_enable_thinking(enabled: bool) -> ReasoningEffort | None:
-    """Map the legacy ``enable_thinking`` flag to a reasoning effort."""
-    return None if enabled else "off"
+def migrate_legacy_enable_thinking(data: Any) -> Any:
+    """Replace a legacy ``enable_thinking`` key with ``reasoning_effort``.
+
+    For ``mode="before"`` validators. Off maps to ``"off"`` and on to the model
+    default. A ``reasoning_effort`` key, even an explicit null, takes precedence.
+    """
+    if not isinstance(data, dict) or "enable_thinking" not in data:
+        return data
+    data = dict(data)
+    enable_thinking = data.pop("enable_thinking")
+    if isinstance(enable_thinking, bool) and "reasoning_effort" not in data:
+        data["reasoning_effort"] = None if enable_thinking else "off"
+    return data
 
 
 class MCPHttpServerConfig(TypedDict):
