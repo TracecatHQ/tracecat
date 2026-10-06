@@ -34,6 +34,7 @@ import {
   useRotateAgentChannelToken,
   useStartSlackOAuth,
 } from "@/hooks"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { copyToClipboard } from "@/lib/utils"
 
@@ -159,9 +160,11 @@ export function SlackChannelPanel({
     isFeatureEnabled: isFeatureEnabledFlag,
     isLoading: isLoadingFeatures,
   } = useFeatureFlag()
-  const channelsEnabled = isFeatureEnabledFlag("agent-channels")
+  const { hasEntitlement, isLoading: isLoadingEntitlements } = useEntitlements()
+  const channelsEnabled =
+    isFeatureEnabledFlag("agent-channels") && hasEntitlement("agent_channels")
 
-  if (isLoadingFeatures) {
+  if (isLoadingFeatures || isLoadingEntitlements) {
     return <CenteredSpinner />
   }
 

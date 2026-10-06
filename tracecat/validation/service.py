@@ -38,8 +38,6 @@ from tracecat.logger import logger
 from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.registry.versions.schemas import RegistryVersionManifest
 from tracecat.secrets.service import SecretsService, secret_key_names
-from tracecat.tiers.entitlements import Entitlement, EntitlementService
-from tracecat.tiers.service import TierService
 from tracecat.validation.common import json_schema_to_pydantic
 from tracecat.validation.schemas import (
     ActionValidationResult,
@@ -375,7 +373,6 @@ async def validate_dsl_actions(
     """
     val_res: list[ActionValidationResult] = []
     # Validate the actions
-    agent_addons_entitled: bool | None = None
     for act_stmt in dsl.actions:
         details: list[ValidationDetail] = []
         # We validate the action args, but keep them as is
@@ -391,31 +388,6 @@ async def validate_dsl_actions(
         if result.status == "error" and result.detail:
             details.extend(result.detail)
 
-        # Entitlement gate: tool approvals are an enterprise feature
-        if (
-            act_stmt.action == "ai.agent"
-            and act_stmt.args.get("tool_approvals") is not None
-        ):
-            if agent_addons_entitled is None:
-                if role.organization_id is None:
-                    raise ValueError(
-                        "Role must have organization_id to validate entitlements"
-                    )
-                entitlement_svc = EntitlementService(TierService(session))
-                agent_addons_entitled = await entitlement_svc.is_entitled(
-                    role.organization_id, Entitlement.AGENT_ADDONS
-                )
-            if not agent_addons_entitled:
-                details.append(
-                    ValidationDetail(
-                        type="action",
-                        msg=(
-                            "`tool_approvals` requires the 'agent_addons' entitlement. "
-                            "Remove the field or upgrade your plan."
-                        ),
-                        loc=(act_stmt.ref, "tool_approvals"),
-                    )
-                )
         # Validate `run_if`
         if act_stmt.run_if and not is_template_only(act_stmt.run_if):
             details.append(

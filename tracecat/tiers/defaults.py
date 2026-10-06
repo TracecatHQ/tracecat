@@ -46,9 +46,10 @@ def resolve_oss_default_entitlements(
     Existing OSS deployments can preserve prior behavior by mapping enabled
     feature flags to their corresponding entitlement groups.
 
-    Agent presets, skills, and MCP catalog connectors are open source;
-    ``agent_addons`` only gates tool approvals, the agent inbox, and case agent
-    runs.
+    Agent presets, skills, MCP catalog connectors, and tool approvals are open
+    source; ``agent_addons`` only gates the agent inbox, folders, tags, and case
+    agent runs. Approvals delivered through Slack or Microsoft Teams are closed
+    source and gated by ``agent_channels``.
 
     Multi-workspace is disabled on both paths. Existing workspaces remain
     accessible; the entitlement only gates creation beyond the first workspace.
@@ -66,6 +67,7 @@ def resolve_oss_default_entitlements(
             multi_workspace=False,
             watchtower=False,
             external_secret_stores=False,
+            agent_channels=False,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -101,6 +103,7 @@ def resolve_oss_default_entitlements(
         multi_workspace=False,
         watchtower=False,
         external_secret_stores=False,
+        agent_channels=False,
     )
 
 

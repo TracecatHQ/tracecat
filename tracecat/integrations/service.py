@@ -134,7 +134,6 @@ from tracecat.integrations.types import (
 from tracecat.sanitization import sanitize_urls_in_text
 from tracecat.secrets.encryption import decrypt_value, encrypt_value, is_set
 from tracecat.service import BaseWorkspaceService
-from tracecat.tiers.enums import Entitlement
 
 MCP_TEST_CONNECTION_TIMEOUT_CAP = 15
 """Maximum seconds an MCP connection verification may take."""
@@ -4764,10 +4763,6 @@ class IntegrationService(BaseWorkspaceService):
                 raise ValueError(f"MCP tool not found on integration: {tool.name}")
             updates_by_name[tool.name] = tool
 
-        # Turning on approval for a tool only takes effect at agent compile time,
-        # which gates on AGENT_ADDONS. Without the entitlement the stored policy
-        # would silently brick the MCP-backed agent, so reject approval-enabling
-        # updates here. Disabling approval and availability changes stay allowed.
         enables_approval = any(
             update.requires_approval is True
             and not stored_by_name[name].requires_approval
@@ -4780,7 +4775,6 @@ class IntegrationService(BaseWorkspaceService):
             # to resume the approved call. Clearing approval stays allowed.
             if mcp_integration.server_type == "stdio":
                 raise ValueError("Approvals are not supported for stdio MCP servers.")
-            await self.require_entitlement(Entitlement.AGENT_ADDONS)
 
         updated_tools: list[MCPToolSummary] = []
         for stored_tool in stored_tools:

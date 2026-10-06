@@ -69,7 +69,6 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.exceptions import (
-    EntitlementRequired,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -4103,25 +4102,24 @@ class TestAgentPresetService:
         assert preset.tool_approvals == {"tools.test.test_action": True}
 
     @pytest.mark.parametrize("requires_approval", [True, False])
-    async def test_create_preset_rejects_approval_rules_without_entitlement(
+    async def test_create_preset_allows_approval_rules_without_agent_addons(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
         monkeypatch: pytest.MonkeyPatch,
         requires_approval: bool,
     ) -> None:
-        """Any authored rule requires add-ons, matching the execution gate."""
-        monkeypatch.setattr(
-            agent_preset_service, "has_entitlement", AsyncMock(return_value=False)
-        )
+        """Approval rules are open source and need no entitlement."""
+        has_entitlement = AsyncMock(return_value=False)
+        monkeypatch.setattr(agent_preset_service, "has_entitlement", has_entitlement)
         agent_preset_create_params.tool_approvals = {
             "tools.test.test_action": requires_approval
         }
 
-        with pytest.raises(EntitlementRequired):
-            await agent_preset_service.create_preset(agent_preset_create_params)
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
 
-        assert await agent_preset_service.list_presets() == []
+        assert preset.tool_approvals == {"tools.test.test_action": requires_approval}
+        has_entitlement.assert_not_awaited()
 
     @pytest.mark.parametrize("tool_approvals", [None, {}])
     async def test_create_preset_without_rules_needs_no_entitlement(
@@ -4142,33 +4140,32 @@ class TestAgentPresetService:
         assert not preset.tool_approvals
 
     @pytest.mark.parametrize("requires_approval", [True, False])
-    async def test_update_preset_rejects_approval_rules_without_entitlement(
+    async def test_update_preset_allows_approval_rules_without_agent_addons(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
         monkeypatch: pytest.MonkeyPatch,
         requires_approval: bool,
     ) -> None:
-        """An invalid approval update must not modify or publish the preset."""
+        """Adding approval rules publishes a new version without add-ons."""
         preset = await agent_preset_service.create_preset(agent_preset_create_params)
         current_version_id = preset.current_version_id
         monkeypatch.setattr(
             agent_preset_service, "has_entitlement", AsyncMock(return_value=False)
         )
 
-        with pytest.raises(EntitlementRequired):
-            await agent_preset_service.update_preset(
-                preset,
-                AgentPresetUpdate(
-                    name="Must not be saved",
-                    tool_approvals={"tools.test.test_action": requires_approval},
-                ),
-            )
+        await agent_preset_service.update_preset(
+            preset,
+            AgentPresetUpdate(
+                name="Saved",
+                tool_approvals={"tools.test.test_action": requires_approval},
+            ),
+        )
 
         await agent_preset_service.session.refresh(preset)
-        assert preset.name == agent_preset_create_params.name
-        assert preset.current_version_id == current_version_id
-        assert not preset.tool_approvals
+        assert preset.name == "Saved"
+        assert preset.current_version_id != current_version_id
+        assert preset.tool_approvals == {"tools.test.test_action": requires_approval}
 
     @pytest.mark.parametrize("tool_approvals", [None, {}])
     async def test_clear_preset_approval_rules_after_entitlement_removed(
@@ -4194,14 +4191,14 @@ class TestAgentPresetService:
         assert not version.tool_approvals
 
     @pytest.mark.parametrize("requires_approval", [True, False])
-    async def test_restore_preset_rejects_approval_rules_without_entitlement(
+    async def test_restore_preset_allows_approval_rules_without_agent_addons(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
         monkeypatch: pytest.MonkeyPatch,
         requires_approval: bool,
     ) -> None:
-        """Restoring history cannot reintroduce approval rules after a downgrade."""
+        """Restoring a version with approval rules needs no entitlement."""
         agent_preset_create_params.tool_approvals = {
             "tools.test.test_action": requires_approval
         }
@@ -4215,12 +4212,11 @@ class TestAgentPresetService:
             agent_preset_service, "has_entitlement", AsyncMock(return_value=False)
         )
 
-        with pytest.raises(EntitlementRequired):
-            await agent_preset_service.restore_version(preset, old_version)
+        await agent_preset_service.restore_version(preset, old_version)
 
         await agent_preset_service.session.refresh(preset)
-        assert not preset.tool_approvals
-        assert preset.current_version_id == current_version_id
+        assert preset.tool_approvals == {"tools.test.test_action": requires_approval}
+        assert preset.current_version_id != current_version_id
 
     async def test_create_parent_rejects_subagent_with_tool_approvals(
         self,

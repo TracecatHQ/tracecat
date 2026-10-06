@@ -59,9 +59,6 @@ from tracecat.runtime.errors import (
     RuntimeErrorKind,
 )
 from tracecat.temporal.errors import raise_application_error_from_classification
-from tracecat.tiers.entitlements import EntitlementService
-from tracecat.tiers.enums import Entitlement
-from tracecat.tiers.service import TierService
 
 if TYPE_CHECKING:
     from tracecat.integrations.schemas import MCPToolSummary
@@ -232,22 +229,6 @@ class AgentActivities:
 
     def get_activities(self) -> list[Callable[..., Any]]:
         return all_activities(self)
-
-    @staticmethod
-    async def _check_tool_approval_entitlement(role: Role) -> None:
-        if role.organization_id is None:
-            raise ValueError("Role must have organization_id to validate entitlements")
-        try:
-            async with TierService.with_session() as tier_service:
-                entitlement_service = EntitlementService(tier_service)
-                await entitlement_service.check_entitlement(
-                    role.organization_id, Entitlement.AGENT_ADDONS
-                )
-        except EntitlementRequired as exc:
-            raise_application_error_from_classification(
-                tenant_entitlement_denied(exc),
-                exc.detail,
-            )
 
     async def _build_scope_tool_definitions(
         self,
@@ -512,11 +493,6 @@ class AgentActivities:
                 # of scope before this activity returns. Local variable; this
                 # is documentation more than enforcement.
                 hydrated_servers = []
-
-        # Enforce entitlements on the final scope policy, after rejected HTTP
-        # tools and their precomputed approval entries have been removed.
-        if any(effective_tool_approvals.values()):
-            await self._check_tool_approval_entitlement(role)
 
         # Resolve registry lock for these actions
         # This provides origin→version mappings needed for action execution
