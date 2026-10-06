@@ -3,13 +3,14 @@
 import { closeBrackets } from "@codemirror/autocomplete"
 import { history } from "@codemirror/commands"
 import { json } from "@codemirror/lang-json"
-import { bracketMatching } from "@codemirror/language"
+import { bracketMatching, syntaxHighlighting } from "@codemirror/language"
 import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
 import { EditorView } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
 import { useTheme } from "next-themes"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { CaseDescriptionEditor } from "@/components/cases/case-description-editor"
+import { tracecatSyntaxHighlightStyle } from "@/components/editor/codemirror/syntax-highlight"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -165,6 +166,7 @@ export function JsonFieldDialog({
   const extensions = useMemo(
     () => [
       json(),
+      syntaxHighlighting(tracecatSyntaxHighlightStyle),
       lintGutter(),
       linter(jsonLinter),
       history(),
