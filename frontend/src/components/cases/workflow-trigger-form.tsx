@@ -34,6 +34,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   Select,
   SelectContent,
@@ -52,6 +53,16 @@ import { jsonSchemaToZod } from "@/lib/jsonschema"
 import type { TracecatJsonSchema } from "@/lib/schema"
 
 export type TriggerFormValues = Record<string, unknown>
+
+/**
+ * Scrolling body of the trigger dialog. The dialog only has a max height, so
+ * the viewport cannot size off `h-full`: the root and the viewport are flex
+ * children instead, shrinking to whatever the pinned header and footer leave.
+ * The viewport's inner wrapper is forced to a block so long values wrap rather
+ * than widen it.
+ */
+export const TRIGGER_SCROLL_AREA_CLASS =
+  "flex min-h-0 flex-1 flex-col [&>[data-radix-scroll-area-viewport]]:min-h-0 [&>[data-radix-scroll-area-viewport]]:flex-1 [&>[data-radix-scroll-area-viewport]>div]:!block [&>[data-radix-scroll-area-viewport]>div]:!w-full [&>[data-radix-scroll-area-viewport]>div]:!min-w-0 [&>[data-radix-scroll-area-viewport]>div]:!max-w-full"
 
 interface WorkflowTriggerFormProps {
   schema: TracecatJsonSchema
@@ -390,204 +401,209 @@ export function WorkflowTriggerForm({
     <Form {...form}>
       <form
         onSubmit={form.handleSubmit(handleSubmit)}
-        className="mt-4 space-y-4"
+        className="mt-4 flex min-h-0 flex-1 flex-col gap-4"
       >
-        <div className="flex flex-col gap-4">
-          {properties.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              This workflow does not define any inputs. You can still trigger it
-              with the current case context.
-            </p>
-          ) : (
-            properties.map(([fieldName, fieldSchema]) => (
-              <FormField
-                key={fieldName}
-                control={form.control}
-                name={fieldName as keyof TriggerFormValues}
-                render={({ field }) => {
-                  const isRequired = requiredFields.has(fieldName)
-                  const label = fieldSchema.title ?? formatLabel(fieldName)
-                  const description = fieldSchema.description
-                  const enumOptions = fieldSchema.enum
-                  const fieldType = Array.isArray(fieldSchema.type)
-                    ? fieldSchema.type[0]
-                    : fieldSchema.type
-                  const fieldTypeLabel = Array.isArray(fieldSchema.type)
-                    ? fieldSchema.type.join(" | ")
-                    : (fieldSchema.type ?? (enumOptions ? "enum" : undefined))
-                  const fieldStatus = fieldStatuses.get(fieldName)
+        <ScrollArea className={TRIGGER_SCROLL_AREA_CLASS}>
+          <div className="flex flex-col gap-4 pr-3">
+            {properties.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                This workflow does not define any inputs. You can still trigger
+                it with the current case context.
+              </p>
+            ) : (
+              properties.map(([fieldName, fieldSchema]) => (
+                <FormField
+                  key={fieldName}
+                  control={form.control}
+                  name={fieldName as keyof TriggerFormValues}
+                  render={({ field }) => {
+                    const isRequired = requiredFields.has(fieldName)
+                    const label = fieldSchema.title ?? formatLabel(fieldName)
+                    const description = fieldSchema.description
+                    const enumOptions = fieldSchema.enum
+                    const fieldType = Array.isArray(fieldSchema.type)
+                      ? fieldSchema.type[0]
+                      : fieldSchema.type
+                    const fieldTypeLabel = Array.isArray(fieldSchema.type)
+                      ? fieldSchema.type.join(" | ")
+                      : (fieldSchema.type ?? (enumOptions ? "enum" : undefined))
+                    const fieldStatus = fieldStatuses.get(fieldName)
 
-                  const statusBadge =
-                    fieldStatus === "case" ? (
-                      <TooltipProvider>
-                        <Tooltip delayDuration={100}>
-                          <TooltipTrigger asChild>
-                            <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-                              Matches custom field
-                            </span>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="text-xs">
-                            Auto-filled from case data
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    ) : null
-
-                  return (
-                    <FormItem className="group space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <FormLabel className="flex items-center gap-2 text-xs font-medium">
-                            <span className="flex items-center gap-1">
-                              {label}
-                              {isRequired && (
-                                <span className="text-red-500">*</span>
-                              )}
-                            </span>
-                            {statusBadge}
-                            {fieldTypeLabel && (
-                              <span className="font-mono text-[11px] text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-                                {fieldTypeLabel}
+                    const statusBadge =
+                      fieldStatus === "case" ? (
+                        <TooltipProvider>
+                          <Tooltip delayDuration={100}>
+                            <TooltipTrigger asChild>
+                              <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                Matches custom field
                               </span>
-                            )}
-                          </FormLabel>
-                        </div>
-                        <CaseValueSelector
-                          fieldName={fieldName}
-                          fieldSchema={fieldSchema}
-                          caseFields={caseFields}
-                          caseFieldDisplayNameById={caseFieldDisplayNameById}
-                          caseId={caseId}
-                          enumOptions={enumOptions}
-                          fieldType={fieldType}
-                          onApply={(value) => {
-                            field.onChange(value)
-                          }}
-                        />
-                      </div>
-                      <FormControl>
-                        {enumOptions ? (
-                          <Select
-                            value={
-                              field.value === undefined || field.value === null
-                                ? undefined
-                                : serializeEnumValue(field.value)
-                            }
-                            onValueChange={(value) =>
-                              field.onChange(deserializeEnumValue(value))
-                            }
-                          >
-                            <SelectTrigger>
-                              <SelectValue
-                                placeholder={`Select ${label.toLowerCase()}...`}
-                              />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {enumOptions.map((option) => (
-                                <SelectItem
-                                  key={serializeEnumValue(option)}
-                                  value={serializeEnumValue(option)}
-                                >
-                                  {String(option)}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : fieldType === "boolean" ? (
-                          <Switch
-                            id={`field-${fieldName}`}
-                            checked={Boolean(field.value)}
-                            onCheckedChange={(value) => field.onChange(value)}
-                          />
-                        ) : fieldType === "number" ||
-                          fieldType === "integer" ? (
-                          <Input
-                            type="number"
-                            value={
-                              field.value === undefined || field.value === null
-                                ? ""
-                                : String(field.value)
-                            }
-                            onChange={(event) => {
-                              const value = event.target.value
-                              field.onChange(
-                                value === "" ? undefined : Number(value)
-                              )
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs">
+                              Auto-filled from case data
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      ) : null
+
+                    return (
+                      <FormItem className="group space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <FormLabel className="flex items-center gap-2 text-xs font-medium">
+                              <span className="flex items-center gap-1">
+                                {label}
+                                {isRequired && (
+                                  <span className="text-red-500">*</span>
+                                )}
+                              </span>
+                              {statusBadge}
+                              {fieldTypeLabel && (
+                                <span className="font-mono text-[11px] text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                                  {fieldTypeLabel}
+                                </span>
+                              )}
+                            </FormLabel>
+                          </div>
+                          <CaseValueSelector
+                            fieldName={fieldName}
+                            fieldSchema={fieldSchema}
+                            caseFields={caseFields}
+                            caseFieldDisplayNameById={caseFieldDisplayNameById}
+                            caseId={caseId}
+                            enumOptions={enumOptions}
+                            fieldType={fieldType}
+                            onApply={(value) => {
+                              field.onChange(value)
                             }}
                           />
-                        ) : fieldType === "object" || fieldType === "array" ? (
-                          <div className="space-y-1">
-                            <CodeEditor
-                              value={jsonDrafts[fieldName] ?? ""}
-                              onChange={(value) => {
-                                setJsonDrafts((prev) => ({
-                                  ...prev,
-                                  [fieldName]: value,
-                                }))
-                                // Try to parse and update in real-time
-                                if (!value.trim()) {
-                                  field.onChange(undefined)
-                                  form.clearErrors(
-                                    fieldName as keyof TriggerFormValues
-                                  )
-                                  return
-                                }
-                                try {
-                                  const parsed = JSON.parse(value)
-                                  field.onChange(parsed)
-                                  form.clearErrors(
-                                    fieldName as keyof TriggerFormValues
-                                  )
-                                } catch {
-                                  form.setError(
-                                    fieldName as keyof TriggerFormValues,
-                                    {
-                                      type: "manual",
-                                      message: "Invalid JSON",
-                                    }
-                                  )
-                                }
-                              }}
-                              language="json"
-                              className="min-h-[100px]"
+                        </div>
+                        <FormControl>
+                          {enumOptions ? (
+                            <Select
+                              value={
+                                field.value === undefined ||
+                                field.value === null
+                                  ? undefined
+                                  : serializeEnumValue(field.value)
+                              }
+                              onValueChange={(value) =>
+                                field.onChange(deserializeEnumValue(value))
+                              }
+                            >
+                              <SelectTrigger>
+                                <SelectValue
+                                  placeholder={`Select ${label.toLowerCase()}...`}
+                                />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {enumOptions.map((option) => (
+                                  <SelectItem
+                                    key={serializeEnumValue(option)}
+                                    value={serializeEnumValue(option)}
+                                  >
+                                    {String(option)}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : fieldType === "boolean" ? (
+                            <Switch
+                              id={`field-${fieldName}`}
+                              checked={Boolean(field.value)}
+                              onCheckedChange={(value) => field.onChange(value)}
                             />
-                          </div>
-                        ) : (
-                          <Input
-                            value={
-                              field.value === undefined || field.value === null
-                                ? ""
-                                : String(field.value)
-                            }
-                            onChange={(event) =>
-                              field.onChange(event.target.value)
-                            }
-                          />
+                          ) : fieldType === "number" ||
+                            fieldType === "integer" ? (
+                            <Input
+                              type="number"
+                              value={
+                                field.value === undefined ||
+                                field.value === null
+                                  ? ""
+                                  : String(field.value)
+                              }
+                              onChange={(event) => {
+                                const value = event.target.value
+                                field.onChange(
+                                  value === "" ? undefined : Number(value)
+                                )
+                              }}
+                            />
+                          ) : fieldType === "object" ||
+                            fieldType === "array" ? (
+                            <div className="space-y-1">
+                              <CodeEditor
+                                value={jsonDrafts[fieldName] ?? ""}
+                                onChange={(value) => {
+                                  setJsonDrafts((prev) => ({
+                                    ...prev,
+                                    [fieldName]: value,
+                                  }))
+                                  // Try to parse and update in real-time
+                                  if (!value.trim()) {
+                                    field.onChange(undefined)
+                                    form.clearErrors(
+                                      fieldName as keyof TriggerFormValues
+                                    )
+                                    return
+                                  }
+                                  try {
+                                    const parsed = JSON.parse(value)
+                                    field.onChange(parsed)
+                                    form.clearErrors(
+                                      fieldName as keyof TriggerFormValues
+                                    )
+                                  } catch {
+                                    form.setError(
+                                      fieldName as keyof TriggerFormValues,
+                                      {
+                                        type: "manual",
+                                        message: "Invalid JSON",
+                                      }
+                                    )
+                                  }
+                                }}
+                                language="json"
+                                className="min-h-[100px]"
+                              />
+                            </div>
+                          ) : (
+                            <Input
+                              value={
+                                field.value === undefined ||
+                                field.value === null
+                                  ? ""
+                                  : String(field.value)
+                              }
+                              onChange={(event) =>
+                                field.onChange(event.target.value)
+                              }
+                            />
+                          )}
+                        </FormControl>
+                        {description && (
+                          <FormDescription className="text-[11px] text-muted-foreground">
+                            {description}
+                          </FormDescription>
                         )}
-                      </FormControl>
-                      {description && (
-                        <FormDescription className="text-[11px] text-muted-foreground">
-                          {description}
-                        </FormDescription>
-                      )}
-                      <FormMessage className="text-[11px]" />
-                    </FormItem>
-                  )
-                }}
-              />
-            ))
-          )}
-        </div>
-
-        <div>
-          <TooltipProvider>
-            <JsonViewWithControls
-              src={previewValues}
-              showControls={false}
-              defaultExpanded
-            />
-          </TooltipProvider>
-        </div>
+                        <FormMessage className="text-[11px]" />
+                      </FormItem>
+                    )
+                  }}
+                />
+              ))
+            )}
+            <div>
+              <TooltipProvider>
+                <JsonViewWithControls
+                  src={previewValues}
+                  showControls={false}
+                  defaultExpanded
+                />
+              </TooltipProvider>
+            </div>
+          </div>
+        </ScrollArea>
 
         <AlertDialogFooter>
           <div className="flex items-center gap-2 mr-auto">
