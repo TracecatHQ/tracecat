@@ -1,0 +1,21 @@
+frontend/tests/case-linked-rows-section.test.tsx
+  s_6b5f9492a52675::t_52752cd3e1f18e 674-681
+  s_6b5f9492a52675::t_bc05b5b8f2ad23 943
+  s_6b5f9492a52675::t_71bda24aff38ce 682-683
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ce6dee354209da14dc1283adde7ae6105b22942d",
+  "prompts": {},
+  "sessions": {
+    "s_6b5f9492a52675": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de981752-046e-4e5c-8424-c2b98f517356",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
