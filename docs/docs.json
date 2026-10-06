@@ -87,6 +87,8 @@
               "agents/ai-action",
               "agents/ai-agent",
               "agents/ai-preset-agent",
+              "agents/human-in-the-loop",
+              "agents/channels",
               "agents/llm-providers",
               "agents/custom-llm-providers",
               "agents/skills",

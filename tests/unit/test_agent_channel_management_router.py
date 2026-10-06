@@ -299,3 +299,34 @@ async def test_update_channel_token_returns_404_for_soft_deleted_preset() -> Non
 
     assert exc_info.value.status_code == 404
     assert exc_info.value.detail == "Agent preset not found in workspace"
+
+
+@pytest.mark.anyio
+async def test_handle_channel_event_ignores_events_without_agent_channels() -> None:
+    from tracecat.agent.channels.router import handle_channel_event
+    from tracecat.agent.channels.schemas import ChannelType, ValidatedChannelToken
+
+    validated_token = MagicMock(spec=ValidatedChannelToken)
+    validated_token.workspace_id = uuid.uuid4()
+    background_tasks = MagicMock()
+
+    with (
+        patch(
+            "tracecat.agent.channels.router.validate_channel_token",
+            AsyncMock(return_value=validated_token),
+        ),
+        patch(
+            "tracecat.agent.channels.router._is_workspace_entitled_to_channels",
+            AsyncMock(return_value=False),
+        ),
+    ):
+        response = await handle_channel_event(
+            channel_type=ChannelType.SLACK,
+            token="token",
+            request=MagicMock(),
+            background_tasks=background_tasks,
+            session=AsyncMock(),
+        )
+
+    assert getattr(response, "status_code", None) == 200
+    background_tasks.add_task.assert_not_called()

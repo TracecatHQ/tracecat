@@ -48,7 +48,7 @@ from tracecat.registry.repository import Repository
 from tracecat.registry.versions.schemas import RegistryVersionManifestAction
 from tracecat.registry.versions.service import RegistryVersionsService
 from tracecat.tiers import defaults as tier_defaults
-from tracecat.validation.schemas import ActionValidationResult, ValidationResultType
+from tracecat.validation.schemas import ValidationResultType
 from tracecat.validation.service import validate_dsl
 
 TEST_VERSION = "test-version"
@@ -965,12 +965,11 @@ async def test_validate_dsl_with_optional_oauth_credentials(
 
 @pytest.mark.integration
 @pytest.mark.anyio
-async def test_agent_tool_approvals_requires_entitlement(
+async def test_agent_tool_approvals_do_not_require_agent_addons(
     test_role, db_session_with_repo, monkeypatch
 ):
     session, db_repo_id = db_session_with_repo
 
-    # Ensure entitlement disabled
     monkeypatch.setattr(
         tier_defaults,
         "DEFAULT_ENTITLEMENTS",
@@ -1020,71 +1019,4 @@ async def test_agent_tool_approvals_requires_entitlement(
         r for r in validation_results if r.root.type == ValidationResultType.ACTION
     ]
 
-    assert len(action_errors) == 1
-    root = action_errors[0].root
-    assert isinstance(root, ActionValidationResult)
-    detail = root.detail
-    if detail is None:
-        detail_msgs: set[str] = set()
-    else:
-        detail_msgs = {d.msg for d in detail}
-    assert any("agent_addons" in msg for msg in detail_msgs)
-
-
-@pytest.mark.integration
-@pytest.mark.anyio
-async def test_agent_tool_approvals_passes_with_entitlement(
-    test_role, db_session_with_repo, monkeypatch
-):
-    session, db_repo_id = db_session_with_repo
-
-    monkeypatch.setattr(
-        tier_defaults,
-        "DEFAULT_ENTITLEMENTS",
-        tier_defaults.DEFAULT_ENTITLEMENTS.model_copy(update={"agent_addons": True}),
-    )
-
-    repo = Repository()
-    repo.init(include_base=True, include_templates=False)
-
-    ra_service = RegistryActionsService(session, role=test_role)
-    bound_action = repo.get("ai.agent")
-    action_create = RegistryActionCreate.from_bound(bound_action, db_repo_id)
-
-    # Ensure the agent action is registered exactly once.
-    # It may already exist if the base registry has been synced.
-    if await ra_service.get_action_or_none("ai.agent") is None:
-        await ra_service.create_action(action_create)
-
-    # Create manifest for the ai.agent action using the helper
-    await create_manifest_for_actions(
-        session, db_repo_id, [bound_action], test_role.organization_id
-    )
-
-    dsl = DSLInput(
-        title="Test Workflow",
-        description="Agent with tool approvals",
-        entrypoint=DSLEntrypoint(expects={}),
-        actions=[
-            ActionStatement(
-                ref="agent_action",
-                action="ai.agent",
-                args={
-                    "user_prompt": "Hello",
-                    "model": {
-                        "model_name": "gpt-4o-mini",
-                        "model_provider": "openai",
-                    },
-                    "actions": ["tools.slack.post_message"],
-                    "tool_approvals": {"tools.slack.post_message": True},
-                },
-            )
-        ],
-    )
-
-    validation_results = await validate_dsl(session, dsl, role=test_role)
-    action_errors = [
-        r for r in validation_results if r.root.type == ValidationResultType.ACTION
-    ]
-
-    assert len(action_errors) == 0
+    assert action_errors == []

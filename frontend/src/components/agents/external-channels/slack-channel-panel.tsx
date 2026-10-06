@@ -34,7 +34,7 @@ import {
   useRotateAgentChannelToken,
   useStartSlackOAuth,
 } from "@/hooks"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { copyToClipboard } from "@/lib/utils"
 
 type SetupMethod = "existing" | "new"
@@ -155,13 +155,10 @@ export function SlackChannelPanel({
   workspaceId: string
   preset: AgentPresetRead | null
 }) {
-  const {
-    isFeatureEnabled: isFeatureEnabledFlag,
-    isLoading: isLoadingFeatures,
-  } = useFeatureFlag()
-  const channelsEnabled = isFeatureEnabledFlag("agent-channels")
+  const { hasEntitlement, isLoading: isLoadingEntitlements } = useEntitlements()
+  const channelsEnabled = hasEntitlement("agent_channels")
 
-  if (isLoadingFeatures) {
+  if (isLoadingEntitlements) {
     return <CenteredSpinner />
   }
 
@@ -169,9 +166,9 @@ export function SlackChannelPanel({
     return (
       <div className="size-full p-6">
         <Alert>
-          <AlertTitle>Feature not enabled</AlertTitle>
+          <AlertTitle>Enterprise only</AlertTitle>
           <AlertDescription>
-            External channels are unavailable for this workspace.
+            Agent channels require the agent channels entitlement.
           </AlertDescription>
         </Alert>
       </div>

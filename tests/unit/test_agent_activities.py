@@ -126,8 +126,6 @@ from tracecat.runtime.errors import (
     RuntimeErrorOwner,
 )
 from tracecat.temporal.errors import extract_error_classification
-from tracecat.tiers.entitlements import EntitlementService
-from tracecat.tiers.service import TierService
 
 
 @pytest.fixture
@@ -275,10 +273,6 @@ class TestBuildToolDefinitionsActivity:
                 }
             ),
         )
-        check_entitlement = AsyncMock()
-        monkeypatch.setattr(
-            AgentActivities, "_check_tool_approval_entitlement", check_entitlement
-        )
         result = await AgentActivities().build_tool_definitions(
             BuildToolDefsArgs(
                 role=mock_role,
@@ -297,46 +291,8 @@ class TestBuildToolDefinitionsActivity:
         assert set(result.tool_definitions) == {"mcp__example__a__b"}
         if stored_approval or precomputed_approval:
             assert result.tool_approvals == {approval_key: True}
-            check_entitlement.assert_awaited_once_with(mock_role)
         else:
             assert result.tool_approvals is None
-            check_entitlement.assert_not_awaited()
-
-    @pytest.mark.anyio
-    async def test_classifies_tool_approval_entitlement_denial(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        mock_role: Role,
-    ) -> None:
-        class _TierContext:
-            async def __aenter__(self) -> object:
-                return object()
-
-            async def __aexit__(
-                self, exc_type: object, exc: object, tb: object
-            ) -> None:
-                return None
-
-        monkeypatch.setattr(
-            TierService,
-            "with_session",
-            lambda: _TierContext(),
-        )
-        monkeypatch.setattr(
-            EntitlementService,
-            "check_entitlement",
-            AsyncMock(side_effect=EntitlementRequired("agent_addons")),
-        )
-
-        with pytest.raises(ApplicationError) as exc_info:
-            await AgentActivities._check_tool_approval_entitlement(mock_role)
-
-        classification = extract_error_classification(exc_info.value)
-        assert classification is not None
-        assert classification.owner is RuntimeErrorOwner.USER
-        assert classification.kind is RuntimeErrorKind.TENANT_ENTITLEMENT_DENIED
-        assert classification.retry_disposition is RetryDisposition.NON_RETRYABLE
-        assert exc_info.value.non_retryable is True
 
     @pytest.mark.anyio
     async def test_maps_tool_definition_errors_to_application_error(
@@ -737,11 +693,6 @@ class TestBuildToolDefinitionsActivity:
             ) -> None:
                 return None
 
-        entitlement_roles: list[Role] = []
-
-        async def mock_check_tool_approval_entitlement(role: Role) -> None:
-            entitlement_roles.append(role)
-
         monkeypatch.setattr(
             agent_activities, "build_agent_tools", mock_build_agent_tools
         )
@@ -759,11 +710,6 @@ class TestBuildToolDefinitionsActivity:
             RegistryLockService,
             "with_session",
             lambda: _LockContext(),
-        )
-        monkeypatch.setattr(
-            AgentActivities,
-            "_check_tool_approval_entitlement",
-            staticmethod(mock_check_tool_approval_entitlement),
         )
 
         result = await AgentActivities().build_tool_definitions(
@@ -791,7 +737,6 @@ class TestBuildToolDefinitionsActivity:
         assert result.tool_approvals == {"mcp.Jira.getIssue": True}
         assert result.user_mcp_claims is not None
         assert result.user_mcp_claims[0].id == integration_id
-        assert entitlement_roles == [mock_role]
 
     @pytest.mark.anyio
     @pytest.mark.parametrize(
@@ -904,12 +849,6 @@ class TestBuildToolDefinitionsActivity:
             staticmethod(lambda **_kwargs: _PresetContext()),
         )
         monkeypatch.setattr(RegistryLockService, "with_session", lambda: _LockContext())
-        check_entitlement = AsyncMock()
-        monkeypatch.setattr(
-            AgentActivities,
-            "_check_tool_approval_entitlement",
-            check_entitlement,
-        )
 
         result = await AgentActivities().build_tool_definitions(
             BuildToolDefsArgs(
@@ -933,7 +872,6 @@ class TestBuildToolDefinitionsActivity:
         }
         # Dropped tools must not leave behind approval entries.
         assert not (result.tool_approvals or {})
-        check_entitlement.assert_not_awaited()
 
     @pytest.mark.anyio
     async def test_build_agent_tool_definitions_returns_partitioned_scopes(

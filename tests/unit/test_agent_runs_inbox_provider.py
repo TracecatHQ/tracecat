@@ -10,14 +10,14 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
-from tracecat_ee.inbox.providers import agent_runs
-from tracecat_ee.inbox.providers.agent_runs import AgentRunsInboxProvider, RunStatus
 
 from tracecat.agent.backends import registry
 from tracecat.agent.common.stream_types import HarnessType
 from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.auth.types import Role
 from tracecat.db.models import AgentSession
+from tracecat.inbox.providers import agent_runs
+from tracecat.inbox.providers.agent_runs import AgentRunsInboxProvider, RunStatus
 from tracecat.inbox.schemas import InboxItemRead
 from tracecat.inbox.types import InboxGroup, InboxItemStatus, InboxItemType
 from tracecat.pagination import BaseCursorPaginator, CursorPaginatedResponse

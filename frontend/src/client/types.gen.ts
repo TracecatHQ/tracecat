@@ -4296,7 +4296,7 @@ export type EffectiveEntitlements = {
    */
   git_sync?: boolean
   /**
-   * Whether add-on agent capabilities are enabled (approvals, presets)
+   * Whether add-on agent capabilities are enabled (agent folders, tags, and case agent runs)
    */
   agent_addons?: boolean
   /**
@@ -4327,6 +4327,10 @@ export type EffectiveEntitlements = {
    * Whether workspace secrets may reference external secret stores such as AWS Secrets Manager
    */
   external_secret_stores?: boolean
+  /**
+   * Whether agent channels are enabled (agent approvals and interactions via Slack and Microsoft Teams)
+   */
+  agent_channels?: boolean
 }
 
 /**
@@ -4413,7 +4417,7 @@ export type EntitlementsDict = {
    */
   git_sync?: boolean
   /**
-   * Whether add-on agent capabilities are enabled (approvals, presets)
+   * Whether add-on agent capabilities are enabled (agent folders, tags, and case agent runs)
    */
   agent_addons?: boolean
   /**
@@ -4444,6 +4448,10 @@ export type EntitlementsDict = {
    * Whether workspace secrets may reference external secret stores such as AWS Secrets Manager
    */
   external_secret_stores?: boolean
+  /**
+   * Whether agent channels are enabled (agent approvals and interactions via Slack and Microsoft Teams)
+   */
+  agent_channels?: boolean
 }
 
 export type ErrorModel = {
@@ -4618,7 +4626,6 @@ export type ExternalObject = {
 export type FeatureFlag =
   | "ai-ranking"
   | "workflow-concurrency-limits"
-  | "agent-channels"
   | "agent-fs-persistence"
   | "agent-runtime"
   | "workspace-sync-github-archive"

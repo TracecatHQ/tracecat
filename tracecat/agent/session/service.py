@@ -146,7 +146,6 @@ from tracecat.identifiers import UserID
 from tracecat.logger import logger
 from tracecat.redis.client import RedisClient, get_redis_client
 from tracecat.service import BaseWorkspaceService
-from tracecat.tiers.entitlements import check_entitlement
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspaces.prompts import WorkspaceCopilotPrompts
 
@@ -1991,13 +1990,6 @@ class AgentSessionService(BaseWorkspaceService):
             agent_session.backend_id, harness_type=agent_session.harness_type
         )
         async with self._build_agent_config(agent_session) as agent_config:
-            if agent_config.tool_approvals:
-                await check_entitlement(
-                    self.session,
-                    self.role,
-                    Entitlement.AGENT_ADDONS,
-                )
-
             run_id = agent_session.curr_run_id or uuid.uuid4()
             stream_id = agent_session.active_stream_id or uuid.uuid4()
             prepared_turn = PreparedAgentTurn(
@@ -2111,10 +2103,6 @@ class AgentSessionService(BaseWorkspaceService):
                         for part in (agent_config.instructions, request_instructions)
                         if part
                     ),
-                )
-            if agent_config.tool_approvals:
-                await check_entitlement(
-                    self.session, self.role, Entitlement.AGENT_ADDONS
                 )
             run_id = uuid.uuid4()
             # Per-turn stream id: use the HTTP-minted id when provided, else mint

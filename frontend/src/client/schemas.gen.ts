@@ -14377,7 +14377,7 @@ export const $EffectiveEntitlements = {
       type: "boolean",
       title: "Agent Addons",
       description:
-        "Whether add-on agent capabilities are enabled (approvals, presets)",
+        "Whether add-on agent capabilities are enabled (agent folders, tags, and case agent runs)",
       default: false,
     },
     case_addons: {
@@ -14424,6 +14424,13 @@ export const $EffectiveEntitlements = {
       title: "External secret stores",
       description:
         "Whether workspace secrets may reference external secret stores such as AWS Secrets Manager",
+      default: false,
+    },
+    agent_channels: {
+      type: "boolean",
+      title: "Agent channels",
+      description:
+        "Whether agent channels are enabled (agent approvals and interactions via Slack and Microsoft Teams)",
       default: false,
     },
   },
@@ -14603,7 +14610,7 @@ export const $EntitlementsDict = {
       type: "boolean",
       title: "Agent Addons",
       description:
-        "Whether add-on agent capabilities are enabled (approvals, presets)",
+        "Whether add-on agent capabilities are enabled (agent folders, tags, and case agent runs)",
     },
     case_addons: {
       type: "boolean",
@@ -14643,6 +14650,12 @@ export const $EntitlementsDict = {
       title: "External secret stores",
       description:
         "Whether workspace secrets may reference external secret stores such as AWS Secrets Manager",
+    },
+    agent_channels: {
+      type: "boolean",
+      title: "Agent channels",
+      description:
+        "Whether agent channels are enabled (agent approvals and interactions via Slack and Microsoft Teams)",
     },
   },
   type: "object",
@@ -15234,7 +15247,6 @@ export const $FeatureFlag = {
   enum: [
     "ai-ranking",
     "workflow-concurrency-limits",
-    "agent-channels",
     "agent-fs-persistence",
     "agent-runtime",
     "workspace-sync-github-archive",

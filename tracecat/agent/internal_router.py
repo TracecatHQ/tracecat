@@ -33,8 +33,6 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.client import get_temporal_client
 from tracecat.dsl.common import RETRY_POLICIES
 from tracecat.logger import logger
-from tracecat.tiers.entitlements import check_entitlement
-from tracecat.tiers.enums import Entitlement
 
 router = APIRouter(
     prefix="/internal/agent",
@@ -274,8 +272,6 @@ async def run_agent_endpoint(
     ctx_role.set(role)
     _warn_retired_route("/internal/agent/run", role)
     try:
-        if params.config is not None and params.config.tool_approvals:
-            await check_entitlement(session, role, Entitlement.AGENT_ADDONS)
         session_id = uuid.uuid4()
         result = await _execute_agent_workflow(
             build_agent_workflow_args(params, role=role, session_id=session_id),

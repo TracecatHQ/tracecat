@@ -22,7 +22,7 @@ class EntitlementsDict(TypedDict, total=False):
         bool,
         Field(
             description="Whether add-on agent capabilities are enabled"
-            " (approvals, presets)"
+            " (agent folders, tags, and case agent runs)"
         ),
     ]
     case_addons: Annotated[
@@ -67,5 +67,13 @@ class EntitlementsDict(TypedDict, total=False):
             title="External secret stores",
             description="Whether workspace secrets may reference external"
             " secret stores such as AWS Secrets Manager",
+        ),
+    ]
+    agent_channels: Annotated[
+        bool,
+        Field(
+            title="Agent channels",
+            description="Whether agent channels are enabled (agent approvals"
+            " and interactions via Slack and Microsoft Teams)",
         ),
     ]

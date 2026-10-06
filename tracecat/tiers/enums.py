@@ -16,3 +16,4 @@ class Entitlement(StrEnum):
     MULTI_WORKSPACE = "multi_workspace"
     WATCHTOWER = "watchtower"
     EXTERNAL_SECRET_STORES = "external_secret_stores"
+    AGENT_CHANNELS = "agent_channels"

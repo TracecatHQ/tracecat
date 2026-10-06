@@ -50,7 +50,7 @@ class EffectiveEntitlements(Schema):
     agent_addons: bool = Field(
         default=False,
         description="Whether add-on agent capabilities are enabled"
-        " (approvals, presets)",
+        " (agent folders, tags, and case agent runs)",
     )
     case_addons: bool = Field(
         default=False,
@@ -85,6 +85,12 @@ class EffectiveEntitlements(Schema):
         title="External secret stores",
         description="Whether workspace secrets may reference external"
         " secret stores such as AWS Secrets Manager",
+    )
+    agent_channels: bool = Field(
+        default=False,
+        title="Agent channels",
+        description="Whether agent channels are enabled (agent approvals"
+        " and interactions via Slack and Microsoft Teams)",
     )
 
 

@@ -52,7 +52,6 @@ from tracecat.db.models import (
     User,
     Workspace,
 )
-from tracecat.exceptions import EntitlementRequired
 from tracecat.integrations.catalog.loader import catalog_id_for_slug
 from tracecat.integrations.catalog.resolver import (
     ResolvedCatalogConnection,
@@ -9100,12 +9099,12 @@ class TestMCPConnectionVerification:
         assert by_name["delete"].enabled is False
         assert by_name["delete"].requires_approval is True
 
-    async def test_update_mcp_tool_policies_rejects_approval_without_entitlement(
+    async def test_update_mcp_tool_policies_allows_approval_without_agent_addons(
         self,
         integration_service: IntegrationService,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Enabling approval needs AGENT_ADDONS; disabling/availability do not."""
+        """Tool approvals are open source and do not need AGENT_ADDONS."""
         monkeypatch.setattr(
             tier_defaults,
             "DEFAULT_ENTITLEMENTS",
@@ -9127,13 +9126,17 @@ class TestMCPConnectionVerification:
         integration_service.session.add(integration)
         await integration_service.session.commit()
 
-        with pytest.raises(EntitlementRequired, match="agent_addons"):
-            await integration_service.update_mcp_tool_policies(
-                mcp_integration_id=integration.id,
-                tools=[MCPToolPolicyUpdate(name="delete", requires_approval=True)],
-            )
+        enabled = await integration_service.update_mcp_tool_policies(
+            mcp_integration_id=integration.id,
+            tools=[MCPToolPolicyUpdate(name="delete", requires_approval=True)],
+        )
+        assert enabled is not None
+        enabled_tools = MCPToolSummary.validate_stored(enabled.tools)
+        assert enabled_tools is not None
+        assert {tool.name: tool for tool in enabled_tools}[
+            "delete"
+        ].requires_approval is True
 
-        # Disabling availability and turning approval back off stay allowed.
         updated = await integration_service.update_mcp_tool_policies(
             mcp_integration_id=integration.id,
             tools=[

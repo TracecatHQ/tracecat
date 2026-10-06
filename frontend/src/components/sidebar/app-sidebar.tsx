@@ -119,14 +119,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     enabled: shouldLoadEntitlements,
   })
   const entitlementsKnown = !entitlementsIsLoading && hasEntitlementData
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
   const { data: pendingApprovalsCount = 0 } = usePendingApprovalsCount(
     workspaceId,
     {
-      enabled:
-        canViewInbox === true && !entitlementsIsLoading && agentAddonsEnabled,
+      enabled: canViewInbox === true,
     }
   )
 

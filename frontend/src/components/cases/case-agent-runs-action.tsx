@@ -20,7 +20,7 @@ export function CaseAgentRunsAction({
   const canReadInbox = useScopeCheck("inbox:read")
   const { hasEntitlement, isLoading } = useEntitlements()
 
-  if (isLoading || canReadInbox !== true || !hasEntitlement("agent_addons")) {
+  if (isLoading || canReadInbox !== true || !hasEntitlement("case_addons")) {
     return null
   }
 

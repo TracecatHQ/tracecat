@@ -4,17 +4,15 @@ import { Plus, Trash2 } from "lucide-react"
 import { useFieldArray, useFormContext } from "react-hook-form"
 import { ActionSelect } from "@/components/chat/action-select"
 import type { Suggestion } from "@/components/tags-input"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { FormControl, FormField, FormItem } from "@/components/ui/form"
 import { Switch } from "@/components/ui/switch"
-import { useEntitlements } from "@/hooks/use-entitlements"
 
 interface ApprovalRuleFields {
   toolApprovals: Array<{ tool: string; allow: boolean }>
 }
 
-/** Edit paid approval rules while allowing removal after a plan downgrade. */
+/** Edit the tools that require manual approval before an agent runs them. */
 export function AgentPresetApprovalRules({
   isSaving,
   actionSuggestions,
@@ -27,8 +25,6 @@ export function AgentPresetApprovalRules({
     control,
     name: "toolApprovals",
   })
-  const { hasEntitlement, isLoading } = useEntitlements()
-  const approvalsEnabled = hasEntitlement("agent_addons")
 
   return (
     <section className="flex flex-col gap-4">
@@ -39,20 +35,12 @@ export function AgentPresetApprovalRules({
           size="sm"
           variant="outline"
           onClick={() => append({ tool: "", allow: true })}
-          disabled={isSaving || !approvalsEnabled}
+          disabled={isSaving}
         >
           <Plus className="mr-2 size-4" />
           Add rule
         </Button>
       </div>
-      {!isLoading && !approvalsEnabled ? (
-        <Alert>
-          <AlertDescription>
-            Approval rules require an Enterprise plan. You can remove existing
-            rules to run this agent without approvals.
-          </AlertDescription>
-        </Alert>
-      ) : null}
       {fields.length === 0 ? (
         <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
           No manual approval rules yet. Add a tool to require human review or to
@@ -95,7 +83,7 @@ export function AgentPresetApprovalRules({
                               "group",
                             ]}
                             placeholder="Select an action or MCP tool..."
-                            disabled={isSaving || !approvalsEnabled}
+                            disabled={isSaving}
                           />
                         </FormControl>
                       </FormItem>
@@ -113,7 +101,7 @@ export function AgentPresetApprovalRules({
                               aria-label="Manual approval"
                               checked={Boolean(field.value)}
                               onCheckedChange={field.onChange}
-                              disabled={isSaving || !approvalsEnabled}
+                              disabled={isSaving}
                             />
                             <span className="text-sm font-medium min-w-[100px]">
                               {field.value ? "Required" : "Not required"}
