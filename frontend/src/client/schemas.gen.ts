@@ -6562,9 +6562,16 @@ export const $AwsSecretsManagerStoreConfig = {
       default: "aws_secrets_manager",
     },
     role_arn: {
-      type: "string",
-      maxLength: 2048,
-      pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Role Arn",
     },
     region: {
@@ -6581,7 +6588,7 @@ export const $AwsSecretsManagerStoreConfig = {
     },
   },
   type: "object",
-  required: ["role_arn", "region", "external_id"],
+  required: ["region", "external_id"],
   title: "AwsSecretsManagerStoreConfig",
   description:
     "Persisted provider configuration for an AWS Secrets Manager store.",
@@ -6596,9 +6603,16 @@ export const $AwsSecretsManagerStoreCreate = {
       default: "aws_secrets_manager",
     },
     role_arn: {
-      type: "string",
-      maxLength: 2048,
-      pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+      anyOf: [
+        {
+          type: "string",
+          maxLength: 2048,
+          pattern: "^arn:aws(?:-[a-z]+)*:iam::\\d{12}:role/[\\w+=,.@/-]+$",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Role Arn",
     },
     region: {
@@ -6609,7 +6623,7 @@ export const $AwsSecretsManagerStoreCreate = {
     },
   },
   type: "object",
-  required: ["role_arn", "region"],
+  required: ["region"],
   title: "AwsSecretsManagerStoreCreate",
   description:
     "Client-supplied fields when creating an AWS Secrets Manager store.",
@@ -27359,6 +27373,30 @@ export const $SecretStoreCreate = {
   description: "Create an organization-owned external secret store.",
 } as const
 
+export const $SecretStoreErrorResponse = {
+  properties: {
+    detail: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          items: {
+            $ref: "#/components/schemas/SecretStoreRequestValidationError",
+          },
+          type: "array",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "SecretStoreErrorResponse",
+  description:
+    "Invalid store configuration, or enabling a store before setup finishes.",
+} as const
+
 export const $SecretStoreProvider = {
   type: "string",
   enum: ["aws_secrets_manager"],
@@ -27429,6 +27467,18 @@ export const $SecretStoreRead = {
       ],
       title: "Tracecat Aws Principal Arn",
     },
+    aws_partition: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Aws Partition",
+      description: "AWS partition of the store region, when botocore knows it.",
+    },
     authorized_workspace_ids: {
       items: {
         type: "string",
@@ -27441,6 +27491,14 @@ export const $SecretStoreRead = {
       type: "integer",
       title: "Reference Count",
       default: 0,
+    },
+    workspace_usage: {
+      items: {
+        $ref: "#/components/schemas/SecretStoreWorkspaceUsage",
+      },
+      type: "array",
+      title: "Workspace Usage",
+      description: "Referencing secret counts per workspace, most used first.",
     },
     created_at: {
       type: "string",
@@ -27468,6 +27526,55 @@ export const $SecretStoreRead = {
   title: "SecretStoreRead",
   description:
     "Organization view of a secret store, including trust-policy inputs.",
+} as const
+
+export const $SecretStoreRequestValidationError = {
+  properties: {
+    loc: {
+      items: {
+        anyOf: [
+          {
+            type: "string",
+          },
+          {
+            type: "integer",
+          },
+        ],
+      },
+      type: "array",
+      title: "Loc",
+    },
+    msg: {
+      type: "string",
+      title: "Msg",
+    },
+    type: {
+      type: "string",
+      title: "Type",
+    },
+    input: {
+      $ref: "#/components/schemas/JsonValue",
+    },
+    ctx: {
+      anyOf: [
+        {
+          additionalProperties: {
+            $ref: "#/components/schemas/JsonValue",
+          },
+          type: "object",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Ctx",
+    },
+  },
+  type: "object",
+  required: ["loc", "msg", "type"],
+  title: "SecretStoreRequestValidationError",
+  description:
+    "Standard FastAPI request validation fields for the shared 422 response.",
 } as const
 
 export const $SecretStoreUpdate = {
@@ -27529,6 +27636,24 @@ export const $SecretStoreUpdate = {
   title: "SecretStoreUpdate",
   description:
     "Update an organization-owned secret store. Server-owned fields are immutable.",
+} as const
+
+export const $SecretStoreWorkspaceUsage = {
+  properties: {
+    workspace_id: {
+      type: "string",
+      format: "uuid",
+      title: "Workspace Id",
+    },
+    secret_count: {
+      type: "integer",
+      title: "Secret Count",
+    },
+  },
+  type: "object",
+  required: ["workspace_id", "secret_count"],
+  title: "SecretStoreWorkspaceUsage",
+  description: "Number of secrets in one workspace that reference a store.",
 } as const
 
 export const $SecretType = {

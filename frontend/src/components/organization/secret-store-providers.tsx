@@ -1,31 +1,78 @@
 "use client"
 
-import type * as React from "react"
+import { CopyIcon } from "lucide-react"
+import React from "react"
 import type {
   SecretStoreCreate,
   SecretStoreProvider,
   SecretStoreRead,
+  SecretStoreUpdate,
 } from "@/client"
 import { CopyButton } from "@/components/copy-button"
+import { AwsIcon } from "@/components/icons"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  EXAMPLE_ROLE_ARN,
+  validateAwsRegion,
+  validateAwsRoleArn,
+} from "@/lib/aws-secret-validation"
+import { cn, copyToClipboard } from "@/lib/utils"
 
 /** Draft provider config held by the create dialog before submission. */
 export type CreateConfigState = Record<string, string>
 
-/** Provider-specific labels, fields, and detail rendering for a secret store. */
+/** Inline validation messages keyed by config field. */
+export type CreateConfigErrors = Partial<Record<string, string>>
+
+type ConfigFieldsProps = {
+  config: CreateConfigState
+  onChange: (next: CreateConfigState) => void
+  errors: CreateConfigErrors
+}
+
+/**
+ * Provider-specific labels, fields, and detail rendering for a secret store.
+ * Setup runs in two phases: create issues server-owned fields such as the
+ * external ID, then setup collects what depends on them and enables the store.
+ */
 export type SecretStoreProviderEntry = {
   label: string
+  /** How Tracecat authenticates, shown in the provider picker. */
+  method: string
+  /** Column heading for `summary`, e.g. the store region. */
+  locationLabel: string
+  Icon: React.ComponentType<{ className?: string }>
   summary: (store: SecretStoreRead) => string
   createTitle: string
   createDescription: string
-  CreateFields: React.ComponentType<{
-    config: CreateConfigState
-    onChange: (next: CreateConfigState) => void
-  }>
+  CreateFields: React.ComponentType<ConfigFieldsProps>
+  validateCreate: (config: CreateConfigState) => CreateConfigErrors
   toCreateConfig: (config: CreateConfigState) => SecretStoreCreate["config"]
-  Details: React.ComponentType<{ store: SecretStoreRead }>
+  setupTitle: string
+  setupDescription: string
+  isSetupComplete: (store: SecretStoreRead) => boolean
+  SetupFields: React.ComponentType<
+    ConfigFieldsProps & {
+      store: SecretStoreRead
+      // `undefined` while scopes load: render neither the field nor the notice.
+      canEdit: boolean | undefined
+    }
+  >
+  validateSetup: (config: CreateConfigState) => CreateConfigErrors
+  toSetupConfig: (config: CreateConfigState) => SecretStoreUpdate["config"]
+  EditFields: React.ComponentType<ConfigFieldsProps>
+  validateEdit: (
+    config: CreateConfigState,
+    store: SecretStoreRead
+  ) => CreateConfigErrors
+  toUpdateConfig: (config: CreateConfigState) => SecretStoreUpdate["config"]
+  Details: React.ComponentType<{
+    store: SecretStoreRead
+    usage: React.ReactNode
+  }>
 }
 
 /**
@@ -59,7 +106,8 @@ function buildStoreTrustPolicy(store: SecretStoreRead): string {
  * write, delete, or rotation permissions are requested.
  */
 export function buildStorePermissionPolicy(store: SecretStoreRead): string {
-  const partition = store.config.role_arn.split(":")[1]
+  const partition =
+    store.config.role_arn?.split(":")[1] ?? store.aws_partition ?? "aws"
   return JSON.stringify(
     {
       Version: "2012-10-17",
@@ -88,129 +136,307 @@ export function buildStorePermissionPolicy(store: SecretStoreRead): string {
   )
 }
 
+function RoleArnField({
+  id,
+  value,
+  onChange,
+  error,
+  autoFocus,
+}: {
+  id: string
+  value: string
+  onChange: (value: string) => void
+  error?: string
+  autoFocus?: boolean
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>Role ARN</Label>
+      <Input
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={EXAMPLE_ROLE_ARN}
+        autoFocus={autoFocus}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? `${id}-error` : undefined}
+      />
+      {error && (
+        <p id={`${id}-error`} className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function RegionField({
+  id,
+  value,
+  onChange,
+  error,
+}: {
+  id: string
+  value: string
+  onChange: (value: string) => void
+  error?: string
+}) {
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={id}>Region</Label>
+      <Input
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="us-east-1"
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? `${id}-error` : undefined}
+        required
+      />
+      {error && (
+        <p id={`${id}-error`} className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function AwsSecretsManagerCreateFields({
   config,
   onChange,
-}: {
-  config: CreateConfigState
-  onChange: (next: CreateConfigState) => void
+  errors,
+}: ConfigFieldsProps) {
+  return (
+    <RegionField
+      id="store-region"
+      value={config.region ?? ""}
+      onChange={(region) => onChange({ ...config, region })}
+      error={errors.region}
+    />
+  )
+}
+
+function AwsSecretsManagerSetupFields({
+  store,
+  config,
+  onChange,
+  errors,
+  canEdit,
+}: ConfigFieldsProps & {
+  store: SecretStoreRead
+  canEdit: boolean | undefined
 }) {
   return (
     <>
-      <div className="space-y-2">
-        <Label htmlFor="store-role-arn">Role ARN</Label>
-        <Input
-          id="store-role-arn"
+      {canEdit === true && (
+        <RoleArnField
+          id="setup-role-arn"
+          // Otherwise the dialog focuses the first copy button and opens its tooltip.
+          autoFocus
           value={config.role_arn ?? ""}
-          onChange={(e) => onChange({ ...config, role_arn: e.target.value })}
-          placeholder="arn:aws:iam::123456789012:role/tracecat-secrets-reader"
-          required
+          onChange={(role_arn) => onChange({ ...config, role_arn })}
+          error={errors.role_arn}
         />
-      </div>
-      <div className="space-y-2">
-        <Label htmlFor="store-region">Region</Label>
-        <Input
-          id="store-region"
-          value={config.region ?? ""}
-          onChange={(e) => onChange({ ...config, region: e.target.value })}
-          placeholder="us-east-1"
-          required
-        />
-      </div>
+      )}
+      {canEdit === false && (
+        <p className="text-xs text-muted-foreground">
+          You need permission to update secret stores to enter the role ARN.
+          Share these policies with an organization admin to finish setup.
+        </p>
+      )}
+      <StorePolicies store={store} />
     </>
   )
 }
 
-function AwsSecretsManagerDetails({ store }: { store: SecretStoreRead }) {
-  const trustPolicy = buildStoreTrustPolicy(store)
-  const permissionPolicy = buildStorePermissionPolicy(store)
-
+function AwsSecretsManagerEditFields({
+  config,
+  onChange,
+  errors,
+}: ConfigFieldsProps) {
   return (
     <>
-      <dl className="space-y-4 border-b pb-5">
-        <div className="space-y-1.5">
-          <dt className="flex items-center gap-2 text-xs font-medium">
-            Role ARN
-            <CopyButton
-              value={store.config.role_arn}
-              toastMessage="Copied role ARN"
-              tooltipMessage="Copy role ARN"
-            />
-          </dt>
-          <dd className="break-all font-mono text-xs text-muted-foreground">
-            {store.config.role_arn}
-          </dd>
-        </div>
-        <div className="space-y-1.5">
-          <dt className="flex items-center gap-2 text-xs font-medium">
-            External ID
-            <CopyButton
-              value={store.config.external_id}
-              toastMessage="Copied external ID"
-              tooltipMessage="Copy external ID"
-            />
-          </dt>
-          <dd className="break-all font-mono text-xs text-muted-foreground">
-            {store.config.external_id}
-          </dd>
+      <RoleArnField
+        id="store-role-arn"
+        value={config.role_arn ?? ""}
+        onChange={(role_arn) => onChange({ ...config, role_arn })}
+        error={errors.role_arn}
+      />
+      <RegionField
+        id="store-region"
+        value={config.region ?? ""}
+        onChange={(region) => onChange({ ...config, region })}
+        error={errors.region}
+      />
+    </>
+  )
+}
+
+function compactErrors(
+  errors: Record<string, string | null>
+): CreateConfigErrors {
+  return Object.fromEntries(
+    Object.entries(errors).filter((entry): entry is [string, string] =>
+      Boolean(entry[1])
+    )
+  )
+}
+
+function PolicyBlock({
+  description,
+  policy,
+  highlight,
+}: {
+  description: string
+  policy: string
+  highlight: (line: string) => boolean
+}) {
+  // Lines repeat (braces), so position is the only stable key.
+  const lines = policy.split("\n").map((text, position) => ({ text, position }))
+  return (
+    <>
+      <p className="border-b px-3 py-2 text-xs text-muted-foreground">
+        {description}
+      </p>
+      <pre className="max-h-80 overflow-auto rounded-b-md bg-muted/40 py-2 font-mono text-xs leading-relaxed">
+        {lines.map((line) => (
+          <span
+            key={line.position}
+            className={cn(
+              "block px-3",
+              highlight(line.text)
+                ? "bg-primary/10 text-foreground"
+                : "text-muted-foreground"
+            )}
+          >
+            {line.text}
+          </span>
+        ))}
+      </pre>
+    </>
+  )
+}
+
+function StorePolicies({ store }: { store: SecretStoreRead }) {
+  const [activeId, setActiveId] = React.useState("trust")
+  const policies = [
+    {
+      id: "trust",
+      title: "Trust policy",
+      description:
+        "Attach to the role. The highlighted line is this store's external ID.",
+      policy: buildStoreTrustPolicy(store),
+      highlight: (line: string) => line.includes("sts:ExternalId"),
+    },
+    {
+      id: "permissions",
+      title: "Permissions policy",
+      description:
+        "Read-only. Narrow the highlighted Resource to the secrets you share.",
+      policy: buildStorePermissionPolicy(store),
+      highlight: (line: string) => line.includes('"Resource": "arn:'),
+    },
+  ]
+  const active = policies.find((item) => item.id === activeId) ?? policies[0]
+  return (
+    <Tabs
+      value={active.id}
+      onValueChange={setActiveId}
+      className="min-w-0 rounded-md border"
+    >
+      <div className="flex items-center justify-between gap-2 border-b pr-2">
+        <TabsList className="h-9 justify-start rounded-none bg-transparent p-0">
+          {policies.map((item) => (
+            <TabsTrigger
+              key={item.id}
+              value={item.id}
+              className="h-full rounded-none text-xs"
+            >
+              {item.title}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
+          aria-label={`Copy ${active.title.toLowerCase()}`}
+          onClick={() =>
+            copyToClipboard({
+              value: active.policy,
+              message: `Copied ${active.title.toLowerCase()}`,
+            })
+          }
+        >
+          <CopyIcon className="size-3.5" />
+          Copy
+        </Button>
+      </div>
+      {policies.map((item) => (
+        <TabsContent key={item.id} value={item.id} className="mt-0">
+          <PolicyBlock {...item} />
+        </TabsContent>
+      ))}
+    </Tabs>
+  )
+}
+
+function DetailItem({
+  label,
+  value,
+  copyLabel,
+}: {
+  label: string
+  value: string | null | undefined
+  copyLabel: string
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <dt className="text-xs font-medium">{label}</dt>
+      <dd className="flex items-center gap-1.5">
+        <code className="break-all font-mono text-xs text-muted-foreground">
+          {value ?? "Not set"}
+        </code>
+        {value && (
+          <CopyButton
+            value={value}
+            toastMessage={`Copied ${copyLabel}`}
+            tooltipMessage={`Copy ${copyLabel}`}
+          />
+        )}
+      </dd>
+    </div>
+  )
+}
+
+function AwsSecretsManagerDetails({
+  store,
+  usage,
+}: {
+  store: SecretStoreRead
+  usage: React.ReactNode
+}) {
+  return (
+    <>
+      <StorePolicies store={store} />
+      <dl className="grid gap-x-8 gap-y-4 border-t pt-4 sm:grid-cols-3">
+        <DetailItem
+          label="Role ARN"
+          value={store.config.role_arn}
+          copyLabel="role ARN"
+        />
+        <DetailItem
+          label="External ID"
+          value={store.config.external_id}
+          copyLabel="external ID"
+        />
+        <div className="min-w-0 space-y-1">
+          <dt className="text-xs font-medium">Used by</dt>
+          <dd>{usage}</dd>
         </div>
       </dl>
-      <div className="grid gap-5 md:grid-cols-2">
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <Label htmlFor={`trust-policy-${store.id}`} className="text-xs">
-              Trust policy
-            </Label>
-            <CopyButton
-              value={trustPolicy}
-              toastMessage="Copied trust policy"
-              tooltipMessage="Copy trust policy"
-            />
-          </div>
-          <p
-            id={`trust-policy-help-${store.id}`}
-            className="text-xs text-muted-foreground md:min-h-8"
-          >
-            Attach to the role in AWS. Includes the external ID for this store.
-          </p>
-          <Textarea
-            id={`trust-policy-${store.id}`}
-            aria-describedby={`trust-policy-help-${store.id}`}
-            readOnly
-            className="h-48 resize-none bg-muted/30 font-mono text-xs"
-            value={trustPolicy}
-          />
-        </div>
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <Label
-              htmlFor={`permissions-policy-${store.id}`}
-              className="text-xs"
-            >
-              Permissions policy
-            </Label>
-            <CopyButton
-              value={permissionPolicy}
-              toastMessage="Copied permissions policy"
-              tooltipMessage="Copy permissions policy"
-            />
-          </div>
-          <p
-            id={`permissions-policy-help-${store.id}`}
-            className="text-xs text-muted-foreground md:min-h-8"
-          >
-            Read-only access. Limit the resource ARNs to the secrets you want to
-            share.
-          </p>
-          <Textarea
-            id={`permissions-policy-${store.id}`}
-            aria-describedby={`permissions-policy-help-${store.id}`}
-            readOnly
-            className="h-48 resize-none bg-muted/30 font-mono text-xs"
-            value={permissionPolicy}
-          />
-        </div>
-      </div>
     </>
   )
 }
@@ -222,14 +448,40 @@ export const SECRET_STORE_PROVIDERS: Record<
 > = {
   aws_secrets_manager: {
     label: "AWS Secrets Manager",
+    method: "IAM role with an external ID",
+    locationLabel: "Region",
+    Icon: ({ className }) => <AwsIcon className={className} />,
     summary: (store) => store.config.region,
     createTitle: "Add AWS Secrets Manager store",
     createDescription:
-      "Enter the AWS role Tracecat will use to read secrets. Saving generates the external ID and trust policy.",
+      "Enter a name and the region that holds your secrets. Saving generates the external ID and trust policy.",
     CreateFields: AwsSecretsManagerCreateFields,
+    validateCreate: (config) =>
+      compactErrors({ region: validateAwsRegion(config.region ?? "") }),
     toCreateConfig: (config) => ({
       provider: "aws_secrets_manager",
-      role_arn: (config.role_arn ?? "").trim(),
+      region: (config.region ?? "").trim(),
+    }),
+    setupTitle: "Connect the AWS role",
+    setupDescription:
+      "Create an IAM role in AWS with these policies, then enter its ARN.",
+    isSetupComplete: (store) => Boolean(store.config.role_arn),
+    SetupFields: AwsSecretsManagerSetupFields,
+    validateSetup: (config) =>
+      compactErrors({ role_arn: validateAwsRoleArn(config.role_arn ?? "") }),
+    toSetupConfig: (config) => ({ role_arn: (config.role_arn ?? "").trim() }),
+    EditFields: AwsSecretsManagerEditFields,
+    validateEdit: (config, store) =>
+      compactErrors({
+        // A store still in setup may keep an empty role ARN.
+        role_arn:
+          store.config.role_arn || config.role_arn?.trim()
+            ? validateAwsRoleArn(config.role_arn ?? "")
+            : null,
+        region: validateAwsRegion(config.region ?? ""),
+      }),
+    toUpdateConfig: (config) => ({
+      role_arn: config.role_arn?.trim() || undefined,
       region: (config.region ?? "").trim(),
     }),
     Details: AwsSecretsManagerDetails,

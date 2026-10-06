@@ -315,6 +315,18 @@ def test_reference_arn_partition_must_match_store() -> None:
     backend.validate_reference(config, "app/api")
 
 
+def test_reference_partition_uses_role_arn_for_regions_unknown_to_botocore() -> None:
+    config = AwsSecretsManagerStoreConfig(
+        role_arn="arn:aws:iam::123456789012:role/reader",
+        region="xx-future-1",
+        external_id="synthetic",
+    )
+    with pytest.raises(ValueError, match="partition"):
+        AwsSecretsManagerBackend().validate_reference(
+            config, "arn:aws-cn:secretsmanager:xx-future-1:123456789012:secret:a-AbCdEf"
+        )
+
+
 def test_store_config_allows_regions_unknown_to_botocore() -> None:
     config = AwsSecretsManagerStoreCreate(
         role_arn="arn:aws:iam::123456789012:role/reader", region="xx-future-1"

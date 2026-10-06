@@ -59,6 +59,10 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { AwsSecretReferenceForm } from "@/components/workspaces/aws-secret-reference-form"
+import {
+  SecretSourcePicker,
+  type SecretSourceValue,
+} from "@/components/workspaces/secret-source-picker"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useAwsAssumeRoleAccess, useWorkspaceSecrets } from "@/lib/hooks"
 import { cn, copyToClipboard } from "@/lib/utils"
@@ -598,12 +602,11 @@ export function CreateCredentialDialog({
   const externalSecretStoresEnabled =
     hasEntitlement("external_secret_stores") && canReadSecrets
   const credentialSourceId = React.useId()
-  const [credentialSource, setCredentialSource] = React.useState<
-    "local" | "aws_secrets_manager"
-  >("local")
+  const [secretSource, setSecretSource] =
+    React.useState<SecretSourceValue>(null)
   React.useEffect(() => {
     if (open) {
-      setCredentialSource("local")
+      setSecretSource(null)
     }
   }, [open])
 
@@ -612,7 +615,7 @@ export function CreateCredentialDialog({
   const isAwsReference =
     secretType === "custom" &&
     externalSecretStoresEnabled &&
-    credentialSource === "aws_secrets_manager"
+    secretSource !== null
   const secretName = methods.watch("name")
   const isOktaCredentialForm = isOktaCredential({
     type: secretType,
@@ -928,26 +931,17 @@ export function CreateCredentialDialog({
         {secretType === "custom" && externalSecretStoresEnabled && (
           <div className="flex-shrink-0 space-y-2 px-1">
             <Label htmlFor={credentialSourceId}>Secret source</Label>
-            <Select
-              value={credentialSource}
-              onValueChange={(value) =>
-                setCredentialSource(value as "local" | "aws_secrets_manager")
-              }
-            >
-              <SelectTrigger id={credentialSourceId} className="text-sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="local">Tracecat</SelectItem>
-                <SelectItem value="aws_secrets_manager">
-                  AWS Secrets Manager
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            <SecretSourcePicker
+              id={credentialSourceId}
+              workspaceId={workspaceId}
+              value={secretSource}
+              onChange={setSecretSource}
+            />
           </div>
         )}
         {isAwsReference ? (
           <AwsSecretReferenceForm
+            storeId={secretSource ?? undefined}
             initialName={selectedTool?.name}
             initialKeys={[
               ...(selectedTool?.keys ?? []),

@@ -39,6 +39,7 @@ from tracecat.secrets.schemas import (
     AwsSecretsManagerStoreConfig,
     AwsSecretsManagerStoreCreate,
     AwsSecretsManagerStoreUpdate,
+    aws_partition_for_region,
     check_aws_partition,
 )
 from tracecat.secrets.types import (
@@ -154,7 +155,9 @@ async def _fetch_secret_string(reference: ExternalSecretReference) -> _FetchOutc
     Returns an outcome instead of raising so the caller can raise the
     sanitized error outside of any handler that saw the SDK response.
     """
-    if not reference.store_enabled:
+    role_arn = reference.store_config.role_arn
+    # Stores without a role ARN can never be enabled; treat them as disabled.
+    if not reference.store_enabled or role_arn is None:
         return _FetchOutcome(failure=AwsSecretResolutionErrorCode.STORE_DISABLED)
     if not reference_region_matches(reference.key, reference.store_config.region):
         return _FetchOutcome(failure=AwsSecretResolutionErrorCode.REGION_MISMATCH)
@@ -164,7 +167,7 @@ async def _fetch_secret_string(reference: ExternalSecretReference) -> _FetchOutc
     try:
         async with session.client("sts", config=config) as sts_client:
             assumed = await sts_client.assume_role(
-                RoleArn=reference.store_config.role_arn,
+                RoleArn=role_arn,
                 RoleSessionName=_role_session_name(reference),
                 ExternalId=reference.store_config.external_id,
             )
@@ -360,8 +363,13 @@ class AwsSecretsManagerBackend:
         updated = config.model_copy(
             update=params.model_dump(exclude_unset=True, exclude_none=True)
         )
-        check_aws_partition(updated.role_arn, updated.region)
+        if updated.role_arn is not None:
+            check_aws_partition(updated.role_arn, updated.region)
         return updated
+
+    def is_ready(self, config: AwsSecretsManagerStoreConfig) -> bool:
+        """A store can be enabled only once its role ARN is set."""
+        return config.role_arn is not None
 
     def validate_reference(
         self, config: AwsSecretsManagerStoreConfig, key: str
@@ -371,8 +379,16 @@ class AwsSecretsManagerBackend:
             raise ValueError(
                 f"Secret ARN region must match the store region {config.region!r}."
             )
-        partition = config.role_arn.split(":")[1]
-        if is_secret_arn(key) and key.split(":")[1] != partition:
+        partition = (
+            config.role_arn.split(":")[1]
+            if config.role_arn is not None
+            else aws_partition_for_region(config.region)
+        )
+        if (
+            partition is not None
+            and is_secret_arn(key)
+            and key.split(":")[1] != partition
+        ):
             raise ValueError(f"Secret ARN partition must be {partition!r}.")
 
     async def resolve(
