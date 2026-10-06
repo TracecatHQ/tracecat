@@ -48,11 +48,6 @@ from tracecat.dsl.schemas import (
     StreamID,
     TriggerInputs,
 )
-from tracecat.ee.interactions.schemas import (
-    InteractionInput,
-    InteractionRead,
-    InteractionResult,
-)
 from tracecat.identifiers import WorkflowExecutionID, WorkflowID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
 from tracecat.logger import logger
@@ -229,10 +224,6 @@ class WorkflowExecutionRead(WorkflowExecutionBase):
     events: list[WorkflowExecutionEvent] = Field(
         ..., description="The events in the workflow execution"
     )
-    interactions: list[InteractionRead] = Field(
-        default_factory=list,
-        description="The interactions in the workflow execution",
-    )
 
 
 class WorkflowExecutionReadCompact[TInput: Any, TResult: Any, TSessionEvent: Any](
@@ -240,10 +231,6 @@ class WorkflowExecutionReadCompact[TInput: Any, TResult: Any, TSessionEvent: Any
 ):
     events: list[WorkflowExecutionEventCompact[TInput, TResult, TSessionEvent]] = Field(
         ..., description="Compact events in the workflow execution"
-    )
-    interactions: list[InteractionRead] = Field(
-        default_factory=list,
-        description="The interactions in the workflow execution",
     )
 
 
@@ -381,8 +368,6 @@ EventInput = (
     RunActionInput
     | DSLRunArgs
     | GetWorkflowDefinitionActivityInputs
-    | InteractionResult
-    | InteractionInput
     | AgentWorkflowArgs
     | UnreadableTemporalPayload
 )
@@ -570,40 +555,6 @@ class EventGroup[T: EventInput](BaseModel):
                 return agent_group
             case _:
                 raise ValueError("Event is not a child workflow initiated event.")
-
-    @staticmethod
-    async def from_accepted_workflow_update(
-        event: temporalio.api.history.v1.HistoryEvent,
-    ) -> EventGroup[InteractionInput | UnreadableTemporalPayload]:
-        if (
-            event.event_type
-            != temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED
-            or not event.HasField("workflow_execution_update_accepted_event_attributes")
-        ):
-            raise ValueError("Event is not a workflow update accepted event.")
-
-        attrs = event.workflow_execution_update_accepted_event_attributes
-        input = await extract_first(attrs.accepted_request.input.args)
-        if is_unreadable_temporal_payload(input):
-            return EventGroup(
-                event_id=event.event_id,
-                udf_namespace="core.interact",
-                udf_name="response",
-                udf_key="core.interact.response",
-                action_input=input,
-            )
-
-        group: EventGroup[InteractionInput | UnreadableTemporalPayload] = EventGroup(
-            event_id=event.event_id,
-            udf_namespace="core.interact",
-            udf_name="response",
-            udf_key="core.interact.response",
-            action_input=InteractionInput(**input),
-        )
-        logger.debug(
-            "Workflow update accepted event", event_id=event.event_id, group=group
-        )
-        return group
 
 
 class EventFailure(BaseModel):
@@ -817,12 +768,6 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                         event
                     )
                 )
-            case temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED:
-                return (
-                    await WorkflowExecutionEventCompact.from_workflow_update_accepted(
-                        event
-                    )
-                )
             case _:
                 return None
 
@@ -1032,40 +977,6 @@ class WorkflowExecutionEventCompact[TInput: Any, TResult: Any, TSessionEvent: An
                     f"Unexpected child workflow type: {attrs.workflow_type.name}"
                 )
 
-    @staticmethod
-    async def from_workflow_update_accepted(
-        event: temporalio.api.history.v1.HistoryEvent,
-    ) -> WorkflowExecutionEventCompact | None:
-        if (
-            event.event_type
-            != temporalio.api.enums.v1.EventType.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED
-        ):
-            raise ValueError("Event is not a workflow update accepted event.")
-
-        attrs = event.workflow_execution_update_accepted_event_attributes
-        input_data = await extract_first(attrs.accepted_request.input.args)
-        if is_unreadable_temporal_payload(input_data):
-            return WorkflowExecutionEventCompact(
-                source_event_id=event.event_id,
-                schedule_time=event.event_time.ToDatetime(UTC),
-                curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
-                status=WorkflowExecutionEventStatus.SCHEDULED,
-                action_name="core.interact.response",
-                action_ref="core.interact.response",
-                action_input=input_data,
-            )
-
-        signal_input = InteractionInput(**input_data)
-        return WorkflowExecutionEventCompact(
-            source_event_id=event.event_id,
-            schedule_time=event.event_time.ToDatetime(UTC),
-            curr_event_type=HISTORY_TO_WF_EVENT_TYPE[event.event_type],
-            status=WorkflowExecutionEventStatus.SCHEDULED,
-            action_name=signal_input.action_ref,
-            action_ref=signal_input.action_ref,
-            action_input=signal_input,
-        )
-
 
 class WorkflowExecutionCreate(BaseModel):
     workflow_id: AnyWorkflowID
@@ -1177,10 +1088,6 @@ class WorkflowExecutionBulkResetItemResult(BaseModel):
 
 class WorkflowExecutionBulkResetResponse(BaseModel):
     results: list[WorkflowExecutionBulkResetItemResult] = Field(default_factory=list)
-
-
-class ReceiveInteractionResponse(BaseModel):
-    message: str
 
 
 class WorkflowExecutionSummaryResponse(BaseModel):

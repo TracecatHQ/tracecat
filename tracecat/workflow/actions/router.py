@@ -10,7 +10,6 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.dsl.enums import PlatformAction
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers.workflow import AnyWorkflowIDPath, WorkflowUUID
-from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
 from tracecat.registry.actions.schemas import RegistryActionInterfaceValidator
 from tracecat.registry.actions.service import RegistryActionsService
@@ -68,7 +67,6 @@ async def list_actions(
             title=action.title,
             description=action.description,
             status=action.status,
-            is_interactive=action.is_interactive,
         )
         for action in actions
     ]
@@ -131,7 +129,6 @@ async def create_action(
         title=action.title,
         description=action.description,
         status=action.status,
-        is_interactive=action.is_interactive,
     )
 
 
@@ -193,12 +190,6 @@ async def get_action(
         status=action.status,
         inputs=action.inputs,
         control_flow=ActionControlFlow(**action.control_flow),
-        is_interactive=action.is_interactive,
-        interaction=(
-            ActionInteractionValidator.validate_python(action.interaction)
-            if action.interaction is not None
-            else None
-        ),
         position_x=action.position_x,
         position_y=action.position_y,
         upstream_edges=cast(list[ActionEdge], action.upstream_edges),

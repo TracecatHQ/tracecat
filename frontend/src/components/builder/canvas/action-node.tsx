@@ -15,7 +15,6 @@ import {
   CopyIcon,
   CopyPlusIcon,
   LayoutListIcon,
-  MessagesSquare,
   PencilIcon,
   SquareArrowOutUpRightIcon,
   Trash2Icon,
@@ -382,7 +381,6 @@ export default React.memo(function ActionNode({
               actionType={action?.type}
               actionInputs={actionInputsObj}
               actionIsLoading={actionIsLoading}
-              actionIsInteractive={action?.is_interactive}
               submitHandler={form.handleSubmit(onSubmit)}
               style={style}
               breakpoint={breakpoint}
@@ -438,7 +436,6 @@ function ActionNodeContent({
   actionType?: string
   actionInputs?: Record<string, unknown>
   actionIsLoading: boolean
-  actionIsInteractive?: boolean
   submitHandler: () => void
   style: { fontSize: string; showContent: boolean }
   breakpoint: "small" | "large" | "medium"
@@ -689,18 +686,6 @@ function ActionNodeToolbar({
               <CircleCheckBigIcon className="mr-2 size-3" />
               <span>Last result</span>
             </CommandItem>
-            {action?.is_interactive && (
-              <CommandItem
-                onSelect={() => {
-                  sidebarRef.current?.setOpen(true)
-                  sidebarRef.current?.setActiveTab("action-interaction")
-                  setSelectedActionEventRef(slugifyActionRef(action.title))
-                }}
-              >
-                <MessagesSquare className="mr-2 size-3" />
-                <span>Last interaction</span>
-              </CommandItem>
-            )}
 
             <CommandItem
               className="group !text-red-600"

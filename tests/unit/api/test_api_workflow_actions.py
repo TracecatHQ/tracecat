@@ -114,7 +114,6 @@ async def test_create_action_success(
                 "type": "core.http_request",
                 "title": "New Action",
                 "inputs": "url: https://example.com\nmethod: GET",
-                "is_interactive": False,
             },
         )
 
@@ -146,7 +145,6 @@ async def test_create_action_conflict(
                 "type": "core.http_request",
                 "title": "Test Action",
                 "inputs": "url: https://example.com\nmethod: GET",
-                "is_interactive": False,
             },
         )
 

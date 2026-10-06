@@ -16,7 +16,6 @@ from tracecat.auth.executor_tokens import ExecutionOrigin, mint_executor_token
 from tracecat.auth.types import Role
 from tracecat.authz.controls import require_action_scope
 from tracecat.contexts import (
-    ctx_interaction,
     ctx_logical_time,
     ctx_role,
     ctx_secret_masks,
@@ -739,14 +738,11 @@ async def prepare_resolved_context(
         # logical_time may be serialized as ISO string through Temporal
         logical_time = datetime.fromisoformat(logical_time)
     logical_time_token = ctx_logical_time.set(logical_time)
-    # Set interaction context for FN.get_interaction() during args evaluation
-    interaction_token = ctx_interaction.set(input.interaction_context)
     try:
         logger.trace(
             "Context set before template evaluation",
             task_ref=task.ref,
             logical_time=logical_time,
-            has_interaction=input.interaction_context is not None,
         )
         # Expression errors echo their operand, so the raw secret can be in the
         # message: failures surface as a chainless masked copy.
@@ -755,7 +751,6 @@ async def prepare_resolved_context(
         )
     finally:
         ctx_logical_time.reset(logical_time_token)
-        ctx_interaction.reset(interaction_token)
 
     if role.workspace_id is None:
         raise ValueError("workspace_id is required for action execution")

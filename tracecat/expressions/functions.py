@@ -23,7 +23,7 @@ from slugify import slugify
 from tracecat_registry._internal.flatten import flatten_dict as _flatten_dict
 
 from tracecat.common import is_iterable
-from tracecat.contexts import ctx_interaction, ctx_logical_time
+from tracecat.contexts import ctx_logical_time
 from tracecat.expressions.formatters import (
     tabulate,
     to_markdown_list,
@@ -46,7 +46,6 @@ from tracecat.expressions.ioc_extractors import (
     extract_urls,
     normalize_email,
 )
-from tracecat.interactions.schemas import InteractionContext
 from tracecat.parse import unescape_string
 
 
@@ -58,18 +57,6 @@ def _bool(x: Any) -> bool:
         return x.lower() in ("true", "1")
     # Use default bool for everything else
     return bool(x)
-
-
-# Platform functions
-
-
-def get_interaction() -> dict[str, str] | None:
-    """Get the interaction context from the current action in the workflow execution."""
-    match interaction := ctx_interaction.get():
-        case InteractionContext():
-            return interaction.model_dump()
-        case _:
-            return None
 
 
 # String functions
@@ -1206,8 +1193,6 @@ _FUNCTION_MAPPING = {
     "ipv4_is_public": ipv4_is_public,
     "ipv6_is_public": ipv6_is_public,
     "check_ip_version": check_ip_version,
-    # Interaction
-    "get_interaction": get_interaction,
     # IOC extractors
     "extract_asns": extract_asns,
     "extract_cves": extract_cves,

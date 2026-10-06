@@ -25,8 +25,6 @@ from tracecat.dsl.common import (
     get_execution_type_from_search_attr,
     get_trigger_type_from_search_attr,
 )
-from tracecat.ee.interactions.schemas import InteractionRead
-from tracecat.ee.interactions.service import InteractionService
 from tracecat.exceptions import TracecatValidationError
 from tracecat.identifiers import UserID
 from tracecat.identifiers.workflow import (
@@ -263,35 +261,6 @@ async def _external_preview_response(
         truncated=ref.size_bytes > preview_size,
         encoding=encoding,
     )
-
-
-async def _list_interactions(
-    session: AsyncSession,
-    execution_id: UnquotedExecutionID,
-) -> list[InteractionRead]:
-    if await get_setting("app_interactions_enabled", default=False):
-        svc = InteractionService(session=session)
-        interactions = await svc.list_interactions(wf_exec_id=execution_id)
-        return [
-            InteractionRead(
-                id=interaction.id,
-                wf_exec_id=interaction.wf_exec_id,
-                type=interaction.type,
-                status=interaction.status,
-                request_payload=interaction.request_payload,
-                response_payload=interaction.response_payload,
-                expires_at=interaction.expires_at,
-                created_at=interaction.created_at,
-                updated_at=interaction.updated_at,
-                actor=interaction.actor,
-                action_ref=interaction.action_ref,
-                action_type=interaction.action_type,
-            )
-            for interaction in interactions
-        ]
-    else:
-        logger.debug("Interactions are disabled, skipping interaction states")
-        return []
 
 
 def _normalize_search_term(search_term: str | None) -> str | None:
@@ -620,7 +589,6 @@ async def _get_workflow_execution_response(
         )
     logger.debug("Getting workflow execution events", execution_id=execution.id)
     events = await service.list_workflow_execution_events(execution.id)
-    interactions = await _list_interactions(session, execution.id)
     return WorkflowExecutionRead(
         id=execution.id,
         run_id=execution.run_id,
@@ -632,7 +600,6 @@ async def _get_workflow_execution_response(
         task_queue=execution.task_queue,
         history_length=execution.history_length,
         events=events,
-        interactions=interactions,
         trigger_type=get_trigger_type_from_search_attr(
             execution.typed_search_attributes, execution.id
         ),
@@ -720,7 +687,6 @@ async def get_workflow_execution_compact(
             except Exception as e:
                 logger.error("Error transforming AgentOutput to UIMessages", error=e)
 
-    interactions = await _list_interactions(session, execution_id)
     return WorkflowExecutionReadCompact(
         id=execution.id,
         parent_wf_exec_id=execution.parent_id,
@@ -733,7 +699,6 @@ async def get_workflow_execution_compact(
         task_queue=execution.task_queue,
         history_length=execution.history_length,
         events=compact_events,
-        interactions=interactions,
         trigger_type=get_trigger_type_from_search_attr(
             execution.typed_search_attributes, execution.id
         ),

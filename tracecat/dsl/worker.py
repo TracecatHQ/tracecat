@@ -36,7 +36,6 @@ with workflow.unsafe.imports_passed_through():
         RuntimeErrorAttributionInterceptor,
     )
     from tracecat.dsl.workflow import DSLWorkflow
-    from tracecat.ee.interactions.service import InteractionService
     from tracecat.logger import logger
     from tracecat.observability.otel import (
         initialize_platform_tracing,
@@ -118,7 +117,6 @@ def get_activities() -> list[Callable]:
         resolve_time_anchor_activity,
         resolve_workflow_concurrency_limits_enabled_activity,
         *WorkflowsManagementService.get_activities(),
-        *InteractionService.get_activities(),
         *TierActivities.get_activities(),
     ]
     return activities

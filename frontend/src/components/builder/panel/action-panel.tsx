@@ -79,10 +79,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 import {
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
-  FormLabel,
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
@@ -117,7 +115,6 @@ import {
 } from "@/lib/action-timeout"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
-import { PERMITTED_INTERACTION_ACTIONS } from "@/lib/interactions"
 import {
   getTracecatComponents,
   isTracecatJsonSchema,
@@ -199,19 +196,6 @@ const actionFormSchema = z.object({
     .optional(),
   mask_output: z.boolean().default(false),
   unsafe_disable_secret_error_withholding: z.boolean().default(false),
-  is_interactive: z.boolean().default(false),
-  interaction: z
-    .discriminatedUnion("type", [
-      z.object({
-        type: z.literal("response"),
-        timeout: z.number().nullish(),
-      }),
-      z.object({
-        type: z.literal("approval"),
-        timeout: z.number().nullish(),
-      }),
-    ])
-    .optional(),
 })
 type ActionFormSchema = z.infer<typeof actionFormSchema>
 
@@ -354,14 +338,10 @@ function ActionPanelContent({
       mask_output: actionControlFlow?.mask_output ?? false,
       unsafe_disable_secret_error_withholding:
         actionControlFlow?.unsafe_disable_secret_error_withholding ?? false,
-      is_interactive: action?.is_interactive ?? false,
-      interaction: action?.interaction ?? undefined,
     }),
     [
       action?.title,
       action?.description,
-      action?.is_interactive,
-      action?.interaction,
       actionInputsObj,
       actionControlFlow?.for_each,
       actionControlFlow?.run_if,
@@ -627,8 +607,6 @@ function ActionPanelContent({
             unsafe_disable_secret_error_withholding:
               values.unsafe_disable_secret_error_withholding ?? false,
           },
-          is_interactive: values.is_interactive,
-          interaction: values.interaction,
         }
 
         await updateAction(params)
@@ -790,9 +768,6 @@ function ActionPanelContent({
     },
     [inputMode, methods, action?.inputs, rawInputsYaml, formModeEnabled]
   )
-
-  const isInteractive = methods.watch("is_interactive")
-  const interactionType = methods.watch("interaction.type")
 
   if (actionIsLoading || registryActionIsLoading) {
     return <CenteredSpinner />
@@ -1268,149 +1243,6 @@ function ActionPanelContent({
                           }
                         />
                       </div>
-                      {/* Interaction */}
-                      {appSettings?.app_interactions_enabled &&
-                        PERMITTED_INTERACTION_ACTIONS.includes(
-                          registryAction.action as (typeof PERMITTED_INTERACTION_ACTIONS)[number]
-                        ) && (
-                          <div className="space-y-4">
-                            <h4 className="text-xs font-bold">Interaction</h4>
-                            <div className="space-y-2">
-                              {/* Toggle for enabling interaction */}
-                              <FormField
-                                control={methods.control}
-                                name="is_interactive"
-                                render={({ field }) => (
-                                  <FormItem>
-                                    <div className="flex items-center gap-2">
-                                      <FormControl>
-                                        <Switch
-                                          checked={field.value}
-                                          onCheckedChange={field.onChange}
-                                        />
-                                      </FormControl>
-                                      <FormLabel className="text-xs">
-                                        Enable interaction
-                                      </FormLabel>
-                                    </div>
-                                    <FormMessage className="whitespace-pre-line" />
-                                  </FormItem>
-                                )}
-                              />
-
-                              {/* Interaction settings - only shown when interaction is enabled */}
-                              {isInteractive && (
-                                <>
-                                  <FormField
-                                    control={methods.control}
-                                    name="interaction.type"
-                                    render={({ field }) => (
-                                      <FormItem>
-                                        <FormLabel className="text-xs">
-                                          Type
-                                        </FormLabel>
-                                        <FormControl>
-                                          <Select
-                                            value={field.value}
-                                            onValueChange={field.onChange}
-                                          >
-                                            <SelectTrigger className="text-xs">
-                                              <SelectValue
-                                                placeholder="Select a type..."
-                                                className="text-xs"
-                                              />
-                                            </SelectTrigger>
-                                            <SelectContent className="w-full text-xs">
-                                              <SelectItem
-                                                value="response"
-                                                className="text-xs"
-                                              >
-                                                Response
-                                              </SelectItem>
-                                              <SelectItem
-                                                value="approval"
-                                                className="text-xs"
-                                                disabled
-                                              >
-                                                <span>Approval</span>
-                                                <Badge
-                                                  variant="outline"
-                                                  className="ml-4 text-xs font-normal"
-                                                >
-                                                  Coming soon
-                                                </Badge>
-                                              </SelectItem>
-                                              <SelectItem
-                                                value="mfa"
-                                                className="text-xs"
-                                                disabled
-                                              >
-                                                <span>
-                                                  Multi-factor Authentication
-                                                </span>
-                                                <Badge
-                                                  variant="outline"
-                                                  className="ml-4 text-xs font-normal"
-                                                >
-                                                  Coming soon
-                                                </Badge>
-                                              </SelectItem>
-                                              <SelectItem
-                                                value="form"
-                                                className="text-xs"
-                                                disabled
-                                              >
-                                                <span>Form</span>
-                                                <Badge
-                                                  variant="outline"
-                                                  className="ml-4 text-xs font-normal"
-                                                >
-                                                  Coming soon
-                                                </Badge>
-                                              </SelectItem>
-                                            </SelectContent>
-                                          </Select>
-                                        </FormControl>
-                                        <FormMessage className="whitespace-pre-line" />
-                                      </FormItem>
-                                    )}
-                                  />
-
-                                  {interactionType === "response" && (
-                                    <div className="space-y-2">
-                                      <FormDescription className="text-xs">
-                                        The action will only complete when it
-                                        receives a response.
-                                      </FormDescription>
-                                      <FormField
-                                        control={methods.control}
-                                        name="interaction.timeout"
-                                        render={({ field }) => (
-                                          <FormItem>
-                                            <FormLabel className="text-xs">
-                                              Timeout
-                                            </FormLabel>
-                                            <FormControl>
-                                              <Input
-                                                disabled
-                                                type="number"
-                                                value={field.value ?? ""}
-                                                onChange={field.onChange}
-                                                placeholder="Timeout in seconds"
-                                                className="text-xs"
-                                              />
-                                            </FormControl>
-                                            <FormMessage className="whitespace-pre-line" />
-                                          </FormItem>
-                                        )}
-                                      />
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        )}
                     </div>
                   </SectionErrorBoundary>
                 </TabsContent>

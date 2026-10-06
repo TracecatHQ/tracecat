@@ -12,10 +12,7 @@ import { Merge } from "lucide-react"
 import type React from "react"
 import { useMemo } from "react"
 import type { ActionRead } from "@/client"
-import {
-  ForEachEffect,
-  InteractionEffect,
-} from "@/components/builder/canvas/action-node-effect"
+import { ForEachEffect } from "@/components/builder/canvas/action-node-effect"
 import {
   isStackedRunIf,
   RunIfBadge,
@@ -155,7 +152,6 @@ export function ActionTargetHandle({
 
   // Determine if there are no effects based on the conditions - exclude forEach since it's moved
   const hasEffects = hasRunIf || hasJoin
-  const hasInteraction = Boolean(action?.is_interactive)
 
   return (
     <>
@@ -174,20 +170,6 @@ export function ActionTargetHandle({
                   ref.expand()
                 }
                 ref.setActiveTab("control-flow")
-              }
-            }}
-          />
-        )}
-        {hasInteraction && (
-          <InteractionEffect
-            interaction={action?.interaction}
-            onClick={() => {
-              const ref = actionPanelRef.current
-              if (ref) {
-                if (ref.isCollapsed()) {
-                  ref.expand()
-                }
-                ref.setActiveTab("inputs")
               }
             }}
           />

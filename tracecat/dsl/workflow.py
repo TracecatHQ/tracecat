@@ -50,7 +50,6 @@ with workflow.unsafe.imports_passed_through():
     from tracecat.agent.session.types import AgentSessionEntity
     from tracecat.agent.types import AgentConfig
     from tracecat.contexts import (
-        ctx_interaction,
         ctx_logical_time,
         ctx_role,
         ctx_run,
@@ -110,9 +109,6 @@ with workflow.unsafe.imports_passed_through():
     )
     from tracecat.dsl.validation import format_input_schema_validation_error
     from tracecat.dsl.workflow_logging import get_workflow_logger
-    from tracecat.ee.interactions.decorators import maybe_interactive
-    from tracecat.ee.interactions.schemas import InteractionInput, InteractionResult
-    from tracecat.ee.interactions.service import InteractionManager
     from tracecat.exceptions import (
         TracecatException,
         TracecatExpressionError,
@@ -286,7 +282,6 @@ class DSLWorkflow:
         """The activity execution timeout."""
         self.execution_type = args.execution_type
         """Execution type (draft or published). Draft executions use draft aliases for child workflows."""
-        self.interactions = InteractionManager(self)
 
     def _initialize_run(self, args: DSLRunArgs) -> None:
         """Initialize fallible workflow runtime state inside the interceptor."""
@@ -328,16 +323,6 @@ class DSLWorkflow:
             )
         except Exception as e:
             self.logger.error("Failed to show workflow info", error=e)
-
-    @workflow.update
-    async def interaction_handler(self, input: InteractionInput) -> InteractionResult:
-        """Handle interactions from the workflow and return a result."""
-        return self.interactions.handle_interaction(input)
-
-    @interaction_handler.validator
-    def validate_interaction_handler(self, input: InteractionInput) -> None:
-        """Validate the interaction handler."""
-        return self.interactions.validate_interaction(input)
 
     def get_context(self, stream_id: StreamID | None = None) -> ExecutionContext:
         """Get the current execution context."""
@@ -895,7 +880,6 @@ class DSLWorkflow:
                 return False
             current = nested
 
-    @maybe_interactive
     async def _execute_task(self, task: ActionStatement) -> TaskResult:
         """Purely execute a task and manage the results.
 
@@ -1796,7 +1780,6 @@ class DSLWorkflow:
             task=task,
             run_context=self.run_context,
             exec_context=new_context,
-            interaction_context=ctx_interaction.get(),
             stream_id=stream_id,
             registry_lock=self.registry_lock,
         )
@@ -1830,7 +1813,6 @@ class DSLWorkflow:
             task=task,
             run_context=self.run_context,
             exec_context=new_context,
-            interaction_context=ctx_interaction.get(),
             stream_id=stream_id,
             registry_lock=self.registry_lock,
         )
@@ -1974,7 +1956,6 @@ class DSLWorkflow:
             task=task,
             run_context=run_context,
             exec_context=new_context,
-            interaction_context=ctx_interaction.get(),
             stream_id=stream_id,
             session_id=session_id,
             registry_lock=self.registry_lock,

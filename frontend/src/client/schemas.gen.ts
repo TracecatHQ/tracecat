@@ -172,37 +172,6 @@ export const $ActionCreate = {
       ],
       mode: "json",
     },
-    is_interactive: {
-      type: "boolean",
-      title: "Is Interactive",
-      default: false,
-    },
-    interaction: {
-      anyOf: [
-        {
-          oneOf: [
-            {
-              $ref: "#/components/schemas/ResponseInteraction",
-            },
-            {
-              $ref: "#/components/schemas/ApprovalInteraction",
-            },
-          ],
-          description: "An interaction configuration",
-          discriminator: {
-            propertyName: "type",
-            mapping: {
-              approval: "#/components/schemas/ApprovalInteraction",
-              response: "#/components/schemas/ResponseInteraction",
-            },
-          },
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction",
-    },
     position_x: {
       type: "number",
       title: "Position X",
@@ -342,36 +311,6 @@ export const $ActionRead = {
     control_flow: {
       $ref: "#/components/schemas/ActionControlFlow",
     },
-    is_interactive: {
-      type: "boolean",
-      title: "Is Interactive",
-    },
-    interaction: {
-      anyOf: [
-        {
-          oneOf: [
-            {
-              $ref: "#/components/schemas/ResponseInteraction",
-            },
-            {
-              $ref: "#/components/schemas/ApprovalInteraction",
-            },
-          ],
-          description: "An interaction configuration",
-          discriminator: {
-            propertyName: "type",
-            mapping: {
-              approval: "#/components/schemas/ApprovalInteraction",
-              response: "#/components/schemas/ResponseInteraction",
-            },
-          },
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction",
-    },
     position_x: {
       type: "number",
       title: "Position X",
@@ -396,16 +335,7 @@ export const $ActionRead = {
     },
   },
   type: "object",
-  required: [
-    "id",
-    "type",
-    "title",
-    "description",
-    "status",
-    "inputs",
-    "is_interactive",
-    "ref",
-  ],
+  required: ["id", "type", "title", "description", "status", "inputs", "ref"],
   title: "ActionRead",
 } as const
 
@@ -437,21 +367,9 @@ export const $ActionReadMinimal = {
       type: "string",
       title: "Status",
     },
-    is_interactive: {
-      type: "boolean",
-      title: "Is Interactive",
-    },
   },
   type: "object",
-  required: [
-    "id",
-    "workflow_id",
-    "type",
-    "title",
-    "description",
-    "status",
-    "is_interactive",
-  ],
+  required: ["id", "workflow_id", "type", "title", "description", "status"],
   title: "ActionReadMinimal",
 } as const
 
@@ -534,33 +452,6 @@ export const $ActionStatement_Input = {
       type: "array",
       title: "Depends On",
       description: "Task dependencies",
-    },
-    interaction: {
-      anyOf: [
-        {
-          oneOf: [
-            {
-              $ref: "#/components/schemas/ResponseInteraction",
-            },
-            {
-              $ref: "#/components/schemas/ApprovalInteraction",
-            },
-          ],
-          description: "An interaction configuration",
-          discriminator: {
-            propertyName: "type",
-            mapping: {
-              approval: "#/components/schemas/ApprovalInteraction",
-              response: "#/components/schemas/ResponseInteraction",
-            },
-          },
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction",
-      description: "Whether the action is interactive.",
     },
     run_if: {
       anyOf: [
@@ -688,33 +579,6 @@ export const $ActionStatement_Output = {
       type: "array",
       title: "Depends On",
       description: "Task dependencies",
-    },
-    interaction: {
-      anyOf: [
-        {
-          oneOf: [
-            {
-              $ref: "#/components/schemas/ResponseInteraction",
-            },
-            {
-              $ref: "#/components/schemas/ApprovalInteraction",
-            },
-          ],
-          description: "An interaction configuration",
-          discriminator: {
-            propertyName: "type",
-            mapping: {
-              approval: "#/components/schemas/ApprovalInteraction",
-              response: "#/components/schemas/ResponseInteraction",
-            },
-          },
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction",
-      description: "Whether the action is interactive.",
     },
     run_if: {
       anyOf: [
@@ -904,43 +768,6 @@ export const $ActionUpdate = {
         },
       ],
       mode: "json",
-    },
-    is_interactive: {
-      anyOf: [
-        {
-          type: "boolean",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Is Interactive",
-    },
-    interaction: {
-      anyOf: [
-        {
-          oneOf: [
-            {
-              $ref: "#/components/schemas/ResponseInteraction",
-            },
-            {
-              $ref: "#/components/schemas/ApprovalInteraction",
-            },
-          ],
-          description: "An interaction configuration",
-          discriminator: {
-            propertyName: "type",
-            mapping: {
-              approval: "#/components/schemas/ApprovalInteraction",
-              response: "#/components/schemas/ResponseInteraction",
-            },
-          },
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction",
     },
     position_x: {
       anyOf: [
@@ -5204,10 +5031,6 @@ export const $AppSettingsRead = {
       type: "integer",
       title: "App Executions Query Limit",
     },
-    app_interactions_enabled: {
-      type: "boolean",
-      title: "App Interactions Enabled",
-    },
     app_workflow_export_enabled: {
       type: "boolean",
       title: "App Workflow Export Enabled",
@@ -5238,7 +5061,6 @@ export const $AppSettingsRead = {
   required: [
     "app_registry_validation_enabled",
     "app_executions_query_limit",
-    "app_interactions_enabled",
     "app_workflow_export_enabled",
     "app_create_workspace_on_register",
     "app_action_form_mode_enabled",
@@ -5261,12 +5083,6 @@ export const $AppSettingsUpdate = {
       description:
         "The maximum number of executions to return in a single query.",
       default: 100,
-    },
-    app_interactions_enabled: {
-      type: "boolean",
-      title: "App Interactions Enabled",
-      description: "Whether app interactions are enabled.",
-      default: false,
     },
     app_workflow_export_enabled: {
       type: "boolean",
@@ -5364,65 +5180,6 @@ export const $ApprovalDecision = {
   required: ["tool_call_id", "action"],
   title: "ApprovalDecision",
   description: "Operator decision for a pending approval.",
-} as const
-
-export const $ApprovalInteraction = {
-  properties: {
-    type: {
-      type: "string",
-      const: "approval",
-      title: "Type",
-    },
-    timeout: {
-      anyOf: [
-        {
-          type: "number",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Timeout",
-      description: "The timeout for the interaction in seconds.",
-    },
-    required_approvers: {
-      type: "integer",
-      title: "Required Approvers",
-      description:
-        "Number of approvers required before the action can proceed.",
-      default: 1,
-    },
-    approver_groups: {
-      items: {
-        type: "string",
-      },
-      type: "array",
-      title: "Approver Groups",
-      description: "List of groups that are allowed to approve this action.",
-    },
-    message: {
-      type: "string",
-      title: "Message",
-      description: "Custom message to display to approvers.",
-      default: "",
-    },
-    approve_if: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Approve If",
-      description: "Condition to approve the action.",
-    },
-  },
-  type: "object",
-  required: ["type"],
-  title: "ApprovalInteraction",
-  description: "Configuration for an approval interaction.",
 } as const
 
 export const $ApprovalMap = {
@@ -15026,12 +14783,6 @@ export const $EventGroup_TypeVar_ = {
           $ref: "#/components/schemas/GetWorkflowDefinitionActivityInputs",
         },
         {
-          $ref: "#/components/schemas/InteractionResult",
-        },
-        {
-          $ref: "#/components/schemas/InteractionInput",
-        },
-        {
           $ref: "#/components/schemas/UnreadableTemporalPayload",
         },
       ],
@@ -17559,204 +17310,6 @@ export const $IntegrationUpdate = {
   required: ["grant_type"],
   title: "IntegrationUpdate",
   description: "Request model for updating an integration.",
-} as const
-
-export const $InteractionCategory = {
-  type: "string",
-  enum: ["slack"],
-  title: "InteractionCategory",
-} as const
-
-export const $InteractionContext = {
-  properties: {
-    interaction_id: {
-      type: "string",
-      format: "uuid",
-      title: "Interaction Id",
-    },
-    execution_id: {
-      type: "string",
-      pattern:
-        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
-      title: "Execution Id",
-    },
-    action_ref: {
-      type: "string",
-      title: "Action Ref",
-    },
-  },
-  type: "object",
-  required: ["interaction_id", "execution_id", "action_ref"],
-  title: "InteractionContext",
-  description: "The context of the interaction.",
-} as const
-
-export const $InteractionInput = {
-  properties: {
-    interaction_id: {
-      type: "string",
-      format: "uuid",
-      title: "Interaction Id",
-    },
-    execution_id: {
-      type: "string",
-      pattern:
-        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
-      title: "Execution Id",
-    },
-    action_ref: {
-      type: "string",
-      title: "Action Ref",
-    },
-    data: {
-      additionalProperties: true,
-      type: "object",
-      title: "Data",
-    },
-  },
-  type: "object",
-  required: ["interaction_id", "execution_id", "action_ref", "data"],
-  title: "InteractionInput",
-  description:
-    "Input for the workflow interaction handler. This is used on the client side.",
-} as const
-
-export const $InteractionRead = {
-  properties: {
-    id: {
-      type: "string",
-      format: "uuid",
-      title: "Id",
-    },
-    created_at: {
-      type: "string",
-      format: "date-time",
-      title: "Created At",
-    },
-    updated_at: {
-      type: "string",
-      format: "date-time",
-      title: "Updated At",
-    },
-    type: {
-      $ref: "#/components/schemas/InteractionType",
-    },
-    status: {
-      $ref: "#/components/schemas/InteractionStatus",
-    },
-    request_payload: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Request Payload",
-    },
-    response_payload: {
-      anyOf: [
-        {
-          additionalProperties: true,
-          type: "object",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Response Payload",
-    },
-    expires_at: {
-      anyOf: [
-        {
-          type: "string",
-          format: "date-time",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Expires At",
-    },
-    wf_exec_id: {
-      type: "string",
-      pattern:
-        "(wf-[0-9a-f]{32}|wf_[0-9a-zA-Z]+)[:/]((exec_[0-9a-zA-Z]+|exec-[\\w-]+|(?:sch-[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-.*))",
-      title: "Wf Exec Id",
-    },
-    actor: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Actor",
-    },
-    action_ref: {
-      type: "string",
-      title: "Action Ref",
-    },
-    action_type: {
-      type: "string",
-      title: "Action Type",
-    },
-  },
-  type: "object",
-  required: [
-    "id",
-    "created_at",
-    "updated_at",
-    "type",
-    "status",
-    "request_payload",
-    "response_payload",
-    "wf_exec_id",
-    "actor",
-    "action_ref",
-    "action_type",
-  ],
-  title: "InteractionRead",
-  description: "Model for reading an interaction.",
-} as const
-
-export const $InteractionResult = {
-  properties: {
-    message: {
-      type: "string",
-      title: "Message",
-    },
-    detail: {
-      anyOf: [
-        {},
-        {
-          type: "null",
-        },
-      ],
-      title: "Detail",
-    },
-  },
-  type: "object",
-  required: ["message"],
-  title: "InteractionResult",
-  description:
-    "Output for the workflow interaction handler. This is used on the client side.",
-} as const
-
-export const $InteractionStatus = {
-  type: "string",
-  enum: ["idle", "pending", "error", "timed_out", "completed"],
-  title: "InteractionStatus",
-} as const
-
-export const $InteractionType = {
-  type: "string",
-  enum: ["approval", "response"],
-  title: "InteractionType",
 } as const
 
 export const $InvitationAccept = {
@@ -23271,18 +22824,6 @@ export const $ReasoningUIPart = {
   description: "A reasoning part of a message.",
 } as const
 
-export const $ReceiveInteractionResponse = {
-  properties: {
-    message: {
-      type: "string",
-      title: "Message",
-    },
-  },
-  type: "object",
-  required: ["message"],
-  title: "ReceiveInteractionResponse",
-} as const
-
 export const $RegistryActionAvailability = {
   properties: {
     locked: {
@@ -24498,32 +24039,6 @@ export const $ResourceRef = {
     "Reference to a single resource by type and either source or local id.",
 } as const
 
-export const $ResponseInteraction = {
-  properties: {
-    type: {
-      type: "string",
-      const: "response",
-      title: "Type",
-    },
-    timeout: {
-      anyOf: [
-        {
-          type: "number",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Timeout",
-      description: "The timeout for the interaction in seconds.",
-    },
-  },
-  type: "object",
-  required: ["type"],
-  title: "ResponseInteraction",
-  description: "Configuration for a response interaction.",
-} as const
-
 export const $ResultMessage = {
   properties: {
     subtype: {
@@ -25080,16 +24595,6 @@ export const $RunActionInput = {
     },
     run_context: {
       $ref: "#/components/schemas/RunContext",
-    },
-    interaction_context: {
-      anyOf: [
-        {
-          $ref: "#/components/schemas/InteractionContext",
-        },
-        {
-          type: "null",
-        },
-      ],
     },
     stream_id: {
       type: "string",
@@ -31638,37 +31143,6 @@ export const $TaskResult = {
       ],
       title: "Error Typename",
     },
-    interaction: {
-      anyOf: [
-        {},
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction",
-    },
-    interaction_id: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction Id",
-    },
-    interaction_type: {
-      anyOf: [
-        {
-          type: "string",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Interaction Type",
-    },
     collection_index: {
       anyOf: [
         {
@@ -36966,14 +36440,6 @@ export const $WorkflowExecutionRead = {
       title: "Events",
       description: "The events in the workflow execution",
     },
-    interactions: {
-      items: {
-        $ref: "#/components/schemas/InteractionRead",
-      },
-      type: "array",
-      title: "Interactions",
-      description: "The interactions in the workflow execution",
-    },
   },
   type: "object",
   required: [
@@ -37088,14 +36554,6 @@ export const $WorkflowExecutionReadCompact_Any_Union_AgentOutput__Any__Any_ = {
       type: "array",
       title: "Events",
       description: "Compact events in the workflow execution",
-    },
-    interactions: {
-      items: {
-        $ref: "#/components/schemas/InteractionRead",
-      },
-      type: "array",
-      title: "Interactions",
-      description: "The interactions in the workflow execution",
     },
   },
   type: "object",

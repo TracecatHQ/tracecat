@@ -18,7 +18,6 @@ from tracecat.dsl.view import Position
 from tracecat.identifiers.action import ActionID
 from tracecat.identifiers.action import ref as _ref
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowIDShort
-from tracecat.interactions.schemas import ActionInteraction
 
 
 class ActionEdge(TypedDict):
@@ -101,8 +100,6 @@ class ActionRead(Schema):
     status: str
     inputs: str
     control_flow: ActionControlFlow = Field(default_factory=ActionControlFlow)
-    is_interactive: bool
-    interaction: ActionInteraction | None = None
     position_x: float = 0.0
     position_y: float = 0.0
     upstream_edges: list[ActionEdge] = Field(default_factory=list)
@@ -127,7 +124,6 @@ class ActionReadMinimal(Schema):
     title: str
     description: str
     status: str
-    is_interactive: bool
 
 
 class ActionCreate(Schema):
@@ -139,8 +135,6 @@ class ActionCreate(Schema):
     control_flow: ActionControlFlow | None = Field(
         default=None, json_schema_extra={"mode": "json"}
     )
-    is_interactive: bool = Field(default=False)
-    interaction: ActionInteraction | None = None
     position_x: float = Field(default=0.0)
     position_y: float = Field(default=0.0)
     upstream_edges: list[ActionEdge] = Field(default_factory=list)
@@ -162,8 +156,6 @@ class ActionUpdate(Schema):
     control_flow: ActionControlFlow | None = Field(
         default=None, json_schema_extra={"mode": "json"}
     )
-    is_interactive: bool | None = None
-    interaction: ActionInteraction | None = None
     position_x: float | None = None
     position_y: float | None = None
     upstream_edges: list[ActionEdge] | None = None

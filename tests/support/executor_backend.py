@@ -31,7 +31,6 @@ from tracecat_registry.sdk.client import TracecatClient
 from tracecat import config
 from tracecat.concurrency import run_blocking_rejoin_on_cancel
 from tracecat.contexts import (
-    ctx_interaction,
     ctx_logger,
     ctx_role,
     ctx_run,
@@ -191,7 +190,6 @@ class TestBackend(ExecutorBackend):
         ctx_role.set(role)
         ctx_run.set(input.run_context)
         ctx_session_id.set(input.session_id)
-        ctx_interaction.set(input.interaction_context)
 
         log = ctx_logger.get() or logger.bind(ref=input.task.ref)
 

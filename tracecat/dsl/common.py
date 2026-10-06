@@ -68,7 +68,6 @@ from tracecat.expressions.expectations import ExpectedField
 from tracecat.identifiers import ActionID
 from tracecat.identifiers.schedules import ScheduleUUID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
-from tracecat.interactions.schemas import ActionInteractionValidator
 from tracecat.logger import logger
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.storage.object import CollectionObject, InlineObject, StoredObject
@@ -1326,11 +1325,6 @@ def build_action_statements_from_actions(
 
         control_flow = ActionControlFlow.model_validate(action.control_flow)
         args = _load_action_inputs_yaml(action.inputs) or {}
-        interaction = (
-            ActionInteractionValidator.validate_python(action.interaction)
-            if action.is_interactive and action.interaction
-            else None
-        )
         action_stmt = ActionStatement(
             id=action.id,
             ref=action.ref,
@@ -1343,7 +1337,6 @@ def build_action_statements_from_actions(
             start_delay=control_flow.start_delay,
             wait_until=control_flow.wait_until,
             join_strategy=control_flow.join_strategy,
-            interaction=interaction,
             environment=control_flow.environment,
             mask_output=control_flow.mask_output,
             unsafe_disable_secret_error_withholding=control_flow.unsafe_disable_secret_error_withholding,
