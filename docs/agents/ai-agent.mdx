@@ -74,8 +74,18 @@ Default: `null`.
 <ParamField path="reasoning_effort" type="string">
 
 Reasoning level for agent runs: `off`, `low`, `medium`, `high`, or `max`.
-Leave empty to use the model's default. Providers that don't support a level
-use the closest one they do.
+Leave empty to use the model's default. Where a model or provider lacks a
+level, Tracecat falls back:
+
+- `off` runs at `low` on Claude models that always think: Claude Opus 5.5,
+  Claude Sonnet 5.5, and Claude Fable 5 and 5.1.
+- `off` uses the model's default on non-Anthropic providers.
+- `max` becomes `xhigh` on OpenAI and `high` on other non-Anthropic providers.
+- An empty value sends `high` to non-Anthropic providers.
+- Amazon Bedrock, Ollama, Mistral, and some Azure AI models use the model's
+  default for every level.
+- Non-Anthropic providers with `passthrough: true` use their endpoint's default
+  level.
 
 Default: `null`.
 

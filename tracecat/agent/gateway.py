@@ -115,11 +115,18 @@ def _strip_non_anthropic_beta_request_metadata(request: Request) -> None:
 
 
 def _strip_non_anthropic_beta_payload_fields(data: dict) -> None:
-    """Remove Anthropic/Claude SDK-only request fields for non-Anthropic providers."""
+    """Remove Anthropic/Claude SDK-only request fields for non-Anthropic providers.
+
+    ``output_config.effort`` is kept: with adaptive thinking, LiteLLM maps it to
+    each provider's own reasoning parameter. Without it, LiteLLM treats every
+    adaptive request as medium.
+    """
     data.pop("anthropic_beta", None)
     data.pop("context_management", None)
-    data.pop("output_config", None)
     data.pop("output_format", None)
+    output_config = data.pop("output_config", None)
+    if isinstance(output_config, dict) and (effort := output_config.get("effort")):
+        data["output_config"] = {"effort": effort}
 
 
 async def _request_model(request: Request) -> str | None:
@@ -656,6 +663,8 @@ class TracecatCallbackHandler(CustomLogger):
         # Strip after model_settings merge so they can't be re-added
         if provider == "bedrock":
             _strip_bedrock_unsupported_params(data)
+        if provider == "ollama":
+            _strip_ollama_thinking_params(data)
 
         logger.info(
             "Injected credentials for LiteLLM call",
@@ -747,6 +756,18 @@ def _strip_bedrock_unsupported_params(data: dict) -> None:
     """Strip params that Bedrock doesn't reliably support."""
     data.pop("thinking", None)
     data.pop("reasoning_effort", None)
+    data.pop("output_config", None)
+
+
+def _strip_ollama_thinking_params(data: dict) -> None:
+    """Strip Anthropic thinking params that LiteLLM cannot map for Ollama.
+
+    With ``reasoning_auto_summary`` on, LiteLLM turns thinking into a summary
+    dict that its Ollama mapping rejects. Ollama's ``think`` flag is on/off
+    only, so the model default applies instead.
+    """
+    data.pop("thinking", None)
+    data.pop("output_config", None)
 
 
 # LiteLLM's OpenAI-compatible adapters construct an OpenAI client, which

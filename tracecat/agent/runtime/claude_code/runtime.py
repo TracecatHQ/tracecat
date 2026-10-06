@@ -237,12 +237,15 @@ def _reasoning_options(
 ) -> tuple[ThinkingConfig | None, Literal["low", "medium", "high", "max"] | None]:
     """Map a reasoning effort to Claude SDK ``thinking`` and ``effort`` options.
 
-    ``None`` leaves both unset so the CLI applies the model default.
+    ``None`` leaves both unset so the CLI applies the model default. ``"off"``
+    also sends the lowest effort: the CLI omits disabled thinking for models
+    that cannot turn it off (e.g. Claude Opus 5.5, Fable 5), and those then run
+    at low effort instead of the CLI's default.
     """
     if reasoning_effort is None:
         return None, None
     if reasoning_effort == "off":
-        return {"type": "disabled"}, None
+        return {"type": "disabled"}, "low"
     return (
         {"type": "enabled", "budget_tokens": REASONING_BUDGET_TOKENS[reasoning_effort]},
         reasoning_effort,

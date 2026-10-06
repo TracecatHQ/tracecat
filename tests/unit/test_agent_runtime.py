@@ -1277,7 +1277,7 @@ class TestClaudeAgentRuntimeRun:
         ("reasoning_effort", "expected_thinking", "expected_effort"),
         [
             (None, None, None),
-            ("off", {"type": "disabled"}, None),
+            ("off", {"type": "disabled"}, "low"),
             ("low", {"type": "enabled", "budget_tokens": 4_000}, "low"),
             ("max", {"type": "enabled", "budget_tokens": 32_000}, "max"),
         ],
@@ -1292,7 +1292,8 @@ class TestClaudeAgentRuntimeRun:
         expected_effort: str | None,
     ) -> None:
         """None leaves the CLI on the model default; levels set both effort
-        (adaptive and non-Claude models) and a budget (older Claude models)."""
+        (adaptive and non-Claude models) and a budget (older Claude models).
+        Off adds the lowest effort for models that cannot disable thinking."""
         captured_options: list[Any] = []
 
         def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
