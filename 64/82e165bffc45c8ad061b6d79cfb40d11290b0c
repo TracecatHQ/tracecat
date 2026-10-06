@@ -1,0 +1,83 @@
+frontend/src/components/cases/case-linked-rows-section.tsx
+  s_6b5f9492a52675::t_89a4a8c5ed290a 15
+  s_6b5f9492a52675::t_6d7a37da50dbce 84,174,180-183,185,190,195-196,198-199
+  s_6b5f9492a52675::t_c1040ea95d4a60 7,17-26,35,37-41,50-52,76-83,97-101,131,144-146,175-179,184,186-189,191-194,197,242,245-252,258-265,276-278,282-284,303,305-307,310,375-387,408-410,456-468,471,499-509
+frontend/src/app/workspaces/[workspaceId]/tables/[tableId]/layout.tsx
+  s_6b5f9492a52675::t_1c92ebae6f862f 9,66
+frontend/tests/case-link-rows-dialog.test.tsx
+  s_6b5f9492a52675::t_18df21b69345c2 250,255,259,263,280,308,325,346,380
+frontend/src/components/cases/case-field-kind-dialogs.tsx
+  s_6b5f9492a52675::t_89a4a8c5ed290a 13,17-19,21,23,32,34,40,55-61,70,74-76,80,98,107,110,116,174-180,207,209,213-215
+frontend/src/components/tables/ag-grid-cell-renderer.tsx
+  s_6b5f9492a52675::t_6d7a37da50dbce 35-36,90
+  s_6b5f9492a52675::t_4a5b6031a57901 10-14,26-30,33-34,59,62,68,76-88,94,96,102-118
+frontend/tests/ag-grid-clipboard.test.ts
+  s_6b5f9492a52675::t_88186c0648448a 90-116
+frontend/src/components/cases/case-link-rows-dialog.tsx
+  s_6b5f9492a52675::t_c1040ea95d4a60 45,165,265,267,269,326,332,335
+frontend/src/components/tables/ag-grid-table.tsx
+  s_6b5f9492a52675::t_4a5b6031a57901 17,145-149,154-157
+frontend/src/components/cases/case-panel-custom-fields.tsx
+  s_6b5f9492a52675::t_89a4a8c5ed290a 8-9,190,270
+frontend/src/components/tables/table-insert-row-dialog.tsx
+  s_6b5f9492a52675::t_0d5a141e3ffe64 5,8,36,39,168-169,171-172,175-188,190-204,206,218,220,227-231,239,243,248,270,280-323,325
+  s_6b5f9492a52675::t_b44b6850c396a9 324
+frontend/tests/case-linked-rows-section.test.tsx
+  s_6b5f9492a52675::t_88186c0648448a 21,30,45-49,54,58-60,64,68-75,80-142,145-146,148,175-178,288-289,332-336,610,614-615,620-757,762,794-797,838-841,877,879-884
+  s_6b5f9492a52675::t_4b8ba530831112 76-79
+frontend/tests/case-insert-row-dialog.test.tsx
+  s_6b5f9492a52675::t_8769be00a9b4de 69-70,73-77,83-86
+  s_6b5f9492a52675::t_f1b44fc08f5658 1-68,71-72,78-82,87-144
+frontend/tests/ag-grid-column-defs.test.ts
+  s_6b5f9492a52675::t_4b8ba530831112 1,5,38-71
+  s_6b5f9492a52675::t_3f035917d59c50 72
+frontend/src/components/cases/case-insert-row-dialog.tsx
+  s_6b5f9492a52675::t_863b3f382456ce 1-65
+frontend/src/components/cases/case-value-drawer.tsx
+  s_6b5f9492a52675::t_7c0b942778c80f 1-229
+frontend/src/components/cases/editor.css
+  s_6b5f9492a52675::t_89a4a8c5ed290a 142-143,155
+  s_6b5f9492a52675::t_68a14f79774454 106-110
+frontend/src/hooks/use-case-rows.ts
+  s_6b5f9492a52675::t_c1040ea95d4a60 4
+  s_6b5f9492a52675::t_36060d524c1f64 3,8,12,33-47,233-292
+frontend/src/components/tables/ag-grid-clipboard.ts
+  s_6b5f9492a52675::t_1c92ebae6f862f 8-12,20-21,41,95-98,104
+frontend/src/components/tables/table-rows-grid.tsx
+  s_6b5f9492a52675::t_ce098024dd6957 6-7,21-24,46-55,78-95,99-105,107-108,121-123,139-149,152-162,216-229,256-263,274
+frontend/tests/case-field-kind-dialogs.test.tsx
+  s_6b5f9492a52675::t_68a14f79774454 7,9-10,12,89,91,96,101,103,108,113,115-116,118-127,130,132,139-155,157,165-181,184-186,188,194-195,197-207,215-217,219-220,222-225,227,231,233-234,236-238,240-243,248-273,275-302,304-345
+frontend/src/components/tables/table-panel-context.tsx
+  s_6b5f9492a52675::t_1c92ebae6f862f 6-19,25-26
+frontend/src/components/tables/ag-grid-column-defs.tsx
+  s_6b5f9492a52675::t_4a5b6031a57901 9-10,127-160,162
+  s_6b5f9492a52675::t_48e2e854fa3621 161,163
+frontend/src/lib/cases/case-rows.ts
+  s_6b5f9492a52675::t_ce098024dd6957 20-27
+frontend/tests/use-case-rows.test.tsx
+  s_6b5f9492a52675::t_4b8ba530831112 7,11,13,20,23,33,35,39-42,52-57,299-393
+frontend/tests/case-panel-custom-fields.test.tsx
+  s_6b5f9492a52675::t_68a14f79774454 10
+frontend/src/components/cases/case-panel-view.tsx
+  s_6b5f9492a52675::t_89a4a8c5ed290a 37
+  s_6b5f9492a52675::t_6d7a37da50dbce 542,818
+frontend/src/components/tables/table-side-panel.tsx
+  s_6b5f9492a52675::t_1c92ebae6f862f 44-45,112-117
+  s_6b5f9492a52675::t_7be471d234bdec 118-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6482e165bffc45c8ad061b6d79cfb40d11290b0c",
+  "prompts": {},
+  "sessions": {
+    "s_6b5f9492a52675": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de981752-046e-4e5c-8424-c2b98f517356",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
