@@ -6,10 +6,13 @@ from typing import Annotated, Any, Literal
 
 import pydantic
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
-from pydantic import Discriminator, TypeAdapter
+from pydantic import Discriminator, TypeAdapter, model_validator
 
 from tracecat.agent.common.stream_types import ToolCallContent
-from tracecat.agent.common.types import MCPServerConfig
+from tracecat.agent.common.types import (
+    MCPServerConfig,
+    read_reasoning_effort_as_enable_thinking,
+)
 from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import AgentSubagentsConfig
@@ -106,6 +109,12 @@ class AgentConfig:
     workspace ``resolved_skills``. Asset contents are pinned by the executor
     image; no host paths or user-supplied origin claims cross this boundary.
     """
+
+    @model_validator(mode="before")
+    @classmethod
+    def read_reasoning_effort(cls, data: Any) -> Any:
+        """Accept Temporal payloads that a newer worker wrote."""
+        return read_reasoning_effort_as_enable_thinking(data)
 
 
 # --- Tool Types (Harness-Agnostic) ---
