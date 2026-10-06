@@ -248,6 +248,9 @@ CLAUDE_CODE_STATEFUL_TOOLS = [
     "CronList",
     "EnterWorktree",
     "ExitWorktree",
+    # Session wakeups and agent discovery need an interactive harness.
+    "ScheduleWakeup",
+    "ListAgents",
 ]
 
 DISALLOWED_TOOLS = [
