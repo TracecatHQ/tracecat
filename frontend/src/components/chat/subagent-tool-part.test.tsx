@@ -282,6 +282,105 @@ describe("subagent tool part", () => {
     )
   })
 
+  it("shows a cancelled child as interrupted without its raw result", () => {
+    const cancelled = subagentPart({
+      state: "output-error",
+      errorText: JSON.stringify({
+        session_id: CHILD_ID,
+        status: "cancelled",
+        output: "Subagent cancelled",
+      }),
+    })
+    render(
+      <WorkspaceIdProvider workspaceId="workspace-1">
+        <MessagePart
+          part={cancelled}
+          partIdx={0}
+          id="parent-message"
+          role="assistant"
+          isLastMessage
+          interruptedToolCallIds={new Set(["call_subagent"])}
+        />
+      </WorkspaceIdProvider>
+    )
+
+    expect(screen.getByTestId("tool-state")).toHaveTextContent(
+      "output-interrupted"
+    )
+    expect(screen.getByText("Stopped before completion")).toBeInTheDocument()
+    expect(screen.queryByText(/Subagent cancelled/)).not.toBeInTheDocument()
+    // The child's transcript stays available as the detail.
+    expect(mockUseGetChatVercel).toHaveBeenLastCalledWith({
+      chatId: CHILD_ID,
+      workspaceId: "workspace-1",
+    })
+  })
+
+  it("shows child tools its cancellation aborted as interrupted", async () => {
+    const persistedMessages: UIMessage[] = [
+      {
+        id: "child-assistant",
+        role: "assistant",
+        parts: [
+          {
+            type: "tool-bash",
+            toolCallId: "typo",
+            state: "output-error",
+            input: { command: "sleeep 120" },
+            errorText: "command not found: sleeep",
+          },
+          {
+            type: "tool-bash",
+            toolCallId: "wait",
+            state: "output-error",
+            input: { command: "sleep 120" },
+            errorText: "Command aborted",
+          },
+        ],
+      } as UIMessage,
+      {
+        id: "child-cancelled",
+        role: "system",
+        parts: [
+          {
+            type: "data-cancelled",
+            data: { reason: "user_cancel", tool_call_ids: ["wait"] },
+          },
+        ],
+      } as UIMessage,
+    ]
+    mockUseGetChatVercel.mockReturnValue({
+      chat: { id: CHILD_ID, messages: persistedMessages },
+      chatLoading: false,
+      chatError: null,
+    })
+
+    renderPart(
+      subagentPart({
+        state: "output-error",
+        errorText: JSON.stringify({
+          session_id: CHILD_ID,
+          status: "cancelled",
+          output: "Subagent cancelled",
+        }),
+      }),
+      (node) => (
+        <WorkspaceIdProvider workspaceId="workspace-1">
+          {node}
+        </WorkspaceIdProvider>
+      )
+    )
+
+    expect(await screen.findByText("Interrupted")).toBeInTheDocument()
+    const states = screen
+      .getAllByTestId("tool-state")
+      .map((element) => element.textContent)
+    // The card itself, then the genuine failure, then the aborted call.
+    expect(states.slice(1)).toEqual(["output-error", "output-interrupted"])
+    expect(screen.getByText("command not found: sleeep")).toBeInTheDocument()
+    expect(screen.queryByText("Command aborted")).not.toBeInTheDocument()
+  })
+
   it("keeps completed live text until fresh history loads, then releases it", async () => {
     const store = new SubagentStreamStore()
     for (const [index, chunk] of [

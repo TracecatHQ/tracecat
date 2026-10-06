@@ -1899,6 +1899,23 @@ function SubagentTranscript({
     isRecoveryPaused,
     retryRecovery,
   } = useSubagentTranscript({ sessionId, finished })
+  // A cancelled child's own marker lists the tool calls the cancellation
+  // aborted, so they render as interrupted rather than failed.
+  const interruptedToolCallIds = useMemo(() => {
+    const toolCallIds = new Set<string>()
+    for (const { parts } of messages) {
+      for (const part of parts) {
+        if (part.type === CANCELLED_DATA_PART_TYPE) {
+          for (const toolCallId of getCancelledPartToolCallIds(
+            (part as { data?: unknown }).data
+          )) {
+            toolCallIds.add(toolCallId)
+          }
+        }
+      }
+    }
+    return toolCallIds
+  }, [messages])
   const recoveryNotice = isRecoveryPaused ? (
     <div className="flex items-center gap-2 text-xs text-muted-foreground">
       <span>Transcript recovery paused.</span>
@@ -1945,6 +1962,7 @@ function SubagentTranscript({
                 role={role}
                 status={status}
                 isLastMessage={id === lastMessageId}
+                interruptedToolCallIds={interruptedToolCallIds}
               />
             ))}
         </div>
