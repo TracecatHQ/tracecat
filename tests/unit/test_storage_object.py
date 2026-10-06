@@ -6,12 +6,14 @@ Uses InlineObjectStorage as the test double - no mocks needed.
 import pytest
 from pydantic import TypeAdapter
 
-from tracecat.storage.backends import InlineObjectStorage
+from tracecat.storage.backends import InlineObjectStorage, S3ObjectStorage
 from tracecat.storage.object import (
     ExternalObject,
     InlineObject,
     ObjectRef,
     StoredObject,
+    action_key,
+    content_addressed_key,
     get_object_storage,
     reset_object_storage,
     set_object_storage,
@@ -293,3 +295,88 @@ class TestDependencyInjection:
 
         # Cleanup
         reset_object_storage()
+
+
+class TestContentAddressedKey:
+    def test_inserts_hash_before_extension(self):
+        assert (
+            content_addressed_key("ws/run/actions/s/a.json", "abc")
+            == "ws/run/actions/s/a.abc.json"
+        )
+
+    def test_appends_hash_without_extension(self):
+        assert content_addressed_key("ws/run/a", "abc") == "ws/run/a.abc"
+
+
+class TestS3ObjectStorageDuplicateAttempts:
+    """Duplicate activity attempts must not overwrite accepted results."""
+
+    @pytest.fixture
+    def blobs(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, bytes]:
+        from tracecat.storage import blob, utils
+
+        stored: dict[str, bytes] = {}
+
+        async def ensure_bucket_exists(bucket: str) -> None:
+            pass
+
+        async def upload_file(
+            content: bytes, key: str, bucket: str, content_type: str
+        ) -> None:
+            stored[f"{bucket}/{key}"] = content
+
+        async def download_file(key: str, bucket: str) -> bytes:
+            return stored[f"{bucket}/{key}"]
+
+        monkeypatch.setattr(blob, "ensure_bucket_exists", ensure_bucket_exists)
+        monkeypatch.setattr(blob, "upload_file", upload_file)
+        monkeypatch.setattr(blob, "download_file", download_file)
+        # A warm per-pod cache would hide the race, so start cold.
+        monkeypatch.setattr(
+            utils, "_blob_cache", utils.SizedMemoryCache(max_bytes=1 << 20, ttl=60)
+        )
+        return stored
+
+    @pytest.mark.anyio
+    async def test_late_attempt_cannot_overwrite_accepted_ref(
+        self, blobs: dict[str, bytes]
+    ):
+        storage = S3ObjectStorage(bucket="b", threshold_bytes=0)
+        key = action_key("ws", "run", "<root>:0", "a")
+
+        accepted = await storage.store(key, {"attempt": 2})
+        late = await storage.store(key, {"attempt": 1})
+
+        assert isinstance(accepted, ExternalObject)
+        assert isinstance(late, ExternalObject)
+        assert accepted.ref.key != late.ref.key
+        assert await storage.retrieve(accepted) == {"attempt": 2}
+        assert await storage.retrieve(late) == {"attempt": 1}
+
+    @pytest.mark.anyio
+    async def test_identical_retry_is_idempotent(self, blobs: dict[str, bytes]):
+        storage = S3ObjectStorage(bucket="b", threshold_bytes=0)
+        key = action_key("ws", "run", "<root>:0", "a")
+
+        first = await storage.store(key, {"same": True})
+        second = await storage.store(key, {"same": True})
+
+        assert isinstance(first, ExternalObject)
+        assert isinstance(second, ExternalObject)
+        assert first.ref.key == second.ref.key
+        assert len(blobs) == 1
+
+    @pytest.mark.anyio
+    async def test_legacy_ref_still_retrieves(self, blobs: dict[str, bytes]):
+        legacy_key = "ws/run/actions/<root>:0/a.json"
+        content = serialize_object({"legacy": True})
+        blobs[f"b/{legacy_key}"] = content
+        ref = ObjectRef(
+            bucket="b",
+            key=legacy_key,
+            size_bytes=len(content),
+            sha256=compute_sha256(content),
+        )
+
+        storage = S3ObjectStorage(bucket="b", threshold_bytes=0)
+        assert await storage.retrieve(ExternalObject(ref=ref)) == {"legacy": True}

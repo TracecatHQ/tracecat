@@ -151,6 +151,45 @@ A workflow that repeats the index step on every run must guard it, and downstrea
       alert_id: ${{ TRIGGER.alert_id }}
 ```
 
+## Vector search
+
+Vector search finds rows by meaning in the `TEXT` columns you choose.
+Connect an [LLM provider](/agents/llm-providers) that offers an embedding model first: OpenAI, Gemini, Amazon Bedrock, Ollama, or vLLM.
+
+<Steps>
+  <Step title="Enable vector search on a column">
+    Open the table, click the arrow in a `TEXT` column header, and select `Enable vector search`.
+
+    ![Enable vector search](/img/tables/enable-vector-search.png)
+  </Step>
+  <Step title="Confirm">
+    The dialog names the provider and embedding model that receive the column's text. Click `Enable vector search`.
+
+    ![Confirm vector search](/img/tables/confirm-vector-search.png)
+  </Step>
+  <Step title="Wait for the index">
+    The status badge in the page header reads `Indexing` while Tracecat indexes the rows, then `Ready`.
+    Hover over the badge to see the embedding model and how many rows are ready, pending, failed, or empty.
+
+    ![Vector search status](/img/tables/vector-search-status.png)
+  </Step>
+  <Step title="Search by meaning">
+    Call `core.table.search` from a workflow. Each result holds the `row_id`, a similarity `score`, and the matching excerpt.
+
+    ```yaml
+    - ref: find_similar_alerts
+      action: core.table.search
+      args:
+        table: alerts
+        query: stolen credentials used to sign in
+        limit: 5
+    ```
+  </Step>
+</Steps>
+
+Repeat the first two steps to add more columns.
+To remove a column, select `Disable vector search` from the same menu; Tracecat rebuilds the index for the remaining columns.
+
 ## Table actions
 
 Use `core.table.*` actions when you want your workflows to work with tables directly.

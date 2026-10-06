@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
@@ -24,7 +25,13 @@ from tracecat.authz.membership import ensure_member
 from tracecat.authz.scopes import ORG_ADMIN_SCOPES
 from tracecat.authz.seeding import seed_system_roles_for_org, seed_system_scopes
 from tracecat.db.models import (
+    ExternalGroup,
+    ExternalGroupMapping,
+    Group,
+    GroupMember,
+    GroupRoleAssignment,
     Invitation,
+    InvitationGroup,
     Organization,
     OrganizationMembership,
     RoleScope,
@@ -51,6 +58,7 @@ from tracecat.invitations.service import (
     get_pending_invitation_for_email,
 )
 from tracecat.organization.router import list_org_members
+from tracecat.organization.service import OrgService
 
 
 @pytest.fixture
@@ -144,6 +152,19 @@ async def invitee(session: AsyncSession) -> User:
     return user
 
 
+@pytest.fixture(autouse=True)
+def rbac_addons_entitled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Invitation-group tests run with RBAC add-ons unless they override it."""
+    monkeypatch.setattr(
+        "tracecat.invitations.service.is_org_entitled",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(
+        "tracecat.service.is_org_entitled",
+        AsyncMock(return_value=True),
+    )
+
+
 @pytest.fixture
 async def workspace_a(session: AsyncSession, org: Organization) -> Workspace:
     return await _workspace(session, org.id, "ws-a")
@@ -165,6 +186,19 @@ async def _workspace(
     session.add(workspace)
     await session.commit()
     return workspace
+
+
+async def _group(session: AsyncSession, organization_id: uuid.UUID, name: str) -> Group:
+    group = Group(
+        id=uuid.uuid4(),
+        name=f"{name}-{uuid.uuid4().hex[:6]}",
+        description=None,
+        organization_id=organization_id,
+        created_by=None,
+    )
+    session.add(group)
+    await session.commit()
+    return group
 
 
 async def _role_id(
@@ -390,6 +424,288 @@ class TestCreateInvitationGrants:
         assert invitation.created_by_platform_admin is False
 
 
+class TestCreateInvitationGroups:
+    """Validation and persistence for invitation group memberships."""
+
+    @pytest.mark.anyio
+    async def test_create_persists_group_links(
+        self, session: AsyncSession, org: Organization, admin: User
+    ) -> None:
+        group_a = await _group(session, org.id, "responders")
+        group_b = await _group(session, org.id, "analysts")
+        role_id = await _role_id(session, org.id, "organization-admin")
+
+        invitation = await InvitationService(
+            session, role=_admin_role(org.id, admin.id)
+        ).create_invitation(
+            InvitationCreate(
+                email="grouped@example.com",
+                grants=[InvitationGrant(role_id=role_id)],
+                group_ids=[group_a.id, group_b.id],
+            )
+        )
+
+        stored = set(
+            (
+                await session.execute(
+                    select(InvitationGroup.group_id).where(
+                        InvitationGroup.invitation_id == invitation.id
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert stored == {group_a.id, group_b.id}
+        members = await list_org_members(
+            role=_admin_role(org.id, admin.id), session=session
+        )
+        invited = next(
+            member for member in members if member.email == "grouped@example.com"
+        )
+        assert [item.model_dump() for item in invited.groups] == sorted(
+            [
+                {"id": group_a.id, "name": group_a.name},
+                {"id": group_b.id, "name": group_b.name},
+            ],
+            key=lambda item: (item["name"], item["id"]),
+        )
+
+    @pytest.mark.anyio
+    async def test_members_list_hides_invitation_groups_without_rbac_read(
+        self, session: AsyncSession, org: Organization, admin: User
+    ) -> None:
+        group = await _group(session, org.id, "hidden")
+        role_id = await _role_id(session, org.id, "organization-admin")
+        await InvitationService(
+            session, role=_admin_role(org.id, admin.id)
+        ).create_invitation(
+            InvitationCreate(
+                email="hidden-groups@example.com",
+                grants=[InvitationGrant(role_id=role_id)],
+                group_ids=[group.id],
+            )
+        )
+        limited_role = Role(
+            type="user",
+            user_id=admin.id,
+            organization_id=org.id,
+            service_id="tracecat-api",
+            scopes=frozenset({"org:member:read"}),
+        )
+
+        members = await list_org_members(role=limited_role, session=session)
+
+        invited = next(
+            member for member in members if member.email == "hidden-groups@example.com"
+        )
+        assert invited.groups == []
+
+    @pytest.mark.anyio
+    async def test_members_list_hides_invitation_groups_without_entitlement(
+        self,
+        session: AsyncSession,
+        org: Organization,
+        admin: User,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        group = await _group(session, org.id, "unentitled")
+        role_id = await _role_id(session, org.id, "organization-admin")
+        await InvitationService(
+            session, role=_admin_role(org.id, admin.id)
+        ).create_invitation(
+            InvitationCreate(
+                email="unentitled-groups@example.com",
+                grants=[InvitationGrant(role_id=role_id)],
+                group_ids=[group.id],
+            )
+        )
+        monkeypatch.setattr(
+            OrgService, "has_entitlement", AsyncMock(return_value=False)
+        )
+
+        members = await list_org_members(
+            role=_admin_role(org.id, admin.id), session=session
+        )
+
+        invited = next(
+            member
+            for member in members
+            if member.email == "unentitled-groups@example.com"
+        )
+        assert invited.groups == []
+
+    @pytest.mark.anyio
+    async def test_create_rejects_group_without_live_rbac_update(
+        self, session: AsyncSession, org: Organization, admin: User
+    ) -> None:
+        group = await _group(session, org.id, "limited")
+        inviter = User(
+            id=uuid.uuid4(),
+            email="limited-inviter@example.com",
+            hashed_password="hashed",
+            role=UserRole.BASIC,
+            is_active=True,
+            is_superuser=False,
+            is_verified=True,
+        )
+        invite_role = DBRole(
+            id=uuid.uuid4(),
+            name="Invitation Sender",
+            slug=None,
+            organization_id=org.id,
+        )
+        empty_role = DBRole(
+            id=uuid.uuid4(),
+            name="Empty Invitation Role",
+            slug=None,
+            organization_id=org.id,
+        )
+        session.add_all([inviter, invite_role, empty_role])
+        await session.flush()
+        invite_scope_id = await session.scalar(
+            select(Scope.id).where(Scope.name == "org:member:invite")
+        )
+        assert invite_scope_id is not None
+        session.add(RoleScope(role_id=invite_role.id, scope_id=invite_scope_id))
+        await ensure_member(session, org.id, inviter.id)
+        session.add(
+            UserRoleAssignment(
+                organization_id=org.id,
+                user_id=inviter.id,
+                role_id=invite_role.id,
+                workspace_id=None,
+            )
+        )
+        await session.commit()
+        role = Role(
+            type="user",
+            user_id=inviter.id,
+            organization_id=org.id,
+            service_id="tracecat-api",
+            scopes=frozenset({"org:member:invite"}),
+        )
+
+        with pytest.raises(TracecatAuthorizationError, match="org:rbac:update"):
+            await InvitationService(session, role=role).create_invitation(
+                InvitationCreate(
+                    email="limited-target@example.com",
+                    grants=[InvitationGrant(role_id=empty_role.id)],
+                    group_ids=[group.id],
+                )
+            )
+
+    @pytest.mark.anyio
+    async def test_create_rejects_group_without_entitlement(
+        self,
+        session: AsyncSession,
+        org: Organization,
+        admin: User,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        group = await _group(session, org.id, "premium")
+        role_id = await _role_id(session, org.id, "organization-admin")
+        monkeypatch.setattr(
+            "tracecat.invitations.service.is_org_entitled",
+            AsyncMock(return_value=False),
+        )
+
+        with pytest.raises(TracecatAuthorizationError, match="entitlement"):
+            await InvitationService(
+                session, role=_admin_role(org.id, admin.id)
+            ).create_invitation(
+                InvitationCreate(
+                    email="no-entitlement@example.com",
+                    grants=[InvitationGrant(role_id=role_id)],
+                    group_ids=[group.id],
+                )
+            )
+
+    @pytest.mark.anyio
+    async def test_create_rejects_foreign_group(
+        self,
+        session: AsyncSession,
+        org: Organization,
+        other_org: Organization,
+        admin: User,
+    ) -> None:
+        group = await _group(session, other_org.id, "foreign")
+        role_id = await _role_id(session, org.id, "organization-admin")
+
+        with pytest.raises(TracecatValidationError, match="Invalid group ID"):
+            await InvitationService(
+                session, role=_admin_role(org.id, admin.id)
+            ).create_invitation(
+                InvitationCreate(
+                    email="foreign-group@example.com",
+                    grants=[InvitationGrant(role_id=role_id)],
+                    group_ids=[group.id],
+                )
+            )
+
+    @pytest.mark.anyio
+    async def test_create_rejects_idp_managed_group(
+        self, session: AsyncSession, org: Organization, admin: User
+    ) -> None:
+        group = await _group(session, org.id, "directory")
+        external_group = ExternalGroup(
+            organization_id=org.id,
+            external_id="synthetic-directory-group",
+            display_name="Synthetic Directory Group",
+        )
+        session.add(external_group)
+        await session.flush()
+        session.add(
+            ExternalGroupMapping(
+                organization_id=org.id,
+                external_group_id=external_group.id,
+                group_id=group.id,
+            )
+        )
+        await session.commit()
+        role_id = await _role_id(session, org.id, "organization-admin")
+
+        with pytest.raises(TracecatValidationError, match="provider-managed"):
+            await InvitationService(
+                session, role=_admin_role(org.id, admin.id)
+            ).create_invitation(
+                InvitationCreate(
+                    email="mapped-group@example.com",
+                    grants=[InvitationGrant(role_id=role_id)],
+                    group_ids=[group.id],
+                )
+            )
+
+    @pytest.mark.anyio
+    async def test_create_rejects_group_scopes_above_caller(
+        self, session: AsyncSession, org: Organization, admin: User
+    ) -> None:
+        group = await _group(session, org.id, "privileged")
+        owner_role_id = await _role_id(session, org.id, "organization-owner")
+        session.add(
+            GroupRoleAssignment(
+                organization_id=org.id,
+                group_id=group.id,
+                workspace_id=None,
+                role_id=owner_role_id,
+                assigned_by=admin.id,
+            )
+        )
+        await session.commit()
+        grant_role_id = await _role_id(session, org.id, "organization-admin")
+
+        with pytest.raises(TracecatAuthorizationError, match="Cannot grant scopes"):
+            await InvitationService(
+                session, role=_admin_role(org.id, admin.id)
+            ).create_invitation(
+                InvitationCreate(
+                    email="privileged-group@example.com",
+                    grants=[InvitationGrant(role_id=grant_role_id)],
+                    group_ids=[group.id],
+                )
+            )
+
+
 class TestImplicitMemberRoleGrant:
     """``organization-member`` comes from presence, so it cannot be invited."""
 
@@ -608,6 +924,185 @@ class TestAcceptInvitationGrants:
 
         assignments = await _assignments(session, invitee.id, org.id)
         assert assignments == {workspace_a.id: editor_role_id}
+
+
+class TestAcceptInvitationGroups:
+    """Invitation groups are applied atomically with role grants."""
+
+    @pytest.mark.anyio
+    async def test_accept_adds_group_and_role_grant(
+        self,
+        session: AsyncSession,
+        org: Organization,
+        admin: User,
+        invitee: User,
+    ) -> None:
+        group = await _group(session, org.id, "accept")
+        role_id = await _role_id(session, org.id, "organization-admin")
+        invitation = await InvitationService(
+            session, role=_admin_role(org.id, admin.id)
+        ).create_invitation(
+            InvitationCreate(
+                email=invitee.email,
+                grants=[InvitationGrant(role_id=role_id)],
+                group_ids=[group.id],
+            )
+        )
+
+        await accept_invitation_for_user(
+            session, user_id=invitee.id, token=invitation.token
+        )
+
+        assert await session.get(GroupMember, (invitee.id, group.id)) is not None
+        assert await _assignments(session, invitee.id, org.id) == {None: role_id}
+
+    @pytest.mark.anyio
+    async def test_accept_is_idempotent_for_existing_group_member(
+        self,
+        session: AsyncSession,
+        org: Organization,
+        admin: User,
+        invitee: User,
+    ) -> None:
+        group = await _group(session, org.id, "existing")
+        role_id = await _role_id(session, org.id, "organization-admin")
+        invitation = await InvitationService(
+            session, role=_admin_role(org.id, admin.id)
+        ).create_invitation(
+            InvitationCreate(
+                email=invitee.email,
+                grants=[InvitationGrant(role_id=role_id)],
+                group_ids=[group.id],
+            )
+        )
+        await ensure_member(session, org.id, invitee.id)
+        session.add(
+            GroupMember(
+                organization_id=org.id,
+                user_id=invitee.id,
+                group_id=group.id,
+            )
+        )
+        await session.commit()
+
+        await accept_invitation_for_user(
+            session, user_id=invitee.id, token=invitation.token
+        )
+
+        count = await session.scalar(
+            select(func.count())
+            .select_from(GroupMember)
+            .where(
+                GroupMember.user_id == invitee.id,
+                GroupMember.group_id == group.id,
+            )
+        )
+        assert count == 1
+        assert await _assignments(session, invitee.id, org.id) == {None: role_id}
+
+    @pytest.mark.anyio
+    async def test_accept_skips_deleted_group(
+        self,
+        session: AsyncSession,
+        org: Organization,
+        admin: User,
+        invitee: User,
+    ) -> None:
+        group = await _group(session, org.id, "deleted")
+        role_id = await _role_id(session, org.id, "organization-admin")
+        invitation = await InvitationService(
+            session, role=_admin_role(org.id, admin.id)
+        ).create_invitation(
+            InvitationCreate(
+                email=invitee.email,
+                grants=[InvitationGrant(role_id=role_id)],
+                group_ids=[group.id],
+            )
+        )
+        group_id = group.id
+        await session.execute(delete(Group).where(Group.id == group_id))
+        await session.commit()
+
+        await accept_invitation_for_user(
+            session, user_id=invitee.id, token=invitation.token
+        )
+
+        assert await session.get(GroupMember, (invitee.id, group_id)) is None
+        assert await _assignments(session, invitee.id, org.id) == {None: role_id}
+
+    @pytest.mark.anyio
+    async def test_accept_skips_group_that_became_idp_managed(
+        self,
+        session: AsyncSession,
+        org: Organization,
+        admin: User,
+        invitee: User,
+    ) -> None:
+        group = await _group(session, org.id, "became-mapped")
+        role_id = await _role_id(session, org.id, "organization-admin")
+        invitation = await InvitationService(
+            session, role=_admin_role(org.id, admin.id)
+        ).create_invitation(
+            InvitationCreate(
+                email=invitee.email,
+                grants=[InvitationGrant(role_id=role_id)],
+                group_ids=[group.id],
+            )
+        )
+        external_group = ExternalGroup(
+            organization_id=org.id,
+            external_id="became-managed",
+            display_name="Became Managed",
+        )
+        session.add(external_group)
+        await session.flush()
+        session.add(
+            ExternalGroupMapping(
+                organization_id=org.id,
+                external_group_id=external_group.id,
+                group_id=group.id,
+            )
+        )
+        await session.commit()
+
+        await accept_invitation_for_user(
+            session, user_id=invitee.id, token=invitation.token
+        )
+
+        assert await session.get(GroupMember, (invitee.id, group.id)) is None
+        assert await _assignments(session, invitee.id, org.id) == {None: role_id}
+
+    @pytest.mark.anyio
+    async def test_accept_skips_groups_when_entitlement_was_removed(
+        self,
+        session: AsyncSession,
+        org: Organization,
+        admin: User,
+        invitee: User,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        group = await _group(session, org.id, "no-longer-entitled")
+        role_id = await _role_id(session, org.id, "organization-admin")
+        invitation = await InvitationService(
+            session, role=_admin_role(org.id, admin.id)
+        ).create_invitation(
+            InvitationCreate(
+                email=invitee.email,
+                grants=[InvitationGrant(role_id=role_id)],
+                group_ids=[group.id],
+            )
+        )
+        monkeypatch.setattr(
+            "tracecat.invitations.service.is_org_entitled",
+            AsyncMock(return_value=False),
+        )
+
+        await accept_invitation_for_user(
+            session, user_id=invitee.id, token=invitation.token
+        )
+
+        assert await session.get(GroupMember, (invitee.id, group.id)) is None
+        assert await _assignments(session, invitee.id, org.id) == {None: role_id}
 
 
 class TestSamlEnforcedAcceptance:
@@ -906,6 +1401,16 @@ class TestDuplicateGrantScopes:
             ],
         )
         assert len(params.grants) == 2
+
+    def test_duplicate_group_ids_rejected(self):
+        role_id = uuid.uuid4()
+        group_id = uuid.uuid4()
+        with pytest.raises(ValidationError, match="Each group may appear at most once"):
+            InvitationCreate(
+                email="dupe-groups@example.com",
+                grants=[InvitationGrant(role_id=role_id)],
+                group_ids=[group_id, group_id],
+            )
 
 
 @pytest.mark.anyio

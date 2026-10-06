@@ -61,6 +61,7 @@ const CASE_FIELD_TYPE_OPTIONS: CaseFieldTypeOption[] = [
   { value: "BOOLEAN", type: "BOOLEAN", kind: null },
   { value: "DATE", type: "DATE", kind: null },
   { value: "TIMESTAMPTZ", type: "TIMESTAMPTZ", kind: null },
+  { value: "JSONB", type: "JSONB", kind: null },
   { value: "URL", type: "JSONB", kind: "URL" },
   { value: "SELECT", type: "SELECT", kind: null },
   { value: "MULTI_SELECT", type: "MULTI_SELECT", kind: null },
@@ -454,6 +455,7 @@ export function AddCustomFieldDialog({
             )}
 
             {!selectedKind &&
+              selectedType !== "JSONB" &&
               (selectedType === "MULTI_SELECT" ? (
                 <FormField
                   control={form.control}

@@ -13,6 +13,7 @@ from starlette.status import (
     HTTP_400_BAD_REQUEST,
     HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
+    HTTP_422_UNPROCESSABLE_CONTENT,
     HTTP_500_INTERNAL_SERVER_ERROR,
 )
 
@@ -21,6 +22,7 @@ from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.schemas import UserRead
 from tracecat.auth.users import search_users
 from tracecat.authz.controls import require_scope
+from tracecat.cases.dependencies import ExecutorCaseIDPath
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.schemas import CaseDurationMetric
@@ -268,7 +270,8 @@ async def search_cases(
         None, description="Filter by assignee ID or 'unassigned'"
     ),
     tags: list[str] | None = Query(
-        None, description="Filter by tag IDs or slugs (AND logic)"
+        None,
+        description="Filter by tag IDs or slugs (matches cases with any of the tags)",
     ),
     dropdown: list[str] | None = Query(
         None,
@@ -409,7 +412,7 @@ async def get_case(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CaseRead:
     service = CasesService(session, role)
@@ -530,7 +533,7 @@ async def update_case(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
     params: CaseUpdate,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     include_rows: bool = Query(False, description="Include linked table rows"),
 ) -> CaseRead:
     service = CasesService(session, role)
@@ -608,7 +611,7 @@ async def delete_case(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
 ) -> None:
     service = CasesService(session, role)
     case = await service.get_case(case_id)
@@ -626,7 +629,7 @@ async def list_comments(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
 ) -> list[CaseCommentRead]:
     service = CasesService(session, role)
     case = await service.get_case(case_id)
@@ -645,7 +648,7 @@ async def list_comment_threads(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
 ) -> list[CaseCommentThreadRead]:
     service = CasesService(session, role)
     case = await service.get_case(case_id)
@@ -664,7 +667,7 @@ async def create_comment(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     params: CaseCommentCreate,
 ) -> CaseCommentRead:
     cases_svc = CasesService(session, role)
@@ -691,7 +694,7 @@ async def update_comment(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     comment_id: uuid.UUID,
     params: CaseCommentUpdate,
 ) -> CaseCommentRead:
@@ -777,7 +780,7 @@ async def delete_comment(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     comment_id: uuid.UUID,
 ) -> None:
     cases_svc = CasesService(session, role)
@@ -810,7 +813,7 @@ async def list_events_with_users(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
 ) -> CaseEventsWithUsers:
     service = CasesService(session, role)
     case = await service.get_case(case_id)
@@ -862,7 +865,7 @@ async def list_events_with_users(
 class CaseMetricsRequest(Schema):
     """Request body for case metrics."""
 
-    case_ids: list[uuid.UUID]
+    case_ids: list[str]
 
 
 @duration_router.post("/metrics", status_code=HTTP_200_OK)
@@ -891,7 +894,17 @@ async def get_case_metrics(
     case_context: dict[
         str, tuple[list[dict[str, Any]], list[CaseTagRead], list[CaseDropdownValueRead]]
     ] = {}
-    for case_id in params.case_ids:
+    for case_ref in params.case_ids:
+        try:
+            case_id = await cases_service.resolve_case_id(case_ref)
+        except TracecatValidationError as exc:
+            raise HTTPException(
+                status_code=HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+            ) from exc
+        except TracecatNotFoundError as exc:
+            raise HTTPException(
+                status_code=HTTP_404_NOT_FOUND, detail=str(exc)
+            ) from exc
         case = await cases_service.get_case(case_id)
         if case is None:
             raise HTTPException(
@@ -945,7 +958,7 @@ async def list_tasks(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
 ) -> list[CaseTaskRead]:
     service = CaseTasksService(session, role)
     tasks = await service.list_tasks(case_id)
@@ -977,7 +990,7 @@ async def create_task(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     params: CaseTaskCreate,
 ) -> CaseTaskRead:
     service = CaseTasksService(session, role)
@@ -1019,7 +1032,7 @@ async def update_task(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     task_id: uuid.UUID,
     params: CaseTaskUpdate,
 ) -> CaseTaskRead:
@@ -1065,7 +1078,7 @@ async def delete_task(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     task_id: uuid.UUID,
 ) -> None:
     service = CaseTasksService(session, role)
@@ -1281,7 +1294,7 @@ async def update_case_simple(
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
     params: CaseUpdateWithTags,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
 ) -> InternalCaseData:
     """Update a case and return a simple dict representation.
 
@@ -1365,7 +1378,7 @@ async def create_comment_simple(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     params: CaseCommentCreate,
 ) -> InternalCaseCommentData:
     """Create a comment and return a simple dict representation."""
@@ -1414,7 +1427,7 @@ async def assign_user_to_case(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     assignee_id: uuid.UUID,
 ) -> InternalCaseData:
     """Assign a user to a case by user ID.
@@ -1448,7 +1461,7 @@ async def assign_user_by_email_to_case(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     params: AssignUserByEmailRequest,
 ) -> InternalCaseData:
     """Assign a user to a case by email address.

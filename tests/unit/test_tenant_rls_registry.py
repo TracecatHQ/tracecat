@@ -89,6 +89,10 @@ def test_tenant_rls_registry_contains_only_mapped_tables() -> None:
     )
 
 
+def test_invitation_group_is_registered_for_org_rls() -> None:
+    assert "invitation_group" in ORG_POLICY_TABLES
+
+
 def test_agent_tag_link_is_registered_for_tenant_rls() -> None:
     assert "agent_tag_link" in SPECIAL_TENANT_POLICY_TABLES
 

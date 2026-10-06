@@ -116,7 +116,7 @@ Get details of a specific case by ID.
 
 <ParamField path="case_id" type="string" required>
 
-The ID of the case to retrieve.
+The ID or short ID (e.g. CASE-0042) of the case to retrieve.
 
 </ParamField>
 
@@ -139,7 +139,7 @@ Update an existing case.
 
 <ParamField path="case_id" type="string" required>
 
-The ID of the case to update.
+The ID or short ID (e.g. CASE-0042) of the case to update.
 
 </ParamField>
 
@@ -409,14 +409,6 @@ Default: `null`.
 
 </ParamField>
 
-<ParamField path="short_id" type="string | null">
-
-Filter by case short_id.
-
-Default: `null`.
-
-</ParamField>
-
 <ParamField path="sort" type="string | null">
 
 The direction to order the cases by.
@@ -443,7 +435,7 @@ Default: `null`.
 
 <ParamField path="tags" type="array[string] | null">
 
-Filter by tag IDs or refs (AND logic).
+Filter by tag IDs or refs. Matches cases with any of the given tags.
 
 Default: `null`.
 
@@ -664,7 +656,7 @@ List all events for a case in chronological order.
 
 <ParamField path="case_id" type="string" required>
 
-The ID of the case to get events for.
+The ID or short ID (e.g. CASE-0042) of the case to get events for.
 
 </ParamField>
 
@@ -693,7 +685,7 @@ The ID of the user to assign to the case.
 
 <ParamField path="case_id" type="string" required>
 
-The ID of the case to assign a user to.
+The ID or short ID (e.g. CASE-0042) of the case to assign a user to.
 
 </ParamField>
 
@@ -723,7 +715,7 @@ The email of the user to assign to the case.
 
 <ParamField path="case_id" type="string" required>
 
-The ID of the case to assign a user to.
+The ID or short ID (e.g. CASE-0042) of the case to assign a user to.
 
 </ParamField>
 
@@ -747,7 +739,7 @@ Add a tag to a case by tag ID or ref.
 
 <ParamField path="case_id" type="string" required>
 
-The ID of the case to add a tag to.
+The ID or short ID (e.g. CASE-0042) of the case to add a tag to.
 
 </ParamField>
 
@@ -786,7 +778,7 @@ Remove a tag from a case by tag ID or ref.
 
 <ParamField path="case_id" type="string" required>
 
-The ID of the case to remove a tag from.
+The ID or short ID (e.g. CASE-0042) of the case to remove a tag from.
 
 </ParamField>
 
@@ -816,7 +808,7 @@ Delete a case.
 
 <ParamField path="case_id" type="string" required>
 
-The ID of the case to delete.
+The ID or short ID (e.g. CASE-0042) of the case to delete.
 
 </ParamField>
 
@@ -841,7 +833,7 @@ Get case metrics as OTEL-aligned time-series for the provided case IDs.
 
 <ParamField path="case_ids" type="array[string]" required>
 
-List of case IDs to get case metrics for.
+List of case IDs or short IDs (e.g. CASE-0042) to get case metrics for.
 
 </ParamField>
 

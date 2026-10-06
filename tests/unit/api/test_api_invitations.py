@@ -18,7 +18,7 @@ from tracecat.db.engine import get_async_session
 from tracecat.exceptions import TracecatConflictError, TracecatValidationError
 from tracecat.invitations import router as invitations_router
 from tracecat.invitations.enums import InvitationStatus
-from tracecat.invitations.schemas import InvitationGrant
+from tracecat.invitations.schemas import InvitationCreate, InvitationGrant
 
 
 @pytest.mark.anyio
@@ -117,7 +117,9 @@ async def test_list_my_pending_invitations_empty_result(
     assert response.json() == []
 
 
-def _mock_invitation(*, email_sent_at: datetime | None = None) -> SimpleNamespace:
+def _mock_invitation(
+    *, email_sent_at: datetime | None = None, group_ids: list[uuid.UUID] | None = None
+) -> SimpleNamespace:
     """A row shaped like the ORM object the resend route serializes."""
     now = datetime.now(UTC)
     return SimpleNamespace(
@@ -131,6 +133,7 @@ def _mock_invitation(*, email_sent_at: datetime | None = None) -> SimpleNamespac
         accepted_at=None,
         created_by_platform_admin=False,
         grants=[SimpleNamespace(workspace_id=None, role_id=uuid.uuid4())],
+        groups=[SimpleNamespace(group_id=group_id) for group_id in (group_ids or [])],
         email_sent_at=email_sent_at,
     )
 
@@ -158,7 +161,42 @@ async def test_resend_invitation_success(
             "role_id": str(invitation.grants[0].role_id),
         }
     ]
+    assert payload["group_ids"] == []
     mock_svc.resend_invitation.assert_awaited_once_with(invitation.id)
+
+
+@pytest.mark.anyio
+async def test_create_invitation_returns_group_ids(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    group_ids = [uuid.uuid4(), uuid.uuid4()]
+    invitation = _mock_invitation(group_ids=group_ids)
+
+    with patch.object(invitations_router, "InvitationService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.create_invitation.return_value = invitation
+        mock_svc.is_scim_connected.return_value = False
+        MockService.return_value = mock_svc
+
+        response = client.post(
+            "/invitations",
+            json={
+                "email": invitation.email,
+                "grants": [
+                    {
+                        "workspace_id": None,
+                        "role_id": str(invitation.grants[0].role_id),
+                    }
+                ],
+                "group_ids": [str(group_id) for group_id in group_ids],
+            },
+        )
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.json()["group_ids"] == [str(group_id) for group_id in group_ids]
+    params = mock_svc.create_invitation.await_args.args[0]
+    assert isinstance(params, InvitationCreate)
+    assert params.group_ids == group_ids
 
 
 @pytest.mark.anyio

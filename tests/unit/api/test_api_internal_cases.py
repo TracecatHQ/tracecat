@@ -7,6 +7,7 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from tracecat.auth.types import Role
+from tracecat.cases import dependencies as case_dependencies
 from tracecat.cases import internal_router as internal_cases_router
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
 from tracecat.cases.rows.schemas import CaseTableRowRead
@@ -602,3 +603,97 @@ async def test_internal_update_comment_reparenting_returns_bad_request(
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Changing a comment parent is not supported"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("case_ref", ["CASE-0001", "1"])
+async def test_internal_get_case_resolves_short_id(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_internal_case: Case,
+    case_ref: str,
+) -> None:
+    with (
+        patch.object(case_dependencies, "CasesService") as mock_resolver_cls,
+        patch.object(internal_cases_router, "CasesService") as mock_service_cls,
+        patch.object(
+            internal_cases_router,
+            "_list_case_dropdown_values",
+            new=AsyncMock(return_value=[]),
+        ),
+    ):
+        mock_resolver = AsyncMock()
+        mock_resolver.resolve_case_id.return_value = mock_internal_case.id
+        mock_resolver_cls.return_value = mock_resolver
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_internal_case
+        mock_service.fields = AsyncMock()
+        mock_service.fields.get_fields.return_value = {}
+        mock_service.fields.list_fields.return_value = []
+        mock_service_cls.return_value = mock_service
+
+        response = action_gateway_client.get(
+            f"/internal/cases/{case_ref}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["id"] == str(mock_internal_case.id)
+    mock_resolver.resolve_case_id.assert_awaited_once_with(case_ref)
+    mock_service.get_case.assert_awaited_once_with(
+        mock_internal_case.id, track_view=True
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("error", "expected_status"),
+    [
+        (TracecatNotFoundError("Case CASE-9999 not found"), 404),
+        (TracecatValidationError("Case ID must be a UUID"), 422),
+    ],
+)
+async def test_internal_case_id_resolution_errors(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    error: Exception,
+    expected_status: int,
+) -> None:
+    with (
+        patch.object(case_dependencies, "CasesService") as mock_resolver_cls,
+        patch.object(internal_cases_router, "CasesService") as mock_service_cls,
+    ):
+        mock_resolver = AsyncMock()
+        mock_resolver.resolve_case_id.side_effect = error
+        mock_resolver_cls.return_value = mock_resolver
+
+        response = action_gateway_client.get(
+            "/internal/cases/CASE-9999/comments",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+        )
+
+    assert response.status_code == expected_status
+    mock_service_cls.assert_not_called()
+
+
+@pytest.mark.anyio
+async def test_internal_case_id_uuid_skips_lookup(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_internal_case: Case,
+) -> None:
+    with patch.object(internal_cases_router, "CasesService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.get_case.return_value = mock_internal_case
+        mock_service_cls.return_value = mock_service
+        with patch.object(
+            internal_cases_router, "CaseCommentsService"
+        ) as mock_comments_cls:
+            mock_comments_cls.return_value.list_comments = AsyncMock(return_value=[])
+            response = action_gateway_client.get(
+                f"/internal/cases/{mock_internal_case.id}/comments",
+                params={"workspace_id": str(test_admin_role.workspace_id)},
+            )
+
+    assert response.status_code == status.HTTP_200_OK
+    mock_service.get_case.assert_awaited_once_with(mock_internal_case.id)

@@ -3,12 +3,7 @@
 import { closeBrackets } from "@codemirror/autocomplete"
 import { history } from "@codemirror/commands"
 import { yaml } from "@codemirror/lang-yaml"
-import {
-  bracketMatching,
-  HighlightStyle,
-  indentUnit,
-  syntaxHighlighting,
-} from "@codemirror/language"
+import { bracketMatching, indentUnit } from "@codemirror/language"
 import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
 import { EditorState } from "@codemirror/state"
 import {
@@ -19,7 +14,6 @@ import {
   ViewPlugin,
   type ViewUpdate,
 } from "@codemirror/view"
-import { tags } from "@lezer/highlight"
 import CodeMirror from "@uiw/react-codemirror"
 import { AlertTriangle, Check } from "lucide-react"
 import { useTheme } from "next-themes"
@@ -38,6 +32,7 @@ import {
   templatePillTheme,
 } from "./common"
 import { createSimpleTemplatePlugin } from "./highlight-plugin"
+import { tracecatSyntaxHighlighting } from "./syntax-highlight"
 
 const stripNewline = (value: string) => {
   return value.endsWith("\n") ? value.slice(0, -1) : value
@@ -246,7 +241,7 @@ export const YamlStyledEditor = React.forwardRef<
       history(),
       indentUnit.of("  "),
       yaml(),
-      syntaxHighlighting(yamlSyntaxTheme),
+      tracecatSyntaxHighlighting,
       linter(customYamlLinter),
 
       bracketMatching(),
@@ -466,28 +461,6 @@ function customYamlLinter(view: EditorView): Diagnostic[] {
   return diagnostics
 }
 
-const yamlSyntaxTheme = HighlightStyle.define([
-  { tag: tags.content, color: "hsl(var(--syntax-content))" },
-  {
-    tag: tags.propertyName,
-    color: "hsl(var(--syntax-property))",
-    fontWeight: "500",
-  },
-  { tag: tags.string, color: "hsl(var(--syntax-string))" },
-  { tag: tags.number, color: "hsl(var(--syntax-number))" },
-  { tag: tags.bool, color: "hsl(var(--syntax-literal))" },
-  { tag: tags.atom, color: "hsl(var(--syntax-literal))", fontWeight: "600" },
-  { tag: tags.keyword, color: "hsl(var(--syntax-literal))" },
-  {
-    tag: tags.comment,
-    color: "hsl(var(--syntax-comment))",
-    fontStyle: "italic",
-  },
-  {
-    tag: [tags.punctuation, tags.bracket, tags.brace],
-    color: "hsl(var(--syntax-content))",
-  },
-])
 const yamlEditorTheme = EditorView.theme({
   ".cm-content": {
     whiteSpace: "pre !important",
@@ -802,7 +775,7 @@ export function YamlViewOnlyEditor({
       // Core language support with proper indentation
       indentUnit.of("  "),
       yaml(),
-      syntaxHighlighting(yamlSyntaxTheme),
+      tracecatSyntaxHighlighting,
       bracketMatching(),
 
       // Read-only configuration

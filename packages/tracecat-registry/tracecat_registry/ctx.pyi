@@ -422,12 +422,12 @@ class _CasesAsync:
     ) -> str: ...
     async def download_attachment(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> types.CaseAttachmentDownloadData: ...
     async def delete_attachment(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> None: ...
     async def list_events(
@@ -500,12 +500,12 @@ class _CasesAsync:
     ) -> types.Case: ...
     async def get_attachment_metadata(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> types.CaseAttachmentRead: ...
     async def get_attachment_presigned_url(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
         *,
         expiry: int | None = ...,
@@ -743,12 +743,12 @@ class _Cases:
     ) -> str: ...
     def download_attachment(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> types.CaseAttachmentDownloadData: ...
     def delete_attachment(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> None: ...
     def list_events(
@@ -821,12 +821,12 @@ class _Cases:
     ) -> types.Case: ...
     def get_attachment_metadata(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> types.CaseAttachmentRead: ...
     def get_attachment_presigned_url(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
         *,
         expiry: int | None = ...,

@@ -116,7 +116,7 @@ class CasesClient:
         """Get a case by ID.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
 
         Returns:
             Case data.
@@ -144,7 +144,7 @@ class CasesClient:
         """Update a case.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             summary: New summary.
             description: New description. Pass None to clear.
             status: New status.
@@ -189,7 +189,7 @@ class CasesClient:
         """Delete a case.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
         """
         await self._client.delete(f"/cases/{case_id}")
 
@@ -315,7 +315,7 @@ class CasesClient:
         """List comments on a case.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
 
         Returns:
             List of comments.
@@ -338,7 +338,7 @@ class CasesClient:
         """Create a comment on a case.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             content: Comment content.
             parent_id: Parent comment ID for replies.
 
@@ -379,7 +379,7 @@ class CasesClient:
         """Update a comment.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             comment_id: The comment UUID.
             content: New content.
 
@@ -419,7 +419,7 @@ class CasesClient:
         """Delete a comment.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             comment_id: The comment UUID.
         """
         await self._client.delete(f"/cases/{case_id}/comments/{comment_id}")
@@ -430,7 +430,7 @@ class CasesClient:
         """List tags on a case.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
 
         Returns:
             List of tags.
@@ -447,7 +447,7 @@ class CasesClient:
         """Add a tag to a case.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             tag_id: The tag UUID or ref.
             create_if_missing: If True, create the tag if not found.
 
@@ -463,7 +463,7 @@ class CasesClient:
         """Remove a tag from a case.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             tag_id: The tag UUID or ref.
         """
         await self._client.delete(f"/cases/{case_id}/tags/{tag_id}")
@@ -474,7 +474,7 @@ class CasesClient:
         """List attachments on a case.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
 
         Returns:
             List of attachments.
@@ -492,7 +492,7 @@ class CasesClient:
         """Create an attachment on a case.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             filename: Filename for the attachment.
             content_base64: Base64-encoded file content.
             content_type: MIME type of the file.
@@ -519,7 +519,7 @@ class CasesClient:
         """Get attachment download info.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             attachment_id: The attachment UUID.
             expiry: Optional URL expiry time in seconds.
 
@@ -542,7 +542,7 @@ class CasesClient:
         """Get a presigned download URL for an attachment.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             attachment_id: The attachment UUID.
             expiry: Optional URL expiry time in seconds.
 
@@ -559,13 +559,13 @@ class CasesClient:
 
     async def download_attachment(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> types.CaseAttachmentDownloadData:
         """Download attachment content.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             attachment_id: The attachment UUID.
 
         Returns:
@@ -575,11 +575,11 @@ class CasesClient:
             f"/cases/{case_id}/attachments/{attachment_id}/download"
         )
 
-    async def delete_attachment(self, case_id: UUID, attachment_id: UUID) -> None:
+    async def delete_attachment(self, case_id: str | UUID, attachment_id: UUID) -> None:
         """Delete an attachment.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             attachment_id: The attachment UUID.
         """
         await self._client.delete(f"/cases/{case_id}/attachments/{attachment_id}")
@@ -590,7 +590,7 @@ class CasesClient:
         """List events/activity for a case.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
 
         Returns:
             Case events with user info.
@@ -608,7 +608,7 @@ class CasesClient:
         """Assign a user to a case by user ID.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             assignee_id: The user UUID to assign.
 
         Returns:
@@ -625,7 +625,7 @@ class CasesClient:
         """Assign a user to a case by email.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             email: The user's email address.
 
         Returns:
@@ -718,7 +718,7 @@ class CasesClient:
         This uses the UDF-compatible /cases/{case_id}/simple endpoint.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             summary: New summary.
             description: New description. Pass None to clear.
             status: New status.
@@ -777,7 +777,7 @@ class CasesClient:
         This uses the UDF-compatible /cases/{case_id}/comments/simple endpoint.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             content: Comment content.
             parent_id: Parent comment ID for replies.
             workflow_id: Selected workflow ID for workflow-backed comments.
@@ -828,7 +828,7 @@ class CasesClient:
         This uses the UDF-compatible /cases/{case_id}/assign endpoint.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             assignee_id: The user UUID to assign.
 
         Returns:
@@ -841,13 +841,13 @@ class CasesClient:
 
     async def get_attachment_metadata(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
     ) -> types.CaseAttachmentRead:
         """Get attachment metadata without download URL.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             attachment_id: The attachment UUID.
 
         Returns:
@@ -859,7 +859,7 @@ class CasesClient:
 
     async def get_attachment_presigned_url(
         self,
-        case_id: UUID,
+        case_id: str | UUID,
         attachment_id: UUID,
         *,
         expiry: int | None = None,
@@ -867,7 +867,7 @@ class CasesClient:
         """Get a presigned download URL for an attachment.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             attachment_id: The attachment UUID.
             expiry: Optional URL expiry time in seconds.
 
@@ -916,7 +916,7 @@ class CasesClient:
         """Create a new task for a case.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
             title: Task title.
             description: Task description.
             priority: Task priority (unknown, low, medium, high, critical).
@@ -959,7 +959,7 @@ class CasesClient:
         """List all tasks for a case.
 
         Args:
-            case_id: The case UUID.
+            case_id: The case UUID or short ID.
 
         Returns:
             List of tasks.

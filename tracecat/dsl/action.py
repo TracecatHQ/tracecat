@@ -412,13 +412,18 @@ def run_sync[T: Any](coro: Coroutine[Any, Any, T]) -> T:
     return runner.run(coro)
 
 
+def _dump_chunk_ref(stored: StoredObject) -> dict[str, Any]:
+    # created_at differs per attempt; omit it so identical retries share chunk keys.
+    return stored.model_dump(exclude={"ref": {"created_at"}})
+
+
 async def _store_collection_as_refs(prefix: str, items: list[Any]) -> CollectionObject:
     """Store collection items as StoredObject handles and persist refs in chunks."""
     storage = get_object_storage()
     refs: list[dict[str, Any]] = []
     for i, item in enumerate(items):
         stored = await storage.store(collection_item_key(prefix, i), item)
-        refs.append(stored.model_dump())
+        refs.append(_dump_chunk_ref(stored))
     return await store_collection(prefix, refs, element_kind="stored_object")
 
 
@@ -892,7 +897,7 @@ class DSLActivities:
                     stored = await storage.store(
                         collection_item_key(input.key, i), value
                     )
-                refs.append(stored.model_dump())
+                refs.append(_dump_chunk_ref(stored))
             with activity_error_boundary(_result_persistence_error_classification):
                 return await store_collection(
                     input.key,

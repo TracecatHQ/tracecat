@@ -222,7 +222,7 @@ A scope is one permission on one resource, named `resource:action` following OAu
 
 Roles bundle scopes:
 
-- Built-in roles cover the common cases: `organization-owner`, `organization-admin`, `organization-member`, `workspace-admin`, `workspace-editor`, `workspace-viewer`.
+- Built-in roles cover the common cases: `organization-owner`, `organization-admin`, `workspace-admin`, `workspace-editor`, `workspace-viewer`. Every organization member also holds six baseline scopes without a role.
 - Define custom roles, and custom scopes alongside the platform-defined set, when the built-in roles do not fit.
 
 Assign a role to a group or directly to a user. Each assignment is either organization-wide or scoped to a single workspace, and a user's effective permission is the union of both. An organization-wide assignment applies in every workspace; a workspace assignment grants nothing outside it.

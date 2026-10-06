@@ -1734,7 +1734,7 @@ export type AwsSecretResolutionErrorCode =
  */
 export type AwsSecretsManagerStoreConfig = {
   provider?: "aws_secrets_manager"
-  role_arn: string
+  role_arn?: string | null
   region: string
   external_id: string
 }
@@ -1744,7 +1744,7 @@ export type AwsSecretsManagerStoreConfig = {
  */
 export type AwsSecretsManagerStoreCreate = {
   provider?: "aws_secrets_manager"
-  role_arn: string
+  role_arn?: string | null
   region: string
 }
 
@@ -5540,6 +5540,7 @@ export type InvitationAccept = {
 export type InvitationCreate = {
   email: string
   grants: Array<InvitationGrant>
+  group_ids?: Array<string>
 }
 
 /**
@@ -5564,6 +5565,7 @@ export type InvitationRead = {
   accepted_at: string | null
   created_by_platform_admin: boolean
   grants: Array<InvitationGrant>
+  group_ids?: Array<string>
   warning?: string | null
 }
 
@@ -6424,6 +6426,11 @@ export type OrgMemberDetail = {
   last_login_at: string | null
 }
 
+export type OrgMemberGroupRead = {
+  id: string
+  name: string
+}
+
 /**
  * Unified member representation — covers active, inactive, and pending (invited) members.
  */
@@ -6434,6 +6441,9 @@ export type OrgMemberRead = {
   role_name: string
   role_slug?: string | null
   grants?: Array<InvitationGrant>
+  roles?: Array<OrgMemberRoleRead>
+  workspaces?: Array<OrgMemberWorkspaceRead>
+  groups?: Array<OrgMemberGroupRead>
   status: OrgMemberStatus
   first_name?: string | null
   last_name?: string | null
@@ -6442,7 +6452,17 @@ export type OrgMemberRead = {
   created_at?: string | null
 }
 
+export type OrgMemberRoleRead = {
+  id: string
+  name: string
+}
+
 export type OrgMemberStatus = "active" | "inactive" | "invited"
+
+export type OrgMemberWorkspaceRead = {
+  id: string
+  name: string
+}
 
 /**
  * Organization registry repository response.
@@ -8328,6 +8348,13 @@ export type SecretStoreCreate = {
 }
 
 /**
+ * Invalid store configuration, or enabling a store before setup finishes.
+ */
+export type SecretStoreErrorResponse = {
+  detail: string | Array<SecretStoreRequestValidationError>
+}
+
+/**
  * Supported external secret store providers.
  */
 export type SecretStoreProvider = "aws_secrets_manager"
@@ -8346,10 +8373,31 @@ export type SecretStoreRead = {
   all_workspaces: boolean
   tracecat_aws_account_id?: string | null
   tracecat_aws_principal_arn?: string | null
+  /**
+   * AWS partition of the store region, when botocore knows it.
+   */
+  aws_partition?: string | null
   authorized_workspace_ids?: Array<string>
   reference_count?: number
+  /**
+   * Referencing secret counts per workspace, most used first.
+   */
+  workspace_usage?: Array<SecretStoreWorkspaceUsage>
   created_at: string
   updated_at: string
+}
+
+/**
+ * Standard FastAPI request validation fields for the shared 422 response.
+ */
+export type SecretStoreRequestValidationError = {
+  loc: Array<string | number>
+  msg: string
+  type: string
+  input?: JsonValue
+  ctx?: {
+    [key: string]: JsonValue
+  } | null
 }
 
 /**
@@ -8364,6 +8412,14 @@ export type SecretStoreUpdate = {
    * Allow all current and future workspaces.
    */
   all_workspaces?: boolean
+}
+
+/**
+ * Number of secrets in one workspace that reference a store.
+ */
+export type SecretStoreWorkspaceUsage = {
+  workspace_id: string
+  secret_count: number
 }
 
 /**
@@ -14861,7 +14917,7 @@ export type CasesSearchCasesData = {
    */
   status?: Array<CaseStatus> | null
   /**
-   * Filter by tag IDs or slugs (AND logic)
+   * Filter by tag IDs or slugs (matches cases with any of the tags)
    */
   tags?: Array<string> | null
   /**
@@ -14911,7 +14967,7 @@ export type CasesSearchCaseAggregatesData = {
    */
   status?: Array<CaseStatus> | null
   /**
-   * Filter by tag IDs or slugs (AND logic)
+   * Filter by tag IDs or slugs (matches cases with any of the tags)
    */
   tags?: Array<string> | null
   /**
@@ -21221,9 +21277,9 @@ export type $OpenApiTs = {
          */
         201: SecretStoreRead
         /**
-         * Validation Error
+         * Unprocessable Entity
          */
-        422: HTTPValidationError
+        422: SecretStoreErrorResponse
       }
     }
   }
@@ -21249,9 +21305,9 @@ export type $OpenApiTs = {
          */
         204: void
         /**
-         * Validation Error
+         * Unprocessable Entity
          */
-        422: HTTPValidationError
+        422: SecretStoreErrorResponse
       }
     }
     delete: {

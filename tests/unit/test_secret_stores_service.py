@@ -161,6 +161,69 @@ async def test_create_store_persists_external_id_across_updates(
 
 
 @pytest.mark.anyio
+async def test_store_without_role_arn_cannot_be_enabled_until_set(
+    stores: SecretStoresService,
+) -> None:
+    with pytest.raises(ValueError, match="Finish setting up"):
+        await stores.create_store(
+            SecretStoreCreate(
+                name="draft",
+                config=AwsSecretsManagerStoreCreate(region=REGION),
+            )
+        )
+
+    store = await stores.create_store(
+        SecretStoreCreate(
+            name="draft",
+            config=AwsSecretsManagerStoreCreate(region=REGION),
+            enabled=False,
+        )
+    )
+    store_id = store.id
+    draft_config = parse_store_config(store)
+    assert draft_config.role_arn is None
+    assert draft_config.external_id.startswith("tracecat-")
+
+    with pytest.raises(ValueError, match="Finish setting up"):
+        await stores.update_store(store, SecretStoreUpdate(enabled=True))
+    # The rejected update leaves the store unchanged in the session.
+    assert store.enabled is False
+
+    await stores.update_store(
+        store,
+        SecretStoreUpdate(
+            config=AwsSecretsManagerStoreUpdate(role_arn=ROLE_ARN), enabled=True
+        ),
+    )
+    refreshed = await stores.get_store(store_id)
+    assert refreshed.enabled is True
+    refreshed_config = parse_store_config(refreshed)
+    assert refreshed_config.role_arn == ROLE_ARN
+    assert refreshed_config.external_id == draft_config.external_id
+
+
+@pytest.mark.anyio
+async def test_store_with_unparseable_config_can_be_renamed_and_disabled(
+    stores: SecretStoresService,
+) -> None:
+    store = await stores.create_store(
+        SecretStoreCreate(
+            name="legacy",
+            config=AwsSecretsManagerStoreCreate(role_arn=ROLE_ARN, region=REGION),
+        )
+    )
+    store.config = {**store.config, "region": "not a region"}
+    await stores.session.commit()
+
+    await stores.update_store(
+        store, SecretStoreUpdate(name="legacy-renamed", enabled=False)
+    )
+    refreshed = await stores.get_store(store.id)
+    assert refreshed.name == "legacy-renamed"
+    assert refreshed.enabled is False
+
+
+@pytest.mark.anyio
 async def test_store_lookup_is_scoped_to_organization(
     stores: SecretStoresService,
 ) -> None:
@@ -517,6 +580,12 @@ async def test_reference_guards_with_enforced_rls_and_org_only_context(
         assert (await session.execute(select(func.count(Secret.id)))).scalar_one() == 0
         assert await org_stores.count_references([store.id, foreign_store.id]) == {
             store.id: 2
+        }
+        usage = await org_stores.workspace_usage([store.id, foreign_store.id])
+        assert usage.keys() == {store.id}
+        assert {(u.workspace_id, u.secret_count) for u in usage[store.id]} == {
+            (svc_workspace.id, 1),
+            (other_workspace.id, 1),
         }
         with pytest.raises(TracecatConflictError) as revoked:
             await org_stores.revoke_workspace(store, svc_workspace.id)

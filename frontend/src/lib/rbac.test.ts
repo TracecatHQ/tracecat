@@ -1,7 +1,10 @@
 import type { ScopeRead } from "@/client"
 import {
+  abbreviateName,
+  abbreviateRoleName,
   getCategoryScopes,
   getScopesForLevel,
+  organizationTier,
   RESOURCE_CATEGORIES,
   rolesForAssignmentEdit,
   rolesForScope,
@@ -62,5 +65,33 @@ describe("rolesForScope and rolesForAssignmentEdit", () => {
       legacy: orgRole,
     })
     expect(rolesForAssignmentEdit(roles, "w1", "ws").legacy).toBeUndefined()
+  })
+})
+
+describe("abbreviateRoleName", () => {
+  it("uses uppercased word initials", () => {
+    expect(abbreviateRoleName("Workspace Admin")).toBe("WA")
+    expect(abbreviateRoleName("Organization Owner")).toBe("OO")
+    expect(abbreviateRoleName("  security  analyst ")).toBe("SA")
+    expect(abbreviateRoleName("Viewer")).toBe("V")
+  })
+})
+
+describe("abbreviateName", () => {
+  it("uses the first three non-space characters, uppercased", () => {
+    expect(abbreviateName("Engineering")).toBe("ENG")
+    expect(abbreviateName("a b team")).toBe("ABT")
+    expect(abbreviateName("IT")).toBe("IT")
+  })
+})
+
+describe("organizationTier", () => {
+  it("maps owner and admin slugs and defaults to member", () => {
+    expect(organizationTier("organization-owner")).toBe("Owner")
+    expect(organizationTier("organization-admin")).toBe("Admin")
+    expect(organizationTier("organization-member")).toBe("Member")
+    expect(organizationTier("workspace-admin")).toBe("Member")
+    expect(organizationTier(null)).toBe("Member")
+    expect(organizationTier(undefined)).toBe("Member")
   })
 })

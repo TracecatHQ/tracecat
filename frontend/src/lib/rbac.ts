@@ -297,3 +297,32 @@ export function rolesForScope<T extends { scopes?: ScopeRead[] }>(
     ? roles
     : roles.filter((role) => !isOrgLevelRole(role))
 }
+
+/** Abbreviate a role name to its uppercased word initials. */
+export function abbreviateRoleName(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase()
+}
+
+/** Abbreviate a name to its first three non-space characters, uppercased. */
+export function abbreviateName(name: string): string {
+  return name.replace(/\s+/g, "").slice(0, 3).toUpperCase()
+}
+
+/** Map an organization role slug to the tier shown in the members table. */
+export function organizationTier(
+  roleSlug: string | null | undefined
+): "Owner" | "Admin" | "Member" {
+  switch (roleSlug) {
+    case "organization-owner":
+      return "Owner"
+    case "organization-admin":
+      return "Admin"
+    default:
+      return "Member"
+  }
+}

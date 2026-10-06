@@ -25,7 +25,7 @@ function errorMessage(code: string) {
   }
 }
 
-/** Fetch one bounded progress page only while the user has opened details. */
+/** Fetch one bounded progress page only while the status details are open. */
 export function TableSearchProgress() {
   const search = useTableSearchContext()
   const generation = search?.configuration.data?.generation ?? 0
@@ -71,7 +71,7 @@ export function TableSearchProgress() {
       {progress.isPending && <p>Loading progress…</p>}
       {progress.error && (
         <p role="alert">
-          Progress could not be loaded. Refresh search status to try again.
+          Progress could not be loaded. Reload the page to try again.
         </p>
       )}
       {progress.data?.items.map((item) => (

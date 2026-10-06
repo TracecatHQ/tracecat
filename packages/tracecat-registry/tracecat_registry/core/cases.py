@@ -323,7 +323,7 @@ async def create_case(
 async def update_case(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to update."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to update."),
     ],
     summary: Annotated[
         str | None,
@@ -415,7 +415,7 @@ async def update_case(
 async def create_comment(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to comment on."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to comment on."),
     ],
     content: Annotated[
         str,
@@ -447,7 +447,9 @@ async def create_comment(
 async def reply_to_comment(
     case_id: Annotated[
         str,
-        Doc("The ID of the case containing the parent comment."),
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of the case containing the parent comment."
+        ),
     ],
     parent_comment_id: Annotated[
         str,
@@ -496,7 +498,7 @@ async def update_comment(
 async def get_case(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to retrieve."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to retrieve."),
     ],
 ) -> types.CaseRead:
     return await ctx.cases.aio.get_case(case_id)
@@ -511,7 +513,7 @@ async def get_case(
 async def get_linked_case_rows(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to retrieve."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to retrieve."),
     ],
 ) -> list[types.CaseTableRowRead]:
     case = await ctx.cases.aio.get_case(case_id, include_rows=True)
@@ -582,10 +584,6 @@ async def search_cases(
         str | None,
         Doc("Text to search for in case summary and description."),
     ] = None,
-    short_id: Annotated[
-        str | None,
-        Doc("Filter by case short_id."),
-    ] = None,
     status: Annotated[
         StatusType | list[StatusType] | None,
         Doc("Filter by case status."),
@@ -600,7 +598,7 @@ async def search_cases(
     ] = None,
     tags: Annotated[
         list[str] | None,
-        Doc("Filter by tag IDs or refs (AND logic)."),
+        Doc("Filter by tag IDs or refs. Matches cases with any of the given tags."),
     ] = None,
     assignee_id: Annotated[
         str | list[str] | None,
@@ -665,8 +663,6 @@ async def search_cases(
         params["reverse"] = reverse
     if search_term is not None:
         params["search_term"] = search_term
-    if short_id is not None:
-        params["short_id"] = short_id
     if status is not None:
         params["status"] = _as_list_filter(status)
     if priority is not None:
@@ -706,7 +702,7 @@ async def search_cases(
 async def delete_case(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to delete."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to delete."),
     ],
 ) -> None:
     await ctx.cases.aio.delete_case(case_id)
@@ -721,7 +717,7 @@ async def delete_case(
 async def list_case_events(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to get events for."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to get events for."),
     ],
 ) -> types.CaseEventsWithUsers:
     return await ctx.cases.aio.list_events(case_id)
@@ -736,7 +732,7 @@ async def list_case_events(
 async def list_comments(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to get comments for."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to get comments for."),
     ],
 ) -> list[types.CaseCommentRead]:
     return await ctx.cases.aio.list_comments(case_id)
@@ -751,7 +747,9 @@ async def list_comments(
 async def list_comment_threads(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to get comment threads for."),
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of the case to get comment threads for."
+        ),
     ],
 ) -> list[types.CaseCommentThreadRead]:
     return await ctx.cases.aio.list_comment_threads(case_id)
@@ -781,7 +779,7 @@ async def get_comment_thread(
 async def assign_user(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to assign a user to."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to assign a user to."),
     ],
     assignee_id: Annotated[
         str,
@@ -803,7 +801,7 @@ async def assign_user(
 async def assign_user_by_email(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to assign a user to."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to assign a user to."),
     ],
     assignee_email: Annotated[
         str,
@@ -825,7 +823,7 @@ async def assign_user_by_email(
 async def add_case_tag(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to add a tag to."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to add a tag to."),
     ],
     tag: Annotated[
         str,
@@ -852,7 +850,7 @@ async def add_case_tag(
 async def remove_case_tag(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to remove a tag from."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to remove a tag from."),
     ],
     tag: Annotated[
         str,
@@ -869,16 +867,9 @@ async def _upload_attachment(
     content_type: str,
 ) -> types.CaseAttachmentRead:
     """Upload an attachment to a case."""
-    try:
-        case_uuid = UUID(case_id)
-    except ValueError as e:
-        raise TracecatValidationError(
-            detail=f"Invalid case ID format: {case_id}"
-        ) from e
-
     content_base64 = base64.b64encode(content).decode("utf-8")
     return await ctx.cases.aio.create_attachment(
-        str(case_uuid),
+        case_id,
         filename=file_name,
         content_base64=content_base64,
         content_type=content_type,
@@ -894,7 +885,7 @@ async def _upload_attachment(
 async def upload_attachment(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to attach the file to."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to attach the file to."),
     ],
     file_name: Annotated[
         str,
@@ -943,7 +934,7 @@ def _infer_filename_from_url(url: str) -> str:
 async def upload_attachment_from_url(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to attach the file to."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to attach the file to."),
     ],
     url: Annotated[
         str,
@@ -991,19 +982,11 @@ async def upload_attachment_from_url(
 async def list_attachments(
     case_id: Annotated[
         str,
-        Doc("The ID of the case to list attachments for."),
+        Doc("The ID or short ID (e.g. CASE-0042) of the case to list attachments for."),
     ],
 ) -> list[types.CaseAttachmentRead]:
     """List all attachments for a case."""
-    # Validate case_id format
-    try:
-        case_uuid = UUID(case_id)
-    except ValueError as e:
-        raise TracecatValidationError(
-            detail=f"Invalid case ID format: {case_id}"
-        ) from e
-
-    return await ctx.cases.aio.list_attachments(str(case_uuid))
+    return await ctx.cases.aio.list_attachments(case_id)
 
 
 @registry.register(
@@ -1015,7 +998,9 @@ async def list_attachments(
 async def download_attachment(
     case_id: Annotated[
         str,
-        Doc("The ID of the case containing the attachment."),
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of the case containing the attachment."
+        ),
     ],
     attachment_id: Annotated[
         str,
@@ -1027,15 +1012,16 @@ async def download_attachment(
     Returns the file content as base64 encoded string along with metadata.
     File integrity is automatically verified via SHA256 hash.
     """
-    # Validate UUID formats
+    # Validate attachment ID format
     try:
-        case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
     except ValueError as e:
-        raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
+        raise TracecatValidationError(
+            detail=f"Invalid attachment ID format: {str(e)}"
+        ) from e
 
     return await ctx.cases.aio.download_attachment(
-        case_uuid,
+        case_id,
         attachment_uuid,
     )
 
@@ -1049,7 +1035,9 @@ async def download_attachment(
 async def get_attachment(
     case_id: Annotated[
         str,
-        Doc("The ID of the case containing the attachment."),
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of the case containing the attachment."
+        ),
     ],
     attachment_id: Annotated[
         str,
@@ -1057,15 +1045,16 @@ async def get_attachment(
     ],
 ) -> types.CaseAttachmentRead:
     """Get attachment metadata without downloading the content."""
-    # Validate UUID formats
+    # Validate attachment ID format
     try:
-        case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
     except ValueError as e:
-        raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
+        raise TracecatValidationError(
+            detail=f"Invalid attachment ID format: {str(e)}"
+        ) from e
 
     return await ctx.cases.aio.get_attachment_metadata(
-        case_uuid,
+        case_id,
         attachment_uuid,
     )
 
@@ -1079,7 +1068,9 @@ async def get_attachment(
 async def delete_attachment(
     case_id: Annotated[
         str,
-        Doc("The ID of the case containing the attachment."),
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of the case containing the attachment."
+        ),
     ],
     attachment_id: Annotated[
         str,
@@ -1092,13 +1083,14 @@ async def delete_attachment(
     the file from storage. Only the attachment creator or admins can delete.
     """
     try:
-        case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
     except ValueError as e:
-        raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
+        raise TracecatValidationError(
+            detail=f"Invalid attachment ID format: {str(e)}"
+        ) from e
 
     await ctx.cases.aio.delete_attachment(
-        case_uuid,
+        case_id,
         attachment_uuid,
     )
 
@@ -1112,7 +1104,9 @@ async def delete_attachment(
 async def get_attachment_download_url(
     case_id: Annotated[
         str,
-        Doc("The ID of the case containing the attachment."),
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of the case containing the attachment."
+        ),
     ],
     attachment_id: Annotated[
         str,
@@ -1126,12 +1120,13 @@ async def get_attachment_download_url(
     ] = None,
 ) -> str:
     """Get a presigned S3 URL for downloading an attachment."""
-    # Validate UUID formats
+    # Validate attachment ID format
     try:
-        case_uuid = UUID(case_id)
         attachment_uuid = UUID(attachment_id)
     except ValueError as e:
-        raise TracecatValidationError(detail=f"Invalid ID format: {str(e)}") from e
+        raise TracecatValidationError(
+            detail=f"Invalid attachment ID format: {str(e)}"
+        ) from e
 
     # Validate expiry if provided
     if expiry is not None:
@@ -1145,7 +1140,7 @@ async def get_attachment_download_url(
             )
 
     return await ctx.cases.aio.get_attachment_presigned_url(
-        case_uuid,
+        case_id,
         attachment_uuid,
         expiry=expiry,
     )
@@ -1158,7 +1153,7 @@ async def get_attachment_download_url(
     namespace="core.cases",
 )
 async def link_row(
-    case_id: Annotated[str, Doc("Case ID")],
+    case_id: Annotated[str, Doc("Case ID or short ID (e.g. CASE-0042)")],
     table_id: Annotated[str, Doc("Table ID")],
     row_id: Annotated[str, Doc("Row ID")],
 ) -> types.CaseTableRowRead:
@@ -1176,7 +1171,7 @@ async def link_row(
     namespace="core.cases",
 )
 async def unlink_row(
-    case_id: Annotated[str, Doc("Case ID")],
+    case_id: Annotated[str, Doc("Case ID or short ID (e.g. CASE-0042)")],
     table_id: Annotated[str, Doc("Table ID")],
     row_id: Annotated[str, Doc("Row ID")],
 ) -> None:
@@ -1194,7 +1189,7 @@ async def unlink_row(
     namespace="core.cases",
 )
 async def insert_row(
-    case_id: Annotated[str, Doc("Case ID")],
+    case_id: Annotated[str, Doc("Case ID or short ID (e.g. CASE-0042)")],
     table_id: Annotated[str, Doc("Table ID")],
     row: Annotated[dict[str, Any], Doc("Row values")],
 ) -> types.CaseTableRowRead:

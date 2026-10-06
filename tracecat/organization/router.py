@@ -8,7 +8,6 @@ from tracecat.auth.credentials import AuthenticatedUserOnly
 from tracecat.auth.dependencies import OrgActorRole, OrgUserRole
 from tracecat.auth.schemas import SessionRead, UserUpdate
 from tracecat.authz.controls import require_scope
-from tracecat.authz.scopes import ORG_MEMBER_ROLE_SLUG
 from tracecat.db.dependencies import AsyncDBSession, AsyncDBSessionBypass
 from tracecat.db.models import (
     Organization,
@@ -33,6 +32,7 @@ from tracecat.invitations.service import InvitationService
 from tracecat.organization.schemas import (
     MemberAccessTrace,
     OrgDomainRead,
+    OrgMemberAccess,
     OrgMemberDetail,
     OrgMemberRead,
     OrgMemberStatus,
@@ -296,40 +296,21 @@ async def list_org_members(
 ) -> list[OrgMemberRead]:
     service = OrgService(session, role=role)
     members = await service.list_members()
+    member_access = await service.list_member_access()
     now = datetime.now(UTC)
-
-    # Build a map of user_id -> RBAC role name for org-wide assignments
-    user_ids = [user.id for user in members]
-    rbac_stmt = (
-        select(UserRoleAssignment.user_id, DBRole.name, DBRole.slug)
-        .join(DBRole, UserRoleAssignment.role_id == DBRole.id)
-        .where(
-            UserRoleAssignment.organization_id == role.organization_id,
-            UserRoleAssignment.workspace_id.is_(None),
-            UserRoleAssignment.user_id.in_(user_ids),  # pyright: ignore[reportAttributeAccessIssue]
-            # Legacy assignments of the implicit role are data, never displayed.
-            DBRole.slug.is_distinct_from(ORG_MEMBER_ROLE_SLUG),
-        )
-    )
-    rbac_result = await session.execute(rbac_stmt)
-    rbac_map: dict[str, tuple[str, str | None]] = {
-        str(user_id): (name, slug) for user_id, name, slug in rbac_result.tuples().all()
-    }
 
     result: list[OrgMemberRead] = []
     for user in members:
-        rbac_info = rbac_map.get(str(user.id))
-        if rbac_info:
-            role_name, role_slug = rbac_info
-        else:
-            role_name = "Member"
-            role_slug = None
+        access = member_access.get(user.id, OrgMemberAccess())
         result.append(
             OrgMemberRead(
                 user_id=user.id,
                 email=user.email,
-                role_name=role_name,
-                role_slug=role_slug,
+                role_name=access.role_name,
+                role_slug=access.role_slug,
+                roles=access.roles,
+                workspaces=access.workspaces,
+                groups=access.groups,
                 status=OrgMemberStatus.ACTIVE
                 if user.is_active
                 else OrgMemberStatus.INACTIVE,
@@ -344,20 +325,20 @@ async def list_org_members(
     invitations = await invitation_service.list_invitations(
         status=InvitationStatus.PENDING
     )
+    invitations = [inv for inv in invitations if inv.expires_at > now and inv.grants]
+    invitation_access = await service.list_invitation_access(invitations)
     for inv in invitations:
-        if inv.expires_at <= now:
-            continue
-        if not inv.grants:
-            # No grants left to confer (workspace deleted, or written by an older version).
-            continue
-        # Grant names are resolved client-side from the roles list.
+        access = invitation_access[inv.id]
         result.append(
             OrgMemberRead(
                 invitation_id=inv.id,
                 email=inv.email,
-                role_name="Invited",
-                role_slug=None,
+                role_name=access.role_name,
+                role_slug=access.role_slug,
                 grants=[InvitationGrant.model_validate(g) for g in inv.grants],
+                roles=access.roles,
+                workspaces=access.workspaces,
+                groups=access.groups,
                 status=OrgMemberStatus.INVITED,
                 expires_at=inv.expires_at,
                 created_at=inv.created_at,

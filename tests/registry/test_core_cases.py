@@ -718,6 +718,11 @@ class TestCoreListCases:
 class TestCoreSearchCases:
     """Test cases for search_cases UDF behavior."""
 
+    async def test_search_cases_does_not_accept_short_id(self):
+        """short_id was never supported by the SDK; use get_case with a short ID."""
+        with pytest.raises(TypeError):
+            await search_cases(short_id="CASE-0001")  # pyright: ignore[reportCallIssue]
+
     async def test_search_cases_no_params(
         self, mock_cases_client: AsyncMock, mock_case_dict
     ):
@@ -1027,6 +1032,22 @@ class TestCoreCaseTags:
 @pytest.mark.anyio
 class TestCoreAttachments:
     """Test cases for attachment UDFs."""
+
+    async def test_attachment_actions_pass_short_case_id_through(
+        self, mock_cases_client: AsyncMock
+    ):
+        """Attachment actions should let the API resolve short case IDs."""
+        attachment_id = str(uuid.uuid4())
+        mock_cases_client.list_attachments.return_value = []
+        mock_cases_client.get_attachment_metadata.return_value = {}
+
+        await list_attachments(case_id="CASE-0042")
+        await get_attachment(case_id="CASE-0042", attachment_id=attachment_id)
+
+        mock_cases_client.list_attachments.assert_called_once_with("CASE-0042")
+        mock_cases_client.get_attachment_metadata.assert_called_once_with(
+            "CASE-0042", uuid.UUID(attachment_id)
+        )
 
     async def test_upload_attachment_success(
         self, mock_cases_client: AsyncMock, mock_case_dict
