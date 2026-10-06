@@ -509,3 +509,44 @@ def test_build_agent_preset_tool_summary(
     assert build_agent_preset_tool_summary(policy) == AgentPresetToolSummary(
         tool_count=len(actions), namespaces=namespaces
     )
+
+
+@pytest.mark.parametrize("schema_cls", [AgentPresetCreate, PresetCreateRequest])
+@pytest.mark.parametrize(
+    ("legacy", "expected"),
+    [
+        ({"enable_thinking": False}, "off"),
+        ({"enable_thinking": True}, None),
+        ({"enable_thinking": False, "reasoning_effort": None}, None),
+        ({"enable_thinking": False, "reasoning_effort": "high"}, "high"),
+    ],
+)
+def test_preset_create_schemas_read_legacy_enable_thinking(
+    schema_cls: type[AgentPresetCreate] | type[PresetCreateRequest],
+    legacy: dict[str, object],
+    expected: str | None,
+) -> None:
+    """Create requests from older clients keep their thinking choice, and an
+    explicit reasoning_effort, even null, wins."""
+    payload = schema_cls.model_validate(
+        {
+            "name": "Triage preset",
+            "model_name": "gpt-5-mini",
+            "model_provider": "openai",
+            **legacy,
+        }
+    )
+
+    assert payload.reasoning_effort == expected
+    assert "reasoning_effort" in payload.model_fields_set
+
+
+def test_preset_update_schemas_pass_legacy_enable_thinking_to_service() -> None:
+    """The internal route forwards the deprecated flag for the service to
+    resolve, and neither the dump nor the public schema exposes it."""
+    request = PresetUpdateRequest.model_validate({"enable_thinking": False})
+    update = AgentPresetUpdate(**request.model_dump(exclude_unset=True))
+
+    assert update.enable_thinking is False
+    assert update.model_dump(exclude_unset=True) == {}
+    assert "enable_thinking" not in AgentPresetUpdate.model_json_schema()["properties"]

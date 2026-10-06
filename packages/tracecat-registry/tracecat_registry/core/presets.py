@@ -119,7 +119,10 @@ async def create_preset(
     ] = None,
     enable_thinking: Annotated[
         bool | None,
-        Doc("Deprecated. Use `reasoning_effort` instead."),
+        Doc(
+            "Deprecated. Use `reasoning_effort` instead. Applies only when "
+            "`reasoning_effort` is empty."
+        ),
     ] = None,
     enable_internet_access: Annotated[
         bool | None,
@@ -306,7 +309,11 @@ async def update_preset(
     ] = False,
     enable_thinking: Annotated[
         bool | None,
-        Doc("Deprecated. Use `reasoning_effort` instead."),
+        Doc(
+            "Deprecated. Use `reasoning_effort` instead. Applies only when "
+            "`reasoning_effort` is empty: false turns reasoning off, and true "
+            "clears off while keeping any other level."
+        ),
     ] = None,
     enable_internet_access: Annotated[
         bool | None,
@@ -360,8 +367,8 @@ async def update_preset(
     elif reasoning_effort is not None:
         kwargs["reasoning_effort"] = reasoning_effort
     elif enable_thinking is not None:
-        # Legacy flag: on means the model default, off disables reasoning.
-        kwargs["reasoning_effort"] = None if enable_thinking else "off"
+        # The API resolves the legacy flag against the preset's current level.
+        kwargs["enable_thinking"] = enable_thinking
     if enable_internet_access is not None:
         kwargs["enable_internet_access"] = enable_internet_access
     if skills is not None:

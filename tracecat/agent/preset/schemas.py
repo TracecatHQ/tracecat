@@ -8,8 +8,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
-from tracecat.agent.common.types import ReasoningEffort
+from tracecat.agent.common.types import (
+    ReasoningEffort,
+    migrate_legacy_enable_thinking,
+)
 from tracecat.agent.skill.schemas import SkillName
 from tracecat.agent.subagents import AgentSubagentsConfig, has_manual_tool_approvals
 from tracecat.agent.types import AgentConfig, OutputType
@@ -149,6 +153,12 @@ class AgentPresetExecutionConfigWrite(Schema):
     reasoning_effort: ReasoningEffort | None = Field(default=None)
     enable_internet_access: bool = Field(default=False)
 
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_enable_thinking(cls, data: Any) -> Any:
+        """Accept ``enable_thinking`` from clients written before reasoning levels."""
+        return migrate_legacy_enable_thinking(data)
+
 
 class AgentPresetBase(AgentPresetExecutionConfigWrite):
     """Shared fields for agent preset mutations."""
@@ -192,6 +202,9 @@ class AgentPresetUpdate(BaseModel):
     agents: AgentSubagentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
     reasoning_effort: ReasoningEffort | None = Field(default=None)
+    enable_thinking: SkipJsonSchema[bool | None] = Field(default=None, exclude=True)
+    """Deprecated input from older clients. The service resolves it against the
+    preset's current level when ``reasoning_effort`` is not sent."""
     enable_internet_access: bool | None = Field(default=None)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
 

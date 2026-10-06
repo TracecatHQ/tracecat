@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, TypeGuard
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.integrations.schemas import MCPToolStatus
@@ -230,6 +230,12 @@ class SandboxAgentConfig(BaseModel):
     """Whether to enable internet access tools (WebSearch, WebFetch)."""
     library_skills: list[str] | None = None
     """Library skill slugs; the executor stages them before sandbox start."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_enable_thinking(cls, data: Any) -> Any:
+        """Read ``enable_thinking`` from activity inputs stored before reasoning levels."""
+        return migrate_legacy_enable_thinking(data)
 
     @classmethod
     def from_agent_config(cls, config: AgentConfig) -> SandboxAgentConfig:

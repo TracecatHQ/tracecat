@@ -314,6 +314,7 @@ class AgentsClient:
         agents: dict[str, Any] | Unset = UNSET,
         retries: int | Unset = UNSET,
         reasoning_effort: ReasoningEffort | None | Unset = UNSET,
+        enable_thinking: bool | Unset = UNSET,
         enable_internet_access: bool | Unset = UNSET,
         skills: list[AgentPresetSkillBinding] | Unset = UNSET,
     ) -> dict[str, Any]:
@@ -333,6 +334,11 @@ class AgentsClient:
             base_url: Updated custom API endpoint URL.
             output_type: Updated output format.
             actions: Updated list of action identifiers.
+            reasoning_effort: Updated reasoning level. ``None`` uses the model
+                default.
+            enable_thinking: Deprecated. Use ``reasoning_effort`` instead.
+                ``False`` turns reasoning off; ``True`` clears ``"off"`` and
+                keeps any other level.
             skills: Skill bindings containing `skill_id`.
 
         Returns:
@@ -376,6 +382,8 @@ class AgentsClient:
             data["retries"] = retries
         if is_set(reasoning_effort):
             data["reasoning_effort"] = reasoning_effort
+        if is_set(enable_thinking):
+            data["enable_thinking"] = enable_thinking
         if is_set(enable_internet_access):
             data["enable_internet_access"] = enable_internet_access
         if is_set(skills):

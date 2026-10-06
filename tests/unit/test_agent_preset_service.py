@@ -1057,6 +1057,37 @@ class TestAgentPresetService:
         assert reset_preset.reasoning_effort is None
         assert reset_preset.enable_thinking is True
 
+    @pytest.mark.parametrize(
+        ("initial", "update", "expected"),
+        [
+            ("high", {"enable_thinking": False}, "off"),
+            ("off", {"enable_thinking": True}, None),
+            ("high", {"enable_thinking": True}, "high"),
+            (None, {"enable_thinking": True}, None),
+            ("high", {"enable_thinking": False, "reasoning_effort": None}, None),
+        ],
+    )
+    async def test_update_preset_resolves_legacy_enable_thinking(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        initial: str | None,
+        update: dict[str, object],
+        expected: str | None,
+    ) -> None:
+        """An older client's flag turns reasoning off, or clears "off" without
+        discarding another level; an explicit reasoning_effort, even null, wins."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(update={"reasoning_effort": initial})
+        )
+
+        updated_preset = await agent_preset_service.update_preset(
+            created_preset, AgentPresetUpdate.model_validate(update)
+        )
+
+        assert updated_preset.reasoning_effort == expected
+        assert updated_preset.enable_thinking is (expected != "off")
+
     @pytest.mark.parametrize("enabled", [None, False])
     async def test_publishing_existing_head_normalizes_enabled(
         self,

@@ -6,10 +6,14 @@ from typing import Annotated, Any, Literal
 
 import pydantic
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
-from pydantic import Discriminator, TypeAdapter
+from pydantic import Discriminator, TypeAdapter, model_validator
 
 from tracecat.agent.common.stream_types import ToolCallContent
-from tracecat.agent.common.types import MCPServerConfig, ReasoningEffort
+from tracecat.agent.common.types import (
+    MCPServerConfig,
+    ReasoningEffort,
+    migrate_legacy_enable_thinking,
+)
 from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import AgentSubagentsConfig
@@ -108,6 +112,12 @@ class AgentConfig:
     """
     library_skills: list[str] | None = None
     """Installed platform library skill slugs, staged in the platform plugin."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_enable_thinking(cls, data: Any) -> Any:
+        """Read ``enable_thinking`` from Temporal payloads stored before reasoning levels."""
+        return migrate_legacy_enable_thinking(data)
 
 
 # --- Tool Types (Harness-Agnostic) ---

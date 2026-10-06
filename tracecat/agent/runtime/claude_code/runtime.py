@@ -252,6 +252,27 @@ def _reasoning_options(
     )
 
 
+def _subagent_effort(
+    reasoning_effort: ReasoningEffort | None,
+    *,
+    root_reasoning_effort: ReasoningEffort | None,
+) -> Literal["low", "medium", "high", "max"] | None:
+    """Map a subagent's reasoning effort to its ``AgentDefinition`` effort.
+
+    Subagents share the root session's thinking setting, so ``None`` inherits
+    the root's level and ``"off"`` runs at the lowest effort. When the root
+    disables thinking, ``"max"`` caps at ``"high"`` because some models (e.g.
+    Claude Opus 5) reject disabled thinking above ``"high"``.
+    """
+    if reasoning_effort is None:
+        return None
+    if reasoning_effort == "off":
+        return "low"
+    if root_reasoning_effort == "off" and reasoning_effort == "max":
+        return "high"
+    return reasoning_effort
+
+
 def _configure_claude_sdk_process_env() -> None:
     """Prime process-level SDK env before ClaudeSDKClient.connect().
 
@@ -1520,6 +1541,10 @@ class ClaudeAgentRuntime:
                     for slug in subagent.config.library_skills or []
                 ]
                 or None,
+                effort=_subagent_effort(
+                    subagent.config.reasoning_effort,
+                    root_reasoning_effort=payload.config.reasoning_effort,
+                ),
             )
 
         return definitions

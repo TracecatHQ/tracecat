@@ -1871,6 +1871,56 @@ class TestClaudeAgentRuntimeRun:
         assert definitions is not None
         assert definitions["analyst"].model == expected
 
+    @pytest.mark.parametrize(
+        ("root_effort", "child_effort", "expected"),
+        [
+            # Default inherits the root's level through the shared session.
+            ("max", None, None),
+            ("max", "low", "low"),
+            (None, "high", "high"),
+            # Subagents share the root's thinking setting, so off runs at low.
+            ("high", "off", "low"),
+            # Root off disables thinking for children; cap max at high.
+            ("off", "max", "high"),
+            ("off", "medium", "medium"),
+        ],
+    )
+    def test_subagent_definitions_carry_child_reasoning_effort(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        root_effort: str | None,
+        child_effort: str | None,
+        expected: str | None,
+    ) -> None:
+        """A child preset's level reaches its definition independently of the
+        root's, with off and default defined against the shared session."""
+        child = SandboxSubagentConfig(
+            alias="analyst",
+            description="Use for enrichment analysis.",
+            prompt="Analyze enrichment data.",
+            config=sample_init_payload.config.model_copy(
+                update={"reasoning_effort": child_effort}
+            ),
+            mcp_auth_token="child-mcp-token",
+        )
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={"reasoning_effort": root_effort}
+            ),
+            subagents=[child],
+        )
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+        )
+
+        definitions = runtime._build_agent_definitions(payload=payload)
+
+        assert definitions is not None
+        assert definitions["analyst"].effort == expected
+
     def test_subagent_definitions_prefer_scoped_model_route(
         self,
         mock_socket_writer: MagicMock,

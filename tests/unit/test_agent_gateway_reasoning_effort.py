@@ -165,6 +165,14 @@ def litellm_gateway_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(litellm, "drop_params", True)
     monkeypatch.setattr(litellm, "reasoning_auto_summary", True)
     monkeypatch.setattr(litellm, "disable_aiohttp_transport", True)
+    # LiteLLM may load its model map remotely; the bundled copy lacks this
+    # flag, and drop_params then drops the effort. Pin it so runs are offline-safe.
+    openrouter_model = "openrouter/google/gemini-2.5-flash"
+    monkeypatch.setitem(
+        litellm.model_cost,
+        openrouter_model,
+        {**litellm.model_cost.get(openrouter_model, {}), "supports_reasoning": True},
+    )
 
     def access_token(*_: object, **__: object) -> tuple[str, str]:
         return "test-token", "test-project"

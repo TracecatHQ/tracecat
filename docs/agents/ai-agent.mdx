@@ -35,6 +35,8 @@ Chatting with agents and approving tool calls from Slack through [agent channels
 
 Internet access is controlled by the root preset for the shared sandbox process. Subagent presets can define their own tools and MCP integrations, but their internet setting does not grant network access unless the root preset also enables it.
 
+Subagent presets set their own reasoning level, but share the root preset's thinking setting. An empty level uses the root preset's level, and `off` runs at `low`. When the root preset is `off`, subagents also run without thinking, and `max` runs at `high`.
+
 See [MCP integrations](/automations/integrations/mcp-integrations) to learn more.
 
 ## Timeouts

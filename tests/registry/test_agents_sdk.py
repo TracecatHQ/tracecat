@@ -245,3 +245,17 @@ async def test_update_preset_serializes_authoring_fields(
             "skills": [{"skill_id": "11111111-1111-1111-1111-111111111111"}],
         },
     )
+
+
+@pytest.mark.anyio
+async def test_update_preset_forwards_deprecated_enable_thinking(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    """The API resolves the legacy flag against the preset's current level."""
+    await agents_client.update_preset("case-triage", enable_thinking=True)
+
+    mock_tracecat_client.patch.assert_awaited_once_with(
+        "/agent/presets/by-slug/case-triage",
+        json={"enable_thinking": True},
+    )

@@ -4123,7 +4123,8 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         doc="Reasoning level for agent runs; null uses the model default",
     )
     # Deprecated: mirrors reasoning_effort so a rolled-back app keeps the
-    # user's choice. Drop in a follow-up contract migration.
+    # user's choice. A database trigger also syncs older app writes. Drop both
+    # in a follow-up contract migration.
     enable_thinking: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
@@ -4283,7 +4284,8 @@ class AgentPresetVersion(WorkspaceModel):
         doc="Reasoning level for agent runs; null uses the model default",
     )
     # Deprecated: mirrors reasoning_effort so a rolled-back app keeps the
-    # user's choice. Drop in a follow-up contract migration.
+    # user's choice. A database trigger also syncs older app writes. Drop both
+    # in a follow-up contract migration.
     enable_thinking: Mapped[bool] = mapped_column(
         Boolean,
         default=True,

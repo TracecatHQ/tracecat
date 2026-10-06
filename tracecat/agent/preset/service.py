@@ -650,6 +650,13 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> AgentPreset:
         """Update an existing preset."""
         set_fields = params.model_dump(exclude_unset=True, exclude={"skills"})
+        if "reasoning_effort" not in set_fields and params.enable_thinking is not None:
+            # Older clients send only the flag: off disables reasoning, and on
+            # clears "off" without discarding another level.
+            if not params.enable_thinking:
+                set_fields["reasoning_effort"] = "off"
+            elif preset.reasoning_effort == "off":
+                set_fields["reasoning_effort"] = None
         execution_changed = False
         requested_skills = None
         if "skills" in params.model_fields_set:
