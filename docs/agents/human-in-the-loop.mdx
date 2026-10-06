@@ -1,0 +1,66 @@
+---
+title: "Human-in-the-loop"
+description: "`tool_approvals` and the agent inbox to review tool calls before they run."
+---
+
+<Badge icon="github" color="gray" size="lg" shape="pill">Open source</Badge>
+
+Require approval for tools that change data, contact users, or reach external systems.
+The agent pauses before it calls an approval-gated tool, and a reviewer approves, edits, or denies the call from the agent inbox.
+
+## Require approval for tools
+
+Choose where to set approvals based on how you run the agent:
+
+- `ai.agent`: Set `tool_approvals` on the action. Keys are action names, and `true` requires approval.
+- Agent presets: Open the preset, select `Approvals`, then click `Add rule` and turn on `Manual approval` for each tool.
+- MCP integrations: Turn on `Approval` for a tool on a remote MCP integration. Approvals are not supported for `stdio` MCP servers.
+
+```yaml
+- ref: update_case
+  action: ai.agent
+  args:
+    model:
+      model_name: claude-3-5-sonnet-latest
+      model_provider: anthropic
+    user_prompt: |
+      Summarize the latest evidence for case ${{ TRIGGER.case_id }} and update the case.
+    actions:
+      - core.cases.get_case
+      - core.cases.update_case
+    tool_approvals:
+      core.cases.update_case: true
+```
+
+A pause for a tool approval does not count toward the agent timeout.
+The workflow-level `timeout` still bounds the whole run, including approval waits.
+
+## Review tool calls in the inbox
+
+Open `Inbox` from the workspace navigation.
+Runs waiting on a decision appear under `Review required`, and the sidebar badge shows how many are pending.
+Your workspace role needs `inbox:read` to open the inbox.
+
+1. Select a run to open its session and the pending tool call.
+2. Choose `Approve`, `Edit + approve` to change the tool arguments, or `Deny` with an optional reason.
+3. Click `Submit`.
+
+An approved call runs and the agent continues.
+A denied call does not run, and the agent stops instead of retrying the tool.
+
+## Availability
+
+Tool approvals and the agent inbox are open source.
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+Enterprise adds:
+
+- Approving tool calls from Slack or Microsoft Teams through agent channels.
+- `View agent runs` on a case, which opens the inbox filtered to agent runs for that case. This requires the case add-ons entitlement.
+
+## Related pages
+
+- See [AI agent](/agents/ai-agent) for the `tool_approvals` input and examples.
+- See [AI preset agent](/agents/ai-preset-agent) to save approval rules on a reusable agent.
+- See [MCP servers](/automations/integrations/mcp-integrations) to require approval for MCP tools.
