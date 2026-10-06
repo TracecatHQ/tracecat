@@ -34,6 +34,7 @@ import {
 } from "@/components/cases/case-panels"
 import { CaseTagPicker } from "@/components/cases/case-tag-picker"
 import { getCaseTaskProgress } from "@/components/cases/case-task-status"
+import { CaseValueDrawerProvider } from "@/components/cases/case-value-drawer"
 import { CaseVersionHistory } from "@/components/cases/case-version-history"
 import { CaseWorkflowTrigger } from "@/components/cases/case-workflow-trigger"
 import { LockedFeatureModal } from "@/components/locked-feature-modal"
@@ -538,7 +539,7 @@ export function CasePanelView({
   )
 
   return (
-    <>
+    <CaseValueDrawerProvider>
       <CaseWorkflowTrigger caseData={caseData} />
       {/* The case sits on the plain page background, the same surface the nav
           rail and every other route paint. The boxes inside it — tasks,
@@ -814,6 +815,6 @@ export function CasePanelView({
           }}
         />
       )}
-    </>
+    </CaseValueDrawerProvider>
   )
 }

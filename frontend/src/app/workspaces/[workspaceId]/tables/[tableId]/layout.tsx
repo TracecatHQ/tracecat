@@ -6,6 +6,7 @@ import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ControlsHeader } from "@/components/nav/controls-header"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 import {
+  TABLE_PANEL_TITLES,
   TablePanelProvider,
   useTablePanel,
 } from "@/components/tables/table-panel-context"
@@ -17,12 +18,6 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { WorkspaceChatSidebar } from "@/components/workspaces/workspace-chat-sidebar"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceChatOpen } from "@/hooks/use-workspace-chat-open"
-
-const PANEL_TITLES: Record<string, string> = {
-  "view-json": "View JSON",
-  "edit-text": "Edit text",
-  "edit-json": "Edit JSON",
-}
 
 export default function TableDetailLayout({
   children,
@@ -68,7 +63,7 @@ function TableSidePanel() {
       <div className="flex h-full flex-col">
         <div className="flex shrink-0 items-center justify-between px-4 py-2">
           <span className="truncate text-sm font-medium">
-            {PANEL_TITLES[panelContent.mode] ?? "Panel"}
+            {TABLE_PANEL_TITLES[panelContent.mode]}
           </span>
           <Button
             variant="ghost"

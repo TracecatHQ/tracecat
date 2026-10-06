@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Link2, Plus, Unlink2 } from "lucide-react"
 import { type ReactNode, useMemo, useState } from "react"
 import type { TableColumnRead, TableRowRead } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { CaseInsertRowDialog } from "@/components/cases/case-insert-row-dialog"
 import { CaseLinkRowsDialog } from "@/components/cases/case-link-rows-dialog"
 import {
   CASE_PANEL_ACTION_BOX_CLASS,
@@ -11,8 +12,18 @@ import {
   CASE_PANEL_BOX_CLASS,
   TASK_ICON_TRIGGER_CLASS,
 } from "@/components/cases/case-task-fields"
+import { CaseValueDrawer } from "@/components/cases/case-value-drawer"
 import { Spinner } from "@/components/loading/spinner"
-import { TableRowsGrid } from "@/components/tables/table-rows-grid"
+import {
+  TABLE_PANEL_TITLES,
+  TablePanelProvider,
+  useTablePanel,
+} from "@/components/tables/table-panel-context"
+import {
+  type TableRowCellChange,
+  TableRowsGrid,
+} from "@/components/tables/table-rows-grid"
+import { TableSidePanelContent } from "@/components/tables/table-side-panel"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "@/components/ui/use-toast"
@@ -21,8 +32,13 @@ import {
   CaseRowsUnlinkError,
   useCaseLinkedTables,
   useUnlinkCaseRows,
+  useUpdateCaseRow,
 } from "@/hooks/use-case-rows"
-import { toGridRow, UNAVAILABLE_ROW_CLASS_RULES } from "@/lib/cases/case-rows"
+import {
+  isAvailableRow,
+  toGridRow,
+  UNAVAILABLE_ROW_CLASS_RULES,
+} from "@/lib/cases/case-rows"
 import { getApiErrorDetail } from "@/lib/errors"
 import { cn } from "@/lib/utils"
 
@@ -30,6 +46,9 @@ import { cn } from "@/lib/utils"
 const PAGE_SIZE = 20
 const EMPTY_SELECTION: ReadonlySet<string> = new Set()
 const EMPTY_ROWS: readonly TableRowRead[] = []
+
+/** The quiet ghost button every table header action shares. */
+const HEADER_ACTION_CLASS = "h-7 px-2 text-xs text-muted-foreground"
 
 /**
  * A header page arrow: the panel's shared 24px icon trigger, muted until
@@ -54,11 +73,15 @@ export interface CaseLinkedRowsSectionProps {
  * header, so the panel carries no pagination bar.
  *
  * Column definitions ride along on the case-scoped linked-tables summary, so
- * viewing and unlinking need no `table:read`. Every mutation here is guarded
- * by `case:update` on the API, so the select and unlink controls only render
- * with that scope. The link and add controls additionally need `table:read`,
- * because the link dialog reads tables. Without those the grids stay read-only
- * and the empty state is plain text.
+ * viewing and unlinking need no `table:read`. Linking, unlinking and adding
+ * are guarded by `case:update` on the API, so the select and unlink controls
+ * only render with that scope. The link controls additionally need
+ * `table:read`, because the link dialog reads tables, and adding a new row
+ * needs `table:create`. Editing a cell is a write to the table alone, so it
+ * follows `table:update`. Without those the grids stay read-only, long text
+ * and JSON still open in a read-only view, and the empty state is plain text.
+ *
+ * The grids share one cell panel, shown in the case page's value drawer.
  */
 export function CaseLinkedRowsSection({
   caseId,
@@ -71,6 +94,11 @@ export function CaseLinkedRowsSection({
   // The link dialog lists tables, loads a schema and pages rows behind `table:read`.
   const canLink =
     useScopeCheck("case:update", ["table:read"], { all: true }) === true
+  // The API takes the insert-and-link request only with both scopes.
+  const canAddRow =
+    useScopeCheck("case:update", ["table:create"], { all: true }) === true
+  // Cell edits go through the table's own row update.
+  const canEditCells = useScopeCheck("table:update") === true
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
   const [linkDialogTableId, setLinkDialogTableId] = useState<string>()
 
@@ -100,7 +128,7 @@ export function CaseLinkedRowsSection({
   }
 
   return (
-    <>
+    <TablePanelProvider>
       <div className="flex flex-col gap-6">
         {linkedTables.map((linkedTable) => (
           <CaseLinkedTableSection
@@ -113,7 +141,9 @@ export function CaseLinkedRowsSection({
             columns={linkedTable.columns}
             canUpdate={canUpdate}
             canLink={canLink}
-            onAddRows={() => openDialog(linkedTable.table_id)}
+            canAddRow={canAddRow}
+            canEditCells={canEditCells}
+            onLinkRows={() => openDialog(linkedTable.table_id)}
           />
         ))}
         {canLink && (
@@ -141,7 +171,32 @@ export function CaseLinkedRowsSection({
         workspaceId={workspaceId}
         initialTableId={linkDialogTableId}
       />
-    </>
+      <CaseRowCellDrawer />
+    </TablePanelProvider>
+  )
+}
+
+/**
+ * Puts the cell panel the grids open for long text and JSON in the case
+ * page's left drawer, which stays out of the way of the chat on the right.
+ * The tables route docks the same panel in a sidebar. Headed by the cell's
+ * column, with the mode underneath.
+ */
+function CaseRowCellDrawer() {
+  const { panelOpen, panelContent, closePanel } = useTablePanel()
+  const modeTitle = panelContent ? TABLE_PANEL_TITLES[panelContent.mode] : ""
+
+  return (
+    <CaseValueDrawer
+      open={panelOpen && panelContent !== null}
+      onOpenChange={(open) => {
+        if (!open) closePanel()
+      }}
+      title={panelContent?.title ?? modeTitle}
+      description={panelContent?.title ? modeTitle : undefined}
+    >
+      <TableSidePanelContent />
+    </CaseValueDrawer>
   )
 }
 
@@ -184,19 +239,30 @@ interface CaseLinkedTableSectionProps {
   canUpdate: boolean
   /**
    * Whether the viewer holds both `case:update` and `table:read`; gates the
-   * add button, since the link dialog reads tables.
+   * link button, since the link dialog reads tables.
    */
   canLink: boolean
-  onAddRows: () => void
+  /**
+   * Whether the viewer holds both `case:update` and `table:create`; gates the
+   * add button, which inserts a new row and links it.
+   */
+  canAddRow: boolean
+  /** Whether the viewer holds `table:update`; gates editing cells. */
+  canEditCells: boolean
+  onLinkRows: () => void
 }
 
 /**
  * One linked table: a header line and its grid. The header carries the table's
  * name and row count on the left, and on the right the selection's unlink
- * control, the add button, and — only once the rows outrun a single page — two
- * borderless arrows. Paging is read-only, so the arrows ignore the scopes; the
- * count text becomes the visible range once a paged request lands, standing in
- * for the page number the arrows deliberately drop.
+ * control, the link button, the add button, and — only once the rows outrun a
+ * single page — two borderless arrows. Paging is read-only, so the arrows
+ * ignore the scopes; the count text becomes the visible range once a paged
+ * request lands, standing in for the page number the arrows deliberately drop.
+ *
+ * Cells are edited in place. The grid holds an edit locally while it saves, so
+ * once the save settles the rows are rebuilt from the refetched links: a
+ * rejected edit falls back to the server's value instead of lingering.
  */
 function CaseLinkedTableSection({
   caseId,
@@ -207,10 +273,15 @@ function CaseLinkedTableSection({
   columns,
   canUpdate,
   canLink,
-  onAddRows,
+  canAddRow,
+  canEditCells,
+  onLinkRows,
 }: CaseLinkedTableSectionProps) {
   const [selectedRowIds, setSelectedRowIds] =
     useState<ReadonlySet<string>>(EMPTY_SELECTION)
+  const [insertDialogOpen, setInsertDialogOpen] = useState(false)
+  // Bumped after every save so the grid's rows are rebuilt from the cache.
+  const [rowsRevision, setRowsRevision] = useState(0)
 
   const {
     data: caseRows,
@@ -229,10 +300,14 @@ function CaseLinkedTableSection({
     caseId,
     workspaceId,
   })
+  const { updateCaseRow } = useUpdateCaseRow({ caseId, workspaceId })
 
+  // A refetch that changes nothing hands back the same links, so `caseRows`
+  // alone would leave the grid showing an edit the server refused; the
+  // revision forces fresh row objects, which the grid takes as the truth.
   const rows = useMemo<readonly TableRowRead[]>(
     () => (caseRows.length > 0 ? caseRows.map(toGridRow) : EMPTY_ROWS),
-    [caseRows]
+    [caseRows, rowsRevision]
   )
   const selectedCount = selectedRowIds.size
   // One page of rows needs no arrows and no range: the count says it all.
@@ -297,6 +372,19 @@ function CaseLinkedTableSection({
     }
   }
 
+  async function handleCellValueChange({
+    rowId,
+    column,
+    value,
+  }: TableRowCellChange) {
+    try {
+      await updateCaseRow({ tableId, rowId, data: { [column]: value } })
+    } catch {
+      // The update hook already toasted; the rebuild below drops the edit.
+    }
+    setRowsRevision((revision) => revision + 1)
+  }
+
   let gridContent: ReactNode
   if (rowsError) {
     gridContent = (
@@ -317,6 +405,9 @@ function CaseLinkedTableSection({
         autoHeight
         rowClassRules={UNAVAILABLE_ROW_CLASS_RULES}
         widthScope="case-rows"
+        cellPanel
+        onCellValueChange={canEditCells ? handleCellValueChange : undefined}
+        isRowEditable={isAvailableRow}
       />
     )
   }
@@ -362,11 +453,22 @@ function CaseLinkedTableSection({
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-xs text-muted-foreground"
-              onClick={onAddRows}
+              className={HEADER_ACTION_CLASS}
+              onClick={onLinkRows}
+            >
+              <Link2 className="mr-1 size-3" />
+              Link rows
+            </Button>
+          )}
+          {canAddRow && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={HEADER_ACTION_CLASS}
+              onClick={() => setInsertDialogOpen(true)}
             >
               <Plus className="mr-1 size-3" />
-              Add rows
+              Add row
             </Button>
           )}
           {isPaged && (
@@ -394,6 +496,17 @@ function CaseLinkedTableSection({
         </div>
       </div>
       <div className="overflow-hidden rounded-md border">{gridContent}</div>
+      {canAddRow && (
+        <CaseInsertRowDialog
+          open={insertDialogOpen}
+          onOpenChange={setInsertDialogOpen}
+          caseId={caseId}
+          workspaceId={workspaceId}
+          tableId={tableId}
+          tableName={tableName}
+          columns={columns}
+        />
+      )}
     </div>
   )
 }

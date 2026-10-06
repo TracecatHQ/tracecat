@@ -3,6 +3,8 @@
 import "./ag-grid-setup"
 
 import type {
+  CellValueChangedEvent,
+  ColDef,
   ColumnResizedEvent,
   GridApi,
   GridReadyEvent,
@@ -16,7 +18,10 @@ import { AgGridReact } from "ag-grid-react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { TableColumnRead, TableRowRead } from "@/client"
 import { handleGridKeyDown } from "@/components/tables/ag-grid-clipboard"
-import { buildReadOnlyColumnDefs } from "@/components/tables/ag-grid-column-defs"
+import {
+  buildEditableColumnDef,
+  buildReadOnlyColumnDefs,
+} from "@/components/tables/ag-grid-column-defs"
 import {
   isUserSelectionSource,
   reconcileSelection,
@@ -37,6 +42,16 @@ const SELECTION_COLUMN_DEF: SelectionColumnDef = {
 }
 
 const EMPTY_SELECTION: ReadonlySet<string> = new Set()
+
+/** One committed cell edit reported by an editable {@link TableRowsGrid}. */
+export interface TableRowCellChange {
+  /** `TableRowRead.id` of the edited row. */
+  rowId: string
+  /** Name of the edited column. */
+  column: string
+  /** The value the cell now holds locally, not yet persisted. */
+  value: unknown
+}
 
 /** Props for {@link TableRowsGrid}. */
 export interface TableRowsGridProps {
@@ -60,14 +75,37 @@ export interface TableRowsGridProps {
   rowClassRules?: RowClassRules<TableRowRead>
   /** Separates persisted column widths per surface. */
   widthScope?: string
+  /**
+   * Swaps in the tables view's cell renderer, whose hover buttons open long
+   * text and JSON in the cell panel. Needs a `TablePanelProvider` above the
+   * grid; leave unset anywhere without one.
+   */
+  cellPanel?: boolean
+  /**
+   * Makes cells editable, inline and through the cell panel, and reports each
+   * committed edit. The grid only changes the value locally: persisting it,
+   * and handing back fresh `rows` when that fails, is the caller's job. Only
+   * read with `cellPanel`.
+   */
+  onCellValueChange?: (change: TableRowCellChange) => void
+  /**
+   * Narrows editing to some rows; omitted means every row. Pass a stable
+   * reference, since a new one rebuilds the column defs.
+   */
+  isRowEditable?: (row: TableRowRead) => boolean
 }
 
 /**
- * Presentational grid over externally supplied rows: read-only cells, optional
- * checkbox selection that survives page changes, no route or context coupling.
- * Fetching, pagination and selection state belong to the caller.
+ * Presentational grid over externally supplied rows: read-only cells by
+ * default, optional checkbox selection that survives page changes, no route
+ * coupling. Fetching, pagination, selection state and persistence belong to
+ * the caller.
  *
- * Keyboard copy works; paste is disabled because the cells are never written.
+ * Keyboard copy always works. Paste is off unless the grid is editable,
+ * because it would otherwise fabricate cell values that are never written.
+ *
+ * `cellPanel` and `onCellValueChange` opt in to the tables view's cells; the
+ * default grid needs no context above it.
  */
 export function TableRowsGrid({
   columns,
@@ -80,6 +118,9 @@ export function TableRowsGrid({
   autoHeight = false,
   rowClassRules,
   widthScope,
+  cellPanel = false,
+  onCellValueChange,
+  isRowEditable,
 }: TableRowsGridProps) {
   const [gridApi, setGridApi] = useState<GridApi<TableRowRead> | null>(null)
   const [savedWidths, setSavedWidths] = useLocalStorage<Record<string, number>>(
@@ -95,10 +136,29 @@ export function TableRowsGrid({
   )
   selectedRowIdsRef.current = selectedRowIds ?? EMPTY_SELECTION
 
-  const columnDefs = useMemo(
-    () => buildReadOnlyColumnDefs(columns, savedWidths),
-    [columns, savedWidths]
+  const editable = cellPanel && onCellValueChange !== undefined
+  const onCellValueChangeRef = useRef(onCellValueChange)
+  onCellValueChangeRef.current = onCellValueChange
+
+  // Decides inline editing, the renderer's edit buttons and paste alike.
+  const canEditRow = useCallback(
+    (row: unknown) => {
+      if (!editable || !row) return false
+      return isRowEditable?.(row as TableRowRead) ?? true
+    },
+    [editable, isRowEditable]
   )
+
+  const columnDefs = useMemo(() => {
+    if (!cellPanel) return buildReadOnlyColumnDefs(columns, savedWidths)
+    return columns.map(
+      (column): ColDef<TableRowRead> => ({
+        ...buildEditableColumnDef(column, savedWidths, { canEditRow }),
+        // One cursor page, as in the read-only defs: no client-side sort.
+        sortable: false,
+      })
+    )
+  }, [cellPanel, columns, savedWidths, canEditRow])
 
   const applySelection = useCallback(
     (api: GridApi<TableRowRead>) => {
@@ -153,6 +213,20 @@ export function TableRowsGrid({
     [setSavedWidths]
   )
 
+  const handleCellValueChanged = useCallback(
+    (event: CellValueChangedEvent<TableRowRead>) => {
+      const column = event.colDef.field
+      if (!column || event.oldValue === event.newValue) return
+      if (!canEditRow(event.data)) return
+      onCellValueChangeRef.current?.({
+        rowId: event.data.id,
+        column,
+        value: event.newValue,
+      })
+    },
+    [canEditRow]
+  )
+
   const handleSelectionChanged = useCallback(
     (event: SelectionChangedEvent<TableRowRead>) => {
       if (!selectable || !onSelectedRowIdsChange) return
@@ -179,8 +253,14 @@ export function TableRowsGrid({
   return (
     <div
       className={autoHeight ? "" : "h-full"}
-      // Read-only: copy is fine, paste would fabricate cell values locally.
-      onKeyDown={(e) => handleGridKeyDown(e, gridApi, { readOnly: true })}
+      // Copy is always fine; paste only lands in rows whose edits are saved,
+      // anywhere else it would fabricate cell values locally.
+      onKeyDown={(e) =>
+        handleGridKeyDown(e, gridApi, {
+          readOnly: !editable,
+          canPasteRow: canEditRow,
+        })
+      }
     >
       <AgGridReact<TableRowRead>
         theme={tracecatTheme}
@@ -191,6 +271,7 @@ export function TableRowsGrid({
         getRowId={(params) => params.data.id}
         onGridReady={handleGridReady}
         onColumnResized={handleColumnResized}
+        onCellValueChanged={editable ? handleCellValueChanged : undefined}
         onFirstDataRendered={(event) => applySelection(event.api)}
         onRowDataUpdated={(event) => applySelection(event.api)}
         onSelectionChanged={handleSelectionChanged}

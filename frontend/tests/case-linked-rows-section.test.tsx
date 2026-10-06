@@ -18,6 +18,7 @@ import {
   CaseRowsUnlinkError,
   useCaseLinkedTables,
   useUnlinkCaseRows,
+  useUpdateCaseRow,
 } from "@/hooks/use-case-rows"
 
 // Only the hooks are stubbed: the section branches on the real
@@ -26,6 +27,7 @@ jest.mock("@/hooks/use-case-rows", () => ({
   ...jest.requireActual("@/hooks/use-case-rows"),
   useCaseLinkedTables: jest.fn(),
   useUnlinkCaseRows: jest.fn(),
+  useUpdateCaseRow: jest.fn(),
 }))
 
 jest.mock("@/hooks/pagination/use-case-rows-pagination", () => ({
@@ -40,44 +42,110 @@ jest.mock("@/components/auth/scope-guard", () => ({
   useScopeCheck: jest.fn(),
 }))
 
-// AG Grid cannot mount under jsdom; a checkbox per row stands in for it.
+/** Every `rows` prop the mocked grid received, per table, in render order. */
+const mockRowsByTable = new Map<string, unknown[]>()
+
+// AG Grid cannot mount under jsdom; a checkbox per row stands in for it, and
+// an edit button per row commits a cell edit the way the grid would.
 jest.mock("@/components/tables/table-rows-grid", () => ({
   TableRowsGrid: ({
     columns,
     rows,
+    tableId,
     selectable,
     selectedRowIds,
     onSelectedRowIdsChange,
+    cellPanel,
+    onCellValueChange,
+    isRowEditable,
   }: {
     columns: readonly { name: string }[]
     rows: readonly { id: string }[]
+    tableId: string
     selectable?: boolean
     selectedRowIds?: ReadonlySet<string>
     onSelectedRowIdsChange?: (rowIds: string[]) => void
+    cellPanel?: boolean
+    onCellValueChange?: (change: {
+      rowId: string
+      column: string
+      value: unknown
+    }) => void
+    isRowEditable?: (row: { id: string }) => boolean
+  }) => {
+    mockRowsByTable.set(tableId, [
+      ...(mockRowsByTable.get(tableId) ?? []),
+      rows,
+    ])
+    return (
+      <div
+        data-testid="rows-grid"
+        data-selectable={String(Boolean(selectable))}
+        data-cell-panel={String(Boolean(cellPanel))}
+        data-editable={String(Boolean(onCellValueChange))}
+        data-columns={columns.map((column) => column.name).join(",")}
+      >
+        {rows.map((row) => (
+          <div key={row.id}>
+            <input
+              type="checkbox"
+              data-testid={`row-${row.id}`}
+              data-row-editable={String(isRowEditable?.(row) ?? true)}
+              checked={selectedRowIds?.has(row.id) ?? false}
+              onChange={() => {
+                const next = new Set(selectedRowIds ?? [])
+                if (next.has(row.id)) {
+                  next.delete(row.id)
+                } else {
+                  next.add(row.id)
+                }
+                onSelectedRowIdsChange?.([...next])
+              }}
+            />
+            {onCellValueChange && (
+              <button
+                type="button"
+                onClick={() =>
+                  onCellValueChange({
+                    rowId: row.id,
+                    column: "name",
+                    value: "edited",
+                  })
+                }
+              >
+                Edit {row.id}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    )
+  },
+}))
+
+// The cell panel body pulls in the rich-text and JSON editors; the sheet that
+// hosts it stays closed in these tests.
+jest.mock("@/components/tables/table-side-panel", () => ({
+  TableSidePanelContent: () => null,
+}))
+
+// The row form is covered through its own wrapper; a marker records each
+// table's dialog and whether it is open.
+jest.mock("@/components/cases/case-insert-row-dialog", () => ({
+  CaseInsertRowDialog: ({
+    open,
+    tableId,
+    columns,
+  }: {
+    open: boolean
+    tableId: string
+    columns: readonly { name: string }[]
   }) => (
     <div
-      data-testid="rows-grid"
-      data-selectable={String(Boolean(selectable))}
+      data-testid={`insert-row-dialog-${tableId}`}
+      data-open={String(open)}
       data-columns={columns.map((column) => column.name).join(",")}
-    >
-      {rows.map((row) => (
-        <input
-          key={row.id}
-          type="checkbox"
-          data-testid={`row-${row.id}`}
-          checked={selectedRowIds?.has(row.id) ?? false}
-          onChange={() => {
-            const next = new Set(selectedRowIds ?? [])
-            if (next.has(row.id)) {
-              next.delete(row.id)
-            } else {
-              next.add(row.id)
-            }
-            onSelectedRowIdsChange?.([...next])
-          }}
-        />
-      ))}
-    </div>
+    />
   ),
 }))
 
@@ -104,6 +172,10 @@ const mockUseCaseLinkedTables = useCaseLinkedTables as jest.MockedFunction<
 const mockUseUnlinkCaseRows = useUnlinkCaseRows as jest.MockedFunction<
   typeof useUnlinkCaseRows
 >
+const mockUseUpdateCaseRow = useUpdateCaseRow as jest.MockedFunction<
+  typeof useUpdateCaseRow
+>
+const mockUpdateCaseRow = jest.fn()
 const mockUseCaseRowsPagination = useCaseRowsPagination as jest.MockedFunction<
   typeof useCaseRowsPagination
 >
@@ -213,7 +285,8 @@ function grantScopes(...scopes: string[]) {
 
 beforeEach(() => {
   jest.clearAllMocks()
-  grantScopes("case:update", "table:read")
+  mockRowsByTable.clear()
+  grantScopes("case:update", "table:read", "table:create", "table:update")
   // Mirrors the real hook: `all` requires every scope, otherwise any one.
   mockUseScopeCheck.mockImplementation((scope, scopes, options) => {
     const required = [...(scope ? [scope] : []), ...(scopes ?? [])]
@@ -255,6 +328,11 @@ beforeEach(() => {
   mockUseUnlinkCaseRows.mockReturnValue({
     unlinkCaseRows: mockUnlinkCaseRows,
     unlinkCaseRowsIsPending: false,
+  })
+  mockUpdateCaseRow.mockResolvedValue(undefined)
+  mockUseUpdateCaseRow.mockReturnValue({
+    updateCaseRow: mockUpdateCaseRow,
+    updateCaseRowIsPending: false,
   })
 })
 
@@ -529,21 +607,159 @@ describe("CaseLinkedRowsSection", () => {
     expect(dialog).toHaveAttribute("data-initial-table-id", "")
   })
 
-  it("opens the dialog on a section's table from its add button", async () => {
+  it("opens the dialog on a section's table from its link button", async () => {
     const user = userEvent.setup()
     renderSection()
 
-    const [firstAddRows] = screen.getAllByRole("button", { name: "Add rows" })
-    await user.click(firstAddRows)
+    const [firstLinkRows] = screen.getAllByRole("button", { name: "Link rows" })
+    await user.click(firstLinkRows)
 
     const dialog = screen.getByTestId("link-rows-dialog")
     expect(dialog).toHaveAttribute("data-open", "true")
     expect(dialog).toHaveAttribute("data-initial-table-id", "table-1")
+    expect(screen.getByTestId("insert-row-dialog-table-1")).toHaveAttribute(
+      "data-open",
+      "false"
+    )
+  })
+
+  it("opens a section's row form from its add button, off the summary's columns", async () => {
+    const user = userEvent.setup()
+    renderSection()
+
+    const [firstAddRow] = screen.getAllByRole("button", { name: "Add row" })
+    await user.click(firstAddRow)
+
+    const insertDialog = screen.getByTestId("insert-row-dialog-table-1")
+    expect(insertDialog).toHaveAttribute("data-open", "true")
+    expect(insertDialog).toHaveAttribute("data-columns", "name")
+    expect(screen.getByTestId("insert-row-dialog-table-2")).toHaveAttribute(
+      "data-open",
+      "false"
+    )
+    expect(screen.getByTestId("link-rows-dialog")).toHaveAttribute(
+      "data-open",
+      "false"
+    )
+  })
+
+  it("orders the header actions link, then add", () => {
+    renderSection()
+
+    const [linkRows] = screen.getAllByRole("button", { name: "Link rows" })
+    const [addRow] = screen.getAllByRole("button", { name: "Add row" })
+    expect(
+      linkRows.compareDocumentPosition(addRow) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it("saves a cell edit through the case row update", async () => {
+    const user = userEvent.setup()
+    renderSection()
+
+    for (const grid of screen.getAllByTestId("rows-grid")) {
+      expect(grid).toHaveAttribute("data-cell-panel", "true")
+      expect(grid).toHaveAttribute("data-editable", "true")
+    }
+
+    await user.click(screen.getByRole("button", { name: "Edit r1" }))
+
+    await waitFor(() => {
+      expect(mockUpdateCaseRow).toHaveBeenCalledWith({
+        tableId: "table-1",
+        rowId: "r1",
+        data: { name: "edited" },
+      })
+    })
+  })
+
+  it("rebuilds the grid rows after a rejected edit", async () => {
+    const user = userEvent.setup()
+    mockUpdateCaseRow.mockRejectedValueOnce(new Error("Forbidden"))
+    renderSection()
+
+    const before = mockRowsByTable.get("table-1")?.at(-1)
+    await user.click(screen.getByRole("button", { name: "Edit r1" }))
+
+    // The links did not change, so only fresh row objects can drop the edit.
+    await waitFor(() => {
+      expect(mockRowsByTable.get("table-1")?.at(-1)).not.toBe(before)
+    })
+    expect(mockRowsByTable.get("table-1")?.at(-1)).toEqual(before)
+  })
+
+  it("never offers a row whose source row is gone for editing", () => {
+    LINKS_BY_TABLE["table-2"] = [
+      { ...makeLink("table-2", "r3"), is_row_available: false, row_data: null },
+    ]
+    try {
+      renderSection()
+
+      expect(screen.getByTestId("row-r1")).toHaveAttribute(
+        "data-row-editable",
+        "true"
+      )
+      expect(screen.getByTestId("row-r3")).toHaveAttribute(
+        "data-row-editable",
+        "false"
+      )
+    } finally {
+      LINKS_BY_TABLE["table-2"] = [makeLink("table-2", "r3")]
+    }
+  })
+
+  describe("without table:update", () => {
+    beforeEach(() => {
+      grantScopes("case:update", "table:read", "table:create")
+    })
+
+    it("keeps the cells read-only but still opens values in the panel", () => {
+      renderSection()
+
+      expect(mockUseScopeCheck).toHaveBeenCalledWith("table:update")
+      for (const grid of screen.getAllByTestId("rows-grid")) {
+        expect(grid).toHaveAttribute("data-editable", "false")
+        expect(grid).toHaveAttribute("data-cell-panel", "true")
+      }
+      expect(
+        screen.queryByRole("button", { name: "Edit r1" })
+      ).not.toBeInTheDocument()
+      expect(screen.getAllByRole("button", { name: "Add row" })).toHaveLength(2)
+    })
+  })
+
+  describe("without table:create", () => {
+    beforeEach(() => {
+      grantScopes("case:update", "table:read", "table:update")
+    })
+
+    it("drops the add button and keeps linking and editing", () => {
+      renderSection()
+
+      expect(mockUseScopeCheck).toHaveBeenCalledWith(
+        "case:update",
+        ["table:create"],
+        { all: true }
+      )
+      expect(
+        screen.queryByRole("button", { name: "Add row" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByTestId("insert-row-dialog-table-1")
+      ).not.toBeInTheDocument()
+      expect(screen.getAllByRole("button", { name: "Link rows" })).toHaveLength(
+        2
+      )
+      for (const grid of screen.getAllByTestId("rows-grid")) {
+        expect(grid).toHaveAttribute("data-editable", "true")
+      }
+    })
   })
 
   describe("without case:update", () => {
     beforeEach(() => {
-      grantScopes("table:read")
+      grantScopes("table:read", "table:create")
     })
 
     it("checks for the case:update and table:read scopes", () => {
@@ -575,7 +791,10 @@ describe("CaseLinkedRowsSection", () => {
         screen.queryByRole("button", { name: "Link table" })
       ).not.toBeInTheDocument()
       expect(
-        screen.queryByRole("button", { name: "Add rows" })
+        screen.queryByRole("button", { name: "Link rows" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Add row" })
       ).not.toBeInTheDocument()
       expect(
         screen.queryByRole("button", { name: "Unlink" })
@@ -616,7 +835,10 @@ describe("CaseLinkedRowsSection", () => {
         screen.queryByRole("button", { name: "Link table" })
       ).not.toBeInTheDocument()
       expect(
-        screen.queryByRole("button", { name: "Add rows" })
+        screen.queryByRole("button", { name: "Link rows" })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Add row" })
       ).not.toBeInTheDocument()
     })
 
@@ -652,8 +874,14 @@ describe("CaseLinkedRowsSection", () => {
       ).toBeInTheDocument()
       expect(screen.getByRole("button", { name: "Next page" })).toBeEnabled()
       expect(
-        screen.queryByRole("button", { name: "Add rows" })
+        screen.queryByRole("button", { name: "Link rows" })
       ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "Add row" })
+      ).not.toBeInTheDocument()
+      for (const grid of screen.getAllByTestId("rows-grid")) {
+        expect(grid).toHaveAttribute("data-editable", "false")
+      }
     })
   })
 })

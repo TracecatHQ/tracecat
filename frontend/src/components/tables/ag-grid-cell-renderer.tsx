@@ -7,6 +7,11 @@ import { useTablePanel } from "@/components/tables/table-panel-context"
 
 interface AgGridCellRendererParams extends CustomCellRendererProps {
   tableColumn: TableColumnRead
+  /**
+   * Whether the row's cells may be edited; omitted means every row may. A row
+   * that may not swaps the edit buttons for read-only views.
+   */
+  canEditRow?: (row: unknown) => boolean
 }
 
 const JSON_TYPES = new Set(["JSON", "JSONB"])
@@ -18,8 +23,17 @@ function normalizeSqlType(rawType?: string) {
   return base.trim()
 }
 
+/**
+ * Cell renderer for grids hosted under a `TablePanelProvider`: the value, plus
+ * hover buttons that open long text and JSON in the cell panel. Editable rows
+ * get the editors; the rest get a read-only view of the same value.
+ */
 export function AgGridCellRenderer(params: AgGridCellRendererParams) {
   const { openPanel } = useTablePanel()
+  const canEdit = params.canEditRow?.(params.data) ?? true
+  const title = params.tableColumn?.name
+  // A row that cannot be edited and holds no value has nothing to open.
+  const hasValue = params.value !== null && params.value !== undefined
 
   const normalizedType = normalizeSqlType(params.tableColumn?.type)
   const isJsonType = JSON_TYPES.has(normalizedType)
@@ -42,14 +56,16 @@ export function AgGridCellRenderer(params: AgGridCellRendererParams) {
       </div>
       <div className="shrink-0 hidden group-hover:flex items-center">
         {/* TEXT columns only: open full text editor in side panel */}
-        {isStringValue && isTextType && (
+        {isStringValue && isTextType && canEdit && (
           <button
             type="button"
+            aria-label="Edit text"
             onClick={() =>
               openPanel({
                 mode: "edit-text",
                 value: params.value,
                 onSave: setDataValue,
+                title,
               })
             }
             className="flex items-center justify-center size-6 text-muted-foreground hover:text-foreground"
@@ -57,31 +73,49 @@ export function AgGridCellRenderer(params: AgGridCellRendererParams) {
             <NotebookPen className="size-3" />
           </button>
         )}
+        {/* Read-only rows: the same full text, without the editor */}
+        {isStringValue && isTextType && !canEdit && (
+          <button
+            type="button"
+            aria-label="View text"
+            onClick={() =>
+              openPanel({ mode: "view-text", value: params.value, title })
+            }
+            className="flex items-center justify-center size-6 text-muted-foreground hover:text-foreground"
+          >
+            <Eye className="size-3" />
+          </button>
+        )}
         {/* JSON columns only: Eye (view) + NotebookPen (edit) */}
-        {isJsonType && (
+        {isJsonType && (canEdit || hasValue) && (
           <>
             <button
               type="button"
+              aria-label="View JSON"
               onClick={() =>
-                openPanel({ mode: "view-json", value: params.value })
+                openPanel({ mode: "view-json", value: params.value, title })
               }
               className="flex items-center justify-center size-6 text-muted-foreground hover:text-foreground"
             >
               <Eye className="size-3" />
             </button>
-            <button
-              type="button"
-              onClick={() =>
-                openPanel({
-                  mode: "edit-json",
-                  value: params.value,
-                  onSave: setDataValue,
-                })
-              }
-              className="flex items-center justify-center size-6 text-muted-foreground hover:text-foreground"
-            >
-              <NotebookPen className="size-3" />
-            </button>
+            {canEdit && (
+              <button
+                type="button"
+                aria-label="Edit JSON"
+                onClick={() =>
+                  openPanel({
+                    mode: "edit-json",
+                    value: params.value,
+                    onSave: setDataValue,
+                    title,
+                  })
+                }
+                className="flex items-center justify-center size-6 text-muted-foreground hover:text-foreground"
+              >
+                <NotebookPen className="size-3" />
+              </button>
+            )}
           </>
         )}
       </div>

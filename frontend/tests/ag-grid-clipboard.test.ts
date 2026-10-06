@@ -87,6 +87,33 @@ describe("handleGridKeyDown", () => {
     expect(event.preventDefault).not.toHaveBeenCalled()
   })
 
+  it("skips paste into a row the grid will not save", async () => {
+    const rowNode = createRowNode()
+    const canPasteRow = jest.fn().mockReturnValue(false)
+
+    handleGridKeyDown(createKeyEvent("v"), createGridApi(rowNode), {
+      canPasteRow,
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(canPasteRow).toHaveBeenCalledWith(rowNode.data)
+    expect(clipboard.readText).not.toHaveBeenCalled()
+    expect(rowNode.setDataValue).not.toHaveBeenCalled()
+  })
+
+  it("pastes into a row the grid will save", async () => {
+    const rowNode = createRowNode()
+
+    handleGridKeyDown(createKeyEvent("v"), createGridApi(rowNode), {
+      canPasteRow: () => true,
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(rowNode.setDataValue).toHaveBeenCalledWith("name", "pasted")
+  })
+
   it("does nothing without a grid api", () => {
     const copyEvent = createKeyEvent("c")
     const pasteEvent = createKeyEvent("v")

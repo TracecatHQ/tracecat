@@ -1,12 +1,15 @@
 "use client"
 
-import type { ApiError, CaseLinkedTableRead } from "@/client"
+import { useCallback } from "react"
+import type { ApiError, CaseLinkedTableRead, CaseTableRowRead } from "@/client"
 import {
   casesBatchLinkCaseRows,
   casesBatchUnlinkCaseRows,
+  casesInsertCaseRow,
   casesListCaseLinkedTables,
 } from "@/client"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
+import { useUpdateRow } from "@/lib/hooks"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
 
 // Mirrors backend MAX_CASE_ROW_BATCH_SIZE: the most row IDs one batch link or
@@ -25,6 +28,21 @@ export interface CaseRowsScope {
 export interface CaseRowsBatch {
   tableId: string
   rowIds: string[]
+}
+
+/** A new row to insert into a table and link to a case. */
+export interface CaseRowInsert {
+  tableId: string
+  /** Column values keyed by column name. */
+  data: Record<string, unknown>
+}
+
+/** A change to some cells of one linked row. */
+export interface CaseRowUpdate {
+  tableId: string
+  rowId: string
+  /** New values keyed by column name; other columns are left alone. */
+  data: Record<string, unknown>
 }
 
 /** Summed result of every batch-link request for one call. */
@@ -211,4 +229,64 @@ export function useUnlinkCaseRows({ caseId, workspaceId }: CaseRowsScope) {
     })
 
   return { unlinkCaseRows, unlinkCaseRowsIsPending }
+}
+
+/**
+ * Insert a new row into a table and link it to a case in one request.
+ *
+ * Failures surface through the shared error toast; the promise still rejects
+ * so a form can stay open for another try.
+ */
+export function useInsertCaseRow({ caseId, workspaceId }: CaseRowsScope) {
+  const queryClient = useQueryClient()
+  const { mutateAsync: insertCaseRow, isPending: insertCaseRowIsPending } =
+    useMutation<CaseTableRowRead, ApiError, CaseRowInsert>({
+      mutationFn: ({ tableId, data }) =>
+        casesInsertCaseRow({
+          caseId,
+          workspaceId,
+          requestBody: { table_id: tableId, row: { data } },
+        }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: caseRowsQueryKey(caseId) })
+        invalidateCaseActivityQueries(queryClient, caseId, workspaceId)
+      },
+    })
+
+  return { insertCaseRow, insertCaseRowIsPending }
+}
+
+/**
+ * Edit cells of a row linked to a case. The write is the tables view's own row
+ * update, toast included, so it needs `table:update` rather than a case scope.
+ *
+ * The returned promise settles only once the case's rows have been refetched,
+ * and it rejects when the update failed, so a caller holding an optimistic
+ * value knows when the server's copy is back in the cache.
+ */
+export function useUpdateCaseRow({ caseId, workspaceId }: CaseRowsScope) {
+  const queryClient = useQueryClient()
+  const { updateRow, updateRowIsPending: updateCaseRowIsPending } =
+    useUpdateRow()
+
+  const updateCaseRow = useCallback(
+    async ({ tableId, rowId, data }: CaseRowUpdate) => {
+      try {
+        await updateRow({
+          tableId,
+          rowId,
+          workspaceId,
+          requestBody: { data },
+        })
+      } finally {
+        // Settled, not success: a rejected edit has to be read back too.
+        await queryClient.invalidateQueries({
+          queryKey: caseRowsQueryKey(caseId),
+        })
+      }
+    },
+    [caseId, workspaceId, queryClient, updateRow]
+  )
+
+  return { updateCaseRow, updateCaseRowIsPending }
 }

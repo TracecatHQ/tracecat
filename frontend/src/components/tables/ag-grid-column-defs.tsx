@@ -6,6 +6,8 @@ import type {
   ValueFormatterParams,
 } from "ag-grid-community"
 import type { TableColumnRead } from "@/client"
+import { AgGridCellEditor } from "@/components/tables/ag-grid-cell-editor"
+import { AgGridCellRenderer } from "@/components/tables/ag-grid-cell-renderer"
 import { CellDisplay } from "@/components/tables/cell-display"
 
 /** SQL types rendered as free text. */
@@ -119,6 +121,43 @@ export function buildBaseColumnDef(
     width: savedWidths[column.name] ?? getColumnWidthPx(column.type),
     minWidth: 100,
     ...(isNumeric && { valueFormatter: numericValueFormatter }),
+  }
+}
+
+/** Options for {@link buildEditableColumnDef}. */
+export interface EditableColumnDefOptions {
+  /**
+   * Whether a row's cells may be edited; omitted means every row may. Rows
+   * that may not keep the renderer's read-only text and JSON views.
+   */
+  canEditRow?: (row: unknown) => boolean
+}
+
+/**
+ * Column def for a grid hosted under a `TablePanelProvider`: inline editors on
+ * scalar columns, and the renderer's panel buttons for long text and JSON.
+ */
+export function buildEditableColumnDef(
+  column: TableColumnRead,
+  savedWidths: Record<string, number>,
+  { canEditRow }: EditableColumnDefOptions = {}
+): ColDef {
+  return {
+    ...buildBaseColumnDef(column, savedWidths),
+    cellRenderer: AgGridCellRenderer,
+    cellRendererParams: {
+      tableColumn: column,
+      canEditRow,
+    },
+    // JSON columns are edited only via the side panel
+    ...(isJsonColumn(column)
+      ? { editable: false }
+      : {
+          cellEditor: AgGridCellEditor,
+          cellEditorParams: { tableColumn: column },
+          suppressKeyboardEvent: suppressEditorKeys,
+          editable: canEditRow ? (params) => canEditRow(params.data) : true,
+        }),
   }
 }
 

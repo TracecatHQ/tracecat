@@ -13,14 +13,8 @@ import type {
 import { AgGridReact } from "ag-grid-react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { TableRead, TableRowRead } from "@/client"
-import { AgGridCellEditor } from "@/components/tables/ag-grid-cell-editor"
-import { AgGridCellRenderer } from "@/components/tables/ag-grid-cell-renderer"
 import { handleGridKeyDown } from "@/components/tables/ag-grid-clipboard"
-import {
-  buildBaseColumnDef,
-  isJsonColumn,
-  suppressEditorKeys,
-} from "@/components/tables/ag-grid-column-defs"
+import { buildEditableColumnDef } from "@/components/tables/ag-grid-column-defs"
 import { AgGridColumnHeader } from "@/components/tables/ag-grid-column-header"
 import { AgGridContextMenu } from "@/components/tables/ag-grid-context-menu"
 import { AgGridPagination } from "@/components/tables/ag-grid-pagination"
@@ -148,35 +142,19 @@ export function AgGridTable({
     [setSavedWidths]
   )
 
-  const columnDefs: ColDef[] = useMemo(() => {
-    const defs: ColDef[] = [
-      ...columns.map((column): ColDef => {
-        const baseDef = buildBaseColumnDef(column, savedWidths)
-
-        return {
-          ...baseDef,
+  const columnDefs: ColDef[] = useMemo(
+    () =>
+      columns.map(
+        (column): ColDef => ({
+          ...buildEditableColumnDef(column, savedWidths),
           headerComponent: AgGridColumnHeader,
           headerComponentParams: {
             tableColumn: column,
           },
-          cellRenderer: AgGridCellRenderer,
-          cellRendererParams: {
-            tableColumn: column,
-          },
-          // JSON columns are edited only via the side panel
-          ...(isJsonColumn(column)
-            ? { editable: false }
-            : {
-                cellEditor: AgGridCellEditor,
-                cellEditorParams: { tableColumn: column },
-                suppressKeyboardEvent: suppressEditorKeys,
-                editable: true,
-              }),
-        }
-      }),
-    ]
-    return defs
-  }, [columns, savedWidths])
+        })
+      ),
+    [columns, savedWidths]
+  )
 
   if (error) {
     return (

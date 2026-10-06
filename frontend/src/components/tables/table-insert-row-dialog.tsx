@@ -2,9 +2,10 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useParams } from "next/navigation"
+import { useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
-import type { TableRead } from "@/client"
+import type { TableColumnRead } from "@/client"
 import { SqlTypeBadge } from "@/components/data-type/sql-type-display"
 import {
   DynamicInput,
@@ -32,10 +33,10 @@ import { useGetTable, useInsertRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
 // Update the schema to be dynamic based on table columns
-const createInsertTableRowSchema = (table: TableRead) => {
+const createInsertTableRowSchema = (columns: readonly TableColumnRead[]) => {
   const columnValidations: Record<string, z.ZodType> = {}
 
-  table.columns.forEach((column) => {
+  columns.forEach((column) => {
     const normalizedType = column.type.toUpperCase()
     const options = getColumnOptions(column)
 
@@ -164,25 +165,45 @@ const createInsertTableRowSchema = (table: TableRead) => {
   return z.object(columnValidations)
 }
 
-type DynamicFormData = Record<string, unknown>
+/** Values of a new row, keyed by column name, as the row form submits them. */
+export type TableRowFormData = Record<string, unknown>
 
-export function TableInsertRowDialog({
-  open,
-  onOpenChange,
-}: {
+/** Props for {@link TableRowFormDialog}. */
+export interface TableRowFormDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-}) {
-  const params = useParams<{ tableId: string }>()
-  const tableId = params?.tableId
-  const workspaceId = useWorkspaceId()
-  const { table } = useGetTable({ tableId: tableId || "", workspaceId })
-  const { insertRow, insertRowIsPending } = useInsertRow()
+  /** Columns to render one field each for, in order. */
+  columns: readonly TableColumnRead[]
+  /** Table the row goes into; names it in the default description. */
+  tableName?: string | null
+  /** Replaces the default description under the title. */
+  description?: string
+  /**
+   * Persists the validated row. The dialog closes when the promise resolves
+   * and stays open, values intact, when it rejects.
+   */
+  onSubmit: (data: TableRowFormData) => Promise<unknown>
+  /** Disables the submit button while a submit is in flight. */
+  isPending?: boolean
+}
 
-  // Create form schema once table data is available
-  const schema = table ? createInsertTableRowSchema(table) : z.object({})
+/**
+ * The "Add new row" form: one typed field per column, validated against the
+ * column types. It knows nothing about where the row is written, so the
+ * tables route and the case page each wrap it with their own insert.
+ */
+export function TableRowFormDialog({
+  open,
+  onOpenChange,
+  columns,
+  tableName,
+  description,
+  onSubmit,
+  isPending = false,
+}: TableRowFormDialogProps) {
+  const schema = useMemo(() => createInsertTableRowSchema(columns), [columns])
 
-  const form = useForm<DynamicFormData>({
+  const form = useForm<TableRowFormData>({
     resolver: zodResolver(schema),
     defaultValues: {},
   })
@@ -194,27 +215,20 @@ export function TableInsertRowDialog({
     onOpenChange(nextOpen)
   }
 
-  const onSubmit = async (data: DynamicFormData) => {
+  const handleSubmit = async (data: TableRowFormData) => {
     try {
-      if (!tableId) {
-        console.error("Table ID is missing")
-        return
-      }
-      await insertRow({
-        requestBody: {
-          data,
-        },
-        tableId,
-        workspaceId,
-      })
+      await onSubmit(data)
       handleOpenChange(false)
     } catch (error) {
       console.error(error)
     }
   }
 
-  if (!table) {
-    return null
+  let resolvedDescription = "Add a new row to this table."
+  if (description) {
+    resolvedDescription = description
+  } else if (tableName) {
+    resolvedDescription = `Add a new row to the "${tableName}" table.`
   }
 
   return (
@@ -222,18 +236,16 @@ export function TableInsertRowDialog({
       <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Add new row</DialogTitle>
-          <DialogDescription>
-            Add a new row to the "{table.name}" table.
-          </DialogDescription>
+          <DialogDescription>{resolvedDescription}</DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form
-            onSubmit={form.handleSubmit(onSubmit)}
+            onSubmit={form.handleSubmit(handleSubmit)}
             className="flex min-h-0 flex-1 flex-col overflow-hidden"
           >
             <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
               <div className="space-y-4 pr-1">
-                {table.columns.map((column) => (
+                {columns.map((column) => (
                   <FormField
                     key={column.name}
                     control={form.control}
@@ -255,7 +267,7 @@ export function TableInsertRowDialog({
               </div>
             </div>
             <DialogFooter className="pt-4">
-              <Button type="submit" disabled={insertRowIsPending}>
+              <Button type="submit" disabled={isPending}>
                 Add row
               </Button>
             </DialogFooter>
@@ -263,5 +275,51 @@ export function TableInsertRowDialog({
         </Form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/**
+ * The tables route's "Add new row" dialog: reads the table from the route and
+ * inserts through the tables API.
+ */
+export function TableInsertRowDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const params = useParams<{ tableId: string }>()
+  const tableId = params?.tableId
+  const workspaceId = useWorkspaceId()
+  const { table } = useGetTable({ tableId: tableId || "", workspaceId })
+  const { insertRow, insertRowIsPending } = useInsertRow()
+
+  if (!table) {
+    return null
+  }
+
+  async function handleSubmit(data: TableRowFormData) {
+    if (!tableId) {
+      throw new Error("Table ID is missing")
+    }
+    await insertRow({
+      requestBody: {
+        data,
+      },
+      tableId,
+      workspaceId,
+    })
+  }
+
+  return (
+    <TableRowFormDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      columns={table.columns}
+      tableName={table.name}
+      onSubmit={handleSubmit}
+      isPending={insertRowIsPending}
+    />
   )
 }

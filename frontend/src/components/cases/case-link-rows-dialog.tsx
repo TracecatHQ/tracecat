@@ -42,7 +42,7 @@ export interface CaseLinkRowsDialogProps {
 
 /**
  * Picks rows to link to a case: choose a table, page through its rows, tick
- * the ones to add. Dismissable only via the close button.
+ * the ones to link. Dismissable only via the close button.
  */
 export function CaseLinkRowsDialog({
   open,
@@ -162,7 +162,7 @@ function CaseLinkRowsDialogBody({
     setStagedByTable(new Map())
   }
 
-  async function handleAdd() {
+  async function handleLink() {
     let linkedCount = 0
     let alreadyLinkedCount = 0
     // Every request commits on its own, so a failure part-way through has to
@@ -262,11 +262,11 @@ function CaseLinkRowsDialogBody({
     summary += ` across ${stagedTableCount} tables`
   }
 
-  let addLabel = "Add rows"
+  let linkLabel = "Link rows"
   if (totalStaged === 1) {
-    addLabel = "Add 1 row"
+    linkLabel = "Link 1 row"
   } else if (totalStaged > 1) {
-    addLabel = `Add ${totalStaged} rows`
+    linkLabel = `Link ${totalStaged} rows`
   }
 
   return (
@@ -323,16 +323,16 @@ function CaseLinkRowsDialogBody({
             Clear
           </Button>
           <Button
-            onClick={handleAdd}
+            onClick={handleLink}
             disabled={totalStaged === 0 || linkCaseRowsIsPending}
           >
             {linkCaseRowsIsPending ? (
               <span className="flex items-center gap-2">
                 <Spinner className="size-4" />
-                Adding…
+                Linking…
               </span>
             ) : (
-              addLabel
+              linkLabel
             )}
           </Button>
         </div>

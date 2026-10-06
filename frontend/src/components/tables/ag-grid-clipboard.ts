@@ -5,6 +5,11 @@ import type React from "react"
 export interface GridKeyDownOptions {
   /** Skip paste handling; copy still works. For grids that never write cells. */
   readOnly?: boolean
+  /**
+   * Whether a row accepts pasted values; omitted means every row does. Lets a
+   * writable grid keep paste out of rows it would never persist.
+   */
+  canPasteRow?: (row: unknown) => boolean
 }
 
 /**
@@ -12,7 +17,8 @@ export interface GridKeyDownOptions {
  *
  * Copy writes the selected rows as TSV, or the focused cell when nothing is
  * selected. Paste writes the clipboard text into the focused cell, so pass
- * `readOnly` on grids that never persist cell edits.
+ * `readOnly` on grids that never persist cell edits and `canPasteRow` when
+ * only some rows do.
  */
 export function handleGridKeyDown(
   e: React.KeyboardEvent,
@@ -32,7 +38,7 @@ export function handleGridKeyDown(
   } else if (isCtrlOrCmd && e.key === "v") {
     if (options.readOnly) return
     e.preventDefault()
-    handlePaste(gridApi)
+    handlePaste(gridApi, options.canPasteRow)
   }
 }
 
@@ -86,12 +92,16 @@ function handleCopy(gridApi: GridApi) {
   }
 }
 
-async function handlePaste(gridApi: GridApi) {
+async function handlePaste(
+  gridApi: GridApi,
+  canPasteRow?: (row: unknown) => boolean
+) {
   const focusedCell = gridApi.getFocusedCell()
   if (!focusedCell) return
 
   const rowNode = gridApi.getDisplayedRowAtIndex(focusedCell.rowIndex)
   if (!rowNode?.data) return
+  if (canPasteRow && !canPasteRow(rowNode.data)) return
 
   const colId = focusedCell.column.getColId()
   // Don't paste into non-editable columns
