@@ -9239,7 +9239,7 @@ async def test_get_agent_preset_returns_full_configuration(
         tool_approvals={"tools.alpha": False},
         mcp_integrations=[str(uuid.uuid4())],
         retries=3,
-        enable_thinking=True,
+        reasoning_effort=None,
         enable_internet_access=False,
         current_version_id=None,
         created_at=now,
@@ -9764,7 +9764,7 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
                 tool_approvals=params.tool_approvals,
                 mcp_integrations=params.mcp_integrations,
                 retries=params.retries,
-                enable_thinking=params.enable_thinking,
+                reasoning_effort=params.reasoning_effort,
                 enable_internet_access=params.enable_internet_access,
                 current_version_id=None,
                 created_at=now,
@@ -9799,7 +9799,7 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
         tool_approvals={"tools.slack.post_message": False},
         mcp_integration_ids=[str(uuid.uuid4())],
         retries=5,
-        enable_thinking=False,
+        reasoning_effort="high",
         enable_internet_access=True,
     )
 
@@ -9809,11 +9809,11 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
     assert params.model_provider == "openai"
     assert params.catalog_id == catalog_id
     assert params.mcp_integrations is not None
-    assert params.enable_thinking is False
+    assert params.reasoning_effort == "high"
     assert params.enable_internet_access is True
     assert payload["model_name"] == "gpt-4o-mini"
     assert payload["output_type"]["type"] == "object"
-    assert payload["enable_thinking"] is False
+    assert payload["reasoning_effort"] == "high"
 
 
 @pytest.mark.anyio
@@ -9864,7 +9864,7 @@ async def test_create_agent_preset_uses_default_model_selection_catalog_id(
                 tool_approvals=params.tool_approvals,
                 mcp_integrations=params.mcp_integrations,
                 retries=params.retries,
-                enable_thinking=params.enable_thinking,
+                reasoning_effort=params.reasoning_effort,
                 enable_internet_access=params.enable_internet_access,
                 current_version_id=None,
                 created_at=now,
@@ -9925,7 +9925,7 @@ async def test_update_agent_preset_updates_existing_preset(
         tool_approvals={"tools.alpha": False},
         mcp_integrations=[str(uuid.uuid4())],
         retries=3,
-        enable_thinking=True,
+        reasoning_effort=None,
         enable_internet_access=False,
         current_version_id=None,
         created_at=now,
@@ -9951,7 +9951,7 @@ async def test_update_agent_preset_updates_existing_preset(
                 "actions": params.actions,
                 "mcp_integrations": params.mcp_integrations,
                 "retries": params.retries,
-                "enable_thinking": params.enable_thinking,
+                "reasoning_effort": params.reasoning_effort,
                 "enable_internet_access": params.enable_internet_access,
                 "updated_at": datetime.now(UTC),
             }
@@ -9972,7 +9972,7 @@ async def test_update_agent_preset_updates_existing_preset(
         actions=["tools.bravo"],
         mcp_integration_ids=[integration_id],
         retries=5,
-        enable_thinking=False,
+        reasoning_effort="high",
         enable_internet_access=True,
     )
 
@@ -9982,14 +9982,28 @@ async def test_update_agent_preset_updates_existing_preset(
     assert params.actions == ["tools.bravo"]
     assert params.mcp_integrations == [integration_id]
     assert params.retries == 5
-    assert params.enable_thinking is False
+    assert params.reasoning_effort == "high"
     assert params.enable_internet_access is True
     assert payload["instructions"] == "Updated prompt"
     assert payload["actions"] == ["tools.bravo"]
     assert payload["mcp_integrations"] == [integration_id]
     assert payload["retries"] == 5
-    assert payload["enable_thinking"] is False
+    assert payload["reasoning_effort"] == "high"
     assert payload["enable_internet_access"] is True
+
+    await _tool(mcp_server.update_agent_preset)(
+        workspace_id=str(workspace_id),
+        preset_slug="security-triage",
+        instructions="Updated prompt",
+        actions=["tools.bravo"],
+        mcp_integration_ids=[integration_id],
+        retries=5,
+        clear_reasoning_effort=True,
+        enable_internet_access=True,
+    )
+    params = updated["params"]
+    assert "reasoning_effort" in params.model_fields_set
+    assert params.reasoning_effort is None
 
 
 @pytest.mark.anyio
@@ -10018,7 +10032,7 @@ async def test_update_agent_preset_clear_output_type_sets_explicit_none(
         mcp_integrations=None,
         agents={},
         retries=3,
-        enable_thinking=True,
+        reasoning_effort=None,
         enable_internet_access=False,
         current_version_id=None,
         created_at=now,
@@ -10084,7 +10098,7 @@ async def test_update_agent_preset_omitting_output_type_leaves_unset(
         mcp_integrations=None,
         agents={},
         retries=3,
-        enable_thinking=True,
+        reasoning_effort=None,
         enable_internet_access=False,
         current_version_id=None,
         created_at=now,
@@ -10169,7 +10183,7 @@ async def test_update_agent_preset_resolves_explicit_model(
         tool_approvals=None,
         mcp_integrations=None,
         retries=3,
-        enable_thinking=True,
+        reasoning_effort=None,
         enable_internet_access=False,
         current_version_id=None,
         created_at=now,
@@ -10338,7 +10352,7 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
                 tool_approvals=params.tool_approvals,
                 mcp_integrations=params.mcp_integrations,
                 retries=params.retries,
-                enable_thinking=params.enable_thinking,
+                reasoning_effort=params.reasoning_effort,
                 enable_internet_access=params.enable_internet_access,
                 current_version_id=None,
                 created_at=now,
@@ -10370,10 +10384,10 @@ async def test_create_agent_preset_omitted_retry_fields_use_schema_defaults(
     payload = _payload(result)
     params = created["params"]
     assert params.retries == 3
-    assert params.enable_thinking is True
+    assert params.reasoning_effort is None
     assert params.enable_internet_access is False
     assert payload["retries"] == 3
-    assert payload["enable_thinking"] is True
+    assert payload["reasoning_effort"] is None
     assert payload["enable_internet_access"] is False
 
 
@@ -10464,7 +10478,7 @@ async def test_create_agent_preset_resolves_catalog_id_for_custom_provider(
                 tool_approvals=params.tool_approvals,
                 mcp_integrations=params.mcp_integrations,
                 retries=params.retries,
-                enable_thinking=params.enable_thinking,
+                reasoning_effort=params.reasoning_effort,
                 enable_internet_access=params.enable_internet_access,
                 current_version_id=None,
                 created_at=now,
@@ -10548,7 +10562,7 @@ async def test_create_agent_preset_passes_skill_bindings(
                 mcp_integrations=params.mcp_integrations,
                 agents={},
                 retries=params.retries,
-                enable_thinking=params.enable_thinking,
+                reasoning_effort=params.reasoning_effort,
                 enable_internet_access=params.enable_internet_access,
                 current_version_id=None,
                 created_at=now,
@@ -10615,7 +10629,7 @@ async def test_update_agent_preset_passes_skill_bindings(
         mcp_integrations=None,
         agents={},
         retries=3,
-        enable_thinking=True,
+        reasoning_effort=None,
         enable_internet_access=False,
         current_version_id=None,
         created_at=now,
@@ -10686,7 +10700,7 @@ async def test_update_agent_preset_can_clear_skill_bindings(
         mcp_integrations=None,
         agents={},
         retries=3,
-        enable_thinking=True,
+        reasoning_effort=None,
         enable_internet_access=False,
         current_version_id=None,
         created_at=now,
@@ -10744,7 +10758,7 @@ def _mcp_subagent_test_preset(workspace_id: uuid.UUID) -> SimpleNamespace:
         mcp_integrations=None,
         agents={},
         retries=3,
-        enable_thinking=True,
+        reasoning_effort=None,
         enable_internet_access=False,
         current_version_id=None,
         created_at=now,

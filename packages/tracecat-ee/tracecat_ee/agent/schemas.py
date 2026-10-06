@@ -1,12 +1,13 @@
 import uuid
-from typing import Any
+from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tracecat import config
 from tracecat.agent.common.types import (
     MCPServerConfig,
-    read_reasoning_effort_as_enable_thinking,
+    ReasoningEffort,
+    reasoning_effort_from_enable_thinking,
 )
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.agent.types import OutputType
@@ -68,16 +69,20 @@ class AgentActionArgs(BaseModel):
         description="The maximum number of model requests to make per agent run",
     )
     retries: int = 3
+    reasoning_effort: ReasoningEffort | None = None
     enable_thinking: bool = True
+    """Deprecated: use ``reasoning_effort``. Only ``False`` has an effect."""
     base_url: str | None = None
     tool_approvals: dict[str, bool] | None = None
     agents: AgentSubagentsConfig = Field(default_factory=AgentSubagentsConfig)
 
-    @model_validator(mode="before")
-    @classmethod
-    def read_reasoning_effort(cls, data: Any) -> Any:
-        """Accept activity results that a newer worker wrote."""
-        return read_reasoning_effort_as_enable_thinking(data)
+    @model_validator(mode="after")
+    def apply_legacy_enable_thinking(self) -> Self:
+        if self.reasoning_effort is None:
+            self.reasoning_effort = reasoning_effort_from_enable_thinking(
+                self.enable_thinking
+            )
+        return self
 
     @field_validator("agents", mode="before")
     @classmethod

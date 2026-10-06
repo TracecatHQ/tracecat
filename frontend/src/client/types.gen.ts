@@ -712,7 +712,7 @@ export type AgentPresetCreate = {
   library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Input
   retries?: number
-  enable_thinking?: boolean
+  reasoning_effort?: ReasoningEffort | null
   enable_internet_access?: boolean
   description?: string | null
   use_in_chat?: boolean
@@ -766,7 +766,7 @@ export type AgentPresetRead = {
   library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Output
   retries?: number
-  enable_thinking?: boolean
+  reasoning_effort?: ReasoningEffort | null
   enable_internet_access?: boolean
   tool_policy?: AgentPresetToolPolicyRead
   id: string
@@ -917,7 +917,7 @@ export type AgentPresetUpdate = {
   library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Input | null
   retries?: number | null
-  enable_thinking?: boolean | null
+  reasoning_effort?: ReasoningEffort | null
   enable_internet_access?: boolean | null
   skills?: Array<AgentPresetSkillBindingBase> | null
 }
@@ -987,7 +987,7 @@ export type AgentPresetVersionRead = {
   library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Output
   retries?: number
-  enable_thinking?: boolean
+  reasoning_effort?: ReasoningEffort | null
   enable_internet_access?: boolean
   tool_policy?: AgentPresetToolPolicyRead
   id: string
@@ -7098,6 +7098,8 @@ export type RateLimitInfo = {
 }
 
 export type status8 = "allowed" | "allowed_warning" | "rejected"
+
+export type ReasoningEffort = "off" | "low" | "medium" | "high" | "max"
 
 /**
  * A reasoning part of a message.

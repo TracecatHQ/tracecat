@@ -8,6 +8,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field, StringConstraints
 
+from tracecat.agent.common.types import ReasoningEffort
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
@@ -77,7 +78,7 @@ class PresetCreateRequest(BaseModel):
     mcp_integrations: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
-    enable_thinking: bool = Field(default=True)
+    reasoning_effort: ReasoningEffort | None = Field(default=None)
     enable_internet_access: bool = Field(default=False)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
 
@@ -115,7 +116,7 @@ class PresetUpdateRequest(BaseModel):
     mcp_integrations: list[str] | None = Field(default=None)
     agents: AgentSubagentsConfig | None = Field(default=None)
     retries: int | None = Field(default=None, ge=0)
-    enable_thinking: bool | None = Field(default=None)
+    reasoning_effort: ReasoningEffort | None = Field(default=None)
     enable_internet_access: bool | None = Field(default=None)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
 

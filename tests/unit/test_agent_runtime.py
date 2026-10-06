@@ -1273,43 +1273,26 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options[0].max_buffer_size == CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES
 
     @pytest.mark.anyio
-    async def test_enable_thinking_uses_fixed_budget_thinking(
+    @pytest.mark.parametrize(
+        ("reasoning_effort", "expected_thinking", "expected_effort"),
+        [
+            (None, None, None),
+            ("off", {"type": "disabled"}, None),
+            ("low", {"type": "enabled", "budget_tokens": 4_000}, "low"),
+            ("max", {"type": "enabled", "budget_tokens": 32_000}, "max"),
+        ],
+    )
+    async def test_reasoning_effort_maps_to_sdk_thinking_and_effort(
         self,
         mock_socket_writer: MagicMock,
         mock_claude_sdk_client: MagicMock,
         sample_init_payload: RuntimeInitPayload,
+        reasoning_effort: str | None,
+        expected_thinking: dict[str, Any] | None,
+        expected_effort: str | None,
     ) -> None:
-        captured_options: list[Any] = []
-
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(sample_init_payload)
-
-        assert captured_options
-        assert captured_options[0].effort is None
-        assert captured_options[0].thinking == {
-            "type": "enabled",
-            "budget_tokens": 1024,
-        }
-
-    @pytest.mark.anyio
-    async def test_disable_thinking_uses_disabled_thinking_config(
-        self,
-        mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
-        sample_init_payload: RuntimeInitPayload,
-    ) -> None:
+        """None leaves the CLI on the model default; levels set both effort
+        (adaptive and non-Claude models) and a budget (older Claude models)."""
         captured_options: list[Any] = []
 
         def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
@@ -1319,7 +1302,7 @@ class TestClaudeAgentRuntimeRun:
         payload = replace(
             sample_init_payload,
             config=sample_init_payload.config.model_copy(
-                update={"enable_thinking": False}
+                update={"reasoning_effort": reasoning_effort}
             ),
         )
 
@@ -1335,8 +1318,8 @@ class TestClaudeAgentRuntimeRun:
             await runtime.run(payload)
 
         assert captured_options
-        assert captured_options[0].effort is None
-        assert captured_options[0].thinking == {"type": "disabled"}
+        assert captured_options[0].thinking == expected_thinking
+        assert captured_options[0].effort == expected_effort
 
     @pytest.mark.anyio
     async def test_sets_auto_compact_window_for_custom_model_provider(

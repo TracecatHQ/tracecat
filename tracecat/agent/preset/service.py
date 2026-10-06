@@ -139,7 +139,7 @@ class AgentPresetService(BaseWorkspaceService):
         "library_skills",
         "agents",
         "retries",
-        "enable_thinking",
+        "reasoning_effort",
         "enable_internet_access",
     }
 
@@ -469,7 +469,7 @@ class AgentPresetService(BaseWorkspaceService):
             library_skills=preset.library_skills,
             agents=agents,
             retries=preset.retries,
-            enable_thinking=preset.enable_thinking,
+            reasoning_effort=preset.reasoning_effort,
             enable_internet_access=preset.enable_internet_access
             or policy.requires_internet_access,
             tool_policy=self._tool_policy_read(policy),
@@ -505,7 +505,7 @@ class AgentPresetService(BaseWorkspaceService):
             library_skills=version.library_skills,
             agents=agents,
             retries=version.retries,
-            enable_thinking=version.enable_thinking,
+            reasoning_effort=version.reasoning_effort,
             enable_internet_access=version.enable_internet_access
             or policy.requires_internet_access,
             tool_policy=self._tool_policy_read(policy),
@@ -578,7 +578,7 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_integrations=params.mcp_integrations,
             library_skills=library_skills,
             agents=AgentSubagentsConfig().model_dump(mode="json"),
-            enable_thinking=params.enable_thinking,
+            reasoning_effort=params.reasoning_effort,
             enable_internet_access=params.enable_internet_access,
             retries=params.retries,
         )
@@ -2329,7 +2329,7 @@ class AgentPresetService(BaseWorkspaceService):
             "base_url",
             "output_type",
             "retries",
-            "enable_thinking",
+            "reasoning_effort",
             "enable_internet_access",
             "agents",
         ):
@@ -2487,7 +2487,7 @@ class AgentPresetService(BaseWorkspaceService):
             agents=agents,
             retries=version.retries,
             model_settings=model_settings,
-            enable_thinking=version.enable_thinking,
+            reasoning_effort=version.reasoning_effort,
             enable_internet_access=version.enable_internet_access
             or policy.requires_internet_access,
             resolved_skills=resolved_skills,
@@ -2646,7 +2646,7 @@ class AgentPresetService(BaseWorkspaceService):
             library_skills=preset.library_skills,
             agents=preset.agents,
             retries=preset.retries,
-            enable_thinking=preset.enable_thinking,
+            reasoning_effort=preset.reasoning_effort,
             enable_internet_access=preset.enable_internet_access,
         )
         self.session.add(version)
@@ -2679,5 +2679,5 @@ class AgentPresetService(BaseWorkspaceService):
         preset.library_skills = version.library_skills
         preset.agents = agents
         preset.retries = version.retries
-        preset.enable_thinking = version.enable_thinking
+        preset.reasoning_effort = version.reasoning_effort
         preset.enable_internet_access = version.enable_internet_access

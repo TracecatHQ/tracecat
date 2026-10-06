@@ -305,7 +305,6 @@ def agent_preset_create_params() -> AgentPresetCreate:
         tool_approvals=None,
         mcp_integrations=None,
         retries=3,
-        enable_thinking=True,
     )
 
 
@@ -424,6 +423,7 @@ class TestAgentPresetService:
         assert (
             created_preset.model_provider == agent_preset_create_params.model_provider
         )
+        assert created_preset.reasoning_effort is None
         assert created_preset.enable_thinking is True
         assert created_preset.workspace_id == agent_preset_service.workspace_id
 
@@ -1017,20 +1017,23 @@ class TestAgentPresetService:
         )
         assert [version.version for version in versions.items] == [1]
 
-    async def test_update_preset_enable_thinking_creates_new_version(
+    async def test_update_preset_reasoning_effort_creates_new_version(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
+        """Reasoning effort is versioned, and the deprecated enable_thinking
+        column mirrors it so a rolled-back app keeps the user's choice."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
 
         updated_preset = await agent_preset_service.update_preset(
             created_preset,
-            AgentPresetUpdate(enable_thinking=False),
+            AgentPresetUpdate(reasoning_effort="off"),
         )
 
+        assert updated_preset.reasoning_effort == "off"
         assert updated_preset.enable_thinking is False
         versions = await agent_preset_service.list_versions(
             created_preset.id,
@@ -1039,11 +1042,20 @@ class TestAgentPresetService:
         assert [version.version for version in versions.items] == [2, 1]
         latest_version = await agent_preset_service.get_version(versions.items[0].id)
         assert latest_version is not None
+        assert latest_version.reasoning_effort == "off"
         assert latest_version.enable_thinking is False
         preset_read = await agent_preset_service.build_preset_read(updated_preset)
         version_read = await agent_preset_service.build_version_read(latest_version)
-        assert preset_read.enable_thinking is False
-        assert version_read.enable_thinking is False
+        assert preset_read.reasoning_effort == "off"
+        assert version_read.reasoning_effort == "off"
+
+        reset_preset = await agent_preset_service.update_preset(
+            updated_preset,
+            AgentPresetUpdate(reasoning_effort=None),
+        )
+
+        assert reset_preset.reasoning_effort is None
+        assert reset_preset.enable_thinking is True
 
     @pytest.mark.parametrize("enabled", [None, False])
     async def test_publishing_existing_head_normalizes_enabled(

@@ -59,11 +59,13 @@ from sqlalchemy.orm import (
     QueryableAttribute,
     mapped_column,
     relationship,
+    validates,
 )
 
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
+from tracecat.agent.common.types import ReasoningEffort
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScimConnectionStatus, ScopeSource
@@ -4115,12 +4117,19 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
     )
+    reasoning_effort: Mapped[ReasoningEffort | None] = mapped_column(
+        String(16),
+        nullable=True,
+        doc="Reasoning level for agent runs; null uses the model default",
+    )
+    # Deprecated: mirrors reasoning_effort so a rolled-back app keeps the
+    # user's choice. Drop in a follow-up contract migration.
     enable_thinking: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
         server_default=text("true"),
         nullable=False,
-        doc="Whether to enable high thinking for agent runs",
+        doc="Deprecated: whether reasoning_effort is not 'off'",
     )
     enable_internet_access: Mapped[bool] = mapped_column(
         Boolean,
@@ -4166,6 +4175,13 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         back_populates="agent_preset",
         cascade="save-update",
     )
+
+    @validates("reasoning_effort")
+    def _sync_enable_thinking(
+        self, _key: str, value: ReasoningEffort | None
+    ) -> ReasoningEffort | None:
+        self.enable_thinking = value != "off"
+        return value
 
 
 class AgentPresetVersion(WorkspaceModel):
@@ -4261,12 +4277,19 @@ class AgentPresetVersion(WorkspaceModel):
     retries: Mapped[int] = mapped_column(
         Integer, default=3, nullable=False, doc="Maximum retry attempts per run"
     )
+    reasoning_effort: Mapped[ReasoningEffort | None] = mapped_column(
+        String(16),
+        nullable=True,
+        doc="Reasoning level for agent runs; null uses the model default",
+    )
+    # Deprecated: mirrors reasoning_effort so a rolled-back app keeps the
+    # user's choice. Drop in a follow-up contract migration.
     enable_thinking: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
         server_default=text("true"),
         nullable=False,
-        doc="Whether to enable high thinking for agent runs",
+        doc="Deprecated: whether reasoning_effort is not 'off'",
     )
     enable_internet_access: Mapped[bool] = mapped_column(
         Boolean,
@@ -4286,6 +4309,13 @@ class AgentPresetVersion(WorkspaceModel):
         back_populates="preset_version",
         cascade="all, delete-orphan",
     )
+
+    @validates("reasoning_effort")
+    def _sync_enable_thinking(
+        self, _key: str, value: ReasoningEffort | None
+    ) -> ReasoningEffort | None:
+        self.enable_thinking = value != "off"
+        return value
 
 
 class Skill(SoftDeleteMixin, WorkspaceModel):

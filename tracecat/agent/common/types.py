@@ -6,8 +6,7 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, TypeGuard
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from pydantic_core import ArgsKwargs
+from pydantic import BaseModel, ConfigDict, Field
 
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.integrations.schemas import MCPToolStatus
@@ -15,28 +14,13 @@ from tracecat.integrations.schemas import MCPToolStatus
 if TYPE_CHECKING:
     from tracecat.agent.types import AgentConfig
 
+type ReasoningEffort = Literal["off", "low", "medium", "high", "max"]
+"""Provider-neutral reasoning level. ``None`` means the model's default."""
 
-def read_reasoning_effort_as_enable_thinking(data: Any) -> Any:
-    """Replace a ``reasoning_effort`` key from newer app versions with ``enable_thinking``.
 
-    For ``mode="before"`` validators on configs that cross Temporal boundaries,
-    so this version can run payloads that a newer worker wrote. ``"off"`` maps to
-    ``False``; any other level, or null, maps to ``True``. An explicit
-    ``enable_thinking`` key takes precedence. Pydantic dataclass constructors
-    pass ``ArgsKwargs``, whose keyword arguments are mapped the same way.
-    """
-    if isinstance(data, ArgsKwargs):
-        if data.kwargs is None:
-            return data
-        return ArgsKwargs(
-            data.args, read_reasoning_effort_as_enable_thinking(data.kwargs)
-        )
-    if not isinstance(data, dict) or "reasoning_effort" not in data:
-        return data
-    data = dict(data)
-    reasoning_effort = data.pop("reasoning_effort")
-    data.setdefault("enable_thinking", reasoning_effort != "off")
-    return data
+def reasoning_effort_from_enable_thinking(enabled: bool) -> ReasoningEffort | None:
+    """Map the legacy ``enable_thinking`` flag to a reasoning effort."""
+    return None if enabled else "off"
 
 
 class MCPHttpServerConfig(TypedDict):
@@ -230,18 +214,12 @@ class SandboxAgentConfig(BaseModel):
     """Expected output type for structured outputs (e.g., "int", "str", or a JSON schema dict)."""
 
     # Sandbox
-    enable_thinking: bool = True
-    """Whether to enable extended thinking for the Claude Code CLI."""
+    reasoning_effort: ReasoningEffort | None = None
+    """Reasoning level for the Claude Code CLI. ``None`` uses the model default."""
     enable_internet_access: bool = False
     """Whether to enable internet access tools (WebSearch, WebFetch)."""
     library_skills: list[str] | None = None
     """Library skill slugs; the executor stages them before sandbox start."""
-
-    @model_validator(mode="before")
-    @classmethod
-    def read_reasoning_effort(cls, data: Any) -> Any:
-        """Accept activity inputs that a newer worker scheduled."""
-        return read_reasoning_effort_as_enable_thinking(data)
 
     @classmethod
     def from_agent_config(cls, config: AgentConfig) -> SandboxAgentConfig:
@@ -263,7 +241,7 @@ class SandboxAgentConfig(BaseModel):
             mcp_servers=config.mcp_servers,
             agents=config.agents,
             output_type=config.output_type,
-            enable_thinking=config.enable_thinking,
+            reasoning_effort=config.reasoning_effort,
             enable_internet_access=config.enable_internet_access,
             library_skills=config.library_skills,
         )

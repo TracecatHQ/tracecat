@@ -47,6 +47,7 @@ import type {
   AnyAttachedSubagentRef,
   LibrarySkillRead,
   MCPIntegrationRead,
+  ReasoningEffort,
   RegistryActionReadMinimal,
   SkillReadMinimal,
 } from "@/client"
@@ -110,6 +111,13 @@ import {
 } from "@/components/ui/resizable"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -249,7 +257,9 @@ export const agentPresetSchema = z
       .number({ invalid_type_error: "Retries must be a number" })
       .int()
       .min(0, "Retries must be 0 or more"),
-    enableThinking: z.boolean().default(true),
+    reasoningEffort: z
+      .enum(["default", "off", "low", "medium", "high", "max"])
+      .default("default"),
     enableInternetAccess: z.boolean().default(false),
   })
   .superRefine((data, ctx) => {
@@ -396,9 +406,22 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   librarySkills: [],
   toolApprovals: [],
   retries: DEFAULT_RETRIES,
-  enableThinking: true,
+  reasoningEffort: "default",
   enableInternetAccess: false,
 }
+
+// "default" stands in for null because Radix Select items cannot be empty.
+const REASONING_EFFORT_OPTIONS: {
+  value: AgentPresetFormValues["reasoningEffort"]
+  label: string
+}[] = [
+  { value: "default", label: "Model default" },
+  { value: "off", label: "Off" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+  { value: "max", label: "Max" },
+]
 
 export function AgentPresetsBuilder({
   presetId,
@@ -1056,7 +1079,7 @@ const AGENT_PRESET_FORM_FIELD_TO_BACKEND_FIELD: Record<
   librarySkills: "library_skills",
   toolApprovals: "tool_approvals",
   retries: "retries",
-  enableThinking: "enable_thinking",
+  reasoningEffort: "reasoning_effort",
   enableInternetAccess: "enable_internet_access",
 }
 
@@ -1956,7 +1979,7 @@ export function AgentPresetConfigurationPanel({
   const modelProvider = form.watch("model_provider")
   const modelName = form.watch("model_name")
   const baseUrl = form.watch("base_url")
-  const thinkingEnabled = form.watch("enableThinking")
+  const reasoningEffort = form.watch("reasoningEffort")
   const internetAccessEnabled = form.watch("enableInternetAccess")
   return (
     <ScrollArea className="h-full [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full">
@@ -2008,21 +2031,48 @@ export function AgentPresetConfigurationPanel({
               )}
             />
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-start gap-3">
             <label
-              htmlFor="enable-thinking"
-              className="w-32 shrink-0 text-muted-foreground"
+              htmlFor="reasoning-effort"
+              className="w-32 shrink-0 pt-2 text-muted-foreground"
             >
-              Thinking
+              Reasoning
             </label>
-            <Switch
-              id="enable-thinking"
-              checked={thinkingEnabled}
-              onCheckedChange={(checked) =>
-                form.setValue("enableThinking", checked, { shouldDirty: true })
-              }
-              disabled={isSaving}
-            />
+            <div className="min-w-0 space-y-1.5">
+              <Select
+                value={reasoningEffort}
+                onValueChange={(value) =>
+                  form.setValue(
+                    "reasoningEffort",
+                    value as AgentPresetFormValues["reasoningEffort"],
+                    { shouldDirty: true }
+                  )
+                }
+                disabled={isSaving}
+              >
+                <SelectTrigger
+                  id="reasoning-effort"
+                  className="h-8 w-[150px] text-xs shadow-none"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {REASONING_EFFORT_OPTIONS.map((option) => (
+                    <SelectItem
+                      key={option.value}
+                      value={option.value}
+                      className="text-xs"
+                    >
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-muted-foreground">
+                Higher levels think longer before responding. Unsupported levels
+                fall back to the closest one the model supports.
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <label
@@ -3410,7 +3460,7 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
       ) ?? [],
     librarySkills: preset.library_skills ?? [],
     retries: preset.retries ?? DEFAULT_RETRIES,
-    enableThinking: preset.enable_thinking ?? true,
+    reasoningEffort: preset.reasoning_effort ?? "default",
     enableInternetAccess: preset.enable_internet_access ?? false,
   }
 }
@@ -3454,10 +3504,16 @@ export function formValuesToPayload(
       values.librarySkills.length > 0 ? values.librarySkills : null,
     tool_approvals: toToolApprovalMap(values.toolApprovals),
     retries: values.retries,
-    enable_thinking: values.enableThinking,
+    reasoning_effort: toReasoningEffort(values.reasoningEffort),
     enable_internet_access:
       values.enableInternetAccess || options?.forceInternetAccess === true,
   }
+}
+
+function toReasoningEffort(
+  value: AgentPresetFormValues["reasoningEffort"]
+): ReasoningEffort | null {
+  return value === "default" ? null : value
 }
 
 function formValuesToAgentsPayload(

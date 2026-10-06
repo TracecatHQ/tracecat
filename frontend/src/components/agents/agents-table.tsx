@@ -173,7 +173,7 @@ function toDuplicateSourcePreset(
     library_skills: preset.library_skills ?? null,
     agents: preset.agents,
     retries: preset.retries,
-    enable_thinking: preset.enable_thinking,
+    reasoning_effort: preset.reasoning_effort ?? null,
     enable_internet_access: preset.enable_internet_access,
   }
 }

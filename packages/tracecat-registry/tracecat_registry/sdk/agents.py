@@ -11,6 +11,9 @@ if TYPE_CHECKING:
     from tracecat_registry.sdk.client import TracecatClient
 
 
+type ReasoningEffort = Literal["off", "low", "medium", "high", "max"]
+"""Reasoning level. ``None`` uses the model default."""
+
 type OutputType = (
     Literal[
         "bool",
@@ -214,7 +217,7 @@ class AgentsClient:
         mcp_integrations: list[str] | Unset = UNSET,
         agents: dict[str, Any] | Unset = UNSET,
         retries: int | Unset = UNSET,
-        enable_thinking: bool | Unset = UNSET,
+        reasoning_effort: ReasoningEffort | None | Unset = UNSET,
         enable_internet_access: bool | Unset = UNSET,
         skills: list[AgentPresetSkillBinding] | Unset = UNSET,
     ) -> dict[str, Any]:
@@ -271,8 +274,8 @@ class AgentsClient:
             data["agents"] = agents
         if is_set(retries):
             data["retries"] = retries
-        if is_set(enable_thinking):
-            data["enable_thinking"] = enable_thinking
+        if is_set(reasoning_effort):
+            data["reasoning_effort"] = reasoning_effort
         if is_set(enable_internet_access):
             data["enable_internet_access"] = enable_internet_access
         if is_set(skills):
@@ -312,7 +315,7 @@ class AgentsClient:
         mcp_integrations: list[str] | Unset = UNSET,
         agents: dict[str, Any] | Unset = UNSET,
         retries: int | Unset = UNSET,
-        enable_thinking: bool | Unset = UNSET,
+        reasoning_effort: ReasoningEffort | None | Unset = UNSET,
         enable_internet_access: bool | Unset = UNSET,
         skills: list[AgentPresetSkillBinding] | Unset = UNSET,
     ) -> dict[str, Any]:
@@ -373,8 +376,8 @@ class AgentsClient:
             data["agents"] = agents
         if is_set(retries):
             data["retries"] = retries
-        if is_set(enable_thinking):
-            data["enable_thinking"] = enable_thinking
+        if is_set(reasoning_effort):
+            data["reasoning_effort"] = reasoning_effort
         if is_set(enable_internet_access):
             data["enable_internet_access"] = enable_internet_access
         if is_set(skills):

@@ -232,7 +232,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 mcp_integration_hints=mcp_integration_hints,
                 library_skills=normalize_library_slugs(execution.library_skills),
                 retries=execution.retries,
-                enable_thinking=execution.enable_thinking,
+                reasoning_effort=execution.reasoning_effort,
                 enable_internet_access=execution.enable_internet_access,
             )
             specs[source_id] = head_spec
@@ -1810,7 +1810,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             "mcp_integrations": spec.mcp_integrations or None,
             "library_skills": normalize_library_slugs(spec.library_skills) or None,
             "retries": spec.retries,
-            "enable_thinking": spec.enable_thinking,
+            "reasoning_effort": spec.reasoning_effort,
             "enable_internet_access": spec.enable_internet_access,
         }
 

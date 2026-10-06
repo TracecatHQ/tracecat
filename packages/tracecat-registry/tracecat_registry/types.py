@@ -727,7 +727,7 @@ class AgentPresetRead(TypedDict):
     mcp_integrations: list[str] | None
     agents: dict[str, Any]
     retries: int
-    enable_thinking: bool
+    reasoning_effort: str | None
     enable_internet_access: bool
     skills: list[dict[str, Any]]
     current_version_id: UUID | None

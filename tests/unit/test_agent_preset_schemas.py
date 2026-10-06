@@ -82,7 +82,7 @@ def test_agent_preset_create_trims_required_fields() -> None:
         tool_approvals=None,
         mcp_integrations=None,
         retries=3,
-        enable_thinking=True,
+        reasoning_effort="high",
     )
 
     assert payload.name == "Triage preset"
@@ -231,7 +231,7 @@ def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> No
             "tool_approvals": None,
             "mcp_integrations": None,
             "retries": 3,
-            "enable_thinking": True,
+            "reasoning_effort": None,
             "enable_internet_access": False,
             "current_version_id": None,
             "created_at": "2026-03-09T00:00:00Z",
@@ -241,7 +241,7 @@ def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> No
 
     assert payload.model_name == "   "
     assert payload.model_provider == "   "
-    assert payload.enable_thinking is True
+    assert payload.reasoning_effort is None
 
 
 def test_agent_preset_read_minimal_exposes_capabilities() -> None:
@@ -468,9 +468,7 @@ def test_agent_preset_version_read_schema_accepts_legacy_whitespace_model_fields
     assert str(payload.workspace_id) == "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2"
 
 
-@pytest.mark.parametrize(
-    "field_name", ["retries", "enable_thinking", "enable_internet_access"]
-)
+@pytest.mark.parametrize("field_name", ["retries", "enable_internet_access"])
 def test_agent_preset_update_rejects_null_for_non_nullable_fields(
     field_name: str,
 ) -> None:

@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 from typing_extensions import Doc
 
 from tracecat_registry import ctx, registry
+from tracecat_registry.sdk.agents import ReasoningEffort
 
 OutputTypeLiteral = Literal[
     "bool",
@@ -112,9 +113,13 @@ async def create_preset(
         int | None,
         Doc("Maximum retry count for the preset."),
     ] = None,
+    reasoning_effort: Annotated[
+        ReasoningEffort | None,
+        Doc("Reasoning level for the preset. Leave empty to use the model default."),
+    ] = None,
     enable_thinking: Annotated[
         bool | None,
-        Doc("Whether to enable model thinking where supported."),
+        Doc("Deprecated. Use `reasoning_effort` instead."),
     ] = None,
     enable_internet_access: Annotated[
         bool | None,
@@ -157,8 +162,11 @@ async def create_preset(
         kwargs["agents"] = agents
     if retries is not None:
         kwargs["retries"] = retries
-    if enable_thinking is not None:
-        kwargs["enable_thinking"] = enable_thinking
+    if reasoning_effort is not None:
+        kwargs["reasoning_effort"] = reasoning_effort
+    elif enable_thinking is not None:
+        # Legacy flag: on means the model default, off disables reasoning.
+        kwargs["reasoning_effort"] = None if enable_thinking else "off"
     if enable_internet_access is not None:
         kwargs["enable_internet_access"] = enable_internet_access
     if skills is not None:
@@ -288,9 +296,13 @@ async def update_preset(
         int | None,
         Doc("The updated retry count."),
     ] = None,
+    reasoning_effort: Annotated[
+        ReasoningEffort | None,
+        Doc("Reasoning level for the preset. Leave empty to keep the current level."),
+    ] = None,
     enable_thinking: Annotated[
         bool | None,
-        Doc("Whether to enable model thinking where supported."),
+        Doc("Deprecated. Use `reasoning_effort` instead."),
     ] = None,
     enable_internet_access: Annotated[
         bool | None,
@@ -335,8 +347,11 @@ async def update_preset(
         kwargs["agents"] = agents
     if retries is not None:
         kwargs["retries"] = retries
-    if enable_thinking is not None:
-        kwargs["enable_thinking"] = enable_thinking
+    if reasoning_effort is not None:
+        kwargs["reasoning_effort"] = reasoning_effort
+    elif enable_thinking is not None:
+        # Legacy flag: on means the model default, off disables reasoning.
+        kwargs["reasoning_effort"] = None if enable_thinking else "off"
     if enable_internet_access is not None:
         kwargs["enable_internet_access"] = enable_internet_access
     if skills is not None:

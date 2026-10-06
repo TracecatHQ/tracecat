@@ -6,13 +6,10 @@ from typing import Annotated, Any, Literal
 
 import pydantic
 from claude_agent_sdk.types import Message as ClaudeSDKMessage
-from pydantic import Discriminator, TypeAdapter, model_validator
+from pydantic import Discriminator, TypeAdapter
 
 from tracecat.agent.common.stream_types import ToolCallContent
-from tracecat.agent.common.types import (
-    MCPServerConfig,
-    read_reasoning_effort_as_enable_thinking,
-)
+from tracecat.agent.common.types import MCPServerConfig, ReasoningEffort
 from tracecat.agent.constants import AGENT_TIMEOUT_SECONDS_DEFAULT
 from tracecat.agent.skill.types import ResolvedSkillRef
 from tracecat.agent.subagents import AgentSubagentsConfig
@@ -99,7 +96,7 @@ class AgentConfig:
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None
     # Sandbox
-    enable_thinking: bool = True
+    reasoning_effort: ReasoningEffort | None = None
     enable_internet_access: bool = False
     resolved_skills: list[ResolvedSkillRef] | None = None
     builtin_skills: list[str] | None = None
@@ -111,12 +108,6 @@ class AgentConfig:
     """
     library_skills: list[str] | None = None
     """Installed platform library skill slugs, staged in the platform plugin."""
-
-    @model_validator(mode="before")
-    @classmethod
-    def read_reasoning_effort(cls, data: Any) -> Any:
-        """Accept Temporal payloads that a newer worker wrote."""
-        return read_reasoning_effort_as_enable_thinking(data)
 
 
 # --- Tool Types (Harness-Agnostic) ---

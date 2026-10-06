@@ -2427,10 +2427,15 @@ export const $AgentPresetCreate = {
       title: "Retries",
       default: 3,
     },
-    enable_thinking: {
-      type: "boolean",
-      title: "Enable Thinking",
-      default: true,
+    reasoning_effort: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ReasoningEffort",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     enable_internet_access: {
       type: "boolean",
@@ -2744,10 +2749,15 @@ export const $AgentPresetRead = {
       title: "Retries",
       default: 3,
     },
-    enable_thinking: {
-      type: "boolean",
-      title: "Enable Thinking",
-      default: true,
+    reasoning_effort: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ReasoningEffort",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     enable_internet_access: {
       type: "boolean",
@@ -3472,16 +3482,15 @@ export const $AgentPresetUpdate = {
       ],
       title: "Retries",
     },
-    enable_thinking: {
+    reasoning_effort: {
       anyOf: [
         {
-          type: "boolean",
+          $ref: "#/components/schemas/ReasoningEffort",
         },
         {
           type: "null",
         },
       ],
-      title: "Enable Thinking",
     },
     enable_internet_access: {
       anyOf: [
@@ -3947,10 +3956,15 @@ export const $AgentPresetVersionRead = {
       title: "Retries",
       default: 3,
     },
-    enable_thinking: {
-      type: "boolean",
-      title: "Enable Thinking",
-      default: true,
+    reasoning_effort: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/ReasoningEffort",
+        },
+        {
+          type: "null",
+        },
+      ],
     },
     enable_internet_access: {
       type: "boolean",
@@ -23512,6 +23526,11 @@ export const $RateLimitInfo = {
   type: "object",
   required: ["status"],
   title: "RateLimitInfo",
+} as const
+
+export const $ReasoningEffort = {
+  type: "string",
+  enum: ["off", "low", "medium", "high", "max"],
 } as const
 
 export const $ReasoningUIPart = {

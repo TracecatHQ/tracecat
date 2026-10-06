@@ -9,6 +9,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from tracecat.agent.common.types import (
+    ReasoningEffort,
+    reasoning_effort_from_enable_thinking,
+)
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
@@ -309,14 +313,28 @@ class AgentPresetResourceSpec(BaseModel):
         ge=0,
         description="Maximum agent run retries.",
     )
-    enable_thinking: bool = Field(
-        default=True,
-        description="Whether extended thinking is enabled.",
+    reasoning_effort: ReasoningEffort | None = Field(
+        default=None,
+        description="Reasoning level, or ``None`` to use the model default.",
     )
     enable_internet_access: bool = Field(
         default=False,
         description="Whether the agent may access the internet.",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_enable_thinking(cls, data: Any) -> Any:
+        """Read ``enable_thinking`` from specs exported before reasoning levels."""
+        if isinstance(data, dict) and isinstance(
+            enable_thinking := data.get("enable_thinking"), bool
+        ):
+            data = {k: v for k, v in data.items() if k != "enable_thinking"}
+            if data.get("reasoning_effort") is None:
+                data["reasoning_effort"] = reasoning_effort_from_enable_thinking(
+                    enable_thinking
+                )
+        return data
 
     @model_validator(mode="after")
     def validate_mcp_integration_hints(self) -> AgentPresetResourceSpec:

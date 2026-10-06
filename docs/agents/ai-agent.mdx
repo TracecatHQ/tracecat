@@ -71,9 +71,20 @@ Default: `null`.
 
 </ParamField>
 
+<ParamField path="reasoning_effort" type="string">
+
+Reasoning level for agent runs: `off`, `low`, `medium`, `high`, or `max`.
+Leave empty to use the model's default. Providers that don't support a level
+use the closest one they do.
+
+Default: `null`.
+
+</ParamField>
+
 <ParamField path="enable_thinking" type="boolean">
 
-Whether to enable high thinking for agent runs.
+Deprecated. Use `reasoning_effort` instead. `false` is the same as
+`reasoning_effort: off`.
 
 Default: `true`.
 

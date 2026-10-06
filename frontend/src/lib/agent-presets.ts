@@ -57,7 +57,7 @@ export const AGENT_PRESET_PUBLISHING_FIELDS: ReadonlySet<string> = new Set([
   "library_skills",
   "agents",
   "retries",
-  "enable_thinking",
+  "reasoning_effort",
   "enable_internet_access",
 ])
 
@@ -129,7 +129,7 @@ export function buildDuplicateAgentPresetPayload(
     library_skills: preset.library_skills ?? null,
     agents: preset.agents,
     retries: preset.retries,
-    enable_thinking: preset.enable_thinking,
+    reasoning_effort: preset.reasoning_effort ?? null,
     enable_internet_access: preset.enable_internet_access,
   }
 }

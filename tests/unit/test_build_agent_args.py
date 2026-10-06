@@ -15,7 +15,7 @@ Both build activities are async and can be called directly from async tests.
 from __future__ import annotations
 
 import uuid
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -401,12 +401,25 @@ class TestBuildAgentArgsActivity:
         mock_get_vars.assert_not_called()
 
     @pytest.mark.anyio
-    async def test_preserves_enable_thinking_flag(self, role: Role):
+    @pytest.mark.parametrize(
+        ("extra_args", "expected"),
+        [
+            ({"reasoning_effort": "high"}, "high"),
+            ({"enable_thinking": False}, "off"),
+            ({"enable_thinking": True}, None),
+            ({"enable_thinking": False, "reasoning_effort": "low"}, "low"),
+        ],
+    )
+    async def test_resolves_reasoning_effort(
+        self, role: Role, extra_args: dict[str, Any], expected: str | None
+    ):
+        """Legacy enable_thinking=false maps to off; an explicit
+        reasoning_effort always wins."""
         args = {
             "user_prompt": "Hello",
             "model_name": "claude-sonnet-4-5-20250929",
             "model_provider": "anthropic",
-            "enable_thinking": False,
+            **extra_args,
         }
         input = BuildAgentArgsActivityInput(
             args=args,
@@ -418,7 +431,7 @@ class TestBuildAgentArgsActivity:
 
         result = await DSLActivities.build_agent_args_activity(input)
 
-        assert result.enable_thinking is False
+        assert result.reasoning_effort == expected
 
     @pytest.mark.anyio
     async def test_preserves_explicit_reasoning_effort_in_model_settings(
@@ -428,7 +441,6 @@ class TestBuildAgentArgsActivity:
             "user_prompt": "Hello",
             "model_name": "claude-sonnet-4-5-20250929",
             "model_provider": "anthropic",
-            "enable_thinking": True,
             "model_settings": {"reasoning_effort": "medium"},
         }
         input = BuildAgentArgsActivityInput(
