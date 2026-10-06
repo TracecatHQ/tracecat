@@ -46,9 +46,9 @@ def resolve_oss_default_entitlements(
     Existing OSS deployments can preserve prior behavior by mapping enabled
     feature flags to their corresponding entitlement groups.
 
-    Agent presets, skills, MCP catalog connectors, and tool approvals are open
-    source; ``agent_addons`` only gates the agent inbox, folders, tags, and case
-    agent runs. Agent channels (Slack and Microsoft Teams, including approvals
+    Agent presets, skills, MCP catalog connectors, tool approvals, and the agent
+    inbox are open source; ``agent_addons`` only gates agent folders, tags, and
+    case agent runs. Agent channels (Slack and Microsoft Teams, including approvals
     from those channels) are closed source and gated by ``agent_channels``; the
     legacy ``agent-channels`` feature flag maps to it.
 

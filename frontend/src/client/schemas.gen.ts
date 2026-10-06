@@ -14606,7 +14606,7 @@ export const $EffectiveEntitlements = {
       type: "boolean",
       title: "Agent Addons",
       description:
-        "Whether add-on agent capabilities are enabled (agent inbox, folders, tags, and case agent runs)",
+        "Whether add-on agent capabilities are enabled (agent folders, tags, and case agent runs)",
       default: false,
     },
     case_addons: {
@@ -14839,7 +14839,7 @@ export const $EntitlementsDict = {
       type: "boolean",
       title: "Agent Addons",
       description:
-        "Whether add-on agent capabilities are enabled (agent inbox, folders, tags, and case agent runs)",
+        "Whether add-on agent capabilities are enabled (agent folders, tags, and case agent runs)",
     },
     case_addons: {
       type: "boolean",

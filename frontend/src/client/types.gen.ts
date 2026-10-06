@@ -4343,7 +4343,7 @@ export type EffectiveEntitlements = {
    */
   git_sync?: boolean
   /**
-   * Whether add-on agent capabilities are enabled (agent inbox, folders, tags, and case agent runs)
+   * Whether add-on agent capabilities are enabled (agent folders, tags, and case agent runs)
    */
   agent_addons?: boolean
   /**
@@ -4464,7 +4464,7 @@ export type EntitlementsDict = {
    */
   git_sync?: boolean
   /**
-   * Whether add-on agent capabilities are enabled (agent inbox, folders, tags, and case agent runs)
+   * Whether add-on agent capabilities are enabled (agent folders, tags, and case agent runs)
    */
   agent_addons?: boolean
   /**

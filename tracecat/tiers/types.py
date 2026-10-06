@@ -22,7 +22,7 @@ class EntitlementsDict(TypedDict, total=False):
         bool,
         Field(
             description="Whether add-on agent capabilities are enabled"
-            " (agent inbox, folders, tags, and case agent runs)"
+            " (agent folders, tags, and case agent runs)"
         ),
     ]
     case_addons: Annotated[

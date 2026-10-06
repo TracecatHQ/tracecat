@@ -50,7 +50,7 @@ class EffectiveEntitlements(Schema):
     agent_addons: bool = Field(
         default=False,
         description="Whether add-on agent capabilities are enabled"
-        " (agent inbox, folders, tags, and case agent runs)",
+        " (agent folders, tags, and case agent runs)",
     )
     case_addons: bool = Field(
         default=False,

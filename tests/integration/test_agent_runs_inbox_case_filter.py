@@ -7,7 +7,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
-from tracecat_ee.inbox.providers.agent_runs import AgentRunsInboxProvider
 
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.common.stream_types import HarnessType
@@ -25,6 +24,7 @@ from tracecat.db.models import (
     CaseAgentSessionInteraction,
     Workspace,
 )
+from tracecat.inbox.providers.agent_runs import AgentRunsInboxProvider
 
 pytestmark = [
     pytest.mark.anyio,

@@ -3,16 +3,11 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { ActivityLayout } from "@/components/inbox"
-import { CenteredSpinner } from "@/components/loading/spinner"
-import { useEntitlements } from "@/hooks/use-entitlements"
 import { type InboxOrderBy, useInbox } from "@/hooks/use-inbox"
 import { getInboxHrefWithoutCaseFilter, parseInboxCaseId } from "@/lib/inbox"
 
 export default function InboxPage() {
-  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
-  const agentAddonsEnabled = hasEntitlement("agent_addons")
   const canReadInbox = useScopeCheck("inbox:read")
   const pathname = usePathname()
   const router = useRouter()
@@ -38,7 +33,7 @@ export default function InboxPage() {
     setUpdatedAfter,
     setCreatedAfter,
   } = useInbox({
-    enabled: agentAddonsEnabled && canReadInbox,
+    enabled: canReadInbox === true,
     caseId,
     orderBy,
     sort,
@@ -63,25 +58,8 @@ export default function InboxPage() {
     document.title = "Inbox"
   }, [])
 
-  if (entitlementsLoading) {
-    return <CenteredSpinner />
-  }
-
   if (!canReadInbox) {
     return null
-  }
-
-  if (!agentAddonsEnabled) {
-    return (
-      <div className="size-full overflow-auto">
-        <div className="mx-auto flex h-full w-full max-w-3xl flex-1 items-center justify-center py-12">
-          <EntitlementRequiredEmptyState
-            title="Enterprise only"
-            description="Advanced AI agents (human-in-the-loop and subagents) are only available on enterprise plans."
-          />
-        </div>
-      </div>
-    )
   }
 
   return (

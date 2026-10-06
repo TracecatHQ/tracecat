@@ -241,11 +241,11 @@ PAGES: list[dict[str, Any]] = [
 
             `ai.agent` can call tools from saved MCP integrations. Bring your own remote or `stdio` MCP server, or connect one from the catalog of 50+ preconfigured MCP servers with guided connection setup, including Splunk, SentinelOne Purple AI, CrowdStrike Falcon, Microsoft Sentinel, Elastic, Wiz, GreyNoise, and PagerDuty. Select the saved integration in the action's `mcp_integrations` input, or save it on an agent preset with reusable instructions and tools and run it with `ai.preset_agent`.
 
-            Tool approvals are open source. Require approval for specific tools with `tool_approvals`, or mark MCP tools as requiring approval on the integration.
+            Tool approvals are open source. Require approval for specific tools with `tool_approvals`, or mark MCP tools as requiring approval on the integration, then review pending approvals in the agent inbox.
 
             <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
-            Enterprise adds the agent inbox for reviewing pending approvals. Approving tool calls from Slack or Microsoft Teams through agent channels is also Enterprise-only.
+            Approving tool calls from Slack or Microsoft Teams through agent channels is Enterprise-only.
 
             Internet access is controlled by the root preset for the shared sandbox process. Subagent presets can define their own tools and MCP integrations, but their internet setting does not grant network access unless the root preset also enables it.
 
