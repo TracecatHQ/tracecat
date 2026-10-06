@@ -84,6 +84,8 @@ import { TableSelectionActionsBar } from "@/components/tables/ag-grid-bulk-actio
 import { CreateTableDialog } from "@/components/tables/table-create-dialog"
 import { TableImportTableDialog } from "@/components/tables/table-import-table-dialog"
 import { TableInsertButton } from "@/components/tables/table-insert-button"
+import { TableSearchBadge } from "@/components/tables/table-search-badge"
+import { TableSearchProvider } from "@/components/tables/table-search-context"
 import { CreateTagDialog } from "@/components/tags/create-tag-dialog"
 import { useQueryClient } from "@/lib/query"
 
@@ -1978,9 +1980,12 @@ function TableBreadcrumb({
   )
 }
 
-function TableDetailsActions() {
+function TableDetailsActions({ tableId }: { tableId: string }) {
   return (
     <>
+      <TableSearchProvider key={tableId} tableId={tableId}>
+        <TableSearchBadge />
+      </TableSearchProvider>
       <WorkspaceResourceSyncActions
         label="tables"
         branchSlug="tables"
@@ -2147,7 +2152,7 @@ function getPageConfig(
       const tableId = tableMatch[1]
       return {
         title: <TableBreadcrumb tableId={tableId} workspaceId={workspaceId} />,
-        actions: <TableDetailsActions />,
+        actions: <TableDetailsActions tableId={tableId} />,
       }
     }
 

@@ -94,7 +94,7 @@ export function useTableSearch(workspaceId: string, tableId: string) {
       description:
         error.status === 409
           ? "The latest settings have been refreshed. Try again."
-          : "Refresh to confirm the current state, then try again.",
+          : "Try again in a moment.",
       variant: "destructive",
     })
     void refresh()
@@ -144,6 +144,5 @@ export function useTableSearch(workspaceId: string, tableId: string) {
     provider,
     selection,
     retry,
-    refresh,
   }
 }
