@@ -665,14 +665,20 @@ describe("CaseLinkedRowsSection", () => {
     const insertDialog = screen.getByTestId("insert-row-dialog-table-1")
     expect(insertDialog).toHaveAttribute("data-open", "true")
     expect(insertDialog).toHaveAttribute("data-columns", "name")
-    expect(screen.getByTestId("insert-row-dialog-table-2")).toHaveAttribute(
-      "data-open",
-      "false"
-    )
     expect(screen.getByTestId("link-rows-dialog")).toHaveAttribute(
       "data-open",
       "false"
     )
+  })
+
+  it("offers no add button for a table that has been deleted", () => {
+    renderSection()
+
+    // table-2 has no name: its source table is gone, its links remain.
+    expect(screen.getAllByRole("button", { name: "Add row" })).toHaveLength(1)
+    expect(
+      screen.queryByTestId("insert-row-dialog-table-2")
+    ).not.toBeInTheDocument()
   })
 
   it("orders the header actions link, then add", () => {
@@ -934,7 +940,7 @@ describe("CaseLinkedRowsSection", () => {
       expect(
         screen.queryByRole("button", { name: "Edit r1" })
       ).not.toBeInTheDocument()
-      expect(screen.getAllByRole("button", { name: "Add row" })).toHaveLength(2)
+      expect(screen.getAllByRole("button", { name: "Add row" })).toHaveLength(1)
     })
   })
 
