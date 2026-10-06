@@ -1,0 +1,51 @@
+frontend/tests/ag-grid-clipboard.test.ts
+  s_6b5f9492a52675::t_6f63e686a4bec5 13-16,20-23,123-136
+  s_6b5f9492a52675::t_148f19c4d3b0a8 137-138
+frontend/src/hooks/use-case-rows.ts
+  s_6b5f9492a52675::t_b7495d9fb44b8c 12,250,253-254
+frontend/src/components/tables/ag-grid-clipboard.ts
+  s_6b5f9492a52675::t_b7495d9fb44b8c 19-21,111-113
+frontend/tests/case-field-kind-dialogs.test.tsx
+  s_6b5f9492a52675::t_6f63e686a4bec5 194,202-205
+frontend/src/components/tables/ag-grid-cell-renderer.tsx
+  s_6b5f9492a52675::t_843e044eed3fc0 15-19,62-68
+frontend/tests/case-linked-rows-section.test.tsx
+  s_6b5f9492a52675::t_c0d827629bdb7a 5,62-63,78-79,91-92,112,133-152,731-733,738-740,746-785,787-919
+  s_6b5f9492a52675::t_7206cedaf67d0f 15,300-305
+  s_6b5f9492a52675::t_9e71b2eef40ad7 786
+  s_6b5f9492a52675::t_001a319d4aafc1 920
+frontend/tests/use-case-rows.test.tsx
+  s_6b5f9492a52675::t_6f63e686a4bec5 330-339,355-357
+frontend/src/components/tables/table-rows-grid.tsx
+  s_6b5f9492a52675::t_23081a03c345a7 192-195
+  s_6b5f9492a52675::t_ae062605c8024e 11,25-27,50-52,103-113,142,145,147-149,152-153,175-191,197-266,312-333,340,401-408
+frontend/src/components/cases/case-linked-table.tsx
+  s_6b5f9492a52675::t_ff19eddf347af1 1-487,489-493,500-505,508,511,516-533,536-543,545-586
+  s_6b5f9492a52675::t_b7495d9fb44b8c 488,494-499,506-507,509-510,512-515,534-535,544
+frontend/src/components/cases/case-value-drawer.tsx
+  s_6b5f9492a52675::t_b7495d9fb44b8c 62-65,89
+frontend/src/lib/hooks.tsx
+  s_6b5f9492a52675::t_b7495d9fb44b8c 3590-3609,3621-3625
+frontend/src/components/tables/ag-grid-column-defs.tsx
+  s_6b5f9492a52675::t_ae062605c8024e 152-153,162
+  s_6b5f9492a52675::t_843e044eed3fc0 134-151,154-161,163-164,174,182
+frontend/src/components/cases/case-linked-rows-section.tsx
+  s_6b5f9492a52675::t_4b66973c0ce25a 3-4,21,36,47-48,98
+  s_6b5f9492a52675::t_3ef9e601bb0d4b 7,34-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "68e4d89d7e18d7b7066940fc40d75de44a257e04",
+  "prompts": {},
+  "sessions": {
+    "s_6b5f9492a52675": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de981752-046e-4e5c-8424-c2b98f517356",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
