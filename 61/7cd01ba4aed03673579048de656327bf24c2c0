@@ -1,0 +1,21 @@
+docs/automations/tables.mdx
+  s_032839175c30ba::t_3fe2497ffaa5f8 157
+frontend/src/components/tables/table-search-column-control.tsx
+  s_032839175c30ba::t_3fe2497ffaa5f8 88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "617cd01ba4aed03673579048de656327bf24c2c0",
+  "prompts": {},
+  "sessions": {
+    "s_032839175c30ba": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c4a6192b-c92d-47e9-b96d-169517bb453d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
