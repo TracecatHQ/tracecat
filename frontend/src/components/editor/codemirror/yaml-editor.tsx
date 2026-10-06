@@ -3,11 +3,7 @@
 import { closeBrackets } from "@codemirror/autocomplete"
 import { history } from "@codemirror/commands"
 import { yaml } from "@codemirror/lang-yaml"
-import {
-  bracketMatching,
-  indentUnit,
-  syntaxHighlighting,
-} from "@codemirror/language"
+import { bracketMatching, indentUnit } from "@codemirror/language"
 import { type Diagnostic, linter, lintGutter } from "@codemirror/lint"
 import { EditorState } from "@codemirror/state"
 import {
@@ -36,7 +32,7 @@ import {
   templatePillTheme,
 } from "./common"
 import { createSimpleTemplatePlugin } from "./highlight-plugin"
-import { tracecatSyntaxHighlightStyle } from "./syntax-highlight"
+import { tracecatSyntaxHighlighting } from "./syntax-highlight"
 
 const stripNewline = (value: string) => {
   return value.endsWith("\n") ? value.slice(0, -1) : value
@@ -245,7 +241,7 @@ export const YamlStyledEditor = React.forwardRef<
       history(),
       indentUnit.of("  "),
       yaml(),
-      syntaxHighlighting(tracecatSyntaxHighlightStyle),
+      tracecatSyntaxHighlighting,
       linter(customYamlLinter),
 
       bracketMatching(),
@@ -779,7 +775,7 @@ export function YamlViewOnlyEditor({
       // Core language support with proper indentation
       indentUnit.of("  "),
       yaml(),
-      syntaxHighlighting(tracecatSyntaxHighlightStyle),
+      tracecatSyntaxHighlighting,
       bracketMatching(),
 
       // Read-only configuration

@@ -3,7 +3,7 @@
 import { closeBrackets } from "@codemirror/autocomplete"
 import { history } from "@codemirror/commands"
 import { json } from "@codemirror/lang-json"
-import { bracketMatching, syntaxHighlighting } from "@codemirror/language"
+import { bracketMatching } from "@codemirror/language"
 import { linter, lintGutter } from "@codemirror/lint"
 import { EditorView } from "@codemirror/view"
 import CodeMirror from "@uiw/react-codemirror"
@@ -16,7 +16,7 @@ import type {
   CaseFieldReadMinimal,
 } from "@/client"
 import { CaseDescriptionEditor } from "@/components/cases/case-description-editor"
-import { tracecatSyntaxHighlightStyle } from "@/components/editor/codemirror/syntax-highlight"
+import { tracecatSyntaxHighlighting } from "@/components/editor/codemirror/syntax-highlight"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -644,7 +644,7 @@ function JsonField({
   const extensions = useMemo(
     () => [
       json(),
-      syntaxHighlighting(tracecatSyntaxHighlightStyle),
+      tracecatSyntaxHighlighting,
       lintGutter(),
       linter(jsonLinter),
       history(),

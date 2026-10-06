@@ -1,4 +1,5 @@
-import { HighlightStyle } from "@codemirror/language"
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language"
+import { Prec } from "@codemirror/state"
 import { tags } from "@lezer/highlight"
 
 /** Syntax colors shared by the workflow builder editors and JSON field editors. */
@@ -25,3 +26,11 @@ export const tracecatSyntaxHighlightStyle = HighlightStyle.define([
     color: "hsl(var(--syntax-content))",
   },
 ])
+
+/**
+ * Shared syntax highlighting extension. High precedence so it wins over the
+ * highlight style bundled with the `dark` (one-dark) CodeMirror theme.
+ */
+export const tracecatSyntaxHighlighting = Prec.high(
+  syntaxHighlighting(tracecatSyntaxHighlightStyle)
+)
