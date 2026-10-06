@@ -371,7 +371,8 @@ async def search_cases(
         None, description="Filter by case severity"
     ),
     tags: list[str] | None = Query(
-        None, description="Filter by tag IDs or slugs (AND logic)"
+        None,
+        description="Filter by tag IDs or slugs (matches cases with any of the tags)",
     ),
     dropdown: list[str] | None = Query(
         None,
@@ -524,7 +525,8 @@ async def search_case_aggregates(
         None, description="Filter by case severity"
     ),
     tags: list[str] | None = Query(
-        None, description="Filter by tag IDs or slugs (AND logic)"
+        None,
+        description="Filter by tag IDs or slugs (matches cases with any of the tags)",
     ),
     dropdown: list[str] | None = Query(
         None,

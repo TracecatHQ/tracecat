@@ -10927,7 +10927,7 @@ export const casesCreateCase = (
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity
- * @param data.tags Filter by tag IDs or slugs (AND logic)
+ * @param data.tags Filter by tag IDs or slugs (matches cases with any of the tags)
  * @param data.dropdown Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
  * @param data.startTime Return cases created at or after this timestamp
  * @param data.endTime Return cases created at or before this timestamp
@@ -10990,7 +10990,7 @@ export const casesSearchCases = (
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity
- * @param data.tags Filter by tag IDs or slugs (AND logic)
+ * @param data.tags Filter by tag IDs or slugs (matches cases with any of the tags)
  * @param data.dropdown Filter by dropdown values. Format: definition_ref:option_ref (AND across definitions, OR within)
  * @param data.startTime Return cases created at or after this timestamp
  * @param data.endTime Return cases created at or before this timestamp
