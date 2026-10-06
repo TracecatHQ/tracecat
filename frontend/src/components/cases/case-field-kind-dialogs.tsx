@@ -10,6 +10,7 @@ import CodeMirror from "@uiw/react-codemirror"
 import { useTheme } from "next-themes"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { CaseDescriptionEditor } from "@/components/cases/case-description-editor"
+import { tracecatSyntaxHighlighting } from "@/components/editor/codemirror/syntax-highlight"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -165,6 +166,7 @@ export function JsonFieldDialog({
   const extensions = useMemo(
     () => [
       json(),
+      tracecatSyntaxHighlighting,
       lintGutter(),
       linter(jsonLinter),
       history(),
