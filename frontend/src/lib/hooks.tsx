@@ -3587,6 +3587,26 @@ export function useBatchInsertRows() {
   }
 }
 
+/**
+ * Invalidate every query that lists a table's rows: search, the row list and
+ * its pages. For anything that adds a row, wherever it was added from.
+ */
+export function invalidateTableRowQueries(
+  queryClient: QueryClient,
+  workspaceId: string,
+  tableId: string
+) {
+  queryClient.invalidateQueries({
+    queryKey: ["table-search", workspaceId, tableId],
+  })
+  queryClient.invalidateQueries({
+    queryKey: ["rows", tableId],
+  })
+  queryClient.invalidateQueries({
+    queryKey: ["rows", "paginated", tableId, workspaceId],
+  })
+}
+
 export function useInsertRow() {
   const queryClient = useQueryClient()
 
@@ -3598,20 +3618,11 @@ export function useInsertRow() {
     mutationFn: async (params: TablesInsertRowData) =>
       await tablesInsertRow(params),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["table-search", variables.workspaceId, variables.tableId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: ["rows", variables.tableId],
-      })
-      queryClient.invalidateQueries({
-        queryKey: [
-          "rows",
-          "paginated",
-          variables.tableId,
-          variables.workspaceId,
-        ],
-      })
+      invalidateTableRowQueries(
+        queryClient,
+        variables.workspaceId,
+        variables.tableId
+      )
     },
     onError: (error: TracecatApiError) => {
       if (error.status === 409) {

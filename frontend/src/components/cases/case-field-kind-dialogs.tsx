@@ -10,25 +10,17 @@ import CodeMirror from "@uiw/react-codemirror"
 import { useTheme } from "next-themes"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { CaseDescriptionEditor } from "@/components/cases/case-description-editor"
+import { CaseValueDrawer } from "@/components/cases/case-value-drawer"
 import { tracecatSyntaxHighlighting } from "@/components/editor/codemirror/syntax-highlight"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  nonDismissableDialogProps,
-} from "@/components/ui/dialog"
 
-/** Shared responsive shell for the expandable field editors (long text, JSON). */
-export const FIELD_EDITOR_DIALOG_CLASS =
-  "flex h-[70vh] max-h-[min(42rem,calc(100dvh-2rem))] w-[calc(100vw-2rem)] max-w-4xl flex-col gap-0 overflow-hidden p-0"
+// The expandable field editors (long text, JSON) open in the case page's
+// value drawer rather than a dialog, so the chat beside the case stays usable
+// while a value is open.
 
-// -- Long text dialog --
+// -- Long text drawer --
 
-interface LongTextFieldDialogProps {
+interface LongTextFieldDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   fieldLabel: string
@@ -37,15 +29,15 @@ interface LongTextFieldDialogProps {
 }
 
 /**
- * Dialog for editing a LONG_TEXT case field using the rich-text editor.
+ * Drawer for editing a LONG_TEXT case field using the rich-text editor.
  */
-export function LongTextFieldDialog({
+export function LongTextFieldDrawer({
   open,
   onOpenChange,
   fieldLabel,
   initialValue,
   onSave,
-}: LongTextFieldDialogProps) {
+}: LongTextFieldDrawerProps) {
   const [draft, setDraft] = useState(initialValue)
 
   useEffect(() => {
@@ -60,17 +52,13 @@ export function LongTextFieldDialog({
   }, [draft, onSave, onOpenChange])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className={FIELD_EDITOR_DIALOG_CLASS}
-        {...nonDismissableDialogProps}
-      >
-        <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4 pr-14">
-          <DialogTitle>{fieldLabel}</DialogTitle>
-          <DialogDescription>
-            Edit the rich text content for this field.
-          </DialogDescription>
-        </DialogHeader>
+    <CaseValueDrawer
+      open={open}
+      onOpenChange={onOpenChange}
+      title={fieldLabel}
+      description="Edit the rich text content for this field."
+    >
+      <div className="flex h-full flex-col">
         <div className="min-h-0 flex-1 overflow-hidden">
           <CaseDescriptionEditor
             className="case-description-editor--dialog"
@@ -79,17 +67,17 @@ export function LongTextFieldDialog({
             autoFocus
           />
         </div>
-        <DialogFooter className="shrink-0 border-t px-6 py-3">
+        <div className="flex shrink-0 justify-end border-t px-4 py-3">
           <Button variant="outline" onClick={handleSave}>
             Save
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </CaseValueDrawer>
   )
 }
 
-// -- JSON dialog --
+// -- JSON drawer --
 
 function jsonLinter(view: EditorView): Diagnostic[] {
   const content = view.state.doc.toString()
@@ -107,7 +95,7 @@ function jsonLinter(view: EditorView): Diagnostic[] {
   }
 }
 
-interface JsonFieldDialogProps {
+interface JsonFieldDrawerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   fieldLabel: string
@@ -116,16 +104,16 @@ interface JsonFieldDialogProps {
 }
 
 /**
- * Dialog for editing a JSONB case field using a CodeMirror JSON editor
+ * Drawer for editing a JSONB case field using a CodeMirror JSON editor
  * with syntax highlighting, linting, and validation.
  */
-export function JsonFieldDialog({
+export function JsonFieldDrawer({
   open,
   onOpenChange,
   fieldLabel,
   initialValue,
   onSave,
-}: JsonFieldDialogProps) {
+}: JsonFieldDrawerProps) {
   const { resolvedTheme } = useTheme()
   const codeMirrorTheme = resolvedTheme === "dark" ? "dark" : "light"
   const serialized =
@@ -183,17 +171,13 @@ export function JsonFieldDialog({
   const isValid = validate(draft)
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        className={FIELD_EDITOR_DIALOG_CLASS}
-        {...nonDismissableDialogProps}
-      >
-        <DialogHeader className="shrink-0 space-y-1 border-b px-6 py-4 pr-14">
-          <DialogTitle>{fieldLabel}</DialogTitle>
-          <DialogDescription>
-            Edit the JSON value for this field.
-          </DialogDescription>
-        </DialogHeader>
+    <CaseValueDrawer
+      open={open}
+      onOpenChange={onOpenChange}
+      title={fieldLabel}
+      description="Edit the JSON value for this field."
+    >
+      <div className="flex h-full flex-col">
         <div className="min-h-0 flex-1 overflow-hidden">
           <CodeMirror
             value={draft}
@@ -220,15 +204,15 @@ export function JsonFieldDialog({
           />
         </div>
         {error && (
-          <p className="shrink-0 px-6 py-2 text-xs text-destructive">{error}</p>
+          <p className="shrink-0 px-4 py-2 text-xs text-destructive">{error}</p>
         )}
-        <DialogFooter className="shrink-0 border-t px-6 py-3">
+        <div className="flex shrink-0 justify-end border-t px-4 py-3">
           <Button variant="outline" onClick={handleSave} disabled={!isValid}>
             Save
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </CaseValueDrawer>
   )
 }
 

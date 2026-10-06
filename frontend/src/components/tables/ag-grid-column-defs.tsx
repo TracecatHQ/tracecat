@@ -6,6 +6,8 @@ import type {
   ValueFormatterParams,
 } from "ag-grid-community"
 import type { TableColumnRead } from "@/client"
+import { AgGridCellEditor } from "@/components/tables/ag-grid-cell-editor"
+import { AgGridCellRenderer } from "@/components/tables/ag-grid-cell-renderer"
 import { CellDisplay } from "@/components/tables/cell-display"
 
 /** SQL types rendered as free text. */
@@ -119,6 +121,75 @@ export function buildBaseColumnDef(
     width: savedWidths[column.name] ?? getColumnWidthPx(column.type),
     minWidth: 100,
     ...(isNumeric && { valueFormatter: numericValueFormatter }),
+  }
+}
+
+/** Options for {@link buildEditableColumnDef}. */
+export interface EditableColumnDefOptions {
+  /**
+   * Whether a row's cells may be edited; omitted means every row may. Rows
+   * that may not keep the renderer's read-only text and JSON views.
+   */
+  canEditRow?: (row: unknown) => boolean
+  /**
+   * For grids that size columns to their content: keep the renderer's hover
+   * buttons in the layout so they are part of what gets measured.
+   */
+  reserveButtonSpace?: boolean
+}
+
+/** Narrowest a content-sized column may get. */
+export const CONTENT_SIZED_MIN_WIDTH_PX = 80
+/**
+ * Widest a content-sized column may get on its content alone. Long text and
+ * JSON stop here and are read in the cell panel instead.
+ */
+export const CONTENT_SIZED_MAX_WIDTH_PX = 320
+/**
+ * Rewrites a column def for a grid that sizes columns to their content. A
+ * width the user dragged stays authoritative; every other column drops its
+ * per-type default, so re-rendering the defs never undoes a measured width.
+ * Unmeasured columns start at the floor, which is also where the grid's fit
+ * pass resets them before growing each to its measured width.
+ */
+export function toContentSizedColumnDef<T extends ColDef>(
+  def: T,
+  savedWidth: number | undefined
+): T {
+  return {
+    ...def,
+    width: savedWidth,
+    initialWidth: savedWidth ?? CONTENT_SIZED_MIN_WIDTH_PX,
+    minWidth: CONTENT_SIZED_MIN_WIDTH_PX,
+  }
+}
+
+/**
+ * Column def for a grid hosted under a `TablePanelProvider`: inline editors on
+ * scalar columns, and the renderer's panel buttons for long text and JSON.
+ */
+export function buildEditableColumnDef(
+  column: TableColumnRead,
+  savedWidths: Record<string, number>,
+  { canEditRow, reserveButtonSpace }: EditableColumnDefOptions = {}
+): ColDef {
+  return {
+    ...buildBaseColumnDef(column, savedWidths),
+    cellRenderer: AgGridCellRenderer,
+    cellRendererParams: {
+      tableColumn: column,
+      canEditRow,
+      reserveButtonSpace,
+    },
+    // JSON columns are edited only via the side panel
+    ...(isJsonColumn(column)
+      ? { editable: false }
+      : {
+          cellEditor: AgGridCellEditor,
+          cellEditorParams: { tableColumn: column },
+          suppressKeyboardEvent: suppressEditorKeys,
+          editable: canEditRow ? (params) => canEditRow(params.data) : true,
+        }),
   }
 }
 
