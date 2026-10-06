@@ -2,8 +2,9 @@
 
 import { DialogTrigger } from "@radix-ui/react-dialog"
 import { DotsHorizontalIcon, PlusIcon } from "@radix-ui/react-icons"
-import { FolderIcon, GlobeIcon, Trash2Icon } from "lucide-react"
-import { useRef, useState } from "react"
+import type { ColumnDef } from "@tanstack/react-table"
+import { FolderIcon, GlobeIcon, MinusIcon } from "lucide-react"
+import { useMemo, useRef, useState } from "react"
 import {
   type GroupRoleAssignmentReadWithDetails,
   invitationsGetInvitationToken,
@@ -18,6 +19,7 @@ import {
   DataTableColumnHeader,
   type DataTableToolbarProps,
 } from "@/components/data-table"
+import { AbbreviatedBadgeList } from "@/components/organization/abbreviated-badge-list"
 import { InviteMemberDialogButton } from "@/components/organization/invite-member-dialog"
 import {
   AlertDialog,
@@ -35,7 +37,6 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -67,9 +68,13 @@ import {
   useRbacUserAssignments,
   useWorkspaceManager,
 } from "@/lib/hooks"
-import { invitationGrantsSummary } from "@/lib/invitations"
 import { useQuery, useQueryClient } from "@/lib/query"
-import { rolesForScope } from "@/lib/rbac"
+import {
+  abbreviateName,
+  abbreviateRoleName,
+  organizationTier,
+  rolesForScope,
+} from "@/lib/rbac"
 import { toast } from "../ui/use-toast"
 
 export function OrgMembersTable() {
@@ -90,20 +95,27 @@ export function OrgMembersTable() {
     resendInvitation,
     resendInvitationIsPending,
   } = useOrgMembers()
-  const { roles, isLoading: rolesIsLoading, error: rolesError } = useRbacRoles()
-  const { workspaces } = useWorkspaceManager()
+  const { hasEntitlement, hasEntitlementData } = useEntitlements()
+  const canReadGroups =
+    canReadRbac && hasEntitlementData && hasEntitlement("rbac_addons")
   const roleMenuTrigger = useRef<HTMLButtonElement | null>(null)
 
-  function roleText(member: OrgMemberRead): string {
-    if (member.invitation_id) {
-      return invitationGrantsSummary(
-        { grants: member.grants ?? [] },
-        rolesIsLoading || rolesError ? null : roles,
-        workspaces ?? []
-      )
-    }
-    return member.role_name
-  }
+  const accessColumns = useMemo(
+    () => [
+      ...(canReadRbac ? [ROLES_COLUMN, WORKSPACES_COLUMN] : []),
+      ...(canReadGroups ? [GROUPS_COLUMN] : []),
+    ],
+    [canReadRbac, canReadGroups]
+  )
+  const filterFields = useMemo(
+    () =>
+      accessColumns.map((column) => ({
+        column: column.id,
+        title: column.filterTitle,
+        options: filterOptions(orgMembers ?? [], column.getItems),
+      })),
+    [accessColumns, orgMembers]
+  )
 
   const handleRemoveMember = async () => {
     if (
@@ -138,6 +150,7 @@ export function OrgMembersTable() {
 
   const toolbarProps: DataTableToolbarProps<OrgMemberRead> = {
     ...defaultToolbarProps,
+    fields: filterFields,
     actions: <InviteMemberDialogButton />,
   }
 
@@ -199,20 +212,23 @@ export function OrgMembersTable() {
               },
               {
                 id: "role_name",
-                accessorFn: roleText,
+                accessorFn: (member) => organizationTier(member.role_slug),
                 header: ({ column }) => (
                   <DataTableColumnHeader
                     className="text-xs"
                     column={column}
-                    title="Role"
+                    title="Organization"
                   />
                 ),
                 cell: ({ row }) => (
-                  <div className="text-xs">{roleText(row.original)}</div>
+                  <div className="text-xs">
+                    {organizationTier(row.original.role_slug)}
+                  </div>
                 ),
                 enableSorting: true,
                 enableHiding: false,
               },
+              ...accessColumns.map(accessColumnDef),
               {
                 accessorKey: "status",
                 header: ({ column }) => (
@@ -493,6 +509,84 @@ export function OrgMembersTable() {
   )
 }
 
+type NamedItem = { id: string; name: string }
+
+type AccessColumn = {
+  id: string
+  title: string
+  filterTitle: string
+  getItems: (member: OrgMemberRead) => NamedItem[]
+  abbreviate: (name: string) => string
+}
+
+const ROLES_COLUMN: AccessColumn = {
+  id: "roles",
+  title: "Roles",
+  filterTitle: "Role",
+  getItems: (member) => member.roles ?? [],
+  abbreviate: abbreviateRoleName,
+}
+
+const WORKSPACES_COLUMN: AccessColumn = {
+  id: "workspaces",
+  title: "Workspace",
+  filterTitle: "Workspace",
+  getItems: (member) => member.workspaces ?? [],
+  abbreviate: abbreviateName,
+}
+
+const GROUPS_COLUMN: AccessColumn = {
+  id: "groups",
+  title: "Groups",
+  filterTitle: "Group",
+  getItems: (member) => member.groups ?? [],
+  abbreviate: abbreviateName,
+}
+
+function accessColumnDef({
+  id,
+  title,
+  getItems,
+  abbreviate,
+}: AccessColumn): ColumnDef<OrgMemberRead> {
+  function itemIds(member: OrgMemberRead) {
+    return getItems(member).map((item) => item.id)
+  }
+  return {
+    id,
+    accessorFn: itemIds,
+    getUniqueValues: itemIds,
+    filterFn: "arrIncludesSome",
+    header: ({ column }) => (
+      <DataTableColumnHeader
+        className="text-xs"
+        column={column}
+        title={title}
+      />
+    ),
+    cell: ({ row }) => (
+      <AbbreviatedBadgeList
+        items={getItems(row.original)}
+        abbreviate={abbreviate}
+      />
+    ),
+    enableSorting: false,
+    enableHiding: false,
+  }
+}
+
+function filterOptions(
+  members: OrgMemberRead[],
+  getItems: (member: OrgMemberRead) => NamedItem[]
+) {
+  const namesById = new Map(
+    members.flatMap(getItems).map((item) => [item.id, item.name])
+  )
+  return [...namesById]
+    .map(([value, label]) => ({ label, value }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+
 type DraftAssignment = Pick<
   UserRoleAssignmentReadWithDetails,
   "role_id" | "role_name" | "workspace_id" | "workspace_name"
@@ -716,13 +810,13 @@ export function ManageUserRolesDialog({
   }
 
   return (
-    <DialogContent className="max-w-lg" onCloseAutoFocus={onCloseAutoFocus}>
+    <DialogContent
+      className="max-w-2xl"
+      aria-describedby={undefined}
+      onCloseAutoFocus={onCloseAutoFocus}
+    >
       <DialogHeader>
         <DialogTitle>Manage roles - {member.email}</DialogTitle>
-        <DialogDescription>
-          Organization and workspace roles grant access directly or through
-          groups. Changes to direct roles are saved when you select Done.
-        </DialogDescription>
       </DialogHeader>
       <div className="space-y-4 py-4">
         {(canCreateAssignment || canUpdateAssignment) && (
@@ -787,17 +881,17 @@ export function ManageUserRolesDialog({
           <Label>
             Direct roles ({ready ? visibleAssignments.length : "…"})
           </Label>
-          <ScrollArea className="h-[200px] rounded-md border">
-            <div className="space-y-2 p-4">
+          <ScrollArea className="h-[320px] rounded-md border">
+            <div className="px-4 py-2">
               {ready &&
                 visibleAssignments.map((assignment) => (
                   <div
                     key={assignment.workspace_id ?? "org-wide"}
-                    className="flex items-center justify-between border-b py-2 last:border-0"
+                    className="flex min-h-9 items-center justify-between gap-2 border-b py-1 last:border-0"
                   >
-                    <div className="flex flex-col gap-1">
+                    <div className="flex min-w-0 items-center gap-2">
                       <Badge variant="secondary">{assignment.role_name}</Badge>
-                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
                         {assignment.workspace_id ? (
                           <FolderIcon className="size-3" />
                         ) : (
@@ -819,9 +913,9 @@ export function ManageUserRolesDialog({
                         aria-label={`Remove ${assignment.role_name} from ${assignment.workspace_name ?? "organization"}`}
                         onClick={() => handleRemoveRole(assignment)}
                         disabled={isSaving}
-                        className="text-rose-500 hover:text-rose-600"
+                        className="size-7 shrink-0 p-0 text-muted-foreground hover:text-foreground"
                       >
-                        <Trash2Icon className="size-4" />
+                        <MinusIcon className="size-4" />
                       </Button>
                     )}
                   </div>
@@ -842,16 +936,31 @@ export function ManageUserRolesDialog({
         {ready && groupAccessKnown && visibleGroupAssignments.length > 0 && (
           <div className="space-y-2">
             <Label>Roles from groups</Label>
-            {visibleGroupAssignments.map((assignment) => (
-              <p key={assignment.id} className="text-sm">
-                {assignment.role_name} ·{" "}
-                {assignment.workspace_name ?? "Organization-wide"}
-                <span className="text-muted-foreground">
-                  {" "}
-                  via {assignment.group_name}
-                </span>
-              </p>
-            ))}
+            <ScrollArea className="rounded-md border [&>[data-radix-scroll-area-viewport]]:max-h-[320px]">
+              <div className="px-4 py-2">
+                {visibleGroupAssignments.map((assignment) => (
+                  <div
+                    key={assignment.id}
+                    className="flex min-h-9 items-center justify-between gap-2 border-b py-1 last:border-0"
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Badge variant="secondary">{assignment.role_name}</Badge>
+                      <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                        {assignment.workspace_id ? (
+                          <FolderIcon className="size-3" />
+                        ) : (
+                          <GlobeIcon className="size-3" />
+                        )}
+                        {assignment.workspace_name ?? "Organization-wide"}
+                      </span>
+                    </div>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      via {assignment.group_name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
             <p className="text-xs text-muted-foreground">
               Manage these roles through the group.
             </p>

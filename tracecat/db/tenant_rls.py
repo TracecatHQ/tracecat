@@ -105,6 +105,7 @@ POST_RLS_ORG_SCOPED_TABLES = (
     "external_group_mapping",
     "external_group_member",
     "scim_connection",
+    "invitation_group",
 )
 
 POST_RLS_ORG_OPTIONAL_WORKSPACE_SCOPED_TABLES = (

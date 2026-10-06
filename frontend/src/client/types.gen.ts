@@ -5533,6 +5533,7 @@ export type InvitationAccept = {
 export type InvitationCreate = {
   email: string
   grants: Array<InvitationGrant>
+  group_ids?: Array<string>
 }
 
 /**
@@ -5557,6 +5558,7 @@ export type InvitationRead = {
   accepted_at: string | null
   created_by_platform_admin: boolean
   grants: Array<InvitationGrant>
+  group_ids?: Array<string>
   warning?: string | null
 }
 
@@ -6417,6 +6419,11 @@ export type OrgMemberDetail = {
   last_login_at: string | null
 }
 
+export type OrgMemberGroupRead = {
+  id: string
+  name: string
+}
+
 /**
  * Unified member representation — covers active, inactive, and pending (invited) members.
  */
@@ -6427,6 +6434,9 @@ export type OrgMemberRead = {
   role_name: string
   role_slug?: string | null
   grants?: Array<InvitationGrant>
+  roles?: Array<OrgMemberRoleRead>
+  workspaces?: Array<OrgMemberWorkspaceRead>
+  groups?: Array<OrgMemberGroupRead>
   status: OrgMemberStatus
   first_name?: string | null
   last_name?: string | null
@@ -6435,7 +6445,17 @@ export type OrgMemberRead = {
   created_at?: string | null
 }
 
+export type OrgMemberRoleRead = {
+  id: string
+  name: string
+}
+
 export type OrgMemberStatus = "active" | "inactive" | "invited"
+
+export type OrgMemberWorkspaceRead = {
+  id: string
+  name: string
+}
 
 /**
  * Organization registry repository response.
