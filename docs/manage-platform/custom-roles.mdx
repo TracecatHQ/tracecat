@@ -10,13 +10,9 @@ icon: "lock"
 
 A custom role bundles the scopes you pick. A group holds members, and every member inherits the group's roles.
 
-Open `Members` in the organization sidebar (`/organization/members`). The Roles and Groups tabs sit beside Members.
+Open `Members` in the organization sidebar (`/organization/members`). On Enterprise, the Roles and Groups tabs sit beside Members.
 
-## Turn it on
-
-Custom roles, groups, and scopes require the `rbac_addons` entitlement. A single-tenant deployment turns it on with `TRACECAT__FEATURE_FLAGS=rbac`, and a multi-tenant deployment reads it from the organization's tier.
-
-Without the entitlement, or without `org:rbac:read`, the Members page shows the member table with no tabs.
+Without Enterprise, or without `org:rbac:read`, the Members page shows the member table with no tabs.
 
 ## Create a custom role
 

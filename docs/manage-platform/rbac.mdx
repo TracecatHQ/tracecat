@@ -40,7 +40,7 @@ The Members tab lists members and pending invitations.
 | `Organization` | `Owner`, `Admin`, or `Member`, from the member's organization-wide role. | |
 | `Roles` | Every role the member holds, directly or through a group. | `org:rbac:read` |
 | `Workspace` | Every workspace the member can open. | `org:rbac:read` |
-| `Groups` | The member's groups. | `org:rbac:read` and the `rbac_addons` entitlement |
+| `Groups` | The member's groups. | `org:rbac:read` on Enterprise |
 | `Status` | `Active`, `Inactive`, or `Invited`. | |
 
 Badges are abbreviated: role names to their initials, workspace and group names to their first three characters. Hover a badge for the full name. A cell shows three badges, then `+N` for the rest.
@@ -88,7 +88,7 @@ A member with no roles stays in the organization with the baseline scopes. Use `
 
 Tracecat rejects a role edit that would switch a role between organization and workspace level while it is assigned or offered in a pending invitation.
 
-Without the `rbac_addons` entitlement you manage access with the preset roles. See [Custom roles and groups](/manage-platform/custom-roles) for custom roles, groups, and scopes.
+Without Enterprise, you manage access with the preset roles. See [Custom roles and groups](/manage-platform/custom-roles) for custom roles, groups, and scopes.
 
 ## Organization membership
 
