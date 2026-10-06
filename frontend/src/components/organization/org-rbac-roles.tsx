@@ -7,7 +7,6 @@ import type { RoleReadWithScopes } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
   RbacBadge,
-  RbacDetailRow,
   RbacListContainer,
   RbacListEmpty,
   RbacListHeader,
@@ -25,6 +24,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogTrigger } from "@/components/ui/dialog"
 import {
@@ -293,12 +293,23 @@ function RoleListItem({
   canUpdateRole: boolean
   canDeleteRole: boolean
 }) {
+  const scopeCount = role.scopes?.length ?? 0
   return (
     <RbacListItem
       icon={<ShieldIcon className="size-4" />}
       title={role.name}
       badges={
-        role.is_system ? <RbacBadge variant="preset">Preset</RbacBadge> : null
+        <>
+          {role.is_system && <RbacBadge variant="preset">Preset</RbacBadge>}
+          <Badge variant="secondary" className="text-[10px]">
+            {scopeCount} scope{scopeCount !== 1 && "s"}
+          </Badge>
+          {role.description && (
+            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+              {role.description}
+            </span>
+          )}
+        </>
       }
       isExpanded={isExpanded}
       onExpandedChange={onExpandedChange}
@@ -356,38 +367,29 @@ function RoleDetails({ role }: { role: RoleReadWithScopes }) {
     [role.scopes]
   )
 
+  if (!role.scopes || role.scopes.length === 0) {
+    return <div className="text-xs text-muted-foreground">No scopes</div>
+  }
+
   return (
-    <div className="space-y-3">
-      {role.description && (
-        <RbacDetailRow label="Description">{role.description}</RbacDetailRow>
-      )}
-      <RbacDetailRow label="Scopes">
-        <span className="text-muted-foreground">
-          {role.scopes?.length ?? 0} permission
-          {(role.scopes?.length ?? 0) !== 1 && "s"}
-        </span>
-      </RbacDetailRow>
-      {role.scopes && role.scopes.length > 0 && (
-        <div className="mt-2 space-y-2">
-          {Object.entries(groupedScopes).map(([resource, resourceScopes]) => (
-            <div key={resource}>
-              <div className="mb-1 text-xs font-medium text-muted-foreground">
-                {resource}
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {resourceScopes.map((scope) => (
-                  <code
-                    key={scope.id}
-                    className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono"
-                  >
-                    {scope.action}
-                  </code>
-                ))}
-              </div>
-            </div>
-          ))}
+    <div className="space-y-2">
+      {Object.entries(groupedScopes).map(([resource, resourceScopes]) => (
+        <div key={resource}>
+          <div className="mb-1 text-xs font-medium text-muted-foreground">
+            {resource}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {resourceScopes.map((scope) => (
+              <code
+                key={scope.id}
+                className="rounded bg-muted/60 px-1.5 py-0.5 text-[10px] font-mono"
+              >
+                {scope.action}
+              </code>
+            ))}
+          </div>
         </div>
-      )}
+      ))}
     </div>
   )
 }

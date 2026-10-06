@@ -173,7 +173,7 @@ describe("OrgRbacGroups", () => {
     ).not.toBeInTheDocument()
   })
 
-  it("shows only badges in the row header", () => {
+  it("shows badges and the description in the row header", () => {
     renderGroups()
 
     expect(within(getRow("Operators")).getAllByText(/2 members/)).toHaveLength(
@@ -183,8 +183,8 @@ describe("OrgRbacGroups", () => {
       within(getRow("Directory team")).getAllByText(/2 members/)
     ).toHaveLength(1)
     expect(
-      screen.queryByText("Handles on-call rotations")
-    ).not.toBeInTheDocument()
+      within(getRow("Operators")).getByText("Handles on-call rotations")
+    ).toBeInTheDocument()
   })
 
   it("does not fetch the group while the row is collapsed", () => {
@@ -198,11 +198,11 @@ describe("OrgRbacGroups", () => {
     const user = renderGroups()
     await user.click(screen.getByText("Operators"))
 
-    expect(screen.getByRole("button", { name: "Members (2)" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Members" })).toHaveAttribute(
       "aria-expanded",
       "true"
     )
-    expect(screen.getByRole("button", { name: "Roles (1)" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "Roles" })).toHaveAttribute(
       "aria-expanded",
       "true"
     )
@@ -232,7 +232,7 @@ describe("OrgRbacGroups", () => {
   it("keeps the sections individually collapsible", async () => {
     const user = renderGroups()
     await user.click(screen.getByText("Operators"))
-    await user.click(screen.getByRole("button", { name: "Members (2)" }))
+    await user.click(screen.getByRole("button", { name: "Members" }))
 
     expect(screen.queryByText("one@example.com")).not.toBeInTheDocument()
     expect(screen.getByText("Workspace Editor")).toBeInTheDocument()

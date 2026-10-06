@@ -456,6 +456,79 @@ class OrgService(BaseOrgService):
         }
         role_slugs = {role_id: slug for role_id, _name, slug in role_rows}
 
+        groups_by_invitation: dict[uuid.UUID, list[OrgMemberGroupRead]] = {}
+        group_roles_by_invitation: dict[
+            uuid.UUID, list[tuple[uuid.UUID, uuid.UUID | None]]
+        ] = {}
+        include_groups = can_read_rbac and await self.has_entitlement(
+            Entitlement.RBAC_ADDONS
+        )
+        if include_groups:
+            invitation_ids = {invitation.id for invitation in invitations}
+            group_rows = (
+                (
+                    await self.session.execute(
+                        select(
+                            InvitationGroup.invitation_id,
+                            Group.id,
+                            Group.name,
+                            DBRole.id,
+                            DBRole.name,
+                            DBRole.slug,
+                            GroupRoleAssignment.workspace_id,
+                        )
+                        .join(Group, Group.id == InvitationGroup.group_id)
+                        .outerjoin(
+                            GroupRoleAssignment,
+                            and_(
+                                GroupRoleAssignment.group_id == Group.id,
+                                GroupRoleAssignment.organization_id
+                                == self.organization_id,
+                            ),
+                        )
+                        .outerjoin(
+                            DBRole,
+                            and_(
+                                DBRole.id == GroupRoleAssignment.role_id,
+                                DBRole.organization_id == self.organization_id,
+                            ),
+                        )
+                        .where(
+                            InvitationGroup.organization_id == self.organization_id,
+                            InvitationGroup.invitation_id.in_(invitation_ids),
+                            Group.organization_id == self.organization_id,
+                        )
+                        .order_by(Group.name, Group.id)
+                    )
+                )
+                .tuples()
+                .all()
+            )
+            seen_groups: dict[uuid.UUID, set[uuid.UUID]] = {}
+            for (
+                invitation_id,
+                group_id,
+                group_name,
+                group_role_id,
+                group_role_name,
+                group_role_slug,
+                workspace_id,
+            ) in group_rows:
+                invitation_group_ids = seen_groups.setdefault(invitation_id, set())
+                if group_id not in invitation_group_ids:
+                    groups_by_invitation.setdefault(invitation_id, []).append(
+                        OrgMemberGroupRead(id=group_id, name=group_name)
+                    )
+                    invitation_group_ids.add(group_id)
+                if group_role_id is not None and group_role_name is not None:
+                    roles_by_id[group_role_id] = OrgMemberRoleRead(
+                        id=group_role_id, name=group_role_name
+                    )
+                    role_slugs[group_role_id] = group_role_slug
+                    group_roles_by_invitation.setdefault(invitation_id, []).append(
+                        (group_role_id, workspace_id)
+                    )
+
         workspaces_by_id: dict[uuid.UUID, OrgMemberWorkspaceRead] = {}
         all_workspace_role_ids: set[uuid.UUID] = set()
         if can_read_rbac:
@@ -467,6 +540,13 @@ class OrgService(BaseOrgService):
                 and grant.role_id in role_slugs
                 and role_slugs[grant.role_id] != ORG_MEMBER_ROLE_SLUG
             }
+            org_wide_role_ids.update(
+                role_id
+                for group_roles in group_roles_by_invitation.values()
+                for role_id, workspace_id in group_roles
+                if workspace_id is None
+                and role_slugs.get(role_id) != ORG_MEMBER_ROLE_SLUG
+            )
             if org_wide_role_ids:
                 role_scope_rows = (
                     (
@@ -499,6 +579,12 @@ class OrgService(BaseOrgService):
                 for grant in inv.grants
                 if grant.workspace_id is not None
             }
+            workspace_ids.update(
+                workspace_id
+                for group_roles in group_roles_by_invitation.values()
+                for _role_id, workspace_id in group_roles
+                if workspace_id is not None
+            )
             if workspace_ids or all_workspace_role_ids:
                 workspace_stmt = select(Workspace.id, Workspace.name).where(
                     Workspace.organization_id == self.organization_id
@@ -517,36 +603,13 @@ class OrgService(BaseOrgService):
                     for workspace_id, workspace_name in workspace_rows
                 }
 
-        groups_by_invitation: dict[uuid.UUID, list[OrgMemberGroupRead]] = {}
-        if can_read_rbac and await self.has_entitlement(Entitlement.RBAC_ADDONS):
-            invitation_ids = {invitation.id for invitation in invitations}
-            group_rows = (
-                (
-                    await self.session.execute(
-                        select(InvitationGroup.invitation_id, Group.id, Group.name)
-                        .join(Group, Group.id == InvitationGroup.group_id)
-                        .where(
-                            InvitationGroup.organization_id == self.organization_id,
-                            InvitationGroup.invitation_id.in_(invitation_ids),
-                            Group.organization_id == self.organization_id,
-                        )
-                        .order_by(Group.name, Group.id)
-                    )
-                )
-                .tuples()
-                .all()
-            )
-            for invitation_id, group_id, group_name in group_rows:
-                groups_by_invitation.setdefault(invitation_id, []).append(
-                    OrgMemberGroupRead(id=group_id, name=group_name)
-                )
-
         access_by_invitation: dict[uuid.UUID, OrgMemberAccess] = {}
         for invitation in invitations:
             org_grant = next(
                 (grant for grant in invitation.grants if grant.workspace_id is None),
                 None,
             )
+            group_roles = group_roles_by_invitation.get(invitation.id, [])
             roles = []
             workspaces = []
             if can_read_rbac:
@@ -555,6 +618,11 @@ class OrgService(BaseOrgService):
                     for grant in invitation.grants
                     if role_slugs.get(grant.role_id) != ORG_MEMBER_ROLE_SLUG
                 }
+                invitation_role_ids.update(
+                    role_id
+                    for role_id, _workspace_id in group_roles
+                    if role_slugs.get(role_id) != ORG_MEMBER_ROLE_SLUG
+                )
                 roles = sorted(
                     (
                         roles_by_id[role_id]
@@ -568,10 +636,18 @@ class OrgService(BaseOrgService):
                     for grant in invitation.grants
                     if grant.workspace_id is not None
                 }
+                invitation_workspace_ids.update(
+                    workspace_id
+                    for _role_id, workspace_id in group_roles
+                    if workspace_id is not None
+                )
                 if any(
                     grant.workspace_id is None
                     and grant.role_id in all_workspace_role_ids
                     for grant in invitation.grants
+                ) or any(
+                    workspace_id is None and role_id in all_workspace_role_ids
+                    for role_id, workspace_id in group_roles
                 ):
                     invitation_workspace_ids.update(workspaces_by_id)
                 workspaces = sorted(
@@ -582,14 +658,56 @@ class OrgService(BaseOrgService):
                     ),
                     key=lambda item: (item.name, item.id),
                 )
+                display_role_ids = {
+                    grant.role_id
+                    for grant in invitation.grants
+                    if grant.workspace_id is None
+                }
+                display_role_ids.update(
+                    role_id
+                    for role_id, workspace_id in group_roles
+                    if workspace_id is None
+                )
+                role_slug = self._select_invitation_role_slug(
+                    display_role_ids, roles_by_id, role_slugs
+                )
+            else:
+                role_slug = role_slugs.get(org_grant.role_id) if org_grant else None
             access_by_invitation[invitation.id] = OrgMemberAccess(
                 role_name="Invited",
-                role_slug=role_slugs.get(org_grant.role_id) if org_grant else None,
+                role_slug=role_slug,
                 roles=roles,
                 workspaces=workspaces,
                 groups=groups_by_invitation.get(invitation.id, []),
             )
         return access_by_invitation
+
+    @staticmethod
+    def _select_invitation_role_slug(
+        role_ids: set[uuid.UUID],
+        roles_by_id: dict[uuid.UUID, OrgMemberRoleRead],
+        role_slugs: dict[uuid.UUID, str | None],
+    ) -> str | None:
+        """Select an invitation's highest-precedence effective org role."""
+        candidates = [
+            role_id
+            for role_id in role_ids
+            if role_id in roles_by_id
+            and role_slugs.get(role_id) != ORG_MEMBER_ROLE_SLUG
+        ]
+        if not candidates:
+            return None
+
+        def sort_key(role_id: uuid.UUID) -> tuple[int, str, uuid.UUID]:
+            slug = role_slugs.get(role_id)
+            precedence = 2
+            if slug == "organization-owner":
+                precedence = 0
+            elif slug == "organization-admin":
+                precedence = 1
+            return precedence, roles_by_id[role_id].name, role_id
+
+        return role_slugs.get(min(candidates, key=sort_key))
 
     # Group and IdP group names are RBAC detail, not member-list detail.
     @require_scope("org:member:read", "org:rbac:read")

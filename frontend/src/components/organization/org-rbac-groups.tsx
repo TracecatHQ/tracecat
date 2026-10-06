@@ -19,7 +19,6 @@ import type {
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { AbbreviatedBadgeList } from "@/components/organization/abbreviated-badge-list"
 import {
-  RbacDetailRow,
   RbacListContainer,
   RbacListEmpty,
   RbacListHeader,
@@ -396,6 +395,11 @@ function GroupListItem({
               {assignments.length} role{assignments.length !== 1 && "s"}
             </Badge>
           )}
+          {group.description && (
+            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+              {group.description}
+            </span>
+          )}
         </>
       }
       isExpanded={isExpanded}
@@ -468,45 +472,40 @@ function GroupExpandedContent({
   canDeleteAssignments: boolean
 }) {
   return (
-    <div className="space-y-2">
-      {group.description && (
-        <RbacDetailRow label="Description">{group.description}</RbacDetailRow>
-      )}
-      <Accordion
-        type="multiple"
-        value={openSections}
-        onValueChange={(sections) =>
-          onOpenSectionsChange(sections.filter(isGroupSection))
-        }
-      >
-        <AccordionItem value="members" className="border-border/50">
-          <AccordionTrigger className={SECTION_TRIGGER_CLASS_NAME}>
-            Members ({group.member_count ?? 0})
-          </AccordionTrigger>
-          <AccordionContent className="pb-2">
-            <GroupMembersSection
-              groupId={group.id}
-              groupName={group.name}
-              isIdpManaged={group.is_idp_managed === true}
-              canUpdateMembers={canUpdateMembers}
-            />
-          </AccordionContent>
-        </AccordionItem>
-        <AccordionItem value="roles" className="border-b-0">
-          <AccordionTrigger className={SECTION_TRIGGER_CLASS_NAME}>
-            Roles ({assignments.length})
-          </AccordionTrigger>
-          <AccordionContent className="pb-0">
-            <GroupRolesSection
-              groupId={group.id}
-              assignments={assignments}
-              canCreateAssignments={canCreateAssignments}
-              canDeleteAssignments={canDeleteAssignments}
-            />
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
-    </div>
+    <Accordion
+      type="multiple"
+      value={openSections}
+      onValueChange={(sections) =>
+        onOpenSectionsChange(sections.filter(isGroupSection))
+      }
+    >
+      <AccordionItem value="members" className="border-border/50">
+        <AccordionTrigger className={SECTION_TRIGGER_CLASS_NAME}>
+          Members
+        </AccordionTrigger>
+        <AccordionContent className="pb-2">
+          <GroupMembersSection
+            groupId={group.id}
+            groupName={group.name}
+            isIdpManaged={group.is_idp_managed === true}
+            canUpdateMembers={canUpdateMembers}
+          />
+        </AccordionContent>
+      </AccordionItem>
+      <AccordionItem value="roles" className="border-b-0">
+        <AccordionTrigger className={SECTION_TRIGGER_CLASS_NAME}>
+          Roles
+        </AccordionTrigger>
+        <AccordionContent className="pb-0">
+          <GroupRolesSection
+            groupId={group.id}
+            assignments={assignments}
+            canCreateAssignments={canCreateAssignments}
+            canDeleteAssignments={canDeleteAssignments}
+          />
+        </AccordionContent>
+      </AccordionItem>
+    </Accordion>
   )
 }
 
@@ -552,7 +551,7 @@ function GroupMembersSection({
             className="flex items-center justify-between gap-2 py-1 text-xs"
           >
             <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate font-medium">{member.email}</span>
+              <Badge variant="secondary">{member.email}</Badge>
               {(member.first_name || member.last_name) && (
                 <span className="truncate text-muted-foreground">
                   {[member.first_name, member.last_name]
@@ -587,6 +586,7 @@ function GroupMembersSection({
         </p>
       )}
       <div>
+        {renderMembers()}
         {canUpdateMembers && !isLoading && !error && (
           <Button
             type="button"
@@ -620,7 +620,6 @@ function GroupMembersSection({
             </DialogContent>
           </Dialog>
         )}
-        {renderMembers()}
       </div>
     </div>
   )
@@ -872,18 +871,6 @@ function GroupRolesSection({
 
   return (
     <div className="space-y-2">
-      {canCreateAssignments && (
-        <GroupAddRoleControl
-          onAdd={(roleId, workspaceId) =>
-            createAssignment({
-              group_id: groupId,
-              role_id: roleId,
-              workspace_id: workspaceId,
-            })
-          }
-          isPending={createAssignmentIsPending}
-        />
-      )}
       {assignments.length === 0 ? (
         <p className="text-xs text-muted-foreground">No roles</p>
       ) : (
@@ -922,6 +909,18 @@ function GroupRolesSection({
             </div>
           ))}
         </div>
+      )}
+      {canCreateAssignments && (
+        <GroupAddRoleControl
+          onAdd={(roleId, workspaceId) =>
+            createAssignment({
+              group_id: groupId,
+              role_id: roleId,
+              workspace_id: workspaceId,
+            })
+          }
+          isPending={createAssignmentIsPending}
+        />
       )}
     </div>
   )
