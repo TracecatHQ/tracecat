@@ -1,0 +1,38 @@
+frontend/src/components/cases/workflow-trigger-dialog.tsx
+  s_6b5f9492a52675::t_43ce8bb620f5ae 213-214
+  s_6b5f9492a52675::t_b5f4d66024b755 230-231
+  s_6b5f9492a52675::t_7657be597deaea 9
+  s_6b5f9492a52675::t_3c86645473a711 24
+  s_6b5f9492a52675::t_a5e0bcc6d668f6 186
+  s_6b5f9492a52675::t_3cc36c50f8f22c 32
+  s_6b5f9492a52675::t_5d21fffc8b1f83 215-227,229,232-235,237
+frontend/src/components/cases/workflow-trigger-form.tsx
+  s_6b5f9492a52675::t_741e215a9eba59 404
+  s_6b5f9492a52675::t_a618c22e6b1c76 408-438,440-455,457-462
+  s_6b5f9492a52675::t_bb2c9e034151c2 406-407
+  s_6b5f9492a52675::t_f8c8daf60fa12c 57-65
+  s_6b5f9492a52675::t_32a18ed594c7b5 456,554
+  s_6b5f9492a52675::t_ce4a08e3288dc9 37,66,463-476,479-529,532-553,555-587,589-606
+frontend/src/components/ui/alert-dialog.tsx
+  s_6b5f9492a52675::t_43381a25a52487 39
+frontend/src/components/agents/agent-approvals-dialog.tsx
+  s_6b5f9492a52675::t_b02339cdf1b49f 262
+frontend/src/components/skills/upload-skill-confirm-dialog.tsx
+  s_6b5f9492a52675::t_fd2811111a7a58 58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6517633127523f19740157d960d3131383a54e85",
+  "prompts": {},
+  "sessions": {
+    "s_6b5f9492a52675": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de981752-046e-4e5c-8424-c2b98f517356",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
