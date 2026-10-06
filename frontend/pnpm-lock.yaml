@@ -10,7 +10,7 @@ overrides:
   '@tiptap/extension-bubble-menu': 3.30.5
   '@tiptap/extension-floating-menu': 3.30.5
   baseline-browser-mapping: 2.11.0
-  brace-expansion: 5.0.9
+  brace-expansion: 5.0.12
   browserslist: 4.28.7
   handlebars@4.7.8: 4.7.9
   prismjs: 1.30.0
@@ -20,7 +20,7 @@ overrides:
   lodash-es: 4.18.1
   minimatch: 10.2.3
   '@babel/core': 7.29.6
-  dompurify: 3.4.13
+  dompurify: 3.4.16
   fflate: 0.4.9
   form-data: 4.0.6
   js-yaml@<3.15.2: 3.15.2
@@ -46,7 +46,7 @@ overrides:
   micromatch>picomatch: 2.3.2
   jest-util@29.7.0>picomatch: 2.3.2
   jest-util@30.2.0>picomatch: 4.0.4
-  minimatch>brace-expansion: 5.0.9
+  minimatch>brace-expansion: 5.0.12
   class-variance-authority: 0.7.1
   clsx: 2.1.1
   emblor>tailwind-merge: 3.5.0
@@ -260,8 +260,8 @@ importers:
         specifier: 5.0.59
         version: 5.0.59(zod@3.25.76)
       axios:
-        specifier: 1.18.0
-        version: 1.18.0
+        specifier: 1.20.0
+        version: 1.20.0
       class-variance-authority:
         specifier: 0.7.1
         version: 0.7.1
@@ -3150,8 +3150,8 @@ packages:
     peerDependencies:
       postcss: 8.5.23
 
-  axios@1.18.0:
-    resolution: {integrity: sha512-E32NzpYKp++W7XRe52rHiXV2ehxmh3wbdgO7MHeFM+vqxLBYHzt0ElkiImtOBxtOmyp0yoC8C6uESVV84Y2/hw==}
+  axios@1.20.0:
+    resolution: {integrity: sha512-r8aOh8j9cGKpgQAqpzrUHnSIc6a59Y3Xf/cv8sy1DrHCkZHzQGEuoq1tARk6qSyDdtQGSDgpb9kFlruzPvrgwg==}
 
   babel-jest@29.7.0:
     resolution: {integrity: sha512-BrvGY3xZSwEcCzKvKsCi2GgHqDqsYkOP4/by5xCgIwGXQxIEh+8ew3gmrE1y7XRR6LHZIj6yLYnUi/mm2KXKBg==}
@@ -3198,8 +3198,8 @@ packages:
     resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}
     engines: {node: '>=8'}
 
-  brace-expansion@5.0.9:
-    resolution: {integrity: sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==}
+  brace-expansion@5.0.12:
+    resolution: {integrity: sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==}
     engines: {node: 20 || >=22}
 
   braces@3.0.3:
@@ -3706,8 +3706,8 @@ packages:
   dom-accessibility-api@0.6.3:
     resolution: {integrity: sha512-7ZgogeTnjuHbo+ct10G9Ffp0mif17idi0IyWNVA/wcwcm7NPOD/WEHVP3n7n3MhXqxoIYm8d6MuZohYWIZ4T3w==}
 
-  dompurify@3.4.13:
-    resolution: {integrity: sha512-2vmYIoqjze2d+kakP8S/nS5shfsl587kzwEjcGlTdiksUVgFHnFCsLYDVj/JNqJVOQZGSYBTmuycv0PodwmnMQ==}
+  dompurify@3.4.16:
+    resolution: {integrity: sha512-sqo+pNp3qRhCIpbgRi1y8Tgk27Bo2Ry7w0dC1NBeNTdZChWjz9Xb/KOoZbRP/R6pQZ80Qw8YhXw13hWWBbMRnQ==}
 
   dotenv@16.6.1:
     resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
@@ -8750,7 +8750,7 @@ snapshots:
       postcss: 8.5.23
       postcss-value-parser: 4.2.0
 
-  axios@1.18.0:
+  axios@1.20.0:
     dependencies:
       follow-redirects: 1.16.0
       form-data: 4.0.6
@@ -8829,7 +8829,7 @@ snapshots:
 
   binary-extensions@2.3.0: {}
 
-  brace-expansion@5.0.9:
+  brace-expansion@5.0.12:
     dependencies:
       balanced-match: 4.0.3
 
@@ -9332,7 +9332,7 @@ snapshots:
 
   dom-accessibility-api@0.6.3: {}
 
-  dompurify@3.4.13:
+  dompurify@3.4.16:
     optionalDependencies:
       '@types/trusted-types': 2.0.7
 
@@ -10622,7 +10622,7 @@ snapshots:
       d3-sankey: 0.12.3
       dagre-d3-es: 7.0.14
       dayjs: 1.11.20
-      dompurify: 3.4.13
+      dompurify: 3.4.16
       es-toolkit: 1.46.1
       katex: 0.16.45
       khroma: 2.1.0
@@ -10852,7 +10852,7 @@ snapshots:
 
   minimatch@10.2.3:
     dependencies:
-      brace-expansion: 5.0.9
+      brace-expansion: 5.0.12
 
   minimist@1.2.8: {}
 

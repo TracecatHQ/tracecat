@@ -113,7 +113,7 @@ constraint-dependencies = [
     "pillow==12.3.0",
     "pyasn1==0.6.4",
     "python-multipart==0.0.31",
-    "urllib3==2.7.0",
+    "urllib3==2.8.0",
 ]
 
 [dependency-groups]
