@@ -38022,6 +38022,18 @@ export const $WorkspaceSecretStoreRead = {
 
 export const $WorkspaceSettingsRead = {
   properties: {
+    default_agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Agent Preset Id",
+    },
     git_provider: {
       anyOf: [
         {
@@ -38135,6 +38147,20 @@ export const $WorkspaceSettingsRead = {
 
 export const $WorkspaceSettingsUpdate = {
   properties: {
+    default_agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Agent Preset Id",
+      description:
+        "Default agent preset for this workspace. Set to null to clear.",
+    },
     git_provider: {
       anyOf: [
         {

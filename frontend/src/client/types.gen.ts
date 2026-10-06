@@ -11416,6 +11416,7 @@ export type WorkspaceSecretStoreRead = {
 }
 
 export type WorkspaceSettingsRead = {
+  default_agent_preset_id?: string | null
   git_provider?: VcsProvider | null
   git_repo_url?: string | null
   workflow_unlimited_timeout_enabled?: boolean | null
@@ -11434,6 +11435,10 @@ export type WorkspaceSettingsRead = {
 }
 
 export type WorkspaceSettingsUpdate = {
+  /**
+   * Default agent preset for this workspace. Set to null to clear.
+   */
+  default_agent_preset_id?: string | null
   git_provider?: VcsProvider | null
   git_repo_url?: string | null
   /**

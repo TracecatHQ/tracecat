@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import NotRequired, Self, TypedDict
 
 from pydantic import EmailStr, Field, computed_field, field_validator, model_validator
@@ -15,6 +16,7 @@ from tracecat.workspace_sync.enums import VcsProvider
 
 # DTO
 class WorkspaceSettings(TypedDict):
+    default_agent_preset_id: NotRequired[str | None]
     git_provider: NotRequired[VcsProvider | None]
     git_repo_url: NotRequired[str | None]
     workflow_unlimited_timeout_enabled: NotRequired[bool | None]
@@ -26,6 +28,7 @@ class WorkspaceSettings(TypedDict):
 
 # Schema
 class WorkspaceSettingsRead(Schema):
+    default_agent_preset_id: uuid.UUID | None = Field(default=None)
     git_provider: VcsProvider | None = None
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = None
@@ -52,6 +55,10 @@ class WorkspaceSettingsRead(Schema):
 
 
 class WorkspaceSettingsUpdate(Schema):
+    default_agent_preset_id: uuid.UUID | None = Field(
+        default=None,
+        description="Default agent preset for this workspace. Set to null to clear.",
+    )
     git_provider: VcsProvider | None = None
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = Field(

@@ -83,6 +83,7 @@ from tracecat.db.models import (
     MCPIntegration,
     Skill,
     SkillVersion,
+    Workspace,
 )
 from tracecat.db.soft_delete import with_deleted
 from tracecat.dsl.common import create_default_execution_context
@@ -847,6 +848,14 @@ class AgentPresetService(BaseWorkspaceService):
             result.all()
         preset.deleted_at = datetime.now(UTC)
         self.session.add(preset)
+        await self.session.execute(
+            sa.update(Workspace)
+            .where(
+                Workspace.id == self.workspace_id,
+                Workspace.settings["default_agent_preset_id"].astext == str(preset.id),
+            )
+            .values(settings=Workspace.settings.op("-")("default_agent_preset_id"))
+        )
         await self.session.commit()
 
     async def resolve_agent_preset_config(

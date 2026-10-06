@@ -33,6 +33,7 @@ import {
   agentTagsUpdateAgentTag,
   type TagCreate,
   type TagUpdate,
+  workspacesUpdateWorkspace,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
 import {
@@ -398,6 +399,7 @@ export function useDeleteAgentPreset(workspaceId: string) {
         presetId,
       }),
     onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] })
       queryClient.invalidateQueries({
         queryKey: ["agent-presets", workspaceId],
       })
@@ -430,6 +432,34 @@ export function useDeleteAgentPreset(workspaceId: string) {
     deleteAgentPresetIsPending,
     deleteAgentPresetError,
   }
+}
+
+/** Set the workspace's default agent without changing other workspace settings. */
+export function useSetDefaultAgent(workspaceId: string) {
+  const queryClient = useQueryClient()
+  const { mutate: setDefaultAgent, isPending: isSettingDefaultAgent } =
+    useMutation({
+      mutationFn: (presetId: string) =>
+        workspacesUpdateWorkspace({
+          workspaceId,
+          requestBody: { settings: { default_agent_preset_id: presetId } },
+        }),
+      onSuccess: async () => {
+        await queryClient.invalidateQueries({
+          queryKey: ["workspace", workspaceId],
+        })
+        toast({ title: "Default agent updated" })
+      },
+      onError: () => {
+        toast({
+          title: "Could not set default agent",
+          description: "Please try again.",
+          variant: "destructive",
+        })
+      },
+    })
+
+  return { setDefaultAgent, isSettingDefaultAgent }
 }
 
 export function useRestoreAgentPresetVersion(workspaceId: string) {

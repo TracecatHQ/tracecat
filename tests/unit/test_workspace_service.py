@@ -1,6 +1,7 @@
 """Tests for WorkspaceService functionality."""
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import TypeAdapter
@@ -10,10 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests.support.membership import (
     grant_workspace_membership,
 )
+from tracecat.agent.preset.service import AgentPresetService
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES
 from tracecat.db.models import (
+    AgentPreset,
     Membership,
     Organization,
     User,
@@ -21,11 +24,13 @@ from tracecat.db.models import (
 )
 from tracecat.exceptions import (
     TracecatAuthorizationError,
+    TracecatValidationError,
 )
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspaces.schemas import (
     WorkspaceSearch,
     WorkspaceSettings,
+    WorkspaceSettingsRead,
     WorkspaceSettingsUpdate,
     WorkspaceUpdate,
 )
@@ -40,9 +45,131 @@ async def service(session: AsyncSession, svc_role: Role) -> WorkspaceService:
     return WorkspaceService(session=session, role=svc_role)
 
 
+@pytest.fixture
+async def default_agent_preset(
+    session: AsyncSession, svc_workspace: Workspace
+) -> AgentPreset:
+    """Create a synthetic preset for workspace default tests."""
+    preset = AgentPreset(
+        workspace_id=svc_workspace.id,
+        name="Test default agent",
+        slug="test-default-agent",
+        model_name="test-model",
+        model_provider="openai",
+    )
+    session.add(preset)
+    await session.commit()
+    return preset
+
+
 @pytest.mark.anyio
 class TestWorkspaceService:
     """Test WorkspaceService methods."""
+
+    async def test_default_agent_set_replace_and_clear_preserves_settings(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+        default_agent_preset: AgentPreset,
+    ) -> None:
+        svc_workspace.settings = {"validate_attachment_magic_number": True}
+        replacement = AgentPreset(
+            workspace_id=svc_workspace.id,
+            name="Replacement agent",
+            slug="replacement-agent",
+            model_name="test-model",
+            model_provider="openai",
+        )
+        session.add(replacement)
+        await session.commit()
+
+        for preset_id in (default_agent_preset.id, replacement.id, None):
+            updated = await service.update_workspace(
+                svc_workspace,
+                WorkspaceUpdate(
+                    settings=WorkspaceSettingsUpdate(default_agent_preset_id=preset_id)
+                ),
+            )
+            assert updated.settings == {
+                "validate_attachment_magic_number": True,
+                "default_agent_preset_id": str(preset_id) if preset_id else None,
+            }
+            assert (
+                WorkspaceSettingsRead.model_validate(
+                    updated.settings
+                ).default_agent_preset_id
+                == preset_id
+            )
+
+    @pytest.mark.parametrize(
+        "invalid_preset", ["missing", "deleted", "other_workspace"]
+    )
+    async def test_default_agent_rejects_invalid_preset(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+        default_agent_preset: AgentPreset,
+        invalid_preset: str,
+    ) -> None:
+        preset_id = default_agent_preset.id
+        if invalid_preset == "missing":
+            preset_id = uuid.uuid4()
+        elif invalid_preset == "deleted":
+            default_agent_preset.deleted_at = datetime.now(UTC)
+        else:
+            other_workspace = Workspace(
+                name="Other workspace", organization_id=svc_workspace.organization_id
+            )
+            session.add(other_workspace)
+            await session.flush()
+            default_agent_preset.workspace_id = other_workspace.id
+        await session.commit()
+        original_settings = dict(svc_workspace.settings)
+
+        with pytest.raises(TracecatValidationError, match="active preset"):
+            await service.update_workspace(
+                svc_workspace,
+                WorkspaceUpdate(
+                    settings=WorkspaceSettingsUpdate(default_agent_preset_id=preset_id)
+                ),
+            )
+
+        await session.refresh(svc_workspace)
+        assert svc_workspace.settings == original_settings
+
+    @pytest.mark.parametrize("is_default", [True, False])
+    async def test_deleting_agent_only_clears_matching_default(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        svc_workspace: Workspace,
+        default_agent_preset: AgentPreset,
+        is_default: bool,
+    ) -> None:
+        default_id = str(default_agent_preset.id) if is_default else str(uuid.uuid4())
+        svc_workspace.settings = {
+            "default_agent_preset_id": default_id,
+            "validate_attachment_magic_number": True,
+        }
+        await session.commit()
+
+        await AgentPresetService(session, role=svc_role).delete_preset(
+            default_agent_preset
+        )
+        await session.refresh(svc_workspace)
+
+        assert svc_workspace.settings.get("default_agent_preset_id") == (
+            None if is_default else default_id
+        )
+        assert svc_workspace.settings.get("validate_attachment_magic_number") is True
+
+    async def test_legacy_workspace_has_no_default_agent(
+        self, svc_workspace: Workspace
+    ) -> None:
+        settings = WorkspaceSettingsRead.model_validate(svc_workspace.settings)
+        assert settings.default_agent_preset_id is None
 
     async def test_get_workspace_success(
         self, service: WorkspaceService, svc_workspace: Workspace

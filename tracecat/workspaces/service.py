@@ -15,6 +15,7 @@ from tracecat.authz.membership import lock_role_changes
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.service import CaseFieldsService
 from tracecat.db.models import (
+    AgentPreset,
     Membership,
     Organization,
     Ownership,
@@ -24,6 +25,7 @@ from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatException,
     TracecatManagementError,
+    TracecatValidationError,
 )
 from tracecat.identifiers import UserID, WorkspaceID
 from tracecat.service import BaseOrgService
@@ -207,7 +209,21 @@ class WorkspaceService(BaseOrgService):
         self, workspace: Workspace, params: WorkspaceUpdate
     ) -> Workspace:
         """Update a workspace."""
-        set_fields = params.model_dump(exclude_unset=True)
+        if params.settings and params.settings.default_agent_preset_id is not None:
+            preset_id = await self.session.scalar(
+                select(AgentPreset.id)
+                .where(
+                    AgentPreset.workspace_id == workspace.id,
+                    AgentPreset.id == params.settings.default_agent_preset_id,
+                    AgentPreset.deleted_at.is_(None),
+                )
+                .with_for_update()
+            )
+            if preset_id is None:
+                raise TracecatValidationError(
+                    "Default agent must be an active preset in this workspace"
+                )
+        set_fields = params.model_dump(exclude_unset=True, mode="json")
         self.logger.info("Updating workspace", set_fields=set_fields)
         missing = object()
         settings_update = set_fields.pop("settings", missing)
