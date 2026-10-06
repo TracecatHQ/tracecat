@@ -14874,7 +14874,7 @@ export type CasesSearchCasesData = {
    */
   status?: Array<CaseStatus> | null
   /**
-   * Filter by tag IDs or slugs (AND logic)
+   * Filter by tag IDs or slugs (matches cases with any of the tags)
    */
   tags?: Array<string> | null
   /**
@@ -14924,7 +14924,7 @@ export type CasesSearchCaseAggregatesData = {
    */
   status?: Array<CaseStatus> | null
   /**
-   * Filter by tag IDs or slugs (AND logic)
+   * Filter by tag IDs or slugs (matches cases with any of the tags)
    */
   tags?: Array<string> | null
   /**

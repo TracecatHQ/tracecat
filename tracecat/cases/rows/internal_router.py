@@ -12,6 +12,7 @@ from starlette.status import (
 from tracecat import config
 from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.authz.controls import require_scope
+from tracecat.cases.dependencies import ExecutorCaseIDPath
 from tracecat.cases.rows.exceptions import raise_case_row_link_integrity_error
 from tracecat.cases.rows.schemas import (
     CaseTableRowInsertCreate,
@@ -34,7 +35,7 @@ async def list_case_rows(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     limit: int = Query(
         config.TRACECAT__LIMIT_DEFAULT,
         ge=config.TRACECAT__LIMIT_MIN,
@@ -65,7 +66,7 @@ async def link_case_row(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     params: CaseTableRowLinkCreate,
 ) -> CaseTableRowRead:
     service = CaseTableRowsService(session, role)
@@ -88,7 +89,7 @@ async def insert_case_row(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     params: CaseTableRowInsertCreate,
 ) -> CaseTableRowRead:
     service = CaseTableRowsService(session, role)
@@ -109,7 +110,7 @@ async def unlink_case_row(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     table_id: uuid.UUID,
     row_id: uuid.UUID,
 ) -> None:

@@ -208,6 +208,13 @@ CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
 SHORT_ID_PATTERN = re.compile(r"^(?:CASE-)?(\d{1,10})$", re.IGNORECASE)
 
 
+def parse_case_short_id(value: str) -> int | None:
+    """Return the case number for a short ID like ``CASE-0042`` or ``42``."""
+    if match := SHORT_ID_PATTERN.match(value.strip()):
+        return int(match.group(1))
+    return None
+
+
 def _enum_sort_expr(column: Any, ordered_values: Sequence[str]) -> ColumnElement[int]:
     """Build a SQL expression that sorts enum/text values by semantic order."""
     return sa.case(
@@ -240,6 +247,36 @@ class CasesService(BaseWorkspaceService):
             session=self.session,
             role=self.role,
         )
+
+    async def resolve_case_id(self, case_ref: str | uuid.UUID) -> uuid.UUID:
+        """Resolve a case UUID or short ID (``CASE-0042`` or ``42``) to a case UUID.
+
+        UUIDs are returned as-is without a database lookup.
+
+        Raises:
+            TracecatValidationError: If the reference is neither a UUID nor a short ID.
+            TracecatNotFoundError: If no case in this workspace has the short ID.
+        """
+        if isinstance(case_ref, uuid.UUID):
+            return case_ref
+        try:
+            return uuid.UUID(case_ref)
+        except ValueError:
+            pass
+        case_number = parse_case_short_id(case_ref)
+        if case_number is None:
+            raise TracecatValidationError(
+                "Case ID must be a UUID or a short ID like CASE-0042"
+            )
+        case_id = await self.session.scalar(
+            select(Case.id).where(
+                Case.workspace_id == self.workspace_id,
+                Case.case_number == case_number,
+            )
+        )
+        if case_id is None:
+            raise TracecatNotFoundError(f"Case {case_ref} not found")
+        return case_id
 
     async def aggregate_cases(
         self, request: CaseAggregateRequest

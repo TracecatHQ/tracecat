@@ -58,6 +58,7 @@ from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatConflictError,
     TracecatNotFoundError,
+    TracecatValidationError,
 )
 from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.enums import SqlType
@@ -445,6 +446,69 @@ class TestCasesService:
         result_ids = {item.id for item in response.items}
         assert target_case.id in result_ids
         assert second_case.id not in result_ids
+
+    @pytest.mark.parametrize("case_ref", ["CASE-0001", "case-0001", "1", " 0001 "])
+    async def test_resolve_case_id_accepts_short_ids(
+        self, cases_service: CasesService, case_ref: str
+    ) -> None:
+        case = await cases_service.create_case(
+            CaseCreate(
+                summary="Resolvable case",
+                description="Resolvable case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+
+        assert await cases_service.resolve_case_id(case_ref) == case.id
+
+    async def test_resolve_case_id_returns_uuid_without_lookup(
+        self, cases_service: CasesService
+    ) -> None:
+        case_id = uuid.uuid4()
+
+        assert await cases_service.resolve_case_id(str(case_id)) == case_id
+        assert await cases_service.resolve_case_id(case_id) == case_id
+
+    @pytest.mark.parametrize("case_ref", ["CASE-", "CASE-12a", "not-a-case", ""])
+    async def test_resolve_case_id_rejects_invalid_refs(
+        self, cases_service: CasesService, case_ref: str
+    ) -> None:
+        with pytest.raises(TracecatValidationError):
+            await cases_service.resolve_case_id(case_ref)
+
+    async def test_resolve_case_id_is_workspace_scoped(
+        self,
+        cases_service: CasesService,
+        session: AsyncSession,
+        svc_organization,
+    ) -> None:
+        await cases_service.create_case(
+            CaseCreate(
+                summary="Workspace one case",
+                description="Workspace one case",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        second_workspace = Workspace(
+            name="resolve-scope-workspace",
+            organization_id=svc_organization.id,
+        )
+        session.add(second_workspace)
+        await session.commit()
+        second_role = cases_service.role.model_copy(
+            update={
+                "workspace_id": second_workspace.id,
+                "organization_id": second_workspace.organization_id,
+            }
+        )
+        second_service = CasesService(session=session, role=second_role)
+
+        with pytest.raises(TracecatNotFoundError):
+            await second_service.resolve_case_id("CASE-0001")
 
     async def test_create_case_concurrently_allocates_unique_workspace_numbers(
         self,

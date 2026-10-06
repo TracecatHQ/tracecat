@@ -15,6 +15,7 @@ from tracecat.cases.attachments.schemas import (
     CaseAttachmentRead,
     InternalCaseAttachmentDownloadResponse,
 )
+from tracecat.cases.dependencies import ExecutorCaseIDPath
 from tracecat.cases.service import CasesService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
@@ -48,7 +49,7 @@ async def list_attachments(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
 ) -> list[CaseAttachmentRead]:
     service = CasesService(session, role)
     case = await service.get_case(case_id)
@@ -84,7 +85,7 @@ async def create_attachment(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     params: ExecutorAttachmentCreateRequest,
 ) -> CaseAttachmentRead:
     service = CasesService(session, role)
@@ -192,7 +193,7 @@ async def get_attachment_download_info(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     attachment_id: uuid.UUID,
     request: Request,
     preview: bool = Query(
@@ -261,7 +262,7 @@ async def download_attachment_content(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     attachment_id: uuid.UUID,
 ) -> dict[str, str]:
     service = CasesService(session, role)
@@ -295,7 +296,7 @@ async def delete_attachment(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     attachment_id: uuid.UUID,
 ) -> None:
     service = CasesService(session, role)
@@ -357,7 +358,7 @@ async def get_attachment_metadata(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     attachment_id: uuid.UUID,
 ) -> CaseAttachmentRead:
     """Get attachment metadata without download URL.
@@ -398,7 +399,7 @@ async def get_attachment_url(
     *,
     role: ExecutorWorkspaceRole,
     session: AsyncDBSession,
-    case_id: uuid.UUID,
+    case_id: ExecutorCaseIDPath,
     attachment_id: uuid.UUID,
     expiry: int | None = Query(None, description="Optional URL expiry time in seconds"),
 ) -> str:
