@@ -1,15 +1,16 @@
 "use client"
 
 import { Loader2, TextSearchIcon } from "lucide-react"
+import { useRef, useState } from "react"
 import type { TableSearchDisplayState } from "@/client"
 import { useTableSearchContext } from "@/components/tables/table-search-context"
 import { TableSearchProgress } from "@/components/tables/table-search-progress"
-import { Badge } from "@/components/ui/badge"
+import { badgeVariants } from "@/components/ui/badge"
 import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card"
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import type { useTableSearch } from "@/hooks/use-table-search"
 import { cn } from "@/lib/utils"
 
@@ -59,10 +60,24 @@ function problemMessage({ configuration, provider }: TableSearchState) {
   return null
 }
 
-/** Show a table's semantic search status in the page header, with details on hover. */
+/** Show a table's semantic search status in the page header, with details on hover or click. */
 export function TableSearchBadge() {
   const search = useTableSearchContext()
+  const [open, setOpen] = useState(false)
+  const hovering = useRef(false)
+  const closeTimer = useRef<ReturnType<typeof setTimeout>>()
   if (!search?.canRead) return null
+  const hoverProps = {
+    onPointerEnter: () => {
+      clearTimeout(closeTimer.current)
+      hovering.current = true
+      setOpen(true)
+    },
+    onPointerLeave: () => {
+      hovering.current = false
+      closeTimer.current = setTimeout(() => setOpen(false), 150)
+    },
+  }
   const { configuration, provider, canUpdate } = search
   const label = tableSearchStatusLabel(search)
   const pending = PENDING_LABELS.has(label)
@@ -72,22 +87,36 @@ export function TableSearchBadge() {
   const problem = problemMessage(search)
   const Icon = pending ? Loader2 : TextSearchIcon
   return (
-    <HoverCard openDelay={150}>
-      <HoverCardTrigger asChild>
-        <Badge
-          variant="outline"
-          tabIndex={0}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
           aria-label={`Semantic search: ${label}`}
           className={cn(
+            badgeVariants({ variant: "outline" }),
             "h-7 cursor-default gap-1.5 whitespace-nowrap px-2 font-medium",
             TONE_CLASS_NAMES[label]
           )}
+          {...hoverProps}
+          onClick={(event) => {
+            // Open only; hovering already opened it, so a click must not toggle it shut.
+            event.preventDefault()
+            setOpen(true)
+          }}
         >
           <Icon className={cn("size-3", pending && "animate-spin")} />
           {label}
-        </Badge>
-      </HoverCardTrigger>
-      <HoverCardContent align="end" className="w-80 space-y-1 p-3 text-xs">
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-80 space-y-1 p-3 text-xs"
+        {...hoverProps}
+        onOpenAutoFocus={(event) => {
+          // Move focus inside only for keyboard and click opens.
+          if (hovering.current) event.preventDefault()
+        }}
+      >
         <p className="font-medium">Semantic search</p>
         {destination && (
           <p className="text-muted-foreground">
@@ -110,7 +139,7 @@ export function TableSearchBadge() {
             <TableSearchProgress />
           </div>
         )}
-      </HoverCardContent>
-    </HoverCard>
+      </PopoverContent>
+    </Popover>
   )
 }

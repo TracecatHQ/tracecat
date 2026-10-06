@@ -280,6 +280,40 @@ test("the badge shows a spinner only while work is pending and details on hover"
   expect(badge).not.toHaveClass("bg-green-100")
 })
 
+test("opening the badge without a pointer moves focus into the retry controls", async () => {
+  configuration = {
+    ...configuration,
+    selected_column_ids: [column.id],
+    status: "needs_attention",
+    index: {
+      state: "active",
+      ready: 0,
+      pending: 0,
+      failed: 1,
+      empty: 0,
+      backfill_complete: true,
+      partial: true,
+    },
+  }
+  jest
+    .mocked(tablesGetTableSearchProgress)
+    .mockResolvedValue({ generation: 2, items: [failedRow] })
+  setup(provide(<TableSearchBadge />))
+  const badge = await screen.findByRole("button", {
+    name: "Semantic search: Needs attention",
+  })
+  fireEvent.click(badge)
+  const retry = await screen.findByRole("button", { name: RETRY })
+  expect(screen.getByRole("dialog")).toContainElement(retry)
+  await waitFor(() =>
+    expect(screen.getByRole("dialog")).toContainElement(
+      document.activeElement as HTMLElement
+    )
+  )
+  fireEvent.click(badge)
+  expect(retry).toBeInTheDocument()
+})
+
 test("an unselected table reads Off with no index counts", async () => {
   setup(provide(<TableSearchBadge />))
   const badge = await screen.findByLabelText("Semantic search: Off")
