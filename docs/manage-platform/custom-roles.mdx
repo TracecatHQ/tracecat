@@ -10,9 +10,13 @@ icon: "lock"
 
 Roles bundle scopes, groups bundle users, and assignments bind a role to a user or a group.
 
-Open Members in the organization sidebar. On Enterprise, the page reads `Members and access control` and gains Roles and Groups tabs beside Members.
+Open Members in the organization sidebar. With the entitlement active the page reads `Members and access control` and gains Roles and Groups tabs beside Members.
 
-Without Enterprise, the pages are absent rather than locked. The Members page shows a plain member list, and Access control redirects to it.
+## Turn it on
+
+Custom roles, groups, and scopes require the `rbac_addons` entitlement. A single-tenant deployment turns it on with `TRACECAT__FEATURE_FLAGS=rbac`, and a multi-tenant deployment reads it from the organization's tier.
+
+Without the entitlement the pages are absent rather than locked. The Members page shows a plain member list, and Access control redirects to it.
 
 ## Create a role
 
