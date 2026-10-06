@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import type { ReactNode } from "react"
 import {
   type EmbeddingConfigurationRead,
@@ -11,15 +18,9 @@ import {
   tablesSelectTableSearchColumn,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { TableSearchColumnControl } from "@/components/tables/table-search-column-control"
+import { TableSearchBadge } from "@/components/tables/table-search-badge"
 import { TableSearchProvider } from "@/components/tables/table-search-context"
-import { TableSearchStatus } from "@/components/tables/table-search-status"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/use-toast"
 import { invalidateArtifactQueries } from "@/components/workspace-chat/artifacts/artifact-registry"
 import { searchPollInterval, tableSearchKey } from "@/hooks/use-table-search"
@@ -45,6 +46,10 @@ jest.mock("@/lib/hooks", () => ({
 }))
 jest.mock("@/components/ui/use-toast", () => ({ toast: jest.fn() }))
 
+const ENABLE = "Enable vector search"
+const DISABLE = "Disable vector search"
+const RETRY = "Retry failed rows on this page"
+
 const column: TableColumnRead = {
   id: "body-id",
   name: "body",
@@ -67,33 +72,62 @@ const available: EmbeddingConfigurationRead = {
     batch_token_limit: 16000,
   },
 }
+const failedRow = {
+  document_id: "doc-synthetic",
+  row_id: "row-synthetic",
+  state: "failed" as const,
+  revision: 1,
+  expected_chunks: 1,
+  sampled_chunks: 1,
+  sampled_embedded: 0,
+  chunks_capped: false,
+  error_code: "TIMEOUT" as const,
+}
 let configuration: TableSearchConfiguration
 let permissions: Set<string>
 let client: QueryClient
+
+function provide(children: ReactNode) {
+  return (
+    <TableSearchProvider tableId="table-synthetic">
+      {children}
+    </TableSearchProvider>
+  )
+}
 
 function setup(children: ReactNode) {
   client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   return render(
-    <QueryClientProvider client={client}>
-      <TableSearchProvider tableId="table-synthetic">
-        {children}
-      </TableSearchProvider>
-    </QueryClientProvider>
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
   )
 }
-function controls(columns = [column]) {
-  return (
-    <DropdownMenu open modal={false}>
-      <DropdownMenuTrigger>Columns</DropdownMenuTrigger>
-      <DropdownMenuContent forceMount>
-        {columns.map((item) => (
-          <TableSearchColumnControl key={item.id} column={item} />
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+
+function menus(columns = [column]) {
+  return provide(
+    columns.map((item) => <TableViewColumnMenu key={item.id} column={item} />)
   )
+}
+
+function openMenu(position = 0) {
+  fireEvent.keyDown(
+    screen.getAllByRole("button", { name: "Configure column" })[position],
+    { key: "ArrowDown" }
+  )
+}
+
+/** Open a column menu and wait for its vector search item to be usable. */
+async function chooseSearchItem(name: string, position = 0) {
+  openMenu(position)
+  const item = await screen.findByRole("menuitem", { name })
+  await waitFor(() => expect(item).not.toHaveAttribute("data-disabled"))
+  fireEvent.click(item)
+  return screen.findByRole("alertdialog")
+}
+
+function openDetails() {
+  fireEvent.pointerEnter(screen.getByLabelText(/^Semantic search:/))
 }
 
 beforeEach(() => {
@@ -103,7 +137,6 @@ beforeEach(() => {
     "table:read",
     "table:update",
     "table:delete",
-    "org:settings:read",
   ])
   jest
     .mocked(useScopeCheck)
@@ -138,29 +171,48 @@ beforeEach(() => {
 })
 afterEach(() => client?.clear())
 
-test("read permissions gate all authenticated status requests", () => {
+test("read permissions gate all authenticated status requests", async () => {
   permissions.delete("workspace:read")
   setup(
     <>
-      <TableSearchStatus />
-      {controls()}
+      {provide(<TableSearchBadge />)}
+      {menus()}
     </>
   )
   expect(tablesGetTableSearch).not.toHaveBeenCalled()
   expect(searchGetEmbeddingConfiguration).not.toHaveBeenCalled()
-  expect(screen.queryByText(/Semantic search:/)).not.toBeInTheDocument()
+  expect(screen.queryByLabelText(/Semantic search/)).not.toBeInTheDocument()
+  openMenu()
+  await screen.findByText("Remove unique index")
+  expect(screen.queryByText(/vector search/)).not.toBeInTheDocument()
 })
 
-test("read-only users see destination but cannot change selection or provider settings", async () => {
+test("read-only users see the status but cannot change selection or retry", async () => {
   permissions.delete("table:update")
-  permissions.delete("org:settings:read")
-  setup(controls())
-  await screen.findByText(/Selected text and queries are sent to/)
-  expect(screen.getByRole("menuitemcheckbox")).toHaveAttribute("data-disabled")
-  expect(screen.queryByText("AI provider settings")).not.toBeInTheDocument()
+  configuration = {
+    ...configuration,
+    selected_column_ids: [column.id],
+    status: "needs_attention",
+    index: { ...configuration.index, state: "active", failed: 1 },
+  }
+  setup(
+    <>
+      {provide(<TableSearchBadge />)}
+      {menus()}
+    </>
+  )
+  await screen.findByLabelText("Semantic search: Needs attention")
+  openDetails()
+  await screen.findByText(/0 ready · 0 pending · 1 failed · 0 empty/)
+  expect(tablesGetTableSearchProgress).not.toHaveBeenCalled()
+  expect(screen.queryByRole("button", { name: RETRY })).not.toBeInTheDocument()
+  openMenu()
+  expect(
+    await screen.findByRole("menuitem", { name: DISABLE })
+  ).toHaveAttribute("data-disabled")
 })
 
-test("missing provider disables semantic selection and keeps existing table controls", async () => {
+test("missing provider disables enabling and keeps existing table controls", async () => {
   jest.mocked(searchGetEmbeddingConfiguration).mockResolvedValue({
     available: false,
     version: 0,
@@ -169,24 +221,106 @@ test("missing provider disables semantic selection and keeps existing table cont
   })
   setup(
     <>
-      <TableSearchStatus />
-      <TableViewColumnMenu column={column} />
+      {provide(<TableSearchBadge />)}
+      {menus()}
     </>
   )
-  await screen.findByText("Semantic search: Unavailable")
-  fireEvent.keyDown(screen.getByRole("button", { name: "Configure column" }), {
-    key: "ArrowDown",
-  })
+  await screen.findByLabelText("Semantic search: Unavailable")
+  openDetails()
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "No embedding provider is configured."
+  )
+  openMenu()
   await screen.findByText("Remove unique index")
   expect(screen.getByText("Delete column")).toBeInTheDocument()
-  expect(screen.getByRole("menuitemcheckbox")).toHaveAttribute("data-disabled")
+  const item = screen.getByRole("menuitem", { name: ENABLE })
+  expect(item).toHaveAttribute("data-disabled")
+  fireEvent.click(item)
+  expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
 })
 
-test("non-text columns cannot be enabled", async () => {
-  setup(controls([{ ...column, type: "INTEGER" }]))
-  await screen.findByText(/Selected text and queries/)
-  expect(screen.getByRole("menuitemcheckbox")).toHaveAttribute("data-disabled")
-  expect(screen.getByText(/Only TEXT columns/)).toBeInTheDocument()
+test("non-text columns have no vector search item", async () => {
+  setup(menus([{ ...column, type: "INTEGER" }]))
+  await waitFor(() => expect(tablesGetTableSearch).toHaveBeenCalled())
+  openMenu()
+  await screen.findByText("Remove unique index")
+  expect(screen.queryByText(/vector search/)).not.toBeInTheDocument()
+})
+
+test("the badge shows a spinner only while work is pending and details on hover", async () => {
+  configuration = {
+    ...configuration,
+    selected_column_ids: [column.id],
+    status: "indexing",
+    index: { ...configuration.index, state: "active", ready: 3, pending: 2 },
+  }
+  setup(provide(<TableSearchBadge />))
+  const badge = await screen.findByLabelText("Semantic search: Indexing")
+  expect(badge.querySelector("svg")).toHaveClass("animate-spin")
+  openDetails()
+  await screen.findByText("Model: openai / text-embedding-3-small")
+  expect(
+    screen.getByText("3 ready · 2 pending · 0 failed · 0 empty")
+  ).toBeInTheDocument()
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+  expect(tablesGetTableSearchProgress).not.toHaveBeenCalled()
+
+  configuration = {
+    ...configuration,
+    status: "ready",
+    index: { ...configuration.index, state: "active", ready: 5, pending: 0 },
+  }
+  await act(async () => {
+    await client.invalidateQueries({
+      queryKey: tableSearchKey("workspace-synthetic", "table-synthetic"),
+    })
+  })
+  await waitFor(() => expect(badge).toHaveTextContent("Ready"))
+  expect(badge.querySelector("svg")).not.toHaveClass("animate-spin")
+  expect(badge).not.toHaveClass("bg-green-100")
+})
+
+test("opening the badge without a pointer moves focus into the retry controls", async () => {
+  configuration = {
+    ...configuration,
+    selected_column_ids: [column.id],
+    status: "needs_attention",
+    index: {
+      state: "active",
+      ready: 0,
+      pending: 0,
+      failed: 1,
+      empty: 0,
+      backfill_complete: true,
+      partial: true,
+    },
+  }
+  jest
+    .mocked(tablesGetTableSearchProgress)
+    .mockResolvedValue({ generation: 2, items: [failedRow] })
+  setup(provide(<TableSearchBadge />))
+  const badge = await screen.findByRole("button", {
+    name: "Semantic search: Needs attention",
+  })
+  fireEvent.click(badge)
+  const retry = await screen.findByRole("button", { name: RETRY })
+  expect(screen.getByRole("dialog")).toContainElement(retry)
+  await waitFor(() =>
+    expect(screen.getByRole("dialog")).toContainElement(
+      document.activeElement as HTMLElement
+    )
+  )
+  fireEvent.click(badge)
+  expect(retry).toBeInTheDocument()
+})
+
+test("an unselected table reads Off with no index counts", async () => {
+  setup(provide(<TableSearchBadge />))
+  const badge = await screen.findByLabelText("Semantic search: Off")
+  expect(badge).toHaveClass("text-muted-foreground")
+  openDetails()
+  await screen.findByText("Model: openai / text-embedding-3-small")
+  expect(screen.queryByText(/ready ·/)).not.toBeInTheDocument()
 })
 
 test("two text selections coexist with uniqueness and use confirmed generations", async () => {
@@ -207,35 +341,25 @@ test("two text selections coexist with uniqueness and use confirmed generations"
       >
     })
   setup(
-    controls([
+    menus([
       column,
       { ...column, id: "summary-id", name: "summary", is_index: false },
     ])
   )
-  await waitFor(() =>
-    expect(screen.getAllByRole("menuitemcheckbox")[0]).not.toHaveAttribute(
-      "data-disabled"
+  for (const position of [0, 1]) {
+    const dialog = await chooseSearchItem(ENABLE, position)
+    expect(tablesSelectTableSearchColumn).toHaveBeenCalledTimes(position)
+    fireEvent.click(within(dialog).getByRole("button", { name: ENABLE }))
+    await waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
     )
-  )
-  fireEvent.click(screen.getAllByRole("menuitemcheckbox")[0])
-  await waitFor(() =>
-    expect(screen.getAllByRole("menuitemcheckbox")[0]).toHaveAttribute(
-      "aria-checked",
-      "true"
+    openMenu(position)
+    await screen.findByRole("menuitem", { name: DISABLE })
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" })
+    await waitFor(() =>
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument()
     )
-  )
-  await waitFor(() =>
-    expect(screen.getAllByRole("menuitemcheckbox")[1]).not.toHaveAttribute(
-      "data-disabled"
-    )
-  )
-  fireEvent.click(screen.getAllByRole("menuitemcheckbox")[1])
-  await waitFor(() =>
-    expect(screen.getAllByRole("menuitemcheckbox")[1]).toHaveAttribute(
-      "aria-checked",
-      "true"
-    )
-  )
+  }
   expect(tablesSelectTableSearchColumn).toHaveBeenNthCalledWith(2, {
     workspaceId: "workspace-synthetic",
     tableId: "table-synthetic",
@@ -245,28 +369,90 @@ test("two text selections coexist with uniqueness and use confirmed generations"
       expected_generation: 3,
     },
   })
+  expect(toast).toHaveBeenCalledTimes(2)
+  expect(toast).toHaveBeenLastCalledWith(
+    expect.objectContaining({ title: "Enabled vector search" })
+  )
   expect(column.is_index).toBe(true)
+})
+
+test("the confirm dialogs name the column and the embedding destination", async () => {
+  configuration = { ...configuration, selected_column_ids: ["summary-id"] }
+  setup(
+    menus([
+      column,
+      { ...column, id: "summary-id", name: "summary", is_index: false },
+    ])
+  )
+  const enable = await chooseSearchItem(ENABLE, 0)
+  expect(enable).toHaveTextContent(
+    "Text in column body will be indexed for vector search. Text is sent to openai / text-embedding-3-small."
+  )
+  fireEvent.click(within(enable).getByRole("button", { name: "Cancel" }))
+  await waitFor(() =>
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+  )
+  const disable = await chooseSearchItem(DISABLE, 1)
+  expect(disable).toHaveTextContent(
+    "Column summary is removed from vector search and the index is rebuilt for the remaining columns."
+  )
+  expect(disable).not.toHaveTextContent("openai")
+  expect(tablesSelectTableSearchColumn).not.toHaveBeenCalled()
 })
 
 test("conflicts refresh and preserve confirmed selection without a success toast", async () => {
   jest.mocked(tablesSelectTableSearchColumn).mockRejectedValue({ status: 409 })
-  setup(controls())
-  await waitFor(() =>
-    expect(screen.getByRole("menuitemcheckbox")).not.toHaveAttribute(
-      "data-disabled"
-    )
-  )
-  fireEvent.click(screen.getByRole("menuitemcheckbox"))
+  setup(menus())
+  const dialog = await chooseSearchItem(ENABLE)
+  fireEvent.click(within(dialog).getByRole("button", { name: ENABLE }))
   await waitFor(() =>
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Search settings changed" })
     )
   )
-  expect(screen.getByRole("menuitemcheckbox")).toHaveAttribute(
-    "aria-checked",
-    "false"
+  await waitFor(() => expect(tablesGetTableSearch).toHaveBeenCalledTimes(2))
+  expect(toast).toHaveBeenCalledTimes(1)
+  expect(
+    await within(dialog).findByRole("button", { name: ENABLE })
+  ).toBeEnabled()
+})
+
+test("the confirm shows a loading state while its write is pending and a failure keeps confirmed state", async () => {
+  let rejectWrite: (error: unknown) => void = () => undefined
+  jest.mocked(tablesSelectTableSearchColumn).mockImplementation(
+    () =>
+      new Promise((_, reject) => {
+        rejectWrite = reject
+      }) as ReturnType<typeof tablesSelectTableSearchColumn>
   )
-  expect(tablesGetTableSearch).toHaveBeenCalledTimes(2)
+  setup(menus())
+  const dialog = await chooseSearchItem(ENABLE)
+  fireEvent.click(within(dialog).getByRole("button", { name: ENABLE }))
+  const pending = await within(dialog).findByRole("button", {
+    name: "Enabling...",
+  })
+  expect(pending).toBeDisabled()
+  expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled()
+  fireEvent.keyDown(dialog, { key: "Escape" })
+  expect(screen.getByRole("alertdialog")).toBeInTheDocument()
+  await act(async () => rejectWrite({ status: 503 }))
+  await waitFor(() =>
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Could not update semantic search",
+        description: "Try again in a moment.",
+      })
+    )
+  )
+  expect(toast).toHaveBeenCalledTimes(1)
+  fireEvent.click(await within(dialog).findByRole("button", { name: "Cancel" }))
+  await waitFor(() =>
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+  )
+  openMenu()
+  expect(
+    await screen.findByRole("menuitem", { name: ENABLE })
+  ).toBeInTheDocument()
 })
 
 test("long-row progress does not claim ready after backfill and retries only displayed failures", async () => {
@@ -288,10 +474,7 @@ test("long-row progress does not claim ready after backfill and retries only dis
     generation: 2,
     items: [
       {
-        document_id: "doc-synthetic",
-        row_id: "row-synthetic",
-        state: "failed",
-        revision: 1,
+        ...failedRow,
         expected_chunks: null,
         sampled_chunks: 100,
         sampled_embedded: 32,
@@ -300,19 +483,16 @@ test("long-row progress does not claim ready after backfill and retries only dis
       },
     ],
   })
-  setup(<TableSearchStatus />)
-  await screen.findByText("Semantic search: Needs attention")
+  setup(provide(<TableSearchBadge />))
+  const badge = await screen.findByLabelText("Semantic search: Needs attention")
+  expect(badge).toHaveClass("bg-amber-100")
   expect(tablesGetTableSearchProgress).not.toHaveBeenCalled()
-  fireEvent.click(
-    screen.getByRole("button", { name: "Semantic search: Needs attention" })
-  )
+  openDetails()
   await screen.findByText(/The total is still being discovered/)
   expect(
     screen.getByText(/Check the AI provider credentials/)
   ).toBeInTheDocument()
-  fireEvent.click(
-    screen.getByRole("button", { name: "Retry failed rows on this page" })
-  )
+  fireEvent.click(screen.getByRole("button", { name: RETRY }))
   await waitFor(() =>
     expect(tablesRetryTableSearch).toHaveBeenCalledWith({
       workspaceId: "workspace-synthetic",
@@ -342,34 +522,16 @@ test.each(["provider", "index", "rebuild"] as const)(
       state: blockedSource === "provider" ? "paused" : "active",
       reindex_required: blockedSource === "rebuild",
     })
-    jest.mocked(tablesGetTableSearchProgress).mockResolvedValue({
-      generation: 2,
-      items: [
-        {
-          document_id: "doc-synthetic",
-          row_id: "row-synthetic",
-          state: "failed",
-          revision: 1,
-          expected_chunks: 1,
-          sampled_chunks: 1,
-          sampled_embedded: 0,
-          chunks_capped: false,
-          error_code: "TIMEOUT",
-        },
-      ],
-    })
-    setup(<TableSearchStatus />)
+    jest
+      .mocked(tablesGetTableSearchProgress)
+      .mockResolvedValue({ generation: 2, items: [failedRow] })
+    setup(provide(<TableSearchBadge />))
     let label = "Semantic search: Needs attention"
     if (blockedSource === "provider") label = "Semantic search: Unavailable"
-    else if (blockedSource === "rebuild") label = "Semantic search: Updating"
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: label,
-      })
-    )
-    const retry = await screen.findByRole("button", {
-      name: "Retry failed rows on this page",
-    })
+    else if (blockedSource === "rebuild") label = "Semantic search: Indexing"
+    await screen.findByLabelText(label)
+    openDetails()
+    const retry = await screen.findByRole("button", { name: RETRY })
     expect(retry).toBeDisabled()
     fireEvent.click(retry)
     expect(tablesRetryTableSearch).not.toHaveBeenCalled()
@@ -379,83 +541,144 @@ test.each(["provider", "index", "rebuild"] as const)(
       index: { ...configuration.index, state: "active" },
     }
     jest.mocked(searchGetEmbeddingConfiguration).mockResolvedValue(available)
-    fireEvent.click(
-      screen.getByRole("button", { name: "Refresh search status" })
-    )
+    await act(async () => {
+      invalidateArtifactQueries(client, "workspace-synthetic", {
+        type: "table",
+        id: "table-synthetic",
+        title: "Synthetic table",
+      })
+      await client.invalidateQueries({
+        queryKey: ["embedding-configuration", "workspace-synthetic"],
+      })
+    })
     await waitFor(() => expect(retry).toBeEnabled())
     fireEvent.click(retry)
     await waitFor(() => expect(tablesRetryTableSearch).toHaveBeenCalledTimes(1))
   }
 )
 
-test("provider failures show attention and credential-only rotation does not announce rebuild", async () => {
+test("provider failures show attention with one short line", async () => {
   configuration = {
     ...configuration,
     selected_column_ids: [column.id],
     status: "ready",
   }
-  setup(<TableSearchStatus />)
-  await screen.findByText("Semantic search: Ready")
-  fireEvent.click(
-    screen.getByRole("button", { name: "Semantic search: Ready" })
-  )
-  expect(screen.queryByText(/settings changed/)).not.toBeInTheDocument()
+  setup(provide(<TableSearchBadge />))
+  await screen.findByLabelText("Semantic search: Ready")
+  openDetails()
+  await screen.findByText("Model: openai / text-embedding-3-small")
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   jest
     .mocked(searchGetEmbeddingConfiguration)
     .mockRejectedValue({ status: 503 })
-  fireEvent.click(screen.getByRole("button", { name: "Refresh search status" }))
-  await screen.findByText("Semantic search: Needs attention")
-  expect(screen.getByRole("alert")).toHaveTextContent(
-    "Could not load semantic search status"
+  await act(async () => {
+    await client.invalidateQueries({
+      queryKey: ["embedding-configuration", "workspace-synthetic"],
+    })
+  })
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Could not load the search status."
+    )
   )
+  expect(
+    screen.getAllByLabelText("Semantic search: Needs attention")
+  ).toHaveLength(1)
+  expect(toast).not.toHaveBeenCalled()
 })
 
 test("polling runs while chunks remain and stops at ready and on unmount", async () => {
   jest.useFakeTimers()
-  configuration = {
-    ...configuration,
-    selected_column_ids: [column.id],
-    status: "updating",
-    index: {
-      state: "active",
-      ready: 0,
-      pending: 1,
-      failed: 0,
-      empty: 0,
-      backfill_complete: true,
-      partial: true,
-    },
+  try {
+    configuration = {
+      ...configuration,
+      selected_column_ids: [column.id],
+      status: "updating",
+      index: {
+        state: "active",
+        ready: 0,
+        pending: 1,
+        failed: 0,
+        empty: 0,
+        backfill_complete: true,
+        partial: true,
+      },
+    }
+    const view = setup(provide(<TableSearchBadge />))
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10)
+    })
+    expect(searchPollInterval(configuration)).toBe(3000)
+    configuration = {
+      ...configuration,
+      status: "ready",
+      index: {
+        ...configuration.index,
+        state: "active",
+        pending: 0,
+        backfill_complete: true,
+      },
+    }
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3100)
+    })
+    expect(screen.getByLabelText("Semantic search: Ready")).toBeInTheDocument()
+    const calls = jest.mocked(tablesGetTableSearch).mock.calls.length
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10000)
+    })
+    expect(tablesGetTableSearch).toHaveBeenCalledTimes(calls)
+    view.unmount()
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10000)
+    })
+    expect(tablesGetTableSearch).toHaveBeenCalledTimes(calls)
+  } finally {
+    jest.useRealTimers()
   }
-  const view = setup(<TableSearchStatus />)
-  await act(async () => {
-    await jest.advanceTimersByTimeAsync(10)
-  })
-  expect(searchPollInterval(configuration)).toBe(3000)
-  configuration = {
-    ...configuration,
-    status: "ready",
-    index: {
-      ...configuration.index,
-      state: "active",
-      pending: 0,
-      backfill_complete: true,
-    },
+})
+
+test("the header badge and the grid share one poll", async () => {
+  jest.useFakeTimers()
+  try {
+    configuration = {
+      ...configuration,
+      selected_column_ids: [column.id],
+      status: "updating",
+      index: {
+        ...configuration.index,
+        state: "active",
+        pending: 1,
+        backfill_complete: true,
+      },
+    }
+    const view = setup(provide(<TableSearchBadge />))
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1500)
+    })
+    // The grid mounts later than the header, once the table has loaded.
+    view.rerender(
+      <QueryClientProvider client={client}>
+        {provide(<TableSearchBadge />)}
+        {menus()}
+      </QueryClientProvider>
+    )
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10)
+    })
+    const statusCalls = jest.mocked(tablesGetTableSearch).mock.calls.length
+    const providerCalls = jest.mocked(searchGetEmbeddingConfiguration).mock
+      .calls.length
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(9050)
+    })
+    expect(tablesGetTableSearch).toHaveBeenCalledTimes(statusCalls + 3)
+    expect(searchGetEmbeddingConfiguration).toHaveBeenCalledTimes(
+      providerCalls + 3
+    )
+  } finally {
+    jest.useRealTimers()
   }
-  await act(async () => {
-    await jest.advanceTimersByTimeAsync(3100)
-  })
-  expect(screen.getByText("Semantic search: Ready")).toBeInTheDocument()
-  const calls = jest.mocked(tablesGetTableSearch).mock.calls.length
-  await act(async () => {
-    await jest.advanceTimersByTimeAsync(10000)
-  })
-  expect(tablesGetTableSearch).toHaveBeenCalledTimes(calls)
-  view.unmount()
-  await act(async () => {
-    await jest.advanceTimersByTimeAsync(10000)
-  })
-  expect(tablesGetTableSearch).toHaveBeenCalledTimes(calls)
-  jest.useRealTimers()
 })
 
 test("table artifact events refresh ready search status and counts", async () => {
@@ -473,8 +696,8 @@ test("table artifact events refresh ready search status and counts", async () =>
       partial: false,
     },
   }
-  setup(<TableSearchStatus />)
-  await screen.findByText("Semantic search: Ready")
+  setup(provide(<TableSearchBadge />))
+  await screen.findByLabelText("Semantic search: Ready")
   expect(searchPollInterval(configuration, available)).toBe(false)
   const calls = jest.mocked(tablesGetTableSearch).mock.calls.length
   configuration = {
@@ -490,7 +713,7 @@ test("table artifact events refresh ready search status and counts", async () =>
     })
   })
   expect(tablesGetTableSearch).toHaveBeenCalledTimes(calls)
-  expect(screen.getByText("Semantic search: Ready")).toBeInTheDocument()
+  expect(screen.getByLabelText("Semantic search: Ready")).toBeInTheDocument()
   await act(async () => {
     invalidateArtifactQueries(client, "workspace-synthetic", {
       type: "table",
@@ -498,14 +721,15 @@ test("table artifact events refresh ready search status and counts", async () =>
       title: "Synthetic table",
     })
   })
-  await screen.findByText("Semantic search: Updating")
-  expect(screen.getByText(/0 ready · 1 pending/)).toBeInTheDocument()
+  await screen.findByLabelText("Semantic search: Indexing")
+  openDetails()
+  expect(await screen.findByText(/0 ready · 1 pending/)).toBeInTheDocument()
   expect(tablesGetTableSearch).toHaveBeenCalledTimes(calls + 1)
 })
 
 test("deleting a selected column explains the consequence", async () => {
   configuration = { ...configuration, selected_column_ids: [column.id] }
-  setup(<TableViewColumnMenu column={column} />)
+  setup(menus())
   await waitFor(() =>
     expect(
       client.getQueryData([
@@ -514,52 +738,14 @@ test("deleting a selected column explains the consequence", async () => {
       ])
     ).toEqual(configuration)
   )
-  fireEvent.keyDown(screen.getByRole("button", { name: "Configure column" }), {
-    key: "ArrowDown",
-  })
+  openMenu()
   fireEvent.click(await screen.findByText("Delete column"))
   expect(
     await screen.findByText(/Deleting it removes it from search/)
   ).toBeInTheDocument()
 })
 
-test("selection stays disabled while its write is pending and a failure keeps confirmed state", async () => {
-  let rejectWrite: (error: unknown) => void = () => undefined
-  jest.mocked(tablesSelectTableSearchColumn).mockImplementation(
-    () =>
-      new Promise((_, reject) => {
-        rejectWrite = reject
-      }) as ReturnType<typeof tablesSelectTableSearchColumn>
-  )
-  setup(controls())
-  await waitFor(() =>
-    expect(screen.getByRole("menuitemcheckbox")).not.toHaveAttribute(
-      "data-disabled"
-    )
-  )
-  fireEvent.click(screen.getByRole("menuitemcheckbox"))
-  await waitFor(() =>
-    expect(screen.getByRole("menuitemcheckbox")).toHaveAttribute(
-      "data-disabled"
-    )
-  )
-  expect(screen.getByRole("menuitemcheckbox")).toHaveAttribute(
-    "aria-checked",
-    "false"
-  )
-  await act(async () => rejectWrite({ status: 503 }))
-  await waitFor(() =>
-    expect(screen.getByRole("menuitemcheckbox")).not.toHaveAttribute(
-      "data-disabled"
-    )
-  )
-  expect(screen.getByRole("menuitemcheckbox")).toHaveAttribute(
-    "aria-checked",
-    "false"
-  )
-})
-
-test("a provider reindex marker overrides stale Ready and explains rebuilding", async () => {
+test("a provider reindex marker overrides stale Ready", async () => {
   configuration = {
     ...configuration,
     selected_column_ids: [column.id],
@@ -577,12 +763,9 @@ test("a provider reindex marker overrides stale Ready and explains rebuilding", 
   jest
     .mocked(searchGetEmbeddingConfiguration)
     .mockResolvedValue({ ...available, reindex_required: true })
-  setup(<TableSearchStatus />)
-  await screen.findByText("Semantic search: Updating")
-  fireEvent.click(
-    screen.getByRole("button", { name: "Semantic search: Updating" })
-  )
-  expect(screen.getByText(/settings changed/)).toBeInTheDocument()
+  setup(provide(<TableSearchBadge />))
+  const badge = await screen.findByLabelText("Semantic search: Indexing")
+  expect(badge.querySelector("svg")).toHaveClass("animate-spin")
 })
 
 test("provider failure allows removing selected columns but prevents new selections", async () => {
@@ -591,12 +774,19 @@ test("provider failure allows removing selected columns but prevents new selecti
     .mocked(searchGetEmbeddingConfiguration)
     .mockRejectedValue({ status: 400 })
   jest.mocked(tablesSelectTableSearchColumn).mockResolvedValue(configuration)
-  setup(controls([column, { ...column, id: "other-id", name: "other" }]))
-  await screen.findAllByText(/Provider or index status could not be loaded/)
-  const [selected, unselected] = screen.getAllByRole("menuitemcheckbox")
-  await waitFor(() => expect(selected).not.toHaveAttribute("data-disabled"))
-  expect(unselected).toHaveAttribute("data-disabled")
-  fireEvent.click(selected)
+  setup(menus([column, { ...column, id: "other-id", name: "other" }]))
+  await waitFor(() =>
+    expect(searchGetEmbeddingConfiguration).toHaveBeenCalled()
+  )
+  openMenu(1)
+  const unselected = await screen.findByRole("menuitem", { name: ENABLE })
+  await waitFor(() => expect(unselected).toHaveAttribute("data-disabled"))
+  fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" })
+  await waitFor(() =>
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument()
+  )
+  const dialog = await chooseSearchItem(DISABLE, 0)
+  fireEvent.click(within(dialog).getByRole("button", { name: DISABLE }))
   await waitFor(() =>
     expect(tablesSelectTableSearchColumn).toHaveBeenCalledWith({
       workspaceId: "workspace-synthetic",
@@ -608,27 +798,26 @@ test("provider failure allows removing selected columns but prevents new selecti
       },
     })
   )
+  await waitFor(() =>
+    expect(toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Disabled vector search" })
+    )
+  )
 })
 
 test("configuration failure still prevents changing selected columns", async () => {
   configuration = { ...configuration, selected_column_ids: [column.id] }
-  setup(controls())
-  await waitFor(() =>
-    expect(screen.getByRole("menuitemcheckbox")).not.toHaveAttribute(
-      "data-disabled"
-    )
-  )
+  setup(menus())
+  openMenu()
+  const item = await screen.findByRole("menuitem", { name: DISABLE })
+  await waitFor(() => expect(item).not.toHaveAttribute("data-disabled"))
   jest.mocked(tablesGetTableSearch).mockRejectedValue({ status: 503 })
   await act(async () => {
     await client.invalidateQueries({
       queryKey: tableSearchKey("workspace-synthetic", "table-synthetic"),
     })
   })
-  await waitFor(() =>
-    expect(screen.getByRole("menuitemcheckbox")).toHaveAttribute(
-      "data-disabled"
-    )
-  )
+  await waitFor(() => expect(item).toHaveAttribute("data-disabled"))
 })
 
 test.each([
@@ -643,19 +832,18 @@ test.each([
       status: "needs_attention",
       index: { ...configuration.index, state: "active", ...work, failed: 1 },
     }
-    setup(<TableSearchStatus />)
+    setup(provide(<TableSearchBadge />))
     await act(async () => {
       await jest.advanceTimersByTimeAsync(10)
     })
-    fireEvent.click(
-      screen.getByRole("button", { name: "Semantic search: Needs attention" })
-    )
+    openDetails()
     await act(async () => {
-      await jest.advanceTimersByTimeAsync(10)
+      await jest.advanceTimersByTimeAsync(200)
     })
     const statusCalls = jest.mocked(tablesGetTableSearch).mock.calls.length
     const progressCalls = jest.mocked(tablesGetTableSearchProgress).mock.calls
       .length
+    expect(progressCalls).toBeGreaterThan(0)
     await act(async () => {
       await jest.advanceTimersByTimeAsync(3100)
     })
