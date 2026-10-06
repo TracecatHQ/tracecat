@@ -1,0 +1,30 @@
+frontend/tests/case-insert-row-dialog.test.tsx
+  s_6b5f9492a52675::t_60aa093f7bf833 41-47,53-62,97,128-131,135,141-144,150-155,167-209,212-215,219,227
+  s_6b5f9492a52675::t_9f73a2e701857d 90-96,99-107,132-134
+  s_6b5f9492a52675::t_d17f4606ec0d3e 98
+  s_6b5f9492a52675::t_a159ffe9942f4e 136
+frontend/src/components/tables/table-rows-grid.tsx
+  s_6b5f9492a52675::t_11fe393797b1bc 55,273-276,280
+  s_6b5f9492a52675::t_83c091c72fb9e5 53-54,56-81,231-240,242-243,245-248,270-272,277-279,281-283,291,306-326,333-336,339,387-393,461
+frontend/src/components/tables/table-insert-row-dialog.tsx
+  s_6b5f9492a52675::t_fe7b825b855002 45-66,205
+  s_6b5f9492a52675::t_60aa093f7bf833 35-44,67-72,201-204,206-208,240-243,256-263,266,271,277-280,282,320-324
+frontend/tests/table-rows-grid-ready.test.ts
+  s_6b5f9492a52675::t_11fe393797b1bc 1-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "99453307b49a521a534991337ee0ba9ccd2128bd",
+  "prompts": {},
+  "sessions": {
+    "s_6b5f9492a52675": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de981752-046e-4e5c-8424-c2b98f517356",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
