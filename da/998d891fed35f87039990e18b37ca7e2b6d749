@@ -1,0 +1,19 @@
+frontend/src/components/organization/rbac-list-item.tsx
+  s_398c8b1c67f67e::t_808c12ac523792 234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "da998d891fed35f87039990e18b37ca7e2b6d749",
+  "prompts": {},
+  "sessions": {
+    "s_398c8b1c67f67e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f3dd9f2e-1b77-4a42-9ceb-4805e7016552",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
