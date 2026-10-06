@@ -85,7 +85,7 @@ export function TableSearchColumnDialog({
       toast({
         title: enabled ? "Enabled vector search" : "Disabled vector search",
         description: enabled
-          ? "Column is now indexed for vector search."
+          ? "Indexing has started for this column."
           : "Column is no longer in vector search.",
       })
       onOpenChange()
