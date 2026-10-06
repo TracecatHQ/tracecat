@@ -369,7 +369,12 @@ export function CasePanelView({
     event: React.MouseEvent<HTMLDivElement>
   ) => {
     const target = event.target as HTMLElement | null
-    if (target?.closest(panelFieldRowTargetSelector)) {
+    // The value drawer portals out of the row but its clicks still bubble
+    // here through React: only clicks inside the row's own DOM count.
+    if (!target || !event.currentTarget.contains(target)) {
+      return
+    }
+    if (target.closest(panelFieldRowTargetSelector)) {
       return
     }
 
