@@ -1,0 +1,28 @@
+frontend/tests/case-task-status.test.ts
+  s_6b5f9492a52675::t_5c3be9a7fd61dc 9-10,65-125
+frontend/src/components/cases/case-task-status.tsx
+  s_6b5f9492a52675::t_e014813c7af265 154-182,185-186,197,199-202
+  s_6b5f9492a52675::t_3f0f2b614d3b41 153
+frontend/tests/case-tasks-panel.test.tsx
+  s_6b5f9492a52675::t_5c3be9a7fd61dc 206-222
+frontend/src/components/cases/case-tasks-panel.tsx
+  s_6b5f9492a52675::t_5b7c4d5510e343 127,130-131
+  s_6b5f9492a52675::t_be8962bbc77c42 80-86
+  s_6b5f9492a52675::t_0fdf74c65c6a76 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "48478a7bd7d221f150eb1127346749225ab40ff1",
+  "prompts": {},
+  "sessions": {
+    "s_6b5f9492a52675": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de981752-046e-4e5c-8424-c2b98f517356",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
