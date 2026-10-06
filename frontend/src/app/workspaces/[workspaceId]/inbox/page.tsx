@@ -4,6 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { ActivityLayout } from "@/components/inbox"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { type InboxOrderBy, useInbox } from "@/hooks/use-inbox"
 import { getInboxHrefWithoutCaseFilter, parseInboxCaseId } from "@/lib/inbox"
 
@@ -12,7 +13,11 @@ export default function InboxPage() {
   const pathname = usePathname()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const caseId = parseInboxCaseId(searchParams?.get("caseId") ?? null)
+  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const requestedCaseId = parseInboxCaseId(searchParams?.get("caseId") ?? null)
+  // Case-filtered agent runs require case add-ons; ignore the param otherwise.
+  const caseId =
+    requestedCaseId && hasEntitlement("case_addons") ? requestedCaseId : null
 
   // Sort is applied server-side so it orders every page of a group globally,
   // not just the rows already loaded in the browser.
@@ -33,7 +38,9 @@ export default function InboxPage() {
     setUpdatedAfter,
     setCreatedAfter,
   } = useInbox({
-    enabled: canReadInbox === true,
+    enabled:
+      canReadInbox === true &&
+      (requestedCaseId === null || !entitlementsLoading),
     caseId,
     orderBy,
     sort,

@@ -9108,6 +9108,7 @@ export const inboxGetPendingCount = (
  *
  * Supports sorting by created_at or updated_at.
  * Default sort is by created_at descending.
+ * Filtering by case requires the case add-ons entitlement.
  * @param data The data for the request.
  * @param data.workspaceId
  * @param data.limit
