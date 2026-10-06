@@ -1,0 +1,44 @@
+frontend/src/components/tables/table-view.tsx
+  s_032839175c30ba::t_ee9656c92d68c1 10
+frontend/src/components/tables/table-search-badge.tsx
+  s_032839175c30ba::t_4430354d11b73d 26,37,49,80,87,91
+  s_032839175c30ba::t_c0134b8dc52c8a 1-25,27-36,38-48,50-79,81-86,88-90,92-116
+frontend/src/hooks/use-table-search.ts
+  s_032839175c30ba::t_e0037dfe5fa78c 97
+frontend/src/components/tables/table-search-progress.tsx
+  s_032839175c30ba::t_e0037dfe5fa78c 28,74
+frontend/src/components/tables/table-view-column-menu.tsx
+  s_032839175c30ba::t_198a475a3caa04 16-19,49-50,115-122,155-156
+  s_032839175c30ba::t_d733cd79e67d50 157-166
+frontend/src/components/tables/table-search.test.tsx
+  s_032839175c30ba::t_c728d4cbd41d2a 130,184,204,228,258,278,285,453,497,533,591,666,682,690,733
+  s_032839175c30ba::t_93850a7b980e55 550-552
+  s_032839175c30ba::t_8b21cf448615c4 210-212
+  s_032839175c30ba::t_9e996269ca56cf 1-8,21,49-52,75-85,90-97,103,106-109,113-129,131,174,178-179,185-187,190,192-203,205-209,215,224-225,229-233,236-239,242-257,259-277,279,281,283-284,286-289,310,315-320,322-326,328,338-341,345-368,371-373,375-376,379-404,407-410,413-416,418-421,443,452,454,456,461,491-494,499-500,510-519,526,532,534-536,540-548,553,558-590,592-603,605-646,665,691-692,698,707,714,732,734,743-755,767-771,776-779,786,801,805,807,812
+  s_032839175c30ba::t_4975bfef0242fa 280,498
+  s_032839175c30ba::t_3dd274d29a7656 132,282
+docs/automations/tables.mdx
+  s_032839175c30ba::t_1a54c89f3c8aaf 154-170,172-192
+  s_032839175c30ba::t_eb8795082d40df 171
+frontend/src/components/tables/table-search-column-control.tsx
+  s_032839175c30ba::t_12d7f579e1aa97 3-4,6,9-19,21-26,28,31,34,40,42-52,54-102,104-141
+  s_032839175c30ba::t_96f410896da120 53
+frontend/src/components/nav/controls-header.tsx
+  s_032839175c30ba::t_e0037dfe5fa78c 87-88,1983,1986-1988,2155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ec923e0c281659bc0afed775621fa4bf2f18f269",
+  "prompts": {},
+  "sessions": {
+    "s_032839175c30ba": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c4a6192b-c92d-47e9-b96d-169517bb453d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
