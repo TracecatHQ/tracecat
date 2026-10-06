@@ -15482,7 +15482,6 @@ export const $FeatureFlag = {
   enum: [
     "ai-ranking",
     "workflow-concurrency-limits",
-    "agent-channels",
     "agent-fs-persistence",
     "agent-runtime",
     "workspace-sync-github-archive",

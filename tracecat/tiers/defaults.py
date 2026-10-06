@@ -48,8 +48,9 @@ def resolve_oss_default_entitlements(
 
     Agent presets, skills, MCP catalog connectors, and tool approvals are open
     source; ``agent_addons`` only gates the agent inbox, folders, tags, and case
-    agent runs. Approvals delivered through Slack or Microsoft Teams are closed
-    source and gated by ``agent_channels``.
+    agent runs. Agent channels (Slack and Microsoft Teams, including approvals
+    from those channels) are closed source and gated by ``agent_channels``; the
+    legacy ``agent-channels`` feature flag maps to it.
 
     Multi-workspace is disabled on both paths. Existing workspaces remain
     accessible; the entitlement only gates creation beyond the first workspace.
@@ -86,6 +87,8 @@ def resolve_oss_default_entitlements(
             case_addons_enabled = True
             break
 
+    agent_channels_enabled = "agent-channels" in normalized_flags
+
     rbac_enabled = False
     for flag in _RBAC_FLAGS:
         if flag in normalized_flags:
@@ -103,7 +106,7 @@ def resolve_oss_default_entitlements(
         multi_workspace=False,
         watchtower=False,
         external_secret_stores=False,
-        agent_channels=False,
+        agent_channels=agent_channels_enabled,
     )
 
 

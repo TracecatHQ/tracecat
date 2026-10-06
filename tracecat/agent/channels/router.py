@@ -10,8 +10,6 @@ import orjson
 from fastapi import (
     APIRouter,
     BackgroundTasks,
-    Depends,
-    HTTPException,
     Query,
     Request,
     Response,
@@ -39,8 +37,6 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.engine import get_async_session_context_manager
 from tracecat.db.models import Workspace
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
-from tracecat.feature_flags import is_feature_enabled
-from tracecat.feature_flags.enums import FeatureFlag
 from tracecat.logger import logger
 from tracecat.tiers.access import is_org_entitled
 from tracecat.tiers.enums import Entitlement
@@ -48,18 +44,9 @@ from tracecat.tiers.enums import Entitlement
 _SLACK_CHANNEL_CONFIG_INACTIVE_MESSAGE = "Channel configuration is no longer active"
 
 
-def _require_agent_channels_enabled() -> None:
-    if not is_feature_enabled(FeatureFlag.AGENT_CHANNELS):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Feature not enabled",
-        )
-
-
 router = APIRouter(
     prefix="/agent/channels",
     tags=["public"],
-    dependencies=[Depends(_require_agent_channels_enabled)],
 )
 
 

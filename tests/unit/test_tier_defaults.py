@@ -36,6 +36,13 @@ def test_resolve_oss_default_entitlements_maps_legacy_feature_flags() -> None:
     assert entitlements.agent_channels is False
 
 
+def test_resolve_oss_default_entitlements_maps_legacy_agent_channels_flag() -> None:
+    entitlements = resolve_oss_default_entitlements("AGENT_CHANNELS")
+
+    assert entitlements.agent_channels is True
+    assert entitlements.agent_addons is False
+
+
 def test_resolve_oss_default_entitlements_normalizes_and_ignores_unknown() -> None:
     entitlements = resolve_oss_default_entitlements(
         " GIT_SYNC , unknown-flag , CASE_TRIGGERS "

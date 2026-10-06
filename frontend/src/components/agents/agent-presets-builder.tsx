@@ -144,7 +144,6 @@ import {
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
-import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { useSkills } from "@/hooks/use-skills"
 import {
   AGENT_PRESET_PUBLISHING_FIELDS,
@@ -1449,10 +1448,8 @@ function AgentPresetForm({
   onTabChange,
 }: AgentPresetFormProps) {
   const [activeTab, setActiveTab] = useState<AgentPresetSideTab>(initialTab)
-  const { isFeatureEnabled: isFeatureEnabledFlag } = useFeatureFlag()
   const { hasEntitlement } = useEntitlements()
-  const channelsEnabled =
-    isFeatureEnabledFlag("agent-channels") && hasEntitlement("agent_channels")
+  const channelsEnabled = hasEntitlement("agent_channels")
   const form = useForm<AgentPresetFormValues>({
     resolver: zodResolver(agentPresetSchema),
     mode: "onBlur",
