@@ -279,7 +279,20 @@ function CaseLinkRowsDialogBody({
     gridContent = <GridMessage>No tables in this workspace</GridMessage>
   } else if (tableError || (rowsError && !isStaleRowQuery)) {
     gridContent = (
-      <GridMessage tone="error">Failed to load table rows.</GridMessage>
+      <GridMessage tone="error">
+        Failed to load table rows.
+        {(isSearching || sortingState.orderBy !== null) && (
+          // The header that holds the filter is unmounted with the grid.
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-3 h-7 text-xs text-foreground"
+            onClick={resetRowQuery}
+          >
+            Clear filter and sort
+          </Button>
+        )}
+      </GridMessage>
     )
   } else if (tableIsLoading || !table) {
     gridContent = (

@@ -312,8 +312,19 @@ export function CaseLinkedTable({
   let gridContent: ReactNode
   if (rowsError && !isStaleRowQuery) {
     gridContent = (
-      <div className="p-3 text-sm text-destructive">
+      <div className="flex items-center gap-3 p-3 text-sm text-destructive">
         Failed to load linked rows.
+        {(isSearching || sortingState.orderBy !== null) && (
+          // The header that holds the filter is unmounted with the grid.
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs text-foreground"
+            onClick={resetRowQuery}
+          >
+            Clear filter and sort
+          </Button>
+        )}
       </div>
     )
   } else {
