@@ -1,8 +1,25 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import type { UIMessage } from "ai"
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
+import {
+  type ChatStatus,
+  readUIMessageStream,
+  type UIMessage,
+  type UIMessageChunk,
+} from "ai"
 import type { ReactNode } from "react"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
+
+// jsdom lacks structuredClone, which readUIMessageStream uses per update.
+if (typeof globalThis.structuredClone !== "function") {
+  globalThis.structuredClone = ((value: unknown) =>
+    JSON.parse(JSON.stringify(value))) as typeof structuredClone
+}
 
 const mockUseVercelChatResult = {
   clearError: jest.fn(),
@@ -10,7 +27,7 @@ const mockUseVercelChatResult = {
   messages: [] as UIMessage[],
   regenerate: jest.fn(),
   sendMessage: jest.fn(),
-  status: "ready" as const,
+  status: "ready" as ChatStatus,
 }
 
 jest.mock("@/components/chat/chat-empty-hero", () => ({
@@ -26,13 +43,25 @@ jest.mock("@/components/icons", () => ({
 
 jest.mock("@/components/ai-elements/tool", () => ({
   getStatusBadge: () => null,
-  Tool: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  Tool: ({ children }: { children?: ReactNode }) => (
+    <div data-testid="tool">{children}</div>
+  ),
   ToolContent: ({ children }: { children?: ReactNode }) => (
     <div>{children}</div>
   ),
-  ToolHeader: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
-  ToolInput: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
-  ToolOutput: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
+  ToolHeader: ({ state }: { state: string }) => (
+    <div data-testid="tool-state">{state}</div>
+  ),
+  ToolInput: ({ input }: { input?: { operation?: string } }) => (
+    <div data-testid="tool-input">{input?.operation}</div>
+  ),
+  ToolOutput: ({
+    errorText,
+    output,
+  }: {
+    errorText?: string
+    output?: unknown
+  }) => <div data-testid="tool-output">{errorText ?? String(output)}</div>,
 }))
 
 jest.mock("@/components/editor/codemirror/code-editor", () => ({
@@ -273,5 +302,239 @@ describe("ChatSessionPane optimistic first send", () => {
     await waitFor(() =>
       expect(screen.queryByTestId("dots-loader")).not.toBeInTheDocument()
     )
+  })
+})
+
+const BUBBLE = "session-1:turn-1"
+const TOOL = "mcp__tracecat__core__workflow__execute"
+const CALLS = ["first", "second", "third"]
+
+/** Run Vercel UI chunks through the AI SDK, as useChat does for one request. */
+async function streamed(chunks: UIMessageChunk[]): Promise<UIMessage> {
+  let message: UIMessage | undefined
+  for await (const next of readUIMessageStream({
+    stream: new ReadableStream<UIMessageChunk>({
+      start(controller) {
+        for (const chunk of chunks) {
+          controller.enqueue(chunk)
+        }
+        controller.close()
+      },
+    }),
+  })) {
+    message = next
+  }
+  if (!message) {
+    throw new Error("The stream produced no message")
+  }
+  return message
+}
+
+/**
+ * The live transcript of an approved batch the user stopped: the paused turn,
+ * the approval submission, then the continuation's bubble. Tracecat streams the
+ * continuation under the paused turn's bubble id and opens each late result
+ * with its tool input, as its Vercel adapter does.
+ */
+async function liveStoppedBatch(
+  results: Record<string, unknown>
+): Promise<UIMessage[]> {
+  const paused = await streamed([
+    { type: "start", messageId: BUBBLE },
+    { type: "text-start", id: "text-1" },
+    { type: "text-delta", id: "text-1", delta: "Running three calls." },
+    { type: "text-end", id: "text-1" },
+    ...CALLS.map(
+      (id): UIMessageChunk => ({
+        type: "tool-input-available",
+        toolCallId: id,
+        toolName: TOOL,
+        input: { operation: id },
+      })
+    ),
+    {
+      type: "data-approval-request",
+      data: CALLS.map((id) => ({ tool_call_id: id, tool_name: TOOL })),
+    },
+    { type: "finish" },
+  ])
+  const continuation = await streamed([
+    { type: "start", messageId: BUBBLE },
+    // The cancel arrives while the first call is still running.
+    {
+      type: "data-cancelled",
+      data: { reason: "user_cancel", tool_call_ids: [] },
+    },
+    ...Object.entries(results).flatMap(([id, output]): UIMessageChunk[] => [
+      {
+        type: "tool-input-available",
+        toolCallId: id,
+        toolName: TOOL,
+        input: {},
+      },
+      { type: "tool-output-available", toolCallId: id, output },
+    ]),
+  ])
+  return [
+    {
+      id: "prompt",
+      role: "user",
+      parts: [{ type: "text", text: "Run three calls" }],
+    },
+    paused,
+    {
+      id: "continue-1",
+      role: "user",
+      parts: [
+        {
+          type: "data-continue",
+          data: { kind: "continue", source: "chat", decisions: [] },
+        },
+      ],
+    },
+    continuation,
+  ]
+}
+
+/**
+ * Tool cards and turn markers in display order. A card reads
+ * `operation: state (output)`, with the shown output or interruption notice.
+ */
+function timeline(): string[] {
+  const cards = screen.queryAllByTestId("tool").map((element) => {
+    const card = within(element)
+    const shown =
+      card.queryByTestId("tool-output")?.textContent ??
+      card.queryByText("Stopped before completion")?.textContent
+    const operation = card.getByTestId("tool-input").textContent
+    const state = card.getByTestId("tool-state").textContent
+    return { element, label: `${operation}: ${state} (${shown})` }
+  })
+  const markers = screen
+    .queryAllByText("Interrupted", { exact: true })
+    .map((element) => ({ element, label: "Interrupted" }))
+  return [...cards, ...markers]
+    .sort((a, b) =>
+      a.element.compareDocumentPosition(b.element) &
+      Node.DOCUMENT_POSITION_FOLLOWING
+        ? -1
+        : 1
+    )
+    .map(({ label }) => label)
+}
+
+describe("ChatSessionPane stopped approved calls", () => {
+  beforeEach(() => {
+    mockUseVercelChatResult.messages = []
+    mockUseVercelChatResult.status = "ready"
+  })
+
+  it("replaces Interrupted with a result that arrives after the cancel", async () => {
+    mockUseVercelChatResult.status = "streaming"
+    mockUseVercelChatResult.messages = await liveStoppedBatch({})
+    const { rerenderChatSessionPane } = renderChatSessionPane()
+
+    // The cancel shows at once, while the first call is still running.
+    expect(timeline()).toEqual([
+      "first: output-interrupted (Stopped before completion)",
+      "second: output-interrupted (Stopped before completion)",
+      "third: output-interrupted (Stopped before completion)",
+      "Interrupted",
+    ])
+
+    mockUseVercelChatResult.status = "ready"
+    mockUseVercelChatResult.messages = await liveStoppedBatch({
+      first: '{"executed":"first"}',
+    })
+    rerenderChatSessionPane()
+
+    // The call in flight finished with its real result; the turn's single
+    // marker still closes the turn.
+    expect(timeline()).toEqual([
+      'first: output-available ({"executed":"first"})',
+      "second: output-interrupted (Stopped before completion)",
+      "third: output-interrupted (Stopped before completion)",
+      "Interrupted",
+    ])
+  })
+
+  it("shows recorded results for calls that never started", async () => {
+    mockUseVercelChatResult.messages = await liveStoppedBatch({
+      first: '{"executed":"first"}',
+      second: { errorText: "Tool call cancelled" },
+      third: { errorText: "Tool call cancelled" },
+    })
+    renderChatSessionPane()
+
+    expect(timeline()).toEqual([
+      'first: output-available ({"executed":"first"})',
+      "second: output-error (Tool call cancelled)",
+      "third: output-error (Tool call cancelled)",
+      "Interrupted",
+    ])
+  })
+
+  it("keeps calls without a result interrupted when the turn ends", async () => {
+    mockUseVercelChatResult.messages = await liveStoppedBatch({})
+    renderChatSessionPane()
+
+    expect(timeline()).toEqual([
+      "first: output-interrupted (Stopped before completion)",
+      "second: output-interrupted (Stopped before completion)",
+      "third: output-interrupted (Stopped before completion)",
+      "Interrupted",
+    ])
+  })
+
+  it("shows reloaded history with the marker after the turn", () => {
+    mockUseVercelChatResult.messages = [
+      {
+        id: "prompt",
+        role: "user",
+        parts: [{ type: "text", text: "Run three calls" }],
+      },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [
+          { type: "text", text: "Running three calls." },
+          {
+            type: `tool-${TOOL}`,
+            toolCallId: "first",
+            state: "output-available",
+            input: { operation: "first" },
+            output: '{"executed":"first"}',
+          },
+          ...["second", "third"].map(
+            (id) =>
+              ({
+                type: `tool-${TOOL}`,
+                toolCallId: id,
+                state: "output-error",
+                input: { operation: id },
+                errorText: "Tool call cancelled",
+              }) as UIMessage["parts"][number]
+          ),
+        ],
+      } as UIMessage,
+      {
+        id: "cancelled-1",
+        role: "system",
+        parts: [
+          {
+            type: "data-cancelled",
+            data: { reason: "user_cancel", tool_call_ids: [] },
+          },
+        ],
+      },
+    ]
+    renderChatSessionPane()
+
+    expect(timeline()).toEqual([
+      'first: output-available ({"executed":"first"})',
+      "second: output-error (Tool call cancelled)",
+      "third: output-error (Tool call cancelled)",
+      "Interrupted",
+    ])
   })
 })

@@ -469,6 +469,9 @@ export function getAssistantText(parts: UIMessage["parts"]): string {
  * - Pending approvals (without output) remain visible
  * - Duplicate DB/stream seam copies render once: latest output wins, otherwise
  *   the latest occurrence wins
+ * - A call renders in the card that opened it, even when its output arrives in
+ *   a later message, such as an approval continuation or after the turn's
+ *   cancelled marker
  *
  * @param messages - Array of UI messages to transform
  * @returns Transformed messages with appropriate parts hidden/visible
@@ -584,12 +587,38 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
     }
   }
 
+  // Open positions whose call closed later, mapped to the closing output.
+  const closedAt = new Map<string, string>()
+  for (const { openPos, closePos } of traces.values()) {
+    if (openPos && closePos) {
+      closedAt.set(openPos, closePos)
+    }
+  }
+
   // Finally walk through each message and filter out the ignored positions
   const finalMessages: ai.UIMessage[] = []
   for (const [i, message] of messages.entries()) {
     const newParts: ai.UIMessagePart<ai.UIDataTypes, ai.UITools>[] = []
     for (const [j, part] of message.parts.entries()) {
       const posKey = `${i}-${j}`
+      const closePos = closedAt.get(posKey)
+      if (closePos) {
+        // Show the output in the opening card, with the input it streamed.
+        const [closeMsgIdx, closePartIdx] = closePos.split("-").map(Number)
+        const closePart = messages[closeMsgIdx].parts[closePartIdx]
+        if (
+          !ai.isToolUIPart(part) ||
+          !ai.isToolUIPart(closePart) ||
+          (closePart.state !== "output-available" &&
+            closePart.state !== "output-error")
+        ) {
+          throw new Error(
+            `Tool call parts do not match: ${JSON.stringify([part, closePart])}`
+          )
+        }
+        newParts.push({ ...closePart, input: part.input })
+        continue
+      }
       if (ignorePos.has(posKey)) continue
       if (
         part.type === "data-approval-request" &&
@@ -608,35 +637,15 @@ export function transformMessages(messages: ai.UIMessage[]): ai.UIMessage[] {
           continue
         }
       }
-      // Merge input from open state into output parts
+      // An output that closed an opened call already shows in the opening card.
       if (
         ai.isToolUIPart(part) &&
-        (part.state === "output-available" || part.state === "output-error")
+        (part.state === "output-available" || part.state === "output-error") &&
+        traces.get(part.toolCallId)?.openPos
       ) {
-        // Handle output parts
-        const { toolCallId } = part
-        const trace = traces.get(toolCallId)
-        const newPart: Extract<
-          ai.UIMessagePart<ai.UIDataTypes, ai.UITools>,
-          { state: "output-available" | "output-error" }
-        > = {
-          ...part,
-        }
-        if (trace?.openPos) {
-          // Extract the open position from the string key
-          const [openMsgIdx, openPartIdx] = trace.openPos.split("-").map(Number)
-          const openPart = messages[openMsgIdx].parts[openPartIdx]
-          if (!ai.isToolUIPart(openPart)) {
-            throw new Error(
-              `Open part is not a tool part: ${JSON.stringify(openPart)}`
-            )
-          }
-          newPart.input = openPart.input
-        }
-        newParts.push(newPart)
-      } else {
-        newParts.push(part)
+        continue
       }
+      newParts.push(part)
     }
     if (newParts.length > 0) {
       finalMessages.push({ ...message, parts: newParts })
