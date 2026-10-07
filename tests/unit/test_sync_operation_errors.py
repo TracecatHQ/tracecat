@@ -102,3 +102,54 @@ async def test_out_of_range_diff_cursor_is_http_bad_request(
         )
     assert response.status_code == 400
     download.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("cursor,status", [("invalid!", 400), ("a" * 8193, 422)])
+async def test_operation_cursor_is_http_client_error(session, svc_role, cursor, status):
+    app = FastAPI()
+    app.include_router(router.router)
+    app.dependency_overrides[get_async_session] = lambda: session
+    role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
+    app.dependency_overrides[role_dependency] = lambda: svc_role
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            "/workflows/sync/operations", params={"cursor": cursor}
+        )
+    assert response.status_code == status
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("dry_run", [False, True])
+async def test_durable_pull_requires_explicit_confirmation_not_legacy_dry_run(
+    session, svc_role, dry_run
+):
+    from tracecat.pagination import PageParams
+
+    app = FastAPI()
+    app.include_router(router.router)
+    app.dependency_overrides[get_async_session] = lambda: session
+    role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
+    app.dependency_overrides[role_dependency] = lambda: svc_role
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/workflows/sync/operations",
+            json={
+                "id": str(uuid.uuid4()),
+                "direction": "pull",
+                "pull": {"commit_sha": "a" * 40, "dry_run": dry_run},
+            },
+        )
+    page = await SyncOperationService(session, svc_role).list(PageParams())
+    if dry_run:
+        assert response.status_code == 400
+        assert page.items == []
+    else:
+        assert response.status_code == 202
+        assert response.json()["status"] == "queued"
+        assert response.json()["result"] is None
+        assert len(page.items) == 1
