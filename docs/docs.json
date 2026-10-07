@@ -363,6 +363,7 @@
               "cheatsheets/jsonpath",
               "cheatsheets/common-mistakes",
               "cheatsheets/transformations",
+              "cheatsheets/aggregate-and-search",
               "cheatsheets/workflow-metadata"
             ]
           }
