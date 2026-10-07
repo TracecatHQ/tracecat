@@ -289,6 +289,9 @@ describe("AgentsDashboard entitlement split", () => {
           screen.getByText("Synthetic default agent description")
         ).toBeInTheDocument()
         expect(screen.getByText("/Parent/Nested/")).toBeInTheDocument()
+        expect(
+          screen.queryByText("Workspace default agent")
+        ).not.toBeInTheDocument()
       },
       { timeout: 2000 }
     )

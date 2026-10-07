@@ -53,7 +53,6 @@ export function WorkspaceDefaultAgentBadge({
         </Link>
       </HoverCardTrigger>
       <HoverCardContent align="end" className="w-80 space-y-2 shadow-none">
-        <p className="text-xs text-muted-foreground">Workspace default agent</p>
         <p className="break-words text-sm font-medium">{preset.name}</p>
         <p className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
           {preset.description || "No description"}
