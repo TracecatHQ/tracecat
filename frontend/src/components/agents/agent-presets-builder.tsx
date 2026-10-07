@@ -1500,8 +1500,15 @@ function AgentPresetForm({
     name: "subagents",
   })
 
+  const previousFormResetKey = useRef<string | null>(null)
   useEffect(() => {
     const defaults = preset ? presetToFormValues(preset) : DEFAULT_FORM_VALUES
+    const resetKey = JSON.stringify({ mode, presetId: preset?.id, defaults })
+    // Metadata toggles outside the form must not discard unpublished edits.
+    if (previousFormResetKey.current === resetKey) {
+      return
+    }
+    previousFormResetKey.current = resetKey
     form.reset(defaults, { keepDirty: false })
   }, [form, mode, preset])
 

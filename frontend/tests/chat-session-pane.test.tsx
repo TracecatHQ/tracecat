@@ -139,6 +139,7 @@ const TRIAGE_PRESET: AgentPresetReadMinimal = {
   name: "Triage agent",
   slug: "triage-agent",
   description: "Triages new cases",
+  use_in_chat: true,
   model_provider: "openai",
   model_name: "gpt-4o",
   current_version_id: "version-1",
@@ -152,6 +153,7 @@ const MALWARE_PRESET: AgentPresetReadMinimal = {
   name: "Malware agent",
   slug: "malware-agent",
   description: "Analyses malware",
+  use_in_chat: true,
   model_provider: "openai",
   model_name: "gpt-4o",
   current_version_id: "version-2",
@@ -2521,8 +2523,25 @@ describe("ChatSessionPane", () => {
       ).not.toBeInTheDocument()
       expect(mockUseAgentPresets).toHaveBeenCalledWith(
         "workspace-1",
-        expect.objectContaining({ enabled: true })
+        expect.objectContaining({ enabled: true, useInChat: true })
       )
+    })
+
+    it("only offers agents explicitly enabled for chat", async () => {
+      mockPresets([TRIAGE_PRESET, { ...MALWARE_PRESET, use_in_chat: false }])
+      renderPane({
+        agentMentionsSupported: true,
+        presetSelector: {
+          label: "No preset",
+          selectedPresetId: null,
+          onSelect: jest.fn().mockResolvedValue(true),
+        },
+      })
+      fireEvent.change(screen.getByRole("textbox"), {
+        target: { value: "@", selectionStart: 1 },
+      })
+      expect(await screen.findByText("Triage agent")).toBeInTheDocument()
+      expect(screen.queryByText("Malware agent")).not.toBeInTheDocument()
     })
 
     it("shows the mention hint while the composer is focused and empty", () => {

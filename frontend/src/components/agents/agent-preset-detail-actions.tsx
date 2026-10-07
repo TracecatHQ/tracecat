@@ -1,7 +1,9 @@
 "use client"
 
 import { LayersPlus, Loader2 } from "lucide-react"
+import type { ReactNode } from "react"
 import type { AgentPresetCreate } from "@/client"
+import { AgentPresetChatToggle } from "@/components/agents/agent-preset-chat-toggle"
 import { AgentPresetVersionHistory } from "@/components/agents/agent-preset-version-history"
 import { Button } from "@/components/ui/button"
 import {
@@ -12,8 +14,7 @@ import {
 import { useAgentPresetDetailContext } from "@/providers/agent-preset-detail"
 
 /**
- * Props for the agent preset detail action group: version history plus the
- * publish button, driven by live form state.
+ * Props for the agent preset detail action group, driven by live form state.
  */
 export type AgentPresetDetailActionsProps = {
   workspaceId: string
@@ -24,13 +25,12 @@ export type AgentPresetDetailActionsProps = {
   canSubmit: boolean
   submitLabel: string
   onPublish: () => void
+  syncActions?: ReactNode
 }
 
 /**
- * Icon-only action group for the agent preset detail surface: version
- * history followed by publish. Rendered either in the global controls
- * header (standalone preset route) or inline in the document panel (case
- * artifact view), matching the skills detail header treatment.
+ * Chat visibility, optional sync actions, version history, and publish controls.
+ * Rendered in the global controls header or inline in the document panel.
  */
 export function AgentPresetDetailActions({
   workspaceId,
@@ -41,9 +41,18 @@ export function AgentPresetDetailActions({
   canSubmit,
   submitLabel,
   onPublish,
+  syncActions,
 }: AgentPresetDetailActionsProps) {
   return (
     <>
+      {presetId ? (
+        <AgentPresetChatToggle
+          workspaceId={workspaceId}
+          presetId={presetId}
+          disabled={isSaving}
+        />
+      ) : null}
+      {syncActions}
       {presetId ? (
         <AgentPresetVersionHistory
           workspaceId={workspaceId}
@@ -81,14 +90,17 @@ export function AgentPresetDetailActions({
  * Controls-header wrapper for the agent preset detail actions. Pulls the
  * handles the preset form registered into `AgentPresetDetailProvider`.
  *
- * @returns The header actions, or null when no provider is mounted or the
- * form has not registered yet.
+ * @returns The header actions, or only sync actions until the form registers.
  */
-export function AgentPresetDetailHeaderActions() {
+export function AgentPresetDetailHeaderActions({
+  syncActions,
+}: {
+  syncActions?: ReactNode
+}) {
   const detail = useAgentPresetDetailContext()
   const actions = detail?.actions
   if (!actions) {
-    return null
+    return syncActions ?? null
   }
   return (
     <AgentPresetDetailActions
@@ -100,6 +112,7 @@ export function AgentPresetDetailHeaderActions() {
       canSubmit={actions.canSubmit}
       submitLabel={actions.submitLabel}
       onPublish={actions.submit}
+      syncActions={syncActions}
     />
   )
 }

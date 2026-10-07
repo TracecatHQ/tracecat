@@ -154,6 +154,7 @@ async def get_workspace(
         id=workspace.id,
         name=workspace.name,
         settings=WorkspaceSettingsRead.model_validate(workspace.settings or {}),
+        default_agent_preset_id=workspace.default_agent_preset_id,
         organization_id=workspace.organization_id,
         unsafe_disable_secret_error_withholding_allowed=(
             await workspace_allows_error_details(
@@ -182,11 +183,17 @@ async def update_workspace(
             status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found"
         )
     logger.info("Updating workspace", params=params)
-    updated = await service.update_workspace(workspace, params=params)
+    try:
+        updated = await service.update_workspace(workspace, params=params)
+    except TracecatValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
     return WorkspaceRead(
         id=updated.id,
         name=updated.name,
         settings=WorkspaceSettingsRead.model_validate(updated.settings or {}),
+        default_agent_preset_id=updated.default_agent_preset_id,
         organization_id=updated.organization_id,
     )
 

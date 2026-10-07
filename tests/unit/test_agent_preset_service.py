@@ -69,6 +69,7 @@ from tracecat.db.models import (
     Workspace,
 )
 from tracecat.exceptions import (
+    ScopeDeniedError,
     TracecatNotFoundError,
     TracecatValidationError,
 )
@@ -310,6 +311,102 @@ def agent_preset_create_params() -> AgentPresetCreate:
 
 @pytest.mark.anyio
 class TestAgentPresetService:
+    async def test_chat_visibility_is_opt_in_and_does_not_publish_versions(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        version_id = preset.current_version_id
+        assert preset.use_in_chat is False
+        assert (
+            await agent_preset_service.build_preset_read(preset)
+        ).use_in_chat is False
+        assert await agent_preset_service.list_presets(use_in_chat=True) == []
+
+        for enabled in (True, False):
+            await agent_preset_service.update_preset(
+                preset, AgentPresetUpdate(use_in_chat=enabled)
+            )
+            assert preset.use_in_chat is enabled
+            assert preset.current_version_id == version_id
+            visible_ids = {
+                item.id
+                for item in await agent_preset_service.list_presets(use_in_chat=True)
+            }
+            assert (preset.id in visible_ids) is enabled
+            assert preset.id in {
+                item.id for item in await agent_preset_service.list_presets()
+            }
+            assert await agent_preset_service.get_preset(preset.id) is preset
+            read = await agent_preset_service.build_preset_list_reads([preset])
+            assert read[0].use_in_chat is enabled
+            assert (
+                await agent_preset_service.build_preset_read(preset)
+            ).use_in_chat is enabled
+
+    async def test_chat_visibility_filter_excludes_deleted_and_other_workspace(
+        self,
+        session: AsyncSession,
+        svc_workspace: Workspace,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        preset = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(update={"use_in_chat": True})
+        )
+        deleted = AgentPreset(
+            workspace_id=svc_workspace.id,
+            name="Deleted agent",
+            slug="deleted-agent",
+            model_name="test-model",
+            model_provider="openai",
+            use_in_chat=True,
+            deleted_at=datetime.now(UTC),
+        )
+        other_workspace = Workspace(
+            name="Other workspace", organization_id=svc_workspace.organization_id
+        )
+        session.add(other_workspace)
+        await session.flush()
+        other_preset = AgentPreset(
+            workspace_id=other_workspace.id,
+            name="Other workspace agent",
+            slug="other-workspace-agent",
+            model_name="test-model",
+            model_provider="openai",
+            use_in_chat=True,
+        )
+        session.add_all([deleted, other_preset])
+        await session.commit()
+        assert {
+            item.id
+            for item in await agent_preset_service.list_presets(use_in_chat=True)
+        } == {preset.id}
+
+    async def test_chat_visibility_update_requires_agent_update_scope(
+        self,
+        session: AsyncSession,
+        svc_role: Role,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+    ) -> None:
+        preset = await agent_preset_service.create_preset(agent_preset_create_params)
+        read_only_service = AgentPresetService(
+            session,
+            role=svc_role.model_copy(update={"scopes": frozenset({"agent:read"})}),
+        )
+        with pytest.raises(ScopeDeniedError):
+            await read_only_service.update_preset(
+                preset, AgentPresetUpdate(use_in_chat=True)
+            )
+        await session.refresh(preset)
+        assert preset.use_in_chat is False
+
+    def test_chat_visibility_rejects_null(self) -> None:
+        with pytest.raises(ValueError, match="use_in_chat cannot be null"):
+            AgentPresetUpdate(use_in_chat=None)
+
     async def test_create_and_get_preset(
         self,
         agent_preset_service: AgentPresetService,

@@ -83,6 +83,7 @@ from tracecat.db.models import (
     MCPIntegration,
     Skill,
     SkillVersion,
+    Workspace,
 )
 from tracecat.db.soft_delete import with_deleted
 from tracecat.dsl.common import create_default_execution_context
@@ -144,7 +145,9 @@ class AgentPresetService(BaseWorkspaceService):
         self.skill_tools = SkillToolDependencyService(session, role=self.role)
         self.tool_policy = PresetToolPolicyService(session, role=self.role)
 
-    async def list_presets(self) -> Sequence[AgentPreset]:
+    async def list_presets(
+        self, *, use_in_chat: bool | None = None
+    ) -> Sequence[AgentPreset]:
         """Return all agent presets for the current workspace ordered by recency."""
 
         stmt = (
@@ -154,6 +157,8 @@ class AgentPresetService(BaseWorkspaceService):
             .order_by(AgentPreset.created_at.desc())
             .options(selectinload(AgentPreset.tags))
         )
+        if use_in_chat is not None:
+            stmt = stmt.where(AgentPreset.use_in_chat == use_in_chat)
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
@@ -429,6 +434,7 @@ class AgentPresetService(BaseWorkspaceService):
             id=preset.id,
             workspace_id=preset.workspace_id,
             name=preset.name,
+            use_in_chat=preset.use_in_chat,
             slug=preset.slug,
             description=preset.description,
             current_version_id=preset.current_version_id,
@@ -530,6 +536,7 @@ class AgentPresetService(BaseWorkspaceService):
             slug=slug,
             name=params.name,
             description=params.description,
+            use_in_chat=params.use_in_chat,
             instructions=params.instructions,
             model_name=(
                 catalog_entry.model_name
@@ -847,6 +854,14 @@ class AgentPresetService(BaseWorkspaceService):
             result.all()
         preset.deleted_at = datetime.now(UTC)
         self.session.add(preset)
+        await self.session.execute(
+            sa.update(Workspace)
+            .where(
+                Workspace.id == self.workspace_id,
+                Workspace.default_agent_preset_id == preset.id,
+            )
+            .values(default_agent_preset_id=None)
+        )
         await self.session.commit()
 
     async def resolve_agent_preset_config(

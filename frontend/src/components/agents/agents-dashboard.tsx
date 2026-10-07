@@ -19,6 +19,7 @@ import {
   MousePointerClickIcon,
   Pencil,
   SearchIcon,
+  StarIcon,
   TagsIcon,
   Trash2,
   Type,
@@ -40,6 +41,7 @@ import {
   agentPresetsRemovePresetTag,
 } from "@/client"
 import { AgentApprovalsDialog } from "@/components/agents/agent-approvals-dialog"
+import { WorkspaceDefaultAgentBadge } from "@/components/agents/workspace-default-agent-badge"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CollapsibleSection } from "@/components/collapsible-section"
 import { CopyButton } from "@/components/copy-button"
@@ -126,8 +128,11 @@ import {
   useCreateAgentPreset,
   useDeleteAgentPreset,
   useMoveAgentPreset,
+  useSetDefaultAgent,
+  useUpdateAgentPreset,
 } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useWorkspaceDetails } from "@/hooks/use-workspace"
 import { buildDuplicateAgentPresetPayload } from "@/lib/agent-presets"
 import type { AgentSessionWithStatus, AgentStatusTone } from "@/lib/agents"
 import {
@@ -1276,6 +1281,13 @@ function AgentItemDeleteDialog({
 
 // -- Context menu actions ----------------------------------------------------
 
+type DefaultAgentActions = {
+  presetId: string | null
+  canSet: boolean
+  isPending: boolean
+  onSet: (presetId: string) => void
+}
+
 function AgentFolderContextActions({
   item,
   setActiveDialog,
@@ -1350,6 +1362,7 @@ function AgentPresetContextActions({
   canDeleteAgent,
   canDuplicateAgent,
   organizationEnabled = true,
+  defaultAgentActions,
 }: {
   item: AgentPresetDirectoryItem
   setActiveDialog: (dialog: AgentActiveDialog | null) => void
@@ -1363,10 +1376,13 @@ function AgentPresetContextActions({
   canDuplicateAgent: boolean
   /** Whether folder/tag organization (agent add-ons) is available. */
   organizationEnabled?: boolean
+  defaultAgentActions: DefaultAgentActions
 }) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const canOrganize = canUpdateAgent && organizationEnabled
+  const { updateAgentPreset, updateAgentPresetIsPending } =
+    useUpdateAgentPreset(workspaceId)
   return (
     <ContextMenuGroup>
       <ContextMenuItem
@@ -1383,6 +1399,40 @@ function AgentPresetContextActions({
           Open in new tab
         </Link>
       </ContextMenuItem>
+      {defaultAgentActions.canSet ? (
+        <ContextMenuItem
+          className="text-xs"
+          disabled={
+            defaultAgentActions.isPending ||
+            defaultAgentActions.presetId === item.id
+          }
+          onClick={(e) => e.stopPropagation()}
+          onSelect={(e) => {
+            e.stopPropagation()
+            defaultAgentActions.onSet(item.id)
+          }}
+        >
+          <StarIcon className="mr-2 size-3.5" />
+          Make default
+        </ContextMenuItem>
+      ) : null}
+      {canUpdateAgent ? (
+        <ContextMenuCheckboxItem
+          className="text-xs"
+          checked={item.use_in_chat}
+          disabled={updateAgentPresetIsPending}
+          onClick={(e) => e.stopPropagation()}
+          onSelect={(e) => e.stopPropagation()}
+          onCheckedChange={(checked) => {
+            void updateAgentPreset({
+              presetId: item.id,
+              use_in_chat: checked,
+            }).catch(() => {})
+          }}
+        >
+          Use in chat
+        </ContextMenuCheckboxItem>
+      ) : null}
       {canOrganize ? (
         <ContextMenuItem
           className="text-xs"
@@ -1554,6 +1604,7 @@ function AgentCatalogRow({
   canDeleteAgent,
   canDuplicateAgent,
   organizationEnabled = true,
+  defaultAgentActions,
 }: {
   item: AgentDirectoryItem
   onOpenPreset: (presetId: string) => void
@@ -1568,6 +1619,7 @@ function AgentCatalogRow({
   canDeleteAgent: boolean
   canDuplicateAgent: boolean
   organizationEnabled?: boolean
+  defaultAgentActions: DefaultAgentActions
 }) {
   const [isContextMenuOpen, setIsContextMenuOpen] = useState(false)
 
@@ -1663,6 +1715,15 @@ function AgentCatalogRow({
                   >
                     {item.model_name}
                   </Badge>
+                  {defaultAgentActions.presetId === item.id ? (
+                    <Badge
+                      variant="outline"
+                      className="h-5 gap-1 px-2 text-[10px] font-normal"
+                    >
+                      <StarIcon className="size-3" />
+                      Default
+                    </Badge>
+                  ) : null}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Badge
@@ -1699,6 +1760,7 @@ function AgentCatalogRow({
           canDeleteAgent={canDeleteAgent}
           canDuplicateAgent={canDuplicateAgent}
           organizationEnabled={organizationEnabled}
+          defaultAgentActions={defaultAgentActions}
         />
       </ContextMenuContent>
     </ContextMenu>
@@ -1732,6 +1794,7 @@ function AgentsCatalogHeader({
   onViewChange,
   totalCount,
   viewSwitchEnabled = true,
+  defaultAgentId,
 }: {
   searchQuery: string
   onSearchChange: (query: string) => void
@@ -1741,6 +1804,7 @@ function AgentsCatalogHeader({
   onViewChange: (view: AgentsViewMode) => void
   totalCount: number
   viewSwitchEnabled?: boolean
+  defaultAgentId?: string | null
 }) {
   const selectedSortLabel =
     SORT_FIELD_OPTIONS.find((o) => o.value === sortBy.field)?.label ?? "Updated"
@@ -1841,6 +1905,12 @@ function AgentsCatalogHeader({
             )}
           </button>
         </div>
+        {defaultAgentId ? (
+          <WorkspaceDefaultAgentBadge
+            presetId={defaultAgentId}
+            organizationEnabled={viewSwitchEnabled}
+          />
+        ) : null}
       </div>
     </div>
   )
@@ -1854,6 +1924,16 @@ export function AgentsDashboard() {
   const queryClient = useQueryClient()
   const workspaceId = useWorkspaceId()
   const searchParams = useSearchParams()
+  const { workspace } = useWorkspaceDetails()
+  const { setDefaultAgent, isSettingDefaultAgent } =
+    useSetDefaultAgent(workspaceId)
+  const defaultAgentId = workspace?.default_agent_preset_id ?? null
+  const defaultAgentActions: DefaultAgentActions = {
+    presetId: defaultAgentId,
+    canSet: useScopeCheck("workspace:update") === true,
+    isPending: isSettingDefaultAgent,
+    onSet: setDefaultAgent,
+  }
   const canCreateAgent = useScopeCheck("agent:create") === true
   const canUpdateAgent = useScopeCheck("agent:update") === true
   const canDeleteAgent = useScopeCheck("agent:delete") === true
@@ -2049,6 +2129,7 @@ export function AgentsDashboard() {
         name: preset.name,
         slug: preset.slug,
         description: preset.description,
+        use_in_chat: preset.use_in_chat,
         model_provider: preset.model_provider,
         model_name: preset.model_name,
         folder_id: preset.folder_id ?? null,
@@ -2080,6 +2161,7 @@ export function AgentsDashboard() {
           onViewChange={handleViewChange}
           totalCount={visibleItems.length}
           viewSwitchEnabled={organizationEnabled}
+          defaultAgentId={defaultAgentId}
         />
 
         <div className="min-h-0 flex-1 overflow-auto">
@@ -2121,6 +2203,7 @@ export function AgentsDashboard() {
                   canDeleteAgent={canDeleteAgent}
                   canDuplicateAgent={canDuplicateAgent}
                   organizationEnabled={organizationEnabled}
+                  defaultAgentActions={defaultAgentActions}
                   duplicateDisabled={
                     createAgentPresetIsPending ||
                     (organizationEnabled &&

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from typing import NotRequired, Self, TypedDict
 
 from pydantic import EmailStr, Field, computed_field, field_validator, model_validator
@@ -124,6 +125,10 @@ class WorkspaceCreate(Schema):
 class WorkspaceUpdate(Schema):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     settings: WorkspaceSettingsUpdate | None = None
+    default_agent_preset_id: uuid.UUID | None = Field(
+        default=None,
+        description="Default agent preset for this workspace. Set to null to clear.",
+    )
 
 
 class WorkspaceSearch(Schema):
@@ -149,6 +154,7 @@ class WorkspaceMember(Schema):
 class WorkspaceRead(Schema):
     id: WorkspaceID
     name: str
+    default_agent_preset_id: uuid.UUID | None = Field(default=None)
     settings: WorkspaceSettingsRead | None = None
     organization_id: OrganizationID
     unsafe_disable_secret_error_withholding_allowed: bool = Field(

@@ -714,6 +714,7 @@ export type AgentPresetCreate = {
   enable_thinking?: boolean
   enable_internet_access?: boolean
   description?: string | null
+  use_in_chat?: boolean
   skills?: Array<AgentPresetSkillBindingBase> | null
   name: string
   slug?: string | null
@@ -728,6 +729,7 @@ export type AgentPresetDirectoryItem = {
   name: string
   slug: string
   description: string | null
+  use_in_chat?: boolean
   model_provider: string
   model_name: string
   folder_id: string | null
@@ -767,6 +769,7 @@ export type AgentPresetRead = {
   id: string
   workspace_id: string
   name: string
+  use_in_chat?: boolean
   slug: string
   description?: string | null
   current_version_id?: string | null
@@ -785,6 +788,7 @@ export type AgentPresetReadMinimal = {
   name: string
   slug: string
   description: string | null
+  use_in_chat?: boolean
   model_provider: string
   model_name: string
   folder_id?: string | null
@@ -877,6 +881,7 @@ export type AgentPresetToolPolicyRead = {
  */
 export type AgentPresetUpdate = {
   name?: string | null
+  use_in_chat?: boolean | null
   slug?: string | null
   description?: string | null
   instructions?: string | null
@@ -11398,6 +11403,7 @@ export type WorkspaceMembershipRead = {
 export type WorkspaceRead = {
   id: string
   name: string
+  default_agent_preset_id?: string | null
   settings?: WorkspaceSettingsRead | null
   organization_id: string
   /**
@@ -11580,6 +11586,10 @@ export type WorkspaceSyncPreviewResource = {
 export type WorkspaceUpdate = {
   name?: string | null
   settings?: WorkspaceSettingsUpdate | null
+  /**
+   * Default agent preset for this workspace. Set to null to clear.
+   */
+  default_agent_preset_id?: string | null
 }
 
 export type Yaml = {
@@ -13116,6 +13126,7 @@ export type AgentChannelsStartSlackOauthData = {
 export type AgentChannelsStartSlackOauthResponse = SlackOAuthStartResponse
 
 export type AgentPresetsListAgentPresetsData = {
+  useInChat?: boolean | null
   workspaceId: string
 }
 

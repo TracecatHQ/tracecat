@@ -597,6 +597,7 @@ class AgentFolderService(BaseWorkspaceService):
                 name=preset.name,
                 slug=preset.slug,
                 description=preset.description,
+                use_in_chat=preset.use_in_chat,
                 model_provider=preset.model_provider,
                 model_name=preset.model_name,
                 folder_id=preset.folder_id,

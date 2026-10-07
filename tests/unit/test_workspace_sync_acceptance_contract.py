@@ -237,6 +237,279 @@ def test_agent_preset_mcp_hint_contract_keeps_refs_as_strings() -> None:
     assert exported["mcp_integration_hints"][str(source_id)]["slug"] == "linear_mcp"
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize("use_in_chat", [False, True])
+async def test_agent_chat_metadata_cross_workspace_git_round_trip(
+    session: AsyncSession,
+    svc_role: Role,
+    use_in_chat: bool,
+) -> None:
+    repo_url = "git+ssh://git@github.com/TracecatHQ/qa-agent-chat-sync.git"
+    git_url = GitUrl(host="github.com", org="TracecatHQ", repo="qa-agent-chat-sync")
+    fake_vcs = FakeVcsServer()
+    assert svc_role.workspace_id is not None
+    await _set_workspace_git_repo_url(
+        session, workspace_id=svc_role.workspace_id, repo_url=repo_url
+    )
+    target_role = await _create_workspace_role(
+        session,
+        source_role=svc_role,
+        workspace_name="qa-agent-chat-target",
+        repo_url=repo_url,
+    )
+    source_service = WorkspaceSyncService(
+        session=session, role=svc_role, transport_factory=fake_vcs.transport_factory
+    )
+    source_snapshot, diagnostics = await source_service.parse_files(
+        _combined_git_tree(
+            _agent_preset_git_tree(
+                source_id="qa-default",
+                slug="qa-default",
+                name="QA default",
+                use_in_chat=use_in_chat,
+                is_workspace_default=True,
+            ),
+            _agent_preset_git_tree(
+                source_id="qa-legacy", slug="qa-legacy", name="QA legacy"
+            ),
+        )
+    )
+    assert diagnostics == []
+    await WorkspaceResourceImportService(
+        session=session, role=svc_role
+    ).import_non_workflow_resources(source_snapshot.spec)
+    source_presets = {
+        preset.slug: preset
+        for preset in await session.scalars(
+            select(AgentPreset).where(AgentPreset.workspace_id == svc_role.workspace_id)
+        )
+    }
+    assert source_presets["qa-legacy"].use_in_chat is False
+
+    exported = await source_service.export_workspace(
+        WorkspaceSyncExportRequest(
+            message="Export agent chat metadata",
+            branch="sync/agent-chat",
+            create_pr=False,
+        )
+    )
+    assert exported.commit.sha is not None
+    files = fake_vcs.repo_files(git_url, ref=exported.commit.sha)
+    default_spec = yaml.safe_load(files[f"{AGENT_PRESET_ROOT}/qa-default/preset.yml"])
+    legacy_spec = yaml.safe_load(files[f"{AGENT_PRESET_ROOT}/qa-legacy/preset.yml"])
+    assert default_spec["use_in_chat"] is use_in_chat
+    assert default_spec["is_workspace_default"] is True
+    assert legacy_spec["use_in_chat"] is False
+    assert legacy_spec["is_workspace_default"] is False
+    exported_snapshot, diagnostics = await source_service.parse_files(files)
+    assert diagnostics == []
+
+    target_service = WorkspaceSyncService(
+        session=session, role=target_role, transport_factory=fake_vcs.transport_factory
+    )
+    pulled = await target_service.pull(
+        options=PullOptions(commit_sha=exported.commit.sha)
+    )
+    assert pulled.success is True
+    target_presets = {
+        preset.slug: preset
+        for preset in await session.scalars(
+            select(AgentPreset).where(
+                AgentPreset.workspace_id == target_role.workspace_id
+            )
+        )
+    }
+    assert target_presets["qa-default"].use_in_chat is use_in_chat
+    assert target_presets["qa-legacy"].use_in_chat is False
+    target_default = await session.scalar(
+        select(Workspace.default_agent_preset_id).where(
+            Workspace.id == target_role.workspace_id
+        )
+    )
+    assert target_default == target_presets["qa-default"].id
+    assert target_default != source_presets["qa-default"].id
+    projection = await target_service.project_workspace()
+    assert projection.spec.agent_presets == exported_snapshot.spec.agent_presets
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    (
+        "use_in_chat",
+        "default_flag",
+        "previous_default",
+        "expected_chat",
+        "expected_default",
+    ),
+    [
+        (None, None, "qa-imported", True, "qa-imported"),
+        (None, None, None, True, None),
+        (False, False, "qa-imported", False, None),
+        (True, True, "qa-unrelated", True, "qa-imported"),
+        (False, False, "qa-unrelated", False, "qa-unrelated"),
+        (False, True, None, False, "qa-imported"),
+    ],
+)
+async def test_agent_chat_metadata_pull_preserves_versions_and_partial_defaults(
+    session: AsyncSession,
+    svc_role: Role,
+    use_in_chat: bool | None,
+    default_flag: bool | None,
+    previous_default: str | None,
+    expected_chat: bool,
+    expected_default: str | None,
+) -> None:
+    repo_url = "git+ssh://git@github.com/TracecatHQ/qa-agent-chat-pull.git"
+    assert svc_role.workspace_id is not None
+    await _set_workspace_git_repo_url(
+        session, workspace_id=svc_role.workspace_id, repo_url=repo_url
+    )
+    await WorkspaceResourceImportService(
+        session=session, role=svc_role
+    ).import_non_workflow_resources(
+        WorkspaceSpec(
+            agent_presets={
+                slug: AgentPresetResourceSpec(
+                    id=slug, slug=slug, name=slug, use_in_chat=True
+                )
+                for slug in ("qa-imported", "qa-unrelated")
+            }
+        )
+    )
+    presets = {
+        preset.slug: preset
+        for preset in await session.scalars(
+            select(AgentPreset).where(AgentPreset.workspace_id == svc_role.workspace_id)
+        )
+    }
+    workspace = await session.scalar(
+        select(Workspace).where(Workspace.id == svc_role.workspace_id)
+    )
+    assert workspace is not None
+    workspace.default_agent_preset_id = (
+        presets[previous_default].id if previous_default else None
+    )
+    await session.commit()
+    version_id = presets["qa-imported"].current_version_id
+    transport = AsyncMock()
+    transport.read_files.return_value = VcsTreeSnapshot(
+        commit_sha="a" * 40,
+        tree_sha="tree-sha",
+        files=_agent_preset_git_tree(
+            source_id="qa-imported",
+            slug="qa-imported",
+            name="qa-imported",
+            use_in_chat=use_in_chat,
+            is_workspace_default=default_flag,
+        ),
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    with patch(
+        "tracecat.workspace_sync.service.vcs_transport_for_provider",
+        return_value=transport,
+    ):
+        preview = await service.pull(
+            options=PullOptions(commit_sha="a" * 40, dry_run=True)
+        )
+        assert preview.success is True
+        preview_diff = "\n".join(diff.diff for diff in preview.resource_diffs or [])
+        if use_in_chat is None:
+            assert "use_in_chat" not in preview_diff
+        if default_flag is None:
+            assert "is_workspace_default" not in preview_diff
+        await session.refresh(workspace)
+        await session.refresh(presets["qa-imported"])
+        assert workspace.default_agent_preset_id == (
+            presets[previous_default].id if previous_default else None
+        )
+        assert presets["qa-imported"].use_in_chat is True
+        result = await service.pull(options=PullOptions(commit_sha="a" * 40))
+    assert result.success is True
+    await session.refresh(workspace)
+    await session.refresh(presets["qa-imported"])
+    assert workspace.default_agent_preset_id == (
+        presets[expected_default].id if expected_default else None
+    )
+    assert presets["qa-imported"].use_in_chat is expected_chat
+    assert presets["qa-imported"].current_version_id == version_id
+
+
+@pytest.mark.anyio
+async def test_agent_chat_metadata_rejects_multiple_workspace_defaults(
+    session: AsyncSession,
+    svc_role: Role,
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    files = _combined_git_tree(
+        *(
+            _agent_preset_git_tree(
+                source_id=slug, slug=slug, name=slug, is_workspace_default=True
+            )
+            for slug in ("qa-first", "qa-second")
+        )
+    )
+    snapshot, diagnostics = await workspace_sync_service.parse_files(files)
+    assert len(diagnostics) == 1
+    assert diagnostics[0].error_type == "dependency"
+    assert diagnostics[0].details == {
+        "agent_preset_source_ids": ["qa-first", "qa-second"]
+    }
+    with pytest.raises(TracecatValidationError, match="Only one agent preset"):
+        await WorkspaceResourceImportService(
+            session=session, role=svc_role
+        ).import_non_workflow_resources(snapshot.spec)
+    assert (
+        await session.scalars(
+            select(AgentPreset).where(AgentPreset.workspace_id == svc_role.workspace_id)
+        )
+    ).all() == []
+
+
+@pytest.mark.anyio
+async def test_agent_chat_metadata_import_rolls_back_with_parent_transaction(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    spec = WorkspaceSpec(
+        agent_presets={
+            "qa-rollback": AgentPresetResourceSpec(
+                id="qa-rollback",
+                slug="qa-rollback",
+                name="QA rollback",
+                use_in_chat=True,
+                is_workspace_default=True,
+            )
+        }
+    )
+    with pytest.raises(TracecatValidationError, match="Synthetic import failure"):
+        async with session.begin_nested():
+            await WorkspaceResourceImportService(
+                session=session, role=svc_role
+            ).import_non_workflow_resources(spec)
+            assert (
+                await session.scalar(
+                    select(Workspace.default_agent_preset_id).where(
+                        Workspace.id == svc_role.workspace_id
+                    )
+                )
+            ) is not None
+            raise TracecatValidationError("Synthetic import failure")
+    assert (
+        await session.scalar(
+            select(Workspace.default_agent_preset_id).where(
+                Workspace.id == svc_role.workspace_id
+            )
+        )
+    ) is None
+    assert (
+        await session.scalar(
+            select(AgentPreset.id).where(
+                AgentPreset.workspace_id == svc_role.workspace_id
+            )
+        )
+    ) is None
+
+
 def test_agent_preset_mcp_contract_rejects_stale_hints() -> None:
     """A hint cannot describe an integration absent from the authoritative list."""
     with pytest.raises(ValidationError, match="must reference ids"):
@@ -7714,6 +7987,8 @@ def _agent_preset_git_tree(
     name: str,
     instructions: str | None = None,
     version_number: int = 1,
+    use_in_chat: bool | None = None,
+    is_workspace_default: bool | None = None,
 ) -> dict[str, str]:
     del version_number
     return {
@@ -7726,6 +8001,12 @@ def _agent_preset_git_tree(
                 "slug": slug,
                 "name": name,
                 "instructions": instructions,
+                **({"use_in_chat": use_in_chat} if use_in_chat is not None else {}),
+                **(
+                    {"is_workspace_default": is_workspace_default}
+                    if is_workspace_default is not None
+                    else {}
+                ),
             }
         ),
     }

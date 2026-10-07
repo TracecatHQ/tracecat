@@ -32,10 +32,11 @@ async def list_agent_presets(
     *,
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
+    use_in_chat: bool | None = Query(default=None),
 ) -> list[AgentPresetReadMinimal]:
     """List all agent presets for the current workspace."""
     service = AgentPresetService(session, role=role)
-    presets = await service.list_presets()
+    presets = await service.list_presets(use_in_chat=use_in_chat)
     return await service.build_preset_list_reads(presets)
 
 

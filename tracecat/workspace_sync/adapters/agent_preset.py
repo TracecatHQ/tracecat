@@ -32,6 +32,7 @@ from tracecat.db.models import (
     MCPIntegration,
     Skill,
     SkillVersion,
+    Workspace,
 )
 from tracecat.db.soft_delete import with_deleted
 from tracecat.dsl.enums import PlatformAction
@@ -187,6 +188,12 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     ) -> ResourceProjection:
         """Build one Git-owned desired head snapshot per preset."""
         assigner = await self.source_id_assigner(workspace_service)
+        default_preset_id = await workspace_service.session.scalar(
+            select(Workspace.default_agent_preset_id).where(
+                Workspace.id == workspace_service.workspace_id,
+                Workspace.organization_id == workspace_service.organization_id,
+            )
+        )
         specs: dict[str, BaseModel] = {}
         resources: list[ProjectedResource] = []
         for preset in presets:
@@ -201,6 +208,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 id=source_id,
                 slug=preset.slug,
                 name=preset.name,
+                use_in_chat=preset.use_in_chat,
+                is_workspace_default=preset.id == default_preset_id,
                 folder_path=preset.folder.path if preset.folder else None,
                 tags=sorted(tag.name for tag in preset.tags),
                 instructions=execution.instructions,
@@ -1281,6 +1290,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         # Compute the parent-after-subagent order up front so pass 2 can resolve
         # subagent refs once their child presets already exist.
         import_order = self._preset_import_order(presets)
+        if any(spec.is_workspace_default is not None for spec in presets.values()):
+            check_scopes(workspace_service.role, "workspace:update")
         await self._lock_import_dependencies(workspace_service, presets)
         swap = await self.plan_name_swap(
             workspace_service,
@@ -1362,7 +1373,49 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 binding_specs=binding_specs,
             )
             imported.append(self.imported_resource(source_id, preset.id))
+        await self._reconcile_workspace_default(
+            workspace_service, presets, preset_by_source_id
+        )
         return imported
+
+    async def _reconcile_workspace_default(
+        self,
+        workspace_service: SyncMappingService,
+        specs: Mapping[str, AgentPresetResourceSpec],
+        presets: Mapping[str, AgentPreset],
+    ) -> None:
+        """Apply explicit default flags using destination-local preset identities."""
+        default_flags = {
+            presets[source_id].id: spec.is_workspace_default
+            for source_id, spec in specs.items()
+            if spec.is_workspace_default is not None
+        }
+        if not default_flags:
+            return
+        workspace = (
+            await workspace_service.session.scalars(
+                select(Workspace)
+                .where(
+                    Workspace.id == workspace_service.workspace_id,
+                    Workspace.organization_id == workspace_service.organization_id,
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).one()
+        default_id = next(
+            (preset_id for preset_id, enabled in default_flags.items() if enabled),
+            None,
+        )
+        if default_id is not None:
+            workspace.default_agent_preset_id = default_id
+        elif (
+            workspace.default_agent_preset_id is not None
+            and default_flags.get(workspace.default_agent_preset_id) is False
+        ):
+            workspace.default_agent_preset_id = None
+        workspace_service.session.add(workspace)
+        await workspace_service.session.flush()
 
     async def _lock_import_dependencies(
         self,
@@ -1414,6 +1467,10 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
         :class:`TracecatValidationError` on duplicate slugs or cyclic
         references.
         """
+        if sum(spec.is_workspace_default is True for spec in presets.values()) > 1:
+            raise TracecatValidationError(
+                "Only one agent preset can be the workspace default"
+            )
         # Index slug -> source id so subagent refs (which name slugs) can be
         # mapped back to specs; duplicate slugs make the graph ambiguous.
         slug_to_source_id: dict[str, str] = {}
@@ -1463,6 +1520,8 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
     ) -> None:
         """Copy non-versioned metadata fields onto ``preset``."""
         preset.name = spec.name
+        if spec.use_in_chat is not None:
+            preset.use_in_chat = spec.use_in_chat
 
     def _apply_preset_head_spec(
         self,

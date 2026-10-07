@@ -2432,6 +2432,11 @@ export const $AgentPresetCreate = {
       ],
       title: "Description",
     },
+    use_in_chat: {
+      type: "boolean",
+      title: "Use In Chat",
+      default: false,
+    },
     skills: {
       anyOf: [
         {
@@ -2502,6 +2507,11 @@ export const $AgentPresetDirectoryItem = {
         },
       ],
       title: "Description",
+    },
+    use_in_chat: {
+      type: "boolean",
+      title: "Use In Chat",
+      default: false,
     },
     model_provider: {
       type: "string",
@@ -2727,6 +2737,11 @@ export const $AgentPresetRead = {
       type: "string",
       title: "Name",
     },
+    use_in_chat: {
+      type: "boolean",
+      title: "Use In Chat",
+      default: false,
+    },
     slug: {
       type: "string",
       title: "Slug",
@@ -2830,6 +2845,11 @@ export const $AgentPresetReadMinimal = {
         },
       ],
       title: "Description",
+    },
+    use_in_chat: {
+      type: "boolean",
+      title: "Use In Chat",
+      default: false,
     },
     model_provider: {
       type: "string",
@@ -3165,6 +3185,17 @@ export const $AgentPresetUpdate = {
         },
       ],
       title: "Name",
+    },
+    use_in_chat: {
+      anyOf: [
+        {
+          type: "boolean",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Use In Chat",
     },
     slug: {
       anyOf: [
@@ -37947,6 +37978,18 @@ export const $WorkspaceRead = {
       type: "string",
       title: "Name",
     },
+    default_agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Agent Preset Id",
+    },
     settings: {
       anyOf: [
         {
@@ -38468,6 +38511,20 @@ export const $WorkspaceUpdate = {
           type: "null",
         },
       ],
+    },
+    default_agent_preset_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Default Agent Preset Id",
+      description:
+        "Default agent preset for this workspace. Set to null to clear.",
     },
   },
   type: "object",

@@ -5743,6 +5743,7 @@ export const agentChannelsStartSlackOauth = (
  * List all agent presets for the current workspace.
  * @param data The data for the request.
  * @param data.workspaceId
+ * @param data.useInChat
  * @returns AgentPresetReadMinimal Successful Response
  * @throws ApiError
  */
@@ -5754,6 +5755,9 @@ export const agentPresetsListAgentPresets = (
     url: "/workspaces/{workspace_id}/agent/presets",
     path: {
       workspace_id: data.workspaceId,
+    },
+    query: {
+      use_in_chat: data.useInChat,
     },
     errors: {
       422: "Validation Error",

@@ -1113,6 +1113,26 @@ class WorkspaceSyncService(SyncMappingService):
             include_schedules=sync_schedules,
             create_missing_mappings=False,
         )
+        target_presets = dict(target_spec.agent_presets)
+        for source_id, preset in target_presets.items():
+            current_preset = current_projection.spec.agent_presets.get(source_id)
+            if current_preset is None:
+                continue
+            target_presets[source_id] = preset.model_copy(
+                update={
+                    "use_in_chat": (
+                        current_preset.use_in_chat
+                        if preset.use_in_chat is None
+                        else preset.use_in_chat
+                    ),
+                    "is_workspace_default": (
+                        current_preset.is_workspace_default
+                        if preset.is_workspace_default is None
+                        else preset.is_workspace_default
+                    ),
+                }
+            )
+        target_spec = target_spec.model_copy(update={"agent_presets": target_presets})
         target_files = self._files_from_spec(
             manifest=WorkspaceManifest(),
             spec=target_spec,
@@ -2127,6 +2147,11 @@ def _export_read_scopes_for_spec(spec: WorkspaceSpec) -> set[str]:
 def _pull_scopes_for_spec(spec: WorkspaceSpec, *, dry_run: bool) -> set[str]:
     """Collect resource scopes required by a pull spec."""
     scopes: set[str] = set()
+    if not dry_run and any(
+        preset.is_workspace_default is not None
+        for preset in spec.agent_presets.values()
+    ):
+        scopes.add("workspace:update")
     for adapter in WORKSPACE_RESOURCE_ADAPTERS:
         if not adapter.specs(spec):
             continue
