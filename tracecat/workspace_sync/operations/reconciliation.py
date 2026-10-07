@@ -7,7 +7,6 @@ from temporalio.client import ScheduleAlreadyRunningError
 from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.auth.types import Role
-from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.durations.reconciliation import CaseDurationBackfills
 from tracecat.cases.durations.sync_queue import publish_case_duration_sync
 from tracecat.db.models import Schedule, WorkspaceSyncOperation
@@ -54,12 +53,17 @@ async def reconcile_schedules(
         except RPCError as exc:
             if exc.status != RPCStatusCode.NOT_FOUND:
                 raise
-    service_role = Role(
-        type="service",
-        service_id="tracecat-schedule-runner",
-        organization_id=role.organization_id,
-        workspace_id=role.workspace_id,
-        scopes=SERVICE_PRINCIPAL_SCOPES["tracecat-schedule-runner"],
+    # Retain permissions authorized at the import commit, including on replay
+    # after the initiating identity loses access. Never add service grants.
+    schedule_role = Role.model_validate(
+        (operation.summary or {}).get("schedule_role", role.model_dump())
+    )
+    service_role = schedule_role.model_copy(
+        update={
+            "type": "service",
+            "service_id": "tracecat-schedule-runner",
+            "user_id": None,
+        }
     )
     for schedule_id in changes.created:
         # Read the current desired row under a lock: edits since the import must

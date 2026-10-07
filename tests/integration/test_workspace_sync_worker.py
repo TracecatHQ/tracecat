@@ -111,6 +111,10 @@ async def test_outbox_delivers_accepted_operation_and_persists_revoked_access(
         assert operation.status == "queued"
     # Dispatch is deliberately separated from API acceptance, including a repeat.
     await dispatch_pending_operations()
+    async with SyncOperationService.with_session(svc_role) as service:
+        operation = await service.get(operation_id)
+        operation.dispatched = False  # Simulate a lost acknowledgement.
+        await service.session.commit()
     await dispatch_pending_operations()
     client = await get_temporal_client()
     async with Worker(

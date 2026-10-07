@@ -141,7 +141,6 @@ class SyncOperationService(BaseWorkspaceService):
         operation.next_dispatch_at = datetime.now(UTC)
         operation.dispatch_attempts = 0
         operation.stage = "applying"
-        operation.actor = json_document(self.role.model_dump(mode="json"))
         await self.session.commit()
         return operation
 
@@ -166,7 +165,6 @@ class SyncOperationService(BaseWorkspaceService):
         operation.dispatch_attempts = 0
         operation.status = "applying" if operation.stage == "applying" else "queued"
         operation.error = None
-        operation.actor = json_document(self.role.model_dump(mode="json"))
         await self.session.commit()
         return operation
 
