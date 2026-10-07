@@ -8750,6 +8750,9 @@ async def create_agent_preset(
     user explicitly asks to pin a specific version. A child preset cannot have
     its own subagents, and its tools can require manual approval only when an
     enabled agent backend supports subagent approvals.
+
+    `reasoning_effort` is one of `off`, `low`, `medium`, `high`, or `max`. Omit
+    it to use the model's default reasoning level.
     """
 
     try:
