@@ -11,6 +11,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, model_validator
 
+from tracecat.agent.common.types import read_reasoning_effort_as_enable_thinking
 from tracecat.agent.skill.types import SkillOrigin
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.integrations.schemas import MCPToolStatus
@@ -112,15 +113,18 @@ class AgentConfigPayload(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_legacy_workflow_history(cls, value: Any) -> Any:
-        """Accept the pre-payload AgentConfig shape stored in workflow history."""
+        """Accept the pre-payload AgentConfig shape stored in workflow history,
+        and the ``reasoning_effort`` key that newer workers write."""
         if not isinstance(value, dict):
             return value
 
-        normalized = {
-            key: item
-            for key, item in value.items()
-            if key not in _LEGACY_AGENT_CONFIG_KEYS
-        }
+        normalized = read_reasoning_effort_as_enable_thinking(
+            {
+                key: item
+                for key, item in value.items()
+                if key not in _LEGACY_AGENT_CONFIG_KEYS
+            }
+        )
         if isinstance(mcp_servers := normalized.get("mcp_servers"), list):
             normalized["mcp_servers"] = [
                 _normalize_legacy_mcp_server_payload(server) for server in mcp_servers
