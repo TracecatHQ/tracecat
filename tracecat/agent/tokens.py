@@ -115,6 +115,13 @@ class MCPTokenClaims(BaseModel):
     """Organization UUID for authorization context."""
     allowed_actions: list[str]
     """Set of allowed action names (e.g., {"tools.slack.post_message", "core.http_request"})."""
+    deferred_actions: list[str] = Field(default_factory=list)
+    """Actions listed for discovery that this token can never execute.
+
+    The holder can see and propose these tools, but the trusted server refuses
+    to run them. The minting service executes approved calls itself with a
+    separate token, so approval is enforced even if the holder is compromised.
+    """
     user_mcp_servers: list[UserMCPServerClaim] = Field(default_factory=list)
     """User-defined MCP server configurations for proxying tool calls."""
     allowed_internal_tools: list[str] = Field(default_factory=list)
@@ -138,6 +145,7 @@ def mint_mcp_token(
     allowed_actions: list[str],
     session_id: uuid.UUID,
     registry_lock: RegistryLock,
+    deferred_actions: list[str] | None = None,
     user_id: UserID | None = None,
     parent_agent_workflow_id: str | None = None,
     parent_agent_run_id: str | None = None,
@@ -160,7 +168,10 @@ def mint_mcp_token(
         organization_id: Organization UUID for authorization context
         allowed_actions: Set of allowed action names
         session_id: Agent session ID for traceability
-        registry_lock: Registry lock resolved for this token's registry actions
+        registry_lock: Registry lock resolved for this token's registry
+            and deferred actions
+        deferred_actions: Action names listed for discovery but never
+            executable with this token, such as approval-gated tools
         user_id: Optional user ID for audit/traceability
         user_mcp_servers: User-defined MCP server configs for proxying
         allowed_internal_tools: Set of allowed internal tool names
@@ -170,7 +181,13 @@ def mint_mcp_token(
 
     Returns:
         Signed JWT string
+
+    Raises:
+        ValueError: If an action is both allowed and deferred
     """
+    deferred_actions = deferred_actions or []
+    if set(allowed_actions) & set(deferred_actions):
+        raise ValueError("An MCP action cannot be both allowed and deferred")
     now = datetime.now(UTC)
     ttl = ttl_seconds or config.TRACECAT__AGENT_SANDBOX_TIMEOUT + 60
 
@@ -192,6 +209,7 @@ def mint_mcp_token(
             parent_agent_workflow_id=parent_agent_workflow_id,
             parent_agent_run_id=parent_agent_run_id,
             allowed_actions=allowed_actions,
+            deferred_actions=deferred_actions,
             user_mcp_servers=user_mcp_servers or [],
             allowed_internal_tools=allowed_internal_tools or [],
             internal_tool_context=internal_tool_context,

@@ -12,7 +12,7 @@ from tracecat.agent.mcp import trusted_server
 from tracecat.agent.mcp.metadata import PROXY_TOOL_CALL_ID_KEY, PROXY_TOOL_METADATA_KEY
 from tracecat.agent.mcp.user_client import UserMCPClient, UserMCPDiscoveryResult
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim
+from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim, mint_mcp_token
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.registry.lock.types import RegistryLock
 
@@ -25,6 +25,7 @@ def clear_user_mcp_discovery_cache() -> None:
 def _build_claims(
     *,
     allowed_actions: list[str] | None = None,
+    deferred_actions: list[str] | None = None,
     allowed_internal_tools: list[str] | None = None,
     user_mcp_servers: list[UserMCPServerClaim] | None = None,
     registry_lock: RegistryLock | None = None,
@@ -36,6 +37,7 @@ def _build_claims(
         parent_agent_workflow_id="agent/00000000-0000-0000-0000-000000000003",
         parent_agent_run_id="run-123",
         allowed_actions=allowed_actions or ["core.http_request"],
+        deferred_actions=deferred_actions or [],
         allowed_internal_tools=allowed_internal_tools or [],
         user_mcp_servers=user_mcp_servers or [],
         registry_lock=registry_lock,
@@ -1118,3 +1120,179 @@ async def test_token_scoped_mcp_call_requires_bearer_auth(
 
     with pytest.raises(ToolError, match="Authentication failed"):
         await trusted_server.mcp.call_tool("core__cases__list_cases", {})
+
+
+@pytest.mark.anyio
+async def test_build_token_scoped_tools_lists_deferred_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_fetch_tool_definitions(
+        action_names: list[str],
+    ) -> dict[str, MCPToolDefinition]:
+        assert action_names == ["core.cases.list_cases", "core.cases.delete_case"]
+        return {
+            name: MCPToolDefinition(
+                name=name,
+                description=name,
+                parameters_json_schema={"type": "object"},
+            )
+            for name in action_names
+        }
+
+    class _FakeUserMCPClient:
+        parse_user_mcp_tool_name = staticmethod(UserMCPClient.parse_user_mcp_tool_name)
+
+        def __init__(self, configs: list[dict[str, Any]]) -> None:
+            self.configs = configs
+
+        async def discover_tools_detailed(self) -> UserMCPDiscoveryResult:
+            return UserMCPDiscoveryResult(
+                definitions={
+                    name: MCPToolDefinition(
+                        name=name,
+                        description=name,
+                        parameters_json_schema={"type": "object"},
+                    )
+                    for name in (
+                        "mcp__Jira__getIssue",
+                        "mcp__Jira__deleteIssue",
+                        "mcp__Jira__listProjects",
+                    )
+                },
+                failed_servers={},
+            )
+
+    monkeypatch.setattr(
+        trusted_server,
+        "fetch_tool_definitions",
+        fake_fetch_tool_definitions,
+    )
+    monkeypatch.setattr(trusted_server, "UserMCPClient", _FakeUserMCPClient)
+
+    claims = _build_claims(
+        allowed_actions=["core.cases.list_cases", "mcp__Jira__getIssue"],
+        deferred_actions=["core.cases.delete_case", "mcp__Jira__deleteIssue"],
+        user_mcp_servers=[
+            UserMCPServerClaim(
+                name="Jira",
+                url="https://mcp.atlassian.com/v1/mcp",
+            )
+        ],
+    )
+
+    build = await trusted_server._build_token_scoped_tools(claims)
+
+    assert [tool.name for tool in build.tools] == [
+        "core__cases__list_cases",
+        "core__cases__delete_case",
+        "mcp__Jira__getIssue",
+        "mcp__Jira__deleteIssue",
+    ]
+    assert build.cacheable
+
+
+@pytest.mark.anyio
+async def test_execute_registry_action_refuses_deferred_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execute_action = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(trusted_server, "execute_action", execute_action)
+
+    with pytest.raises(
+        ToolError, match="^Tool 'core.cases.delete_case' requires approval$"
+    ):
+        await trusted_server._execute_registry_action(
+            "core.cases.delete_case",
+            {},
+            _build_claims(deferred_actions=["core.cases.delete_case"]),
+        )
+
+    execute_action.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_execute_user_mcp_refuses_deferred_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        trusted_server,
+        "UserMCPClient",
+        lambda _: pytest.fail("deferred tools must not reach the user MCP server"),
+    )
+    claims = _build_claims(
+        deferred_actions=["mcp__Jira__deleteIssue"],
+        user_mcp_servers=[
+            UserMCPServerClaim(
+                name="Jira",
+                url="https://mcp.atlassian.com/v1/mcp",
+            )
+        ],
+    )
+
+    with pytest.raises(
+        ToolError, match="^Tool 'mcp__Jira__deleteIssue' requires approval$"
+    ):
+        await trusted_server._execute_user_mcp("Jira", "deleteIssue", {}, claims)
+
+
+@pytest.mark.anyio
+async def test_token_scoped_mcp_lists_but_refuses_deferred_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deferred action is visible to the token holder but never executes."""
+    monkeypatch.setattr("tracecat.config.TRACECAT__SERVICE_KEY", "test-service-key")
+    lock = RegistryLock(
+        origins={"tracecat_registry": "test-version"},
+        actions={
+            "core.cases.list_cases": "tracecat_registry",
+            "core.cases.delete_case": "tracecat_registry",
+        },
+    )
+    token = mint_mcp_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        allowed_actions=["core.cases.list_cases"],
+        deferred_actions=["core.cases.delete_case"],
+        registry_lock=lock,
+    )
+
+    async def fake_fetch_tool_definitions_for_lock(
+        action_names: list[str],
+        registry_lock: RegistryLock,
+        organization_id: uuid.UUID,
+    ) -> dict[str, MCPToolDefinition]:
+        del registry_lock, organization_id
+        return {
+            name: MCPToolDefinition(
+                name=name,
+                description=name,
+                parameters_json_schema={"type": "object"},
+            )
+            for name in action_names
+        }
+
+    execute_action = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(
+        trusted_server,
+        "fetch_tool_definitions_for_lock",
+        fake_fetch_tool_definitions_for_lock,
+    )
+    monkeypatch.setattr(trusted_server, "execute_action", execute_action)
+    monkeypatch.setattr(
+        trusted_server,
+        "get_http_headers",
+        lambda include: {"authorization": f"Bearer {token}"},
+    )
+    mcp = trusted_server.TokenScopedFastMCP("test")
+
+    assert [tool.name for tool in await mcp.list_tools()] == [
+        "core__cases__list_cases",
+        "core__cases__delete_case",
+    ]
+    with pytest.raises(ToolError, match="requires approval"):
+        await mcp.call_tool("core__cases__delete_case", {})
+    execute_action.assert_not_awaited()
+
+    await mcp.call_tool("core__cases__list_cases", {})
+    execute_action.assert_awaited_once()
