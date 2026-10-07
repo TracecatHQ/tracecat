@@ -65,6 +65,7 @@ class _MockGitLabApi:
         self._counter = 0
         self._commits: dict[str, _Commit] = {}
         self._branches: dict[str, str] = {}
+        self._tags: dict[str, str] = {}
         self._commit_branches: dict[str, str] = {}
         self._blobs: dict[str, _FileContent] = {}
         self._merge_requests: list[dict[str, Any]] = []
@@ -260,7 +261,11 @@ class _MockGitLabApi:
         return dict(self._commit_at_ref(ref).files)
 
     def _commit_at_ref(self, ref: str) -> _Commit:
-        sha = self._branches.get(ref, ref)
+        sha = (
+            self._branches[ref.removeprefix("refs/heads/")]
+            if ref.startswith("refs/heads/")
+            else self._tags.get(ref, self._branches.get(ref, ref))
+        )
         return self._commits[sha]
 
     def _new_commit(
@@ -984,3 +989,41 @@ async def test_gitlab_stale_missing_branch_does_not_create_branch() -> None:
         )
     assert "sync/new" not in api._branches
     assert not any(method == "POST" for method, _ in api.requests)
+
+
+@pytest.mark.anyio
+async def test_gitlab_branch_hint_ignores_same_name_tag() -> None:
+    api = _MockGitLabApi(
+        project_path="group/subgroup/project",
+        files={MANIFEST_FILENAME: _manifest(), "workflows/example.yml": "tag"},
+    )
+    tag_sha = api._branches["main"]
+    api._tags["main"] = tag_sha
+    branch_commit = api._new_commit(
+        branch="main",
+        message="Branch advances",
+        files={MANIFEST_FILENAME: _manifest(), "workflows/example.yml": "branch"},
+    )
+    api._branches["main"] = branch_commit.sha
+    transport = _MockGitLabTransport(api=api)
+    branch = await transport.read_files(url=_git_url(), ref="main", ref_kind="branch")
+    assert branch.commit_sha == branch_commit.sha
+    assert branch.files["workflows/example.yml"] == "branch"
+    commit = await transport.read_files(url=_git_url(), ref=tag_sha, ref_kind="commit")
+    assert commit.files["workflows/example.yml"] == "tag"
+    with patch.object(
+        transport, "_write_guarded_commit", new=AsyncMock(return_value="new-sha")
+    ) as write:
+        await transport.write_files(
+            url=_git_url(),
+            files={MANIFEST_FILENAME: _manifest(), "workflows/example.yml": "updated"},
+            message="Sync",
+            branch="main",
+            create_pr=False,
+            expected_commit_sha=branch.commit_sha,
+        )
+    assert write.await_args is not None
+    assert write.await_args.kwargs["parent"] == branch_commit.sha
+    del api._branches["main"]
+    with pytest.raises(GitLabApiError):
+        await transport.read_files(url=_git_url(), ref="main", ref_kind="branch")

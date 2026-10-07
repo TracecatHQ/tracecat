@@ -1180,7 +1180,11 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
     ) -> VcsTreeSnapshot:
         """Read the manifest and managed resource files at ``ref``."""
         async with self._authed_client(url) as client:
-            return await self._read_files_with_client(client=client, url=url, ref=ref)
+            return await self._read_files_with_client(
+                client=client,
+                url=url,
+                ref=f"refs/heads/{ref}" if ref_kind == "branch" else ref,
+            )
 
     async def write_files(
         self,
@@ -1230,7 +1234,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             current = await self._read_files_with_client(
                 client=client,
                 url=url,
-                ref=branch if target_exists else branch_start_ref or base_branch_name,
+                ref=f"refs/heads/{branch if target_exists else branch_start_ref or base_branch_name}",
             )
             if (
                 expected_commit_sha is not None
