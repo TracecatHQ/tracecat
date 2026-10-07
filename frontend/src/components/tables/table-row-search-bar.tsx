@@ -56,11 +56,11 @@ export function TableRowSearchBar({
           onChange={(event) => onTermChange(event.target.value)}
           disabled={!canSearch}
           className={cn(
-            "h-7 max-w-md border-none bg-transparent p-0",
+            "h-7 max-w-md rounded-sm border-none bg-transparent px-1.5 py-0",
             "text-sm",
             "shadow-none outline-none",
             "placeholder:text-muted-foreground",
-            "focus-visible:ring-0 focus-visible:ring-offset-0"
+            "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-0"
           )}
         />
       </div>

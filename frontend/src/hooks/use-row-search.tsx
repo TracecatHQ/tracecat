@@ -56,10 +56,25 @@ export function useRowSearch() {
 }
 
 /**
- * Clears a sort or search the API rejects. A 400 while one is active means its
- * column was deleted or renamed, so `reset` is called to drop both rather than
- * leave the grid on an error. Returns whether the current error is such a
- * rejection, so the caller can skip rendering it.
+ * Whether a rows request failed because its sort or search column is gone or
+ * no longer searchable, going by the API's 400 detail. Other 400s, such as an
+ * over-long search term, are not stale columns.
+ */
+export function isStaleColumnError(error: ApiError | null): boolean {
+  if (error?.status !== 400) return false
+  const detail = (error.body as { detail?: unknown } | null)?.detail
+  if (typeof detail !== "string") return false
+  return (
+    detail.startsWith("Invalid search_column") ||
+    detail.startsWith("Invalid order_by column") ||
+    detail.endsWith("does not support text search")
+  )
+}
+
+/**
+ * Clears a sort or search whose column was deleted or renamed: `reset` is
+ * called to drop both rather than leave the grid on an error. Returns whether
+ * the current error is such a rejection, so the caller can skip rendering it.
  */
 export function useStaleRowQueryReset({
   error,
@@ -71,7 +86,7 @@ export function useStaleRowQueryReset({
   isActive: boolean
   reset: () => void
 }): boolean {
-  const isStale = isActive && error?.status === 400
+  const isStale = isActive && isStaleColumnError(error)
   useEffect(() => {
     if (isStale) reset()
   }, [isStale, reset])

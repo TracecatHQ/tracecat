@@ -17,10 +17,36 @@ import {
   type UseTablesPaginationParams,
   useTablesPagination,
 } from "@/hooks/pagination/use-tables-pagination"
-import { toRowSearchParams } from "@/hooks/use-row-search"
+import { isStaleColumnError, toRowSearchParams } from "@/hooks/use-row-search"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => ({ tablesListRows: jest.fn() }))
+
+test("only a 400 naming a bad column counts as a stale column", () => {
+  const apiError = (status: number, detail: string) =>
+    ({ status, body: { detail } }) as Parameters<typeof isStaleColumnError>[0]
+
+  expect(isStaleColumnError(apiError(400, "Invalid search_column: host"))).toBe(
+    true
+  )
+  expect(
+    isStaleColumnError(apiError(400, "Invalid order_by column: host"))
+  ).toBe(true)
+  expect(
+    isStaleColumnError(
+      apiError(400, "Column score does not support text search")
+    )
+  ).toBe(true)
+  expect(
+    isStaleColumnError(
+      apiError(400, "Search term cannot exceed 1000 characters")
+    )
+  ).toBe(false)
+  expect(isStaleColumnError(apiError(500, "Invalid search_column: host"))).toBe(
+    false
+  )
+  expect(isStaleColumnError(null)).toBe(false)
+})
 
 function column(type: TableColumnRead["type"]): TableColumnRead {
   return { id: `${type}-id`, name: type.toLowerCase(), type, is_index: false }
