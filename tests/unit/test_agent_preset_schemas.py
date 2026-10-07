@@ -244,6 +244,36 @@ def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> No
     assert payload.reasoning_effort is None
 
 
+@pytest.mark.parametrize(
+    ("reasoning_effort", "enable_thinking"),
+    [("off", False), (None, True), ("high", True)],
+)
+def test_agent_preset_read_keeps_legacy_thinking_flag(
+    reasoning_effort: str | None, enable_thinking: bool
+) -> None:
+    """Browsers on a bundle from before reasoning levels read ``enable_thinking``
+    and send it back on save, so responses keep it. It stays out of the OpenAPI
+    schema, and so out of the generated client."""
+    payload = AgentPresetRead.model_validate(
+        {
+            "id": "522b4d28-ae2b-4705-bb53-c3aa9071fe16",
+            "workspace_id": "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2",
+            "name": "Triage preset",
+            "slug": "triage-preset",
+            "model_name": "gpt-5-mini",
+            "model_provider": "openai",
+            "reasoning_effort": reasoning_effort,
+            "created_at": "2026-03-09T00:00:00Z",
+            "updated_at": "2026-03-09T00:00:00Z",
+        }
+    )
+
+    assert payload.model_dump(mode="json")["enable_thinking"] is enable_thinking
+    for mode in ("validation", "serialization"):
+        properties = AgentPresetRead.model_json_schema(mode=mode)["properties"]
+        assert "enable_thinking" not in properties
+
+
 def test_agent_preset_read_minimal_exposes_capabilities() -> None:
     payload = build_agent_preset_read_minimal(
         make_agent_preset(

@@ -7,7 +7,14 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    computed_field,
+    model_validator,
+)
 from pydantic.json_schema import SkipJsonSchema
 
 from tracecat.agent.common.types import (
@@ -426,6 +433,16 @@ class AgentPresetRead(AgentPresetExecutionConfig):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def enable_thinking(self) -> SkipJsonSchema[bool]:
+        """Deprecated: whether ``reasoning_effort`` is not ``"off"``.
+
+        Browsers still running a bundle from before reasoning levels read and
+        re-send this flag. Drop it with the ``enable_thinking`` column.
+        """
+        return self.reasoning_effort != "off"
 
     def to_agent_config(self) -> AgentConfig:
         """Convert the preset into an executable agent configuration."""
