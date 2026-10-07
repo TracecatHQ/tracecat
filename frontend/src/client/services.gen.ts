@@ -10391,7 +10391,7 @@ export const tablesDeleteColumn = (
 
 /**
  * List Rows
- * List table rows with cursor-based pagination and sorting.
+ * List table rows with cursor-based pagination, sorting and text search.
  * @param data The data for the request.
  * @param data.tableId
  * @param data.workspaceId
@@ -10400,6 +10400,8 @@ export const tablesDeleteColumn = (
  * @param data.reverse
  * @param data.orderBy Column name to order by
  * @param data.sort Sort direction (asc or desc)
+ * @param data.searchTerm Text to search for in text-searchable columns
+ * @param data.searchColumn Restrict search_term to this column
  * @returns CursorPaginatedResponse_TableRowRead_ Successful Response
  * @throws ApiError
  */
@@ -10419,6 +10421,8 @@ export const tablesListRows = (
       reverse: data.reverse,
       order_by: data.orderBy,
       sort: data.sort,
+      search_term: data.searchTerm,
+      search_column: data.searchColumn,
     },
     errors: {
       422: "Validation Error",
@@ -11484,7 +11488,8 @@ export const casesRestoreCaseVersion = (
  * List Case Rows
  * List linked rows.
  *
- * ``total_estimate`` is an exact count when ``table_id`` is set, null otherwise.
+ * ``total_estimate`` is an exact count of the table's linked rows when
+ * ``table_id`` is set, null otherwise. It does not reflect ``search_term``.
  * @param data The data for the request.
  * @param data.caseId
  * @param data.workspaceId
@@ -11492,6 +11497,10 @@ export const casesRestoreCaseVersion = (
  * @param data.cursor
  * @param data.reverse
  * @param data.tableId Restrict results to one linked table
+ * @param data.orderBy Row column name to order by. Requires table_id
+ * @param data.sort Sort direction (asc or desc). Requires table_id
+ * @param data.searchTerm Text to search for in text-searchable row columns. Requires table_id
+ * @param data.searchColumn Restrict search_term to this column. Requires table_id
  * @returns CursorPaginatedResponse_CaseTableRowRead_ Successful Response
  * @throws ApiError
  */
@@ -11510,6 +11519,10 @@ export const casesListCaseRows = (
       cursor: data.cursor,
       reverse: data.reverse,
       table_id: data.tableId,
+      order_by: data.orderBy,
+      sort: data.sort,
+      search_term: data.searchTerm,
+      search_column: data.searchColumn,
     },
     errors: {
       422: "Validation Error",

@@ -25,8 +25,8 @@ describe("buildReadOnlyColumnDefs", () => {
     expect(def.sortable).toBe(false)
   })
 
-  it("keeps the base def sortable for the editable grid", () => {
-    expect(buildBaseColumnDef(COLUMN, {}).sortable).toBe(true)
+  it("leaves sorting to the API in the base def too", () => {
+    expect(buildBaseColumnDef(COLUMN, {}).sortable).toBe(false)
   })
 
   it("prefers a persisted width over the type default", () => {
@@ -44,7 +44,7 @@ describe("buildEditableColumnDef", () => {
 
     expect(def.editable).toBe(true)
     expect(def.cellEditor).toBeDefined()
-    expect(def.sortable).toBe(true)
+    expect(def.sortable).toBe(false)
   })
 
   it("leaves JSON columns to the side panel", () => {

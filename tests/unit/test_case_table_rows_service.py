@@ -3,7 +3,7 @@ import uuid
 from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 import sqlalchemy as sa
@@ -1530,3 +1530,210 @@ async def test_insert_row_to_case_upsert_update_is_committed(
 
     assert upserted["value"] == "two"
     assert total_links == 1
+
+
+async def _link_rows_with_values(
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+    *,
+    linked_values: Sequence[str],
+    unlinked_values: Sequence[str] = (),
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """Create a case and a table, and link only the ``linked_values`` rows."""
+    case = await _create_case(cases_service)
+    table_id, row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_sort_{uuid.uuid4().hex[:8]}",
+        values=[*linked_values, *unlinked_values],
+    )
+    await case_rows_service.link_rows(
+        case=case,
+        table_id=table_id,
+        row_ids=row_ids[: len(linked_values)],
+    )
+    return case.id, table_id
+
+
+def _row_values(items: Sequence[Any]) -> list[str]:
+    return [item.row_data["value"] for item in items]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("sort", ["asc", "desc"])
+async def test_list_rows_sorts_by_row_column_across_pages(
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+    sort: Literal["asc", "desc"],
+) -> None:
+    linked_values = ["delta", "alpha", "echo", "charlie", "bravo"]
+    case_id, table_id = await _link_rows_with_values(
+        cases_service,
+        case_rows_service,
+        tables_service,
+        linked_values=linked_values,
+        unlinked_values=["aardvark", "zebra"],
+    )
+
+    values: list[str] = []
+    cursor: str | None = None
+    page_count = 0
+    while True:
+        page = await case_rows_service.list_rows(
+            case_id=case_id,
+            limit=2,
+            cursor=cursor,
+            table_id=table_id,
+            order_by="value",
+            sort=sort,
+        )
+        page_count += 1
+        assert page.total_estimate == len(linked_values)
+        assert all(item.table_id == table_id for item in page.items)
+        assert all(item.is_row_available for item in page.items)
+        values.extend(_row_values(page.items))
+        if page.next_cursor is None:
+            break
+        cursor = page.next_cursor
+
+    assert page_count == 3
+    assert values == sorted(linked_values, reverse=sort == "desc")
+
+
+@pytest.mark.anyio
+async def test_list_rows_searches_one_row_column(
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    case_id, table_id = await _link_rows_with_values(
+        cases_service,
+        case_rows_service,
+        tables_service,
+        linked_values=["alpha one", "bravo", "alpha two", "alpha three"],
+        unlinked_values=["alpha unlinked"],
+    )
+
+    async def list_page(cursor: str | None):
+        return await case_rows_service.list_rows(
+            case_id=case_id,
+            limit=2,
+            cursor=cursor,
+            table_id=table_id,
+            order_by="value",
+            sort="asc",
+            search_term="ALPHA",
+            search_column="value",
+        )
+
+    first = await list_page(None)
+    assert _row_values(first.items) == ["alpha one", "alpha three"]
+    assert first.next_cursor is not None
+
+    second = await list_page(first.next_cursor)
+    assert _row_values(second.items) == ["alpha two"]
+    assert second.next_cursor is None
+    assert second.prev_cursor is not None
+
+    back = await list_page(second.prev_cursor)
+    assert _row_values(back.items) == ["alpha one", "alpha three"]
+
+    no_match = await case_rows_service.list_rows(
+        case_id=case_id,
+        limit=2,
+        table_id=table_id,
+        search_term="unlinked",
+        search_column="value",
+    )
+    assert no_match.items == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("search_column", ["missing", "created_at"])
+async def test_list_rows_rejects_invalid_search_column(
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+    search_column: str,
+) -> None:
+    case_id, table_id = await _link_rows_with_values(
+        cases_service,
+        case_rows_service,
+        tables_service,
+        linked_values=["alpha"],
+    )
+
+    with pytest.raises(ValueError, match=search_column):
+        await case_rows_service.list_rows(
+            case_id=case_id,
+            limit=2,
+            table_id=table_id,
+            search_term="alpha",
+            search_column=search_column,
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "row_data_params",
+    [
+        {"order_by": "value"},
+        {"sort": "asc"},
+        {"search_term": "alpha"},
+        {"search_column": "value"},
+    ],
+)
+async def test_list_rows_row_data_params_require_table_id(
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    row_data_params: dict[str, Any],
+) -> None:
+    case = await _create_case(cases_service)
+
+    with pytest.raises(ValueError, match="require table_id"):
+        await case_rows_service.list_rows(
+            case_id=case.id,
+            limit=2,
+            **row_data_params,
+        )
+
+
+@pytest.mark.anyio
+async def test_list_rows_without_row_data_params_keeps_link_order(
+    session: AsyncSession,
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    linked_values = ["delta", "alpha", "echo", "charlie", "bravo"]
+    case_id, table_id = await _link_rows_with_values(
+        cases_service,
+        case_rows_service,
+        tables_service,
+        linked_values=linked_values,
+    )
+    expected_link_ids = (
+        (
+            await session.execute(
+                select(CaseTableRow.id)
+                .where(CaseTableRow.case_id == case_id)
+                .order_by(CaseTableRow.created_at.desc(), CaseTableRow.id.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    first = await case_rows_service.list_rows(
+        case_id=case_id, limit=3, table_id=table_id
+    )
+    assert first.next_cursor is not None
+    second = await case_rows_service.list_rows(
+        case_id=case_id, limit=3, cursor=first.next_cursor, table_id=table_id
+    )
+
+    items = [*first.items, *second.items]
+    assert [item.id for item in items] == list(expected_link_ids)
+    assert sorted(_row_values(items)) == sorted(linked_values)
+    assert first.total_estimate == len(linked_values)

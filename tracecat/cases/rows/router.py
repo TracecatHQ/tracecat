@@ -1,4 +1,5 @@
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
@@ -49,10 +50,26 @@ async def list_case_rows(
         default=None,
         description="Restrict results to one linked table",
     ),
+    order_by: str | None = Query(
+        default=None, description="Row column name to order by. Requires table_id"
+    ),
+    sort: Literal["asc", "desc"] | None = Query(
+        default=None, description="Sort direction (asc or desc). Requires table_id"
+    ),
+    search_term: str | None = Query(
+        default=None,
+        description="Text to search for in text-searchable row columns. "
+        "Requires table_id",
+    ),
+    search_column: str | None = Query(
+        default=None,
+        description="Restrict search_term to this column. Requires table_id",
+    ),
 ) -> CursorPaginatedResponse[CaseTableRowRead]:
     """List linked rows.
 
-    ``total_estimate`` is an exact count when ``table_id`` is set, null otherwise.
+    ``total_estimate`` is an exact count of the table's linked rows when
+    ``table_id`` is set, null otherwise. It does not reflect ``search_term``.
     """
     service = CaseTableRowsService(session, role)
     try:
@@ -64,6 +81,10 @@ async def list_case_rows(
             reverse=reverse,
             include_row_data=True,
             table_id=table_id,
+            order_by=order_by,
+            sort=sort,
+            search_term=search_term,
+            search_column=search_column,
         )
     except TracecatNotFoundError as exc:
         raise HTTPException(status_code=HTTP_404_NOT_FOUND, detail=str(exc)) from exc

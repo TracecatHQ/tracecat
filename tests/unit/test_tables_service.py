@@ -1,7 +1,7 @@
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import pytest
@@ -3115,3 +3115,143 @@ async def test_boolean_row_writes_reject_invalid_values_safely(
     assert exc.value.detail["column"] == "enabled"
     assert exc.value.__context__ is None
     assert await _list_rows(tables_service, table) == []
+
+
+@pytest.fixture
+async def search_table(tables_service: TablesService) -> Table:
+    """Table with two text columns and an integer column, for search and sort."""
+    table = await tables_service.create_table(
+        TableCreate(
+            name="search_table",
+            columns=[
+                TableColumnCreate(name="name", type=SqlType.TEXT),
+                TableColumnCreate(name="notes", type=SqlType.TEXT),
+                TableColumnCreate(name="age", type=SqlType.INTEGER),
+            ],
+        )
+    )
+    rows = [
+        {"name": "charlie", "notes": "alpha one", "age": 3},
+        {"name": "alpha", "notes": "bravo", "age": 1},
+        {"name": "delta", "notes": "zulu", "age": 4},
+        {"name": "bravo", "notes": "alpha", "age": 2},
+    ]
+    for row in rows:
+        await tables_service.insert_row(table, TableRowInsert(data=row))
+    return table
+
+
+@pytest.mark.anyio
+async def test_list_rows_search_column_restricts_search_to_one_column(
+    tables_service: TablesService, search_table: Table
+) -> None:
+    params = CursorPaginationParams(limit=10)
+
+    all_columns = await tables_service.list_rows(
+        search_table, params, search_term="alpha"
+    )
+    assert {row["name"] for row in all_columns.items} == {"alpha", "bravo", "charlie"}
+
+    name_only = await tables_service.list_rows(
+        search_table, params, search_term="ALPHA", search_column="name"
+    )
+    assert [row["name"] for row in name_only.items] == ["alpha"]
+
+    no_match = await tables_service.list_rows(
+        search_table, params, search_term="zulu", search_column="name"
+    )
+    assert no_match.items == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("search_column", ["age", "missing", "created_at"])
+async def test_list_rows_search_column_rejects_invalid_columns(
+    tables_service: TablesService, search_table: Table, search_column: str
+) -> None:
+    with pytest.raises(ValueError, match=search_column):
+        await tables_service.list_rows(
+            search_table,
+            CursorPaginationParams(limit=10),
+            search_term="alpha",
+            search_column=search_column,
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "sort,expected",
+    [
+        ("asc", ["alpha", "bravo", "charlie", "delta"]),
+        ("desc", ["delta", "charlie", "bravo", "alpha"]),
+    ],
+)
+async def test_list_rows_sorts_by_text_column(
+    tables_service: TablesService,
+    search_table: Table,
+    sort: Literal["asc", "desc"],
+    expected: list[str],
+) -> None:
+    page = await tables_service.list_rows(
+        search_table,
+        CursorPaginationParams(limit=10),
+        order_by="name",
+        sort=sort,
+    )
+    assert [row["name"] for row in page.items] == expected
+
+
+@pytest.mark.anyio
+async def test_list_rows_column_search_with_sort_and_cursor_round_trip(
+    tables_service: TablesService, search_table: Table
+) -> None:
+    async def list_page(cursor: str | None):
+        return await tables_service.list_rows(
+            search_table,
+            CursorPaginationParams(limit=1, cursor=cursor),
+            search_term="alpha",
+            search_column="notes",
+            order_by="name",
+            sort="asc",
+        )
+
+    first = await list_page(None)
+    assert [row["name"] for row in first.items] == ["bravo"]
+    assert first.next_cursor is not None
+
+    second = await list_page(first.next_cursor)
+    assert [row["name"] for row in second.items] == ["charlie"]
+    assert second.next_cursor is None
+    assert second.prev_cursor is not None
+
+    back = await list_page(second.prev_cursor)
+    assert [row["name"] for row in back.items] == ["bravo"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("search_column", ["HostName", "hostname"])
+async def test_list_rows_search_column_resolves_case_normalized_name(
+    tables_service: TablesService, search_column: str
+) -> None:
+    table = await tables_service.create_table(
+        TableCreate(
+            name="search_case_table",
+            columns=[
+                TableColumnCreate(name="HostName", type=SqlType.TEXT),
+                TableColumnCreate(name="notes", type=SqlType.TEXT),
+            ],
+        )
+    )
+    assert {column.name for column in table.columns} == {"hostname", "notes"}
+    for row in (
+        {"hostname": "alpha", "notes": "bravo"},
+        {"hostname": "bravo", "notes": "alpha"},
+    ):
+        await tables_service.insert_row(table, TableRowInsert(data=row))
+
+    page = await tables_service.list_rows(
+        table,
+        CursorPaginationParams(limit=10),
+        search_term="alpha",
+        search_column=search_column,
+    )
+    assert [row["hostname"] for row in page.items] == ["alpha"]

@@ -204,6 +204,73 @@ describe("useCaseRowsPagination", () => {
     expect(result.current.currentPage).toBe(0)
   })
 
+  it("forwards sort and search, restarting from the first page", async () => {
+    const { result, rerender } = renderHook(
+      ({ searchTerm }: { searchTerm: string | null }) =>
+        useCaseRowsPagination({
+          caseId: "case-1",
+          tableId: "table-1",
+          workspaceId: "ws-1",
+          searchTerm,
+          searchColumn: searchTerm ? "title" : null,
+        }),
+      {
+        wrapper: createWrapper(),
+        initialProps: { searchTerm: null as string | null },
+      }
+    )
+
+    await waitFor(() => {
+      expect(result.current.hasNextPage).toBe(true)
+    })
+    act(() => {
+      result.current.goToNextPage()
+    })
+    await waitFor(() => {
+      expect(lastCallParams().cursor).toBe("cursor-2")
+    })
+
+    act(() => {
+      result.current.setSorting("title", "desc")
+    })
+    await waitFor(() => {
+      expect(lastCallParams()).toEqual(
+        expect.objectContaining({
+          orderBy: "title",
+          sort: "desc",
+          cursor: null,
+        })
+      )
+    })
+    expect(result.current.currentPage).toBe(0)
+
+    // Search from a later page, so the cursor reset is the search's doing.
+    await waitFor(() => {
+      expect(result.current.hasNextPage).toBe(true)
+    })
+    act(() => {
+      result.current.goToNextPage()
+    })
+    await waitFor(() => {
+      expect(lastCallParams().cursor).toBe("cursor-2")
+    })
+    expect(result.current.currentPage).toBe(1)
+
+    rerender({ searchTerm: "abc" })
+    await waitFor(() => {
+      expect(lastCallParams()).toEqual(
+        expect.objectContaining({
+          orderBy: "title",
+          sort: "desc",
+          searchTerm: "abc",
+          searchColumn: "title",
+          cursor: null,
+        })
+      )
+    })
+    expect(result.current.currentPage).toBe(0)
+  })
+
   it("fires nothing while disabled", async () => {
     const { result } = renderHook(
       () =>

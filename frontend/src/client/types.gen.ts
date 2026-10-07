@@ -14527,6 +14527,14 @@ export type TablesListRowsData = {
   orderBy?: string | null
   reverse?: boolean
   /**
+   * Restrict search_term to this column
+   */
+  searchColumn?: string | null
+  /**
+   * Text to search for in text-searchable columns
+   */
+  searchTerm?: string | null
+  /**
    * Sort direction (asc or desc)
    */
   sort?: "asc" | "desc" | null
@@ -15006,7 +15014,23 @@ export type CasesListCaseRowsData = {
   caseId: string
   cursor?: string | null
   limit?: number
+  /**
+   * Row column name to order by. Requires table_id
+   */
+  orderBy?: string | null
   reverse?: boolean
+  /**
+   * Restrict search_term to this column. Requires table_id
+   */
+  searchColumn?: string | null
+  /**
+   * Text to search for in text-searchable row columns. Requires table_id
+   */
+  searchTerm?: string | null
+  /**
+   * Sort direction (asc or desc). Requires table_id
+   */
+  sort?: "asc" | "desc" | null
   /**
    * Restrict results to one linked table
    */
