@@ -12,6 +12,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import type { useTableSearch } from "@/hooks/use-table-search"
+import { useGetTable } from "@/lib/hooks"
 import { cn } from "@/lib/utils"
 
 type TableSearchState = Pick<
@@ -29,8 +30,7 @@ const STATUS_LABELS: Record<TableSearchDisplayState, string> = {
 }
 
 const TONE_CLASS_NAMES: Record<string, string> = {
-  "Needs attention":
-    "border-transparent bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100",
+  "Needs attention": "border-amber-500",
   Off: "text-muted-foreground",
   Unavailable: "text-muted-foreground",
 }
@@ -63,6 +63,10 @@ function problemMessage({ configuration, provider }: TableSearchState) {
 /** Show a table's semantic search status in the page header, with details on hover or click. */
 export function TableSearchBadge() {
   const search = useTableSearchContext()
+  const { table } = useGetTable(
+    { tableId: search?.tableId ?? "", workspaceId: search?.workspaceId ?? "" },
+    { enabled: search?.canRead === true }
+  )
   const [open, setOpen] = useState(false)
   const hovering = useRef(false)
   const closeTimer = useRef<ReturnType<typeof setTimeout>>()
@@ -81,7 +85,11 @@ export function TableSearchBadge() {
   const { configuration, provider, canUpdate } = search
   const label = tableSearchStatusLabel(search)
   const pending = PENDING_LABELS.has(label)
-  const selected = (configuration.data?.selected_column_ids?.length ?? 0) > 0
+  const selectedColumnIds = configuration.data?.selected_column_ids ?? []
+  const selected = selectedColumnIds.length > 0
+  const selectedColumnNames = table?.columns
+    .filter((column) => selectedColumnIds.includes(column.id))
+    .map((column) => column.name)
   const index = configuration.data?.index
   const destination = provider.data?.configuration
   const problem = problemMessage(search)
@@ -94,7 +102,7 @@ export function TableSearchBadge() {
           aria-label={`Semantic search: ${label}`}
           className={cn(
             badgeVariants({ variant: "outline" }),
-            "h-7 cursor-default gap-1.5 whitespace-nowrap px-2 font-medium",
+            "h-7 cursor-default gap-1.5 whitespace-nowrap px-2 font-medium focus:ring-0 focus-visible:ring-1",
             TONE_CLASS_NAMES[label]
           )}
           {...hoverProps}
@@ -105,7 +113,7 @@ export function TableSearchBadge() {
           }}
         >
           <Icon className={cn("size-3", pending && "animate-spin")} />
-          {label}
+          {label === "Ready" ? `${selectedColumnIds.length} semantic` : label}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -121,6 +129,11 @@ export function TableSearchBadge() {
         {destination && (
           <p className="text-muted-foreground">
             Model: {destination.provider} / {destination.model}
+          </p>
+        )}
+        {selected && (
+          <p className="text-muted-foreground">
+            Columns: {selectedColumnNames?.join(", ")}
           </p>
         )}
         {selected && index && (

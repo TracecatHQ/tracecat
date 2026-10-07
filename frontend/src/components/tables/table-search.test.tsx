@@ -6,7 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react"
-import type { ReactNode } from "react"
+import type { ComponentProps, ReactNode } from "react"
 import {
   type EmbeddingConfigurationRead,
   searchGetEmbeddingConfiguration,
@@ -18,6 +18,7 @@ import {
   tablesSelectTableSearchColumn,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
+import { AgGridColumnHeader } from "@/components/tables/ag-grid-column-header"
 import { TableSearchBadge } from "@/components/tables/table-search-badge"
 import { TableSearchProvider } from "@/components/tables/table-search-context"
 import { TableViewColumnMenu } from "@/components/tables/table-view-column-menu"
@@ -41,6 +42,11 @@ jest.mock("next/navigation", () => ({
   useParams: () => ({ tableId: "table-synthetic" }),
 }))
 jest.mock("@/lib/hooks", () => ({
+  useGetTable: () => ({
+    table: {
+      columns: [column, { ...column, id: "summary-id", name: "summary" }],
+    },
+  }),
   useDeleteColumn: () => ({ deleteColumn: jest.fn() }),
   useUpdateColumn: () => ({ updateColumn: jest.fn() }),
 }))
@@ -259,6 +265,7 @@ test("the badge shows a spinner only while work is pending and details on hover"
   expect(badge.querySelector("svg")).toHaveClass("animate-spin")
   openDetails()
   await screen.findByText("Model: openai / text-embedding-3-small")
+  expect(screen.getByText("Columns: body")).toBeInTheDocument()
   expect(
     screen.getByText("3 ready · 2 pending · 0 failed · 0 empty")
   ).toBeInTheDocument()
@@ -275,9 +282,37 @@ test("the badge shows a spinner only while work is pending and details on hover"
       queryKey: tableSearchKey("workspace-synthetic", "table-synthetic"),
     })
   })
-  await waitFor(() => expect(badge).toHaveTextContent("Ready"))
+  await waitFor(() => expect(badge).toHaveTextContent("1 semantic"))
   expect(badge.querySelector("svg")).not.toHaveClass("animate-spin")
   expect(badge).not.toHaveClass("bg-green-100")
+})
+
+test("the badge counts selected columns and skips unresolved names", async () => {
+  configuration = {
+    ...configuration,
+    selected_column_ids: [column.id, "summary-id", "missing-id"],
+    status: "ready",
+  }
+  setup(provide(<TableSearchBadge />))
+  expect(
+    await screen.findByLabelText("Semantic search: Ready")
+  ).toHaveTextContent("3 semantic")
+  openDetails()
+  expect(await screen.findByText("Columns: body, summary")).toBeInTheDocument()
+})
+
+test("the column header shows Semantic next to Index for a selected column", async () => {
+  configuration = { ...configuration, selected_column_ids: [column.id] }
+  const props = {
+    tableColumn: column,
+    displayName: column.name,
+    column: { getSort: () => null },
+  } as ComponentProps<typeof AgGridColumnHeader>
+  setup(provide(<AgGridColumnHeader {...props} />))
+  const semantic = await screen.findByText("Semantic")
+  expect(screen.getByText("Index")).toBeInTheDocument()
+  expect(semantic).toHaveClass("bg-primary/10", "text-primary")
+  expect(semantic.querySelector("svg")).toHaveClass("mr-1", "size-3")
 })
 
 test("opening the badge without a pointer moves focus into the retry controls", async () => {
@@ -321,6 +356,7 @@ test("an unselected table reads Off with no index counts", async () => {
   openDetails()
   await screen.findByText("Model: openai / text-embedding-3-small")
   expect(screen.queryByText(/ready ·/)).not.toBeInTheDocument()
+  expect(screen.queryByText(/^Columns:/)).not.toBeInTheDocument()
 })
 
 test("two text selections coexist with uniqueness and use confirmed generations", async () => {
@@ -485,7 +521,8 @@ test("long-row progress does not claim ready after backfill and retries only dis
   })
   setup(provide(<TableSearchBadge />))
   const badge = await screen.findByLabelText("Semantic search: Needs attention")
-  expect(badge).toHaveClass("bg-amber-100")
+  expect(badge).toHaveClass("border-amber-500")
+  expect(badge).not.toHaveClass("bg-amber-100")
   expect(tablesGetTableSearchProgress).not.toHaveBeenCalled()
   openDetails()
   await screen.findByText(/The total is still being discovered/)
