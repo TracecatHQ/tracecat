@@ -1064,6 +1064,8 @@ class TestAgentPresetService:
             ("off", {"enable_thinking": True}, None),
             ("high", {"enable_thinking": True}, "high"),
             (None, {"enable_thinking": True}, None),
+            ("high", {"enable_thinking": "0"}, "off"),
+            ("off", {"enable_thinking": "true"}, None),
             ("high", {"enable_thinking": False, "reasoning_effort": None}, None),
         ],
     )

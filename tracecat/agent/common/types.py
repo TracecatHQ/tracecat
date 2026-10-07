@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, TypeGuard
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 from pydantic_core import ArgsKwargs
 
 from tracecat.agent.subagents import AgentSubagentsConfig
@@ -19,13 +19,24 @@ type ReasoningEffort = Literal["off", "low", "medium", "high", "max"]
 """Provider-neutral reasoning level. ``None`` means the model's default."""
 
 
+class _LegacyThinkingFlag(TypedDict):
+    enable_thinking: bool
+
+
+_LEGACY_THINKING_FLAG: TypeAdapter[_LegacyThinkingFlag] = TypeAdapter(
+    _LegacyThinkingFlag
+)
+
+
 def migrate_legacy_enable_thinking(data: Any) -> Any:
     """Replace a legacy ``enable_thinking`` key with ``reasoning_effort``.
 
     For ``mode="before"`` validators. Off maps to ``"off"`` and on to the model
     default. A ``reasoning_effort`` key, even an explicit null, takes precedence.
-    Pydantic dataclass constructors pass ``ArgsKwargs``, whose keyword arguments
-    are migrated the same way.
+    The flag keeps the bool parsing its field had, so values such as ``"false"``
+    or ``0`` mean off and unparseable values still fail validation. Pydantic
+    dataclass constructors pass ``ArgsKwargs``, whose keyword arguments are
+    migrated the same way.
     """
     if isinstance(data, ArgsKwargs):
         if data.kwargs is None:
@@ -34,9 +45,11 @@ def migrate_legacy_enable_thinking(data: Any) -> Any:
     if not isinstance(data, dict) or "enable_thinking" not in data:
         return data
     data = dict(data)
-    enable_thinking = data.pop("enable_thinking")
-    if isinstance(enable_thinking, bool) and "reasoning_effort" not in data:
-        data["reasoning_effort"] = None if enable_thinking else "off"
+    flag = _LEGACY_THINKING_FLAG.validate_python(
+        {"enable_thinking": data.pop("enable_thinking")}
+    )
+    if "reasoning_effort" not in data:
+        data["reasoning_effort"] = None if flag["enable_thinking"] else "off"
     return data
 
 

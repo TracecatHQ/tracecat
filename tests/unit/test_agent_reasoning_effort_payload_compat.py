@@ -6,7 +6,9 @@ config that crosses a Temporal boundary must decode both shapes through the
 production converter: legacy ``false`` maps to ``"off"`` and ``true`` to the
 model default, and an explicit ``reasoning_effort`` key, even null, wins.
 Constructing a config directly, as in ``AgentConfig(**payload)``, must migrate
-the same way.
+the same way. The legacy flag keeps the bool parsing its field had: evaluated
+workflow arguments can carry it as a string or number, and unparseable values
+must still fail validation.
 """
 
 import json
@@ -15,7 +17,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from tracecat_ee.agent.schemas import AgentActionArgs
 
 from tracecat.agent.backends.schemas import AgentWorkflowArgs
@@ -226,12 +228,16 @@ CONSTRUCTOR_CASES: list[tuple[Callable[..., Any], dict[str, Any]]] = [
         },
     ),
 ]
+CONSTRUCTOR_CASE_IDS = [
+    "agent-config",
+    "sandbox-config",
+    "config-payload",
+    "action-args",
+]
 
 
 @pytest.mark.parametrize(
-    ("config_type", "required"),
-    CONSTRUCTOR_CASES,
-    ids=["agent-config", "sandbox-config", "config-payload", "action-args"],
+    ("config_type", "required"), CONSTRUCTOR_CASES, ids=CONSTRUCTOR_CASE_IDS
 )
 @pytest.mark.parametrize(("config_keys", "expected"), CONFIG_CASES, ids=CONFIG_CASE_IDS)
 def test_constructor_keeps_reasoning_choice(
@@ -269,3 +275,44 @@ def test_internal_agent_route_keeps_legacy_thinking_choice(
 
     assert workflow_args.agent_args.config is not None
     assert workflow_args.agent_args.config.reasoning_effort == expected
+
+
+@pytest.mark.parametrize(
+    ("config_type", "required"), CONSTRUCTOR_CASES, ids=CONSTRUCTOR_CASE_IDS
+)
+@pytest.mark.parametrize(
+    ("flag", "expected"),
+    [
+        ("false", "off"),
+        ("0", "off"),
+        (0, "off"),
+        ("off", "off"),
+        ("no", "off"),
+        ("true", None),
+        ("1", None),
+        (1, None),
+        ("yes", None),
+    ],
+)
+def test_legacy_flag_keeps_bool_parsing(
+    config_type: Callable[..., Any],
+    required: dict[str, Any],
+    flag: object,
+    expected: str | None,
+) -> None:
+    config = config_type(**required, enable_thinking=flag)
+
+    assert config.reasoning_effort == expected
+
+
+@pytest.mark.parametrize(
+    ("config_type", "required"), CONSTRUCTOR_CASES, ids=CONSTRUCTOR_CASE_IDS
+)
+@pytest.mark.parametrize("flag", ["maybe", 2, None])
+def test_invalid_legacy_flag_fails_validation(
+    config_type: Callable[..., Any], required: dict[str, Any], flag: object
+) -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        config_type(**required, enable_thinking=flag)
+
+    assert [error["loc"] for error in exc_info.value.errors()] == [("enable_thinking",)]
