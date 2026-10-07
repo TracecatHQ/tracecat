@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useParams } from "next/navigation"
-import { useMemo } from "react"
+import { useEffect, useMemo } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import type { TableColumnRead } from "@/client"
@@ -68,6 +68,20 @@ function optionalInput(rule: z.ZodType): z.ZodType {
 /** What a column's input holds before the user touches it. */
 function blankValueFor(column: TableColumnRead): string | string[] {
   return column.type.toUpperCase() === "MULTI_SELECT" ? [] : ""
+}
+
+/** A stored cell value as the column's input holds it. */
+function toFormValue(
+  column: TableColumnRead,
+  value: unknown
+): string | string[] {
+  if (value === null || value === undefined) return blankValueFor(column)
+  const normalizedType = column.type.toUpperCase()
+  if (normalizedType === "MULTI_SELECT") {
+    return Array.isArray(value) ? value.map(String) : [String(value)]
+  }
+  if (normalizedType === "JSONB") return JSON.stringify(value, null, 2)
+  return String(value)
 }
 
 // Update the schema to be dynamic based on table columns
@@ -231,6 +245,11 @@ export interface TableRowFormDialogProps {
   onSubmit: (data: TableRowFormData) => Promise<unknown>
   /** Disables the submit button while a submit is in flight. */
   isPending?: boolean
+  /**
+   * The row to edit. Its values fill the form, and only the columns that
+   * change are submitted, a cleared optional column as null.
+   */
+  initialRow?: TableRowFormData
 }
 
 /**
@@ -250,21 +269,33 @@ export function TableRowFormDialog({
   description,
   onSubmit,
   isPending = false,
+  initialRow,
 }: TableRowFormDialogProps) {
+  const isEdit = initialRow !== undefined
   const schema = useMemo(() => createInsertTableRowSchema(columns), [columns])
 
   const defaultValues = useMemo<TableRowFormData>(
     () =>
       Object.fromEntries(
-        columns.map((column) => [column.name, blankValueFor(column)])
+        columns.map((column) => [
+          column.name,
+          initialRow
+            ? toFormValue(column, initialRow[column.name])
+            : blankValueFor(column),
+        ])
       ),
-    [columns]
+    [columns, initialRow]
   )
 
   const form = useForm<TableRowFormData>({
     resolver: zodResolver(schema),
     defaultValues,
   })
+
+  // An edit form opens on the row it was given, not the last one it showed.
+  useEffect(() => {
+    if (open && isEdit) form.reset(defaultValues)
+  }, [open, isEdit, defaultValues, form])
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
@@ -274,10 +305,27 @@ export function TableRowFormDialog({
   }
 
   const handleSubmit = async (data: TableRowFormData) => {
-    // Blank optional fields parse to `undefined`: leave them out of the row.
-    const row = Object.fromEntries(
-      Object.entries(data).filter(([, value]) => value !== undefined)
-    )
+    let row: TableRowFormData
+    if (initialRow) {
+      row = Object.fromEntries(
+        Object.entries(data)
+          .map(([name, value]) => [name, value === undefined ? null : value])
+          .filter(
+            ([name, value]) =>
+              JSON.stringify(value) !==
+              JSON.stringify(initialRow[name as string] ?? null)
+          )
+      )
+      if (Object.keys(row).length === 0) {
+        handleOpenChange(false)
+        return
+      }
+    } else {
+      // Blank optional fields parse to `undefined`: leave them out of the row.
+      row = Object.fromEntries(
+        Object.entries(data).filter(([, value]) => value !== undefined)
+      )
+    }
     try {
       await onSubmit(row)
       handleOpenChange(false)
@@ -286,7 +334,9 @@ export function TableRowFormDialog({
     }
   }
 
-  let resolvedDescription = "Add a new row to this table."
+  let resolvedDescription = isEdit
+    ? "Edit this row."
+    : "Add a new row to this table."
   if (description) {
     resolvedDescription = description
   } else if (tableName) {
@@ -297,7 +347,7 @@ export function TableRowFormDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="flex max-h-[85vh] max-w-3xl flex-col overflow-hidden">
         <DialogHeader>
-          <DialogTitle>Add new row</DialogTitle>
+          <DialogTitle>{isEdit ? "Edit row" : "Add new row"}</DialogTitle>
           <DialogDescription>{resolvedDescription}</DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -335,7 +385,7 @@ export function TableRowFormDialog({
             </div>
             <DialogFooter className="pt-4">
               <Button type="submit" disabled={isPending}>
-                Add row
+                {isEdit ? "Save" : "Add row"}
               </Button>
             </DialogFooter>
           </form>

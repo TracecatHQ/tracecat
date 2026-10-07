@@ -3,15 +3,29 @@
 import {
   ChevronLeft,
   ChevronRight,
+  Layers,
   Link2,
   Maximize2,
+  Pencil,
   Plus,
   Unlink2,
   XIcon,
 } from "lucide-react"
-import { type ReactNode, useCallback, useMemo, useState } from "react"
+import {
+  type MouseEvent,
+  type PointerEvent,
+  type ReactNode,
+  useCallback,
+  useMemo,
+  useState,
+} from "react"
 import type { TableColumnRead, TableRowRead } from "@/client"
+import { CaseEditRowDialog } from "@/components/cases/case-edit-row-dialog"
 import { CaseInsertRowDialog } from "@/components/cases/case-insert-row-dialog"
+import {
+  CaseRelatedCasesDrawer,
+  type RelatedCasesTarget,
+} from "@/components/cases/case-related-cases-drawer"
 import { TASK_ICON_TRIGGER_CLASS } from "@/components/cases/case-task-fields"
 import { Spinner } from "@/components/loading/spinner"
 import { AgGridPagination } from "@/components/tables/ag-grid-pagination"
@@ -27,6 +41,13 @@ import {
 } from "@/components/tables/table-rows-grid"
 import { TableSidePanelContent } from "@/components/tables/table-side-panel"
 import { Button } from "@/components/ui/button"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import {
   Dialog,
   DialogContent,
@@ -104,6 +125,11 @@ export interface CaseLinkedTableProps {
   canEditCells: boolean
   onLinkRows: () => void
   /**
+   * Opens a row's related cases. The expanded dialog hands this up to the
+   * inline table, which closes the dialog and opens the page's drawer.
+   */
+  onViewRelatedCases?: (target: RelatedCasesTarget) => void
+  /**
    * `inline` is the table as it sits in the case's Tables panel. `expanded` is
    * the same table filling a dialog: its grid takes the height it is given,
    * a pagination bar replaces the header arrows, and long values open in a
@@ -146,9 +172,15 @@ export function CaseLinkedTable({
   canAddRow,
   canEditCells,
   onLinkRows,
+  onViewRelatedCases,
   variant = "inline",
 }: CaseLinkedTableProps) {
   const isExpanded = variant === "expanded"
+  const [menuRow, setMenuRow] = useState<TableRowRead | null>(null)
+  const [editRow, setEditRow] = useState<TableRowRead | null>(null)
+  const [relatedTarget, setRelatedTarget] = useState<RelatedCasesTarget | null>(
+    null
+  )
   const [selectedRowIds, setSelectedRowIds] =
     useState<ReadonlySet<string>>(EMPTY_SELECTION)
   const [insertDialogOpen, setInsertDialogOpen] = useState(false)
@@ -302,6 +334,69 @@ export function CaseLinkedTable({
     }
   }
 
+  function viewRelatedCases(row: TableRowRead) {
+    const target: RelatedCasesTarget = {
+      tableId,
+      tableName,
+      rowId: row.id,
+      rowLabel: rowLabelFor(row, columns),
+    }
+    if (onViewRelatedCases) {
+      onViewRelatedCases(target)
+    } else {
+      setRelatedTarget(target)
+    }
+  }
+
+  async function handleUnlinkRow(row: TableRowRead) {
+    try {
+      await unlinkCaseRows({ tableId, rowIds: [row.id] })
+      setSelectedRowIds((previous) =>
+        dropCommitted(previous, new Set([row.id]))
+      )
+      goToFirstPage()
+      toast({
+        title: "Row unlinked",
+        description: "Unlinked the row from this case.",
+      })
+    } catch (error) {
+      const cause = error instanceof CaseRowsUnlinkError ? error.cause : error
+      toast({
+        title: "Could not unlink row",
+        description: getApiErrorDetail(cause) ?? "Try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  /**
+   * Picks the row under the pointer for the context menu. Anywhere that is
+   * not a row, or a cell being edited, keeps the browser's own menu.
+   */
+  function rowAtEvent(target: EventTarget | null): TableRowRead | null {
+    if (!(target instanceof Element)) return null
+    if (target.closest(".ag-cell-inline-editing, .ag-popup-editor")) return null
+    const rowId = target.closest(".ag-row")?.getAttribute("row-id")
+    if (!rowId) return null
+    return rows.find((row) => row.id === rowId) ?? null
+  }
+
+  function handleGridPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (event.button === 2 || event.ctrlKey) {
+      setMenuRow(rowAtEvent(event.target))
+    }
+  }
+
+  function handleGridContextMenu(event: MouseEvent<HTMLDivElement>) {
+    const row = rowAtEvent(event.target)
+    if (!row) {
+      // Stops the menu opening empty; Radix skips a prevented event.
+      event.preventDefault()
+      return
+    }
+    setMenuRow(row)
+  }
+
   async function handleCellValueChange({
     rowId,
     column,
@@ -335,24 +430,73 @@ export function CaseLinkedTable({
     )
   } else {
     gridContent = (
-      <TableRowsGrid
-        columns={columns}
-        rows={rows}
-        tableId={tableId}
-        isLoading={rowsIsLoading}
-        isPlaceholderData={rowsArePlaceholder}
-        selectable={canUpdate}
-        selectedRowIds={selectedRowIds}
-        onSelectedRowIdsChange={(ids) => setSelectedRowIds(new Set(ids))}
-        autoHeight={!isExpanded}
-        rowClassRules={UNAVAILABLE_ROW_CLASS_RULES}
-        widthScope="case-rows"
-        cellPanel
-        onCellValueChange={canEditCells ? handleCellValueChange : undefined}
-        isRowEditable={isAvailableRow}
-        sizeColumnsToContent
-        rowQuery={rowQuery}
-      />
+      <ContextMenu>
+        <ContextMenuTrigger
+          asChild
+          disabled={menuRow === null}
+          onContextMenu={handleGridContextMenu}
+        >
+          <div
+            className={cn(isExpanded && "h-full")}
+            onPointerDownCapture={handleGridPointerDown}
+          >
+            <TableRowsGrid
+              columns={columns}
+              rows={rows}
+              tableId={tableId}
+              isLoading={rowsIsLoading}
+              isPlaceholderData={rowsArePlaceholder}
+              selectable={canUpdate}
+              selectedRowIds={selectedRowIds}
+              onSelectedRowIdsChange={(ids) => setSelectedRowIds(new Set(ids))}
+              autoHeight={!isExpanded}
+              rowClassRules={UNAVAILABLE_ROW_CLASS_RULES}
+              widthScope="case-rows"
+              cellPanel
+              onCellValueChange={
+                canEditCells ? handleCellValueChange : undefined
+              }
+              isRowEditable={isAvailableRow}
+              sizeColumnsToContent
+              rowQuery={rowQuery}
+            />
+          </div>
+        </ContextMenuTrigger>
+        {menuRow && (
+          <ContextMenuContent className="w-48">
+            <ContextMenuItem
+              className="text-xs"
+              onSelect={() => viewRelatedCases(menuRow)}
+            >
+              <Layers className="mr-2 size-3.5" />
+              View related cases
+            </ContextMenuItem>
+            {canEditCells && (
+              <ContextMenuItem
+                className="text-xs"
+                disabled={!isAvailableRow(menuRow)}
+                onSelect={() => setEditRow(menuRow)}
+              >
+                <Pencil className="mr-2 size-3.5" />
+                Edit row
+              </ContextMenuItem>
+            )}
+            {canUpdate && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem
+                  className="text-xs text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                  disabled={unlinkCaseRowsIsPending}
+                  onSelect={() => handleUnlinkRow(menuRow)}
+                >
+                  <Unlink2 className="mr-2 size-3.5" />
+                  Unlink row
+                </ContextMenuItem>
+              </>
+            )}
+          </ContextMenuContent>
+        )}
+      </ContextMenu>
     )
   }
 
@@ -464,16 +608,33 @@ export function CaseLinkedTable({
     </div>
   )
 
-  const insertDialog = canAddRow && (
-    <CaseInsertRowDialog
-      open={insertDialogOpen}
-      onOpenChange={setInsertDialogOpen}
-      caseId={caseId}
-      workspaceId={workspaceId}
-      tableId={tableId}
-      tableName={tableName}
-      columns={columns}
-    />
+  const insertDialog = (
+    <>
+      {canAddRow && (
+        <CaseInsertRowDialog
+          open={insertDialogOpen}
+          onOpenChange={setInsertDialogOpen}
+          caseId={caseId}
+          workspaceId={workspaceId}
+          tableId={tableId}
+          tableName={tableName}
+          columns={columns}
+        />
+      )}
+      {canEditCells && (
+        <CaseEditRowDialog
+          row={editRow}
+          onOpenChange={(open) => {
+            if (!open) setEditRow(null)
+          }}
+          caseId={caseId}
+          workspaceId={workspaceId}
+          tableId={tableId}
+          tableName={tableName}
+          columns={columns}
+        />
+      )}
+    </>
   )
 
   if (isExpanded) {
@@ -524,6 +685,17 @@ export function CaseLinkedTable({
         canAddRow={canAddRow}
         canEditCells={canEditCells}
         onLinkRows={onLinkRows}
+        onViewRelatedCases={(target) => {
+          // The page's drawer sits outside the modal dialog, inert under it.
+          setExpandedOpen(false)
+          setRelatedTarget(target)
+        }}
+      />
+      <CaseRelatedCasesDrawer
+        target={relatedTarget}
+        onClose={() => setRelatedTarget(null)}
+        caseId={caseId}
+        workspaceId={workspaceId}
       />
     </div>
   )
@@ -651,4 +823,20 @@ function dropCommitted(
     [...selected].filter((rowId) => !committedRowIds.has(rowId))
   )
   return remaining.size === 0 ? EMPTY_SELECTION : remaining
+}
+
+/** A short label for a row: its first non-empty text or number, else its ID. */
+function rowLabelFor(
+  row: TableRowRead,
+  columns: readonly TableColumnRead[]
+): string {
+  for (const column of columns) {
+    const value = row[column.name]
+    if (typeof value === "string" && value.trim()) {
+      const text = value.trim()
+      return text.length > 60 ? `"${text.slice(0, 57)}..."` : `"${text}"`
+    }
+    if (typeof value === "number") return String(value)
+  }
+  return `row ${row.id.slice(0, 8)}`
 }

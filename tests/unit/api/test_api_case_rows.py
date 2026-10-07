@@ -517,3 +517,111 @@ async def test_list_case_rows_overlong_search_term_returns_422(
 
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
     mock_service.list_rows.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_list_linked_cases_returns_service_page(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    table_id = uuid.uuid4()
+    row_id = uuid.uuid4()
+    case_id = uuid.uuid4()
+    excluded_id = uuid.uuid4()
+    with patch.object(case_rows_router, "CaseTableRowsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.list_linked_cases.return_value = CursorPaginatedResponse(
+            items=[_build_case_read(case_id)],
+            next_cursor=None,
+            prev_cursor=None,
+            has_more=False,
+            has_previous=False,
+        )
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            f"/tables/{table_id}/rows/{row_id}/cases",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "limit": 5,
+                "exclude_case_id": str(excluded_id),
+                "order_by": "severity",
+                "sort": "desc",
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert [item["id"] for item in response.json()["items"]] == [str(case_id)]
+    kwargs = mock_service.list_linked_cases.await_args.kwargs
+    assert kwargs["table_id"] == table_id
+    assert kwargs["row_id"] == row_id
+    assert kwargs["exclude_case_id"] == excluded_id
+    assert kwargs["params"].limit == 5
+    assert kwargs["order_by"] == "severity"
+    assert kwargs["sort"] == "desc"
+
+
+@pytest.mark.anyio
+async def test_list_linked_cases_returns_404_for_missing_table(
+    test_admin_role: Role,
+) -> None:
+    with patch.object(case_rows_router, "CaseTableRowsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service.list_linked_cases.side_effect = TracecatNotFoundError(
+            "Table not found"
+        )
+        mock_service_cls.return_value = mock_service
+
+        with pytest.raises(HTTPException) as exc_info:
+            await case_rows_router.list_linked_cases(
+                role=test_admin_role,
+                session=AsyncMock(),
+                table_id=uuid.uuid4(),
+                row_id=uuid.uuid4(),
+                limit=10,
+                cursor=None,
+                reverse=False,
+                order_by=None,
+                sort=None,
+                exclude_case_id=None,
+            )
+
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.anyio
+async def test_internal_list_linked_cases_resolves_short_exclude_id(
+    test_admin_role: Role,
+) -> None:
+    table_id = uuid.uuid4()
+    row_id = uuid.uuid4()
+    excluded_id = uuid.uuid4()
+    with (
+        patch.object(internal_case_rows_router, "CasesService") as mock_cases_cls,
+        patch.object(
+            internal_case_rows_router, "CaseTableRowsService"
+        ) as mock_service_cls,
+    ):
+        mock_cases = AsyncMock()
+        mock_cases.resolve_case_id.return_value = excluded_id
+        mock_cases_cls.return_value = mock_cases
+        mock_service = AsyncMock()
+        mock_service_cls.return_value = mock_service
+
+        await internal_case_rows_router.list_linked_cases(
+            role=test_admin_role,
+            session=AsyncMock(),
+            table_id=table_id,
+            row_id=row_id,
+            limit=10,
+            cursor=None,
+            reverse=False,
+            order_by=None,
+            sort=None,
+            exclude_case_id="CASE-0042",
+        )
+
+    mock_cases.resolve_case_id.assert_awaited_once_with("CASE-0042")
+    assert (
+        mock_service.list_linked_cases.await_args.kwargs["exclude_case_id"]
+        == excluded_id
+    )

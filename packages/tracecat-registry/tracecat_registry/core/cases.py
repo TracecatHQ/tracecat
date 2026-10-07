@@ -521,6 +521,70 @@ async def get_linked_case_rows(
 
 
 @registry.register(
+    default_title="List linked cases",
+    display_group="Cases",
+    description="List the cases that link a table row.",
+    namespace="core.cases",
+)
+async def list_linked_cases(
+    table_id: Annotated[
+        str,
+        Doc("The ID of the table that contains the row."),
+    ],
+    row_id: Annotated[
+        str,
+        Doc("The ID of the linked row."),
+    ],
+    exclude_case_id: Annotated[
+        str | None,
+        Doc(
+            "The ID or short ID (e.g. CASE-0042) of a case to leave out, "
+            "usually the current case."
+        ),
+    ] = None,
+    limit: Annotated[
+        int,
+        Doc("Maximum number of cases to return."),
+    ] = 100,
+    cursor: Annotated[
+        str | None,
+        Doc("Pagination cursor used to fetch a specific page when paginate=true."),
+    ] = None,
+    order_by: Annotated[
+        Literal["created_at", "updated_at", "priority", "severity", "status", "tasks"]
+        | None,
+        Doc("The field to order the cases by."),
+    ] = None,
+    sort: Annotated[
+        Literal["asc", "desc"] | None,
+        Doc("The direction to order the cases by."),
+    ] = None,
+    paginate: Annotated[
+        bool,
+        Doc("If true, return cursor pagination metadata along with items."),
+    ] = False,
+) -> list[types.CaseReadMinimal] | types.CaseListResponse:
+    if limit > config.TRACECAT__LIMIT_CURSOR_MAX:
+        raise TracecatValidationError(
+            detail=f"Limit cannot be greater than {config.TRACECAT__LIMIT_CURSOR_MAX}"
+        )
+
+    params: dict[str, Any] = {"limit": limit}
+    if paginate and cursor is not None:
+        params["cursor"] = cursor
+    if order_by is not None:
+        params["order_by"] = order_by
+    if sort is not None:
+        params["sort"] = sort
+    if exclude_case_id is not None:
+        params["exclude_case_id"] = exclude_case_id
+    response = await ctx.cases.aio.list_linked_cases(table_id, row_id, **params)
+    if paginate:
+        return response
+    return response["items"]
+
+
+@registry.register(
     default_title="List cases",
     display_group="Cases",
     description="List all cases.",

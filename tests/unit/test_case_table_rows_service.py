@@ -1737,3 +1737,113 @@ async def test_list_rows_without_row_data_params_keeps_link_order(
     assert [item.id for item in items] == list(expected_link_ids)
     assert sorted(_row_values(items)) == sorted(linked_values)
     assert first.total_estimate == len(linked_values)
+
+
+@pytest.mark.anyio
+async def test_list_linked_cases_returns_only_cases_linking_the_row(
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    table_id, row_ids = await _create_table_with_rows(
+        tables_service,
+        name=f"case_rows_linked_cases_{uuid.uuid4().hex[:8]}",
+        values=["shared", "other"],
+    )
+    shared_row_id, other_row_id = row_ids
+    first = await _create_case(cases_service)
+    second = await _create_case(cases_service)
+    unrelated = await _create_case(cases_service)
+    for case in (first, second):
+        await case_rows_service.link_row(
+            case=case,
+            params=CaseTableRowLinkCreate(table_id=table_id, row_id=shared_row_id),
+        )
+    await case_rows_service.link_row(
+        case=unrelated,
+        params=CaseTableRowLinkCreate(table_id=table_id, row_id=other_row_id),
+    )
+
+    page = await case_rows_service.list_linked_cases(
+        table_id=table_id,
+        row_id=shared_row_id,
+        params=CursorPaginationParams(limit=10),
+    )
+    assert {item.id for item in page.items} == {first.id, second.id}
+    assert page.has_more is False
+
+    excluded = await case_rows_service.list_linked_cases(
+        table_id=table_id,
+        row_id=shared_row_id,
+        params=CursorPaginationParams(limit=10),
+        exclude_case_id=first.id,
+    )
+    assert [item.id for item in excluded.items] == [second.id]
+
+
+@pytest.mark.anyio
+async def test_list_linked_cases_paginates(
+    cases_service: CasesService,
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    table_id, row_id = await _create_table_with_row(
+        tables_service,
+        name=f"case_rows_linked_cases_page_{uuid.uuid4().hex[:8]}",
+        value="shared",
+    )
+    case_ids: set[uuid.UUID] = set()
+    for _ in range(3):
+        case = await _create_case(cases_service)
+        case_ids.add(case.id)
+        await case_rows_service.link_row(
+            case=case,
+            params=CaseTableRowLinkCreate(table_id=table_id, row_id=row_id),
+        )
+
+    first_page = await case_rows_service.list_linked_cases(
+        table_id=table_id,
+        row_id=row_id,
+        params=CursorPaginationParams(limit=2),
+    )
+    assert len(first_page.items) == 2
+    assert first_page.has_more is True
+    assert first_page.next_cursor is not None
+    second_page = await case_rows_service.list_linked_cases(
+        table_id=table_id,
+        row_id=row_id,
+        params=CursorPaginationParams(limit=2, cursor=first_page.next_cursor),
+    )
+    assert len(second_page.items) == 1
+    assert {item.id for item in [*first_page.items, *second_page.items]} == case_ids
+
+
+@pytest.mark.anyio
+async def test_list_linked_cases_returns_empty_for_unlinked_row(
+    case_rows_service: CaseTableRowsService,
+    tables_service: TablesService,
+) -> None:
+    table_id, row_id = await _create_table_with_row(
+        tables_service,
+        name=f"case_rows_linked_cases_empty_{uuid.uuid4().hex[:8]}",
+        value="lonely",
+    )
+
+    page = await case_rows_service.list_linked_cases(
+        table_id=table_id,
+        row_id=row_id,
+        params=CursorPaginationParams(limit=10),
+    )
+    assert page.items == []
+
+
+@pytest.mark.anyio
+async def test_list_linked_cases_raises_for_missing_table(
+    case_rows_service: CaseTableRowsService,
+) -> None:
+    with pytest.raises(TracecatNotFoundError):
+        await case_rows_service.list_linked_cases(
+            table_id=uuid.uuid4(),
+            row_id=uuid.uuid4(),
+            params=CursorPaginationParams(limit=10),
+        )

@@ -1034,6 +1034,48 @@ class CasesClient:
             params["reverse"] = reverse
         return await self._client.get(f"/cases/{case_id}/rows", params=params)
 
+    async def list_linked_cases(
+        self,
+        table_id: str,
+        row_id: str,
+        *,
+        limit: int = 20,
+        cursor: str | Unset = UNSET,
+        reverse: bool | Unset = UNSET,
+        order_by: str | Unset = UNSET,
+        sort: Literal["asc", "desc"] | Unset = UNSET,
+        exclude_case_id: str | Unset = UNSET,
+    ) -> types.CaseListResponse:
+        """List the cases that link a table row.
+
+        Args:
+            table_id: Table ID.
+            row_id: Row ID.
+            limit: Maximum items per page.
+            cursor: Pagination cursor.
+            reverse: Reverse pagination direction.
+            order_by: Case column to order by.
+            sort: Sort direction.
+            exclude_case_id: Case ID or short ID to leave out of the results.
+
+        Returns:
+            Paginated list of cases with cursor metadata.
+        """
+        params: dict[str, Any] = {"limit": limit}
+        if is_set(cursor):
+            params["cursor"] = cursor
+        if is_set(reverse):
+            params["reverse"] = reverse
+        if is_set(order_by):
+            params["order_by"] = order_by
+        if is_set(sort):
+            params["sort"] = sort
+        if is_set(exclude_case_id):
+            params["exclude_case_id"] = exclude_case_id
+        return await self._client.get(
+            f"/tables/{table_id}/rows/{row_id}/cases", params=params
+        )
+
     async def link_case_row(
         self, case_id: str, *, table_id: str, row_id: str
     ) -> types.CaseTableRowRead:

@@ -15100,6 +15100,37 @@ export type CasesUnlinkCaseRowData = {
 
 export type CasesUnlinkCaseRowResponse = void
 
+export type CasesListLinkedCasesData = {
+  cursor?: string | null
+  /**
+   * Leave this case out of the results
+   */
+  excludeCaseId?: string | null
+  limit?: number
+  /**
+   * Case column to order by. Default: created_at
+   */
+  orderBy?:
+    | "created_at"
+    | "updated_at"
+    | "priority"
+    | "severity"
+    | "status"
+    | "tasks"
+    | null
+  reverse?: boolean
+  rowId: string
+  /**
+   * Direction to sort (asc or desc)
+   */
+  sort?: "asc" | "desc" | null
+  tableId: string
+  workspaceId: string
+}
+
+export type CasesListLinkedCasesResponse =
+  CursorPaginatedResponse_CaseReadMinimal_
+
 export type CasesListFieldsData = {
   workspaceId: string
 }
@@ -21999,6 +22030,21 @@ export type $OpenApiTs = {
          * Successful Response
          */
         204: void
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/tables/{table_id}/rows/{row_id}/cases": {
+    get: {
+      req: CasesListLinkedCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_CaseReadMinimal_
         /**
          * Validation Error
          */

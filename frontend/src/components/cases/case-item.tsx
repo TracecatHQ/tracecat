@@ -141,6 +141,8 @@ interface CaseItemProps {
   >
   durationNamesById?: ReadonlyMap<CaseDurationDefinitionRead["id"], string>
   visibleColumnIds?: string[]
+  /** Shows the hover checkbox for bulk selection. */
+  selectable?: boolean
 }
 
 export function CaseItem({
@@ -156,6 +158,7 @@ export function CaseItem({
   fieldMetadataById,
   durationNamesById,
   visibleColumnIds,
+  selectable = true,
 }: CaseItemProps) {
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
@@ -512,28 +515,30 @@ export function CaseItem({
           )}
         >
           {/* Checkbox - flat design, hidden by default, shown on hover or when checked */}
-          <button
-            type="button"
-            className="flex h-7 w-7 shrink-0 items-center justify-center"
-            onClick={handleCheckboxClick}
-            role="checkbox"
-            aria-checked={isChecked}
-            aria-label={`Select case ${caseData.short_id}`}
-          >
-            <span
-              className={cn(
-                "flex size-4 shrink-0 items-center justify-center rounded-sm border transition-colors",
-                // Hidden by default, visible on hover or when checked
-                !isChecked && "opacity-0 group-hover/item:opacity-100",
-                // Flat design - no shadows
-                isChecked
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-muted-foreground/40 bg-transparent"
-              )}
+          {selectable && (
+            <button
+              type="button"
+              className="flex h-7 w-7 shrink-0 items-center justify-center"
+              onClick={handleCheckboxClick}
+              role="checkbox"
+              aria-checked={isChecked}
+              aria-label={`Select case ${caseData.short_id}`}
             >
-              {isChecked && <Check className="size-3" aria-hidden />}
-            </span>
-          </button>
+              <span
+                className={cn(
+                  "flex size-4 shrink-0 items-center justify-center rounded-sm border transition-colors",
+                  // Hidden by default, visible on hover or when checked
+                  !isChecked && "opacity-0 group-hover/item:opacity-100",
+                  // Flat design - no shadows
+                  isChecked
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-muted-foreground/40 bg-transparent"
+                )}
+              >
+                {isChecked && <Check className="size-3" aria-hidden />}
+              </span>
+            </button>
+          )}
 
           {/* Case ID + Summary + Badges */}
           <TooltipProvider delayDuration={0} skipDelayDuration={0}>
@@ -884,15 +889,18 @@ export function CaseItem({
           )
         })}
 
-        <ContextMenuSeparator />
-
-        <ContextMenuItem
-          className="text-xs text-rose-500 focus:text-rose-600"
-          onClick={() => onDeleteRequest?.(caseData)}
-        >
-          <Trash2 className="mr-2 size-3.5" />
-          Delete
-        </ContextMenuItem>
+        {onDeleteRequest && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              className="text-xs text-rose-500 focus:text-rose-600"
+              onClick={() => onDeleteRequest(caseData)}
+            >
+              <Trash2 className="mr-2 size-3.5" />
+              Delete
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   )
