@@ -160,3 +160,29 @@ async def test_leased_push_recovers_a_lost_success_response(
         monkeypatch.setattr(writer, "run", lost_response)
         await writer.push_with_lease(str(tmp_path), prepared, "main", reviewed)
         assert (await remote.run("rev-parse", "main")).decode().strip() == prepared
+
+
+@pytest.mark.anyio
+async def test_fetch_distinguishes_hex_branch_from_immutable_commit(
+    tmp_path: Path,
+) -> None:
+    remote = local_git(tmp_path)
+    reviewed = await seed(remote)
+    newer = await remote.commit(reviewed, {"README.md": "newer"}, set(), "New head")
+    assert newer is not None
+    # The branch deliberately has the same spelling as an existing commit OID.
+    await remote.run("update-ref", f"refs/heads/{reviewed}", newer)
+    with TemporaryDirectory() as directory:
+        reader = local_git(directory)
+        await reader.initialize()
+        assert await reader.fetch(str(tmp_path), reviewed, ref_kind="branch") == newer
+        assert (
+            await reader.fetch(str(tmp_path), reviewed, ref_kind="commit") == reviewed
+        )
+
+
+@pytest.mark.anyio
+async def test_fetch_rejects_revision_syntax_as_commit(tmp_path: Path) -> None:
+    reader = local_git(tmp_path)
+    with pytest.raises(RuntimeError, match="Expected a full Git commit SHA"):
+        await reader.fetch("unused", "main~1", ref_kind="commit")

@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Literal
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -27,12 +28,16 @@ from tracecat.workspace_sync.transport import (
 @pytest.mark.parametrize("data_center", [False, True])
 @pytest.mark.parametrize("target_exists", [False, True])
 @pytest.mark.parametrize("concurrent", [False, True])
+@pytest.mark.parametrize("branch", ["sync/workspace", "b" * 40])
 async def test_bitbucket_guarded_publication(
-    tmp_path: Path, data_center: bool, target_exists: bool, concurrent: bool
+    tmp_path: Path,
+    data_center: bool,
+    target_exists: bool,
+    concurrent: bool,
+    branch: str,
 ) -> None:
     remote = local_git(tmp_path)
     reviewed = await seed(remote)
-    branch = "sync/workspace"
     ref = f"refs/heads/{branch}"
     if target_exists:
         await remote.run("update-ref", ref, reviewed)
@@ -63,8 +68,13 @@ async def test_bitbucket_guarded_publication(
         run = writer.run
         commit = writer.commit
 
-        async def fetch_local(remote_url: str, ref_name: str) -> str:
-            return await fetch(str(tmp_path), ref_name)
+        async def fetch_local(
+            remote_url: str,
+            ref_name: str,
+            *,
+            ref_kind: Literal["branch", "commit"] | None = None,
+        ) -> str:
+            return await fetch(str(tmp_path), ref_name, ref_kind=ref_kind)
 
         async def run_local(*args: str, data: bytes | None = None) -> bytes:
             args = tuple(

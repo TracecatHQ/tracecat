@@ -8,7 +8,6 @@ import re
 from pydantic import SecretStr
 
 from tracecat.git.plumbing import GitPlumbing
-from tracecat.git.plumbing import validate_path as validate_git_path
 from tracecat.git.types import GitUrl
 from tracecat.vcs.bitbucket.app import BitbucketError
 
@@ -23,11 +22,6 @@ def repository_path(url: GitUrl) -> str:
             "Only Bitbucket Cloud repositories on bitbucket.org are supported"
         )
     return f"{url.org}/{url.repo}"
-
-
-def validate_path(path: str) -> None:
-    """Validate Bitbucket sync paths with a provider-specific error."""
-    validate_git_path(path, BitbucketError)
 
 
 class BitbucketGit(GitPlumbing):

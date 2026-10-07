@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from email.utils import parseaddr
 from functools import partial
 from tempfile import TemporaryDirectory
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from urllib.parse import quote, unquote, urlparse
 
 import httpx
@@ -100,7 +100,13 @@ class VcsTreeSnapshot:
 class VcsSyncTransport(Protocol):
     """Transport that can read and write workspace sync files."""
 
-    async def read_files(self, *, url: GitUrl, ref: str) -> VcsTreeSnapshot:
+    async def read_files(
+        self,
+        *,
+        url: GitUrl,
+        ref: str,
+        ref_kind: Literal["branch", "commit"] | None = None,
+    ) -> VcsTreeSnapshot:
         """Read workspace sync files at a ref."""
         ...
 
@@ -528,6 +534,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         *,
         url: GitUrl,
         ref: str,
+        ref_kind: Literal["branch", "commit"] | None = None,
     ) -> VcsTreeSnapshot:
         """Read the manifest and managed resource files at ``ref``.
 
@@ -541,6 +548,9 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         )
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
+            if ref_kind == "branch":
+                branch = await asyncio.to_thread(repo.get_branch, ref)
+                ref = branch.commit.sha
             commit = await asyncio.to_thread(repo.get_commit, ref)
             # GitHub's git/trees endpoint keys off the tree SHA, not the commit
             # SHA; passing the commit SHA 404s for many repositories.
@@ -875,7 +885,32 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 budget=retry_budget,
             )
             try:
-                if target_exists:
+                if expected_commit_sha is not None:
+                    # updateRefs atomically checks beforeOid, unlike REST's
+                    # fast-forward-only edit, which accepts an ancestor reset.
+                    github_stage = "publish_guarded_ref"
+                    github_endpoint = "POST /graphql updateRefs"
+                    await _github_write_with_retry(
+                        lambda: gh.requester.graphql_named_mutation(
+                            "updateRefs",
+                            {
+                                "repositoryId": repo.node_id,
+                                "refUpdates": [
+                                    {
+                                        "name": f"refs/heads/{branch}",
+                                        "beforeOid": expected_commit_sha
+                                        if target_exists
+                                        else "0" * 40,
+                                        "afterOid": commit.sha,
+                                        "force": False,
+                                    }
+                                ],
+                            },
+                            "clientMutationId",
+                        ),
+                        budget=retry_budget,
+                    )
+                elif target_exists:
                     github_stage = "resolve_target_ref"
                     github_endpoint = "GET /repos/{owner}/{repo}/git/ref/heads/{branch}"
                     ref = await asyncio.to_thread(repo.get_git_ref, f"heads/{branch}")
@@ -896,7 +931,8 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                         budget=retry_budget,
                     )
             except GithubException as e:
-                if expected_commit_sha is not None and e.status in {404, 409, 422}:
+                already_published = False
+                if expected_commit_sha is not None and e.status in {400, 404, 409, 422}:
                     # Repository rules can also reject publication. Only classify
                     # staleness when a fresh read proves a branch race.
                     try:
@@ -907,14 +943,20 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                                 "Target branch was deleted; create a new preview"
                             ) from e
                     else:
-                        if current.commit.sha != commit.sha and (
+                        if current.commit.sha == commit.sha:
+                            # A previous attempt may have published successfully
+                            # before its acknowledgement was lost. The exact new
+                            # OID proves this operation already performed the CAS.
+                            already_published = True
+                        elif (
                             not target_exists
                             or current.commit.sha != expected_commit_sha
                         ):
                             raise SyncCommitConflictError(
                                 "Target branch changed; create a new preview"
                             ) from e
-                raise
+                if not already_published:
+                    raise
             self.logger.info(
                 "Updated GitHub workspace sync ref",
                 tree_sha=tree.sha,
@@ -1134,6 +1176,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         *,
         url: GitUrl,
         ref: str,
+        ref_kind: Literal["branch", "commit"] | None = None,
     ) -> VcsTreeSnapshot:
         """Read the manifest and managed resource files at ``ref``."""
         async with self._authed_client(url) as client:
@@ -1338,14 +1381,14 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 error_type=GitLabError,
             )
             await git.initialize()
-            await git.fetch(remote, parent)
+            await git.fetch(remote, parent, ref_kind="commit")
             sha = await git.commit(parent, files, deleted, message)
             if sha is None:
                 raise GitLabError("Prepared GitLab changes produced no commit")
             try:
                 await git.push_with_lease(remote, sha, branch, expected_head)
             except GitRefConflictError as exc:
-                raise SyncCommitConflictError(str(exc)) from None
+                raise SyncCommitConflictError(str(exc)) from exc
             return sha
 
     async def list_commits(
@@ -1961,9 +2004,15 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
     def _git_remote(self, url: GitUrl, client: httpx.AsyncClient) -> str:
         return f"https://bitbucket.org/{repository_path(url)}.git"
 
-    async def read_files(self, *, url: GitUrl, ref: str) -> VcsTreeSnapshot:
+    async def read_files(
+        self,
+        *,
+        url: GitUrl,
+        ref: str,
+        ref_kind: Literal["branch", "commit"] | None = None,
+    ) -> VcsTreeSnapshot:
         async with self._connection(url) as (client, git, _path):
-            sha = await git.fetch(self._git_remote(url, client), ref)
+            sha = await git.fetch(self._git_remote(url, client), ref, ref_kind=ref_kind)
             entries = await git.entries(sha)
             # Bound subprocesses when the shared selector gathers all managed files.
             semaphore = asyncio.Semaphore(8)
@@ -2025,7 +2074,9 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             )
             remote = f"https://bitbucket.org/{repository_path(url)}.git"
             parent = await git.fetch(
-                remote, branch if branches else branch_start_ref or base
+                remote,
+                branch if branches else branch_start_ref or base,
+                ref_kind="branch",
             )
             if expected_commit_sha is not None and parent != expected_commit_sha:
                 raise SyncCommitConflictError(
@@ -2046,7 +2097,7 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                             remote, sha, branch, parent if branches else None
                         )
                     except GitRefConflictError as exc:
-                        raise SyncCommitConflictError(str(exc)) from None
+                        raise SyncCommitConflictError(str(exc)) from exc
                 else:
                     await git.push(remote, sha, branch)
             info = CommitInfo(
@@ -2283,7 +2334,9 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
             remote = self._git_remote(url, client)
             exists = await git.branch_exists(remote, branch)
             parent = await git.fetch(
-                remote, branch if exists else branch_start_ref or base
+                remote,
+                branch if exists else branch_start_ref or base,
+                ref_kind="branch",
             )
             if expected_commit_sha is not None and parent != expected_commit_sha:
                 raise SyncCommitConflictError(
@@ -2304,7 +2357,7 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
                             remote, sha, branch, parent if exists else None
                         )
                     except GitRefConflictError as exc:
-                        raise SyncCommitConflictError(str(exc)) from None
+                        raise SyncCommitConflictError(str(exc)) from exc
                 else:
                     await git.push(remote, sha, branch)
             info = CommitInfo(

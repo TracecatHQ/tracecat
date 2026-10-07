@@ -9,6 +9,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
+from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import SecretStr
@@ -116,9 +117,22 @@ class GitPlumbing:
     async def initialize(self) -> None:
         await self.run("init", "--bare", "--template=", ".")
 
-    async def fetch(self, remote: str, ref: str) -> str:
-        # Pass only a fully qualified branch or a commit SHA, never revision syntax.
-        if not re.fullmatch(r"[0-9a-fA-F]{40}", ref):
+    async def fetch(
+        self,
+        remote: str,
+        ref: str,
+        *,
+        ref_kind: Literal["branch", "commit"] | None = None,
+    ) -> str:
+        """Fetch a branch or immutable commit, qualifying known branch names.
+
+        Mixed legacy read inputs retain their SHA interpretation. Callers that
+        already know the ref kind must pass it, including 40-hex branch names.
+        """
+        is_commit = bool(re.fullmatch(r"[0-9a-fA-F]{40}", ref))
+        if ref_kind == "commit" and not is_commit:
+            raise self.error_type("Expected a full Git commit SHA")
+        if ref_kind == "branch" or (ref_kind is None and not is_commit):
             await self.run("check-ref-format", f"refs/heads/{ref}")
             ref = f"refs/heads/{ref}"
         await self.run(
@@ -215,7 +229,7 @@ class GitPlumbing:
                 remote,
                 f"{sha}:{ref}",
             )
-        except self.error_type:
+        except self.error_type as exc:
             # Inspect structured ref output, never provider error-message strings.
             refs = await self.run("ls-remote", "--refs", "--", remote, ref)
             actual_head = refs.split(b"\t", 1)[0].decode().strip() if refs else None
@@ -225,5 +239,5 @@ class GitPlumbing:
             if actual_head != expected_head:
                 raise GitRefConflictError(
                     "Target branch changed; create a new preview"
-                ) from None
+                ) from exc
             raise

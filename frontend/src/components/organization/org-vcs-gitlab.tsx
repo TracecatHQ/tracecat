@@ -260,10 +260,11 @@ function GitLabConnectionDialog({
                   </FormControl>
                   <FormDescription>
                     Use a GitLab project or group access token with both api and
-                    write_repository scopes. Replace existing api-only tokens
-                    before pushing with durable Git sync. Tracecat stores this
-                    token as the GitLab credential for workspace sync; prefer it
-                    over a personal access token for long-lived sync.
+                    write_repository scopes. Replace existing api-only project
+                    or group tokens before pushing with durable Git sync.
+                    Tracecat stores this token as the GitLab credential for
+                    workspace sync; prefer it over a personal access token for
+                    long-lived sync.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

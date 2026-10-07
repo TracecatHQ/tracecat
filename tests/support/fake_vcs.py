@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from tracecat.exceptions import TracecatValidationError
 from tracecat.git.types import GitUrl
@@ -69,7 +69,13 @@ class FakeVcsTransport:
     def __init__(self, *, server: FakeVcsServer) -> None:
         self._server = server
 
-    async def read_files(self, *, url: GitUrl, ref: str) -> VcsTreeSnapshot:
+    async def read_files(
+        self,
+        *,
+        url: GitUrl,
+        ref: str,
+        ref_kind: Literal["branch", "commit"] | None = None,
+    ) -> VcsTreeSnapshot:
         repo = self._server._repo(url)
         commit = repo.commit_at_ref(ref)
         return VcsTreeSnapshot(
@@ -100,7 +106,7 @@ class FakeVcsTransport:
         repo = self._server._repo(url)
         base = pr_base_branch or url.ref or self._server.default_branch
         start_ref = branch_start_ref or base
-        target = branch if branch in repo.branch_names(limit=10000) else start_ref
+        target = branch if branch in repo._branches else start_ref
         if (
             expected_commit_sha
             and repo.commit_at_ref(target).sha != expected_commit_sha
