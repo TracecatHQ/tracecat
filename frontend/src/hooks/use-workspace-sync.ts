@@ -48,7 +48,14 @@ interface WorkflowPullOptions {
 export function useWorkflowSync(workspaceId: string) {
   const queryClient = useQueryClient()
   const wait = useSyncOperationWaiter(workspaceId)
-  const [previewOperation, setPreviewOperation] = useState<SyncOperationRead>()
+  const [previewOperationId, setPreviewOperationId] = useState<string>()
+  const { data: observedPreviewOperation } = useSyncOperation(
+    workspaceId,
+    previewOperationId
+  )
+  const previewOperation = observedPreviewOperation
+    ? expireSyncOperation(observedPreviewOperation)
+    : undefined
   const prepared = useRef<{ id: string; key: string } | null>(null)
   const pendingPreview = useRef<{ id: string; key: string } | null>(null)
 
@@ -95,10 +102,20 @@ export function useWorkflowSync(workspaceId: string) {
         observeSyncOperation(queryClient, workspaceId, operation)
         pendingPreview.current = null
         prepared.current = { id: operation.id, key }
-        setPreviewOperation(operation)
+        setPreviewOperationId(operation.id)
       } else {
         if (!prepared.current || prepared.current.key !== key)
           throw new Error("Preview these changes before applying")
+        const cached = queryClient.getQueryData<SyncOperationRead>([
+          "sync-operation",
+          workspaceId,
+          prepared.current.id,
+        ])
+        if (!cached || expireSyncOperation(cached).status !== "ready") {
+          throw new Error(
+            "Preview expired or is no longer ready. Preview these changes again before applying."
+          )
+        }
         const started = await workflowsApplySyncOperation({
           workspaceId,
           operationId: prepared.current.id,
@@ -221,7 +238,12 @@ export function useWorkspaceSyncExportPreview(
       : undefined
 
   function refetchPreview() {
-    if (operationId && poll.error && isTransientSyncError(poll.error)) {
+    if (
+      operationId &&
+      operation?.status !== "expired" &&
+      poll.error &&
+      isTransientSyncError(poll.error)
+    ) {
       void poll.refetch()
       return
     }
@@ -232,6 +254,15 @@ export function useWorkspaceSyncExportPreview(
       pendingRequest.current = { key, id: crypto.randomUUID() }
     }
     creation.mutate(pendingRequest.current)
+  }
+
+  let operationError: Error | null = null
+  if (operation?.status === "expired") {
+    operationError = new Error(
+      "Preview expired. Refresh the preview before pushing."
+    )
+  } else if (operation?.status === "failed") {
+    operationError = new Error(operation.error ?? "Preview did not complete")
   }
 
   return {
@@ -245,12 +276,7 @@ export function useWorkspaceSyncExportPreview(
           !poll.error &&
           (!operation || ["queued", "running"].includes(operation.status))
       ),
-    previewError:
-      creation.error ??
-      poll.error ??
-      (operation?.status === "failed"
-        ? new Error(operation.error ?? "Preview did not complete")
-        : null),
+    previewError: creation.error ?? operationError ?? poll.error,
     refetchPreview,
   }
 }

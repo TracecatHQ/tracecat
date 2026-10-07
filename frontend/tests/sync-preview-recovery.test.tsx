@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { useState } from "react"
 import {
   type SyncOperationRead,
   workflowsCreateSyncOperation,
@@ -6,6 +7,7 @@ import {
   workflowsGetSyncOperation,
   workflowsListSyncDiffs,
 } from "@/client"
+import { PushResourcePreview } from "@/components/workspace-sync/resource-diff-review"
 import { OperationDiffs } from "@/components/workspace-sync/sync-operation-diffs"
 import { useWorkspaceSyncExportPreview } from "@/hooks/use-workspace-sync"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
@@ -179,3 +181,98 @@ it("resets the page and selection when a refreshed preview replaces the operatio
   expect(screen.queryByText("old selected contents")).not.toBeInTheDocument()
   expect(workflowsGetSyncDiff).toHaveBeenCalledTimes(1)
 })
+
+function PushPreview() {
+  const [requested, setRequested] = useState(false)
+  const preview = useWorkspaceSyncExportPreview("workspace-example", {
+    push: { branch: "main", message: "Example" },
+  })
+  return (
+    <>
+      <PushResourcePreview
+        preview={preview.preview}
+        isLoading={preview.previewIsLoading}
+        compareRef="main"
+        hasRequestedPreview={requested}
+        errorMessage={preview.previewError?.message}
+        onRequestPreview={() => {
+          setRequested(true)
+          preview.refetchPreview()
+        }}
+      />
+      <button type="button" disabled={!preview.previewOperationId}>
+        Push
+      </button>
+    </>
+  )
+}
+
+it.each([false, true])(
+  "keeps expired push previews refreshable (read failure: %s)",
+  async (readFailure) => {
+    jest.useFakeTimers()
+    const queryClient = client()
+    try {
+      const ready: SyncOperationRead = {
+        ...operation,
+        status: "ready",
+        expires_at: new Date(Date.now() + 2000).toISOString(),
+        preview: {
+          files: [],
+          resources: [],
+          resource_counts: {},
+          resource_diffs: [],
+        },
+      }
+      jest.mocked(workflowsCreateSyncOperation).mockResolvedValue(ready)
+      jest.mocked(workflowsGetSyncOperation).mockResolvedValue(ready)
+      const view = render(
+        <QueryClientProvider client={queryClient}>
+          <PushPreview />
+        </QueryClientProvider>
+      )
+      fireEvent.click(screen.getByRole("button", { name: "Preview changes" }))
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Push" })).toBeEnabled()
+      )
+      if (readFailure)
+        jest
+          .mocked(workflowsGetSyncOperation)
+          .mockRejectedValue(new Error("Offline"))
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(2100)
+      })
+      expect(screen.getByRole("button", { name: "Push" })).toBeDisabled()
+      expect(
+        screen.getByText(/Preview expired. Refresh the preview before pushing./)
+      ).toBeVisible()
+      const refresh = screen.getByRole("button", { name: "Refresh preview" })
+      expect(refresh).toBeEnabled()
+      const fresh = {
+        ...ready,
+        id: "fresh-operation",
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      }
+      jest
+        .mocked(crypto.randomUUID)
+        .mockReturnValue("00000000-0000-4000-8000-000000000002")
+      jest.mocked(workflowsCreateSyncOperation).mockResolvedValue(fresh)
+      jest.mocked(workflowsGetSyncOperation).mockResolvedValue(fresh)
+      fireEvent.click(refresh)
+      await waitFor(() =>
+        expect(workflowsCreateSyncOperation).toHaveBeenCalledTimes(2)
+      )
+      expect(
+        jest.mocked(workflowsCreateSyncOperation).mock.calls[1][0].requestBody
+          .id
+      ).toBe("00000000-0000-4000-8000-000000000002")
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "Push" })).toBeEnabled()
+      )
+      view.unmount()
+    } finally {
+      queryClient.clear()
+      jest.useRealTimers()
+    }
+  }
+)

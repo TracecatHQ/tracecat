@@ -4,6 +4,7 @@
 
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { useState } from "react"
 import type {
   CatalogMappingRequirement,
   GitBranchInfo,
@@ -11,6 +12,7 @@ import type {
   GitHubAppRepository,
   McpIntegrationMappingRequirement,
   PullResult,
+  SyncOperationRead,
   VcsProvider,
   WorkspaceRead,
   WorkspaceSyncExportPreview,
@@ -208,12 +210,38 @@ function setupHooks({
     exportWorkspaceIsPending: false,
     exportWorkspaceError: null,
   } as ReturnType<typeof useWorkspaceSyncExport>)
-  jest.mocked(useWorkflowSync).mockReturnValue({
-    pullWorkflows: mockPullWorkflows,
-    previewOperation: undefined,
-    pullWorkflowsIsPending: false,
-    pullWorkflowsError: null,
-  } as ReturnType<typeof useWorkflowSync>)
+  jest
+    .mocked(useWorkflowSync)
+    .mockImplementation(function useMockWorkflowSync() {
+      const [previewOperation, setPreviewOperation] =
+        useState<SyncOperationRead>()
+      return {
+        pullWorkflows: async (options) => {
+          const result: PullResult = await mockPullWorkflows(options)
+          if (options.dry_run && result) {
+            setPreviewOperation({
+              id: "operation-test",
+              direction: "pull",
+              status: result.success ? "ready" : "failed",
+              stage: "awaiting_confirmation",
+              created_at: "2026-01-01T00:00:00Z",
+              expires_at: "2099-01-01T00:00:00Z",
+              can_retry: false,
+              diff_count: result.resource_diffs?.length ?? 0,
+              inputs: {
+                id: "operation-test",
+                direction: "pull",
+                pull: { commit_sha: options.commit_sha },
+              },
+            })
+          }
+          return result
+        },
+        previewOperation,
+        pullWorkflowsIsPending: false,
+        pullWorkflowsError: null,
+      }
+    })
   jest.mocked(useWorkspaceSyncExportPreview).mockReturnValue({
     preview: undefined,
     previewOperationId: undefined,
@@ -698,6 +726,78 @@ describe("WorkspaceSyncSettings", () => {
     )
   })
 
+  it("disables an expired pull preview and lets the user preview again", async () => {
+    const commitSha = "a".repeat(40)
+    const workspace = setupHooks({
+      gitRepoUrl: repositories[0].git_url,
+      commits: [
+        {
+          sha: commitSha,
+          message: "Example",
+          author: "Example",
+          author_email: "author@example.com",
+          date: "2026-01-01T00:00:00Z",
+        },
+      ],
+    })
+    const preview: PullResult = {
+      success: true,
+      commit_sha: commitSha,
+      workflows_found: 0,
+      workflows_imported: 0,
+      diagnostics: [],
+      message: "Preview ready",
+    }
+    const prepared: SyncOperationRead = {
+      id: "operation-test",
+      direction: "pull",
+      status: "ready",
+      stage: "awaiting_confirmation",
+      created_at: "2026-01-01T00:00:00Z",
+      expires_at: "2099-01-01T00:00:00Z",
+      can_retry: false,
+      inputs: {
+        id: "operation-test",
+        direction: "pull",
+        pull: { commit_sha: commitSha },
+      },
+    }
+    const hook = {
+      pullWorkflows: mockPullWorkflows,
+      previewOperation: prepared,
+      pullWorkflowsIsPending: false,
+      pullWorkflowsError: null,
+    }
+    jest.mocked(useWorkflowSync).mockReturnValue(hook)
+    mockPullWorkflows.mockResolvedValue(preview)
+    const user = userEvent.setup()
+    const view = render(<WorkspaceSyncSettings workspace={workspace} />)
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+    expect(screen.getByRole("button", { name: "Apply pull" })).toBeEnabled()
+    jest.mocked(useWorkflowSync).mockReturnValue({
+      ...hook,
+      previewOperation: { ...prepared, status: "expired" },
+    })
+    view.rerender(<WorkspaceSyncSettings workspace={workspace} />)
+    expect(screen.getByRole("button", { name: "Apply pull" })).toBeDisabled()
+    expect(
+      screen.getByText(
+        "Preview expired. Preview these changes again before applying."
+      )
+    ).toBeVisible()
+    expect(
+      screen.getByRole("button", { name: "Preview changes" })
+    ).toBeEnabled()
+    jest.mocked(useWorkflowSync).mockReturnValue({
+      ...hook,
+      previewOperation: { ...prepared, id: "fresh-operation" },
+    })
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+    expect(screen.getByRole("button", { name: "Apply pull" })).toBeEnabled()
+    expect(mockPullWorkflows).toHaveBeenCalledTimes(2)
+  })
+
   it("keeps pull actions available after previewing changes", async () => {
     const user = userEvent.setup()
     const commitSha = "a".repeat(40)
@@ -779,8 +879,9 @@ describe("WorkspaceSyncSettings", () => {
     ).toBeInTheDocument()
     expect(screen.getAllByText("Root workflow").length).toBeGreaterThan(0)
     expect(screen.getByText("Indicators")).toBeInTheDocument()
-    expect(screen.getAllByLabelText("Modified")).toHaveLength(
-      resourceDiffs.length
+    expect(screen.getByTestId("durable-diffs")).toHaveAttribute(
+      "data-count",
+      String(resourceDiffs.length)
     )
     expect(container.firstElementChild).toHaveClass("min-w-0")
 

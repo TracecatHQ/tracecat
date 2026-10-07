@@ -300,3 +300,54 @@ it.each([403, 404])(
     view.unmount()
   }
 )
+
+it.each([true, false])(
+  "rejects an expired pull before POSTing (observed expiry: %s)",
+  async (observeExpiry) => {
+    jest.useFakeTimers()
+    const ready = {
+      ...operation,
+      expires_at: new Date(Date.now() + 2000).toISOString(),
+    }
+    jest.mocked(workflowsCreateSyncOperation).mockResolvedValue(ready)
+    jest.mocked(workflowsGetSyncOperation).mockResolvedValue(ready)
+    const { result } = renderHook(() => useWorkflowSync("workspace-test"), {
+      wrapper,
+    })
+    await act(async () => {
+      await result.current.pullWorkflows({ commit_sha: "abc", dry_run: true })
+    })
+    await waitFor(() =>
+      expect(result.current.previewOperation?.status).toBe("ready")
+    )
+    if (observeExpiry) {
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(2100)
+      })
+      expect(result.current.previewOperation?.status).toBe("expired")
+    } else {
+      // A click can arrive before the observer's timer has delivered its update.
+      jest.setSystemTime(Date.now() + 2001)
+    }
+    await act(async () => {
+      await expect(
+        result.current.pullWorkflows({ commit_sha: "abc" })
+      ).rejects.toThrow("Preview expired or is no longer ready")
+    })
+    expect(workflowsApplySyncOperation).not.toHaveBeenCalled()
+    const fresh = {
+      ...operation,
+      id: "fresh-operation",
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+    }
+    jest.mocked(workflowsCreateSyncOperation).mockResolvedValue(fresh)
+    jest.mocked(workflowsGetSyncOperation).mockResolvedValue(fresh)
+    await act(async () => {
+      await result.current.pullWorkflows({ commit_sha: "abc", dry_run: true })
+    })
+    await waitFor(() =>
+      expect(result.current.previewOperation?.id).toBe("fresh-operation")
+    )
+    expect(result.current.previewOperation?.status).toBe("ready")
+  }
+)

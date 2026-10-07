@@ -56,7 +56,7 @@ export function invalidateWorkspaceSyncResources(
 ) {
   const keys = [
     "workflows",
-    "workflow_definitions",
+    "workflow-definitions",
     "workspace",
     "agent-presets",
     "agent-directory-items",

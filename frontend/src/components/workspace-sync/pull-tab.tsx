@@ -135,7 +135,9 @@ export function WorkspaceSyncPullTab({
     pullPreviewOptions?.mcpMappingsKey === mcpMappingsKey &&
     pullPreviewOptions?.storeMappingsKey === storeMappingsKey
   const canApplyPull =
-    pullPreviewMatchesSelection && pullPreview?.success === true
+    pullPreviewMatchesSelection &&
+    pullPreview?.success === true &&
+    previewOperation?.status === "ready"
 
   const resetPullPreview = useCallback(() => {
     setPullPreview(null)
@@ -367,6 +369,11 @@ export function WorkspaceSyncPullTab({
           mappingsMatchPreview={pullPreviewMatchesSelection}
           disabled={pullWorkflowsIsPending}
         />
+      )}
+      {previewOperation?.status === "expired" && pullPreviewMatchesSource && (
+        <p className="text-sm text-muted-foreground">
+          Preview expired. Preview these changes again before applying.
+        </p>
       )}
       {pullResult && <PullResultSummary result={pullResult} />}
       {!(pullPreview && pullPreviewMatchesSource) && !pullResult && (
