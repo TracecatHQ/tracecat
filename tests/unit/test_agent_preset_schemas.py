@@ -43,6 +43,7 @@ def make_agent_preset(
     tool_approvals: dict[str, bool] | None = None,
     agents: dict[str, object] | None = None,
     enable_internet_access: bool = False,
+    use_in_chat: bool = False,
 ) -> AgentPreset:
     timestamp = datetime(2026, 3, 9, tzinfo=UTC)
     return AgentPreset(
@@ -51,6 +52,7 @@ def make_agent_preset(
         name=name,
         slug=slug,
         description=None,
+        use_in_chat=use_in_chat,
         model_provider="openai",
         model_name="gpt-4o-mini",
         current_version_id=None,
@@ -84,6 +86,13 @@ def test_agent_preset_create_trims_required_fields() -> None:
     assert payload.slug == "triage-preset"
     assert payload.model_name == "gpt-4o-mini"
     assert payload.model_provider == "openai"
+    assert payload.use_in_chat is False
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_agent_preset_minimal_read_exposes_chat_visibility(enabled: bool) -> None:
+    read = build_agent_preset_read_minimal(make_agent_preset(use_in_chat=enabled))
+    assert read.use_in_chat is enabled
 
 
 def test_agent_preset_create_rejects_catalog_without_legacy_model_fields() -> None:
