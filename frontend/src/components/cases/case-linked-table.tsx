@@ -430,7 +430,9 @@ export function CaseLinkedTable({
     )
   } else {
     gridContent = (
-      <ContextMenu>
+      // Non-modal: a modal menu closing alongside the expanded dialog can
+      // leave `pointer-events: none` stuck on the body.
+      <ContextMenu modal={false}>
         <ContextMenuTrigger
           asChild
           disabled={menuRow === null}
