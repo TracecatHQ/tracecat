@@ -57,6 +57,11 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { AwsSecretReferenceForm } from "@/components/workspaces/aws-secret-reference-form"
 import {
@@ -1497,33 +1502,48 @@ export function CreateCredentialDialog({
                         )}
                         <div className="flex flex-col space-y-2">
                           {fields.map((field, index) => {
+                            const isTemplateKey = Boolean(
+                              selectedTool &&
+                                (selectedTool.keys?.includes(field.key || "") ||
+                                  selectedTool.optional_keys?.includes(
+                                    field.key || ""
+                                  ))
+                            )
+                            const keyInput = (
+                              <FormControl className="flex-1">
+                                <Input
+                                  id={`key-${index}`}
+                                  className={cn(
+                                    "text-sm",
+                                    isTemplateKey && "text-muted-foreground"
+                                  )}
+                                  {...register(
+                                    `${inputKey}.${index}.key` as const,
+                                    {
+                                      required: true,
+                                    }
+                                  )}
+                                  placeholder="Key"
+                                  readOnly={isTemplateKey}
+                                  aria-readonly={isTemplateKey}
+                                />
+                              </FormControl>
+                            )
                             return (
                               <div
                                 key={`${field.id}.${index}`}
                                 className="flex w-full items-center gap-2"
                               >
-                                <FormControl className="flex-1">
-                                  <Input
-                                    id={`key-${index}`}
-                                    className="text-sm"
-                                    {...register(
-                                      `${inputKey}.${index}.key` as const,
-                                      {
-                                        required: true,
-                                      }
-                                    )}
-                                    placeholder="Key"
-                                    disabled={
-                                      !!selectedTool &&
-                                      (selectedTool.keys?.includes(
-                                        field.key || ""
-                                      ) ||
-                                        selectedTool.optional_keys?.includes(
-                                          field.key || ""
-                                        ))
-                                    }
-                                  />
-                                </FormControl>
+                                {isTemplateKey ? (
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      {keyInput}
+                                    </TooltipTrigger>
+                                    <TooltipContent>{field.key}</TooltipContent>
+                                  </Tooltip>
+                                ) : (
+                                  keyInput
+                                )}
                                 <FormControl className="flex-1">
                                   <Input
                                     id={`value-${index}`}
@@ -1548,13 +1568,7 @@ export function CreateCredentialDialog({
                                   variant="ghost"
                                   onClick={() => remove(index)}
                                   disabled={
-                                    (!!selectedTool &&
-                                      (selectedTool.keys?.includes(
-                                        field.key || ""
-                                      ) ||
-                                        selectedTool.optional_keys?.includes(
-                                          field.key || ""
-                                        ))) ||
+                                    isTemplateKey ||
                                     (!selectedTool && fields.length === 1)
                                   }
                                 >
