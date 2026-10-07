@@ -1,0 +1,26 @@
+frontend/src/components/tables/column-header-filter.tsx
+  s_2e68558375ca98::t_10650847674aa6 77
+tests/unit/test_tables_service.py
+  s_2e68558375ca98::t_1153d2925320f1 3228-3230,3234-3236,3242-3243,3251-3253,3255
+  s_2e68558375ca98::t_e24b80b657dd05 3231-3233,3237-3241,3244-3250,3254,3256-3257
+tracecat/tables/service.py
+  s_2e68558375ca98::t_10650847674aa6 1627-1632
+frontend/tests/use-case-rows-pagination.test.tsx
+  s_2e68558375ca98::t_10650847674aa6 247-258,271
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c77dae76f5e83fb1a51afe424814dd714b2cdae6",
+  "prompts": {},
+  "sessions": {
+    "s_2e68558375ca98": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8fbcefcc-131e-472d-9aa3-5a4f7c558fbd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
