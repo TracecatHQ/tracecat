@@ -49,13 +49,13 @@ export function useWorkflowSync(workspaceId: string) {
   const queryClient = useQueryClient()
   const wait = useSyncOperationWaiter(workspaceId)
   const [previewOperationId, setPreviewOperationId] = useState<string>()
-  const { data: observedPreviewOperation } = useSyncOperation(
-    workspaceId,
-    previewOperationId
-  )
-  const previewOperation = observedPreviewOperation
-    ? expireSyncOperation(observedPreviewOperation)
-    : undefined
+  const { data: observedPreviewOperation, error: previewOperationError } =
+    useSyncOperation(workspaceId, previewOperationId)
+  const previewOperation =
+    observedPreviewOperation &&
+    (!previewOperationError || isTransientSyncError(previewOperationError))
+      ? expireSyncOperation(observedPreviewOperation)
+      : undefined
   const prepared = useRef<{ id: string; key: string } | null>(null)
   const pendingPreview = useRef<{ id: string; key: string } | null>(null)
 
@@ -106,12 +106,16 @@ export function useWorkflowSync(workspaceId: string) {
       } else {
         if (!prepared.current || prepared.current.key !== key)
           throw new Error("Preview these changes before applying")
-        const cached = queryClient.getQueryData<SyncOperationRead>([
+        const cached = queryClient.getQueryState<SyncOperationRead>([
           "sync-operation",
           workspaceId,
           prepared.current.id,
         ])
-        if (!cached || expireSyncOperation(cached).status !== "ready") {
+        if (
+          !cached?.data ||
+          expireSyncOperation(cached.data).status !== "ready" ||
+          (cached.error && !isTransientSyncError(cached.error))
+        ) {
           throw new Error(
             "Preview expired or is no longer ready. Preview these changes again before applying."
           )
