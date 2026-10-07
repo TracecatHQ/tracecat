@@ -1108,7 +1108,8 @@ class TestAgentPresetService:
         preset = await agent_preset_service.create_preset(
             agent_preset_create_params.model_copy(update={"reasoning_effort": loaded})
         )
-        # Another writer commits a new level after the caller loaded the preset.
+        # Stand in for a concurrent writer: change the row behind the session's
+        # identity map, leaving the caller's loaded preset stale.
         await agent_preset_service.session.execute(
             sa.update(AgentPreset)
             .where(AgentPreset.id == preset.id)
