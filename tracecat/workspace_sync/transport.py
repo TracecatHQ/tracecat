@@ -1436,6 +1436,10 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 )
             except GitLabApiError as exc:
                 if exc.status_code == 404:
+                    # A hidden or missing project produces the same branch 404.
+                    await self._get_project(
+                        client=client, project_id=_gitlab_project_id(url)
+                    )
                     return False
                 raise
             return True

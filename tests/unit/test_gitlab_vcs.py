@@ -1027,3 +1027,17 @@ async def test_gitlab_branch_hint_ignores_same_name_tag() -> None:
     del api._branches["main"]
     with pytest.raises(GitLabApiError):
         await transport.read_files(url=_git_url(), ref="main", ref_kind="branch")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("project_status", [403, 404])
+async def test_gitlab_branch_absence_does_not_hide_project_errors(
+    monkeypatch, project_status
+):
+    api = _MockGitLabApi(project_path="group/subgroup/project", files={})
+    transport = _MockGitLabTransport(api=api)
+    error = GitLabApiError("Synthetic unavailable project", status_code=project_status)
+    monkeypatch.setattr(transport, "_get_project", AsyncMock(side_effect=error))
+    with pytest.raises(GitLabApiError) as caught:
+        await transport.branch_exists(url=_git_url(), branch="missing")
+    assert caught.value is error

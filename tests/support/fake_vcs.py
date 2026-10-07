@@ -77,7 +77,12 @@ class FakeVcsTransport:
         ref_kind: Literal["branch", "commit"] | None = None,
     ) -> VcsTreeSnapshot:
         repo = self._server._repo(url)
-        commit = repo.commit_at_ref(ref)
+        if ref_kind == "branch":
+            commit = repo._commits[repo._branches[ref]]
+        elif ref_kind == "commit":
+            commit = repo._commits[ref]
+        else:
+            commit = repo.commit_at_ref(ref)
         return VcsTreeSnapshot(
             commit_sha=commit.sha,
             tree_sha=commit.tree_sha,
