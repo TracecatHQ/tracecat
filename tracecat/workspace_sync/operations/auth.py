@@ -7,8 +7,16 @@ from sqlalchemy.orm import selectinload
 from tracecat.auth.types import Role
 from tracecat.authz.controls import has_scope
 from tracecat.authz.service import query_effective_scopes, workspace_membership_exists
-from tracecat.db.models import OrganizationMembership, Scope, ServiceAccount, User
+from tracecat.db.models import (
+    Organization,
+    OrganizationMembership,
+    Scope,
+    ServiceAccount,
+    User,
+)
 from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.tiers.access import is_org_entitled
+from tracecat.tiers.enums import Entitlement
 
 
 async def refresh_sync_role(session: AsyncSession, role: Role) -> Role:
@@ -17,6 +25,10 @@ async def refresh_sync_role(session: AsyncSession, role: Role) -> Role:
     if role.workspace_id is None or role.organization_id is None:
         raise TracecatAuthorizationError("Workspace access is required")
     if role.type == "service_account":
+        if not await is_org_entitled(
+            session, role.organization_id, Entitlement.SERVICE_ACCOUNTS
+        ):
+            raise TracecatAuthorizationError("Service account access was revoked")
         account = await session.scalar(
             select(ServiceAccount)
             .where(
@@ -62,6 +74,14 @@ async def refresh_sync_role(session: AsyncSession, role: Role) -> Role:
                 raise TracecatAuthorizationError("Workspace access was revoked")
     else:
         raise TracecatAuthorizationError("Git sync requires a user or service account")
+    if not verified_superuser:
+        organization_active = await session.scalar(
+            select(Organization.is_active).where(
+                Organization.id == role.organization_id
+            )
+        )
+        if not organization_active:
+            raise TracecatAuthorizationError("Organization access was revoked")
     if verified_superuser:
         scopes = live_scopes
     else:
