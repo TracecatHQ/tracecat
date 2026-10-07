@@ -434,6 +434,7 @@ class AgentPresetService(BaseWorkspaceService):
             id=preset.id,
             workspace_id=preset.workspace_id,
             name=preset.name,
+            use_in_chat=preset.use_in_chat,
             slug=preset.slug,
             description=preset.description,
             current_version_id=preset.current_version_id,

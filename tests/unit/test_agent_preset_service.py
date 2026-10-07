@@ -319,6 +319,9 @@ class TestAgentPresetService:
         preset = await agent_preset_service.create_preset(agent_preset_create_params)
         version_id = preset.current_version_id
         assert preset.use_in_chat is False
+        assert (
+            await agent_preset_service.build_preset_read(preset)
+        ).use_in_chat is False
         assert await agent_preset_service.list_presets(use_in_chat=True) == []
 
         for enabled in (True, False):
@@ -338,6 +341,9 @@ class TestAgentPresetService:
             assert await agent_preset_service.get_preset(preset.id) is preset
             read = await agent_preset_service.build_preset_list_reads([preset])
             assert read[0].use_in_chat is enabled
+            assert (
+                await agent_preset_service.build_preset_read(preset)
+            ).use_in_chat is enabled
 
     async def test_chat_visibility_filter_excludes_deleted_and_other_workspace(
         self,
