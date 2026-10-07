@@ -15,6 +15,7 @@ import type {
   WorkspaceRead,
   WorkspaceSyncExportPreview,
 } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { WorkspaceSyncSettings } from "@/components/settings/workspace-sync-settings"
 import { Toast, ToastProvider, ToastViewport } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
@@ -31,6 +32,10 @@ const mockUpdateWorkspace = jest.fn()
 const mockExportWorkspace = jest.fn()
 const mockPullWorkflows = jest.fn()
 const mockRefetchExportPreview = jest.fn()
+
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: jest.fn(),
+}))
 
 jest.mock("@/lib/hooks", () => ({
   useGitHubAppRepositories: jest.fn(),
@@ -205,11 +210,14 @@ function setupHooks({
   } as ReturnType<typeof useWorkspaceSyncExport>)
   jest.mocked(useWorkflowSync).mockReturnValue({
     pullWorkflows: mockPullWorkflows,
+    previewOperation: undefined,
     pullWorkflowsIsPending: false,
     pullWorkflowsError: null,
   } as ReturnType<typeof useWorkflowSync>)
   jest.mocked(useWorkspaceSyncExportPreview).mockReturnValue({
     preview: undefined,
+    previewOperationId: "operation-test",
+    previewDiffCount: 0,
     previewIsLoading: false,
     previewError: null,
     refetchPreview: mockRefetchExportPreview,
@@ -228,6 +236,7 @@ function setupHooks({
 describe("WorkspaceSyncSettings", () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    jest.mocked(useScopeCheck).mockReturnValue(true)
     mockUpdateWorkspace.mockResolvedValue(undefined)
     mockExportWorkspace.mockResolvedValue(undefined)
     mockPullWorkflows.mockResolvedValue(undefined)
@@ -545,6 +554,8 @@ describe("WorkspaceSyncSettings", () => {
     })
     jest.mocked(useWorkspaceSyncExportPreview).mockReturnValue({
       preview,
+      previewOperationId: "operation-test",
+      previewDiffCount: 1,
       previewIsLoading: false,
       previewError: null,
       refetchPreview: mockRefetchExportPreview,
@@ -567,10 +578,18 @@ describe("WorkspaceSyncSettings", () => {
     ).toBeInTheDocument()
     expect(screen.getByText("Case tags")).toBeInTheDocument()
     expect(screen.getByText("Variables")).toBeInTheDocument()
-    expect(screen.getByLabelText("Modified")).toBeInTheDocument()
+    expect(screen.getByTestId("durable-diffs")).toHaveAttribute(
+      "data-operation",
+      "operation-test"
+    )
+    expect(screen.getByTestId("durable-diffs")).toHaveAttribute(
+      "data-count",
+      "1"
+    )
+    await user.type(screen.getByLabelText("Commit message"), " updated")
     expect(
-      screen.getByText("workflows/root/definition.yml")
-    ).toBeInTheDocument()
+      screen.getByRole("button", { name: "Preview changes" })
+    ).toBeEnabled()
   })
 
   it("renders the workspace push review request as an external link", async () => {
@@ -1372,6 +1391,24 @@ describe("WorkspaceSyncSettings", () => {
     ).toHaveLength(2)
   })
 
+  it("keeps accepted operation history visible without a connected repository", () => {
+    render(<WorkspaceSyncSettings workspace={setupHooks({})} />)
+    expect(screen.getByTestId("sync-history")).toBeInTheDocument()
+    expect(useScopeCheck).toHaveBeenCalledWith(undefined, [
+      "workspace_sync:sync",
+      "workflow:sync",
+    ])
+  })
+
+  it.each([false, undefined])(
+    "does not mount sync history when sync authorization is %s",
+    (allowed) => {
+      jest.mocked(useScopeCheck).mockReturnValue(allowed)
+      render(<WorkspaceSyncSettings workspace={setupHooks({})} />)
+      expect(screen.queryByTestId("sync-history")).not.toBeInTheDocument()
+    }
+  )
+
   it("disables the repository selector while repositories are loading", () => {
     render(
       <WorkspaceSyncSettings
@@ -1388,3 +1425,23 @@ describe("WorkspaceSyncSettings", () => {
     expect(screen.getByText("Loading repositories...")).toBeInTheDocument()
   })
 })
+
+jest.mock("@/components/workspace-sync/sync-operation-history", () => ({
+  SyncOperationHistory: () => <div data-testid="sync-history" />,
+}))
+
+jest.mock("@/components/workspace-sync/sync-operation-diffs", () => ({
+  OperationDiffs: ({
+    operationId,
+    count,
+  }: {
+    operationId: string
+    count: number
+  }) => (
+    <div
+      data-testid="durable-diffs"
+      data-operation={operationId}
+      data-count={count}
+    />
+  ),
+}))
