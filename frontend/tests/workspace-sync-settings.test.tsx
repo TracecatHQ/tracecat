@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useState } from "react"
 import type {
@@ -223,7 +223,7 @@ function setupHooks({
               id: "operation-test",
               direction: "pull",
               status: result.success ? "ready" : "failed",
-              stage: "awaiting_confirmation",
+              stage: result.success ? "awaiting_confirmation" : "preparing",
               created_at: "2026-01-01T00:00:00Z",
               expires_at: "2099-01-01T00:00:00Z",
               can_retry: false,
@@ -789,12 +789,29 @@ describe("WorkspaceSyncSettings", () => {
     expect(
       screen.getByRole("button", { name: "Preview changes" })
     ).toBeEnabled()
-    jest.mocked(useWorkflowSync).mockReturnValue({
-      ...hook,
-      previewOperation: { ...prepared, id: "fresh-operation" },
-    })
+    expect(screen.queryByText("Pull preview")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("durable-diffs")).not.toBeInTheDocument()
+    let resolvePreview!: (result: PullResult) => void
+    mockPullWorkflows.mockImplementationOnce(() =>
+      new Promise<PullResult>((resolve) => {
+        resolvePreview = resolve
+      }).then((result) => {
+        jest.mocked(useWorkflowSync).mockReturnValue({
+          ...hook,
+          previewOperation: { ...prepared, id: "fresh-operation" },
+        })
+        return result
+      })
+    )
     await user.click(screen.getByRole("button", { name: "Preview changes" }))
+    expect(screen.getByRole("button", { name: "Apply pull" })).toBeDisabled()
+    await act(async () => resolvePreview(preview))
     expect(screen.getByRole("button", { name: "Apply pull" })).toBeEnabled()
+    expect(screen.getByText("Pull preview")).toBeVisible()
+    expect(screen.getByTestId("durable-diffs")).toHaveAttribute(
+      "data-operation",
+      "fresh-operation"
+    )
     expect(mockPullWorkflows).toHaveBeenCalledTimes(2)
   })
 
