@@ -129,6 +129,7 @@ import {
   useDeleteAgentPreset,
   useMoveAgentPreset,
   useSetDefaultAgent,
+  useUpdateAgentPreset,
 } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useWorkspaceDetails } from "@/hooks/use-workspace"
@@ -1380,6 +1381,8 @@ function AgentPresetContextActions({
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const canOrganize = canUpdateAgent && organizationEnabled
+  const { updateAgentPreset, updateAgentPresetIsPending } =
+    useUpdateAgentPreset(workspaceId)
   return (
     <ContextMenuGroup>
       <ContextMenuItem
@@ -1412,6 +1415,23 @@ function AgentPresetContextActions({
           <StarIcon className="mr-2 size-3.5" />
           Make default
         </ContextMenuItem>
+      ) : null}
+      {canUpdateAgent ? (
+        <ContextMenuCheckboxItem
+          className="text-xs"
+          checked={item.use_in_chat}
+          disabled={updateAgentPresetIsPending}
+          onClick={(e) => e.stopPropagation()}
+          onSelect={(e) => e.stopPropagation()}
+          onCheckedChange={(checked) => {
+            void updateAgentPreset({
+              presetId: item.id,
+              use_in_chat: checked,
+            }).catch(() => {})
+          }}
+        >
+          Use in chat
+        </ContextMenuCheckboxItem>
       ) : null}
       {canOrganize ? (
         <ContextMenuItem
@@ -1907,7 +1927,7 @@ export function AgentsDashboard() {
   const { workspace } = useWorkspaceDetails()
   const { setDefaultAgent, isSettingDefaultAgent } =
     useSetDefaultAgent(workspaceId)
-  const defaultAgentId = workspace?.settings?.default_agent_preset_id ?? null
+  const defaultAgentId = workspace?.default_agent_preset_id ?? null
   const defaultAgentActions: DefaultAgentActions = {
     presetId: defaultAgentId,
     canSet: useScopeCheck("workspace:update") === true,
@@ -2109,6 +2129,7 @@ export function AgentsDashboard() {
         name: preset.name,
         slug: preset.slug,
         description: preset.description,
+        use_in_chat: preset.use_in_chat,
         model_provider: preset.model_provider,
         model_name: preset.model_name,
         folder_id: preset.folder_id ?? null,

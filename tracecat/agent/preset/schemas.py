@@ -123,6 +123,7 @@ class AgentPresetBase(AgentPresetExecutionConfigWrite):
     """Shared fields for agent preset mutations."""
 
     description: str | None = Field(default=None, max_length=1000)
+    use_in_chat: bool = Field(default=False)
     skills: list[AgentPresetSkillBindingBase] | None = Field(default=None)
 
 
@@ -143,6 +144,7 @@ class AgentPresetUpdate(BaseModel):
     """Payload for updating an existing agent preset."""
 
     name: PresetName | None = None
+    use_in_chat: bool | None = Field(default=None)
     slug: PresetSlug | None = None
     description: str | None = Field(default=None, max_length=1000)
     instructions: str | None = Field(default=None)
@@ -164,6 +166,7 @@ class AgentPresetUpdate(BaseModel):
     @model_validator(mode="after")
     def reject_null_required_fields(self) -> AgentPresetUpdate:
         non_nullable = {
+            "use_in_chat": self.use_in_chat,
             "retries": self.retries,
             "enable_thinking": self.enable_thinking,
             "enable_internet_access": self.enable_internet_access,
@@ -184,6 +187,7 @@ class AgentPresetReadMinimal(Schema):
     name: str
     slug: str
     description: str | None
+    use_in_chat: bool = Field(default=False)
     model_provider: str
     model_name: str
     folder_id: uuid.UUID | None = None
@@ -319,6 +323,7 @@ class AgentPresetRead(AgentPresetExecutionConfig):
     id: uuid.UUID
     workspace_id: WorkspaceID
     name: str
+    use_in_chat: bool = Field(default=False)
     slug: str
     description: str | None = Field(default=None, max_length=1000)
     current_version_id: uuid.UUID | None = None

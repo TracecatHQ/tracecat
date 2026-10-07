@@ -14,6 +14,7 @@ const mockUseAgentFolders = jest.fn()
 const mockUseWorkspaceDetails = jest.fn()
 const mockUseAgentPreset = jest.fn()
 const mockSetDefaultAgent = jest.fn()
+const mockUpdateAgentPreset = jest.fn()
 const mockUseScopeCheck = jest.fn<boolean, [string]>(() => true)
 const mockPush = jest.fn()
 
@@ -58,6 +59,10 @@ jest.mock("@/hooks/use-agent-presets", () => ({
     setDefaultAgent: mockSetDefaultAgent,
     isSettingDefaultAgent: false,
   }),
+  useUpdateAgentPreset: () => ({
+    updateAgentPreset: mockUpdateAgentPreset,
+    updateAgentPresetIsPending: false,
+  }),
   useCreateAgentPreset: () => ({
     createAgentPreset: jest.fn(),
     createAgentPresetIsPending: false,
@@ -77,6 +82,7 @@ const PRESET = {
   name: "Legacy preset",
   slug: "legacy-preset",
   description: null,
+  use_in_chat: false,
   model_provider: "openai",
   model_name: "gpt-test",
   folder_id: "folder-1",
@@ -106,6 +112,8 @@ describe("AgentsDashboard entitlement split", () => {
     mockUseWorkspaceDetails.mockReturnValue({ workspace: { settings: {} } })
     mockUseAgentPreset.mockReturnValue({ preset: PRESET })
     mockSetDefaultAgent.mockClear()
+    mockUpdateAgentPreset.mockReset()
+    mockUpdateAgentPreset.mockResolvedValue(PRESET)
     mockUseScopeCheck.mockReset()
     mockUseScopeCheck.mockReturnValue(true)
     mockPush.mockClear()
@@ -185,9 +193,62 @@ describe("AgentsDashboard entitlement split", () => {
     ).not.toBeInTheDocument()
   })
 
+  it.each([false, true])(
+    "toggles chat visibility from %s without navigation",
+    async (enabled) => {
+      mockUseAgentPresets.mockReturnValue({
+        presets: [{ ...PRESET, use_in_chat: enabled }],
+        presetsIsLoading: false,
+        presetsError: null,
+      })
+      renderDashboard()
+      fireEvent.contextMenu(screen.getByText(PRESET.name))
+      const toggle = await screen.findByRole("menuitemcheckbox", {
+        name: "Use in chat",
+      })
+      expect(toggle).toHaveAttribute("aria-checked", String(enabled))
+      await userEvent.click(toggle)
+      expect(mockUpdateAgentPreset).toHaveBeenCalledWith({
+        presetId: PRESET.id,
+        use_in_chat: !enabled,
+      })
+      expect(mockPush).not.toHaveBeenCalled()
+    }
+  )
+
+  it("hides the chat toggle without agent update permission", () => {
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:update")
+    renderDashboard()
+    fireEvent.contextMenu(screen.getByText(PRESET.name))
+    expect(
+      screen.queryByRole("menuitemcheckbox", { name: "Use in chat" })
+    ).not.toBeInTheDocument()
+  })
+
+  it("reflects chat visibility in the folder view", async () => {
+    mockHasEntitlement.mockReturnValue(true)
+    mockSearchParams.current = new URLSearchParams("view=folders")
+    mockUseAgentDirectoryItems.mockReturnValue({
+      directoryItems: [{ ...PRESET, type: "preset", use_in_chat: true }],
+      directoryItemsIsLoading: false,
+      directoryItemsError: null,
+    })
+    renderDashboard()
+    fireEvent.contextMenu(screen.getByText(PRESET.name))
+    const toggle = await screen.findByRole("menuitemcheckbox", {
+      name: "Use in chat",
+    })
+    expect(toggle).toHaveAttribute("aria-checked", "true")
+    await userEvent.click(toggle)
+    expect(mockUpdateAgentPreset).toHaveBeenCalledWith({
+      presetId: PRESET.id,
+      use_in_chat: false,
+    })
+  })
+
   it("marks the default row and links the header badge to the preset", () => {
     mockUseWorkspaceDetails.mockReturnValue({
-      workspace: { settings: { default_agent_preset_id: PRESET.id } },
+      workspace: { default_agent_preset_id: PRESET.id },
     })
     renderDashboard()
     expect(screen.getByText("Default")).toBeInTheDocument()
@@ -205,7 +266,7 @@ describe("AgentsDashboard entitlement split", () => {
     mockHasEntitlement.mockReturnValue(true)
     mockSearchParams.current = new URLSearchParams("view=folders")
     mockUseWorkspaceDetails.mockReturnValue({
-      workspace: { settings: { default_agent_preset_id: PRESET.id } },
+      workspace: { default_agent_preset_id: PRESET.id },
     })
     mockUseAgentPreset.mockReturnValue({
       preset: { ...PRESET, description: "Synthetic default agent description" },
@@ -243,7 +304,7 @@ describe("AgentsDashboard entitlement split", () => {
 
   it("hides stale or deleted default details rather than linking to a missing preset", () => {
     mockUseWorkspaceDetails.mockReturnValue({
-      workspace: { settings: { default_agent_preset_id: PRESET.id } },
+      workspace: { default_agent_preset_id: PRESET.id },
     })
     mockUseAgentPreset.mockReturnValue({
       preset: undefined,

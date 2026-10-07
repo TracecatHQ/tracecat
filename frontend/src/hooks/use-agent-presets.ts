@@ -86,7 +86,7 @@ async function listAllAgentTags(workspaceId: string): Promise<AgentTagRead[]> {
 
 export function useAgentPresets(
   workspaceId?: string,
-  { enabled = true }: { enabled?: boolean } = {}
+  { enabled = true, useInChat }: { enabled?: boolean; useInChat?: boolean } = {}
 ) {
   const {
     data: presets,
@@ -94,12 +94,15 @@ export function useAgentPresets(
     error: presetsError,
     refetch: refetchPresets,
   } = useQuery<AgentPresetReadMinimal[], TracecatApiError>({
-    queryKey: ["agent-presets", workspaceId],
+    queryKey: ["agent-presets", workspaceId, { useInChat }],
     queryFn: async () => {
       if (!workspaceId) {
         throw new Error("workspaceId is required to list agent presets")
       }
-      return await agentPresetsListAgentPresets({ workspaceId })
+      return await agentPresetsListAgentPresets({
+        workspaceId,
+        useInChat,
+      })
     },
     enabled: enabled && Boolean(workspaceId),
     retry: retryHandler,
@@ -442,7 +445,7 @@ export function useSetDefaultAgent(workspaceId: string) {
       mutationFn: (presetId: string) =>
         workspacesUpdateWorkspace({
           workspaceId,
-          requestBody: { settings: { default_agent_preset_id: presetId } },
+          requestBody: { default_agent_preset_id: presetId },
         }),
       onSuccess: async () => {
         await queryClient.invalidateQueries({

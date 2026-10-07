@@ -16,7 +16,6 @@ from tracecat.workspace_sync.enums import VcsProvider
 
 # DTO
 class WorkspaceSettings(TypedDict):
-    default_agent_preset_id: NotRequired[str | None]
     git_provider: NotRequired[VcsProvider | None]
     git_repo_url: NotRequired[str | None]
     workflow_unlimited_timeout_enabled: NotRequired[bool | None]
@@ -28,7 +27,6 @@ class WorkspaceSettings(TypedDict):
 
 # Schema
 class WorkspaceSettingsRead(Schema):
-    default_agent_preset_id: uuid.UUID | None = Field(default=None)
     git_provider: VcsProvider | None = None
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = None
@@ -55,10 +53,6 @@ class WorkspaceSettingsRead(Schema):
 
 
 class WorkspaceSettingsUpdate(Schema):
-    default_agent_preset_id: uuid.UUID | None = Field(
-        default=None,
-        description="Default agent preset for this workspace. Set to null to clear.",
-    )
     git_provider: VcsProvider | None = None
     git_repo_url: str | None = None
     workflow_unlimited_timeout_enabled: bool | None = Field(
@@ -131,6 +125,10 @@ class WorkspaceCreate(Schema):
 class WorkspaceUpdate(Schema):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     settings: WorkspaceSettingsUpdate | None = None
+    default_agent_preset_id: uuid.UUID | None = Field(
+        default=None,
+        description="Default agent preset for this workspace. Set to null to clear.",
+    )
 
 
 class WorkspaceSearch(Schema):
@@ -156,6 +154,7 @@ class WorkspaceMember(Schema):
 class WorkspaceRead(Schema):
     id: WorkspaceID
     name: str
+    default_agent_preset_id: uuid.UUID | None = Field(default=None)
     settings: WorkspaceSettingsRead | None = None
     organization_id: OrganizationID
     unsafe_disable_secret_error_withholding_allowed: bool = Field(

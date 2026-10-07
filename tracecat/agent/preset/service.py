@@ -145,7 +145,9 @@ class AgentPresetService(BaseWorkspaceService):
         self.skill_tools = SkillToolDependencyService(session, role=self.role)
         self.tool_policy = PresetToolPolicyService(session, role=self.role)
 
-    async def list_presets(self) -> Sequence[AgentPreset]:
+    async def list_presets(
+        self, *, use_in_chat: bool | None = None
+    ) -> Sequence[AgentPreset]:
         """Return all agent presets for the current workspace ordered by recency."""
 
         stmt = (
@@ -155,6 +157,8 @@ class AgentPresetService(BaseWorkspaceService):
             .order_by(AgentPreset.created_at.desc())
             .options(selectinload(AgentPreset.tags))
         )
+        if use_in_chat is not None:
+            stmt = stmt.where(AgentPreset.use_in_chat == use_in_chat)
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
@@ -531,6 +535,7 @@ class AgentPresetService(BaseWorkspaceService):
             slug=slug,
             name=params.name,
             description=params.description,
+            use_in_chat=params.use_in_chat,
             instructions=params.instructions,
             model_name=(
                 catalog_entry.model_name
@@ -852,9 +857,9 @@ class AgentPresetService(BaseWorkspaceService):
             sa.update(Workspace)
             .where(
                 Workspace.id == self.workspace_id,
-                Workspace.settings["default_agent_preset_id"].astext == str(preset.id),
+                Workspace.default_agent_preset_id == preset.id,
             )
-            .values(settings=Workspace.settings.op("-")("default_agent_preset_id"))
+            .values(default_agent_preset_id=None)
         )
         await self.session.commit()
 

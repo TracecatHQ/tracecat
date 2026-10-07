@@ -209,12 +209,12 @@ class WorkspaceService(BaseOrgService):
         self, workspace: Workspace, params: WorkspaceUpdate
     ) -> Workspace:
         """Update a workspace."""
-        if params.settings and params.settings.default_agent_preset_id is not None:
+        if params.default_agent_preset_id is not None:
             preset_id = await self.session.scalar(
                 select(AgentPreset.id)
                 .where(
                     AgentPreset.workspace_id == workspace.id,
-                    AgentPreset.id == params.settings.default_agent_preset_id,
+                    AgentPreset.id == params.default_agent_preset_id,
                     AgentPreset.deleted_at.is_(None),
                 )
                 .with_for_update()
@@ -224,6 +224,8 @@ class WorkspaceService(BaseOrgService):
                     "Default agent must be an active preset in this workspace"
                 )
         set_fields = params.model_dump(exclude_unset=True, mode="json")
+        if "default_agent_preset_id" in set_fields:
+            set_fields["default_agent_preset_id"] = params.default_agent_preset_id
         self.logger.info("Updating workspace", set_fields=set_fields)
         missing = object()
         settings_update = set_fields.pop("settings", missing)

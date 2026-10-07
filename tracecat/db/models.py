@@ -436,6 +436,16 @@ class Workspace(OrganizationModel):
         unique=True,
     )
     name: Mapped[str] = mapped_column(String, index=True, nullable=False)
+    default_agent_preset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID,
+        ForeignKey(
+            "agent_preset.id",
+            name="fk_workspace_default_agent_preset_id_agent_preset",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
+    )
     last_case_number: Mapped[int] = mapped_column(
         Integer,
         default=0,
@@ -489,6 +499,7 @@ class Workspace(OrganizationModel):
     agent_presets: Mapped[list[AgentPreset]] = relationship(
         "AgentPreset",
         back_populates="workspace",
+        foreign_keys="AgentPreset.workspace_id",
         cascade="all, delete",
     )
     agent_folders: Mapped[list[AgentFolder]] = relationship(
@@ -4014,6 +4025,9 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         nullable=True,
         doc="Optional description for the preset",
     )
+    use_in_chat: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false"), nullable=False
+    )
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID,
         ForeignKey("agent_preset_version.id", ondelete="SET NULL"),
@@ -4098,7 +4112,9 @@ class AgentPreset(SoftDeleteMixin, WorkspaceModel):
         nullable=True,
     )
 
-    workspace: Mapped[Workspace] = relationship(back_populates="agent_presets")
+    workspace: Mapped[Workspace] = relationship(
+        back_populates="agent_presets", foreign_keys="AgentPreset.workspace_id"
+    )
     folder: Mapped[AgentFolder | None] = relationship(back_populates="presets")
     tags: Mapped[list[AgentTag]] = relationship(
         "AgentTag",

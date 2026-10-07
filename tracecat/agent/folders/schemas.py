@@ -49,6 +49,7 @@ class AgentPresetDirectoryItem(BaseModel):
     name: str
     slug: str
     description: str | None
+    use_in_chat: bool = Field(default=False)
     model_provider: str
     model_name: str
     folder_id: uuid.UUID | None

@@ -29,9 +29,9 @@ from tracecat.exceptions import (
 )
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspaces.schemas import (
+    WorkspaceRead,
     WorkspaceSearch,
     WorkspaceSettings,
-    WorkspaceSettingsRead,
     WorkspaceSettingsUpdate,
     WorkspaceUpdate,
 )
@@ -88,18 +88,13 @@ class TestWorkspaceService:
         for preset_id in (default_agent_preset.id, replacement.id, None):
             updated = await service.update_workspace(
                 svc_workspace,
-                WorkspaceUpdate(
-                    settings=WorkspaceSettingsUpdate(default_agent_preset_id=preset_id)
-                ),
+                WorkspaceUpdate(default_agent_preset_id=preset_id),
             )
             assert updated.settings == {
                 "validate_attachment_magic_number": True,
-                "default_agent_preset_id": str(preset_id) if preset_id else None,
             }
             assert (
-                WorkspaceSettingsRead.model_validate(
-                    updated.settings
-                ).default_agent_preset_id
+                WorkspaceRead.model_validate(updated).default_agent_preset_id
                 == preset_id
             )
 
@@ -132,9 +127,7 @@ class TestWorkspaceService:
         with pytest.raises(TracecatValidationError, match="active preset"):
             await service.update_workspace(
                 svc_workspace,
-                WorkspaceUpdate(
-                    settings=WorkspaceSettingsUpdate(default_agent_preset_id=preset_id)
-                ),
+                WorkspaceUpdate(default_agent_preset_id=preset_id),
             )
 
         await session.refresh(svc_workspace)
@@ -158,16 +151,12 @@ class TestWorkspaceService:
         default_agent_preset: AgentPreset,
         params: WorkspaceUpdate,
     ) -> None:
-        svc_workspace.settings = {
-            "default_agent_preset_id": str(default_agent_preset.id)
-        }
+        svc_workspace.default_agent_preset_id = default_agent_preset.id
         await session.commit()
 
         updated = await service.update_workspace(svc_workspace, params)
 
-        assert updated.settings.get("default_agent_preset_id") == str(
-            default_agent_preset.id
-        )
+        assert updated.default_agent_preset_id == default_agent_preset.id
 
     async def test_setting_default_agent_requires_workspace_update_scope(
         self,
@@ -185,11 +174,7 @@ class TestWorkspaceService:
         with pytest.raises(ScopeDeniedError):
             await service.update_workspace(
                 svc_workspace,
-                WorkspaceUpdate(
-                    settings=WorkspaceSettingsUpdate(
-                        default_agent_preset_id=default_agent_preset.id
-                    )
-                ),
+                WorkspaceUpdate(default_agent_preset_id=default_agent_preset.id),
             )
 
         await session.refresh(svc_workspace)
@@ -204,11 +189,18 @@ class TestWorkspaceService:
         default_agent_preset: AgentPreset,
         is_default: bool,
     ) -> None:
-        default_id = str(default_agent_preset.id) if is_default else str(uuid.uuid4())
-        svc_workspace.settings = {
-            "default_agent_preset_id": default_id,
-            "validate_attachment_magic_number": True,
-        }
+        replacement = AgentPreset(
+            workspace_id=svc_workspace.id,
+            name="Other default",
+            slug="other-default",
+            model_name="test-model",
+            model_provider="openai",
+        )
+        session.add(replacement)
+        await session.flush()
+        default_id = default_agent_preset.id if is_default else replacement.id
+        svc_workspace.default_agent_preset_id = default_id
+        svc_workspace.settings = {"validate_attachment_magic_number": True}
         await session.commit()
 
         await AgentPresetService(session, role=svc_role).delete_preset(
@@ -216,7 +208,7 @@ class TestWorkspaceService:
         )
         await session.refresh(svc_workspace)
 
-        assert svc_workspace.settings.get("default_agent_preset_id") == (
+        assert svc_workspace.default_agent_preset_id == (
             None if is_default else default_id
         )
         assert svc_workspace.settings.get("validate_attachment_magic_number") is True
@@ -224,8 +216,9 @@ class TestWorkspaceService:
     async def test_legacy_workspace_has_no_default_agent(
         self, svc_workspace: Workspace
     ) -> None:
-        settings = WorkspaceSettingsRead.model_validate(svc_workspace.settings)
-        assert settings.default_agent_preset_id is None
+        assert (
+            WorkspaceRead.model_validate(svc_workspace).default_agent_preset_id is None
+        )
 
     async def test_get_workspace_success(
         self, service: WorkspaceService, svc_workspace: Workspace

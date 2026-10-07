@@ -2,6 +2,7 @@
 
 import { LayersPlus, Loader2 } from "lucide-react"
 import type { AgentPresetCreate } from "@/client"
+import { AgentPresetChatToggle } from "@/components/agents/agent-preset-chat-toggle"
 import { AgentPresetVersionHistory } from "@/components/agents/agent-preset-version-history"
 import { Button } from "@/components/ui/button"
 import {
@@ -44,6 +45,13 @@ export function AgentPresetDetailActions({
 }: AgentPresetDetailActionsProps) {
   return (
     <>
+      {presetId ? (
+        <AgentPresetChatToggle
+          workspaceId={workspaceId}
+          presetId={presetId}
+          disabled={isSaving}
+        />
+      ) : null}
       {presetId ? (
         <AgentPresetVersionHistory
           workspaceId={workspaceId}

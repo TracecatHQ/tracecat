@@ -154,6 +154,7 @@ async def get_workspace(
         id=workspace.id,
         name=workspace.name,
         settings=WorkspaceSettingsRead.model_validate(workspace.settings or {}),
+        default_agent_preset_id=workspace.default_agent_preset_id,
         organization_id=workspace.organization_id,
         unsafe_disable_secret_error_withholding_allowed=(
             await workspace_allows_error_details(
@@ -192,6 +193,7 @@ async def update_workspace(
         id=updated.id,
         name=updated.name,
         settings=WorkspaceSettingsRead.model_validate(updated.settings or {}),
+        default_agent_preset_id=updated.default_agent_preset_id,
         organization_id=updated.organization_id,
     )
 
