@@ -9228,7 +9228,7 @@ export type SyncOperationRead = {
   commit_sha?: string | null
   error?: string | null
   preview?: WorkspaceSyncExportPreview | PullResult | null
-  result?: WorkspaceSyncExportResult | PullResult | null
+  result?: SyncPushResult | PullResult | null
   diff_count?: number
   can_retry?: boolean
   data_applied?: boolean
@@ -9240,6 +9240,13 @@ export type SyncPreviewResource = {
   source_id: string
   name: string
   path: string
+}
+
+/**
+ * Compact durable push receipt; file details stay in paginated artifacts.
+ */
+export type SyncPushResult = {
+  commit: CommitInfo
 }
 
 /**
@@ -17883,6 +17890,10 @@ export type $OpenApiTs = {
          */
         202: SyncOperationRead
         /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
          * Conflict
          */
         409: SyncOperationError
@@ -17900,6 +17911,10 @@ export type $OpenApiTs = {
          */
         200: Page_SyncOperationRead_
         /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -17915,6 +17930,10 @@ export type $OpenApiTs = {
          */
         200: SyncOperationRead
         /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -17929,6 +17948,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         202: SyncOperationRead
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
         /**
          * Conflict
          */
@@ -17948,6 +17971,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         202: SyncOperationRead
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
         /**
          * Conflict
          */
@@ -17971,6 +17998,10 @@ export type $OpenApiTs = {
          * Bad Request
          */
         400: SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
         /**
          * Gone
          */

@@ -30638,7 +30638,7 @@ export const $SyncOperationRead = {
     result: {
       anyOf: [
         {
-          $ref: "#/components/schemas/WorkspaceSyncExportResult",
+          $ref: "#/components/schemas/SyncPushResult",
         },
         {
           $ref: "#/components/schemas/PullResult",
@@ -30705,6 +30705,19 @@ export const $SyncPreviewResource = {
   type: "object",
   required: ["resource_type", "source_id", "name", "path"],
   title: "SyncPreviewResource",
+} as const
+
+export const $SyncPushResult = {
+  properties: {
+    commit: {
+      $ref: "#/components/schemas/CommitInfo",
+    },
+  },
+  type: "object",
+  required: ["commit"],
+  title: "SyncPushResult",
+  description:
+    "Compact durable push receipt; file details stay in paginated artifacts.",
 } as const
 
 export const $SyncResourceType = {

@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Path, Query
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import Page, PageParams
 from tracecat.sync import PullResourceDiff
 from tracecat.workspace_sync.operations.schemas import (
@@ -20,7 +21,11 @@ from tracecat.workspace_sync.operations.service import SyncOperationService
 from tracecat.workspace_sync.operations.storage import read_diff, read_diff_page
 from tracecat.workspace_sync.operations.types import SyncOperationConflictError
 
-router = APIRouter(prefix="/workflows/sync/operations", tags=["workflows"])
+router = APIRouter(
+    prefix="/workflows/sync/operations",
+    tags=["workflows"],
+    responses={404: {"model": SyncOperationError}},
+)
 
 
 @router.post("", status_code=202, responses={409: {"model": SyncOperationError}})
@@ -58,7 +63,10 @@ async def get_sync_operation(
 ) -> SyncOperationRead:
     """Poll durable progress and repair a lost Temporal dispatch response."""
     service = SyncOperationService(session, role)
-    operation = await service.get(operation_id)
+    try:
+        operation = await service.get(operation_id)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(404, "Sync operation not found") from exc
     return service.read(operation)
 
 
@@ -75,6 +83,8 @@ async def apply_sync_operation(
     service = SyncOperationService(session, role)
     try:
         operation = await service.apply(operation_id)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(404, "Sync operation not found") from exc
     except SyncOperationConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
     return service.read(operation)
@@ -93,6 +103,8 @@ async def retry_sync_operation(
     service = SyncOperationService(session, role)
     try:
         operation = await service.retry(operation_id)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(404, "Sync operation not found") from exc
     except SyncOperationConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
     return service.read(operation)
@@ -110,11 +122,19 @@ async def list_sync_diffs(
     cursor: str | None = None,
 ) -> SyncDiffPage:
     """Read one bounded page of diff metadata, without loading file contents."""
-    operation = await SyncOperationService(session, role).get(operation_id)
+    try:
+        operation = await SyncOperationService(session, role).get(operation_id)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(404, "Sync operation not found") from exc
     if operation.artifact_key is None:
         return SyncDiffPage(items=[])
     try:
-        return await read_diff_page(operation.artifact_key, cursor)
+        count = (operation.summary or {}).get("diff_count", 0)
+        return await read_diff_page(
+            operation.artifact_key,
+            cursor,
+            diff_count=count if isinstance(count, int) else 0,
+        )
     except ValueError as exc:
         raise HTTPException(400, "Invalid preview cursor") from exc
     except FileNotFoundError:
@@ -135,7 +155,10 @@ async def get_sync_diff(
     index: Annotated[int, Path(ge=0)],
 ) -> PullResourceDiff:
     """Load one selected file diff on demand."""
-    operation = await SyncOperationService(session, role).get(operation_id)
+    try:
+        operation = await SyncOperationService(session, role).get(operation_id)
+    except TracecatNotFoundError as exc:
+        raise HTTPException(404, "Sync operation not found") from exc
     if operation.artifact_key is None or not operation.summary:
         raise HTTPException(404, "Diff not found")
     count = operation.summary.get("diff_count")
