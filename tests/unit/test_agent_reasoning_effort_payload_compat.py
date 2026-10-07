@@ -41,9 +41,17 @@ CONFIG_CASES: list[tuple[dict[str, Any], bool]] = [
     ({"reasoning_effort": "off"}, False),
     ({"reasoning_effort": "high"}, True),
     ({"enable_thinking": True, "reasoning_effort": "off"}, True),
+    ({"enable_thinking": False, "reasoning_effort": "high"}, False),
     ({"enable_thinking": False}, False),
 ]
-CONFIG_CASE_IDS = ["default", "off", "high", "explicit-flag-wins", "current-shape"]
+CONFIG_CASE_IDS = [
+    "default",
+    "off",
+    "high",
+    "explicit-on-wins",
+    "explicit-off-wins",
+    "current-shape",
+]
 
 
 def _role() -> Role:
