@@ -24,15 +24,37 @@ async def pg_advisory_connection_lock(
     try:
         await connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": key})
         await connection.commit()
-        yield
-        await connection.rollback()
-        await connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
-        await connection.commit()
     except BaseException:
         # Cancellation may race with lock acquisition. Never return a connection
         # carrying a session lock to the pool, even if cleanup SQL cannot run.
         await connection.invalidate()
         raise
+    try:
+        yield
+    except Exception:
+        try:
+            await _release_connection_lock(connection, key)
+        except BaseException:
+            # Cleanup must not replace the original domain error.
+            await connection.invalidate()
+        raise
+    except BaseException:
+        await connection.invalidate()
+        raise
+    else:
+        try:
+            await _release_connection_lock(connection, key)
+        except BaseException:
+            await connection.invalidate()
+            raise
+
+
+async def _release_connection_lock(connection: AsyncConnection, key: int) -> None:
+    if connection.invalidated:
+        return
+    await connection.rollback()
+    await connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": key})
+    await connection.commit()
 
 
 @asynccontextmanager

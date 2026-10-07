@@ -28,7 +28,11 @@ from tracecat.workspace_sync.operations import (
     storage,
 )
 from tracecat.workspace_sync.operations.domain import DurableSyncService
-from tracecat.workspace_sync.operations.schemas import PreparedSync, SyncOperationCreate
+from tracecat.workspace_sync.operations.schemas import (
+    PreparedSync,
+    SyncOperationCreate,
+    SyncPushResult,
+)
 from tracecat.workspace_sync.operations.types import (
     StaleSyncPreviewError,
 )
@@ -39,7 +43,6 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceProjection,
     WorkspaceRemoteSnapshot,
     WorkspaceSpec,
-    WorkspaceSyncExportResult,
 )
 
 
@@ -300,13 +303,13 @@ async def test_new_push_with_matching_contents_remains_no_op(session, svc_role):
     first_inputs = push_inputs()
     first_prepared = await sync.prepare(first_inputs)
     first = await sync.apply(first_inputs, first_prepared, first_inputs.id)
-    assert isinstance(first, WorkspaceSyncExportResult)
+    assert isinstance(first, SyncPushResult)
     assert first.commit.status == PushStatus.COMMITTED
 
     inputs = push_inputs()
     prepared = await sync.prepare(inputs)
     result = await sync.apply(inputs, prepared, inputs.id)
-    assert isinstance(result, WorkspaceSyncExportResult)
+    assert isinstance(result, SyncPushResult)
     assert result.commit.status == PushStatus.NO_OP
     assert result.commit.sha is None
 
@@ -416,7 +419,7 @@ async def test_push_recovers_committed_tree_after_workspace_rename(
         assert writes == 1
         return
     result = await sync.apply(inputs, prepared, inputs.id)
-    assert isinstance(result, WorkspaceSyncExportResult)
+    assert isinstance(result, SyncPushResult)
     assert result.commit.status == PushStatus.COMMITTED
     assert result.commit.sha == first[0].sha
     assert result.commit.message == inputs.push.message
@@ -510,3 +513,35 @@ async def test_push_rejects_new_target_at_unchanged_base(
     assert (
         await transport.read_files(url=url, ref="sync/test")
     ).commit_sha == current.commit_sha
+
+
+@pytest.mark.anyio
+async def test_push_rejects_deleted_reviewed_target(session, svc_role, monkeypatch):
+    server = FakeVcsServer()
+    url = GitUrl(host="github.com", org="example", repo="sync-test")
+    workspace = await session.scalar(
+        select(Workspace).where(Workspace.id == svc_role.workspace_id)
+    )
+    workspace.settings = {"git_repo_url": url.to_url(), "git_provider": "github"}
+    await session.commit()
+    sync = DurableSyncService(
+        session, svc_role, transport_factory=server.transport_factory
+    )
+    inputs = push_inputs()
+    transport = sync._transport_for_provider()
+    await transport.write_files(
+        url=url,
+        files={"README.md": "Example"},
+        message="Initial target",
+        branch="sync/test",
+        create_pr=False,
+    )
+    prepared = await sync.prepare(inputs)
+    assert prepared.target_exists
+    del server._repo(url)._branches["sync/test"]
+    read = AsyncMock(wraps=transport.read_files)
+    monkeypatch.setattr(transport, "read_files", read)
+    monkeypatch.setattr(sync, "_transport_for_provider", lambda: transport)
+    with pytest.raises(StaleSyncPreviewError, match="deleted"):
+        await sync.apply(inputs, prepared, inputs.id)
+    read.assert_not_awaited()
