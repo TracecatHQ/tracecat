@@ -8746,7 +8746,8 @@ async def create_agent_preset(
     `description`, and `max_turns`. Always omit `preset_version` so the
     subagent follows the child preset's latest version; set it only when the
     user explicitly asks to pin a specific version. A child preset cannot have
-    its own subagents or tools that require manual approval.
+    its own subagents, and its tools can require manual approval only when an
+    enabled agent backend supports subagent approvals.
     """
 
     try:
@@ -8851,8 +8852,9 @@ async def update_agent_preset(
     existing subagents, drop any `preset_version` the user did not ask for.
     Omit `subagents` to leave them unchanged, or pass an empty list to detach
     all subagents.
-    A child preset cannot have its own subagents or tools that require
-    manual approval.
+    A child preset cannot have its own subagents, and its tools can require
+    manual approval only when an enabled agent backend supports subagent
+    approvals.
 
     Set `clear_output_type=true` to remove an existing `output_type` (agent
     returns plain text). Omitting `output_type` leaves it unchanged.

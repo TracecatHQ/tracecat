@@ -125,6 +125,19 @@ def find_agent_backend(identifier: str | None) -> AgentBackend[Any, Any] | None:
     return get_agent_backends().get(key)
 
 
+def subagent_approvals_available() -> bool:
+    """Whether an enabled backend can run preset subagents that require approval.
+
+    Presets are not bound to a backend, so authoring accepts such subagents when
+    any enabled backend can run them. Each backend still enforces its own rule
+    when it resolves subagents for a turn.
+    """
+    return any(
+        backend.subagent_approvals and backend.is_enabled()
+        for backend in get_agent_backends().values()
+    )
+
+
 def get_agent_backend(
     identifier: str | None, *, harness_type: str | None = None
 ) -> AgentBackend[Any, Any]:

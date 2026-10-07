@@ -448,7 +448,7 @@
 
   Attach tools via `actions`, `mcp_integration_ids`, or a skill's `metadata.tools`.
 
-  Use `subagents` to attach other presets as subagents. Each ref contains `preset` (the child preset slug) and optional `name` (runtime alias), `description`, and `max_turns`. Always omit `preset_version` so the subagent follows the child preset's latest version; set it only when the user explicitly asks to pin a specific version. A child preset cannot have its own subagents or tools that require manual approval.
+  Use `subagents` to attach other presets as subagents. Each ref contains `preset` (the child preset slug) and optional `name` (runtime alias), `description`, and `max_turns`. Always omit `preset_version` so the subagent follows the child preset's latest version; set it only when the user explicitly asks to pin a specific version. A child preset cannot have its own subagents, and its tools can require manual approval only when an enabled agent backend supports subagent approvals.
 </ResponseField>
 
 <ResponseField name="update_agent_preset" type="tool">
@@ -458,7 +458,7 @@
 
   Attach tools via `actions`, `mcp_integration_ids`, or a skill's `metadata.tools`.
 
-  Use `subagents` to replace attached preset-backed subagents. Each ref contains `preset` (the child preset slug) and optional `name` (runtime alias), `description`, and `max_turns`. Always omit `preset_version` so the subagent follows the child preset's latest version; set it only when the user explicitly asks to pin a specific version. When re-sending existing subagents, drop any `preset_version` the user did not ask for. Omit `subagents` to leave them unchanged, or pass an empty list to detach all subagents. A child preset cannot have its own subagents or tools that require manual approval.
+  Use `subagents` to replace attached preset-backed subagents. Each ref contains `preset` (the child preset slug) and optional `name` (runtime alias), `description`, and `max_turns`. Always omit `preset_version` so the subagent follows the child preset's latest version; set it only when the user explicitly asks to pin a specific version. When re-sending existing subagents, drop any `preset_version` the user did not ask for. Omit `subagents` to leave them unchanged, or pass an empty list to detach all subagents. A child preset cannot have its own subagents, and its tools can require manual approval only when an enabled agent backend supports subagent approvals.
 
   Set `clear_output_type=true` to remove an existing `output_type` (agent returns plain text). Omitting `output_type` leaves it unchanged.
 </ResponseField>
