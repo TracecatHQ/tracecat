@@ -440,6 +440,7 @@ async def get_serialized_session(lock_key: int) -> AsyncGenerator[AsyncSession, 
         raise ValueError(
             f"Lock key {lock_key} out of range for PostgreSQL advisory locks"
         )
+    _assert_main_pool_checkout_allowed()
     async with get_async_engine().connect() as connection:
         async with pg_advisory_connection_lock(connection, lock_key):
             await connection.execution_options(isolation_level="SERIALIZABLE")
