@@ -231,7 +231,13 @@ def _deduplicate_networks(networks: tuple[IPNetwork, ...]) -> tuple[IPNetwork, .
     return tuple(dict.fromkeys(networks))
 
 
-def _dns_rules(routes: tuple[SandboxDnsRoute, ...]) -> list[_NstunRule]:
+_DNS_PROTOCOLS = (SandboxNetworkProtocol.UDP, SandboxNetworkProtocol.TCP)
+
+
+def _dns_rules(
+    routes: tuple[SandboxDnsRoute, ...],
+    dns_networks: tuple[IPNetwork, ...] = (),
+) -> list[_NstunRule]:
     rules: list[_NstunRule] = []
     for route in routes:
         # Public resolvers must remain subject to the normal egress policy. They
@@ -241,10 +247,7 @@ def _dns_rules(routes: tuple[SandboxDnsRoute, ...]) -> list[_NstunRule]:
             continue
         destination = _network_for_address(route.guest_address)
         action: NstunAction = "REDIRECT" if route.requires_redirect else "ALLOW"
-        for protocol in (
-            SandboxNetworkProtocol.UDP,
-            SandboxNetworkProtocol.TCP,
-        ):
+        for protocol in _DNS_PROTOCOLS:
             rules.append(
                 _NstunRule(
                     action=action,
@@ -255,6 +258,16 @@ def _dns_rules(routes: tuple[SandboxDnsRoute, ...]) -> list[_NstunRule]:
                         route.host_address if route.requires_redirect else None
                     ),
                     redirect_port=53 if route.requires_redirect else None,
+                )
+            )
+    for network in _deduplicate_networks(dns_networks):
+        for protocol in _DNS_PROTOCOLS:
+            rules.append(
+                _NstunRule(
+                    action="ALLOW",
+                    destination=network,
+                    protocol=protocol,
+                    destination_port=53,
                 )
             )
     return rules
@@ -301,6 +314,7 @@ def _filtered_rules(policy: SandboxNetworkPolicy) -> list[_NstunRule]:
 def nstun_user_net_config_lines(
     policy: SandboxNetworkPolicy,
     dns_routes: tuple[SandboxDnsRoute, ...] = (),
+    dns_networks: tuple[IPNetwork, ...] = (),
 ) -> list[str]:
     """Return NsJail 4.0 NSTUN configuration for an outbound policy.
 
@@ -311,6 +325,9 @@ def nstun_user_net_config_lines(
     Args:
         policy: Trusted policy selected by Tracecat or its administrator.
         dns_routes: Resolvers written into the jail's resolv.conf.
+        dns_networks: Additional networks allowed on TCP/UDP port 53 only, for
+            deployments whose CNI rewrites the resolver address at the socket
+            layer before NSTUN evaluates the packet.
 
     Returns:
         Protobuf text lines. Disabled policies return no ``user_net`` block.
@@ -321,7 +338,7 @@ def nstun_user_net_config_lines(
     if policy.mode is SandboxNetworkMode.DISABLED:
         return []
 
-    rules = _dns_rules(dns_routes)
+    rules = _dns_rules(dns_routes, dns_networks)
     if policy.mode is SandboxNetworkMode.FILTERED:
         rules.extend(_filtered_rules(policy))
     else:
@@ -501,7 +518,11 @@ def resolve_sandbox_network_plan(
     files = write_sandbox_network_files(target_dir, host_resolv_path)
     return SandboxNetworkPlan(
         user_net_lines=tuple(
-            nstun_user_net_config_lines(policy, dns_routes=files.dns_routes)
+            nstun_user_net_config_lines(
+                policy,
+                dns_routes=files.dns_routes,
+                dns_networks=tracecat_config.TRACECAT__SANDBOX_DNS_ALLOWED_EGRESS_CIDRS,
+            )
         ),
         dns_mount_lines=tuple(sandbox_dns_mount_config_lines(files)),
     )
