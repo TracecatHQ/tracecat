@@ -284,3 +284,18 @@ def _agent_otel_payload(
         "organization_id": str(uuid.uuid4()),
         "session_id": str(uuid.uuid4()),
     }
+
+
+def test_mcp_token_rejects_internal_tool_both_allowed_and_deferred(monkeypatch) -> None:
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+
+    with pytest.raises(ValueError, match="both allowed and deferred"):
+        mint_mcp_token(
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            allowed_actions=[],
+            allowed_internal_tools=["internal.builder.update_preset"],
+            deferred_actions=["internal.builder.update_preset"],
+            session_id=session_id,
+            registry_lock=_registry_lock(),
+        )

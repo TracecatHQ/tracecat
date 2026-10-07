@@ -116,7 +116,7 @@ class MCPTokenClaims(BaseModel):
     allowed_actions: list[str]
     """Set of allowed action names (e.g., {"tools.slack.post_message", "core.http_request"})."""
     deferred_actions: list[str] = Field(default_factory=list)
-    """Actions listed for discovery that this token can never execute.
+    """Registry, user MCP, or internal tools this token lists but never executes.
 
     The holder can see and propose these tools, but the trusted server refuses
     to run them. The minting service executes approved calls itself with a
@@ -183,11 +183,13 @@ def mint_mcp_token(
         Signed JWT string
 
     Raises:
-        ValueError: If an action is both allowed and deferred
+        ValueError: If a tool is both deferred and allowed (as an action or
+            internal tool)
     """
     deferred_actions = deferred_actions or []
-    if set(allowed_actions) & set(deferred_actions):
-        raise ValueError("An MCP action cannot be both allowed and deferred")
+    executable = {*allowed_actions, *(allowed_internal_tools or [])}
+    if executable & set(deferred_actions):
+        raise ValueError("An MCP tool cannot be both allowed and deferred")
     now = datetime.now(UTC)
     ttl = ttl_seconds or config.TRACECAT__AGENT_SANDBOX_TIMEOUT + 60
 

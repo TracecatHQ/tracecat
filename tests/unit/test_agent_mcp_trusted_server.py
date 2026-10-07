@@ -3,6 +3,7 @@ import uuid
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
+import jwt
 import pytest
 from fastmcp.exceptions import ToolError
 from temporalio.exceptions import CancelledError as TemporalCancelledError
@@ -13,6 +14,7 @@ from tracecat.agent.mcp.metadata import PROXY_TOOL_CALL_ID_KEY, PROXY_TOOL_METAD
 from tracecat.agent.mcp.user_client import UserMCPClient, UserMCPDiscoveryResult
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim, mint_mcp_token
+from tracecat.auth.secrets import get_service_key
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.registry.lock.types import RegistryLock
 
@@ -1296,3 +1298,76 @@ async def test_token_scoped_mcp_lists_but_refuses_deferred_action(
 
     await mcp.call_tool("core__cases__list_cases", {})
     execute_action.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_execute_internal_refuses_deferred_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handler = AsyncMock(return_value={"updated": True})
+    monkeypatch.setitem(
+        trusted_server.INTERNAL_TOOL_HANDLERS, "internal.builder.update_preset", handler
+    )
+    claims = _build_claims(deferred_actions=["internal.builder.update_preset"])
+
+    assert trusted_server._internal_tool_names(claims) == [
+        "internal.builder.update_preset"
+    ]
+    with pytest.raises(
+        ToolError, match="^Tool 'internal.builder.update_preset' requires approval$"
+    ):
+        await trusted_server._execute_internal(
+            "internal.builder.update_preset", {}, claims
+        )
+    handler.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_token_scoped_mcp_refuses_deferred_internal_tool_also_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deferral wins even in a signed token that also allows the internal tool."""
+    monkeypatch.setattr("tracecat.config.TRACECAT__SERVICE_KEY", "test-service-key")
+    token = mint_mcp_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        allowed_actions=[],
+        allowed_internal_tools=["internal.builder.update_preset"],
+        registry_lock=RegistryLock(origins={}, actions={}),
+    )
+    # Minting rejects this overlap, so sign the claims directly.
+    payload = jwt.decode(token, options={"verify_signature": False})
+    payload["deferred_actions"] = ["internal.builder.update_preset"]
+    token = jwt.encode(payload, get_service_key(), algorithm="HS256")
+
+    async def no_registry_definitions(
+        action_names: list[str],
+        registry_lock: RegistryLock,
+        organization_id: uuid.UUID,
+    ) -> dict[str, MCPToolDefinition]:
+        del action_names, registry_lock, organization_id
+        return {}
+
+    handler = AsyncMock(return_value={"updated": True})
+    monkeypatch.setitem(
+        trusted_server.INTERNAL_TOOL_HANDLERS, "internal.builder.update_preset", handler
+    )
+    monkeypatch.setattr(
+        trusted_server,
+        "fetch_tool_definitions_for_lock",
+        no_registry_definitions,
+    )
+    monkeypatch.setattr(
+        trusted_server,
+        "get_http_headers",
+        lambda include: {"authorization": f"Bearer {token}"},
+    )
+    mcp = trusted_server.TokenScopedFastMCP("test")
+
+    assert [tool.name for tool in await mcp.list_tools()] == [
+        "internal__builder__update_preset"
+    ]
+    with pytest.raises(ToolError, match="requires approval"):
+        await mcp.call_tool("internal__builder__update_preset", {})
+    handler.assert_not_awaited()

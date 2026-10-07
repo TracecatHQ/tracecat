@@ -319,7 +319,7 @@ def _registry_action_names(claims: MCPTokenClaims) -> list[str]:
 
 def _internal_tool_names(claims: MCPTokenClaims) -> list[str]:
     names: list[str] = []
-    for name in claims.allowed_internal_tools:
+    for name in [*claims.allowed_internal_tools, *claims.deferred_actions]:
         if name.startswith("internal.") and name not in names:
             names.append(name)
     return names
@@ -817,6 +817,7 @@ async def _execute_internal(
     claims: MCPTokenClaims,
 ) -> str:
     """Execute one authorized internal tool and return JSON text."""
+    _refuse_deferred_action(tool_name, claims)
     _set_role_context(claims)
     if tool_name not in claims.allowed_internal_tools:
         logger.warning(
