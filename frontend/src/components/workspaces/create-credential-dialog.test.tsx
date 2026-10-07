@@ -51,23 +51,21 @@ beforeEach(() => {
   mockCreateSecret.mockReset()
 })
 
-test("shows the full template key name on hover", async () => {
-  const user = userEvent.setup()
+test("shows each full template key name as its value field label", async () => {
   renderDialog()
 
-  const keyInput = await screen.findByDisplayValue(
-    "SNOWFLAKE_OAUTH_CLIENT_SECRET"
-  )
-  expect(keyInput).toHaveAttribute("readonly")
-  expect(keyInput).not.toBeDisabled()
-
-  await user.hover(keyInput)
-  expect(await screen.findByRole("tooltip")).toHaveTextContent(
-    "SNOWFLAKE_OAUTH_CLIENT_SECRET"
-  )
+  for (const key of [
+    "SNOWFLAKE_OAUTH_CLIENT_ID",
+    "SNOWFLAKE_OAUTH_CLIENT_SECRET",
+    "SNOWFLAKE_OAUTH_TOKEN_ENDPOINT_AUTH_METHOD",
+  ]) {
+    expect(await screen.findByText(key)).toBeVisible()
+    expect(screen.getByLabelText(key)).toHaveAttribute("type", "password")
+  }
+  expect(screen.queryByPlaceholderText("Key")).not.toBeInTheDocument()
 })
 
-test("submits read-only template keys with their values", async () => {
+test("submits template keys with their values", async () => {
   const user = userEvent.setup()
   renderDialog()
 

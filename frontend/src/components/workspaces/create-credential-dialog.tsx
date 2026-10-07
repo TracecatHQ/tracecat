@@ -57,11 +57,6 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { AwsSecretReferenceForm } from "@/components/workspaces/aws-secret-reference-form"
 import {
@@ -1509,40 +1504,23 @@ export function CreateCredentialDialog({
                                     field.key || ""
                                   ))
                             )
-                            const keyInput = (
-                              <FormControl className="flex-1">
-                                <Input
-                                  id={`key-${index}`}
-                                  className={cn(
-                                    "text-sm",
-                                    isTemplateKey && "text-muted-foreground"
-                                  )}
-                                  {...register(
-                                    `${inputKey}.${index}.key` as const,
-                                    {
-                                      required: true,
-                                    }
-                                  )}
-                                  placeholder="Key"
-                                  readOnly={isTemplateKey}
-                                  aria-readonly={isTemplateKey}
-                                />
-                              </FormControl>
+                            const keyRegistration = register(
+                              `${inputKey}.${index}.key` as const,
+                              {
+                                required: true,
+                              }
                             )
-                            return (
-                              <div
-                                key={`${field.id}.${index}`}
-                                className="flex w-full items-center gap-2"
-                              >
-                                {isTemplateKey ? (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      {keyInput}
-                                    </TooltipTrigger>
-                                    <TooltipContent>{field.key}</TooltipContent>
-                                  </Tooltip>
-                                ) : (
-                                  keyInput
+                            const valueRow = (
+                              <div className="flex w-full items-center gap-2">
+                                {!isTemplateKey && (
+                                  <FormControl className="flex-1">
+                                    <Input
+                                      id={`key-${index}`}
+                                      className="text-sm"
+                                      {...keyRegistration}
+                                      placeholder="Key"
+                                    />
+                                  </FormControl>
                                 )}
                                 <FormControl className="flex-1">
                                   <Input
@@ -1562,7 +1540,6 @@ export function CreateCredentialDialog({
                                     type="password"
                                   />
                                 </FormControl>
-
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -1574,6 +1551,28 @@ export function CreateCredentialDialog({
                                 >
                                   <Trash2Icon className="size-3.5" />
                                 </Button>
+                              </div>
+                            )
+                            if (!isTemplateKey) {
+                              return (
+                                <div key={`${field.id}.${index}`}>
+                                  {valueRow}
+                                </div>
+                              )
+                            }
+                            return (
+                              <div
+                                key={`${field.id}.${index}`}
+                                className="flex w-full flex-col gap-1.5"
+                              >
+                                <Label
+                                  htmlFor={`value-${index}`}
+                                  className="break-all font-mono text-xs text-muted-foreground"
+                                >
+                                  {field.key}
+                                </Label>
+                                <input type="hidden" {...keyRegistration} />
+                                {valueRow}
                               </div>
                             )
                           })}
