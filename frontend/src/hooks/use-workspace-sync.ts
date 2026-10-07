@@ -61,7 +61,6 @@ export function useWorkflowSync(workspaceId: string) {
     mutationFn: async (options: WorkflowPullOptions): Promise<PullResult> => {
       const requestBody: WorkflowSyncPullRequest = {
         commit_sha: options.commit_sha,
-        dry_run: options.dry_run ?? false,
         sync_schedules: options.sync_schedules ?? false,
         ...(options.catalog_mappings?.length
           ? { catalog_mappings: options.catalog_mappings }
@@ -74,7 +73,7 @@ export function useWorkflowSync(workspaceId: string) {
           : {}),
       }
 
-      const key = JSON.stringify({ ...requestBody, dry_run: true })
+      const key = JSON.stringify(requestBody)
       let operation: SyncOperationRead
       if (options.dry_run) {
         if (!pendingPreview.current || pendingPreview.current.key !== key) {
@@ -85,7 +84,7 @@ export function useWorkflowSync(workspaceId: string) {
           requestBody: {
             id: pendingPreview.current.id,
             direction: "pull",
-            pull: { ...requestBody, dry_run: true },
+            pull: requestBody,
           },
         })
         queryClient.invalidateQueries({
