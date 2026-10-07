@@ -33,7 +33,11 @@ import {
   casesSetCaseDropdownValue,
   casesUpdateCase,
 } from "@/client"
-import { CaseBadge, CaseColumnBadge } from "@/components/cases/case-badge"
+import {
+  CaseBadge,
+  CaseColumnBadge,
+  tintColor,
+} from "@/components/cases/case-badge"
 import {
   PRIORITIES,
   SEVERITIES,
@@ -588,7 +592,7 @@ export function CaseItem({
                       style={
                         tag.color
                           ? {
-                              backgroundColor: `${tag.color}20`,
+                              backgroundColor: tintColor(tag.color),
                               color: tag.color,
                             }
                           : undefined

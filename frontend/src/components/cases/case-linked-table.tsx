@@ -339,7 +339,9 @@ export function CaseLinkedTable({
       tableId,
       tableName,
       rowId: row.id,
-      rowLabel: rowLabelFor(row, columns),
+      rowData: Object.fromEntries(
+        columns.map((column) => [column.name, row[column.name] ?? null])
+      ),
     }
     if (onViewRelatedCases) {
       onViewRelatedCases(target)
@@ -825,20 +827,4 @@ function dropCommitted(
     [...selected].filter((rowId) => !committedRowIds.has(rowId))
   )
   return remaining.size === 0 ? EMPTY_SELECTION : remaining
-}
-
-/** A short label for a row: its first non-empty text or number, else its ID. */
-function rowLabelFor(
-  row: TableRowRead,
-  columns: readonly TableColumnRead[]
-): string {
-  for (const column of columns) {
-    const value = row[column.name]
-    if (typeof value === "string" && value.trim()) {
-      const text = value.trim()
-      return text.length > 60 ? `"${text.slice(0, 57)}..."` : `"${text}"`
-    }
-    if (typeof value === "number") return String(value)
-  }
-  return `row ${row.id.slice(0, 8)}`
 }

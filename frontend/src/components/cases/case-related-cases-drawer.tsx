@@ -1,7 +1,13 @@
 "use client"
 
 import { ExternalLink } from "lucide-react"
-import type { ReactNode } from "react"
+import {
+  type MouseEvent,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react"
 import type { CaseReadMinimal } from "@/client"
 import { CaseBadge, CaseColumnBadge } from "@/components/cases/case-badge"
 import {
@@ -11,6 +17,7 @@ import {
 } from "@/components/cases/case-categories"
 import { CaseItem } from "@/components/cases/case-item"
 import { CaseValueDrawer } from "@/components/cases/case-value-drawer"
+import { JsonViewWithControls } from "@/components/json-viewer"
 import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
@@ -38,8 +45,8 @@ export interface RelatedCasesTarget {
   tableId: string
   tableName: string | null
   rowId: string
-  /** A short, human label for the row, such as its first text value. */
-  rowLabel: string
+  /** The row's column values, keyed by column name. */
+  rowData: Record<string, unknown>
 }
 
 /** Props for {@link CaseRelatedCasesDrawer}. */
@@ -58,10 +65,14 @@ function caseHref(workspaceId: string, caseId: string): string {
   return `/workspaces/${workspaceId}/cases/${caseId}`
 }
 
+function openCaseInNewTab(workspaceId: string, caseId: string): void {
+  window.open(caseHref(workspaceId, caseId), "_blank", "noopener,noreferrer")
+}
+
 /**
- * Every other case that links a row, in the case page's wide left drawer.
- * Rows look like the cases list; hovering one shows all of its properties and
- * custom fields, and clicking opens it in a new tab.
+ * Every other case that links a row, in the case page's wide left drawer,
+ * under the row's contents. Rows look like the cases list; hovering one shows
+ * all of its properties and custom fields, and clicking pins that card open.
  */
 export function CaseRelatedCasesDrawer({
   target,
@@ -69,7 +80,6 @@ export function CaseRelatedCasesDrawer({
   caseId,
   workspaceId,
 }: CaseRelatedCasesDrawerProps) {
-  const tableLabel = target?.tableName ?? "this table"
   return (
     <CaseValueDrawer
       open={target !== null}
@@ -77,11 +87,7 @@ export function CaseRelatedCasesDrawer({
         if (!open) onClose()
       }}
       title="Related cases"
-      description={
-        target
-          ? `Other cases linked to ${target.rowLabel} in ${tableLabel}`
-          : undefined
-      }
+      description="Cases related to selected linked row"
       size="wide"
     >
       {target && (
@@ -126,6 +132,21 @@ function RelatedCasesList({
     workspaceId,
     caseAddonsEnabled
   )
+  // One card shows at a time: the hovered case's, else the pinned one's.
+  const [hoveredCaseId, setHoveredCaseId] = useState<string | null>(null)
+  const [pinnedCaseId, setPinnedCaseId] = useState<string | null>(null)
+
+  // Leaving the window (e.g. for a case opened in a new tab) skips the row's
+  // pointerleave, which would otherwise leave its card open.
+  useEffect(() => {
+    const clearHover = () => setHoveredCaseId(null)
+    window.addEventListener("blur", clearHover)
+    window.addEventListener("focus", clearHover)
+    return () => {
+      window.removeEventListener("blur", clearHover)
+      window.removeEventListener("focus", clearHover)
+    }
+  }, [])
 
   let body: ReactNode
   if (linkedCasesIsLoading) {
@@ -156,6 +177,25 @@ function RelatedCasesList({
             key={caseData.id}
             caseData={caseData}
             workspaceId={workspaceId}
+            cardOpen={
+              hoveredCaseId === caseData.id ||
+              (hoveredCaseId === null && pinnedCaseId === caseData.id)
+            }
+            onHoverChange={(hovered) =>
+              setHoveredCaseId((current) =>
+                hovered ? caseData.id : current === caseData.id ? null : current
+              )
+            }
+            onTogglePin={() =>
+              setPinnedCaseId((current) =>
+                current === caseData.id ? null : caseData.id
+              )
+            }
+            onUnpin={() =>
+              setPinnedCaseId((current) =>
+                current === caseData.id ? null : current
+              )
+            }
             tags={caseTags}
             members={members}
             dropdownDefinitions={
@@ -181,38 +221,99 @@ function RelatedCasesList({
     )
   }
 
-  return <div className="h-full overflow-y-auto">{body}</div>
+  return (
+    <div className="h-full overflow-y-auto">
+      <section className="border-b px-4 py-3">
+        <h3 className="mb-2 text-xs font-medium text-muted-foreground">
+          Linked row{target.tableName ? ` in ${target.tableName}` : ""}
+        </h3>
+        <div className="max-h-72 overflow-y-auto">
+          <JsonViewWithControls
+            src={target.rowData}
+            defaultExpanded
+            copyMode="jsonpath-and-payload"
+          />
+        </div>
+      </section>
+      <h3 className="px-4 pb-1 pt-3 text-xs font-medium text-muted-foreground">
+        Cases
+      </h3>
+      {body}
+    </div>
+  )
 }
 
 function RelatedCaseRow({
   caseData,
   workspaceId,
+  cardOpen,
+  onHoverChange,
+  onTogglePin,
+  onUnpin,
   tags,
   members,
   dropdownDefinitions,
 }: {
   caseData: CaseReadMinimal
   workspaceId: string
+  cardOpen: boolean
+  onHoverChange: (hovered: boolean) => void
+  onTogglePin: () => void
+  onUnpin: () => void
 } & Pick<
   React.ComponentProps<typeof CaseItem>,
   "tags" | "members" | "dropdownDefinitions"
 >) {
+  const triggerRef = useRef<HTMLDivElement>(null)
+
+  // Cmd/Ctrl-click and middle-click open the case instead of pinning its card.
+  // The row gives up focus first: the browser restores it when the tab comes
+  // back, and a focused trigger would reopen the card.
+  function openInNewTab() {
+    const focused = document.activeElement
+    if (
+      focused instanceof HTMLElement &&
+      triggerRef.current?.contains(focused)
+    ) {
+      focused.blur()
+    }
+    onHoverChange(false)
+    openCaseInNewTab(workspaceId, caseData.id)
+  }
+
+  function handleClickCapture(event: MouseEvent) {
+    if (!event.metaKey && !event.ctrlKey) return
+    event.preventDefault()
+    event.stopPropagation()
+    openInNewTab()
+  }
+
+  function handleAuxClick(event: MouseEvent) {
+    if (event.button !== 1) return
+    event.preventDefault()
+    openInNewTab()
+  }
+
   return (
-    <HoverCard openDelay={300} closeDelay={100}>
+    <HoverCard
+      open={cardOpen}
+      onOpenChange={onHoverChange}
+      openDelay={300}
+      closeDelay={100}
+    >
       <HoverCardTrigger asChild>
         {/* Cancels CaseItem's negative left margin, which the cases list pads for. */}
-        <div className="pl-[18px]">
+        <div
+          ref={triggerRef}
+          className="pl-[18px]"
+          onClickCapture={handleClickCapture}
+          onAuxClick={handleAuxClick}
+        >
           <CaseItem
             caseData={caseData}
             isSelected={false}
             selectable={false}
-            onClick={() =>
-              window.open(
-                caseHref(workspaceId, caseData.id),
-                "_blank",
-                "noopener,noreferrer"
-              )
-            }
+            onClick={onTogglePin}
             tags={tags}
             members={members}
             dropdownDefinitions={dropdownDefinitions}
@@ -225,6 +326,21 @@ function RelatedCaseRow({
         sideOffset={8}
         collisionPadding={8}
         className="max-h-[min(80vh,40rem)] w-96 overflow-y-auto p-0"
+        onPointerDownOutside={(event) => {
+          // A click on this row toggles the pin itself, and modifier or
+          // middle clicks only open a case in a new tab.
+          const { originalEvent } = event.detail
+          if (
+            originalEvent.ctrlKey ||
+            originalEvent.metaKey ||
+            originalEvent.button === 1 ||
+            triggerRef.current?.contains(event.target as Node)
+          ) {
+            return
+          }
+          onUnpin()
+        }}
+        onEscapeKeyDown={onUnpin}
       >
         <RelatedCaseProperties caseData={caseData} workspaceId={workspaceId} />
       </HoverCardContent>
@@ -287,11 +403,25 @@ function RelatedCaseProperties({
   return (
     <div className="flex flex-col">
       <div className="space-y-1 border-b px-4 py-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-medium text-muted-foreground">
             {caseData.short_id}
           </span>
-          <ExternalLink className="size-3 text-muted-foreground" />
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            className="h-6 gap-1 px-2 text-xs"
+          >
+            <a
+              href={caseHref(workspaceId, caseData.id)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open case
+              <ExternalLink className="size-3" />
+            </a>
+          </Button>
         </div>
         <p className="line-clamp-2 text-sm font-medium">{caseData.summary}</p>
       </div>
