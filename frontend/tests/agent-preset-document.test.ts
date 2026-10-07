@@ -68,7 +68,7 @@ const SHARED_EXECUTION = {
   },
   mcp_integrations: ["mcp-beta", "mcp-alpha"],
   retries: 5,
-  reasoning_effort: null,
+  reasoning_effort: "high" as const,
   enable_internet_access: false,
 }
 
@@ -169,6 +169,9 @@ describe("buildAgentPresetVirtualFiles round-trip symmetry", () => {
 
     expect(fromPayload.instructions).toBe(fromVersion.instructions)
     expect(fromPayload.config).toBe(fromVersion.config)
+    expect(configLine(fromVersion.config, "reasoning_effort")).toBe(
+      "  reasoning_effort: high"
+    )
   })
 
   it("emits the fixed key order", () => {
