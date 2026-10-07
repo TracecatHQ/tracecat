@@ -351,3 +351,86 @@ it.each([true, false])(
     expect(result.current.previewOperation?.status).toBe("ready")
   }
 )
+
+it.each([403, 404, 503, "network"] as const)(
+  "blocks pull apply only after a permanent polling error (%s)",
+  async (status) => {
+    jest.useFakeTimers()
+    const { result, unmount } = renderHook(
+      () => useWorkflowSync("workspace-test"),
+      { wrapper }
+    )
+    await act(async () => {
+      await result.current.pullWorkflows({ commit_sha: "abc", dry_run: true })
+    })
+    await waitFor(() =>
+      expect(result.current.previewOperation?.status).toBe("ready")
+    )
+    const callsBeforeError = jest.mocked(workflowsGetSyncOperation).mock.calls
+      .length
+    const error =
+      status === "network"
+        ? new TypeError("Network unavailable")
+        : new ApiError(
+            { method: "GET", url: "/sync" },
+            {
+              url: "/sync",
+              ok: false,
+              status,
+              statusText: "Rejected",
+              body: null,
+            },
+            "Rejected"
+          )
+    jest.mocked(workflowsGetSyncOperation).mockRejectedValue(error)
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(70_000)
+    })
+    expect(workflowsGetSyncOperation).toHaveBeenCalledTimes(
+      callsBeforeError + (status === 403 || status === 404 ? 1 : 4)
+    )
+    if (status === 403 || status === 404) {
+      expect(result.current.previewOperation).toBeUndefined()
+      await act(async () => {
+        await expect(
+          result.current.pullWorkflows({ commit_sha: "abc" })
+        ).rejects.toThrow("Preview expired or is no longer ready")
+      })
+      expect(workflowsApplySyncOperation).not.toHaveBeenCalled()
+      const fresh = { ...operation, id: "fresh-operation" }
+      jest.mocked(workflowsCreateSyncOperation).mockResolvedValue(fresh)
+      jest.mocked(workflowsGetSyncOperation).mockResolvedValue(fresh)
+      await act(async () => {
+        await result.current.pullWorkflows({ commit_sha: "abc", dry_run: true })
+      })
+      await waitFor(() =>
+        expect(result.current.previewOperation?.id).toBe("fresh-operation")
+      )
+    } else {
+      expect(result.current.previewOperation?.status).toBe("ready")
+      const completed: SyncOperationRead = {
+        ...operation,
+        status: "completed",
+        stage: "finished",
+        result: {
+          success: true,
+          commit_sha: "abc",
+          workflows_found: 0,
+          workflows_imported: 0,
+          diagnostics: [],
+          message: "Completed",
+        },
+      }
+      jest.mocked(workflowsApplySyncOperation).mockResolvedValue(completed)
+      jest.mocked(workflowsGetSyncOperation).mockResolvedValue(completed)
+      await act(async () => {
+        await result.current.pullWorkflows({ commit_sha: "abc" })
+      })
+      expect(workflowsApplySyncOperation).toHaveBeenCalledWith({
+        workspaceId: "workspace-test",
+        operationId: operation.id,
+      })
+    }
+    unmount()
+  }
+)

@@ -351,25 +351,27 @@ export function WorkspaceSyncPullTab({
         checked above.
       </SyncWarning>
 
-      {pullPreview && pullPreviewMatchesSource && (
-        <PullPreviewSummary
-          workspaceId={workspaceId}
-          operationId={previewOperation?.id}
-          diffCount={previewOperation?.diff_count}
-          result={pullPreview}
-          catalogMappingRequirements={catalogMappingRequirements}
-          catalogMappings={catalogMappings}
-          onCatalogMappingChange={handleCatalogMappingChange}
-          mcpMappingRequirements={mcpMappingRequirements}
-          mcpMappings={mcpMappings}
-          onMcpMappingChange={handleMcpMappingChange}
-          storeMappingRequirements={storeMappingRequirements}
-          storeMappings={storeMappings}
-          onStoreMappingChange={handleStoreMappingChange}
-          mappingsMatchPreview={pullPreviewMatchesSelection}
-          disabled={pullWorkflowsIsPending}
-        />
-      )}
+      {pullPreview &&
+        pullPreviewMatchesSource &&
+        previewOperation?.status !== "expired" && (
+          <PullPreviewSummary
+            workspaceId={workspaceId}
+            operationId={previewOperation?.id}
+            diffCount={previewOperation?.diff_count}
+            result={pullPreview}
+            catalogMappingRequirements={catalogMappingRequirements}
+            catalogMappings={catalogMappings}
+            onCatalogMappingChange={handleCatalogMappingChange}
+            mcpMappingRequirements={mcpMappingRequirements}
+            mcpMappings={mcpMappings}
+            onMcpMappingChange={handleMcpMappingChange}
+            storeMappingRequirements={storeMappingRequirements}
+            storeMappings={storeMappings}
+            onStoreMappingChange={handleStoreMappingChange}
+            mappingsMatchPreview={pullPreviewMatchesSelection}
+            disabled={pullWorkflowsIsPending}
+          />
+        )}
       {previewOperation?.status === "expired" && pullPreviewMatchesSource && (
         <p className="text-sm text-muted-foreground">
           Preview expired. Preview these changes again before applying.
