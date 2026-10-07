@@ -1279,6 +1279,8 @@ class TestClaudeAgentRuntimeRun:
             (None, None, None),
             ("off", {"type": "disabled"}, "low"),
             ("low", {"type": "enabled", "budget_tokens": 4_000}, "low"),
+            ("medium", {"type": "enabled", "budget_tokens": 10_000}, "medium"),
+            ("high", {"type": "enabled", "budget_tokens": 20_000}, "high"),
             ("max", {"type": "enabled", "budget_tokens": 32_000}, "max"),
         ],
     )
