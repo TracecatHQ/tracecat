@@ -919,6 +919,18 @@ export function ChatSessionPane({
     return -1
   }, [transformedMessages])
 
+  // Retry regenerates from the transcript's tail, whichever message shows the
+  // action. Reloaded history can end with system records, such as a
+  // compaction boundary, that the server can't take as a prompt, so retry
+  // from the record before them. Otherwise keep the tail: the AI SDK finds a
+  // message by its first id, and a continuation can reuse its paused turn's.
+  const retryMessageId = useMemo(() => {
+    if (messages.at(-1)?.role !== "system") {
+      return undefined
+    }
+    return messages.findLast(({ role }) => role !== "system")?.id
+  }, [messages])
+
   // Messages whose turn the user stopped, plus the tool calls those
   // interrupts aborted. The live stream appends the data-cancelled part to
   // the assistant message itself, while reloaded history renders the
@@ -1393,7 +1405,9 @@ export function ChatSessionPane({
                           {isLatestResponse && (
                             <Action
                               size="sm"
-                              onClick={() => regenerate()}
+                              onClick={() =>
+                                regenerate({ messageId: retryMessageId })
+                              }
                               label="Retry"
                               tooltip="Retry"
                             >

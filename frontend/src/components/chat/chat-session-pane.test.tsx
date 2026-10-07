@@ -1,3 +1,4 @@
+import { Chat } from "@ai-sdk/react"
 import {
   fireEvent,
   render,
@@ -346,16 +347,9 @@ async function streamed(chunks: UIMessageChunk[]): Promise<UIMessage> {
   return message
 }
 
-/**
- * The live transcript of an approved batch the user stopped: the paused turn,
- * the approval submission, then the continuation's bubble. Tracecat streams the
- * continuation under the paused turn's bubble id and opens each late result
- * with its tool input, as its Vercel adapter does.
- */
-async function liveStoppedBatch(
-  results: Record<string, unknown>
-): Promise<UIMessage[]> {
-  const paused = await streamed([
+/** The turn as it streamed live up to its approval pause. */
+function livePaused(): Promise<UIMessage> {
+  return streamed([
     { type: "start", messageId: BUBBLE },
     { type: "text-start", id: "text-1" },
     { type: "text-delta", id: "text-1", delta: "Running three calls." },
@@ -374,6 +368,18 @@ async function liveStoppedBatch(
     },
     { type: "finish" },
   ])
+}
+
+/**
+ * The live transcript of an approved batch the user stopped: the paused turn,
+ * the approval submission, then the continuation's bubble. Tracecat streams the
+ * continuation under the paused turn's bubble id and opens each late result
+ * with its tool input, as its Vercel adapter does.
+ */
+async function liveStoppedBatch(
+  results: Record<string, unknown>
+): Promise<UIMessage[]> {
+  const paused = await livePaused()
   const continuation = await streamed([
     { type: "start", messageId: BUBBLE },
     // The cancel arrives while the first call is still running.
@@ -533,71 +539,141 @@ describe("ChatSessionPane stopped approved calls", () => {
   })
 })
 
+/**
+ * Back the pane's Retry with the AI SDK's own regenerate. Returns the message
+ * each request carries: Tracecat's transport sends the request's last one.
+ */
+function retryRequests(messages: UIMessage[]): UIMessage[] {
+  const sent: UIMessage[] = []
+  const chat = new Chat({
+    messages,
+    transport: {
+      sendMessages: async ({ messages: request }) => {
+        sent.push(request[request.length - 1])
+        return new ReadableStream<UIMessageChunk>({
+          start: (controller) => controller.close(),
+        })
+      },
+      reconnectToStream: async () => null,
+    },
+  })
+  mockUseVercelChatResult.regenerate.mockImplementation(chat.regenerate)
+  return sent
+}
+
+// The paused turn as the database returns it, with ids of its own.
+const STORED_PAUSED: UIMessage[] = [
+  {
+    id: "assistant-1",
+    role: "assistant",
+    parts: [
+      { type: "text", text: "Running three calls." },
+      ...CALLS.map(
+        (id) =>
+          ({
+            type: `tool-${TOOL}`,
+            toolCallId: id,
+            state: "input-available",
+            input: { operation: id },
+          }) as UIMessage["parts"][number]
+      ),
+    ],
+  },
+  {
+    id: "approval-1",
+    role: "assistant",
+    parts: [
+      {
+        type: "data-approval-request",
+        data: CALLS.map((id) => ({ tool_call_id: id, tool_name: TOOL })),
+      },
+    ],
+  },
+]
+
 describe("ChatSessionPane response actions", () => {
   beforeEach(() => {
+    mockUseVercelChatResult.regenerate.mockReset()
     mockUseVercelChatResult.messages = []
     mockUseVercelChatResult.status = "ready"
   })
 
-  it("offers Retry when an output-only continuation fails before any text", async () => {
-    // The paused turn came from the database, so its ids differ from the
-    // continuation's bubble. The continuation streams only results, then fails.
-    const continuation = await streamed([
-      { type: "start", messageId: BUBBLE },
-      ...CALLS.flatMap((id): UIMessageChunk[] => [
-        {
-          type: "tool-input-available",
-          toolCallId: id,
-          toolName: TOOL,
-          input: {},
-        },
-        {
-          type: "tool-output-available",
-          toolCallId: id,
-          output: `{"executed":"${id}"}`,
-        },
-      ]),
-      { type: "error", errorText: "Model request failed" },
-    ])
-    mockUseVercelChatResult.status = "error"
+  it.each([
+    ["from the database", async () => STORED_PAUSED],
+    ["streamed live, sharing the bubble id", async () => [await livePaused()]],
+  ])(
+    "retries an output-only continuation that fails before any text, with the paused turn %s",
+    async (_, paused) => {
+      // The continuation streams only results under the turn's bubble id, then
+      // fails.
+      const continuation = await streamed([
+        { type: "start", messageId: BUBBLE },
+        ...CALLS.flatMap((id): UIMessageChunk[] => [
+          {
+            type: "tool-input-available",
+            toolCallId: id,
+            toolName: TOOL,
+            input: {},
+          },
+          {
+            type: "tool-output-available",
+            toolCallId: id,
+            output: `{"executed":"${id}"}`,
+          },
+        ]),
+        { type: "error", errorText: "Model request failed" },
+      ])
+      mockUseVercelChatResult.status = "error"
+      mockUseVercelChatResult.messages = [
+        PROMPT,
+        ...(await paused()),
+        SUBMITTED,
+        continuation,
+      ]
+      const requests = retryRequests(mockUseVercelChatResult.messages)
+      renderChatSessionPane()
+
+      // The results fill the paused turn's cards, so the continuation shows
+      // nothing of its own and the paused turn carries the response actions.
+      expect(timeline()).toEqual(
+        CALLS.map((id) => `${id}: output-available ({"executed":"${id}"})`)
+      )
+      const retry = screen.getAllByRole("button", { name: "Retry" })
+      expect(retry).toHaveLength(1)
+
+      // Retrying resubmits the approvals rather than the original prompt.
+      fireEvent.click(retry[0])
+      await waitFor(() => expect(requests).toEqual([SUBMITTED]))
+    }
+  )
+
+  it("retries a reloaded turn that compacted then failed from its answer", async () => {
+    // The turn answered, compacted, then failed before another message. The
+    // database keeps the compaction boundary as a trailing system record.
     mockUseVercelChatResult.messages = [
       PROMPT,
       {
-        id: "assistant-1",
+        id: "answer-1",
         role: "assistant",
-        parts: [
-          { type: "text", text: "Running three calls." },
-          ...CALLS.map(
-            (id) =>
-              ({
-                type: `tool-${TOOL}`,
-                toolCallId: id,
-                state: "input-available",
-                input: { operation: id },
-              }) as UIMessage["parts"][number]
-          ),
-        ],
+        parts: [{ type: "text", text: "Here is what I found so far." }],
       },
       {
-        id: "approval-1",
-        role: "assistant",
-        parts: [
-          {
-            type: "data-approval-request",
-            data: CALLS.map((id) => ({ tool_call_id: id, tool_name: TOOL })),
-          },
-        ],
+        id: "compaction-1",
+        role: "system",
+        parts: [{ type: "data-compaction", data: { phase: "completed" } }],
       },
-      SUBMITTED,
-      continuation,
     ]
+    const requests = retryRequests(mockUseVercelChatResult.messages)
     renderChatSessionPane()
 
-    // The results fill the paused turn's cards, so the continuation shows
-    // nothing of its own and the paused turn carries the response actions.
-    expect(timeline()).toEqual(
-      CALLS.map((id) => `${id}: output-available ({"executed":"${id}"})`)
-    )
-    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1)
+    const retry = screen.getAllByRole("button", { name: "Retry" })
+    expect(retry).toHaveLength(1)
+    fireEvent.click(retry[0])
+
+    // The retry starts from the answer, so the request carries its prompt.
+    expect(mockUseVercelChatResult.regenerate).toHaveBeenCalledWith({
+      messageId: "answer-1",
+    })
+    await waitFor(() => expect(requests).toEqual([PROMPT]))
   })
 })
