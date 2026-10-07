@@ -733,7 +733,7 @@ async def test_resolve_agents_config_accepts_subagent_with_tool_approvals_on_req
             {"subagents": [{"preset": "approval-child"}]}
         ),
         include_runtime_config=True,
-        allow_manual_approvals=True,
+        supports_subagent_approvals=True,
     )
 
     (child,) = result.subagents

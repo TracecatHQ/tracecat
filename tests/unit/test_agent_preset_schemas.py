@@ -92,7 +92,7 @@ def test_agent_preset_create_trims_required_fields() -> None:
 @pytest.mark.parametrize("enabled", [False, True])
 def test_agent_preset_minimal_read_exposes_chat_visibility(enabled: bool) -> None:
     read = build_agent_preset_read_minimal(
-        make_agent_preset(use_in_chat=enabled), allow_manual_approvals=False
+        make_agent_preset(use_in_chat=enabled), supports_subagent_approvals=False
     )
     assert read.use_in_chat is enabled
 
@@ -252,7 +252,7 @@ def test_agent_preset_read_minimal_exposes_capabilities() -> None:
             },
             enable_internet_access=True,
         ),
-        allow_manual_approvals=False,
+        supports_subagent_approvals=False,
     )
 
     dumped = payload.model_dump(mode="json")
@@ -278,7 +278,7 @@ def test_agent_preset_read_minimal_exposes_current_version_subagent_eligibility(
             tool_approvals={"core.http_request": True},
             agents={"subagents": []},
         ),
-        allow_manual_approvals=False,
+        supports_subagent_approvals=False,
     )
 
     dumped = payload.model_dump(mode="json")
@@ -298,7 +298,7 @@ def test_build_subagent_eligibility_allows_no_attached_children() -> None:
     eligibility = build_subagent_eligibility(
         agents_config={"subagents": []},
         tool_approvals={"core.http_request": False},
-        allow_manual_approvals=False,
+        supports_subagent_approvals=False,
     )
 
     assert eligibility.eligible is True
@@ -309,7 +309,7 @@ def test_build_subagent_eligibility_allows_approvals_when_a_backend_runs_them() 
     eligibility = build_subagent_eligibility(
         agents_config={"subagents": []},
         tool_approvals={"core.http_request": True},
-        allow_manual_approvals=True,
+        supports_subagent_approvals=True,
     )
 
     assert eligibility.eligible is True
@@ -435,7 +435,7 @@ def test_build_subagent_eligibility_rejects_nested_subagents() -> None:
             "subagents": [{"preset": "nested-child"}],
         },
         tool_approvals={"core.http_request": True},
-        allow_manual_approvals=True,
+        supports_subagent_approvals=True,
     )
 
     assert eligibility.eligible is False

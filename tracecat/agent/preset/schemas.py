@@ -204,13 +204,14 @@ class AgentPresetReadMinimal(Schema):
 def build_agent_preset_read_minimal(
     preset: AgentPreset,
     *,
-    allow_manual_approvals: bool,
+    supports_subagent_approvals: bool,
 ) -> AgentPresetReadMinimal:
     """Build a minimal preset response without exposing approval rule details.
 
     Args:
         preset: The preset head to read.
-        allow_manual_approvals: Whether a subagent may require manual approval.
+        supports_subagent_approvals: Whether enabled backends support
+            approval-gated subagents.
     """
     read = AgentPresetReadMinimal.model_validate(preset)
     agents_config = cast(
@@ -227,7 +228,7 @@ def build_agent_preset_read_minimal(
             "current_version_subagent_eligibility": build_subagent_eligibility(
                 agents_config=agents_config,
                 tool_approvals=tool_approvals,
-                allow_manual_approvals=allow_manual_approvals,
+                supports_subagent_approvals=supports_subagent_approvals,
             ),
         }
     )
@@ -256,22 +257,22 @@ def build_subagent_eligibility(
     *,
     agents_config: AgentSubagentsConfig | Mapping[str, object] | None,
     tool_approvals: Mapping[str, bool] | None,
-    allow_manual_approvals: bool,
+    supports_subagent_approvals: bool,
 ) -> AgentPresetSubagentEligibility:
     """Return whether this preset version can be attached as a subagent.
 
     Args:
         agents_config: The version's own subagents.
         tool_approvals: The version's effective approval rules.
-        allow_manual_approvals: Whether a subagent may require manual approval,
-            which depends on the installed agent backends.
+        supports_subagent_approvals: Whether enabled backends support
+            approval-gated subagents.
     """
 
     reasons: list[AgentPresetSubagentEligibilityReason] = []
     agents = AgentSubagentsConfig.model_validate(agents_config or {})
     if agents.subagents:
         reasons.append("subagents_attached")
-    if not allow_manual_approvals and has_manual_tool_approvals(tool_approvals):
+    if not supports_subagent_approvals and has_manual_tool_approvals(tool_approvals):
         reasons.append("tool_approvals")
     return AgentPresetSubagentEligibility(
         eligible=not reasons,

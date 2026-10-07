@@ -138,7 +138,7 @@ async def resolve_agents_config(
     parent_slug: str | None = None,
     include_runtime_config: bool = False,
     follow_latest_versions: bool = False,
-    allow_manual_approvals: bool = False,
+    supports_subagent_approvals: bool = False,
 ) -> ResolvedAgentsConfigResult:
     """Resolve and validate preset-backed subagent refs.
 
@@ -149,9 +149,9 @@ async def resolve_agents_config(
         parent_slug: The parent's slug, which a ref may not reference.
         include_runtime_config: Also resolve each subagent's runtime config.
         follow_latest_versions: Resolve each ref's current version, not its pin.
-        allow_manual_approvals: Accept subagents whose tools require manual
-            approval. Pass True only where their requests wait for a decision in
-            the parent turn.
+        supports_subagent_approvals: Whether the caller supports approval-gated
+            subagents. Runtime callers must hold their requests for a decision
+            in the parent turn; authoring callers use available backend support.
     """
 
     config = AgentSubagentsConfig.model_validate({} if agents is None else agents)
@@ -220,7 +220,7 @@ async def resolve_agents_config(
             raise TracecatValidationError(
                 f"Subagent preset '{ref.preset}' cannot define its own agents in v1"
             )
-        if not allow_manual_approvals:
+        if not supports_subagent_approvals:
             tool_policy = await service.resolve_preset_tool_policy(
                 version, use_latest_skill_versions=follow_latest_versions
             )
