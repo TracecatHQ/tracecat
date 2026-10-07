@@ -2089,14 +2089,15 @@ function getPageConfig(
           />
         ),
         actions: (
-          <>
-            <WorkspaceResourceSyncActions
-              label="agents"
-              branchSlug="agents"
-              resources={["agent_preset"]}
-            />
-            <AgentPresetDetailHeaderActions />
-          </>
+          <AgentPresetDetailHeaderActions
+            syncActions={
+              <WorkspaceResourceSyncActions
+                label="agents"
+                branchSlug="agents"
+                resources={["agent_preset"]}
+              />
+            }
+          />
         ),
       }
     }
