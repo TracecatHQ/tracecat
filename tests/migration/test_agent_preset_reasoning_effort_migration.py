@@ -100,8 +100,12 @@ def test_reasoning_effort_stays_in_sync_with_legacy_writes() -> None:
                         ),
                         {"id": pre_on},
                     )
+                    # Saving another field also writes the old app's flag.
                     connection.execute(
-                        text(f"UPDATE {table} SET retries = 5 WHERE id = :id"),
+                        text(
+                            f"UPDATE {table} SET retries = 5, enable_thinking = true "
+                            "WHERE id = :id"
+                        ),
                         {"id": new_high},
                     )
 
