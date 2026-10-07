@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, TypeGuard
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic_core import ArgsKwargs
 
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.integrations.schemas import MCPToolStatus
@@ -23,7 +24,13 @@ def migrate_legacy_enable_thinking(data: Any) -> Any:
 
     For ``mode="before"`` validators. Off maps to ``"off"`` and on to the model
     default. A ``reasoning_effort`` key, even an explicit null, takes precedence.
+    Pydantic dataclass constructors pass ``ArgsKwargs``, whose keyword arguments
+    are migrated the same way.
     """
+    if isinstance(data, ArgsKwargs):
+        if data.kwargs is None:
+            return data
+        return ArgsKwargs(data.args, migrate_legacy_enable_thinking(data.kwargs))
     if not isinstance(data, dict) or "enable_thinking" not in data:
         return data
     data = dict(data)

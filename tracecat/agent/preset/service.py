@@ -650,13 +650,6 @@ class AgentPresetService(BaseWorkspaceService):
     ) -> AgentPreset:
         """Update an existing preset."""
         set_fields = params.model_dump(exclude_unset=True, exclude={"skills"})
-        if "reasoning_effort" not in set_fields and params.enable_thinking is not None:
-            # Older clients send only the flag: off disables reasoning, and on
-            # clears "off" without discarding another level.
-            if not params.enable_thinking:
-                set_fields["reasoning_effort"] = "off"
-            elif preset.reasoning_effort == "off":
-                set_fields["reasoning_effort"] = None
         execution_changed = False
         requested_skills = None
         if "skills" in params.model_fields_set:
@@ -667,6 +660,14 @@ class AgentPresetService(BaseWorkspaceService):
         current_specs, publish_specs = await self._lock_update_skill_bindings(
             preset, params
         )
+        if "reasoning_effort" not in set_fields and params.enable_thinking is not None:
+            # Older clients send only the flag: off disables reasoning, and on
+            # clears "off" without discarding another level. Read the level
+            # after the locked refresh so a concurrent update isn't overwritten.
+            if not params.enable_thinking:
+                set_fields["reasoning_effort"] = "off"
+            elif preset.reasoning_effort == "off":
+                set_fields["reasoning_effort"] = None
 
         # Handle name first as it may be needed for slug fallback
         if "name" in set_fields:

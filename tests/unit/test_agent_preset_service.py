@@ -1088,6 +1088,43 @@ class TestAgentPresetService:
         assert updated_preset.reasoning_effort == expected
         assert updated_preset.enable_thinking is (expected != "off")
 
+    @pytest.mark.parametrize(
+        ("loaded", "concurrent", "expected"),
+        [("off", "high", "high"), ("high", "off", None)],
+    )
+    async def test_legacy_enable_thinking_resolves_against_locked_row(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        loaded: str,
+        concurrent: str,
+        expected: str | None,
+    ) -> None:
+        """A legacy "on" flag is resolved against the row as of the update's
+        lock, not the caller's earlier read. Otherwise a level committed in
+        between is overwritten, or a concurrent "off" is never cleared."""
+        preset = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(update={"reasoning_effort": loaded})
+        )
+        # Another writer commits a new level after the caller loaded the preset.
+        await agent_preset_service.session.execute(
+            sa.update(AgentPreset)
+            .where(AgentPreset.id == preset.id)
+            .values(
+                reasoning_effort=concurrent,
+                enable_thinking=concurrent != "off",
+            )
+            .execution_options(synchronize_session=False)
+        )
+        assert preset.reasoning_effort == loaded
+
+        updated_preset = await agent_preset_service.update_preset(
+            preset, AgentPresetUpdate.model_validate({"enable_thinking": True})
+        )
+
+        assert updated_preset.reasoning_effort == expected
+        assert updated_preset.enable_thinking is True
+
     @pytest.mark.parametrize("enabled", [None, False])
     async def test_publishing_existing_head_normalizes_enabled(
         self,
