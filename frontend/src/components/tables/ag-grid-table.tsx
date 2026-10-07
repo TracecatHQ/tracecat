@@ -129,6 +129,15 @@ export function AgGridTable({
       setSorting("", false)
     }
   }, [columns, sortedColumn, setSorting])
+  // With no searchable column left the input is disabled, so a typed term
+  // could not be cleared and would later apply to a newly added column.
+  const hasSearchableColumn = searchableColumns.length > 0
+  const hasSearchTerm = search.term !== ""
+  useEffect(() => {
+    if (!hasSearchableColumn && hasSearchTerm) {
+      clearSearch()
+    }
+  }, [hasSearchableColumn, hasSearchTerm, clearSearch])
 
   useEffect(() => {
     if (id) {
