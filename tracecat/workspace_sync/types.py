@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
         CatalogMappingRequirement,
         McpIntegrationMappingRequirement,
         PullDiagnostic,
+        PullResult,
         SecretStoreMappingRequirement,
     )
     from tracecat.workspace_sync.schemas import (
@@ -122,5 +124,31 @@ class PreparedSnapshot:
     library_skill_installs: list[str]
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedPullPreview:
+    """A correlated immutable pull plan paired with its validated review."""
+
+    snapshot: WorkspaceRemoteSnapshot
+    preview: PullResult
+
+
+@dataclass(frozen=True, slots=True)
+class SyncMappingTarget:
+    """Desired sync mapping state for one projected or imported resource."""
+
+    resource_type: str
+    source_id: str
+    source_path: str
+    local_id: uuid.UUID
+
+
 class SyncCommitConflictError(TracecatValidationError):
     """The target Git ref moved after the reviewed revision was checked."""
+
+
+class SyncWorkflowImportError(Exception):
+    """Retain the failing source workflow after a transaction rollback."""
+
+    def __init__(self, diagnostic: PullDiagnostic, message: str) -> None:
+        super().__init__(message)
+        self.diagnostic = diagnostic
