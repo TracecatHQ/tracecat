@@ -321,15 +321,6 @@ class UserMCPClient:
                     )
                 tools.update(server_tools)
             except Exception as e:
-                # Timer callbacks can fire slightly before the clock reaches
-                # their deadline. Once the shared timeout fired, never start
-                # another server even if the next clock read is still earlier.
-                if (
-                    timeout is not None
-                    and server_deadline == discovery_deadline
-                    and timeout.expired()
-                ):
-                    budget_exhausted = True
                 error_summary = _safe_discovery_error_summary(e)
                 logger.error(
                     "Failed to discover tools from user MCP server",
@@ -339,6 +330,16 @@ class UserMCPClient:
                 failed_servers[server_name] = error_summary
                 if fail_on_error:
                     raise _typed_discovery_error(server_name, e) from e
+            finally:
+                # Timer callbacks can fire slightly before the clock reaches
+                # their deadline. Once the shared timeout fired, never start
+                # another server even if the next clock read is still earlier.
+                if (
+                    timeout is not None
+                    and server_deadline == discovery_deadline
+                    and timeout.expired()
+                ):
+                    budget_exhausted = True
 
         logger.info(
             "Discovered user MCP tools",

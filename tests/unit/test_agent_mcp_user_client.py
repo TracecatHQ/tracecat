@@ -751,8 +751,9 @@ async def test_call_tool_propagates_cancellation_carrying_cap_error(
 @pytest.mark.parametrize(
     "failure", ["shared_timeout", "server_timeout", "inner_timeout"]
 )
+@pytest.mark.parametrize("suppress_cancellation", [False, True])
 async def test_discovery_respects_fired_timeout_before_clock_deadline(
-    monkeypatch: pytest.MonkeyPatch, failure: str
+    monkeypatch: pytest.MonkeyPatch, failure: str, suppress_cancellation: bool
 ) -> None:
     contacted: list[str] = []
     deadlines: list[float] = []
@@ -786,7 +787,11 @@ async def test_discovery_respects_fired_timeout_before_clock_deadline(
         contacted.append(name)
         if failure == "inner_timeout":
             raise TimeoutError("Server request timed out")
-        await asyncio.Event().wait()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            if not suppress_cancellation:
+                raise
         return {}
 
     monkeypatch.setattr(user_client.asyncio, "timeout_at", timeout_at)
@@ -804,7 +809,10 @@ async def test_discovery_respects_fired_timeout_before_clock_deadline(
     assert contacted == (
         ["first"] if failure == "shared_timeout" else ["first", "second"]
     )
-    assert set(result.failed_servers) == {"first", "second"}
+    expected_failures = {"first", "second"}
+    if suppress_cancellation and failure != "inner_timeout":
+        expected_failures = {"second"} if failure == "shared_timeout" else set()
+    assert set(result.failed_servers) == expected_failures
     if failure == "shared_timeout":
         assert result.failed_servers["second"] == "UserMCPDiscoveryBudgetExceededError"
 
