@@ -1,0 +1,19 @@
+frontend/src/components/tables/ag-grid-table.tsx
+  s_2e68558375ca98::t_861d37289f3de7 132-140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8566f45b3bd8a3e6c2c385528a34b2bb93691590",
+  "prompts": {},
+  "sessions": {
+    "s_2e68558375ca98": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8fbcefcc-131e-472d-9aa3-5a4f7c558fbd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
