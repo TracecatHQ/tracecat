@@ -1224,6 +1224,7 @@ class WorkspaceSyncService(SyncMappingService):
                 commit=commit,
             )
         except Exception as e:
+            await self.session.rollback()
             # The synchronous API reports diagnostics; durable callers retain
             # exception types so Temporal can classify activity retries.
             if isinstance(e, SyncWorkflowImportError):
