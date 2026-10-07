@@ -24,6 +24,7 @@ from tracecat.db.exceptions import (
     AuthPoolExhaustedError,
     DatabasePoolAcquisitionOrderError,
 )
+from tracecat.db.locks import pg_advisory_connection_lock
 from tracecat.db.rls import set_rls_context, set_rls_context_from_role
 
 # Global so we don't create more than one engine per process.
@@ -430,6 +431,17 @@ def get_async_session_context_manager() -> contextlib.AbstractAsyncContextManage
 ]:
     """Get a context manager for an async SQLAlchemy database session with RLS context."""
     return contextlib.asynccontextmanager(get_async_session)()
+
+
+@contextlib.asynccontextmanager
+async def get_serialized_session(lock_key: int) -> AsyncGenerator[AsyncSession, None]:
+    """Start a tenant-scoped serializable snapshot only after acquiring the lock."""
+    async with get_async_engine().connect() as connection:
+        async with pg_advisory_connection_lock(connection, lock_key):
+            await connection.execution_options(isolation_level="SERIALIZABLE")
+            async with AsyncSession(connection, expire_on_commit=False) as session:
+                await _initialize_session_rls_context(session)
+                yield session
 
 
 def get_async_session_bypass_rls_context_manager() -> (
