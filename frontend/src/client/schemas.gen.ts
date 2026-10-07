@@ -22079,6 +22079,45 @@ export const $Page_SecretStoreRead_ = {
   title: "Page[SecretStoreRead]",
 } as const
 
+export const $Page_SyncOperationRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/SyncOperationRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Next-page cursor",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Previous-page cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "Page[SyncOperationRead]",
+} as const
+
 export const $Page_WorkspaceSecretStoreRead_ = {
   properties: {
     items: {
@@ -30388,6 +30427,262 @@ export const $StringListFieldChange = {
   description: "List diff for preset version fields.",
 } as const
 
+export const $SyncDiffPage = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/PullResourceDiff",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "SyncDiffPage",
+  description:
+    "A stable page of diff metadata; file text is fetched separately.",
+} as const
+
+export const $SyncDirection = {
+  type: "string",
+  enum: ["push", "pull"],
+} as const
+
+export const $SyncOperationCreate_Input = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    direction: {
+      $ref: "#/components/schemas/SyncDirection",
+    },
+    push: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceSyncExportRequest-Input",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    pull: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowSyncPullRequest",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    compare_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Compare Ref",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "direction"],
+  title: "SyncOperationCreate",
+  description:
+    "Start a preview; reuse the client-generated ID after a lost response.",
+} as const
+
+export const $SyncOperationCreate_Output = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    direction: {
+      $ref: "#/components/schemas/SyncDirection",
+    },
+    push: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceSyncExportRequest-Output",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    pull: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkflowSyncPullRequest",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    compare_ref: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Compare Ref",
+    },
+  },
+  additionalProperties: false,
+  type: "object",
+  required: ["id", "direction"],
+  title: "SyncOperationCreate",
+  description:
+    "Start a preview; reuse the client-generated ID after a lost response.",
+} as const
+
+export const $SyncOperationError = {
+  properties: {
+    detail: {
+      type: "string",
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "SyncOperationError",
+  description: "Expected operation conflict and diff lookup failures.",
+} as const
+
+export const $SyncOperationRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    direction: {
+      $ref: "#/components/schemas/SyncDirection",
+    },
+    status: {
+      $ref: "#/components/schemas/SyncStatus",
+    },
+    stage: {
+      $ref: "#/components/schemas/SyncStage",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+    },
+    expires_at: {
+      type: "string",
+      format: "date-time",
+      title: "Expires At",
+    },
+    commit_sha: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit Sha",
+    },
+    error: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Error",
+    },
+    preview: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceSyncExportPreview",
+        },
+        {
+          $ref: "#/components/schemas/PullResult",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Preview",
+    },
+    result: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/WorkspaceSyncExportResult",
+        },
+        {
+          $ref: "#/components/schemas/PullResult",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Result",
+    },
+    diff_count: {
+      type: "integer",
+      title: "Diff Count",
+      default: 0,
+    },
+    can_retry: {
+      type: "boolean",
+      title: "Can Retry",
+      default: false,
+    },
+    data_applied: {
+      type: "boolean",
+      title: "Data Applied",
+      default: false,
+    },
+    inputs: {
+      $ref: "#/components/schemas/SyncOperationCreate-Output",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "direction",
+    "status",
+    "stage",
+    "created_at",
+    "expires_at",
+    "inputs",
+  ],
+  title: "SyncOperationRead",
+  description:
+    "Small polling response, independent of the number of synced files.",
+} as const
+
 export const $SyncPreviewResource = {
   properties: {
     resource_type: {
@@ -30431,6 +30726,30 @@ export const $SyncResourceType = {
 
 Every member is adapter-backed: it can be projected to and imported from
 repository files.`,
+} as const
+
+export const $SyncStage = {
+  type: "string",
+  enum: [
+    "fetching",
+    "preparing",
+    "awaiting_confirmation",
+    "applying",
+    "finished",
+  ],
+} as const
+
+export const $SyncStatus = {
+  type: "string",
+  enum: [
+    "queued",
+    "running",
+    "ready",
+    "applying",
+    "completed",
+    "failed",
+    "expired",
+  ],
 } as const
 
 export const $SyntaxToken = {
@@ -39179,7 +39498,67 @@ export const $WorkspaceSyncExportPreviewRequest = {
     "Request a dry-run projection of what an export would push to Git.",
 } as const
 
-export const $WorkspaceSyncExportRequest = {
+export const $WorkspaceSyncExportRequest_Input = {
+  properties: {
+    message: {
+      type: "string",
+      minLength: 1,
+      title: "Message",
+      description: "Commit message for the export.",
+    },
+    branch: {
+      type: "string",
+      title: "Branch",
+      description: "Target branch to commit to.",
+    },
+    create_pr: {
+      type: "boolean",
+      title: "Create Pr",
+      description: "Whether to open a pull request for the commit.",
+      default: false,
+    },
+    pr_base_branch: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Pr Base Branch",
+      description: "Base branch for the pull request, if created.",
+    },
+    resources: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/ResourceRef",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Resources",
+      description: "Specific resources to export, or ``None`` to export all.",
+    },
+    include_schedules: {
+      type: "boolean",
+      title: "Include Schedules",
+      description: "Whether to include workflow schedules in the export.",
+      default: false,
+    },
+  },
+  type: "object",
+  required: ["message", "branch"],
+  title: "WorkspaceSyncExportRequest",
+  description:
+    "Request to commit selected workspace resources to a Git branch.",
+} as const
+
+export const $WorkspaceSyncExportRequest_Output = {
   properties: {
     message: {
       type: "string",

@@ -10,7 +10,7 @@ import {
   type VcsProvider,
   type WorkflowSyncPullRequest,
   type WorkspaceSyncExportPreview,
-  type WorkspaceSyncExportRequest,
+  type WorkspaceSyncExportRequest_Input,
   type WorkspaceSyncExportResult,
   workflowsExportWorkspaceSync,
   workflowsListWorkflowBranches,
@@ -129,7 +129,7 @@ export function useWorkspaceSyncExport(workspaceId: string) {
     error: exportWorkspaceError,
   } = useMutation({
     mutationFn: async (
-      requestBody: WorkspaceSyncExportRequest
+      requestBody: WorkspaceSyncExportRequest_Input
     ): Promise<WorkspaceSyncExportResult> => {
       return await workflowsExportWorkspaceSync({
         workspaceId,
