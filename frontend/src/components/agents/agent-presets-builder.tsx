@@ -109,7 +109,6 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Separator } from "@/components/ui/separator"
 import {
   Select,
   SelectContent,
@@ -117,6 +116,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -421,7 +421,7 @@ const REASONING_EFFORT_LABELS: Record<
   z.infer<typeof reasoningEffortSchema>,
   string
 > = {
-  default: "Model default",
+  default: "Default",
   off: "Off",
   low: "Low",
   medium: "Medium",
@@ -2071,8 +2071,10 @@ export function AgentPresetConfigurationPanel({
                 </SelectContent>
               </Select>
               <p className="text-muted-foreground">
-                Higher levels think longer before responding. Unsupported levels
-                fall back to the closest one the model supports.
+                Higher levels think longer before responding. Default uses the
+                model's own level, except non-Anthropic models, which run at
+                high. Unsupported levels fall back to the closest one the model
+                supports.
               </p>
             </div>
           </div>
