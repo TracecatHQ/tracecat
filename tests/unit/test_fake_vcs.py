@@ -64,3 +64,31 @@ async def test_guarded_write_checks_branch_omitted_from_listing(monkeypatch):
             expected_commit_sha=main.commit_sha,
         )
     assert server.repo_files(url, ref="sync/target") == {"managed.txt": "existing"}
+
+
+@pytest.mark.anyio
+async def test_explicit_ref_kind_never_falls_back_to_another_kind():
+    server = FakeVcsServer()
+    url = GitUrl(host="github.com", org="example", repo="sync-test")
+    transport = server.transport_factory(VcsProvider.GITHUB, session=None, role=None)
+    initial = await transport.read_files(url=url, ref="main", ref_kind="branch")
+    with pytest.raises(KeyError):
+        await transport.read_files(url=url, ref=initial.commit_sha, ref_kind="branch")
+    with pytest.raises(KeyError):
+        await transport.read_files(url=url, ref="main", ref_kind="commit")
+    await transport.write_files(
+        url=url,
+        files={"new.txt": "branch"},
+        message="Synthetic",
+        branch=initial.commit_sha,
+        create_pr=False,
+    )
+    branch = await transport.read_files(
+        url=url, ref=initial.commit_sha, ref_kind="branch"
+    )
+    commit = await transport.read_files(
+        url=url, ref=initial.commit_sha, ref_kind="commit"
+    )
+    assert branch.files == {"new.txt": "branch"}
+    assert commit.commit_sha == initial.commit_sha
+    assert branch.commit_sha != commit.commit_sha
