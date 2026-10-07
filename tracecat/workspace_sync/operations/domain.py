@@ -32,6 +32,7 @@ from tracecat.workspace_sync.schemas import (
 )
 from tracecat.workspace_sync.service import (
     WorkspaceSyncService,
+    _export_read_scopes_for_projection,
     _export_read_scopes_for_spec,
     _preview_resources_from_spec,
 )
@@ -293,7 +294,13 @@ class DurableSyncService(WorkspaceSyncService):
             if projection is None:
                 raise StaleSyncPreviewError("Missing prepared projection")
             self._require_workspace_sync_scope()
-            self._require_projected_export_scopes(projection.spec)
+            self._enforce_required_scopes(
+                sorted(
+                    _export_read_scopes_for_projection(
+                        projection, prepared.delete_roots
+                    )
+                )
+            )
             await self._require_spec_entitlements(projection.spec)
             target_exists = await transport.branch_exists(url=url, branch=params.branch)
             if prepared.target_exists and not target_exists:
@@ -464,8 +471,13 @@ def preview_summary(prepared: PreparedSync) -> SyncPreviewSummary:
         if prepared.snapshot
         else None
     )
+    read_scopes = _export_read_scopes_for_spec(spec) if spec else set()
+    if prepared.projection:
+        read_scopes = _export_read_scopes_for_projection(
+            prepared.projection, prepared.delete_roots
+        )
     return {
         "preview": data,
         "diff_count": diff_count,
-        "read_scopes": sorted(_export_read_scopes_for_spec(spec)) if spec else [],
+        "read_scopes": sorted(read_scopes),
     }
