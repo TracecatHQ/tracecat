@@ -6,6 +6,7 @@ import type {
   CellValueChangedEvent,
   ColDef,
   ColumnResizedEvent,
+  GetRowIdParams,
   GridApi,
   GridReadyEvent,
   GridSizeChangedEvent,
@@ -38,6 +39,7 @@ import {
 } from "@/components/tables/table-row-query-context"
 import { TableRowsGridHeader } from "@/components/tables/table-rows-grid-header"
 import { useLocalStorage } from "@/hooks/use-local-storage"
+import { cn } from "@/lib/utils"
 
 const MULTI_ROW_SELECTION = {
   mode: "multiRow",
@@ -52,6 +54,10 @@ const SELECTION_COLUMN_DEF: SelectionColumnDef = {
 }
 
 const EMPTY_SELECTION: ReadonlySet<string> = new Set()
+
+function getRowId(params: GetRowIdParams<TableRowRead>): string {
+  return params.data.id
+}
 
 /** Breathing room added to each measured column, on top of the cell padding. */
 const CONTENT_SIZED_PADDING_PX = 8
@@ -105,6 +111,11 @@ export interface TableRowsGridProps {
   tableId: string
   /** Renders the grid's built-in loading overlay. */
   isLoading?: boolean
+  /**
+   * Marks `rows` as the previous request's, kept on screen while the next
+   * loads: the grid is dimmed, not emptied.
+   */
+  isPlaceholderData?: boolean
   /** Adds the multi-row checkbox column. */
   selectable?: boolean
   /** Controlled selection by `TableRowRead.id`. May span pages. */
@@ -172,6 +183,7 @@ export function TableRowsGrid({
   rows,
   tableId,
   isLoading,
+  isPlaceholderData = false,
   selectable = false,
   selectedRowIds,
   onSelectedRowIdsChange,
@@ -275,24 +287,6 @@ export function TableRowsGrid({
   isLoadingRef.current = isLoading
   const rowCountRef = useRef(rows.length)
   rowCountRef.current = rows.length
-
-  // An auto-height grid with no rows shrinks to its overlay, and a refetch
-  // (a new sort, filter or page) empties it for a moment. A page that gets
-  // shorter clamps its scroll, which moves the header out from under the
-  // pointer. So remember the height the grid last settled at and hold it
-  // while the next rows load.
-  const settledHeightRef = useRef(0)
-  useEffect(() => {
-    const wrapper = wrapperRef.current
-    if (!autoHeight || !wrapper || typeof ResizeObserver === "undefined") {
-      return
-    }
-    const observer = new ResizeObserver(() => {
-      if (!isLoadingRef.current) settledHeightRef.current = wrapper.offsetHeight
-    })
-    observer.observe(wrapper)
-    return () => observer.disconnect()
-  }, [autoHeight])
 
   const fitColumns = useCallback((api: GridApi<TableRowRead>) => {
     if (api.isDestroyed()) return
@@ -506,12 +500,12 @@ export function TableRowsGrid({
   return (
     <div
       ref={wrapperRef}
-      className={autoHeight ? "" : "h-full"}
-      style={
-        autoHeight && isLoading
-          ? { minHeight: settledHeightRef.current }
-          : undefined
-      }
+      className={cn(
+        "transition-opacity",
+        !autoHeight && "h-full",
+        isPlaceholderData && "opacity-60"
+      )}
+      aria-busy={isPlaceholderData}
       // Copy is always fine; paste only lands in rows whose edits are saved,
       // anywhere else it would fabricate cell values locally.
       onKeyDown={(e) =>
@@ -531,7 +525,7 @@ export function TableRowsGrid({
           rowData={rows as TableRowRead[]}
           columnDefs={columnDefs}
           rowClassRules={rowClassRules}
-          getRowId={(params) => params.data.id}
+          getRowId={getRowId}
           onGridReady={handleGridReady}
           onColumnResized={handleColumnResized}
           onGridSizeChanged={

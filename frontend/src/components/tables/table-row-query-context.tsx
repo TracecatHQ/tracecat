@@ -20,6 +20,11 @@ export interface TableRowQuery {
   /** The column filter as typed, before debouncing. */
   filter?: RowSearch
   /**
+   * The column filter the rows on screen were fetched with: debounced, and
+   * trailing `filter` until its request has landed.
+   */
+  appliedFilter?: RowSearch
+  /**
    * Replace the column filter, or pass null to clear it. Headers only offer
    * filtering when this is set.
    */

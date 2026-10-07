@@ -36,12 +36,17 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
     rows,
     selectedRowIds,
     onSelectedRowIdsChange,
+    isPlaceholderData,
   }: {
     rows: readonly { id: string }[]
     selectedRowIds?: ReadonlySet<string>
     onSelectedRowIdsChange?: (rowIds: string[]) => void
+    isPlaceholderData?: boolean
   }) => (
-    <div data-testid="rows-grid">
+    <div
+      data-testid="rows-grid"
+      data-placeholder={String(Boolean(isPlaceholderData))}
+    >
       {rows.map((row) => (
         <input
           key={row.id}
@@ -68,10 +73,16 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
 jest.mock("@/components/tables/ag-grid-pagination", () => ({
   AgGridPagination: ({
     onPageSizeChange,
+    isLoading,
   }: {
     onPageSizeChange: (pageSize: number) => void
+    isLoading?: boolean
   }) => (
-    <button type="button" onClick={() => onPageSizeChange(50)}>
+    <button
+      type="button"
+      data-paging-blocked={String(Boolean(isLoading))}
+      onClick={() => onPageSizeChange(50)}
+    >
       Set page size 50
     </button>
   ),
@@ -394,6 +405,23 @@ describe("CaseLinkRowsDialog", () => {
     await pickTable(user, "Alpha")
     expect(screen.getByTestId("row-a1")).not.toBeChecked()
     expect(screen.getByTestId("row-a2")).not.toBeChecked()
+  })
+
+  it("keeps the previous rows up with paging blocked while the next ones load", () => {
+    mockUseTablesPagination.mockImplementation(({ tableId, limit }) => ({
+      ...pageFor(tableId, limit ?? 20),
+      isPlaceholderData: true,
+    }))
+    renderDialog()
+
+    expect(screen.getByTestId("row-a1")).toBeInTheDocument()
+    expect(screen.getByTestId("rows-grid")).toHaveAttribute(
+      "data-placeholder",
+      "true"
+    )
+    expect(
+      screen.getByRole("button", { name: "Set page size 50" })
+    ).toHaveAttribute("data-paging-blocked", "true")
   })
 
   it("keeps picks when the page size changes", async () => {

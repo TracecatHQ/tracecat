@@ -495,3 +495,25 @@ async def test_batch_unlink_case_rows_wraps_service_count(
         )
 
     assert result == CaseTableRowBatchUnlinkResponse(unlinked_count=3)
+
+
+@pytest.mark.anyio
+async def test_list_case_rows_overlong_search_term_returns_422(
+    client: TestClient, test_admin_role: Role
+) -> None:
+    with patch.object(case_rows_router, "CaseTableRowsService") as mock_service_cls:
+        mock_service = AsyncMock()
+        mock_service_cls.return_value = mock_service
+
+        response = client.get(
+            f"/cases/{uuid.uuid4()}/rows",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "table_id": str(uuid.uuid4()),
+                "search_term": "a" * 1001,
+                "search_column": "name",
+            },
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    mock_service.list_rows.assert_not_awaited()

@@ -61,6 +61,7 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
     isRowEditable,
     autoHeight,
     sizeColumnsToContent,
+    isPlaceholderData,
   }: {
     columns: readonly { name: string }[]
     rows: readonly { id: string }[]
@@ -77,6 +78,7 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
     isRowEditable?: (row: { id: string }) => boolean
     autoHeight?: boolean
     sizeColumnsToContent?: boolean
+    isPlaceholderData?: boolean
   }) => {
     mockRowsByTable.set(tableId, [
       ...(mockRowsByTable.get(tableId) ?? []),
@@ -90,6 +92,7 @@ jest.mock("@/components/tables/table-rows-grid", () => ({
         data-editable={String(Boolean(onCellValueChange))}
         data-auto-height={String(Boolean(autoHeight))}
         data-content-sized={String(Boolean(sizeColumnsToContent))}
+        data-placeholder={String(Boolean(isPlaceholderData))}
         data-columns={columns.map((column) => column.name).join(",")}
       >
         {rows.map((row) => (
@@ -524,6 +527,32 @@ describe("CaseLinkedRowsSection", () => {
 
     expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled()
     expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled()
+  })
+
+  it("keeps the previous rows up with paging blocked while the next ones load", () => {
+    // What the hook reports after a sort, search or arrow: the previous
+    // request's rows and `hasNextPage`, under the new request's bounds.
+    setPage("table-1", {
+      isPlaceholderData: true,
+      hasNextPage: true,
+      hasPreviousPage: true,
+      startItem: 21,
+      endItem: 22,
+      totalEstimate: 45,
+    })
+    renderSection()
+
+    expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled()
+    expect(screen.getByTestId("row-r1")).toBeInTheDocument()
+    expect(screen.getByTestId("row-r2")).toBeInTheDocument()
+    expect(screen.getAllByTestId("rows-grid")[0]).toHaveAttribute(
+      "data-placeholder",
+      "true"
+    )
+    // The range would describe rows that are not on screen yet.
+    expect(screen.getByText("2 rows")).toBeInTheDocument()
+    expect(screen.queryByText(/21–22/)).not.toBeInTheDocument()
   })
 
   it("renders the grids off the summary's columns", () => {

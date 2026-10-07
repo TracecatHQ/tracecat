@@ -56,6 +56,21 @@ export function useRowSearch() {
 }
 
 /**
+ * The search the rows on screen were fetched with. It trails `applied` while
+ * the previous request's rows stand in for the next one's.
+ */
+export function useShownRowSearch(
+  applied: RowSearch,
+  isPlaceholderData: boolean
+): RowSearch {
+  const [shown, setShown] = useState(applied)
+  if (!isPlaceholderData && shown !== applied) {
+    setShown(applied)
+  }
+  return shown
+}
+
+/**
  * Whether a rows request failed because its sort or search column is gone or
  * no longer searchable, going by the API's 400 detail. Other 400s, such as an
  * over-long search term, are not stale columns.

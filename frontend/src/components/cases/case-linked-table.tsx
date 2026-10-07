@@ -48,6 +48,7 @@ import {
 import {
   toRowSearchParams,
   useRowSearch,
+  useShownRowSearch,
   useStaleRowQueryReset,
 } from "@/hooks/use-row-search"
 import {
@@ -161,6 +162,7 @@ export function CaseLinkedTable({
   const {
     data: caseRows,
     isLoading: rowsIsLoading,
+    isPlaceholderData: rowsArePlaceholder,
     error: rowsError,
     goToNextPage,
     goToPreviousPage,
@@ -182,6 +184,9 @@ export function CaseLinkedTable({
     searchColumn,
   })
   const isSearching = searchTerm !== null
+  const appliedFilter = useShownRowSearch(debouncedSearch, rowsArePlaceholder)
+  // The placeholder rows' cursors belong to the previous request.
+  const pagingIsBlocked = rowsIsLoading || rowsArePlaceholder
 
   const resetRowQuery = useCallback(() => {
     setSorting("", false)
@@ -197,6 +202,7 @@ export function CaseLinkedTable({
       sort: sortingState,
       onSortChange: setSorting,
       filter: search,
+      appliedFilter,
       onFilterChange: (filter) => {
         if (filter) {
           setSearch(filter)
@@ -205,7 +211,7 @@ export function CaseLinkedTable({
         }
       },
     }),
-    [sortingState, setSorting, search, setSearch, clearSearch]
+    [sortingState, setSorting, search, appliedFilter, setSearch, clearSearch]
   )
   const { unlinkCaseRows, unlinkCaseRowsIsPending } = useUnlinkCaseRows({
     caseId,
@@ -228,7 +234,7 @@ export function CaseLinkedTable({
   // to the summary count until the page has rows to describe.
   const showRange =
     isPaged &&
-    !rowsIsLoading &&
+    !pagingIsBlocked &&
     !rowsError &&
     caseRows.length > 0 &&
     endItem >= startItem &&
@@ -334,6 +340,7 @@ export function CaseLinkedTable({
         rows={rows}
         tableId={tableId}
         isLoading={rowsIsLoading}
+        isPlaceholderData={rowsArePlaceholder}
         selectable={canUpdate}
         selectedRowIds={selectedRowIds}
         onSelectedRowIdsChange={(ids) => setSelectedRowIds(new Set(ids))}
@@ -437,7 +444,7 @@ export function CaseLinkedTable({
               type="button"
               aria-label="Previous page"
               className={PAGE_ARROW_CLASS}
-              disabled={!hasPreviousPage || rowsIsLoading}
+              disabled={!hasPreviousPage || pagingIsBlocked}
               onClick={goToPreviousPage}
             >
               <ChevronLeft className="size-4" />
@@ -446,7 +453,7 @@ export function CaseLinkedTable({
               type="button"
               aria-label="Next page"
               className={PAGE_ARROW_CLASS}
-              disabled={!hasNextPage || rowsIsLoading}
+              disabled={!hasNextPage || pagingIsBlocked}
               onClick={goToNextPage}
             >
               <ChevronRight className="size-4" />
@@ -490,7 +497,7 @@ export function CaseLinkedTable({
             onPreviousPage={goToPreviousPage}
             onFirstPage={goToFirstPage}
             onPageSizeChange={handlePageSizeChange}
-            isLoading={rowsIsLoading}
+            isLoading={pagingIsBlocked}
           />
         </div>
         {insertDialog}

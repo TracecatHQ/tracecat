@@ -3255,3 +3255,36 @@ async def test_list_rows_search_column_resolves_case_normalized_name(
         search_column=search_column,
     )
     assert [row["hostname"] for row in page.items] == ["alpha"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("order_by", ["HostName", "hostname", "Created_At"])
+async def test_list_rows_order_by_resolves_case_normalized_name(
+    tables_service: TablesService, order_by: str
+) -> None:
+    table = await tables_service.create_table(
+        TableCreate(
+            name="sort_case_table",
+            columns=[TableColumnCreate(name="HostName", type=SqlType.TEXT)],
+        )
+    )
+    for hostname in ("alpha", "bravo"):
+        await tables_service.insert_row(
+            table, TableRowInsert(data={"hostname": hostname})
+        )
+
+    page = await tables_service.list_rows(
+        table, CursorPaginationParams(limit=10), order_by=order_by, sort="asc"
+    )
+    assert [row["hostname"] for row in page.items] == ["alpha", "bravo"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("order_by", ["missing", "not a column"])
+async def test_list_rows_order_by_rejects_invalid_columns(
+    tables_service: TablesService, search_table: Table, order_by: str
+) -> None:
+    with pytest.raises(ValueError, match=f"^Invalid order_by column: {order_by}$"):
+        await tables_service.list_rows(
+            search_table, CursorPaginationParams(limit=10), order_by=order_by
+        )

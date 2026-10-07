@@ -27,6 +27,7 @@ import { CaseRowsLinkError, useLinkCaseRows } from "@/hooks/use-case-rows"
 import {
   toRowSearchParams,
   useRowSearch,
+  useShownRowSearch,
   useStaleRowQueryReset,
 } from "@/hooks/use-row-search"
 import { getApiErrorDetail } from "@/lib/errors"
@@ -116,6 +117,7 @@ function CaseLinkRowsDialogBody({
   const {
     data: pageRows,
     isLoading: rowsIsLoading,
+    isPlaceholderData: rowsArePlaceholder,
     error: rowsError,
     goToNextPage,
     goToPreviousPage,
@@ -138,6 +140,7 @@ function CaseLinkRowsDialogBody({
   })
   const gridRows = pageRows.length > 0 ? pageRows : EMPTY_ROWS
   const isSearching = searchTerm !== null
+  const appliedFilter = useShownRowSearch(debouncedSearch, rowsArePlaceholder)
 
   const resetRowQuery = useCallback(() => {
     setSorting("", false)
@@ -153,6 +156,7 @@ function CaseLinkRowsDialogBody({
       sort: sortingState,
       onSortChange: setSorting,
       filter: search,
+      appliedFilter,
       onFilterChange: (filter) => {
         if (filter) {
           setSearch(filter)
@@ -161,7 +165,7 @@ function CaseLinkRowsDialogBody({
         }
       },
     }),
-    [sortingState, setSorting, search, setSearch, clearSearch]
+    [sortingState, setSorting, search, appliedFilter, setSearch, clearSearch]
   )
 
   // A sort or filter names a column of the table being left.
@@ -308,6 +312,7 @@ function CaseLinkRowsDialogBody({
         rows={gridRows}
         tableId={tableId}
         isLoading={rowsIsLoading}
+        isPlaceholderData={rowsArePlaceholder}
         selectable
         selectedRowIds={staged}
         onSelectedRowIdsChange={handleStagedChange}
@@ -370,7 +375,8 @@ function CaseLinkRowsDialogBody({
           onPreviousPage={goToPreviousPage}
           onFirstPage={goToFirstPage}
           onPageSizeChange={handlePageSizeChange}
-          isLoading={rowsIsLoading}
+          // The placeholder rows' cursors belong to the previous request.
+          isLoading={rowsIsLoading || rowsArePlaceholder}
         />
       </div>
       <div className="flex items-center justify-between border-t px-6 py-4">

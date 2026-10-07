@@ -74,6 +74,7 @@ export function ColumnHeaderFilter({
             autoFocus
             type="text"
             value={term}
+            maxLength={1000}
             aria-label={`Search ${columnName}`}
             placeholder={`Search ${columnName}...`}
             onChange={(event) =>
@@ -99,11 +100,12 @@ export function ColumnHeaderFilter({
 
 /**
  * The grid's "no rows" overlay for grids with header filters. When a filter is
- * what emptied the grid it says so and offers to clear it.
+ * what emptied the grid it says so and offers to clear it. It names the filter
+ * the empty result answers, not one still being typed.
  */
 export function FilteredRowsEmptyOverlay() {
   const query = useTableRowQuery()
-  const filter = query?.filter
+  const filter = query?.appliedFilter
   const onFilterChange = query?.onFilterChange
   if (!onFilterChange || !isActiveFilter(filter)) {
     return <span className="text-sm text-muted-foreground">No rows</span>
