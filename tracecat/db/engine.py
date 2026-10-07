@@ -436,6 +436,10 @@ def get_async_session_context_manager() -> contextlib.AbstractAsyncContextManage
 @contextlib.asynccontextmanager
 async def get_serialized_session(lock_key: int) -> AsyncGenerator[AsyncSession, None]:
     """Start a tenant-scoped serializable snapshot only after acquiring the lock."""
+    if not (-(2**63) <= lock_key < 2**63):
+        raise ValueError(
+            f"Lock key {lock_key} out of range for PostgreSQL advisory locks"
+        )
     async with get_async_engine().connect() as connection:
         async with pg_advisory_connection_lock(connection, lock_key):
             await connection.execution_options(isolation_level="SERIALIZABLE")

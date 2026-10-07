@@ -5,7 +5,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from tracecat.sync import PullResourceDiff, PullResult
+from tracecat.sync import CommitInfo, PullResourceDiff, PullResult
 from tracecat.workflow.store.schemas import WorkflowSyncPullRequest
 from tracecat.workspace_sync.operations.types import (
     SyncDirection,
@@ -17,7 +17,6 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceRemoteSnapshot,
     WorkspaceSyncExportPreview,
     WorkspaceSyncExportRequest,
-    WorkspaceSyncExportResult,
 )
 
 
@@ -46,6 +45,12 @@ class SyncOperationError(BaseModel):
     detail: str
 
 
+class SyncPushResult(BaseModel):
+    """Compact durable push receipt; file details stay in paginated artifacts."""
+
+    commit: CommitInfo
+
+
 class SyncOperationRead(BaseModel):
     """Small polling response, independent of the number of synced files."""
 
@@ -58,7 +63,7 @@ class SyncOperationRead(BaseModel):
     commit_sha: str | None = Field(default=None)
     error: str | None = Field(default=None)
     preview: WorkspaceSyncExportPreview | PullResult | None = Field(default=None)
-    result: WorkspaceSyncExportResult | PullResult | None = Field(default=None)
+    result: SyncPushResult | PullResult | None = Field(default=None)
     diff_count: int = Field(default=0)
     can_retry: bool = Field(default=False)
     data_applied: bool = Field(default=False)

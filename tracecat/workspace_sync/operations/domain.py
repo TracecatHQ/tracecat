@@ -15,7 +15,11 @@ from tracecat.db.models import Action, Workflow, WorkspaceSyncResourceMapping
 from tracecat.exceptions import TracecatValidationError
 from tracecat.sync import PullResult, PushStatus
 from tracecat.tiers.enums import Entitlement
-from tracecat.workspace_sync.operations.schemas import PreparedSync, SyncOperationCreate
+from tracecat.workspace_sync.operations.schemas import (
+    PreparedSync,
+    SyncOperationCreate,
+    SyncPushResult,
+)
 from tracecat.workspace_sync.operations.types import (
     FetchedSync,
     StaleSyncPreviewError,
@@ -25,7 +29,6 @@ from tracecat.workspace_sync.operations.types import (
 from tracecat.workspace_sync.schemas import (
     WorkspaceProjection,
     WorkspaceSyncExportPreview,
-    WorkspaceSyncExportResult,
 )
 from tracecat.workspace_sync.service import (
     WorkspaceSyncService,
@@ -260,7 +263,7 @@ class DurableSyncService(WorkspaceSyncService):
         inputs: SyncOperationCreate,
         prepared: PreparedSync,
         operation_id: uuid.UUID,
-    ) -> WorkspaceSyncExportResult | PullResult:
+    ) -> SyncPushResult | PullResult:
         """Apply exactly the reviewed state within the caller's transaction."""
         await self.require_entitlement(Entitlement.GIT_SYNC)
         if await self.repository_fingerprint() != prepared.repository_fingerprint:
@@ -284,6 +287,10 @@ class DurableSyncService(WorkspaceSyncService):
             self._require_projected_export_scopes(projection.spec)
             await self._require_spec_entitlements(projection.spec)
             target_exists = await transport.branch_exists(url=url, branch=params.branch)
+            if prepared.target_exists and not target_exists:
+                raise StaleSyncPreviewError(
+                    "Target branch was deleted; create a new preview"
+                )
             remote = await transport.read_files(
                 url=url,
                 ref=params.branch if target_exists else prepared.compare_ref,
@@ -382,7 +389,7 @@ class DurableSyncService(WorkspaceSyncService):
                     sha=recovered_sha,
                     message=params.message,
                 )
-            result = WorkspaceSyncExportResult(commit=commit, files=[])
+            result = SyncPushResult(commit=commit)
             return result
         else:
             snapshot = prepared.snapshot
