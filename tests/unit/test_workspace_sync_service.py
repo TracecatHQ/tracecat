@@ -72,6 +72,7 @@ from tracecat.workspace_sync.transport import (
     _git_blob_sha,
     _git_blob_sha_bytes,
 )
+from tracecat.workspace_sync.types import SyncCommitConflictError
 from tracecat.workspace_sync.workflow import (
     serialize_workflow_spec,
     workflow_source_path,
@@ -1679,8 +1680,8 @@ async def test_github_write_files_noop_skips_pr_for_branch_without_commits(
 
     assert result.status is PushStatus.NO_OP
     assert result.pr_url is None
-    assert repo.created_refs == [("refs/heads/sync/agents-1", "a" * 40)]
-    assert repo.compare_calls == [("main", "sync/agents-1")]
+    assert repo.created_refs == []
+    assert repo.compare_calls == []
     assert repo.call_counts["get_contents"] == 0
     assert repo.call_counts["create_git_blob"] == 0
     assert repo.call_counts["get_git_tree"] == 1
@@ -1984,8 +1985,8 @@ async def test_github_write_files_retries_branch_creation_with_retry_after(
     assert result.status is PushStatus.COMMITTED
     sleep.assert_awaited_once_with(0.25)
     assert repo.call_counts["create_git_ref"] == 2
-    assert len(repo.created_refs) == 1
-    assert repo.call_counts["ref.edit"] == 1
+    assert repo.created_refs == [("refs/heads/sync/agents-1", "commit-1")]
+    assert repo.call_counts["ref.edit"] == 0
 
 
 @pytest.mark.anyio
@@ -2228,7 +2229,10 @@ async def test_github_write_files_logs_rate_limit_response_headers(
 @pytest.mark.anyio
 async def test_github_read_files_uses_commit_tree_sha(
     workspace_sync_service: WorkspaceSyncService,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # This fake covers the blob API; archive behavior has separate fixtures.
+    monkeypatch.setattr("tracecat.feature_flags.config.TRACECAT__FEATURE_FLAGS", set())
     repo = _FakeGitHubReadRepo()
     gh = Mock()
     gh.get_repo.return_value = repo
@@ -2576,6 +2580,7 @@ async def _write_files_with_fake_repo(
     create_pr: bool = True,
     delete_missing_paths_under: tuple[str, ...] = (),
     logger: Mock | None = None,
+    expected_commit_sha: str | None = None,
 ):
     gh = Mock()
     gh.get_repo.return_value = repo
@@ -2600,6 +2605,7 @@ async def _write_files_with_fake_repo(
             branch=branch,
             create_pr=create_pr,
             delete_missing_paths_under=delete_missing_paths_under,
+            expected_commit_sha=expected_commit_sha,
         )
 
 
@@ -2789,3 +2795,30 @@ class _FakeGitHubReadRepo:
     def get_git_blob(self, sha: str):
         content = canonical_json_text(WorkspaceManifest())
         return SimpleNamespace(content=base64.b64encode(content.encode()).decode())
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("moved", [False, True])
+async def test_guarded_github_ref_rejection_checks_current_branch(
+    workspace_sync_service: WorkspaceSyncService, moved: bool
+) -> None:
+    repo = _FakeGitHubRepo(files={}, branch_exists=True, ahead_by=0)
+
+    def reject_update(*, sha: str) -> None:
+        if moved:
+            repo.get_branch = Mock(
+                return_value=SimpleNamespace(commit=SimpleNamespace(sha="b" * 40))
+            )
+        raise GithubException(status=422, data={"message": "Publication rejected"})
+
+    repo._ref.edit = Mock(side_effect=reject_update)
+    error = SyncCommitConflictError if moved else GitHubAppError
+    with pytest.raises(error):
+        await _write_files_with_fake_repo(
+            repo,
+            service=workspace_sync_service,
+            files={"workflows/example.yml": "new"},
+            create_pr=False,
+            expected_commit_sha="a" * 40,
+        )
+    repo._ref.edit.assert_called_once()

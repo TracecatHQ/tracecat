@@ -874,25 +874,47 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 ),
                 budget=retry_budget,
             )
-            if target_exists:
-                github_stage = "resolve_target_ref"
-                github_endpoint = "GET /repos/{owner}/{repo}/git/ref/heads/{branch}"
-                ref = await asyncio.to_thread(repo.get_git_ref, f"heads/{branch}")
-                github_stage = "update_target_ref"
-                github_endpoint = "PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}"
-                await _github_write_with_retry(
-                    lambda: ref.edit(sha=commit.sha),
-                    budget=retry_budget,
-                )
-            else:
-                github_stage = "create_target_ref"
-                github_endpoint = "POST /repos/{owner}/{repo}/git/refs"
-                await _github_write_with_retry(
-                    lambda: repo.create_git_ref(
-                        ref=f"refs/heads/{branch}", sha=commit.sha
-                    ),
-                    budget=retry_budget,
-                )
+            try:
+                if target_exists:
+                    github_stage = "resolve_target_ref"
+                    github_endpoint = "GET /repos/{owner}/{repo}/git/ref/heads/{branch}"
+                    ref = await asyncio.to_thread(repo.get_git_ref, f"heads/{branch}")
+                    github_stage = "update_target_ref"
+                    github_endpoint = (
+                        "PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}"
+                    )
+                    await _github_write_with_retry(
+                        lambda: ref.edit(sha=commit.sha), budget=retry_budget
+                    )
+                else:
+                    github_stage = "create_target_ref"
+                    github_endpoint = "POST /repos/{owner}/{repo}/git/refs"
+                    await _github_write_with_retry(
+                        lambda: repo.create_git_ref(
+                            ref=f"refs/heads/{branch}", sha=commit.sha
+                        ),
+                        budget=retry_budget,
+                    )
+            except GithubException as e:
+                if expected_commit_sha is not None and e.status in {404, 409, 422}:
+                    # Repository rules can also reject publication. Only classify
+                    # staleness when a fresh read proves a branch race.
+                    try:
+                        current = await asyncio.to_thread(repo.get_branch, branch)
+                    except GithubException as read_error:
+                        if read_error.status == 404 and target_exists:
+                            raise SyncCommitConflictError(
+                                "Target branch was deleted; create a new preview"
+                            ) from e
+                    else:
+                        if current.commit.sha != commit.sha and (
+                            not target_exists
+                            or current.commit.sha != expected_commit_sha
+                        ):
+                            raise SyncCommitConflictError(
+                                "Target branch changed; create a new preview"
+                            ) from e
+                raise
             self.logger.info(
                 "Updated GitHub workspace sync ref",
                 tree_sha=tree.sha,
