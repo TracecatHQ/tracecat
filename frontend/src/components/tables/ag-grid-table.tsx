@@ -11,21 +11,43 @@ import type {
   SelectionChangedEvent,
 } from "ag-grid-community"
 import { AgGridReact } from "ag-grid-react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 import type { TableRead, TableRowRead } from "@/client"
 import { handleGridKeyDown } from "@/components/tables/ag-grid-clipboard"
-import { buildEditableColumnDef } from "@/components/tables/ag-grid-column-defs"
+import {
+  buildEditableColumnDef,
+  isSearchableColumn,
+} from "@/components/tables/ag-grid-column-defs"
 import { AgGridColumnHeader } from "@/components/tables/ag-grid-column-header"
 import { AgGridContextMenu } from "@/components/tables/ag-grid-context-menu"
 import { AgGridPagination } from "@/components/tables/ag-grid-pagination"
 import { tracecatTheme } from "@/components/tables/ag-grid-theme"
+import {
+  type TableRowQuery,
+  TableRowQueryContext,
+} from "@/components/tables/table-row-query-context"
+import { TableRowSearchBar } from "@/components/tables/table-row-search-bar"
 import { useTableSelection } from "@/components/tables/table-selection-context"
 import { useTablesPagination } from "@/hooks/pagination/use-tables-pagination"
 import { useLocalStorage } from "@/hooks/use-local-storage"
+import {
+  toRowSearchParams,
+  useRowSearch,
+  useStaleRowQueryReset,
+} from "@/hooks/use-row-search"
 import { useUpdateRow } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
-/** Editable grid for a table's rows on the tables route. */
+/**
+ * Editable grid for a table's rows on the tables route, under a search row.
+ * Search and sort are both run by the API across the whole table.
+ */
 export function AgGridTable({
   table: { id, name, columns },
 }: {
@@ -41,6 +63,21 @@ export function AgGridTable({
     {}
   )
 
+  const searchableColumns = useMemo(
+    () => columns.filter(isSearchableColumn),
+    [columns]
+  )
+  const { search, setSearch, debouncedSearch, clearSearch } = useRowSearch()
+  // Until one is picked, or once the picked one is gone, search the first.
+  function resolveSearchColumn(name: string | null): string | null {
+    const picked = searchableColumns.find((column) => column.name === name)
+    return (picked ?? searchableColumns[0])?.name ?? null
+  }
+  const { searchTerm, searchColumn } = toRowSearchParams({
+    term: debouncedSearch.term,
+    column: resolveSearchColumn(debouncedSearch.column),
+  })
+
   const {
     data: rows,
     isLoading,
@@ -54,12 +91,33 @@ export function AgGridTable({
     totalEstimate,
     startItem,
     endItem,
+    sortingState,
+    setSorting,
   } = useTablesPagination({
     tableId: id,
     workspaceId,
     limit: pageSize,
+    searchTerm,
+    searchColumn,
   })
   const rowData = rows ?? []
+  const isSearching = searchTerm !== null
+  // The API's total counts the whole table, so it is wrong during a search.
+  const totalRows = isSearching ? undefined : totalEstimate
+
+  const rowQuery = useMemo<TableRowQuery>(
+    () => ({ sort: sortingState, onSortChange: setSorting }),
+    [sortingState, setSorting]
+  )
+  const resetRowQuery = useCallback(() => {
+    setSorting("", false)
+    clearSearch()
+  }, [setSorting, clearSearch])
+  const isStaleRowQuery = useStaleRowQueryReset({
+    error,
+    isActive: isSearching || sortingState.orderBy !== null,
+    reset: resetRowQuery,
+  })
 
   useEffect(() => {
     if (id) {
@@ -156,64 +214,81 @@ export function AgGridTable({
     [columns, savedWidths]
   )
 
-  if (error) {
-    return (
+  let gridContent: ReactNode
+  if (error && !isStaleRowQuery) {
+    gridContent = (
       <div className="flex h-full items-center justify-center p-8">
         <p className="text-sm text-destructive">
           Failed to load table rows. Please try refreshing the page.
         </p>
       </div>
     )
+  } else {
+    gridContent = (
+      <AgGridContextMenu gridApi={gridApi} columns={columns}>
+        <div
+          className="h-full"
+          onKeyDown={(e) => handleGridKeyDown(e, gridApi)}
+        >
+          <TableRowQueryContext.Provider value={rowQuery}>
+            <AgGridReact
+              theme={tracecatTheme}
+              rowData={rowData}
+              columnDefs={columnDefs}
+              getRowId={(params) => params.data.id}
+              onGridReady={handleGridReady}
+              onColumnResized={handleColumnResized}
+              onCellValueChanged={handleCellValueChanged}
+              onSelectionChanged={handleSelectionChanged}
+              selectionColumnDef={{
+                cellClass: "ag-selection-col-aligned",
+                headerClass: "ag-selection-col-aligned",
+              }}
+              rowSelection={{
+                mode: "multiRow",
+                enableClickSelection: false,
+                headerCheckbox: true,
+                checkboxes: true,
+              }}
+              suppressContextMenu
+              headerHeight={36}
+              rowHeight={36}
+              animateRows={false}
+              loading={isLoading}
+            />
+          </TableRowQueryContext.Provider>
+        </div>
+      </AgGridContextMenu>
+    )
   }
 
   return (
-    <div className="flex flex-col gap-2 pb-2 h-full">
-      <AgGridContextMenu gridApi={gridApi} columns={columns}>
-        <div
-          className="flex-1 min-h-0"
-          onKeyDown={(e) => handleGridKeyDown(e, gridApi)}
-        >
-          <AgGridReact
-            theme={tracecatTheme}
-            rowData={rowData}
-            columnDefs={columnDefs}
-            getRowId={(params) => params.data.id}
-            onGridReady={handleGridReady}
-            onColumnResized={handleColumnResized}
-            onCellValueChanged={handleCellValueChanged}
-            onSelectionChanged={handleSelectionChanged}
-            selectionColumnDef={{
-              cellClass: "ag-selection-col-aligned",
-              headerClass: "ag-selection-col-aligned",
-            }}
-            rowSelection={{
-              mode: "multiRow",
-              enableClickSelection: false,
-              headerCheckbox: true,
-              checkboxes: true,
-            }}
-            suppressContextMenu
-            headerHeight={36}
-            rowHeight={36}
-            animateRows={false}
-            loading={isLoading}
-          />
-        </div>
-      </AgGridContextMenu>
-      <AgGridPagination
-        currentPage={currentPage}
-        hasNextPage={hasNextPage}
-        hasPreviousPage={hasPreviousPage}
-        pageSize={pageSize}
-        totalEstimate={totalEstimate}
-        startItem={startItem}
-        endItem={endItem}
-        onNextPage={goToNextPage}
-        onPreviousPage={goToPreviousPage}
-        onFirstPage={goToFirstPage}
-        onPageSizeChange={handlePageSizeChange}
-        isLoading={isLoading}
+    <div className="flex h-full flex-col pb-2">
+      <TableRowSearchBar
+        searchableColumns={searchableColumns}
+        term={search.term}
+        onTermChange={(term) => setSearch({ ...search, term })}
+        column={resolveSearchColumn(search.column)}
+        onColumnChange={(column) => setSearch({ ...search, column })}
+        rowCount={totalRows}
       />
+      <div className="min-h-0 flex-1">{gridContent}</div>
+      <div className="pt-2">
+        <AgGridPagination
+          currentPage={currentPage}
+          hasNextPage={hasNextPage}
+          hasPreviousPage={hasPreviousPage}
+          pageSize={pageSize}
+          totalEstimate={totalRows}
+          startItem={startItem}
+          endItem={endItem}
+          onNextPage={goToNextPage}
+          onPreviousPage={goToPreviousPage}
+          onFirstPage={goToFirstPage}
+          onPageSizeChange={handlePageSizeChange}
+          isLoading={isLoading}
+        />
+      </div>
     </div>
   )
 }

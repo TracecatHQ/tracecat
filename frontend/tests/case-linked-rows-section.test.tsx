@@ -416,6 +416,8 @@ describe("CaseLinkedRowsSection", () => {
       tableId: "table-1",
       workspaceId: "ws-1",
       limit: 20,
+      searchTerm: null,
+      searchColumn: null,
     })
   })
 
@@ -838,6 +840,8 @@ describe("CaseLinkedRowsSection", () => {
         tableId: "table-1",
         workspaceId: "ws-1",
         limit: 50,
+        searchTerm: null,
+        searchColumn: null,
       })
     })
 

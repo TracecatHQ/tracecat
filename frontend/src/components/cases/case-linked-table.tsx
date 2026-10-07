@@ -9,7 +9,7 @@ import {
   Unlink2,
   XIcon,
 } from "lucide-react"
-import { type ReactNode, useMemo, useState } from "react"
+import { type ReactNode, useCallback, useMemo, useState } from "react"
 import type { TableColumnRead, TableRowRead } from "@/client"
 import { CaseInsertRowDialog } from "@/components/cases/case-insert-row-dialog"
 import { TASK_ICON_TRIGGER_CLASS } from "@/components/cases/case-task-fields"
@@ -20,6 +20,7 @@ import {
   TablePanelProvider,
   useTablePanel,
 } from "@/components/tables/table-panel-context"
+import type { TableRowQuery } from "@/components/tables/table-row-query-context"
 import {
   type TableRowCellChange,
   TableRowsGrid,
@@ -44,6 +45,11 @@ import {
   useUnlinkCaseRows,
   useUpdateCaseRow,
 } from "@/hooks/use-case-rows"
+import {
+  toRowSearchParams,
+  useRowSearch,
+  useStaleRowQueryReset,
+} from "@/hooks/use-row-search"
 import {
   isAvailableRow,
   toGridRow,
@@ -114,6 +120,10 @@ export interface CaseLinkedTableProps {
  * once a paged request lands, standing in for the page number the arrows
  * deliberately drop.
  *
+ * Column headers sort and filter the table's linked rows through the API, so
+ * both reach every page. While either is on, links whose row was deleted are
+ * left out, and the header keeps counting every linked row.
+ *
  * The expand button opens the same component as its `expanded` variant in a
  * dialog. The two are separate instances, each with its own page and its own
  * selection; they agree through the query cache, which every mutation here
@@ -146,6 +156,8 @@ export function CaseLinkedTable({
   // Bumped after every save so the grid's rows are rebuilt from the cache.
   const [rowsRevision, setRowsRevision] = useState(0)
 
+  const { search, setSearch, debouncedSearch, clearSearch } = useRowSearch()
+  const { searchTerm, searchColumn } = toRowSearchParams(debouncedSearch)
   const {
     data: caseRows,
     isLoading: rowsIsLoading,
@@ -159,7 +171,42 @@ export function CaseLinkedTable({
     totalEstimate,
     startItem,
     endItem,
-  } = useCaseRowsPagination({ caseId, tableId, workspaceId, limit: pageSize })
+    sortingState,
+    setSorting,
+  } = useCaseRowsPagination({
+    caseId,
+    tableId,
+    workspaceId,
+    limit: pageSize,
+    searchTerm,
+    searchColumn,
+  })
+  const isSearching = searchTerm !== null
+
+  const resetRowQuery = useCallback(() => {
+    setSorting("", false)
+    clearSearch()
+  }, [setSorting, clearSearch])
+  const isStaleRowQuery = useStaleRowQueryReset({
+    error: rowsError,
+    isActive: isSearching || sortingState.orderBy !== null,
+    reset: resetRowQuery,
+  })
+  const rowQuery = useMemo<TableRowQuery>(
+    () => ({
+      sort: sortingState,
+      onSortChange: setSorting,
+      filter: search,
+      onFilterChange: (filter) => {
+        if (filter) {
+          setSearch(filter)
+        } else {
+          clearSearch()
+        }
+      },
+    }),
+    [sortingState, setSorting, search, setSearch, clearSearch]
+  )
   const { unlinkCaseRows, unlinkCaseRowsIsPending } = useUnlinkCaseRows({
     caseId,
     workspaceId,
@@ -184,7 +231,9 @@ export function CaseLinkedTable({
     !rowsIsLoading &&
     !rowsError &&
     caseRows.length > 0 &&
-    endItem >= startItem
+    endItem >= startItem &&
+    // The total counts every linked row, so a filtered range would mislead.
+    !isSearching
   // A missing or zero estimate is the empty page talking, not a real total.
   const totalRows =
     totalEstimate && totalEstimate > 0 ? totalEstimate : rowCount
@@ -261,7 +310,7 @@ export function CaseLinkedTable({
   }
 
   let gridContent: ReactNode
-  if (rowsError) {
+  if (rowsError && !isStaleRowQuery) {
     gridContent = (
       <div className="p-3 text-sm text-destructive">
         Failed to load linked rows.
@@ -284,6 +333,7 @@ export function CaseLinkedTable({
         onCellValueChange={canEditCells ? handleCellValueChange : undefined}
         isRowEditable={isAvailableRow}
         sizeColumnsToContent
+        rowQuery={rowQuery}
       />
     )
   }
@@ -422,7 +472,7 @@ export function CaseLinkedTable({
             hasNextPage={hasNextPage}
             hasPreviousPage={hasPreviousPage}
             pageSize={pageSize}
-            totalEstimate={totalEstimate}
+            totalEstimate={isSearching ? undefined : totalEstimate}
             startItem={startItem}
             endItem={endItem}
             onNextPage={goToNextPage}

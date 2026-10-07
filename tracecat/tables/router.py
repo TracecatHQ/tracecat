@@ -389,8 +389,14 @@ async def list_rows(
     sort: Literal["asc", "desc"] | None = Query(
         default=None, description="Sort direction (asc or desc)"
     ),
+    search_term: str | None = Query(
+        default=None, description="Text to search for in text-searchable columns"
+    ),
+    search_column: str | None = Query(
+        default=None, description="Restrict search_term to this column"
+    ),
 ) -> CursorPaginatedResponse[TableRowRead]:
-    """List table rows with cursor-based pagination and sorting."""
+    """List table rows with cursor-based pagination, sorting and text search."""
     service = TablesService(session, role=role)
     try:
         table = await service.get_table(table_id)
@@ -407,7 +413,14 @@ async def list_rows(
     )
 
     try:
-        response = await service.list_rows(table, params, order_by=order_by, sort=sort)
+        response = await service.list_rows(
+            table,
+            params,
+            search_term=search_term,
+            order_by=order_by,
+            sort=sort,
+            search_column=search_column,
+        )
     except ValueError as e:
         logger.warning(f"Invalid request for list rows: {e}")
         raise HTTPException(

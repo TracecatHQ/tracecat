@@ -1528,6 +1528,7 @@ class BaseTablesService(BaseWorkspaceService):
         reverse: bool = False,
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
+        search_column: str | None = None,
     ) -> CursorPaginatedResponse[dict[str, Any]]:
         """Search rows in a table using cursor-based pagination."""
         page_limit = (
@@ -1548,6 +1549,7 @@ class BaseTablesService(BaseWorkspaceService):
             updated_after=updated_after,
             order_by=order_by,
             sort=sort,
+            search_column=search_column,
         )
 
     async def list_rows(
@@ -1561,6 +1563,8 @@ class BaseTablesService(BaseWorkspaceService):
         updated_after: datetime | None = None,
         order_by: str | None = None,
         sort: Literal["asc", "desc"] | None = None,
+        search_column: str | None = None,
+        row_ids: sa.Select[tuple[UUID]] | None = None,
     ) -> CursorPaginatedResponse[dict[str, Any]]:
         """List rows in a table with cursor-based pagination.
 
@@ -1574,13 +1578,17 @@ class BaseTablesService(BaseWorkspaceService):
             updated_after: Filter records updated after this time
             order_by: Column name to order by (defaults to created_at)
             sort: Sort direction, "asc" or "desc" (defaults to desc)
+            search_column: Restrict search_term to this one column. It must be
+                a text-searchable column. Ignored without a search_term.
+            row_ids: Restrict results to rows whose ID is selected by this query
 
         Returns:
             Cursor paginated response with matching rows
 
         Raises:
             TracecatNotFoundError: If the table does not exist
-            ValueError: If search parameters are invalid or order_by column doesn't exist
+            ValueError: If search parameters are invalid, or the order_by or
+                search_column column doesn't exist
         """
         schema_name = self._get_schema_name()
         sanitized_table_name = self._sanitize_identifier(table.name)
@@ -1615,6 +1623,15 @@ class BaseTablesService(BaseWorkspaceService):
                 )
             ]
 
+            if search_column is not None:
+                if search_column not in {col.name for col in table.columns}:
+                    raise ValueError(f"Invalid search_column: {search_column}")
+                if search_column not in searchable_columns:
+                    raise ValueError(
+                        f"Column {search_column} does not support text search"
+                    )
+                searchable_columns = [search_column]
+
             if searchable_columns:
                 # Use SQLAlchemy's concat function for proper parameter binding
                 search_pattern = sa.func.concat("%", search_term, "%")
@@ -1645,6 +1662,9 @@ class BaseTablesService(BaseWorkspaceService):
                     table=table.name,
                     search_term=search_term,
                 )
+
+        if row_ids is not None:
+            where_conditions.append(sa.column("id", sa.Uuid()).in_(row_ids))
 
         # Add date filters
         if start_time is not None:

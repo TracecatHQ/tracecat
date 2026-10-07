@@ -31,6 +31,12 @@ import {
   reconcileSelection,
 } from "@/components/tables/ag-grid-selection"
 import { tracecatTheme } from "@/components/tables/ag-grid-theme"
+import { FilteredRowsEmptyOverlay } from "@/components/tables/column-header-filter"
+import {
+  type TableRowQuery,
+  TableRowQueryContext,
+} from "@/components/tables/table-row-query-context"
+import { TableRowsGridHeader } from "@/components/tables/table-rows-grid-header"
 import { useLocalStorage } from "@/hooks/use-local-storage"
 
 const MULTI_ROW_SELECTION = {
@@ -140,6 +146,13 @@ export interface TableRowsGridProps {
    * mistaken for one the user did.
    */
   sizeColumnsToContent?: boolean
+  /**
+   * Gives every column header a sort button, and a filter button on columns
+   * the API can search when `onFilterChange` is set. The grid never sorts or
+   * filters rows itself: it reports the request and shows the `rows` it is
+   * handed, so the caller must fetch them accordingly. Pass a memoized value.
+   */
+  rowQuery?: TableRowQuery
 }
 
 /**
@@ -169,6 +182,7 @@ export function TableRowsGrid({
   onCellValueChange,
   isRowEditable,
   sizeColumnsToContent = false,
+  rowQuery,
 }: TableRowsGridProps) {
   const [gridApi, setGridApi] = useState<GridApi<TableRowRead> | null>(null)
   const widthStorageScope = widthScope ? `${widthScope}:${tableId}` : tableId
@@ -200,6 +214,7 @@ export function TableRowsGrid({
     [editable, isRowEditable]
   )
 
+  const hasRowQuery = rowQuery !== undefined
   const columnDefs = useMemo(() => {
     let defs: ColDef<TableRowRead>[]
     if (cellPanel) {
@@ -209,12 +224,19 @@ export function TableRowsGrid({
             canEditRow,
             reserveButtonSpace: sizeColumnsToContent,
           }),
-          // One cursor page, as in the read-only defs: no client-side sort.
-          sortable: false,
         })
       )
     } else {
       defs = buildReadOnlyColumnDefs(columns, savedWidths)
+    }
+    if (hasRowQuery) {
+      // Both builders return one def per column, in order. The headers read
+      // the live query from context, so the defs do not depend on it.
+      defs = defs.map((def, index) => ({
+        ...def,
+        headerComponent: TableRowsGridHeader,
+        headerComponentParams: { tableColumn: columns[index] },
+      }))
     }
     if (!sizeColumnsToContent) return defs
     return defs.map((def) =>
@@ -223,7 +245,14 @@ export function TableRowsGrid({
         def.field ? savedWidths[def.field] : undefined
       )
     )
-  }, [cellPanel, columns, savedWidths, canEditRow, sizeColumnsToContent])
+  }, [
+    cellPanel,
+    columns,
+    savedWidths,
+    canEditRow,
+    sizeColumnsToContent,
+    hasRowQuery,
+  ])
 
   // -- Content sizing ------------------------------------------------------
   // Two steps, both the grid's own: `autoSizeColumns` measures the columns the
@@ -246,6 +275,24 @@ export function TableRowsGrid({
   isLoadingRef.current = isLoading
   const rowCountRef = useRef(rows.length)
   rowCountRef.current = rows.length
+
+  // An auto-height grid with no rows shrinks to its overlay, and a refetch
+  // (a new sort, filter or page) empties it for a moment. A page that gets
+  // shorter clamps its scroll, which moves the header out from under the
+  // pointer. So remember the height the grid last settled at and hold it
+  // while the next rows load.
+  const settledHeightRef = useRef(0)
+  useEffect(() => {
+    const wrapper = wrapperRef.current
+    if (!autoHeight || !wrapper || typeof ResizeObserver === "undefined") {
+      return
+    }
+    const observer = new ResizeObserver(() => {
+      if (!isLoadingRef.current) settledHeightRef.current = wrapper.offsetHeight
+    })
+    observer.observe(wrapper)
+    return () => observer.disconnect()
+  }, [autoHeight])
 
   const fitColumns = useCallback((api: GridApi<TableRowRead>) => {
     if (api.isDestroyed()) return
@@ -460,6 +507,11 @@ export function TableRowsGrid({
     <div
       ref={wrapperRef}
       className={autoHeight ? "" : "h-full"}
+      style={
+        autoHeight && isLoading
+          ? { minHeight: settledHeightRef.current }
+          : undefined
+      }
       // Copy is always fine; paste only lands in rows whose edits are saved,
       // anywhere else it would fabricate cell values locally.
       onKeyDown={(e) =>
@@ -469,35 +521,40 @@ export function TableRowsGrid({
         })
       }
     >
-      <AgGridReact<TableRowRead>
-        theme={tracecatTheme}
-        domLayout={autoHeight ? "autoHeight" : undefined}
-        rowData={rows as TableRowRead[]}
-        columnDefs={columnDefs}
-        rowClassRules={rowClassRules}
-        getRowId={(params) => params.data.id}
-        onGridReady={handleGridReady}
-        onColumnResized={handleColumnResized}
-        onGridSizeChanged={
-          sizeColumnsToContent ? handleGridSizeChanged : undefined
-        }
-        // Columns scrolled out of view have no cells to measure.
-        suppressColumnVirtualisation={sizeColumnsToContent}
-        autoSizePadding={
-          sizeColumnsToContent ? CONTENT_SIZED_PADDING_PX : undefined
-        }
-        onCellValueChanged={editable ? handleCellValueChanged : undefined}
-        onFirstDataRendered={(event) => applySelection(event.api)}
-        onRowDataUpdated={(event) => applySelection(event.api)}
-        onSelectionChanged={handleSelectionChanged}
-        rowSelection={selectable ? MULTI_ROW_SELECTION : undefined}
-        selectionColumnDef={selectable ? SELECTION_COLUMN_DEF : undefined}
-        suppressContextMenu
-        headerHeight={36}
-        rowHeight={36}
-        animateRows={false}
-        loading={isLoading}
-      />
+      <TableRowQueryContext.Provider value={rowQuery ?? null}>
+        <AgGridReact<TableRowRead>
+          theme={tracecatTheme}
+          noRowsOverlayComponent={
+            rowQuery?.onFilterChange ? FilteredRowsEmptyOverlay : undefined
+          }
+          domLayout={autoHeight ? "autoHeight" : undefined}
+          rowData={rows as TableRowRead[]}
+          columnDefs={columnDefs}
+          rowClassRules={rowClassRules}
+          getRowId={(params) => params.data.id}
+          onGridReady={handleGridReady}
+          onColumnResized={handleColumnResized}
+          onGridSizeChanged={
+            sizeColumnsToContent ? handleGridSizeChanged : undefined
+          }
+          // Columns scrolled out of view have no cells to measure.
+          suppressColumnVirtualisation={sizeColumnsToContent}
+          autoSizePadding={
+            sizeColumnsToContent ? CONTENT_SIZED_PADDING_PX : undefined
+          }
+          onCellValueChanged={editable ? handleCellValueChanged : undefined}
+          onFirstDataRendered={(event) => applySelection(event.api)}
+          onRowDataUpdated={(event) => applySelection(event.api)}
+          onSelectionChanged={handleSelectionChanged}
+          rowSelection={selectable ? MULTI_ROW_SELECTION : undefined}
+          selectionColumnDef={selectable ? SELECTION_COLUMN_DEF : undefined}
+          suppressContextMenu
+          headerHeight={36}
+          rowHeight={36}
+          animateRows={false}
+          loading={isLoading}
+        />
+      </TableRowQueryContext.Provider>
     </div>
   )
 }

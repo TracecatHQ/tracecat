@@ -525,3 +525,61 @@ async def test_unrecognized_row_database_errors_remain_server_errors(
     assert response.status_code == 500
     assert "private SQL" not in response.text
     assert "private-test-value" not in response.text
+
+
+@pytest.mark.anyio
+async def test_list_table_rows_passes_search_and_sort_params(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_table.return_value = mock_table
+        mock_svc.list_rows.return_value = CursorPaginatedResponse(items=[])
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            f"/tables/{mock_table.id}/rows",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "search_term": "alpha",
+                "search_column": "name",
+                "order_by": "name",
+                "sort": "asc",
+            },
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    kwargs = mock_svc.list_rows.await_args.kwargs
+    assert kwargs == {
+        "search_term": "alpha",
+        "search_column": "name",
+        "order_by": "name",
+        "sort": "asc",
+    }
+
+
+@pytest.mark.anyio
+async def test_list_table_rows_invalid_search_column_returns_400(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.get_table.return_value = mock_table
+        mock_svc.list_rows.side_effect = ValueError("Invalid search_column: missing")
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            f"/tables/{mock_table.id}/rows",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "search_term": "alpha",
+                "search_column": "missing",
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json()["detail"] == "Invalid search_column: missing"

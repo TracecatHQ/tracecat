@@ -43,6 +43,13 @@ export const NUMERIC_TYPES = new Set([
 export const DATE_TYPES = new Set(["DATE", "TIMESTAMPTZ", "TIME", "TIMETZ"])
 /** SQL types rendered as booleans. */
 export const BOOLEAN_TYPES = new Set(["BOOL", "BOOLEAN"])
+/** Column types the rows API accepts as a `searchColumn`. */
+export const SEARCHABLE_TYPES = new Set([
+  "TEXT",
+  "SELECT",
+  "JSONB",
+  "MULTI_SELECT",
+])
 
 /** Strip any precision suffix and upper-case a raw SQL type name. */
 export function normalizeSqlType(rawType?: string) {
@@ -54,6 +61,11 @@ export function normalizeSqlType(rawType?: string) {
 /** Whether a column holds a JSON payload, which is never inline-editable. */
 export function isJsonColumn(column: TableColumnRead): boolean {
   return JSON_TYPES.has(normalizeSqlType(column.type))
+}
+
+/** Whether the rows API can run a text search over a column. */
+export function isSearchableColumn(column: TableColumnRead): boolean {
+  return SEARCHABLE_TYPES.has(normalizeSqlType(column.type))
 }
 
 /**
@@ -107,7 +119,12 @@ export function ReadOnlyCellRenderer({
   )
 }
 
-/** Base column def shared by the editable and read-only grids. */
+/**
+ * Base column def shared by the editable and read-only grids. The grid's own
+ * sorting is off everywhere: every grid shows one cursor page, so a client-side
+ * sort could only reorder that page. Sorting is done by the API instead, driven
+ * from the header components.
+ */
 export function buildBaseColumnDef(
   column: TableColumnRead,
   savedWidths: Record<string, number>
@@ -116,7 +133,7 @@ export function buildBaseColumnDef(
   return {
     field: column.name,
     headerName: column.name,
-    sortable: true,
+    sortable: false,
     resizable: true,
     width: savedWidths[column.name] ?? getColumnWidthPx(column.type),
     minWidth: 100,
@@ -194,10 +211,8 @@ export function buildEditableColumnDef(
 }
 
 /**
- * Column defs for a display-only grid: CellDisplay renderers, no editors, and
- * no header sorting. The read-only grid is always fed one cursor page, so a
- * client-side sort could only reorder the visible page and would silently
- * revert on the next one; rows keep the API's order instead.
+ * Column defs for a display-only grid: CellDisplay renderers and no editors.
+ * Rows keep the API's order.
  */
 export function buildReadOnlyColumnDefs(
   columns: readonly TableColumnRead[],
@@ -211,7 +226,6 @@ export function buildReadOnlyColumnDefs(
         tableColumn: column,
       },
       editable: false,
-      sortable: false,
     }
   })
 }
