@@ -51,8 +51,13 @@ class DurableSyncService(WorkspaceSyncService):
 
     async def repository_fingerprint(self) -> str:
         workspace = await self._workspace()
+        settings = workspace.settings or {}
         return fingerprint(
-            {"provider": self._mapping_provider.value, "settings": workspace.settings}
+            {
+                "provider": settings.get("git_provider")
+                or self._mapping_provider.value,
+                "url": settings.get("git_repo_url"),
+            }
         )
 
     async def local_fingerprint(
@@ -179,11 +184,15 @@ class DurableSyncService(WorkspaceSyncService):
                 )
             if not compare_ref:
                 raise TracecatValidationError("Select a base branch before previewing")
-            remote = await transport.read_files(url=url, ref=compare_ref)
+            remote = await transport.read_files(
+                url=url, ref=compare_ref, ref_kind="branch"
+            )
         else:
             if inputs.pull is None:
                 raise TracecatValidationError("Missing pull inputs")
-            remote = await transport.read_files(url=url, ref=inputs.pull.commit_sha)
+            remote = await transport.read_files(
+                url=url, ref=inputs.pull.commit_sha, ref_kind="commit"
+            )
             compare_ref = inputs.compare_ref or inputs.pull.commit_sha
         return FetchedSync(remote, repository_fingerprint, compare_ref, target_exists)
 
@@ -294,6 +303,7 @@ class DurableSyncService(WorkspaceSyncService):
             remote = await transport.read_files(
                 url=url,
                 ref=params.branch if target_exists else prepared.compare_ref,
+                ref_kind="branch",
             )
             remote_paths = remote.blob_paths or frozenset(remote.files)
             changed_files = any(
