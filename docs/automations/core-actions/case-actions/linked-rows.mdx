@@ -154,7 +154,7 @@ The ID or short ID (e.g. CASE-0042) of the case to retrieve.
     case_id: ${{ TRIGGER.case_id }}
 ```
 
-## `core.cases.list_related_cases`
+## `core.cases.list_related_cases_by_row`
 
 List the cases that link a table row.
 
@@ -228,7 +228,7 @@ Default: `null`.
 
 ```yaml
 - ref: related_cases
-  action: core.cases.list_related_cases
+  action: core.cases.list_related_cases_by_row
   args:
     table_id: ${{ ACTIONS.linked_rows.result[0].table_id }}
     row_id: ${{ ACTIONS.linked_rows.result[0].row_id }}

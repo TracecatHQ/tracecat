@@ -29,7 +29,7 @@ from tracecat_registry.core.cases import (
     list_cases,
     list_comment_threads,
     list_comments,
-    list_related_cases,
+    list_related_cases_by_row,
     remove_case_tag,
     reply_to_comment,
     search_cases,
@@ -1347,13 +1347,15 @@ class TestCoreUploadAttachmentFromURL:
 
 
 @pytest.mark.anyio
-async def test_list_related_cases_returns_items(mock_cases_client: AsyncMock) -> None:
+async def test_list_related_cases_by_row_returns_items(
+    mock_cases_client: AsyncMock,
+) -> None:
     mock_cases_client.list_linked_cases.return_value = {
         "items": [{"id": "case-1"}],
         "next_cursor": "next",
     }
 
-    result = await list_related_cases(
+    result = await list_related_cases_by_row(
         table_id="table-id",
         row_id="row-id",
         exclude_case_id="CASE-0001",
@@ -1368,13 +1370,13 @@ async def test_list_related_cases_returns_items(mock_cases_client: AsyncMock) ->
 
 
 @pytest.mark.anyio
-async def test_list_related_cases_paginate_returns_response(
+async def test_list_related_cases_by_row_paginate_returns_response(
     mock_cases_client: AsyncMock,
 ) -> None:
     response = {"items": [], "next_cursor": None}
     mock_cases_client.list_linked_cases.return_value = response
 
-    result = await list_related_cases(
+    result = await list_related_cases_by_row(
         table_id="table-id", row_id="row-id", cursor="abc", paginate=True
     )
 
@@ -1385,6 +1387,6 @@ async def test_list_related_cases_paginate_returns_response(
 
 
 @pytest.mark.anyio
-async def test_list_related_cases_rejects_large_limit() -> None:
+async def test_list_related_cases_by_row_rejects_large_limit() -> None:
     with pytest.raises(TracecatValidationError):
-        await list_related_cases(table_id="t", row_id="r", limit=10_000)
+        await list_related_cases_by_row(table_id="t", row_id="r", limit=10_000)
