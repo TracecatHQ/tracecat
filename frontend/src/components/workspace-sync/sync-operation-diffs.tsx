@@ -5,6 +5,7 @@ import { workflowsGetSyncDiff, workflowsListSyncDiffs } from "@/client"
 import { Button } from "@/components/ui/button"
 import { UnifiedDiff } from "@/components/workspace-sync/unified-diff"
 import { useQuery } from "@/lib/query"
+import { cn } from "@/lib/utils"
 
 /** Load bounded diff pages and fetch selected file contents on demand. */
 type OperationDiffsProps = {
@@ -64,7 +65,11 @@ function OperationDiffPages({
           <button
             type="button"
             key={item.source_path}
-            className="block w-full px-3 py-2 text-left text-xs hover:bg-muted"
+            aria-pressed={selected === pageIndex * 50 + index}
+            className={cn(
+              "block w-full px-3 py-2 text-left text-xs hover:bg-muted",
+              selected === pageIndex * 50 + index && "bg-muted"
+            )}
             onClick={() => setSelected(pageIndex * 50 + index)}
           >
             {item.change_type} · {item.source_path}

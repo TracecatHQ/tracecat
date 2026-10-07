@@ -107,3 +107,36 @@ it.each(["message", "branch"])(
     expect(mockExport).not.toHaveBeenCalled()
   }
 )
+
+it("disables confirmation while a replacement preview is pending", async () => {
+  jest
+    .mocked(useWorkspaceSyncExportPreview)
+    .mockImplementation(function usePreview() {
+      const [requests, setRequests] = useState(0)
+      return {
+        preview,
+        previewOperationId: "previous-operation",
+        previewDiffCount: 0,
+        previewIsLoading: requests > 1,
+        previewError: null,
+        refetchPreview: () => setRequests((value) => value + 1),
+      }
+    })
+  const user = userEvent.setup()
+  render(
+    <WorkspaceResourceSyncActions
+      label="Variables"
+      branchSlug="variables"
+      resources={["variable"]}
+    />
+  )
+  await user.click(screen.getByRole("button", { name: "Push" }))
+  expect(screen.getByRole("button", { name: "Push & open PR" })).toBeDisabled()
+  await user.click(screen.getByRole("button", { name: "Preview changes" }))
+  expect(screen.getByRole("button", { name: "Push & open PR" })).toBeEnabled()
+  await user.click(screen.getByRole("button", { name: "Refresh preview" }))
+  const push = screen.getByRole("button", { name: "Push & open PR" })
+  expect(push).toBeDisabled()
+  await user.click(push)
+  expect(mockExport).not.toHaveBeenCalled()
+})

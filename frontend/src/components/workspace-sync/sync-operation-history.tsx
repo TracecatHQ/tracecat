@@ -9,8 +9,12 @@ import {
 } from "@/client"
 import { Button } from "@/components/ui/button"
 import { OperationDiffs } from "@/components/workspace-sync/sync-operation-diffs"
-import { invalidateWorkspaceSyncResources } from "@/hooks/use-workspace-sync"
 import { useMutation, useQuery, useQueryClient } from "@/lib/query"
+import { cn } from "@/lib/utils"
+import {
+  expireSyncOperation,
+  observeSyncOperation,
+} from "@/lib/workspace-sync-operations"
 
 const STAGES = {
   fetching: "Fetching files",
@@ -22,19 +26,24 @@ const STAGES = {
 
 /** Persistent, paginated operation history with resumable confirmation and lazy diffs. */
 export function SyncOperationHistory({ workspaceId }: { workspaceId: string }) {
+  const client = useQueryClient()
   const [cursor, setCursor] = useState<string>()
   const [selected, setSelected] = useState<string>()
   const { data, error } = useQuery({
     queryKey: ["sync-operations", workspaceId, cursor],
     queryFn: () =>
       workflowsListSyncOperations({ workspaceId, cursor, limit: 10 }),
-    refetchInterval: (query) =>
-      query.state.data?.items.some((item) =>
-        ["queued", "running", "applying"].includes(item.status)
-      )
-        ? 2000
-        : false,
   })
+  useEffect(() => {
+    for (const operation of data?.items ?? []) {
+      observeSyncOperation(client, workspaceId, operation)
+    }
+  }, [client, workspaceId, data])
+  function changePage(nextCursor?: string | null) {
+    setSelected(undefined)
+    setCursor(nextCursor ?? undefined)
+  }
+
   if (error)
     return (
       <p className="text-sm text-destructive">
@@ -42,8 +51,9 @@ export function SyncOperationHistory({ workspaceId }: { workspaceId: string }) {
       </p>
     )
   if (!data?.items.length) return null
-  const operation =
+  const operation = expireSyncOperation(
     data.items.find((item) => item.id === selected) ?? data.items[0]
+  )
   return (
     <section className="space-y-3 border-t pt-5">
       <h3 className="text-sm font-medium">Sync operations</h3>
@@ -57,7 +67,11 @@ export function SyncOperationHistory({ workspaceId }: { workspaceId: string }) {
             key={item.id}
             type="button"
             onClick={() => setSelected(item.id)}
-            className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-muted"
+            aria-pressed={operation.id === item.id}
+            className={cn(
+              "flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs hover:bg-muted",
+              operation.id === item.id && "bg-muted"
+            )}
           >
             <span>
               {item.direction === "push" ? "Push" : "Pull"} ·{" "}
@@ -76,7 +90,7 @@ export function SyncOperationHistory({ workspaceId }: { workspaceId: string }) {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => setCursor(data.prev_cursor ?? undefined)}
+            onClick={() => changePage(data.prev_cursor)}
           >
             Newer
           </Button>
@@ -85,7 +99,7 @@ export function SyncOperationHistory({ workspaceId }: { workspaceId: string }) {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => setCursor(data.next_cursor ?? undefined)}
+            onClick={() => changePage(data.next_cursor)}
           >
             Older
           </Button>
@@ -120,20 +134,18 @@ function OperationDetails({
             workspaceId,
             operationId: operation.id,
           }),
-    onSuccess: () =>
-      client.invalidateQueries({ queryKey: ["sync-operations", workspaceId] }),
+    onSuccess: (updated) => {
+      observeSyncOperation(client, workspaceId, updated)
+      void client.invalidateQueries({
+        queryKey: ["sync-operations", workspaceId],
+      })
+    },
+    onError: () => {
+      void client.invalidateQueries({
+        queryKey: ["sync-operations", workspaceId],
+      })
+    },
   })
-  useEffect(() => {
-    if (operation.direction === "pull" && operation.data_applied) {
-      invalidateWorkspaceSyncResources(client, workspaceId)
-    }
-  }, [
-    client,
-    workspaceId,
-    operation.id,
-    operation.direction,
-    operation.data_applied,
-  ])
   const push = operation.inputs.push
   const preview = operation.preview
   const result = operation.result
