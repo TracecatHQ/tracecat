@@ -3,6 +3,7 @@
 import uuid
 from typing import Literal
 
+import orjson
 import pytest
 from alembic.config import Config
 from alembic.migration import MigrationContext
@@ -24,19 +25,12 @@ def test_default_agent_and_chat_visibility_expansion(
     assert revision is not None
     engine = create_engine(TEST_DB_CONFIG.sys_url_sync, poolclass=NullPool)
     schema = f"test_chat_visibility_{uuid.uuid4().hex}"
-    workspaces = {
-        key: uuid.uuid4()
-        for key in (
-            "valid",
-            "empty",
-            "missing",
-            "deleted",
-            "foreign",
-            "malformed",
-            "absent",
-            "null_settings",
-        )
+    workspace_settings = {
+        "configured": {"validate_attachment_magic_number": True},
+        "empty": {},
+        "null_settings": None,
     }
+    workspaces = {key: uuid.uuid4() for key in workspace_settings}
     preset_id, deleted_id, foreign_id, new_id = (uuid.uuid4() for _ in range(4))
     try:
         with engine.connect() as connection, connection.begin() as transaction:
@@ -53,42 +47,21 @@ def test_default_agent_and_chat_visibility_expansion(
             """)
             )
             for key, workspace_id in workspaces.items():
-                selection = {
-                    "valid": str(preset_id),
-                    "empty": None,
-                    "missing": str(uuid.uuid4()),
-                    "deleted": str(deleted_id),
-                    "foreign": str(foreign_id),
-                    "malformed": "not-a-uuid",
-                    "absent": None,
-                    "null_settings": None,
-                }[key]
+                settings = workspace_settings[key]
                 connection.execute(
                     text("""
-                    INSERT INTO workspace VALUES (
-                        :id, jsonb_build_object(
-                            'default_agent_preset_id', CAST(:selection AS text),
-                            'validate_attachment_magic_number', true
-                        )
-                    )
+                    INSERT INTO workspace VALUES (:id, CAST(:settings AS jsonb))
                 """),
-                    {"id": workspace_id, "selection": selection},
+                    {
+                        "id": workspace_id,
+                        "settings": orjson.dumps(settings).decode()
+                        if settings is not None
+                        else None,
+                    },
                 )
-            connection.execute(
-                text("""
-                UPDATE workspace
-                SET settings = settings - 'default_agent_preset_id'
-                WHERE id = :id
-                """),
-                {"id": workspaces["absent"]},
-            )
-            connection.execute(
-                text("UPDATE workspace SET settings = NULL WHERE id = :id"),
-                {"id": workspaces["null_settings"]},
-            )
             for agent_id, workspace_id, deleted in (
-                (preset_id, workspaces["valid"], False),
-                (deleted_id, workspaces["deleted"], True),
+                (preset_id, workspaces["configured"], False),
+                (deleted_id, workspaces["configured"], True),
                 (foreign_id, workspaces["empty"], False),
             ):
                 connection.execute(
@@ -114,10 +87,7 @@ def test_default_agent_and_chat_visibility_expansion(
                     .tuples()
                     .all()
                 )
-                assert defaults == {
-                    workspace_id: preset_id if key == "valid" else None
-                    for key, workspace_id in workspaces.items()
-                }
+                assert defaults == dict.fromkeys(workspaces.values())
                 assert (
                     dict(
                         connection.execute(text("SELECT id, settings FROM workspace"))
@@ -138,7 +108,7 @@ def test_default_agent_and_chat_visibility_expansion(
                     text("""
                     INSERT INTO agent_preset (id, workspace_id) VALUES (:id, :workspace)
                 """),
-                    {"id": new_id, "workspace": workspaces["valid"]},
+                    {"id": new_id, "workspace": workspaces["configured"]},
                 )
                 assert (
                     connection.scalar(
@@ -159,6 +129,12 @@ def test_default_agent_and_chat_visibility_expansion(
                     is True
                 )
 
+                connection.execute(
+                    text(
+                        "UPDATE workspace SET default_agent_preset_id = :agent WHERE id = :workspace"
+                    ),
+                    {"agent": preset_id, "workspace": workspaces["configured"]},
+                )
                 if default_change == "replaced":
                     connection.execute(
                         text("DELETE FROM agent_preset WHERE id = :id"),
@@ -169,7 +145,7 @@ def test_default_agent_and_chat_visibility_expansion(
                             text(
                                 "SELECT default_agent_preset_id FROM workspace WHERE id = :id"
                             ),
-                            {"id": workspaces["valid"]},
+                            {"id": workspaces["configured"]},
                         )
                         is None
                     )
@@ -180,7 +156,7 @@ def test_default_agent_and_chat_visibility_expansion(
                         ),
                         {
                             "agent": new_id if default_change == "replaced" else None,
-                            "workspace": workspaces["valid"],
+                            "workspace": workspaces["configured"],
                         },
                     )
                 revision.module.downgrade()
@@ -197,16 +173,7 @@ def test_default_agent_and_chat_visibility_expansion(
                     .tuples()
                     .all()
                 )
-                expected_settings = original_settings.copy()
-                expected_settings[workspaces["valid"]] = {
-                    "default_agent_preset_id": {
-                        "unchanged": str(preset_id),
-                        "replaced": str(new_id),
-                        "cleared": None,
-                    }[default_change],
-                    "validate_attachment_magic_number": True,
-                }
-                assert rolled_back_settings == expected_settings
+                assert rolled_back_settings == original_settings
             transaction.rollback()
     finally:
         engine.dispose()
