@@ -76,16 +76,19 @@ class PresetToolPolicyService(BaseWorkspaceService):
         Runtime compilation applies the same defaults, so eligibility and
         attachment checks must see them too.
         """
-        names = sorted(set(actions))
+        names = set(actions)
         if not names:
+            # An empty key filter would list every action.
             return set()
-        indexed = await RegistryActionsService(
+        # Selects the same index rows as compilation's get_actions_from_index
+        # without loading manifests, which approval options do not need.
+        entries = await RegistryActionsService(
             self.session, role=self.role
-        ).get_actions_from_index(names)
+        ).list_actions_from_index(include_keys=names, include_marked=True)
         return {
-            name
-            for name, result in indexed.items()
-            if (result.index_entry.options or {}).get("requires_approval") is True
+            f"{entry.namespace}.{entry.name}"
+            for entry, _origin in entries
+            if entry.options.get("requires_approval") is True
         }
 
 
