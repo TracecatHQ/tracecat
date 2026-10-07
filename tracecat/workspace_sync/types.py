@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, NamedTuple
 
+from tracecat.exceptions import TracecatValidationError
+
 if TYPE_CHECKING:
     from tracecat.agent.catalog.types import ModelKey
     from tracecat.sync import (
@@ -118,3 +120,7 @@ class PreparedSnapshot:
     mcp_integration_mapping_requirements: list[McpIntegrationMappingRequirement]
     secret_store_mapping_requirements: list[SecretStoreMappingRequirement]
     library_skill_installs: list[str]
+
+
+class SyncCommitConflictError(TracecatValidationError):
+    """The target Git ref moved after the reviewed revision was checked."""

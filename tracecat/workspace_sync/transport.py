@@ -10,6 +10,7 @@ import itertools
 import json
 import re
 import tarfile
+import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
@@ -31,6 +32,7 @@ from pydantic import ValidationError as PydanticValidationError
 from tracecat.db.models import User
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
 from tracecat.feature_flags import FeatureFlag, is_feature_enabled
+from tracecat.git.plumbing import GitPlumbing, GitRefConflictError, validate_path
 from tracecat.git.types import GitUrl
 from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
 from tracecat.service import BaseWorkspaceService
@@ -77,6 +79,7 @@ from tracecat.workspace_sync.schemas import (
     manifest_resource_roots,
     workspace_manifest_from_json,
 )
+from tracecat.workspace_sync.types import SyncCommitConflictError
 from tracecat.workspaces.service import WorkspaceService
 
 
@@ -110,7 +113,10 @@ class VcsSyncTransport(Protocol):
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        branch_start_ref: str | None = None,
         delete_missing_paths_under: Sequence[str] = (),
+        expected_commit_sha: str | None = None,
+        operation_id: uuid.UUID | None = None,
     ) -> CommitInfo:
         """Commit workspace sync files to a branch."""
         ...
@@ -123,6 +129,10 @@ class VcsSyncTransport(Protocol):
         limit: int = 10,
     ) -> list[GitCommitInfo]:
         """List commits from a branch."""
+        ...
+
+    async def branch_exists(self, *, url: GitUrl, branch: str) -> bool:
+        """Resolve one exact branch; propagate permission and transport errors."""
         ...
 
     async def list_branches(
@@ -165,6 +175,13 @@ def vcs_transport_for_provider(
             return BitbucketDataCenterWorkspaceSyncTransport(session=session, role=role)
         case VcsProvider.BITBUCKET:
             return BitbucketWorkspaceSyncTransport(session=session, role=role)
+
+
+def sync_commit_message(message: str, operation_id: uuid.UUID | None) -> str:
+    """Identify durable writes without changing their user-facing PR title."""
+    if operation_id is None:
+        return message
+    return f"{message}\n\nTracecat-Sync-Operation: {operation_id}"
 
 
 def _normalized_roots(roots: Sequence[str]) -> tuple[str, ...]:
@@ -415,6 +432,13 @@ class BaseWorkspaceSyncTransport(BaseWorkspaceService):
     provider-neutral pieces live here so both transports stay in lockstep.
     """
 
+    # Used only by the standalone read phase, which has no pending mutations.
+    release_read_session: bool = False
+
+    async def _release_read_connection(self) -> None:
+        if self.release_read_session:
+            await self.session.commit()
+
     @staticmethod
     def _normalize_commit_message(files: dict[str, str], message: str) -> str:
         """Validate export inputs and return the stripped commit message."""
@@ -512,7 +536,9 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         :class:`VcsTreeSnapshot`. Blobs that are not valid UTF-8 are skipped.
         """
         gh_svc = GitHubAppService(session=self.session, role=self.role)
-        gh = await gh_svc.get_github_client_for_repo(url)
+        gh = await gh_svc.get_github_client_for_repo(
+            url, release_read_session=self.release_read_session
+        )
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
             commit = await asyncio.to_thread(repo.get_commit, ref)
@@ -614,7 +640,10 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        branch_start_ref: str | None = None,
         delete_missing_paths_under: Sequence[str] = (),
+        expected_commit_sha: str | None = None,
+        operation_id: uuid.UUID | None = None,
     ) -> CommitInfo:
         """Commit ``files`` to ``branch``, optionally opening a pull request.
 
@@ -628,7 +657,9 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         message = self._normalize_commit_message(files, message)
 
         gh_svc = GitHubAppService(session=self.session, role=self.role)
-        gh = await gh_svc.get_github_client_for_repo(url)
+        gh = await gh_svc.get_github_client_for_repo(
+            url, release_read_session=self.release_read_session
+        )
         github_stage = "resolve_repository"
         github_endpoint = "GET /repos/{owner}/{repo}"
         retry_budget = _GitHubRetryBudget(_GITHUB_RETRY_BUDGET_SECONDS)
@@ -643,19 +674,36 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 )
             base_branch = await asyncio.to_thread(repo.get_branch, base_branch_name)
 
+            target_exists = True
             try:
                 target_branch = await asyncio.to_thread(repo.get_branch, branch)
             except GithubException as e:
                 if e.status != 404:
                     raise
-                await _github_write_with_retry(
-                    lambda: repo.create_git_ref(
-                        ref=f"refs/heads/{branch}",
-                        sha=base_branch.commit.sha,
-                    ),
-                    budget=retry_budget,
+                start_branch = (
+                    await asyncio.to_thread(repo.get_branch, branch_start_ref)
+                    if branch_start_ref and branch_start_ref != base_branch_name
+                    else base_branch
                 )
-                target_branch = await asyncio.to_thread(repo.get_branch, branch)
+                if (
+                    expected_commit_sha is not None
+                    and start_branch.commit.sha != expected_commit_sha
+                ):
+                    raise SyncCommitConflictError(
+                        "Base branch changed; create a new preview"
+                    ) from None
+                # Publish only the complete sync commit: an intermediate base-only
+                # ref cannot pass operation-marker recovery after a failed write.
+                target_exists = False
+                target_branch = start_branch
+
+            if (
+                expected_commit_sha is not None
+                and target_branch.commit.sha != expected_commit_sha
+            ):
+                raise SyncCommitConflictError(
+                    "Target branch changed; create a new preview"
+                )
 
             github_stage = "resolve_target_commit"
             github_endpoint = "GET /repos/{owner}/{repo}/git/commits/{sha}"
@@ -706,10 +754,13 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             if not changed_files and not stale_paths:
                 github_stage = "reuse_pull_request"
                 github_endpoint = "GET|POST /repos/{owner}/{repo}/compare|pulls"
-                branch_has_commits = await self._branch_has_commits_between(
-                    repo=repo,
-                    base_branch_name=base_branch_name,
-                    branch_name=branch,
+                branch_has_commits = (
+                    target_exists
+                    and await self._branch_has_commits_between(
+                        repo=repo,
+                        base_branch_name=base_branch_name,
+                        branch_name=branch,
+                    )
                 )
                 if create_pr and branch_has_commits:
                     pr_url, pr_number, pr_reused = await self._upsert_pull_request(
@@ -817,21 +868,31 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             github_endpoint = "POST /repos/{owner}/{repo}/git/commits"
             commit = await _github_write_with_retry(
                 lambda: repo.create_git_commit(
-                    message,
+                    sync_commit_message(message, operation_id),
                     tree,
                     [target_commit],
                 ),
                 budget=retry_budget,
             )
-            github_stage = "resolve_target_ref"
-            github_endpoint = "GET /repos/{owner}/{repo}/git/ref/heads/{branch}"
-            ref = await asyncio.to_thread(repo.get_git_ref, f"heads/{branch}")
-            github_stage = "update_target_ref"
-            github_endpoint = "PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}"
-            await _github_write_with_retry(
-                lambda: ref.edit(sha=commit.sha),
-                budget=retry_budget,
-            )
+            if target_exists:
+                github_stage = "resolve_target_ref"
+                github_endpoint = "GET /repos/{owner}/{repo}/git/ref/heads/{branch}"
+                ref = await asyncio.to_thread(repo.get_git_ref, f"heads/{branch}")
+                github_stage = "update_target_ref"
+                github_endpoint = "PATCH /repos/{owner}/{repo}/git/refs/heads/{branch}"
+                await _github_write_with_retry(
+                    lambda: ref.edit(sha=commit.sha),
+                    budget=retry_budget,
+                )
+            else:
+                github_stage = "create_target_ref"
+                github_endpoint = "POST /repos/{owner}/{repo}/git/refs"
+                await _github_write_with_retry(
+                    lambda: repo.create_git_ref(
+                        ref=f"refs/heads/{branch}", sha=commit.sha
+                    ),
+                    budget=retry_budget,
+                )
             self.logger.info(
                 "Updated GitHub workspace sync ref",
                 tree_sha=tree.sha,
@@ -913,7 +974,9 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
     ) -> list[GitCommitInfo]:
         """Return up to ``limit`` most recent commits on ``branch``."""
         gh_svc = GitHubAppService(session=self.session, role=self.role)
-        gh = await gh_svc.get_github_client_for_repo(url)
+        gh = await gh_svc.get_github_client_for_repo(
+            url, release_read_session=self.release_read_session
+        )
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
             commits_paginated = await asyncio.to_thread(repo.get_commits, sha=branch)
@@ -936,6 +999,27 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         finally:
             gh.close()
 
+    async def branch_exists(self, *, url: GitUrl, branch: str) -> bool:
+        gh_svc = GitHubAppService(session=self.session, role=self.role)
+        gh = await gh_svc.get_github_client_for_repo(
+            url, release_read_session=self.release_read_session
+        )
+        try:
+            repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
+            try:
+                await asyncio.to_thread(repo.get_branch, branch)
+            except GithubException as exc:
+                if exc.status == 404:
+                    return False
+                raise
+            return True
+        except GithubException as exc:
+            raise GitHubAppError(
+                f"GitHub API error: {exc.status} - {exc.data}"
+            ) from exc
+        finally:
+            gh.close()
+
     async def list_branches(
         self,
         *,
@@ -944,7 +1028,9 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
     ) -> list[GitBranchInfo]:
         """Return up to ``limit`` branches, flagging the repository default."""
         gh_svc = GitHubAppService(session=self.session, role=self.role)
-        gh = await gh_svc.get_github_client_for_repo(url)
+        gh = await gh_svc.get_github_client_for_repo(
+            url, release_read_session=self.release_read_session
+        )
         try:
             repo = await asyncio.to_thread(gh.get_repo, f"{url.org}/{url.repo}")
             branches_paginated = await asyncio.to_thread(repo.get_branches)
@@ -1017,7 +1103,7 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
 
 
 class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
-    """GitLab token-backed REST transport for workspace sync."""
+    """GitLab token-backed transport with atomic Git publication."""
 
     service_name = "workspace_gitlab_sync"
 
@@ -1040,7 +1126,10 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        branch_start_ref: str | None = None,
         delete_missing_paths_under: Sequence[str] = (),
+        expected_commit_sha: str | None = None,
+        operation_id: uuid.UUID | None = None,
     ) -> CommitInfo:
         """Commit ``files`` to ``branch``, optionally opening a merge request."""
         message = self._normalize_commit_message(files, message)
@@ -1061,6 +1150,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 project_id=project_id,
                 branch=base_branch_name,
             )
+            target_exists = True
             try:
                 await self._get_branch(
                     client=client,
@@ -1070,18 +1160,30 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             except GitLabApiError as e:
                 if e.status_code != 404:
                     raise
-                await self._create_branch(
-                    client=client,
-                    project_id=project_id,
-                    branch=branch,
-                    ref=base_branch_name,
-                )
+                target_exists = False
 
             current = await self._read_files_with_client(
                 client=client,
                 url=url,
-                ref=branch,
+                ref=branch if target_exists else branch_start_ref or base_branch_name,
             )
+            if (
+                expected_commit_sha is not None
+                and current.commit_sha != expected_commit_sha
+            ):
+                raise SyncCommitConflictError(
+                    "Target branch changed; create a new preview"
+                )
+            # Guarded writes create a missing branch atomically with their commit.
+            # Legacy writes still create the branch here, pinned to the fetched SHA.
+            if not target_exists and expected_commit_sha is None:
+                await self._create_branch(
+                    client=client,
+                    project_id=project_id,
+                    branch=branch,
+                    ref=current.commit_sha,
+                )
+                target_exists = True
             current_blob_paths = current.blob_paths or frozenset(current.files)
             changed_files = {
                 path: content
@@ -1099,11 +1201,14 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             pr_number: int | None = None
             pr_reused = False
             if not changed_files and not stale_paths:
-                branch_has_commits = await self._branch_has_commits_between(
-                    client=client,
-                    project_id=project_id,
-                    base_branch_name=base_branch_name,
-                    branch_name=branch,
+                branch_has_commits = (
+                    target_exists
+                    and await self._branch_has_commits_between(
+                        client=client,
+                        project_id=project_id,
+                        base_branch_name=base_branch_name,
+                        branch_name=branch,
+                    )
                 )
                 if create_pr and branch_has_commits:
                     pr_url, pr_number, pr_reused = await self._upsert_merge_request(
@@ -1136,19 +1241,30 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             for path in sorted(stale_paths):
                 actions.append({"action": "delete", "file_path": path})
 
-            commit_payload: GitLabCreateCommitPayload = {
-                "branch": branch,
-                "commit_message": message,
-                "actions": actions,
-            }
-            commit = await self._gitlab_model(
-                client,
-                "POST",
-                f"/projects/{project_id}/repository/commits",
-                model=GitLabCommit,
-                json=commit_payload,
-            )
-            commit_sha = commit.id
+            if expected_commit_sha is not None:
+                commit_sha = await self._write_guarded_commit(
+                    url=url,
+                    parent=current.commit_sha,
+                    branch=branch,
+                    expected_head=current.commit_sha if target_exists else None,
+                    files=changed_files,
+                    deleted=stale_paths,
+                    message=sync_commit_message(message, operation_id),
+                )
+            else:
+                commit_payload: GitLabCreateCommitPayload = {
+                    "branch": branch,
+                    "commit_message": sync_commit_message(message, operation_id),
+                    "actions": actions,
+                }
+                commit = await self._gitlab_model(
+                    client,
+                    "POST",
+                    f"/projects/{project_id}/repository/commits",
+                    model=GitLabCommit,
+                    json=commit_payload,
+                )
+                commit_sha = commit.id
 
             if create_pr:
                 pr_url, pr_number, pr_reused = await self._upsert_merge_request(
@@ -1169,6 +1285,46 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 pr_reused=pr_reused,
                 message="Committed workspace sync changes.",
             )
+
+    async def _write_guarded_commit(
+        self,
+        *,
+        url: GitUrl,
+        parent: str,
+        branch: str,
+        expected_head: str | None,
+        files: dict[str, str],
+        deleted: set[str],
+        message: str,
+    ) -> str:
+        """Publish the prepared tree with a whole-branch compare-and-swap.
+
+        GitLab's REST commits API guards individual files only. A native Git
+        lease also rejects concurrent additions and edits outside those actions.
+        """
+        validate_path(f"{url.org}/{url.repo}", GitLabError)
+        credentials = await self._credentials()
+        remote = (
+            f"{credentials.base_url}/"
+            f"{quote(url.org, safe='/')}/{quote(url.repo, safe='')}.git"
+        )
+        with TemporaryDirectory() as directory:
+            git = GitPlumbing(
+                directory,
+                credentials.token,
+                credential_url=f"{credentials.base_url}/",
+                error_type=GitLabError,
+            )
+            await git.initialize()
+            await git.fetch(remote, parent)
+            sha = await git.commit(parent, files, deleted, message)
+            if sha is None:
+                raise GitLabError("Prepared GitLab changes produced no commit")
+            try:
+                await git.push_with_lease(remote, sha, branch, expected_head)
+            except GitRefConflictError as exc:
+                raise SyncCommitConflictError(str(exc)) from None
+            return sha
 
     async def list_commits(
         self,
@@ -1202,6 +1358,18 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             )
             for commit in raw_commits
         ]
+
+    async def branch_exists(self, *, url: GitUrl, branch: str) -> bool:
+        async with self._authed_client(url) as client:
+            try:
+                await self._get_branch(
+                    client=client, project_id=_gitlab_project_id(url), branch=branch
+                )
+            except GitLabApiError as exc:
+                if exc.status_code == 404:
+                    return False
+                raise
+            return True
 
     async def list_branches(
         self,
@@ -1247,6 +1415,7 @@ class GitLabWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         instance host, and ports are ignored so custom SSH ports still match.
         """
         credentials = await self._credentials()
+        await self._release_read_connection()
         expected_host = _gitlab_instance_host(credentials.base_url)
         repo_host = _gitlab_instance_host(url.host)
         if expected_host and not (
@@ -1643,6 +1812,7 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         credentials = await BitbucketTokenService(
             session=self.session, role=self.role
         ).get_bitbucket_token_credentials()
+        await self._release_read_connection()
         with TemporaryDirectory(prefix="tracecat-bitbucket-") as directory:
             git = BitbucketGit(directory, credentials.token)
             await git.initialize()
@@ -1708,6 +1878,10 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             path = page.next or ""
             params = None
         return results[:limit]
+
+    async def branch_exists(self, *, url: GitUrl, branch: str) -> bool:
+        async with self._connection(url) as (client, git, _path):
+            return await git.branch_exists(self._git_remote(url, client), branch)
 
     async def list_branches(
         self, *, url: GitUrl, limit: int = 100
@@ -1800,7 +1974,10 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        branch_start_ref: str | None = None,
         delete_missing_paths_under: Sequence[str] = (),
+        expected_commit_sha: str | None = None,
+        operation_id: uuid.UUID | None = None,
     ) -> CommitInfo:
         message = self._normalize_commit_message(files, message)
         async with self._connection(url) as (client, git, path):
@@ -1825,15 +2002,31 @@ class BitbucketWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
                 params={"q": f"name={json.dumps(branch)}", "pagelen": 1},
             )
             remote = f"https://bitbucket.org/{repository_path(url)}.git"
-            parent = await git.fetch(remote, branch if branches else base)
+            parent = await git.fetch(
+                remote, branch if branches else branch_start_ref or base
+            )
+            if expected_commit_sha is not None and parent != expected_commit_sha:
+                raise SyncCommitConflictError(
+                    "Target branch changed; create a new preview"
+                )
             entries = await git.entries(parent)
             roots = _normalized_roots(delete_missing_paths_under)
             deleted = {
                 p for p in entries if p not in files and _path_is_under_roots(p, roots)
             }
-            sha = await git.commit(parent, files, deleted, message)
+            sha = await git.commit(
+                parent, files, deleted, sync_commit_message(message, operation_id)
+            )
             if sha:
-                await git.push(remote, sha, branch)
+                if expected_commit_sha is not None:
+                    try:
+                        await git.push_with_lease(
+                            remote, sha, branch, parent if branches else None
+                        )
+                    except GitRefConflictError as exc:
+                        raise SyncCommitConflictError(str(exc)) from None
+                else:
+                    await git.push(remote, sha, branch)
             info = CommitInfo(
                 status=PushStatus.COMMITTED if sha else PushStatus.NO_OP,
                 sha=sha,
@@ -1903,6 +2096,7 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
         credentials = await BitbucketDataCenterTokenService(
             session=self.session, role=self.role
         ).get_bitbucket_data_center_token_credentials()
+        await self._release_read_connection()
         base = httpx.URL(credentials.base_url + "/")
         if url.host.lower() != base.host.lower() or any(
             not re.fullmatch(r"[A-Za-z0-9_~][A-Za-z0-9_.~-]*", part)
@@ -2047,7 +2241,10 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        branch_start_ref: str | None = None,
         delete_missing_paths_under: Sequence[str] = (),
+        expected_commit_sha: str | None = None,
+        operation_id: uuid.UUID | None = None,
     ) -> CommitInfo:
         message = self._normalize_commit_message(files, message)
         async with self._connection(url) as (client, git, path):
@@ -2061,25 +2258,33 @@ class BitbucketDataCenterWorkspaceSyncTransport(BitbucketWorkspaceSyncTransport)
                 raise TracecatValidationError(
                     "The sync branch must differ from the pull request base branch"
                 )
-            # Data Center filterText is a substring filter; require an exact name match.
-            candidates = await self._list(
-                client,
-                f"{path}/branches",
-                DataCenterBranch,
-                limit=10000,
-                params={"filterText": branch},
-            )
-            exists = any(b.name == branch for b in candidates)
             remote = self._git_remote(url, client)
-            parent = await git.fetch(remote, branch if exists else base)
+            exists = await git.branch_exists(remote, branch)
+            parent = await git.fetch(
+                remote, branch if exists else branch_start_ref or base
+            )
+            if expected_commit_sha is not None and parent != expected_commit_sha:
+                raise SyncCommitConflictError(
+                    "Target branch changed; create a new preview"
+                )
             entries = await git.entries(parent)
             roots = _normalized_roots(delete_missing_paths_under)
             deleted = {
                 p for p in entries if p not in files and _path_is_under_roots(p, roots)
             }
-            sha = await git.commit(parent, files, deleted, message)
+            sha = await git.commit(
+                parent, files, deleted, sync_commit_message(message, operation_id)
+            )
             if sha:
-                await git.push(remote, sha, branch)
+                if expected_commit_sha is not None:
+                    try:
+                        await git.push_with_lease(
+                            remote, sha, branch, parent if exists else None
+                        )
+                    except GitRefConflictError as exc:
+                        raise SyncCommitConflictError(str(exc)) from None
+                else:
+                    await git.push(remote, sha, branch)
             info = CommitInfo(
                 status=PushStatus.COMMITTED if sha else PushStatus.NO_OP,
                 sha=sha,

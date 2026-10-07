@@ -54,6 +54,7 @@ class GitLabCommitAction(TypedDict):
     action: Literal["create", "update", "delete"]
     file_path: str
     content: NotRequired[str]
+    last_commit_id: NotRequired[str]
 
 
 class GitLabCreateCommitPayload(TypedDict):
