@@ -101,7 +101,7 @@ from tracecat.agent.subagents import (
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
 )
-from tracecat.agent.tools import BuildToolsResult
+from tracecat.agent.tools import BuildToolsResult, create_tool_from_registry
 from tracecat.agent.types import AgentConfig, Tool, clamp_agent_timeout_seconds
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
@@ -118,6 +118,7 @@ from tracecat.observability.otel import (
     shutdown_platform_tracing,
 )
 from tracecat.observability.types import PlatformErrorCapture
+from tracecat.registry.actions.types import IndexedActionResult
 from tracecat.registry.lock.service import RegistryLockService
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.runtime.errors import (
@@ -293,6 +294,78 @@ class TestBuildToolDefinitionsActivity:
             assert result.tool_approvals == {approval_key: True}
         else:
             assert result.tool_approvals is None
+
+    @pytest.mark.anyio
+    async def test_records_registry_default_approvals_unless_overridden(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """MCP definitions drop Tool.requires_approval, so the approval map
+        must carry registry defaults; explicit rules still win."""
+        registry_defaults = {
+            "custom.delete": True,
+            "custom.read": False,
+            "custom.waived": True,
+        }
+
+        def indexed(name: str, requires_approval: bool) -> IndexedActionResult:
+            manifest_action = SimpleNamespace(
+                description=f"Synthetic {name}",
+                interface={"expects": {"type": "object"}},
+            )
+            return cast(
+                IndexedActionResult,
+                SimpleNamespace(
+                    index_entry=SimpleNamespace(
+                        options={"requires_approval": requires_approval}
+                    ),
+                    manifest=SimpleNamespace(actions={name: manifest_action}),
+                ),
+            )
+
+        async def mock_build_agent_tools(
+            *,
+            actions: list[str] | None,
+            tool_approvals: dict[str, bool] | None,
+            **_kwargs: Any,
+        ) -> BuildToolsResult:
+            tools = [
+                await create_tool_from_registry(
+                    name,
+                    indexed(name, registry_defaults[name]),
+                    tool_approvals=tool_approvals,
+                )
+                for name in actions or []
+            ]
+            return BuildToolsResult(tools=tools, collected_secrets=set())
+
+        lock_service = MagicMock(spec=RegistryLockService)
+        lock_service.resolve_lock_with_bindings = AsyncMock(
+            return_value=RegistryLock(origins={}, actions={})
+        )
+
+        @asynccontextmanager
+        async def lock_context() -> AsyncIterator[RegistryLockService]:
+            yield lock_service
+
+        monkeypatch.setattr(
+            agent_activities, "build_agent_tools", mock_build_agent_tools
+        )
+        monkeypatch.setattr(RegistryLockService, "with_session", lock_context)
+
+        result = await AgentActivities().build_tool_definitions(
+            BuildToolDefsArgs(
+                role=Role(type="service", service_id="tracecat-api"),
+                tool_filters=ToolFilters(actions=list(registry_defaults)),
+                tool_approvals={"custom.waived": False},
+            )
+        )
+
+        assert set(result.tool_definitions) == set(registry_defaults)
+        assert result.tool_approvals == {
+            "custom.delete": True,
+            "custom.waived": False,
+        }
 
     @pytest.mark.anyio
     async def test_maps_tool_definition_errors_to_application_error(
