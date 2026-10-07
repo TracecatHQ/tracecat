@@ -591,6 +591,24 @@ const STORED_PAUSED: UIMessage[] = [
   },
 ]
 
+// The compaction boundary the database keeps as a system record.
+const COMPACTED: UIMessage = {
+  id: "compaction-1",
+  role: "system",
+  parts: [{ type: "data-compaction", data: { phase: "completed" } }],
+}
+
+/** A completed call as the database returns it. */
+function storedResult(id: string): UIMessage["parts"][number] {
+  return {
+    type: `tool-${TOOL}`,
+    toolCallId: id,
+    state: "output-available",
+    input: { operation: id },
+    output: `{"executed":"${id}"}`,
+  } as UIMessage["parts"][number]
+}
+
 describe("ChatSessionPane response actions", () => {
   beforeEach(() => {
     mockUseVercelChatResult.regenerate.mockReset()
@@ -647,7 +665,7 @@ describe("ChatSessionPane response actions", () => {
     }
   )
 
-  it("retries a reloaded turn that compacted then failed from its answer", async () => {
+  it("retries a reloaded turn that compacted then failed from its prompt", async () => {
     // The turn answered, compacted, then failed before another message. The
     // database keeps the compaction boundary as a trailing system record.
     mockUseVercelChatResult.messages = [
@@ -657,11 +675,7 @@ describe("ChatSessionPane response actions", () => {
         role: "assistant",
         parts: [{ type: "text", text: "Here is what I found so far." }],
       },
-      {
-        id: "compaction-1",
-        role: "system",
-        parts: [{ type: "data-compaction", data: { phase: "completed" } }],
-      },
+      COMPACTED,
     ]
     const requests = retryRequests(mockUseVercelChatResult.messages)
     renderChatSessionPane()
@@ -670,10 +684,52 @@ describe("ChatSessionPane response actions", () => {
     expect(retry).toHaveLength(1)
     fireEvent.click(retry[0])
 
-    // The retry starts from the answer, so the request carries its prompt.
     expect(mockUseVercelChatResult.regenerate).toHaveBeenCalledWith({
-      messageId: "answer-1",
+      messageId: PROMPT.id,
     })
     await waitFor(() => expect(requests).toEqual([PROMPT]))
   })
+
+  it.each([
+    ["", []],
+    [" then compacted", [COMPACTED]],
+  ])(
+    "retries a reloaded turn with several assistant records%s from its prompt",
+    async (_, trailing) => {
+      // The database splits a tool-using turn into one assistant record per
+      // model response: narration with a tool call, a tool call alone, then
+      // the answer.
+      mockUseVercelChatResult.messages = [
+        PROMPT,
+        {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [
+            { type: "text", text: "Checking the first call." },
+            storedResult("first"),
+          ],
+        },
+        {
+          id: "assistant-2",
+          role: "assistant",
+          parts: [storedResult("second")],
+        },
+        {
+          id: "answer-1",
+          role: "assistant",
+          parts: [{ type: "text", text: "Both calls ran." }],
+        },
+        ...trailing,
+      ]
+      const requests = retryRequests(mockUseVercelChatResult.messages)
+      renderChatSessionPane()
+
+      const retry = screen.getAllByRole("button", { name: "Retry" })
+      expect(retry).toHaveLength(1)
+      fireEvent.click(retry[0])
+
+      // The request resends the prompt, not an earlier record of the turn.
+      await waitFor(() => expect(requests).toEqual([PROMPT]))
+    }
+  )
 })

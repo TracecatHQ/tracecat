@@ -143,6 +143,22 @@ function messageHasVisibleParts(message: UIMessage): boolean {
 }
 
 /**
+ * Whether a message is a request the server can run as a turn: a user prompt
+ * with text, or an approval submission. Reloaded history can also hold
+ * user-role tool results, which are neither.
+ */
+function isTurnRequest({ role, parts }: UIMessage): boolean {
+  return (
+    role === "user" &&
+    parts.some(
+      (part) =>
+        (part.type === "text" && part.text.length > 0) ||
+        part.type === "data-continue"
+    )
+  )
+}
+
+/**
  * Raised to abandon a submit that sent no message.
  *
  * `submitPrompt` runs its cleanup after any submit that resolves, clearing
@@ -919,17 +935,16 @@ export function ChatSessionPane({
     return -1
   }, [transformedMessages])
 
-  // Retry regenerates from the transcript's tail, whichever message shows the
-  // action. Reloaded history can end with system records, such as a
-  // compaction boundary, that the server can't take as a prompt, so retry
-  // from the record before them. Otherwise keep the tail: the AI SDK finds a
-  // message by its first id, and a continuation can reuse its paused turn's.
-  const retryMessageId = useMemo(() => {
-    if (messages.at(-1)?.role !== "system") {
-      return undefined
-    }
-    return messages.findLast(({ role }) => role !== "system")?.id
-  }, [messages])
+  // Retry resends the request that started the latest turn, whichever message
+  // shows the action: the user's prompt, or the approval submission whose
+  // continuation failed. Regenerating from a later record would submit the
+  // record before it instead, and reloaded history splits one turn into
+  // several assistant records, some with only tool calls, followed by system
+  // records such as a compaction boundary.
+  const retryMessageId = useMemo(
+    () => messages.findLast(isTurnRequest)?.id,
+    [messages]
+  )
 
   // Messages whose turn the user stopped, plus the tool calls those
   // interrupts aborted. The live stream appends the data-cancelled part to
