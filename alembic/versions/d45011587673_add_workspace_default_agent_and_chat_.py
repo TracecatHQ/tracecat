@@ -51,16 +51,23 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Retain rejected legacy values, but propagate clears of valid selections.
     op.execute(
         sa.text(
             """
-            UPDATE workspace
+            UPDATE workspace AS w
             SET settings = COALESCE(settings, '{}'::jsonb)
                 || jsonb_build_object(
                     'default_agent_preset_id', default_agent_preset_id::text
                 )
             WHERE default_agent_preset_id IS NOT NULL
-               OR settings ? 'default_agent_preset_id'
+               OR EXISTS (
+                    SELECT 1
+                    FROM agent_preset AS p
+                    WHERE w.settings ->> 'default_agent_preset_id' = p.id::text
+                      AND p.workspace_id = w.id
+                      AND p.deleted_at IS NULL
+                )
             """
         )
     )
