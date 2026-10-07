@@ -2,12 +2,14 @@ import { act, renderHook, waitFor } from "@testing-library/react"
 import type { ReactNode } from "react"
 import {
   ApiError,
+  CancelablePromise,
   type SyncOperationRead,
   workflowsCreateSyncOperation,
   workflowsGetSyncOperation,
 } from "@/client"
 import {
   SyncOperationPollingError,
+  useSyncOperation,
   useSyncOperationWaiter,
 } from "@/hooks/use-sync-operation"
 import {
@@ -28,7 +30,7 @@ const operation: SyncOperationRead = {
   status: "ready",
   stage: "awaiting_confirmation",
   created_at: "2026-01-01T00:00:00Z",
-  expires_at: "2026-01-02T00:00:00Z",
+  expires_at: "2099-01-02T00:00:00Z",
   diff_count: 0,
   can_retry: false,
   inputs: {
@@ -131,12 +133,79 @@ it("preserves the pull request ID after an ambiguous creation response", async (
 })
 
 it("shows a push polling error and retries GET without creating another job", async () => {
+  jest.useFakeTimers()
   jest
     .mocked(workflowsCreateSyncOperation)
     .mockResolvedValue({ ...operation, status: "queued" })
   jest
     .mocked(workflowsGetSyncOperation)
-    .mockRejectedValueOnce(new TypeError("Response lost"))
+    .mockRejectedValue(new TypeError("Response lost"))
+  const { result } = renderHook(
+    () =>
+      useWorkspaceSyncExportPreview("workspace-test", {
+        push: { branch: "sync/test", message: "Sync" },
+      }),
+    { wrapper }
+  )
+  act(() => result.current.refetchPreview())
+  await waitFor(() => expect(workflowsGetSyncOperation).toHaveBeenCalled())
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(7100)
+  })
+  expect(result.current.previewError).toBeTruthy()
+  expect(result.current.previewIsLoading).toBe(false)
+  jest.mocked(workflowsGetSyncOperation).mockResolvedValue(operation)
+  act(() => result.current.refetchPreview())
+  await waitFor(() =>
+    expect(result.current.previewOperationId).toBe(operation.id)
+  )
+  expect(workflowsCreateSyncOperation).toHaveBeenCalledTimes(1)
+})
+
+it("removes the previous prepared ID while refreshing and after a failed refresh", async () => {
+  const { result } = renderHook(
+    () =>
+      useWorkspaceSyncExportPreview("workspace-test", {
+        push: { branch: "sync/test", message: "Sync" },
+      }),
+    { wrapper }
+  )
+  act(() => result.current.refetchPreview())
+  await waitFor(() =>
+    expect(result.current.previewOperationId).toBe(operation.id)
+  )
+  let rejectRefresh!: (reason: Error) => void
+  jest.mocked(workflowsCreateSyncOperation).mockImplementationOnce(
+    () =>
+      new CancelablePromise((_resolve, reject) => {
+        rejectRefresh = reject
+      })
+  )
+  act(() => result.current.refetchPreview())
+  await waitFor(() => expect(result.current.previewIsLoading).toBe(true))
+  expect(result.current.previewOperationId).toBeUndefined()
+  await act(async () => rejectRefresh(new Error("Refresh failed")))
+  await waitFor(() => expect(result.current.previewError).toBeTruthy())
+  expect(result.current.previewOperationId).toBeUndefined()
+})
+
+it("starts a fresh user-requested preview after a permanent missing-operation error", async () => {
+  jest
+    .mocked(workflowsCreateSyncOperation)
+    .mockResolvedValue({ ...operation, status: "queued" })
+  jest.mocked(workflowsGetSyncOperation).mockRejectedValue(
+    new ApiError(
+      { method: "GET", url: "/sync" },
+      {
+        url: "/sync",
+        ok: false,
+        status: 404,
+        statusText: "Not found",
+        body: null,
+      },
+      "Not found"
+    )
+  )
   const { result } = renderHook(
     () =>
       useWorkspaceSyncExportPreview("workspace-test", {
@@ -146,10 +215,46 @@ it("shows a push polling error and retries GET without creating another job", as
   )
   act(() => result.current.refetchPreview())
   await waitFor(() => expect(result.current.previewError).toBeTruthy())
-  expect(result.current.previewIsLoading).toBe(false)
+  expect(workflowsCreateSyncOperation).toHaveBeenCalledTimes(1)
+  jest
+    .mocked(workflowsCreateSyncOperation)
+    .mockResolvedValue({ ...operation, id: "fresh-operation" })
+  jest
+    .mocked(workflowsGetSyncOperation)
+    .mockResolvedValue({ ...operation, id: "fresh-operation" })
   act(() => result.current.refetchPreview())
   await waitFor(() =>
-    expect(result.current.previewOperationId).toBe(operation.id)
+    expect(result.current.previewOperationId).toBe("fresh-operation")
   )
-  expect(workflowsCreateSyncOperation).toHaveBeenCalledTimes(1)
+  const calls = jest.mocked(workflowsCreateSyncOperation).mock.calls
+  expect(calls[1][0].requestBody.id).not.toBe(calls[0][0].requestBody.id)
 })
+
+it.each([403, 404])(
+  "stops polling a permanent error without cached data (%s)",
+  async (status) => {
+    jest.useFakeTimers()
+    jest.mocked(workflowsGetSyncOperation).mockRejectedValue(
+      new ApiError(
+        { method: "GET", url: "/sync" },
+        {
+          url: "/sync",
+          ok: false,
+          status,
+          statusText: "Rejected",
+          body: null,
+        },
+        "Rejected"
+      )
+    )
+    const view = renderHook(
+      () => useSyncOperation("workspace-test", operation.id),
+      { wrapper }
+    )
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10_000)
+    })
+    expect(workflowsGetSyncOperation).toHaveBeenCalledTimes(1)
+    view.unmount()
+  }
+)
