@@ -1,0 +1,38 @@
+frontend/src/components/tables/table-search.test.tsx
+  s_1b5bd9c566c578::t_7ee05cee3a7d3c 9,21,45-49,268,285,290-296,300-312,315-317,359
+  s_1b5bd9c566c578::t_1c5d25c404b205 297-299
+  s_1043bf0c542dad::t_a92c821a01df33 524-525
+  s_1043bf0c542dad::t_5760cbab8032cf 313-314
+frontend/src/components/tables/table-search-badge.tsx
+  s_1043bf0c542dad::t_a92c821a01df33 33,105
+  s_1b5bd9c566c578::t_7ee05cee3a7d3c 15,66-69,88-92,116,134-136
+  s_1043bf0c542dad::t_e229370720837b 137-138
+frontend/src/components/tables/ag-grid-column-header.tsx
+  s_1b5bd9c566c578::t_7ee05cee3a7d3c 2,5,13,16,54-56,58-59
+  s_1043bf0c542dad::t_2491bb646f381c 57
+  s_1b5bd9c566c578::t_d13f392754631b 60-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "207e088a1e23350d608b516abcbdb5ae2d71ac2b",
+  "prompts": {},
+  "sessions": {
+    "s_1043bf0c542dad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f61c33c8-a180-4077-bf2b-68fa6fc0e7ce",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_1b5bd9c566c578": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1132c-88ac-7721-9add-c4e03a876525",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
