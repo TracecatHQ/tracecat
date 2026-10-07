@@ -331,10 +331,14 @@ import type {
   CaseDurationsUpdateCaseDurationResponse,
   CasesAddTagData,
   CasesAddTagResponse,
+  CasesBatchClearParentData,
+  CasesBatchClearParentResponse,
   CasesBatchDeleteCasesData,
   CasesBatchDeleteCasesResponse,
   CasesBatchLinkCaseRowsData,
   CasesBatchLinkCaseRowsResponse,
+  CasesBatchSetParentData,
+  CasesBatchSetParentResponse,
   CasesBatchUnlinkCaseRowsData,
   CasesBatchUnlinkCaseRowsResponse,
   CasesBatchUpdateCasesData,
@@ -10824,6 +10828,7 @@ export const tablesGetTableSearchProgress = (
  * @param data.fieldIds Include only the requested custom field IDs
  * @param data.includeDurations Include case duration values
  * @param data.includePayload Include case payload
+ * @param data.includeSubCases Include sub-cases. By default only top-level cases are returned.
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -10846,6 +10851,7 @@ export const casesListCases = (
       field_ids: data.fieldIds,
       include_durations: data.includeDurations,
       include_payload: data.includePayload,
+      include_sub_cases: data.includeSubCases,
     },
     errors: {
       422: "Validation Error",
@@ -10905,6 +10911,8 @@ export const casesCreateCase = (
  * @param data.fieldIds Include only the requested custom field IDs
  * @param data.includeDurations Include case duration values
  * @param data.includePayload Include case payload
+ * @param data.includeSubCases Include sub-cases. By default only top-level cases are returned.
+ * @param data.parentId Return only the sub-cases of this parent case
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
  */
@@ -10939,6 +10947,8 @@ export const casesSearchCases = (
       field_ids: data.fieldIds,
       include_durations: data.includeDurations,
       include_payload: data.includePayload,
+      include_sub_cases: data.includeSubCases,
+      parent_id: data.parentId,
     },
     errors: {
       422: "Validation Error",
@@ -10962,6 +10972,8 @@ export const casesSearchCases = (
  * @param data.updatedAfter Return cases updated at or after this timestamp
  * @param data.updatedBefore Return cases updated at or before this timestamp
  * @param data.assigneeId Filter by assignee ID or 'unassigned'
+ * @param data.includeSubCases Include sub-cases. By default only top-level cases are returned.
+ * @param data.parentId Return only the sub-cases of this parent case
  * @returns CaseSearchAggregateRead Successful Response
  * @throws ApiError
  */
@@ -10986,6 +10998,8 @@ export const casesSearchCaseAggregates = (
       updated_after: data.updatedAfter,
       updated_before: data.updatedBefore,
       assignee_id: data.assigneeId,
+      include_sub_cases: data.includeSubCases,
+      parent_id: data.parentId,
     },
     errors: {
       422: "Validation Error",
@@ -11034,6 +11048,58 @@ export const casesBatchDeleteCases = (
   return __request(OpenAPI, {
     method: "POST",
     url: "/workspaces/{workspace_id}/cases/batch-delete",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Batch Set Parent
+ * Group cases as sub-cases of a parent case with per-case results.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseBatchResponse Successful Response
+ * @throws ApiError
+ */
+export const casesBatchSetParent = (
+  data: CasesBatchSetParentData
+): CancelablePromise<CasesBatchSetParentResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/cases/batch-set-parent",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Batch Clear Parent
+ * Remove cases from their parent case with per-case results.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns CaseBatchResponse Successful Response
+ * @throws ApiError
+ */
+export const casesBatchClearParent = (
+  data: CasesBatchClearParentData
+): CancelablePromise<CasesBatchClearParentResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/cases/batch-clear-parent",
     path: {
       workspace_id: data.workspaceId,
     },

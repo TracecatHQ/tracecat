@@ -1982,6 +1982,13 @@ export type CaseAttachmentRead = {
 }
 
 /**
+ * Request body for removing cases from their parent case.
+ */
+export type CaseBatchClearParent = {
+  case_ids: Array<string>
+}
+
+/**
  * Request body for deleting multiple cases.
  */
 export type CaseBatchDelete = {
@@ -2004,6 +2011,14 @@ export type CaseBatchResponse = {
   results: Array<CaseBatchItemResult>
   succeeded: number
   failed: number
+}
+
+/**
+ * Request body for grouping cases as sub-cases of a parent case.
+ */
+export type CaseBatchSetParent = {
+  case_ids: Array<string>
+  parent_id: string
 }
 
 /**
@@ -2128,6 +2143,10 @@ export type CaseCreate = {
   payload?: {
     [key: string]: unknown
   } | null
+  /**
+   * Create the case as a sub-case of this top-level case.
+   */
+  parent_id?: string | null
 }
 
 /**
@@ -2462,6 +2481,9 @@ export type CaseEventRead =
   | DropdownValueChangedEventRead
   | TableRowLinkedEventRead
   | TableRowUnlinkedEventRead
+  | ParentChangedEventRead
+  | SubCasesAddedEventRead
+  | SubCasesRemovedEventRead
 
 /**
  * Case activity type values.
@@ -2497,6 +2519,9 @@ export type CaseEventType =
   | "comment_reply_created"
   | "comment_reply_updated"
   | "comment_reply_deleted"
+  | "parent_changed"
+  | "sub_cases_added"
+  | "sub_cases_removed"
 
 export type CaseEventsWithUsers = {
   /**
@@ -2636,6 +2661,15 @@ export type CaseLinkedTableRead = {
 }
 
 /**
+ * Summary of a sub-case's parent case.
+ */
+export type CaseParentRead = {
+  id: string
+  short_id: string
+  summary: string
+}
+
+/**
  * Case priority values aligned with urgency levels.
  *
  * Values:
@@ -2672,6 +2706,9 @@ export type CaseRead = {
   tags?: Array<CaseTagRead>
   dropdown_values: Array<CaseDropdownValueRead>
   rows?: Array<CaseTableRowRead>
+  parent_id?: string | null
+  parent?: CaseParentRead | null
+  num_sub_cases?: number
 }
 
 export type CaseReadMinimal = {
@@ -2696,6 +2733,17 @@ export type CaseReadMinimal = {
   } | null
   num_tasks_completed?: number
   num_tasks_total?: number
+  parent_id?: string | null
+  parent?: CaseParentRead | null
+  num_sub_cases?: number
+}
+
+/**
+ * Stable reference to another case recorded in event data.
+ */
+export type CaseRef = {
+  id: string
+  short_id: string
 }
 
 export type CaseSearchAggregateRead = {
@@ -6552,6 +6600,27 @@ export type Page_WorkspaceSecretStoreRead_ = {
 }
 
 /**
+ * Event for when a case is grouped under, moved to, or removed from a parent.
+ */
+export type ParentChangedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "parent_changed"
+  old?: CaseRef | null
+  new?: CaseRef | null
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
  * Event for when a case payload is changed.
  */
 export type PayloadChangedEventRead = {
@@ -8990,6 +9059,46 @@ export type StringListFieldChange = {
   field: string
   added?: Array<string>
   removed?: Array<string>
+}
+
+/**
+ * Event for when cases are grouped under this case as sub-cases.
+ */
+export type SubCasesAddedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "sub_cases_added"
+  sub_cases: Array<CaseRef>
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
+}
+
+/**
+ * Event for when sub-cases are removed from this case.
+ */
+export type SubCasesRemovedEventRead = {
+  /**
+   * The execution ID of the workflow that triggered the event.
+   */
+  wf_exec_id?: string | null
+  type?: "sub_cases_removed"
+  sub_cases: Array<CaseRef>
+  /**
+   * The user who performed the action.
+   */
+  user_id?: string | null
+  /**
+   * The timestamp of the event.
+   */
+  created_at: string
 }
 
 export type SyncPreviewResource = {
@@ -14682,6 +14791,10 @@ export type CasesListCasesData = {
    */
   includeRows?: boolean
   /**
+   * Include sub-cases. By default only top-level cases are returned.
+   */
+  includeSubCases?: boolean
+  /**
    * Maximum items per page
    */
   limit?: number
@@ -14750,6 +14863,10 @@ export type CasesSearchCasesData = {
    */
   includeRows?: boolean
   /**
+   * Include sub-cases. By default only top-level cases are returned.
+   */
+  includeSubCases?: boolean
+  /**
    * Maximum items per page
    */
   limit?: number
@@ -14764,6 +14881,10 @@ export type CasesSearchCasesData = {
     | "status"
     | "tasks"
     | null
+  /**
+   * Return only the sub-cases of this parent case
+   */
+  parentId?: string | null
   /**
    * Filter by case priority
    */
@@ -14827,6 +14948,14 @@ export type CasesSearchCaseAggregatesData = {
    */
   endTime?: string | null
   /**
+   * Include sub-cases. By default only top-level cases are returned.
+   */
+  includeSubCases?: boolean
+  /**
+   * Return only the sub-cases of this parent case
+   */
+  parentId?: string | null
+  /**
    * Filter by case priority
    */
   priority?: Array<CasePriority> | null
@@ -14876,6 +15005,20 @@ export type CasesBatchDeleteCasesData = {
 }
 
 export type CasesBatchDeleteCasesResponse = CaseBatchResponse
+
+export type CasesBatchSetParentData = {
+  requestBody: CaseBatchSetParent
+  workspaceId: string
+}
+
+export type CasesBatchSetParentResponse = CaseBatchResponse
+
+export type CasesBatchClearParentData = {
+  requestBody: CaseBatchClearParent
+  workspaceId: string
+}
+
+export type CasesBatchClearParentResponse = CaseBatchResponse
 
 export type CasesGetCaseData = {
   caseId: string
@@ -21663,6 +21806,36 @@ export type $OpenApiTs = {
   "/workspaces/{workspace_id}/cases/batch-delete": {
     post: {
       req: CasesBatchDeleteCasesData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/batch-set-parent": {
+    post: {
+      req: CasesBatchSetParentData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CaseBatchResponse
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/cases/batch-clear-parent": {
+    post: {
+      req: CasesBatchClearParentData
       res: {
         /**
          * Successful Response

@@ -128,6 +128,7 @@ export default function CasesPage() {
     setDropdownSortDirection,
     setUpdatedAfter,
     setCreatedAfter,
+    setIncludeSubCases,
     totalFilteredCaseEstimate,
     stageCounts,
     isCountsLoading,
@@ -170,6 +171,7 @@ export default function CasesPage() {
         onTagSortDirectionChange={setTagSortDirection}
         onUpdatedAfterChange={setUpdatedAfter}
         onCreatedAfterChange={setCreatedAfter}
+        onIncludeSubCasesChange={setIncludeSubCases}
         dropdownDefinitions={
           caseAddonsEnabled ? dropdownDefinitions : undefined
         }

@@ -48,6 +48,17 @@ from tracecat.exceptions import (
 from tracecat.pagination import CursorPaginatedResponse
 
 
+@pytest.fixture(autouse=True)
+def stub_case_hierarchy():
+    """Case services are mocked wholesale, so stub the sub-case lookups."""
+    with patch.object(
+        cases_router,
+        "_read_case_hierarchy",
+        new=AsyncMock(return_value=(None, 0)),
+    ) as mock_hierarchy:
+        yield mock_hierarchy
+
+
 @pytest.fixture
 def mock_case(test_workspace: Workspace) -> Case:
     """Create a mock case DB object."""
@@ -1093,6 +1104,16 @@ async def test_batch_delete_cases_success(
             {"case_ids": [str(uuid.uuid4())]},
             "batch_delete_cases",
         ),
+        (
+            "/cases/batch-set-parent",
+            {"case_ids": [str(uuid.uuid4())], "parent_id": str(uuid.uuid4())},
+            "batch_set_parent",
+        ),
+        (
+            "/cases/batch-clear-parent",
+            {"case_ids": [str(uuid.uuid4())]},
+            "batch_clear_parent",
+        ),
     ],
 )
 async def test_batch_case_lock_conflict_returns_409(
@@ -1126,6 +1147,11 @@ async def test_batch_case_lock_conflict_returns_409(
     [
         ("/cases/batch-update", {"case_ids": [], "update": {"summary": "x"}}),
         ("/cases/batch-delete", {"case_ids": []}),
+        (
+            "/cases/batch-set-parent",
+            {"case_ids": [], "parent_id": str(uuid.uuid4())},
+        ),
+        ("/cases/batch-clear-parent", {"case_ids": []}),
     ],
 )
 async def test_batch_case_routes_reject_empty_case_ids(

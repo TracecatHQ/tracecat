@@ -466,6 +466,7 @@ async def get_case(
         tags=tag_reads,
         dropdown_values=dropdown_reads,
         rows=rows,
+        parent_id=case.parent_id,
     )
 
 
@@ -602,6 +603,7 @@ async def update_case(
         tags=tag_reads,
         dropdown_values=dropdown_reads,
         rows=rows,
+        parent_id=updated_case.parent_id,
     )
 
 

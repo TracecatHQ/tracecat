@@ -7345,6 +7345,25 @@ export const $CaseAttachmentRead = {
   description: "Model for reading a case attachment.",
 } as const
 
+export const $CaseBatchClearParent = {
+  properties: {
+    case_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 1000,
+      minItems: 1,
+      title: "Case Ids",
+    },
+  },
+  type: "object",
+  required: ["case_ids"],
+  title: "CaseBatchClearParent",
+  description: "Request body for removing cases from their parent case.",
+} as const
+
 export const $CaseBatchDelete = {
   properties: {
     case_ids: {
@@ -7415,6 +7434,30 @@ export const $CaseBatchResponse = {
   required: ["results", "succeeded", "failed"],
   title: "CaseBatchResponse",
   description: "Per-case results and aggregate counts for a batch operation.",
+} as const
+
+export const $CaseBatchSetParent = {
+  properties: {
+    case_ids: {
+      items: {
+        type: "string",
+        format: "uuid",
+      },
+      type: "array",
+      maxItems: 1000,
+      minItems: 1,
+      title: "Case Ids",
+    },
+    parent_id: {
+      type: "string",
+      format: "uuid",
+      title: "Parent Id",
+    },
+  },
+  type: "object",
+  required: ["case_ids", "parent_id"],
+  title: "CaseBatchSetParent",
+  description: "Request body for grouping cases as sub-cases of a parent case.",
 } as const
 
 export const $CaseBatchUpdate = {
@@ -7925,6 +7968,19 @@ export const $CaseCreate = {
         },
       ],
       title: "Payload",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+      description: "Create the case as a sub-case of this top-level case.",
     },
   },
   type: "object",
@@ -9018,6 +9074,15 @@ export const $CaseEventRead = {
     {
       $ref: "#/components/schemas/TableRowUnlinkedEventRead",
     },
+    {
+      $ref: "#/components/schemas/ParentChangedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/SubCasesAddedEventRead",
+    },
+    {
+      $ref: "#/components/schemas/SubCasesRemovedEventRead",
+    },
   ],
   title: "CaseEventRead",
   description: "Base read model for all event types.",
@@ -9044,10 +9109,13 @@ export const $CaseEventRead = {
       dropdown_value_changed:
         "#/components/schemas/DropdownValueChangedEventRead",
       fields_changed: "#/components/schemas/FieldChangedEventRead",
+      parent_changed: "#/components/schemas/ParentChangedEventRead",
       payload_changed: "#/components/schemas/PayloadChangedEventRead",
       priority_changed: "#/components/schemas/PriorityChangedEventRead",
       severity_changed: "#/components/schemas/SeverityChangedEventRead",
       status_changed: "#/components/schemas/StatusChangedEventRead",
+      sub_cases_added: "#/components/schemas/SubCasesAddedEventRead",
+      sub_cases_removed: "#/components/schemas/SubCasesRemovedEventRead",
       table_row_linked: "#/components/schemas/TableRowLinkedEventRead",
       table_row_unlinked: "#/components/schemas/TableRowUnlinkedEventRead",
       tag_added: "#/components/schemas/TagAddedEventRead",
@@ -9098,6 +9166,9 @@ export const $CaseEventType = {
     "comment_reply_created",
     "comment_reply_updated",
     "comment_reply_deleted",
+    "parent_changed",
+    "sub_cases_added",
+    "sub_cases_removed",
   ],
   title: "CaseEventType",
   description: "Case activity type values.",
@@ -9554,6 +9625,28 @@ itself is gone. \`\`is_index\`\` is not populated here; read the table directly
 when unique-index state matters.`,
 } as const
 
+export const $CaseParentRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    short_id: {
+      type: "string",
+      title: "Short Id",
+    },
+    summary: {
+      type: "string",
+      title: "Summary",
+    },
+  },
+  type: "object",
+  required: ["id", "short_id", "summary"],
+  title: "CaseParentRead",
+  description: "Summary of a sub-case's parent case.",
+} as const
+
 export const $CasePriority = {
   type: "string",
   enum: ["unknown", "low", "medium", "high", "critical", "other"],
@@ -9656,6 +9749,33 @@ export const $CaseRead = {
       },
       type: "array",
       title: "Rows",
+    },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    parent: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseParentRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    num_sub_cases: {
+      type: "integer",
+      title: "Num Sub Cases",
+      default: 0,
     },
   },
   type: "object",
@@ -9789,6 +9909,33 @@ export const $CaseReadMinimal = {
       title: "Num Tasks Total",
       default: 0,
     },
+    parent_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Parent Id",
+    },
+    parent: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseParentRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    num_sub_cases: {
+      type: "integer",
+      title: "Num Sub Cases",
+      default: 0,
+    },
   },
   type: "object",
   required: [
@@ -9803,6 +9950,24 @@ export const $CaseReadMinimal = {
     "dropdown_values",
   ],
   title: "CaseReadMinimal",
+} as const
+
+export const $CaseRef = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    short_id: {
+      type: "string",
+      title: "Short Id",
+    },
+  },
+  type: "object",
+  required: ["id", "short_id"],
+  title: "CaseRef",
+  description: "Stable reference to another case recorded in event data.",
 } as const
 
 export const $CaseSearchAggregateRead = {
@@ -21472,6 +21637,73 @@ export const $Page_WorkspaceSecretStoreRead_ = {
   title: "Page[WorkspaceSecretStoreRead]",
 } as const
 
+export const $ParentChangedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "parent_changed",
+      title: "Type",
+      default: "parent_changed",
+    },
+    old: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseRef",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    new: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/CaseRef",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["created_at"],
+  title: "ParentChangedEventRead",
+  description:
+    "Event for when a case is grouped under, moved to, or removed from a parent.",
+} as const
+
 export const $PayloadChangedEventRead = {
   properties: {
     wf_exec_id: {
@@ -29593,6 +29825,112 @@ export const $StringListFieldChange = {
   required: ["field"],
   title: "StringListFieldChange",
   description: "List diff for preset version fields.",
+} as const
+
+export const $SubCasesAddedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "sub_cases_added",
+      title: "Type",
+      default: "sub_cases_added",
+    },
+    sub_cases: {
+      items: {
+        $ref: "#/components/schemas/CaseRef",
+      },
+      type: "array",
+      title: "Sub Cases",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["sub_cases", "created_at"],
+  title: "SubCasesAddedEventRead",
+  description: "Event for when cases are grouped under this case as sub-cases.",
+} as const
+
+export const $SubCasesRemovedEventRead = {
+  properties: {
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "The execution ID of the workflow that triggered the event.",
+    },
+    type: {
+      type: "string",
+      const: "sub_cases_removed",
+      title: "Type",
+      default: "sub_cases_removed",
+    },
+    sub_cases: {
+      items: {
+        $ref: "#/components/schemas/CaseRef",
+      },
+      type: "array",
+      title: "Sub Cases",
+    },
+    user_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "User Id",
+      description: "The user who performed the action.",
+    },
+    created_at: {
+      type: "string",
+      format: "date-time",
+      title: "Created At",
+      description: "The timestamp of the event.",
+    },
+  },
+  type: "object",
+  required: ["sub_cases", "created_at"],
+  title: "SubCasesRemovedEventRead",
+  description: "Event for when sub-cases are removed from this case.",
 } as const
 
 export const $SyncPreviewResource = {

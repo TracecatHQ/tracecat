@@ -71,6 +71,7 @@ interface CasesLayoutProps {
   onTagSortDirectionChange: (direction: SortDirection) => void
   onUpdatedAfterChange: (value: CaseDateFilterValue) => void
   onCreatedAfterChange: (value: CaseDateFilterValue) => void
+  onIncludeSubCasesChange?: (value: boolean) => void
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
   fieldDefinitions?: CaseFieldReadMinimal[]
   durationDefinitions?: CaseDurationDefinitionRead[]
@@ -113,6 +114,7 @@ export function CasesLayout({
   onTagSortDirectionChange,
   onUpdatedAfterChange,
   onCreatedAfterChange,
+  onIncludeSubCasesChange,
   dropdownDefinitions,
   fieldDefinitions,
   durationDefinitions,
@@ -405,6 +407,8 @@ export function CasesLayout({
     onUpdatedAfterChange,
     createdAfter: filters.createdAfter,
     onCreatedAfterChange,
+    includeSubCases: filters.includeSubCases,
+    onIncludeSubCasesChange,
     members,
     tags,
     dropdownDefinitions,

@@ -108,6 +108,14 @@ class CaseAggregateResponse(Schema):
     truncated: bool
 
 
+class CaseParentRead(Schema):
+    """Summary of a sub-case's parent case."""
+
+    id: uuid.UUID
+    short_id: str
+    summary: str
+
+
 class CaseReadMinimal(Schema):
     id: uuid.UUID
     short_id: str
@@ -126,6 +134,9 @@ class CaseReadMinimal(Schema):
     payload: dict[str, Any] | None = None
     num_tasks_completed: int = Field(default=0)
     num_tasks_total: int = Field(default=0)
+    parent_id: uuid.UUID | None = None
+    parent: CaseParentRead | None = None
+    num_sub_cases: int = Field(default=0)
 
 
 class CaseStatusGroupCounts(Schema):
@@ -159,6 +170,9 @@ class CaseRead(Schema):
     tags: list[CaseTagRead] = Field(default_factory=list)
     dropdown_values: list[CaseDropdownValueRead]
     rows: list[CaseTableRowRead] = Field(default_factory=list)
+    parent_id: uuid.UUID | None = None
+    parent: CaseParentRead | None = None
+    num_sub_cases: int = Field(default=0)
 
 
 class CaseCreate(Schema):
@@ -173,6 +187,10 @@ class CaseCreate(Schema):
     dropdown_values: list[CaseDropdownValueInput] | None = None
     assignee_id: uuid.UUID | None = None
     payload: dict[str, Any] | None = None
+    parent_id: uuid.UUID | None = Field(
+        default=None,
+        description="Create the case as a sub-case of this top-level case.",
+    )
 
 
 class CaseUpdate(Schema):
@@ -198,6 +216,19 @@ class CaseBatchUpdate(Schema):
 
 class CaseBatchDelete(Schema):
     """Request body for deleting multiple cases."""
+
+    case_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=1000)
+
+
+class CaseBatchSetParent(Schema):
+    """Request body for grouping cases as sub-cases of a parent case."""
+
+    case_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=1000)
+    parent_id: uuid.UUID
+
+
+class CaseBatchClearParent(Schema):
+    """Request body for removing cases from their parent case."""
 
     case_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=1000)
 
@@ -587,6 +618,29 @@ class PayloadChangedEvent(CaseEventBase):
     type: Literal[CaseEventType.PAYLOAD_CHANGED] = CaseEventType.PAYLOAD_CHANGED
 
 
+class CaseRef(Schema):
+    """Stable reference to another case recorded in event data."""
+
+    id: uuid.UUID
+    short_id: str
+
+
+class ParentChangedEvent(CaseEventBase):
+    type: Literal[CaseEventType.PARENT_CHANGED] = CaseEventType.PARENT_CHANGED
+    old: CaseRef | None = None
+    new: CaseRef | None = None
+
+
+class SubCasesAddedEvent(CaseEventBase):
+    type: Literal[CaseEventType.SUB_CASES_ADDED] = CaseEventType.SUB_CASES_ADDED
+    sub_cases: list[CaseRef]
+
+
+class SubCasesRemovedEvent(CaseEventBase):
+    type: Literal[CaseEventType.SUB_CASES_REMOVED] = CaseEventType.SUB_CASES_REMOVED
+    sub_cases: list[CaseRef]
+
+
 type CaseCommentDeleteMode = Literal["soft", "hard"]
 
 
@@ -685,6 +739,18 @@ class AssigneeChangedEventRead(CaseEventReadBase, AssigneeChangedEvent):
 
 class PayloadChangedEventRead(CaseEventReadBase, PayloadChangedEvent):
     """Event for when a case payload is changed."""
+
+
+class ParentChangedEventRead(CaseEventReadBase, ParentChangedEvent):
+    """Event for when a case is grouped under, moved to, or removed from a parent."""
+
+
+class SubCasesAddedEventRead(CaseEventReadBase, SubCasesAddedEvent):
+    """Event for when cases are grouped under this case as sub-cases."""
+
+
+class SubCasesRemovedEventRead(CaseEventReadBase, SubCasesRemovedEvent):
+    """Event for when sub-cases are removed from this case."""
 
 
 class CommentCreatedEventRead(CaseEventReadBase, CommentCreatedEvent):
@@ -891,7 +957,10 @@ type CaseEventVariant = Annotated[
     | TaskWorkflowChangedEvent
     | DropdownValueChangedEvent
     | TableRowLinkedEvent
-    | TableRowUnlinkedEvent,
+    | TableRowUnlinkedEvent
+    | ParentChangedEvent
+    | SubCasesAddedEvent
+    | SubCasesRemovedEvent,
     Field(discriminator="type"),
 ]
 
@@ -931,6 +1000,9 @@ class CaseEventRead(RootModel):
         | DropdownValueChangedEventRead
         | TableRowLinkedEventRead
         | TableRowUnlinkedEventRead
+        | ParentChangedEventRead
+        | SubCasesAddedEventRead
+        | SubCasesRemovedEventRead
     ) = Field(discriminator="type")
 
 

@@ -32,8 +32,10 @@ from tracecat.cases.filters import parse_assignee_filter
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
     AssigneeChangedEventRead,
+    CaseBatchClearParent,
     CaseBatchDelete,
     CaseBatchResponse,
+    CaseBatchSetParent,
     CaseBatchUpdate,
     CaseCommentCreate,
     CaseCommentRead,
@@ -46,6 +48,7 @@ from tracecat.cases.schemas import (
     CaseFieldRead,
     CaseFieldReadMinimal,
     CaseFieldUpdate,
+    CaseParentRead,
     CaseRead,
     CaseReadMinimal,
     CaseSearchAggregateRead,
@@ -144,6 +147,8 @@ async def _build_case_read(
         )
         rows = hydrated.get(case.id, [])
 
+    parent, num_sub_cases = await _read_case_hierarchy(service, case)
+
     return CaseRead(
         id=case.id,
         short_id=case.short_id,
@@ -162,7 +167,20 @@ async def _build_case_read(
         tags=tag_reads,
         dropdown_values=dropdown_reads,
         rows=rows,
+        parent_id=case.parent_id,
+        parent=parent,
+        num_sub_cases=num_sub_cases,
     )
+
+
+async def _read_case_hierarchy(
+    service: CasesService, case: Case
+) -> tuple[CaseParentRead | None, int]:
+    """Return the parent summary and direct sub-case count for one case."""
+    counts = await service.get_sub_case_counts([case.id])
+    parents = await service.get_parent_reads([case.parent_id])
+    parent = parents.get(case.parent_id) if case.parent_id else None
+    return parent, counts.get(case.id, 0)
 
 
 async def _read_case_field(
@@ -267,6 +285,10 @@ async def list_cases(
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
     include_payload: bool = Query(False, description="Include case payload"),
+    include_sub_cases: bool = Query(
+        False,
+        description="Include sub-cases. By default only top-level cases are returned.",
+    ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """List cases with default filtering and sorting options."""
     service = CasesService(session, role)
@@ -280,6 +302,7 @@ async def list_cases(
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
+            include_sub_cases=include_sub_cases,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for list cases: {e}")
@@ -409,6 +432,13 @@ async def search_cases(
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
     include_payload: bool = Query(False, description="Include case payload"),
+    include_sub_cases: bool = Query(
+        False,
+        description="Include sub-cases. By default only top-level cases are returned.",
+    ),
+    parent_id: uuid.UUID | None = Query(
+        None, description="Return only the sub-cases of this parent case"
+    ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search cases with cursor-based pagination, filtering, and sorting."""
     service = CasesService(session, role)
@@ -446,6 +476,8 @@ async def search_cases(
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
+            parent_id=parent_id,
+            include_sub_cases=include_sub_cases,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for search cases: {e}")
@@ -547,6 +579,13 @@ async def search_case_aggregates(
     assignee_id: list[str] | None = Query(
         None, description="Filter by assignee ID or 'unassigned'"
     ),
+    include_sub_cases: bool = Query(
+        False,
+        description="Include sub-cases. By default only top-level cases are returned.",
+    ),
+    parent_id: uuid.UUID | None = Query(
+        None, description="Return only the sub-cases of this parent case"
+    ),
 ) -> CaseSearchAggregateRead:
     """Return global case totals and per-stage counts for the current filters."""
     service = CasesService(session, role)
@@ -572,6 +611,8 @@ async def search_case_aggregates(
             end_time=end_time,
             updated_after=updated_after,
             updated_before=updated_before,
+            parent_id=parent_id,
+            include_sub_cases=include_sub_cases,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for case aggregate counts: {e}")
@@ -620,6 +661,44 @@ async def batch_delete_cases(
     service = CasesService(session, role)
     try:
         return await service.batch_delete_cases(params.case_ids)
+    except TracecatConflictError as exc:
+        raise HTTPException(
+            status_code=HTTP_409_CONFLICT,
+            detail=exc.detail or str(exc),
+        ) from exc
+
+
+@cases_router.post("/batch-set-parent")
+@require_scope("case:update")
+async def batch_set_parent(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    params: CaseBatchSetParent,
+) -> CaseBatchResponse:
+    """Group cases as sub-cases of a parent case with per-case results."""
+    service = CasesService(session, role)
+    try:
+        return await service.batch_set_parent(params.case_ids, params.parent_id)
+    except TracecatConflictError as exc:
+        raise HTTPException(
+            status_code=HTTP_409_CONFLICT,
+            detail=exc.detail or str(exc),
+        ) from exc
+
+
+@cases_router.post("/batch-clear-parent")
+@require_scope("case:update")
+async def batch_clear_parent(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    params: CaseBatchClearParent,
+) -> CaseBatchResponse:
+    """Remove cases from their parent case with per-case results."""
+    service = CasesService(session, role)
+    try:
+        return await service.batch_clear_parent(params.case_ids)
     except TracecatConflictError as exc:
         raise HTTPException(
             status_code=HTTP_409_CONFLICT,

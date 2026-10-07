@@ -13,6 +13,7 @@ import {
   FolderIcon,
   KeyRound,
   ListIcon,
+  ListTreeIcon,
   LockKeyhole,
   MessageSquare,
   MousePointerClickIcon,
@@ -58,6 +59,11 @@ import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { CaseDurationMetrics } from "@/components/cases/case-duration-metrics"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
+import {
+  CaseParentPickerDialog,
+  changeCasesParent,
+  invalidateCaseHierarchy,
+} from "@/components/cases/case-sub-cases"
 import { CaseVersionHistory } from "@/components/cases/case-version-history"
 import {
   CasesViewMode,
@@ -831,6 +837,8 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
   const [appendDialogOpen, setAppendDialogOpen] = useState(false)
   const [appendText, setAppendText] = useState("")
   const [isAppending, setIsAppending] = useState(false)
+  const [parentPickerOpen, setParentPickerOpen] = useState(false)
+  const [isChangingParent, setIsChangingParent] = useState(false)
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const { hasEntitlement } = useEntitlements()
@@ -1023,7 +1031,8 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
     Boolean(isUpdating) ||
     isApplyingTags ||
     isAddingComments ||
-    isAppending
+    isAppending ||
+    isChangingParent
   const canUpdate = Boolean(bulkUpdateSelectedCases) && !isBusy
   const pluralisedCases = `${selectedCount} case${selectedCount === 1 ? "" : "s"}`
   const canApplyTags = !isBusy && caseTags && caseTags.length > 0
@@ -1033,6 +1042,47 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
       return
     }
     clearSelection?.()
+  }
+
+  const handleChangeParent = async (
+    parent: { id: string; short_id: string } | null
+  ) => {
+    setIsChangingParent(true)
+    try {
+      const result = await changeCasesParent({
+        workspaceId,
+        caseIds: selectedCaseIds,
+        parentId: parent?.id ?? null,
+      })
+      const verb = parent
+        ? `Grouped under ${parent.short_id}`
+        : "Removed from parent"
+      if (result.failed > 0) {
+        toast({
+          variant: "destructive",
+          title: `${result.succeeded} updated, ${result.failed} failed`,
+          description: result.errors[0],
+        })
+      } else {
+        toast({
+          title: verb,
+          description: `Applied to ${pluralisedCases}.`,
+        })
+        clearSelection?.()
+      }
+    } catch (error) {
+      console.error("Failed to change parent case:", error)
+      toast({
+        variant: "destructive",
+        title: parent
+          ? "Failed to group cases"
+          : "Failed to remove from parent",
+        description: "Please try again.",
+      })
+    } finally {
+      setIsChangingParent(false)
+      await invalidateCaseHierarchy(queryClient)
+    }
   }
 
   const handleDelete = async () => {
@@ -1448,6 +1498,33 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
             </DropdownMenuSub>
             <DropdownMenuSeparator />
             <DropdownMenuItem
+              disabled={!canUpdate}
+              onSelect={(event) => {
+                event.preventDefault()
+                setParentPickerOpen(true)
+              }}
+            >
+              <span className="flex items-center gap-2">
+                <ListTreeIcon
+                  className="size-3 text-muted-foreground"
+                  aria-hidden
+                />
+                <span>Group under parent case...</span>
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!canUpdate}
+              onSelect={async () => {
+                await handleChangeParent(null)
+              }}
+            >
+              <span className="flex items-center gap-2">
+                <X className="size-3 text-muted-foreground" aria-hidden />
+                <span>Remove from parent case</span>
+              </span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
               disabled={isBusy}
               onSelect={(event) => {
                 event.preventDefault()
@@ -1496,6 +1573,17 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
           </DropdownMenuContent>
         </DropdownMenu>
       </ButtonGroup>
+      <CaseParentPickerDialog
+        open={parentPickerOpen}
+        onOpenChange={setParentPickerOpen}
+        workspaceId={workspaceId}
+        excludeIds={new Set(selectedCaseIds)}
+        title="Group under parent case"
+        description={`Make ${pluralisedCases} sub-cases of a top-level case. Sub-cases are hidden from the cases list by default and listed on the parent case.`}
+        onConfirm={async (parent) => {
+          await handleChangeParent(parent)
+        }}
+      />
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
