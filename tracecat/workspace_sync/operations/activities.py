@@ -144,7 +144,10 @@ async def operation_context(
 async def set_stage(ref: SyncOperationRef, stage: str) -> None:
     async with SyncOperationService.with_session(ref.role) as service:
         operation = await service.get(ref.operation_id, lock=True)
-        if operation.status in {"queued", "running"}:
+        if operation.attempt == ref.attempt and operation.status in {
+            "queued",
+            "running",
+        }:
             operation.status = "running"
             operation.stage = stage
             await service.session.commit()
@@ -202,6 +205,7 @@ async def workspace_sync_prepare(ref: SyncOperationRef) -> None:
                 and not prepared.preview.success
             ):
                 operation.status = "failed"
+                operation.stage = "preparing"
                 operation.summary = {**(operation.summary or {}), "retryable": False}
                 operation.error = (
                     "Resolve the preview diagnostics and start a new preview."
@@ -247,6 +251,7 @@ async def workspace_sync_apply(ref: SyncOperationRef) -> None:
                     "schedule_changes": SCHEDULE_CHANGES.dump_python(
                         changes, mode="json"
                     ),
+                    "schedule_role": role.model_dump(mode="json"),
                     "case_duration_backfills": CASE_DURATION_BACKFILLS.dump_python(
                         backfills, mode="json"
                     ),

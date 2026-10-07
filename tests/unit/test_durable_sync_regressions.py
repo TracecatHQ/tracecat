@@ -468,9 +468,12 @@ async def test_schedule_reconciliation_replays_already_created_ids(
     await session.commit()
     operation = WorkspaceSyncOperation(
         summary={
+            "schedule_role": svc_role.model_copy(
+                update={"scopes": frozenset({"workspace:workflow:read"})}
+            ).model_dump(mode="json"),
             "schedule_changes": reconciliation.SCHEDULE_CHANGES.dump_python(
                 changes, mode="json"
-            )
+            ),
         }
     )
     monkeypatch.setattr(reconciliation, "get_temporal_client", AsyncMock())
@@ -487,6 +490,9 @@ async def test_schedule_reconciliation_replays_already_created_ids(
         schedule.id,
         schedule.id,
     ]
+    for call in create.await_args_list:
+        assert call.kwargs["role"].scopes == frozenset({"workspace:workflow:read"})
+        assert call.kwargs["role"].type == "service"
     update.assert_awaited_once()
     assert update.await_args is not None
     updated_id, params = update.await_args.args
