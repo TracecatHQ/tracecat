@@ -103,7 +103,6 @@ export function WorkspaceSyncPushTab({
     },
     compareRef: exportCompareRef,
     provider,
-    enabled: false,
   })
   const visibleExportPreview = exportPreviewRequested
     ? exportPreview
@@ -125,6 +124,8 @@ export function WorkspaceSyncPushTab({
       : "Pull request"
   const exportDisabled =
     !previewOperationId ||
+    exportPreviewIsLoading ||
+    !exportPreviewRequested ||
     exportWorkspaceIsPending ||
     branchesIsLoading ||
     (!hasBranches && !isCreatingBranch) ||
@@ -146,7 +147,7 @@ export function WorkspaceSyncPushTab({
 
   async function onExport() {
     try {
-      if (!previewOperationId) return
+      if (exportDisabled || !previewOperationId) return
       const result = await exportWorkspace({ operationId: previewOperationId })
       toast({
         title: result.commit.pr_url

@@ -3,6 +3,7 @@ import {
   type SyncOperationRead,
   workflowsApplySyncOperation,
   workflowsGetSyncDiff,
+  workflowsGetSyncOperation,
   workflowsListSyncDiffs,
   workflowsListSyncOperations,
 } from "@/client"
@@ -10,8 +11,10 @@ import { SyncOperationHistory } from "@/components/workspace-sync/sync-operation
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => ({
+  ...jest.requireActual("@/client"),
   workflowsApplySyncOperation: jest.fn(),
   workflowsGetSyncDiff: jest.fn(),
+  workflowsGetSyncOperation: jest.fn(),
   workflowsListSyncDiffs: jest.fn(),
   workflowsListSyncOperations: jest.fn(),
   workflowsRetrySyncOperation: jest.fn(),
@@ -26,7 +29,7 @@ const operation: SyncOperationRead = {
   status: "ready",
   stage: "awaiting_confirmation",
   created_at: "2026-01-01T00:00:00Z",
-  expires_at: "2026-01-02T00:00:00Z",
+  expires_at: "2099-01-02T00:00:00Z",
   diff_count: 51,
   can_retry: false,
   inputs: {
@@ -57,6 +60,7 @@ function mountHistory() {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  jest.mocked(workflowsGetSyncOperation).mockResolvedValue(operation)
   jest
     .mocked(workflowsListSyncOperations)
     .mockResolvedValue({ items: [operation] })
@@ -100,7 +104,9 @@ it("loads file contents only when selected and uses the next metadata page", asy
     name: /variables\/example.yml/,
   })
   expect(workflowsGetSyncDiff).not.toHaveBeenCalled()
+  expect(file).toHaveAttribute("aria-pressed", "false")
   fireEvent.click(file)
+  expect(file).toHaveAttribute("aria-pressed", "true")
   await screen.findByText(/\+after/)
   expect(workflowsGetSyncDiff).toHaveBeenCalledWith({
     workspaceId: "workspace-test",
@@ -223,6 +229,126 @@ it("stops polling history when every operation is terminal", async () => {
       jest.advanceTimersByTime(6000)
     })
     expect(workflowsListSyncOperations).toHaveBeenCalledTimes(calls)
+    view.unmount()
+  } finally {
+    jest.useRealTimers()
+  }
+})
+
+it("resets the visible selection and review confirmation across history pages", async () => {
+  const first = {
+    ...operation,
+    id: "first",
+    diff_count: 0,
+    created_at: "2026-01-03T00:00:00Z",
+  }
+  const second = {
+    ...operation,
+    id: "second",
+    diff_count: 0,
+    created_at: "2026-01-02T00:00:00Z",
+  }
+  const older = {
+    ...operation,
+    id: "older",
+    diff_count: 0,
+    created_at: "2026-01-01T00:00:00Z",
+  }
+  jest
+    .mocked(workflowsListSyncOperations)
+    .mockResolvedValueOnce({ items: [first, second], next_cursor: "older" })
+    .mockResolvedValueOnce({ items: [older], prev_cursor: "newer" })
+    .mockResolvedValue({ items: [first, second], next_cursor: "older" })
+  mountHistory()
+  let rows = await screen.findAllByRole("button", { name: /^Push ·/ })
+  fireEvent.click(rows[1])
+  expect(rows[1]).toHaveAttribute("aria-pressed", "true")
+  fireEvent.click(
+    screen.getByRole("checkbox", { name: "Apply these prepared changes" })
+  )
+  expect(screen.getByRole("button", { name: "Confirm push" })).toBeEnabled()
+  fireEvent.click(screen.getByRole("button", { name: "Older" }))
+  await screen.findByRole("button", { name: "Newer" })
+  expect(screen.getByRole("button", { name: /^Push ·/ })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  )
+  expect(screen.getByRole("button", { name: "Confirm push" })).toBeDisabled()
+  fireEvent.click(screen.getByRole("button", { name: "Newer" }))
+  rows = await screen.findAllByRole("button", { name: /^Push ·/ })
+  expect(rows[0]).toHaveAttribute("aria-pressed", "true")
+  expect(rows[1]).toHaveAttribute("aria-pressed", "false")
+})
+
+it("keeps observing an active operation while viewing an older terminal page", async () => {
+  jest.useFakeTimers()
+  try {
+    const active = {
+      ...operation,
+      diff_count: 0,
+      status: "running" as const,
+      stage: "preparing" as const,
+    }
+    const completed = {
+      ...operation,
+      id: "older",
+      diff_count: 0,
+      status: "completed" as const,
+      stage: "finished" as const,
+    }
+    jest
+      .mocked(workflowsListSyncOperations)
+      .mockResolvedValueOnce({ items: [active], next_cursor: "older" })
+      .mockResolvedValue({ items: [completed], prev_cursor: "newer" })
+    jest.mocked(workflowsGetSyncOperation).mockResolvedValue({
+      ...active,
+      status: "ready",
+      stage: "awaiting_confirmation",
+    })
+    const view = mountHistory()
+    fireEvent.click(await screen.findByRole("button", { name: "Older" }))
+    await screen.findByRole("button", { name: "Newer" })
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1500)
+    })
+    expect(workflowsGetSyncOperation).toHaveBeenCalledWith({
+      workspaceId: "workspace-test",
+      operationId: operation.id,
+    })
+    view.unmount()
+  } finally {
+    jest.useRealTimers()
+  }
+})
+
+it("removes confirmation when a mounted ready preview expires", async () => {
+  jest.useFakeTimers()
+  try {
+    const ready = {
+      ...operation,
+      diff_count: 0,
+      expires_at: new Date(Date.now() + 2000).toISOString(),
+    }
+    jest
+      .mocked(workflowsListSyncOperations)
+      .mockResolvedValue({ items: [ready] })
+    jest
+      .mocked(workflowsGetSyncOperation)
+      .mockResolvedValue({ ...ready, status: "expired" })
+    const view = mountHistory()
+    await screen.findByRole("button", { name: "Confirm push" })
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Apply these prepared changes" })
+    )
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(2000)
+    })
+    expect(
+      screen.queryByRole("button", { name: "Confirm push" })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByText("Preview expired. Start a fresh preview.")
+    ).toBeInTheDocument()
     view.unmount()
   } finally {
     jest.useRealTimers()

@@ -11,6 +11,7 @@ import { useWorkspaceSyncExportPreview } from "@/hooks/use-workspace-sync"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/client", () => ({
+  ...jest.requireActual("@/client"),
   workflowsCreateSyncOperation: jest.fn(),
   workflowsGetSyncOperation: jest.fn(),
   workflowsListSyncDiffs: jest.fn(),
@@ -26,7 +27,7 @@ const operation: SyncOperationRead = {
   status: "queued",
   stage: "fetching",
   created_at: "2026-01-01T00:00:00Z",
-  expires_at: "2026-01-02T00:00:00Z",
+  expires_at: "2099-01-02T00:00:00Z",
   diff_count: 0,
   can_retry: false,
   inputs: {
@@ -39,7 +40,6 @@ function Preview() {
   const { refetchPreview, previewOperationId, previewError } =
     useWorkspaceSyncExportPreview("workspace-example", {
       push: { branch: "main", message: "Example" },
-      enabled: false,
     })
   return (
     <>

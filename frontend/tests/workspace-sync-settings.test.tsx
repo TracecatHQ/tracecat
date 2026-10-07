@@ -216,7 +216,7 @@ function setupHooks({
   } as ReturnType<typeof useWorkflowSync>)
   jest.mocked(useWorkspaceSyncExportPreview).mockReturnValue({
     preview: undefined,
-    previewOperationId: "operation-test",
+    previewOperationId: undefined,
     previewDiffCount: 0,
     previewIsLoading: false,
     previewError: null,
@@ -592,6 +592,39 @@ describe("WorkspaceSyncSettings", () => {
     ).toBeEnabled()
   })
 
+  it("blocks the workspace push while refreshing a prepared preview", async () => {
+    const workspace = setupHooks({
+      gitRepoUrl: repositories[0].git_url,
+      branches: [{ name: "main", is_default: true }],
+    })
+    const prepared: ReturnType<typeof useWorkspaceSyncExportPreview> = {
+      preview: {
+        files: [],
+        resources: [],
+        resource_counts: {},
+        resource_diffs: [],
+      },
+      previewOperationId: "previous-operation",
+      previewDiffCount: 0,
+      previewIsLoading: false,
+      previewError: null,
+      refetchPreview: mockRefetchExportPreview,
+    }
+    jest.mocked(useWorkspaceSyncExportPreview).mockReturnValue(prepared)
+    const user = userEvent.setup()
+    const view = render(<WorkspaceSyncSettings workspace={workspace} />)
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
+    expect(screen.getByRole("button", { name: "Push & open PR" })).toBeEnabled()
+    jest
+      .mocked(useWorkspaceSyncExportPreview)
+      .mockReturnValue({ ...prepared, previewIsLoading: true })
+    view.rerender(<WorkspaceSyncSettings workspace={workspace} />)
+    const push = screen.getByRole("button", { name: "Push & open PR" })
+    expect(push).toBeDisabled()
+    await user.click(push)
+    expect(mockExportWorkspace).not.toHaveBeenCalled()
+  })
+
   it("renders the workspace push review request as an external link", async () => {
     const user = userEvent.setup()
     const prUrl = "https://github.com/test-org/repo-a/pull/42"
@@ -611,8 +644,26 @@ describe("WorkspaceSyncSettings", () => {
       files: ["tracecat.json"],
     })
 
+    jest.mocked(useWorkspaceSyncExportPreview).mockReturnValue({
+      preview: {
+        files: [],
+        resources: [],
+        resource_counts: {},
+        resource_diffs: [],
+      },
+      previewOperationId: "operation-test",
+      previewDiffCount: 0,
+      previewIsLoading: false,
+      previewError: null,
+      refetchPreview: mockRefetchExportPreview,
+    })
+
     render(<WorkspaceSyncSettings workspace={connectedWorkspace} />)
 
+    expect(
+      screen.getByRole("button", { name: "Push & open PR" })
+    ).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "Preview changes" }))
     await user.click(screen.getByRole("button", { name: "Push & open PR" }))
 
     await waitFor(() => {

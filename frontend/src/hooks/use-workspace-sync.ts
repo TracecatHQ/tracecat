@@ -6,14 +6,13 @@ import {
   type GitCommitInfo,
   type McpIntegrationMappingSelection,
   type PullResult,
-  type ResourceRef,
   type SecretStoreMappingSelection,
   type SyncOperationRead,
+  type SyncPushResult,
   type VcsProvider,
   type WorkflowSyncPullRequest,
   type WorkspaceSyncExportPreview,
   type WorkspaceSyncExportRequest_Input as WorkspaceSyncExportRequest,
-  type WorkspaceSyncExportResult,
   workflowsApplySyncOperation,
   workflowsCreateSyncOperation,
   workflowsListWorkflowBranches,
@@ -23,12 +22,16 @@ import {
   useSyncOperation,
   useSyncOperationWaiter,
 } from "@/hooks/use-sync-operation"
+import { useMutation, useQuery, useQueryClient } from "@/lib/query"
+
 import {
-  type QueryClient,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@/lib/query"
+  expireSyncOperation,
+  invalidateWorkspaceSyncResources,
+  isTransientSyncError,
+  observeSyncOperation,
+} from "@/lib/workspace-sync-operations"
+
+export { invalidateWorkspaceSyncResources } from "@/lib/workspace-sync-operations"
 
 interface WorkflowPullOptions {
   commit_sha: string
@@ -88,7 +91,9 @@ export function useWorkflowSync(workspaceId: string) {
         queryClient.invalidateQueries({
           queryKey: ["sync-operations", workspaceId],
         })
+        observeSyncOperation(queryClient, workspaceId, started)
         operation = await wait(started.id)
+        observeSyncOperation(queryClient, workspaceId, operation)
         pendingPreview.current = null
         prepared.current = { id: operation.id, key }
         setPreviewOperation(operation)
@@ -102,7 +107,9 @@ export function useWorkflowSync(workspaceId: string) {
         queryClient.invalidateQueries({
           queryKey: ["sync-operations", workspaceId],
         })
+        observeSyncOperation(queryClient, workspaceId, started)
         operation = await wait(started.id)
+        observeSyncOperation(queryClient, workspaceId, operation)
       }
       const response = options.dry_run ? operation.preview : operation.result
       if (!response || !("workflows_found" in response))
@@ -146,7 +153,7 @@ export function useWorkspaceSyncExport(workspaceId: string) {
       operationId,
     }: {
       operationId: string
-    }): Promise<WorkspaceSyncExportResult> => {
+    }): Promise<SyncPushResult> => {
       const started = await workflowsApplySyncOperation({
         workspaceId,
         operationId,
@@ -154,7 +161,9 @@ export function useWorkspaceSyncExport(workspaceId: string) {
       queryClient.invalidateQueries({
         queryKey: ["sync-operations", workspaceId],
       })
+      observeSyncOperation(queryClient, workspaceId, started)
       const operation = await wait(started.id)
+      observeSyncOperation(queryClient, workspaceId, operation)
       if (!operation.result || !("commit" in operation.result))
         throw new Error(operation.error ?? "Push did not complete")
       return operation.result
@@ -165,11 +174,8 @@ export function useWorkspaceSyncExport(workspaceId: string) {
 
 interface ExportPreviewOptions {
   push?: WorkspaceSyncExportRequest
-  resources?: ResourceRef[] | null
-  includeSchedules?: boolean
   compareRef?: string
   provider?: VcsProvider
-  enabled?: boolean
 }
 
 /**
@@ -198,10 +204,7 @@ export function useWorkspaceSyncExportPreview(
     onSuccess: (operation, request) => {
       pendingRequest.current = null
       setAccepted({ key: request.key, id: operation.id })
-      queryClient.setQueryData(
-        ["sync-operation", workspaceId, operation.id],
-        operation
-      )
+      observeSyncOperation(queryClient, workspaceId, operation)
       void queryClient.invalidateQueries({
         queryKey: ["sync-operations", workspaceId],
       })
@@ -209,16 +212,23 @@ export function useWorkspaceSyncExportPreview(
   })
   const operationId = accepted?.key === key ? accepted.id : undefined
   const poll = useSyncOperation(workspaceId, operationId)
-  const operation = poll.data
-  const preview = operation?.status === "ready" ? operation : undefined
+  const operation = poll.data ? expireSyncOperation(poll.data) : undefined
+  const preview =
+    !creation.isPending &&
+    !creation.error &&
+    !poll.error &&
+    operation?.status === "ready"
+      ? operation
+      : undefined
 
   function refetchPreview() {
-    if (operationId && poll.error) {
+    if (operationId && poll.error && isTransientSyncError(poll.error)) {
       void poll.refetch()
       return
     }
-    // Preserve the request ID after an ambiguous POST failure. Poll failures
-    // never enter this mutation or create another background job.
+    // A user may start fresh after a permanent read failure. Temporary read
+    // failures keep the accepted operation; ambiguous POST failures reuse its ID.
+    setAccepted(undefined)
     if (!pendingRequest.current || pendingRequest.current.key !== key) {
       pendingRequest.current = { key, id: crypto.randomUUID() }
     }
@@ -340,32 +350,5 @@ export function useRepositoryCommits(
     commits,
     commitsIsLoading,
     commitsError,
-  }
-}
-
-/** Refresh resources when a pull finishes, including pulls resumed from history. */
-export function invalidateWorkspaceSyncResources(
-  queryClient: QueryClient,
-  workspaceId: string
-) {
-  const keys = [
-    "workflows",
-    "workflow_definitions",
-    "workspace",
-    "agent-presets",
-    "agent-directory-items",
-    "agent-tags",
-    "skills",
-    "skill-library",
-    "tables",
-    "case-tag-catalog",
-    "case-duration-definitions",
-    "case-fields",
-    "case-dropdown-definitions",
-    "workspace-variables",
-    "workspace-secrets",
-  ]
-  for (const key of keys) {
-    queryClient.invalidateQueries({ queryKey: [key, workspaceId] })
   }
 }

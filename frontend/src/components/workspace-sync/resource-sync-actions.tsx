@@ -133,10 +133,8 @@ export function WorkspaceResourceSyncActions({
       resources: resourceRefs,
       include_schedules: false,
     },
-    resources: resourceRefs,
     compareRef,
     provider,
-    enabled: false,
   })
   const [previewRequested, setPreviewRequested] = useState(false)
   const visiblePreview = previewRequested ? preview : undefined
@@ -160,6 +158,8 @@ export function WorkspaceResourceSyncActions({
     : undefined
   const exportDisabled =
     !previewOperationId ||
+    previewIsLoading ||
+    !previewRequested ||
     !gitRepoUrl ||
     exportWorkspaceIsPending ||
     branchesIsLoading ||
@@ -198,7 +198,7 @@ export function WorkspaceResourceSyncActions({
     }
 
     try {
-      if (!previewOperationId) return
+      if (exportDisabled || !previewOperationId) return
       const result = await exportWorkspace({ operationId: previewOperationId })
       const prUrl = result.commit.pr_url
       toast({
