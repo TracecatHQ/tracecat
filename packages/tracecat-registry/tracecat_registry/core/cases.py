@@ -521,12 +521,12 @@ async def get_linked_case_rows(
 
 
 @registry.register(
-    default_title="List linked cases",
+    default_title="List related cases",
     display_group="Cases",
     description="List the cases that link a table row.",
     namespace="core.cases",
 )
-async def list_linked_cases(
+async def list_related_cases(
     table_id: Annotated[
         str,
         Doc("The ID of the table that contains the row."),
