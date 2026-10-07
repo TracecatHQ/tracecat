@@ -34,7 +34,11 @@ from tracecat.workflow.store.schemas import WorkflowSyncPullRequest
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.operations import activities, storage
 from tracecat.workspace_sync.operations.domain import DurableSyncService
-from tracecat.workspace_sync.operations.schemas import PreparedSync, SyncOperationCreate
+from tracecat.workspace_sync.operations.schemas import (
+    PreparedSync,
+    SyncOperationCreate,
+    SyncPushResult,
+)
 from tracecat.workspace_sync.operations.service import SyncOperationService
 from tracecat.workspace_sync.operations.types import (
     SyncOperationConflictError,
@@ -48,7 +52,6 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceSpec,
     WorkspaceSyncExportPreview,
     WorkspaceSyncExportRequest,
-    WorkspaceSyncExportResult,
 )
 from tracecat.workspace_sync.service import WorkspaceSyncService
 
@@ -582,7 +585,9 @@ async def test_prepared_push_uses_fenced_apply_and_durable_receipt(
         await environment.run(activities.workspace_sync_apply, ref)
         await session.refresh(operation)
         assert operation.status == "completed"
-        assert operation.result is not None
-        receipt = WorkspaceSyncExportResult.model_validate(operation.result)
+        result = operation.result
+        assert result is not None
+        assert set(result) == {"commit"}
+        receipt = SyncPushResult.model_validate(result)
         assert receipt.commit.sha == first[0].sha
         assert await transport.list_commits(url=url, branch="sync/test") == history

@@ -24,6 +24,7 @@ from tracecat.workspace_sync.adapters import WORKSPACE_RESOURCE_ADAPTERS
 from tracecat.workspace_sync.operations.schemas import (
     SyncOperationCreate,
     SyncOperationRead,
+    SyncPushResult,
 )
 from tracecat.workspace_sync.operations.types import (
     SyncDirection,
@@ -35,7 +36,6 @@ from tracecat.workspace_sync.operations.types import (
 from tracecat.workspace_sync.operations.workflows import WorkspaceSyncWorkflow
 from tracecat.workspace_sync.schemas import (
     WorkspaceSyncExportPreview,
-    WorkspaceSyncExportResult,
 )
 
 _PULL = TypeAdapter(PullResult)
@@ -215,7 +215,7 @@ class SyncOperationService(BaseWorkspaceService):
         result = None
         if operation.result and operation.status == "completed":
             result = (
-                WorkspaceSyncExportResult.model_validate(operation.result)
+                SyncPushResult.model_validate(operation.result)
                 if operation.direction == "push"
                 else _PULL.validate_python(operation.result)
             )
