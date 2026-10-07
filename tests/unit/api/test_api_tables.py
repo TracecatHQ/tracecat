@@ -583,3 +583,26 @@ async def test_list_table_rows_invalid_search_column_returns_400(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.json()["detail"] == "Invalid search_column: missing"
+
+
+@pytest.mark.anyio
+async def test_list_table_rows_overlong_search_term_returns_422(
+    client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    with patch.object(tables_router, "TablesService") as MockService:
+        mock_svc = AsyncMock()
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            f"/tables/{mock_table.id}/rows",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "search_term": "a" * 1001,
+                "search_column": "name",
+            },
+        )
+
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    mock_svc.list_rows.assert_not_awaited()

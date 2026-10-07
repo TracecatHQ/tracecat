@@ -4,6 +4,7 @@ import type { TableRowRead, TablesListRowsData } from "@/client"
 import { tablesListRows } from "@/client"
 import {
   type CursorPaginationResponse,
+  keepPreviousPageFor,
   useCursorPagination,
 } from "./use-cursor-pagination"
 
@@ -42,20 +43,17 @@ export function useTablesPagination({
     }
   }
 
+  const tableKey = ["rows", "paginated", tableId, workspaceId]
+
   return useCursorPagination<TableRowRead, TablesListRowsData>({
     workspaceId,
     limit,
     // The search is part of the key, so changing it also resets the cursors.
-    queryKey: [
-      "rows",
-      "paginated",
-      tableId,
-      workspaceId,
-      searchColumn,
-      searchTerm,
-    ],
+    queryKey: [...tableKey, searchColumn, searchTerm],
     queryFn: adaptedTablesListRows,
     additionalParams: { tableId, searchTerm, searchColumn },
     enabled,
+    // Rows stay up through a new search, sort or page, never a new table.
+    placeholderData: keepPreviousPageFor(tableKey),
   })
 }

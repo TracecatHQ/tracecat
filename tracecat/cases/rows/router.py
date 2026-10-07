@@ -58,6 +58,7 @@ async def list_case_rows(
     ),
     search_term: str | None = Query(
         default=None,
+        max_length=1000,
         description="Text to search for in text-searchable row columns. "
         "Requires table_id",
     ),

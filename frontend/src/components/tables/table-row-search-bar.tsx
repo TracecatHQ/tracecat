@@ -53,6 +53,7 @@ export function TableRowSearchBar({
             canSearch ? "Search rows..." : "No text columns to search"
           }
           value={term}
+          maxLength={1000}
           onChange={(event) => onTermChange(event.target.value)}
           disabled={!canSearch}
           className={cn(

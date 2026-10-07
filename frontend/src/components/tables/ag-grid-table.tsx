@@ -6,9 +6,12 @@ import type {
   CellValueChangedEvent,
   ColDef,
   ColumnResizedEvent,
+  GetRowIdParams,
   GridApi,
   GridReadyEvent,
+  RowSelectionOptions,
   SelectionChangedEvent,
+  SelectionColumnDef,
 } from "ag-grid-community"
 import { AgGridReact } from "ag-grid-react"
 import {
@@ -42,7 +45,28 @@ import {
   useStaleRowQueryReset,
 } from "@/hooks/use-row-search"
 import { useUpdateRow } from "@/lib/hooks"
+import { cn } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
+
+// Stable references: the grid re-applies any option whose identity changes,
+// and this component renders on every keystroke of the search.
+const EMPTY_ROWS: TableRowRead[] = []
+
+const MULTI_ROW_SELECTION: RowSelectionOptions = {
+  mode: "multiRow",
+  enableClickSelection: false,
+  headerCheckbox: true,
+  checkboxes: true,
+}
+
+const SELECTION_COLUMN_DEF: SelectionColumnDef = {
+  cellClass: "ag-selection-col-aligned",
+  headerClass: "ag-selection-col-aligned",
+}
+
+function getRowId(params: GetRowIdParams<TableRowRead>): string {
+  return params.data.id
+}
 
 /**
  * Editable grid for a table's rows on the tables route, under a search row.
@@ -81,6 +105,7 @@ export function AgGridTable({
   const {
     data: rows,
     isLoading,
+    isPlaceholderData,
     error,
     goToNextPage,
     goToPreviousPage,
@@ -100,7 +125,7 @@ export function AgGridTable({
     searchTerm,
     searchColumn,
   })
-  const rowData = rows ?? []
+  const rowData = rows.length > 0 ? rows : EMPTY_ROWS
   const isSearching = searchTerm !== null
   // The API's total counts the whole table, so it is wrong during a search.
   const totalRows = isSearching ? undefined : totalEstimate
@@ -247,7 +272,12 @@ export function AgGridTable({
     gridContent = (
       <AgGridContextMenu gridApi={gridApi} columns={columns}>
         <div
-          className="h-full"
+          // Dimmed while the previous rows stand in for the next request's.
+          className={cn(
+            "h-full transition-opacity",
+            isPlaceholderData && "opacity-60"
+          )}
+          aria-busy={isPlaceholderData}
           onKeyDown={(e) => handleGridKeyDown(e, gridApi)}
         >
           <TableRowQueryContext.Provider value={rowQuery}>
@@ -255,21 +285,13 @@ export function AgGridTable({
               theme={tracecatTheme}
               rowData={rowData}
               columnDefs={columnDefs}
-              getRowId={(params) => params.data.id}
+              getRowId={getRowId}
               onGridReady={handleGridReady}
               onColumnResized={handleColumnResized}
               onCellValueChanged={handleCellValueChanged}
               onSelectionChanged={handleSelectionChanged}
-              selectionColumnDef={{
-                cellClass: "ag-selection-col-aligned",
-                headerClass: "ag-selection-col-aligned",
-              }}
-              rowSelection={{
-                mode: "multiRow",
-                enableClickSelection: false,
-                headerCheckbox: true,
-                checkboxes: true,
-              }}
+              selectionColumnDef={SELECTION_COLUMN_DEF}
+              rowSelection={MULTI_ROW_SELECTION}
               suppressContextMenu
               headerHeight={36}
               rowHeight={36}
@@ -306,7 +328,8 @@ export function AgGridTable({
           onPreviousPage={goToPreviousPage}
           onFirstPage={goToFirstPage}
           onPageSizeChange={handlePageSizeChange}
-          isLoading={isLoading}
+          // The placeholder rows' cursors belong to the previous request.
+          isLoading={isLoading || isPlaceholderData}
         />
       </div>
     </div>

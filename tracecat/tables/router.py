@@ -390,7 +390,9 @@ async def list_rows(
         default=None, description="Sort direction (asc or desc)"
     ),
     search_term: str | None = Query(
-        default=None, description="Text to search for in text-searchable columns"
+        default=None,
+        max_length=1000,
+        description="Text to search for in text-searchable columns",
     ),
     search_column: str | None = Query(
         default=None, description="Restrict search_term to this column"

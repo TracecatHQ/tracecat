@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any, Literal
 
 import sqlalchemy as sa
@@ -130,6 +131,26 @@ class CaseTableRowsService(BaseWorkspaceService):
             )
         )
         return int((await self.session.scalar(stmt)) or 0)
+
+    async def _page_links_by_row_id(
+        self,
+        link_filters: Sequence[sa.ColumnElement[bool]],
+        row_ids: Sequence[uuid.UUID],
+    ) -> dict[uuid.UUID, tuple[uuid.UUID, datetime, datetime]]:
+        """Map each row ID to its link's ``(id, created_at, updated_at)``."""
+        if not row_ids:
+            return {}
+        stmt = select(
+            CaseTableRow.row_id,
+            CaseTableRow.id,
+            CaseTableRow.created_at,
+            CaseTableRow.updated_at,
+        ).where(*link_filters, CaseTableRow.row_id.in_(row_ids))
+        result = await self.session.execute(stmt)
+        return {
+            row_id: (link_id, created_at, updated_at)
+            for row_id, link_id, created_at, updated_at in result.tuples().all()
+        }
 
     async def _link_cap_violation(
         self, case_id: uuid.UUID, table_id: uuid.UUID
@@ -275,29 +296,27 @@ class CaseTableRowsService(BaseWorkspaceService):
             row_ids=select(CaseTableRow.row_id).where(*link_filters),
         )
 
-        page_row_ids = [row["id"] for row in page.items]
-        links_stmt = select(CaseTableRow).where(
-            *link_filters, CaseTableRow.row_id.in_(page_row_ids)
+        links_by_row_id = await self._page_links_by_row_id(
+            link_filters, [row["id"] for row in page.items]
         )
-        links = (await self.session.execute(links_stmt)).scalars().all()
-        links_by_row_id = {link.row_id: link for link in links}
 
         items: list[CaseTableRowRead] = []
         for row in page.items:
             # A link removed since the page was read is skipped.
             if (link := links_by_row_id.get(row["id"])) is None:
                 continue
+            link_id, created_at, updated_at = link
             items.append(
                 CaseTableRowRead(
-                    id=link.id,
-                    case_id=link.case_id,
-                    table_id=link.table_id,
+                    id=link_id,
+                    case_id=case_id,
+                    table_id=table_id,
                     table_name=table.name,
-                    row_id=link.row_id,
+                    row_id=row["id"],
                     row_data=row if include_row_data else None,
                     is_row_available=True,
-                    created_at=link.created_at,
-                    updated_at=link.updated_at,
+                    created_at=created_at,
+                    updated_at=updated_at,
                 )
             )
 

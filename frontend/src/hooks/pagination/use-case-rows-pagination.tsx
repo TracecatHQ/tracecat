@@ -4,6 +4,7 @@ import type { CasesListCaseRowsData, CaseTableRowRead } from "@/client"
 import { casesListCaseRows } from "@/client"
 import {
   type CursorPaginationResponse,
+  keepPreviousPageFor,
   useCursorPagination,
 } from "./use-cursor-pagination"
 
@@ -49,13 +50,18 @@ export function useCaseRowsPagination({
   searchTerm = null,
   searchColumn = null,
 }: UseCaseRowsPaginationParams) {
+  const caseTableKey = ["case-rows", caseId, "table", tableId]
+
   return useCursorPagination<CaseTableRowRead, CasesListCaseRowsData>({
     workspaceId,
     limit,
     // The search is part of the key, so changing it also resets the cursors.
-    queryKey: ["case-rows", caseId, "table", tableId, searchColumn, searchTerm],
+    queryKey: [...caseTableKey, searchColumn, searchTerm],
     queryFn: listCaseRowsPage,
     additionalParams: { caseId, tableId, searchTerm, searchColumn },
     enabled,
+    // Rows stay up through a new search, sort or page, never a new case or
+    // table.
+    placeholderData: keepPreviousPageFor(caseTableKey),
   })
 }

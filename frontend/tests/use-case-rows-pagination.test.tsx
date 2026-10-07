@@ -271,6 +271,90 @@ describe("useCaseRowsPagination", () => {
     expect(result.current.currentPage).toBe(0)
   })
 
+  it("keeps the previous rows while a search loads, and holds paging", async () => {
+    const { result, rerender } = renderHook(
+      ({ searchTerm }: { searchTerm: string | null }) =>
+        useCaseRowsPagination({
+          caseId: "case-1",
+          tableId: "table-1",
+          workspaceId: "ws-1",
+          searchTerm,
+          searchColumn: searchTerm ? "title" : null,
+        }),
+      {
+        wrapper: createWrapper(),
+        initialProps: { searchTerm: null as string | null },
+      }
+    )
+    await waitFor(() => {
+      expect(result.current.hasNextPage).toBe(true)
+    })
+    expect(result.current.isPlaceholderData).toBe(false)
+
+    let resolveSearch!: (page: typeof SECOND_PAGE) => void
+    mockListCaseRows.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSearch = resolve
+        }) as unknown as ReturnType<typeof casesListCaseRows>
+    )
+    rerender({ searchTerm: "abc" })
+
+    expect(result.current.data[0]?.row_id).toBe("row-1")
+    expect(result.current.isPlaceholderData).toBe(true)
+    expect(result.current.isLoading).toBe(false)
+    await waitFor(() => {
+      expect(mockListCaseRows).toHaveBeenCalledTimes(2)
+    })
+
+    // `cursor-2` on screen belongs to the unsearched rows.
+    act(() => {
+      result.current.goToNextPage()
+    })
+    expect(result.current.currentPage).toBe(0)
+    expect(mockListCaseRows).toHaveBeenCalledTimes(2)
+    expect(lastCallParams()).toEqual(
+      expect.objectContaining({ searchTerm: "abc", cursor: null })
+    )
+
+    await act(async () => {
+      resolveSearch(SECOND_PAGE)
+    })
+    await waitFor(() => {
+      expect(result.current.isPlaceholderData).toBe(false)
+    })
+    expect(result.current.data[0]?.row_id).toBe("row-2")
+  })
+
+  it.each([
+    ["case", { caseId: "case-2", tableId: "table-1" }],
+    ["table", { caseId: "case-1", tableId: "table-2" }],
+  ])("keeps no rows across a change of %s", async (_name, next) => {
+    const { result, rerender } = renderHook(
+      (ids: { caseId: string; tableId: string }) =>
+        useCaseRowsPagination({ ...ids, workspaceId: "ws-1" }),
+      {
+        wrapper: createWrapper(),
+        initialProps: { caseId: "case-1", tableId: "table-1" },
+      }
+    )
+    await waitFor(() => {
+      expect(result.current.data).toHaveLength(1)
+    })
+
+    mockListCaseRows.mockImplementationOnce(
+      () =>
+        new Promise(() => undefined) as unknown as ReturnType<
+          typeof casesListCaseRows
+        >
+    )
+    rerender(next)
+
+    expect(result.current.data).toEqual([])
+    expect(result.current.isPlaceholderData).toBe(false)
+    expect(result.current.isLoading).toBe(true)
+  })
+
   it("fires nothing while disabled", async () => {
     const { result } = renderHook(
       () =>

@@ -1691,11 +1691,12 @@ class BaseTablesService(BaseWorkspaceService):
         sort_column = order_by or "created_at"
         sort_direction = sort or "desc"
 
-        # Validate the sort column exists in the table
-        valid_columns = {col.name for col in table.columns}
-        valid_columns.update(["id", "created_at", "updated_at"])  # Always available
-        if sort_column not in valid_columns:
-            raise ValueError(f"Invalid order_by column: {sort_column}")
+        # Resolve the sort column like search_column: exact, then normalized.
+        # System columns are always available.
+        try:
+            sort_column = self._resolve_external_column_name(table, sort_column)
+        except ValueError as e:
+            raise ValueError(f"Invalid order_by column: {sort_column}") from e
 
         if sort_column == "id":
             sort_type: sa.types.TypeEngine = sa.Uuid()
