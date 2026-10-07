@@ -22,6 +22,18 @@ import GenerateSecrets from "/snippets/generate-secrets.mdx";
 - S3-compatible object storage (e.g., Amazon S3, MinIO)
 - `openssl` (for generating secrets)
 
+## Git sync background worker
+
+For releases that support durable Git sync, deploy the matching Helm chart and app image together and set `backgroundWorker.enabled: true`. The chart keeps this worker disabled by default for compatibility with older app images.
+
+```yaml
+backgroundWorker:
+  enabled: true
+  queue: shared-background-queue
+```
+
+The chart applies the queue name to both the API and worker. Git sync operations remain queued until this worker is running.
+
 ## Core secrets
 
 Tracecat requires four cryptographic secrets.

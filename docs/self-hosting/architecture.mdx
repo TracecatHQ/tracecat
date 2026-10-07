@@ -8,7 +8,7 @@ description: "Architecture overview for self-hosted Tracecat: services, networki
 Use PostgreSQL 15 or newer for the Tracecat application database. The bundled
 Docker Compose database uses PostgreSQL 16.
 
-The Docker Compose stack runs 16 containers. Only `caddy` is exposed externally; all other ports are internal to the Docker network.
+The Docker Compose stack runs 18 containers. Only `caddy` is exposed externally; all other ports are internal to the Docker network.
 
 | Service | Port | Description |
 | :------ | :--- | :---------- |
@@ -16,6 +16,7 @@ The Docker Compose stack runs 16 containers. Only `caddy` is exposed externally;
 | `api` | 8000 | REST API and webhook receiver |
 | `ui` | 3000 | Next.js frontend |
 | `worker` | — | Workflow orchestrator |
+| `background-worker` | — | Git sync and platform background tasks |
 | `executor` | — | Action executor with optional sandbox |
 | `agent-worker` | — | AI agent orchestrator |
 | `agent-executor` | — | AI agent action executor |
@@ -26,6 +27,7 @@ The Docker Compose stack runs 16 containers. Only `caddy` is exposed externally;
 | `temporal_postgres_db` | 5432 | Temporal database (PostgreSQL 13) |
 | `temporal_ui` | 8081 (not exposed) | Temporal web UI |
 | `minio` | 9000, 9001 | S3-compatible object storage |
+| `minio-init` | — | One-shot MinIO data-volume ownership initialization |
 | `redis` | 6379 | Cache and message broker |
 | `migrations` | — | One-shot database migration runner |
 
@@ -51,6 +53,8 @@ External systems send webhooks to `/api/webhooks/...`, which Caddy forwards to t
 
 The API submits workflow runs to the Temporal server on port 7233. Workers pull tasks from Temporal's task queue and dispatch actions to executors. Executors run individual action steps, optionally inside an nsjail sandbox.
 
+Git sync requires `background-worker`, which polls `shared-background-queue` by default. Set `TRACECAT__BACKGROUND_QUEUE` to the same value on the API and background worker when overriding it.
+
 Agent workers and agent executors follow the same Temporal-based pattern for AI agent workflows.
 
 ### LiteLLM request path
@@ -63,9 +67,9 @@ Four networks isolate traffic between service groups:
 
 | Network | Scope | Services |
 | :------ | :---- | :------- |
-| `core` | default | caddy, api, ui, worker, executor, agent-worker, agent-executor, litellm, mcp, redis, minio, temporal, temporal_ui, migrations |
-| `core-db` | internal | api, worker, executor, agent-worker, agent-executor, litellm, mcp, migrations, postgres_db |
-| `temporal` | default | temporal, temporal_ui, worker, executor, agent-worker, agent-executor, mcp |
+| `core` | default | caddy, api, ui, worker, background-worker, executor, agent-worker, agent-executor, litellm, mcp, redis, minio, temporal, temporal_ui, migrations |
+| `core-db` | internal | api, worker, background-worker, executor, agent-worker, agent-executor, litellm, mcp, migrations, postgres_db |
+| `temporal` | default | temporal, temporal_ui, worker, background-worker, executor, agent-worker, agent-executor, mcp |
 | `temporal-db` | internal | temporal, temporal_postgres_db |
 
 Networks marked `internal` cannot reach the internet, preventing direct external access to databases.
