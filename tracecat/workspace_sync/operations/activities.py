@@ -35,7 +35,10 @@ from tracecat.workspace_sync.operations.reconciliation import (
     reconcile_case_duration_backfills,
     reconcile_schedules,
 )
-from tracecat.workspace_sync.operations.schemas import SyncOperationCreate
+from tracecat.workspace_sync.operations.schemas import (
+    SyncOperationCreate,
+    SyncPushResult,
+)
 from tracecat.workspace_sync.operations.service import (
     SyncOperationService,
     json_document,
@@ -51,7 +54,6 @@ from tracecat.workspace_sync.operations.types import (
     SyncOperationRef,
     lock_key,
 )
-from tracecat.workspace_sync.schemas import WorkspaceSyncExportResult
 from tracecat.workspace_sync.types import SyncCommitConflictError
 
 
@@ -237,7 +239,7 @@ async def workspace_sync_apply(ref: SyncOperationRef) -> None:
                     result = await sync.apply(inputs, prepared, operation.id)
                 operation.result = json_document(
                     result.model_dump(mode="json")
-                    if isinstance(result, WorkspaceSyncExportResult)
+                    if isinstance(result, SyncPushResult)
                     else TypeAdapter(PullResult).dump_python(result, mode="json")
                 )
                 operation.summary = {
