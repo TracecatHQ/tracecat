@@ -20197,6 +20197,10 @@ export type $OpenApiTs = {
          */
         202: SyncOperationRead
         /**
+         * Bad Request
+         */
+        400: SyncOperationError
+        /**
          * Not Found
          */
         404: SyncOperationError
@@ -20217,6 +20221,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: Page_SyncOperationRead_
+        /**
+         * Bad Request
+         */
+        400: SyncOperationError
         /**
          * Not Found
          */

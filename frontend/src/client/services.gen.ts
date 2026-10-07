@@ -3753,6 +3753,7 @@ export const workflowsCreateSyncOperation = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Bad Request",
       404: "Not Found",
       409: "Conflict",
       422: "Validation Error",
@@ -3784,6 +3785,7 @@ export const workflowsListSyncOperations = (
       cursor: data.cursor,
     },
     errors: {
+      400: "Bad Request",
       404: "Not Found",
       422: "Validation Error",
     },

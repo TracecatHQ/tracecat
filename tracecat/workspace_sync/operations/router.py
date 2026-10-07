@@ -9,7 +9,7 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
-from tracecat.pagination import Page, PageParams
+from tracecat.pagination import Page, PageParams, PaginationError
 from tracecat.sync import PullResourceDiff
 from tracecat.workspace_sync.operations.schemas import (
     SyncDiffPage,
@@ -28,12 +28,21 @@ router = APIRouter(
 )
 
 
-@router.post("", status_code=202, responses={409: {"model": SyncOperationError}})
+@router.post(
+    "",
+    status_code=202,
+    responses={code: {"model": SyncOperationError} for code in (400, 409)},
+)
 @require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
 async def create_sync_operation(
     role: WorkspaceActorRouteRole, session: AsyncDBSession, params: SyncOperationCreate
 ) -> SyncOperationRead:
     """Accept a preview and return before any Git or resource work begins."""
+    if params.pull is not None and params.pull.dry_run:
+        raise HTTPException(
+            400,
+            "Durable sync always starts with a preview; omit dry_run and confirm with apply.",
+        )
     service = SyncOperationService(session, role)
     try:
         operation = await service.create(params)
@@ -42,18 +51,21 @@ async def create_sync_operation(
     return service.read(operation)
 
 
-@router.get("")
+@router.get("", responses={400: {"model": SyncOperationError}})
 @require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
 async def list_sync_operations(
     role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    cursor: str | None = None,
+    cursor: Annotated[str | None, Query(max_length=8192)] = None,
 ) -> Page[SyncOperationRead]:
     """Recover the initiating actor's operations after a reload or reconnect."""
-    return await SyncOperationService(session, role).list(
-        PageParams(limit=limit, cursor=cursor)
-    )
+    try:
+        return await SyncOperationService(session, role).list(
+            PageParams(limit=limit, cursor=cursor)
+        )
+    except PaginationError as exc:
+        raise HTTPException(400, "Invalid operation cursor") from exc
 
 
 @router.get("/{operation_id}")

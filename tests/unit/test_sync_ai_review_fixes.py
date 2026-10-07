@@ -57,6 +57,7 @@ async def test_actor_effective_scope_intersection(
     monkeypatch.setattr(
         auth, "workspace_membership_exists", AsyncMock(return_value=True)
     )
+    monkeypatch.setattr(auth, "is_org_entitled", AsyncMock(return_value=True))
     session.scalars.return_value = [
         "workflow:read",
         "workflow:update",
