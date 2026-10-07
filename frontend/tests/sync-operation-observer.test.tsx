@@ -48,6 +48,14 @@ function Panel() {
 it("observes a pull receipt after the panel unmounts, once and in its workspace", async () => {
   client.setQueryData(["workflows", "workspace-example"], ["before"])
   client.setQueryData(["workflows", "another-workspace"], ["unaffected"])
+  client.setQueryData(
+    ["workflow-definitions", "workspace-example", "workflow-example"],
+    ["before"]
+  )
+  client.setQueryData(
+    ["workflow-definitions", "another-workspace", "workflow-example"],
+    ["unaffected"]
+  )
   client.setQueryData(["sync-operations", "workspace-example", "older"], {
     items: [operation],
     next_cursor: "next",
@@ -75,6 +83,20 @@ it("observes a pull receipt after the panel unmounts, once and in its workspace"
   expect(
     client.getQueryData(["sync-operations", "workspace-example", "older"])
   ).toEqual({ items: [completed], next_cursor: "next" })
+  expect(
+    client.getQueryState([
+      "workflow-definitions",
+      "workspace-example",
+      "workflow-example",
+    ])?.isInvalidated
+  ).toBe(true)
+  expect(
+    client.getQueryState([
+      "workflow-definitions",
+      "another-workspace",
+      "workflow-example",
+    ])?.isInvalidated
+  ).toBe(false)
   const invalidations = invalidate.mock.calls.length
   observeSyncOperation(client, "workspace-example", completed)
   expect(invalidate).toHaveBeenCalledTimes(invalidations)
