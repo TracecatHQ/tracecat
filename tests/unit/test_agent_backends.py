@@ -187,6 +187,8 @@ def test_discovery_rejects_missing_required_attributes(missing: str):
         ("supported_harnesses", "claude_code"),
         ("supported_harnesses", ["claude_code"]),
         ("supported_harnesses", frozenset({"claude_code", 123})),
+        ("subagent_approvals", "yes"),
+        ("subagent_approvals", 1),
         ("workflow", None),
         ("workflow", object()),
     ],
