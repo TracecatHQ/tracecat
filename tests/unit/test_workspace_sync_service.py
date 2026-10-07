@@ -908,6 +908,40 @@ def test_sync_operation_scope_accepts_legacy_or_workspace_sync_grant() -> None:
         service._require_sync_operation_scope()
 
 
+@pytest.mark.parametrize("is_workspace_default", [None, False, True])
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_pull_requires_workspace_update_only_for_explicit_default_metadata(
+    is_workspace_default: bool | None,
+    dry_run: bool,
+) -> None:
+    role = Role(
+        type="user",
+        service_id="tracecat-api",
+        user_id=uuid.uuid4(),
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"workspace_sync:sync", "agent:create", "agent:update"}),
+    )
+    service = WorkspaceSyncService(session=AsyncMock(), role=role)
+    spec = WorkspaceSpec(
+        agent_presets={
+            "qa-default": AgentPresetResourceSpec(
+                id="qa-default",
+                slug="qa-default",
+                name="QA default",
+                use_in_chat=True,
+                is_workspace_default=is_workspace_default,
+            )
+        }
+    )
+    if is_workspace_default is not None and not dry_run:
+        with pytest.raises(ScopeDeniedError) as exc_info:
+            service._require_pull_scopes(spec, dry_run=dry_run)
+        assert exc_info.value.missing_scopes == ["workspace:update"]
+    else:
+        service._require_pull_scopes(spec, dry_run=dry_run)
+
+
 @pytest.mark.anyio
 async def test_preview_export_rejects_missing_skill_head(
     workspace_sync_service: WorkspaceSyncService,

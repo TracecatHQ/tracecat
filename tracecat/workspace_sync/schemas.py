@@ -227,6 +227,14 @@ class AgentPresetResourceSpec(BaseModel):
         min_length=1, description="Unique preset slug used for cross-references."
     )
     name: str = Field(min_length=1, description="Human-readable preset name.")
+    use_in_chat: bool | None = Field(
+        default=None,
+        description="Whether the preset appears in chat mentions. Omit to preserve local state.",
+    )
+    is_workspace_default: bool | None = Field(
+        default=None,
+        description="Whether this preset is the workspace default. Omit to preserve local state.",
+    )
     folder_path: str | None = Field(
         default=None, description="Workspace folder the preset lives under, if any."
     )
