@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,7 +11,11 @@ from tracecat.git.types import GitUrl
 from tracecat.registry.repositories.schemas import GitBranchInfo, GitCommitInfo
 from tracecat.sync import CommitInfo, PushStatus
 from tracecat.workspace_sync.enums import VcsProvider
-from tracecat.workspace_sync.transport import VcsSyncTransport, VcsTreeSnapshot
+from tracecat.workspace_sync.transport import (
+    VcsSyncTransport,
+    VcsTreeSnapshot,
+    sync_commit_message,
+)
 
 
 @dataclass
@@ -74,6 +79,9 @@ class FakeVcsTransport:
             blob_paths=frozenset(commit.files),
         )
 
+    async def branch_exists(self, *, url: GitUrl, branch: str) -> bool:
+        return branch in self._server._repo(url)._branches
+
     async def write_files(
         self,
         *,
@@ -83,17 +91,29 @@ class FakeVcsTransport:
         branch: str,
         create_pr: bool,
         pr_base_branch: str | None = None,
+        branch_start_ref: str | None = None,
         delete_missing_paths_under: Sequence[str] = (),
+        expected_commit_sha: str | None = None,
+        operation_id: uuid.UUID | None = None,
     ) -> CommitInfo:
         del create_pr
         repo = self._server._repo(url)
-        return repo.write_files(
+        base = pr_base_branch or url.ref or self._server.default_branch
+        start_ref = branch_start_ref or base
+        target = branch if branch in repo.branch_names(limit=10000) else start_ref
+        if (
+            expected_commit_sha
+            and repo.commit_at_ref(target).sha != expected_commit_sha
+        ):
+            raise TracecatValidationError("Target branch changed; create a new preview")
+        commit = repo.write_files(
             files=files,
-            message=message,
+            message=sync_commit_message(message, operation_id),
             branch=branch,
-            base_branch=pr_base_branch or url.ref or self._server.default_branch,
+            base_branch=start_ref,
             delete_missing_paths_under=delete_missing_paths_under,
         )
+        return replace(commit, base_ref=base)
 
     async def list_commits(
         self,
