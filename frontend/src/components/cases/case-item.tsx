@@ -547,7 +547,7 @@ export function CaseItem({
               onClick={onClick}
               className="flex min-w-0 flex-1 items-center gap-3 bg-transparent p-0 text-left"
             >
-              <div className="flex min-w-0 flex-1 items-center gap-2">
+              <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
                 <span className="shrink-0 text-xs font-medium text-muted-foreground">
                   {caseData.short_id}
                 </span>
