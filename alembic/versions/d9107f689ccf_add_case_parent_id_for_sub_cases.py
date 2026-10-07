@@ -7,8 +7,6 @@ Create Date: 2026-10-07 20:30:00.000000
 
 from collections.abc import Sequence
 
-import sqlalchemy as sa
-
 from alembic import op
 
 revision: str = "d9107f689ccf"
@@ -21,29 +19,40 @@ _CHECK_NAME = "ck_case_parent_not_self"
 _INDEX_NAME = "ix_case_parent_id"
 
 
+def _add_constraint_if_missing(name: str, definition: str) -> None:
+    op.execute(
+        f"""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                WHERE conname = '{name}' AND conrelid = '"case"'::regclass
+            ) THEN
+                ALTER TABLE "case" ADD CONSTRAINT "{name}" {definition} NOT VALID;
+            END IF;
+        END
+        $$
+        """
+    )
+
+
 def upgrade() -> None:
     for value in ("PARENT_CHANGED", "SUB_CASES_ADDED", "SUB_CASES_REMOVED"):
         op.execute(f"ALTER TYPE caseeventtype ADD VALUE IF NOT EXISTS '{value}'")
 
+    # The concurrent index build below runs outside the migration transaction,
+    # so a failed build leaves these changes committed without stamping the
+    # revision. Every step is idempotent so a retry can complete the upgrade.
     # Adding a nullable column without a default is a catalog-only change.
-    op.add_column("case", sa.Column("parent_id", sa.UUID(), nullable=True))
+    op.execute('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS parent_id UUID')
     # NOT VALID skips the full-table scan under the ACCESS EXCLUSIVE lock; the
     # separate VALIDATE only takes SHARE UPDATE EXCLUSIVE and allows writes.
-    op.execute(
-        f"""
-        ALTER TABLE "case"
-        ADD CONSTRAINT "{_FK_NAME}"
-        FOREIGN KEY (parent_id) REFERENCES "case" (id) ON DELETE SET NULL
-        NOT VALID
-        """
+    _add_constraint_if_missing(
+        _FK_NAME,
+        'FOREIGN KEY (parent_id) REFERENCES "case" (id) ON DELETE SET NULL',
     )
-    op.execute(
-        f"""
-        ALTER TABLE "case"
-        ADD CONSTRAINT "{_CHECK_NAME}"
-        CHECK (parent_id IS NULL OR parent_id <> id)
-        NOT VALID
-        """
+    _add_constraint_if_missing(
+        _CHECK_NAME, "CHECK (parent_id IS NULL OR parent_id <> id)"
     )
     op.execute(f'ALTER TABLE "case" VALIDATE CONSTRAINT "{_FK_NAME}"')
     op.execute(f'ALTER TABLE "case" VALIDATE CONSTRAINT "{_CHECK_NAME}"')
@@ -66,6 +75,8 @@ def downgrade() -> None:
     # left in place and are harmless to the previous application version.
     with op.get_context().autocommit_block():
         op.execute(f'DROP INDEX CONCURRENTLY IF EXISTS "{_INDEX_NAME}"')
-    op.drop_constraint(_CHECK_NAME, "case", type_="check")
-    op.drop_constraint(_FK_NAME, "case", type_="foreignkey")
-    op.drop_column("case", "parent_id")
+    # Raw SQL keeps the exact names; `op.drop_constraint` would apply the
+    # metadata naming convention and prefix the check constraint name again.
+    op.execute(f'ALTER TABLE "case" DROP CONSTRAINT IF EXISTS "{_CHECK_NAME}"')
+    op.execute(f'ALTER TABLE "case" DROP CONSTRAINT IF EXISTS "{_FK_NAME}"')
+    op.execute('ALTER TABLE "case" DROP COLUMN IF EXISTS parent_id')

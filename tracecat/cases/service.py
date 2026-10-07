@@ -1030,11 +1030,17 @@ class CasesService(BaseWorkspaceService):
             await self._assign_next_case_number(case)
 
             if parent is not None:
+                wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
+                await self.events.create_event(
+                    case=case,
+                    event=ParentChangedEvent(
+                        old=None, new=_case_ref(parent), wf_exec_id=wf_exec_id
+                    ),
+                )
                 await self.events.create_event(
                     case=parent,
                     event=SubCasesAddedEvent(
-                        sub_cases=[_case_ref(case)],
-                        wf_exec_id=run_ctx.wf_exec_id if run_ctx else None,
+                        sub_cases=[_case_ref(case)], wf_exec_id=wf_exec_id
                     ),
                 )
 

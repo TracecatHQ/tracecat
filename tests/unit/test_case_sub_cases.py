@@ -270,6 +270,10 @@ async def test_create_case_with_parent(
     assert child.parent_id == parent.id
     added = await _events(session, parent.id, CaseEventType.SUB_CASES_ADDED)
     assert added[0].data["sub_cases"][0]["short_id"] == child.short_id
+    parent_changed = await _events(session, child_id, CaseEventType.PARENT_CHANGED)
+    assert len(parent_changed) == 1
+    assert parent_changed[0].data["old"] is None
+    assert parent_changed[0].data["new"]["id"] == str(parent.id)
 
     with pytest.raises(TracecatValidationError):
         await _create(cases_service, "Grandchild", parent_id=child_id)

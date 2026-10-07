@@ -46,12 +46,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
 import { useDebounce } from "@/hooks/use-debounce"
-import {
-  type QueryClient,
-  useInfiniteQuery,
-  useQuery,
-  useQueryClient,
-} from "@/lib/query"
+import { type QueryClient, useInfiniteQuery, useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
 
 const SUB_CASES_PAGE_SIZE = 25
@@ -396,24 +391,43 @@ function useCasePickerSearch({
 }) {
   const [search, setSearch] = useState("")
   const [debouncedSearch] = useDebounce(search.trim(), 300)
-  const query = useQuery({
-    queryKey: [
-      "cases",
-      "picker",
-      workspaceId,
-      includeSubCases,
-      debouncedSearch,
-    ],
-    queryFn: () =>
-      casesSearchCases({
+  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } =
+    useInfiniteQuery({
+      queryKey: [
+        "cases",
+        "picker",
         workspaceId,
-        searchTerm: debouncedSearch || undefined,
         includeSubCases,
-        limit: PICKER_PAGE_SIZE,
-      }),
-    enabled,
-  })
-  return { search, setSearch, ...query }
+        debouncedSearch,
+      ],
+      queryFn: ({ pageParam }) =>
+        casesSearchCases({
+          workspaceId,
+          searchTerm: debouncedSearch || undefined,
+          includeSubCases,
+          limit: PICKER_PAGE_SIZE,
+          cursor: (pageParam as string | null) ?? undefined,
+        }),
+      initialPageParam: null as string | null,
+      getNextPageParam: (lastPage) =>
+        lastPage.has_more && lastPage.next_cursor
+          ? lastPage.next_cursor
+          : undefined,
+      enabled,
+    })
+  const items = useMemo(
+    () => data?.pages.flatMap((page) => page.items) ?? [],
+    [data]
+  )
+  return {
+    search,
+    setSearch,
+    items,
+    isLoading,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  }
 }
 
 /** Single-select dialog for choosing a top-level parent case. */
@@ -436,20 +450,18 @@ export function CaseParentPickerDialog({
 }) {
   const [selected, setSelected] = useState<CaseReadMinimal | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const { search, setSearch, data, isLoading } = useCasePickerSearch({
+  const { items, ...picker } = useCasePickerSearch({
     workspaceId,
     enabled: open,
     // Parents must be top-level cases.
     includeSubCases: false,
   })
-  const candidates = (data?.items ?? []).filter(
-    (item) => !excludeIds.has(item.id)
-  )
+  const candidates = items.filter((item) => !excludeIds.has(item.id))
 
   const handleOpenChange = (next: boolean) => {
     if (!next) {
       setSelected(null)
-      setSearch("")
+      picker.setSearch("")
     }
     onOpenChange(next)
   }
@@ -473,10 +485,13 @@ export function CaseParentPickerDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <CasePickerList
-          search={search}
-          onSearchChange={setSearch}
-          isLoading={isLoading}
+          search={picker.search}
+          onSearchChange={picker.setSearch}
+          isLoading={picker.isLoading}
           candidates={candidates}
+          hasNextPage={picker.hasNextPage}
+          isFetchingNextPage={picker.isFetchingNextPage}
+          onLoadMore={() => picker.fetchNextPage()}
           isSelected={(item) => selected?.id === item.id}
           onToggle={(item) => setSelected(item)}
         />
@@ -511,20 +526,20 @@ function AddSubCasesDialog({
     new Map()
   )
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const { search, setSearch, data, isLoading } = useCasePickerSearch({
+  const { items, ...picker } = useCasePickerSearch({
     workspaceId,
     enabled: open,
     // Sub-cases of other parents can be moved here.
     includeSubCases: true,
   })
-  const candidates = (data?.items ?? []).filter(
+  const candidates = items.filter(
     (item) => item.id !== parent.id && item.parent_id !== parent.id
   )
 
   const handleOpenChange = (next: boolean) => {
     if (!next) {
       setSelected(new Map())
-      setSearch("")
+      picker.setSearch("")
     }
     onOpenChange(next)
   }
@@ -581,10 +596,13 @@ function AddSubCasesDialog({
           </DialogDescription>
         </DialogHeader>
         <CasePickerList
-          search={search}
-          onSearchChange={setSearch}
-          isLoading={isLoading}
+          search={picker.search}
+          onSearchChange={picker.setSearch}
+          isLoading={picker.isLoading}
           candidates={candidates}
+          hasNextPage={picker.hasNextPage}
+          isFetchingNextPage={picker.isFetchingNextPage}
+          onLoadMore={() => picker.fetchNextPage()}
           isSelected={(item) => selected.has(item.id)}
           isDisabled={(item) => (item.num_sub_cases ?? 0) > 0}
           onToggle={toggle}
@@ -616,6 +634,9 @@ function CasePickerList({
   isDisabled,
   onToggle,
   multiple = false,
+  hasNextPage = false,
+  isFetchingNextPage = false,
+  onLoadMore,
 }: {
   search: string
   onSearchChange: (value: string) => void
@@ -625,6 +646,9 @@ function CasePickerList({
   isDisabled?: (item: CaseReadMinimal) => boolean
   onToggle: (item: CaseReadMinimal) => void
   multiple?: boolean
+  hasNextPage?: boolean
+  isFetchingNextPage?: boolean
+  onLoadMore?: () => void
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -682,6 +706,17 @@ function CasePickerList({
             </button>
           )
         })}
+        {hasNextPage && onLoadMore && (
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={isFetchingNextPage}
+            className="flex w-full items-center justify-center gap-2 px-3 py-2 text-xs text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+          >
+            {isFetchingNextPage && <Spinner className="size-3" />}
+            Load more
+          </button>
+        )}
       </div>
     </div>
   )
