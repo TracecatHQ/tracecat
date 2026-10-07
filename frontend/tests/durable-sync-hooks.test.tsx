@@ -4,6 +4,7 @@ import {
   ApiError,
   CancelablePromise,
   type SyncOperationRead,
+  workflowsApplySyncOperation,
   workflowsCreateSyncOperation,
   workflowsGetSyncOperation,
 } from "@/client"
@@ -22,6 +23,7 @@ jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
   workflowsCreateSyncOperation: jest.fn(),
   workflowsGetSyncOperation: jest.fn(),
+  workflowsApplySyncOperation: jest.fn(),
 }))
 
 const operation: SyncOperationRead = {
@@ -36,7 +38,7 @@ const operation: SyncOperationRead = {
   inputs: {
     id: "operation-test",
     direction: "pull",
-    pull: { commit_sha: "abc", dry_run: true },
+    pull: { commit_sha: "abc" },
   },
   preview: {
     success: true,
@@ -62,6 +64,46 @@ beforeEach(() => {
 })
 
 afterEach(() => jest.useRealTimers())
+
+it("previews without the legacy dry-run flag and applies only after confirmation", async () => {
+  const { result } = renderHook(() => useWorkflowSync("workspace-test"), {
+    wrapper,
+  })
+  await act(async () => {
+    await result.current.pullWorkflows({ commit_sha: "abc", dry_run: true })
+  })
+  expect(workflowsCreateSyncOperation).toHaveBeenCalledWith(
+    expect.objectContaining({
+      requestBody: expect.objectContaining({
+        pull: { commit_sha: "abc", sync_schedules: false },
+      }),
+    })
+  )
+  expect(workflowsApplySyncOperation).not.toHaveBeenCalled()
+  const completed: SyncOperationRead = {
+    ...operation,
+    status: "completed",
+    stage: "finished",
+    result: {
+      success: true,
+      commit_sha: "abc",
+      workflows_found: 0,
+      workflows_imported: 0,
+      diagnostics: [],
+      message: "Completed",
+    },
+  }
+  jest.mocked(workflowsApplySyncOperation).mockResolvedValue(completed)
+  jest.mocked(workflowsGetSyncOperation).mockResolvedValue(completed)
+  await act(async () => {
+    await result.current.pullWorkflows({ commit_sha: "abc", dry_run: false })
+  })
+  expect(workflowsApplySyncOperation).toHaveBeenCalledWith({
+    workspaceId: "workspace-test",
+    operationId: operation.id,
+  })
+  expect(workflowsCreateSyncOperation).toHaveBeenCalledTimes(1)
+})
 
 it("retries transient status failures for the same accepted operation", async () => {
   jest.useFakeTimers()
