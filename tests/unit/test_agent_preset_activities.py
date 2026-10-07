@@ -637,14 +637,18 @@ class _ApprovingBackend(DefaultBackend):
 def approving_backend_installed() -> Iterator[None]:
     """Another enabled backend runs approval-gated subagents."""
     registry.get_agent_backends.cache_clear()
-    with patch.object(
-        registry,
-        "entry_points",
-        return_value=[SimpleNamespace(name="external", load=lambda: _ApprovingBackend)],
-    ):
-        assert registry.subagent_approvals_available()
-        yield
-    registry.get_agent_backends.cache_clear()
+    try:
+        with patch.object(
+            registry,
+            "entry_points",
+            return_value=[
+                SimpleNamespace(name="external", load=lambda: _ApprovingBackend)
+            ],
+        ):
+            assert registry.subagent_approvals_available()
+            yield
+    finally:
+        registry.get_agent_backends.cache_clear()
 
 
 @pytest.mark.anyio
