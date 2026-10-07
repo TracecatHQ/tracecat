@@ -118,6 +118,17 @@ export function AgGridTable({
     isActive: isSearching || sortingState.orderBy !== null,
     reset: resetRowQuery,
   })
+  // Deleting or renaming the sorted column removes the only header that could
+  // clear its sort, and no request fails to trigger the reset above.
+  const sortedColumn = sortingState.orderBy
+  useEffect(() => {
+    if (
+      sortedColumn !== null &&
+      !columns.some((column) => column.name === sortedColumn)
+    ) {
+      setSorting("", false)
+    }
+  }, [columns, sortedColumn, setSorting])
 
   useEffect(() => {
     if (id) {
