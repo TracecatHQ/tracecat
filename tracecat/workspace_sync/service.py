@@ -1092,6 +1092,7 @@ class WorkspaceSyncService(SyncMappingService):
             # The synchronous API returns diagnostics. Durable callers use the
             # transaction-neutral method directly so infrastructure errors retain
             # their retry classification at the activity boundary.
+            await self.session.rollback()
             return PullResult(
                 success=False,
                 commit_sha=snapshot.commit_sha,

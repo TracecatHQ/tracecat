@@ -56,6 +56,7 @@ from tracecat.workspace_sync.schemas import (
     WorkspaceManifest,
     WorkspaceManifestResources,
     WorkspaceProjection,
+    WorkspaceRemoteSnapshot,
     WorkspaceSpec,
     WorkspaceSyncExportPreviewRequest,
     WorkspaceSyncExportRequest,
@@ -72,7 +73,7 @@ from tracecat.workspace_sync.transport import (
     _git_blob_sha,
     _git_blob_sha_bytes,
 )
-from tracecat.workspace_sync.types import SyncCommitConflictError
+from tracecat.workspace_sync.types import PreparedSnapshot, SyncCommitConflictError
 from tracecat.workspace_sync.workflow import (
     serialize_workflow_spec,
     workflow_source_path,
@@ -3152,3 +3153,26 @@ async def test_github_new_branch_postpublication_failure_keeps_operation_receipt
         "Push limerick agent", operation_id
     )
     assert repo.call_counts["ref.edit"] == 0
+
+
+@pytest.mark.anyio
+async def test_sync_import_rolls_back_preparation_failure(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    rollback = AsyncMock()
+    workspace_sync_service.session.rollback = rollback
+    snapshot = WorkspaceRemoteSnapshot(
+        commit_sha="a" * 40, files={}, spec=WorkspaceSpec()
+    )
+    workspace_sync_service._prepare_snapshot_for_import = AsyncMock(
+        return_value=PreparedSnapshot(snapshot, [], [], [])
+    )
+    workspace_sync_service.import_prepared_snapshot = AsyncMock(
+        side_effect=RuntimeError("Synthetic preparation failure")
+    )
+    result = await workspace_sync_service._import_snapshot(
+        snapshot, sync_schedules=False
+    )
+    assert not result.success
+    assert result.diagnostics[0].error_type == "transaction"
+    rollback.assert_awaited_once()
