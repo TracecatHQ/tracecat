@@ -52,6 +52,15 @@ jest.mock("@/lib/hooks", () => ({
 }))
 jest.mock("@/components/ui/use-toast", () => ({ toast: jest.fn() }))
 
+const mockHasEntitlement = jest.fn()
+jest.mock("@/hooks/use-entitlements", () => ({
+  useEntitlements: () => ({
+    hasEntitlement: (key: string) => mockHasEntitlement(key),
+    isLoading: false,
+    hasEntitlementData: true,
+  }),
+}))
+
 const ENABLE = "Enable vector search"
 const DISABLE = "Disable vector search"
 const RETRY = "Retry failed rows on this page"
@@ -138,6 +147,7 @@ function openDetails() {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockHasEntitlement.mockImplementation((key) => key === "semantic_search")
   permissions = new Set([
     "workspace:read",
     "table:read",
@@ -191,6 +201,38 @@ test("read permissions gate all authenticated status requests", async () => {
   openMenu()
   await screen.findByText("Remove unique index")
   expect(screen.queryByText(/vector search/)).not.toBeInTheDocument()
+})
+
+test("without the entitlement the badge opens the Enterprise only dialog", async () => {
+  mockHasEntitlement.mockReturnValue(false)
+  setup(provide(<TableSearchBadge />))
+  const badge = await screen.findByLabelText("Semantic search: Enterprise only")
+  fireEvent.pointerEnter(badge)
+  expect(screen.queryByText(/Model:/)).not.toBeInTheDocument()
+  fireEvent.click(badge)
+  const dialog = await screen.findByRole("dialog")
+  expect(dialog).toHaveTextContent("Enterprise only")
+  expect(dialog).toHaveTextContent(
+    "Semantic search is only available on enterprise plans."
+  )
+  expect(tablesGetTableSearch).not.toHaveBeenCalled()
+  expect(searchGetEmbeddingConfiguration).not.toHaveBeenCalled()
+})
+
+test("without the entitlement the column menu item opens the Enterprise only dialog", async () => {
+  mockHasEntitlement.mockReturnValue(false)
+  permissions.delete("table:update")
+  setup(menus())
+  openMenu()
+  const item = await screen.findByRole("menuitem", { name: ENABLE })
+  expect(item).not.toHaveAttribute("data-disabled")
+  fireEvent.click(item)
+  const dialog = await screen.findByRole("dialog")
+  expect(dialog).toHaveTextContent("Enterprise only")
+  expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument()
+  expect(tablesSelectTableSearchColumn).not.toHaveBeenCalled()
+  expect(tablesGetTableSearch).not.toHaveBeenCalled()
+  expect(searchGetEmbeddingConfiguration).not.toHaveBeenCalled()
 })
 
 test("read-only users see the status but cannot change selection or retry", async () => {

@@ -4331,6 +4331,10 @@ export type EffectiveEntitlements = {
    * Whether agent channels are enabled (agent approvals and interactions via Slack and Microsoft Teams)
    */
   agent_channels?: boolean
+  /**
+   * Whether semantic (vector) search over table columns is enabled
+   */
+  semantic_search?: boolean
 }
 
 /**
@@ -4452,6 +4456,10 @@ export type EntitlementsDict = {
    * Whether agent channels are enabled (agent approvals and interactions via Slack and Microsoft Teams)
    */
   agent_channels?: boolean
+  /**
+   * Whether semantic (vector) search over table columns is enabled
+   */
+  semantic_search?: boolean
 }
 
 export type ErrorModel = {

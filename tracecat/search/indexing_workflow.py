@@ -31,6 +31,8 @@ with workflow.unsafe.imports_passed_through():
         IndexingProgress,
     )
     from tracecat.search.types import SearchError
+    from tracecat.tiers.access import is_org_entitled
+    from tracecat.tiers.enums import Entitlement
 
 
 @activity.defn
@@ -67,6 +69,12 @@ async def index_search_collection(work: CollectionWork) -> IndexingProgress:
     """One bounded activity; distributed admission also bounds DB concurrency."""
     safe_error: str | None = None
     try:
+        async with get_async_session_bypass_rls_context_manager() as session:
+            entitled = await is_org_entitled(
+                session, work.organization_id, Entitlement.SEMANTIC_SEARCH
+            )
+        if not entitled:
+            return IndexingProgress(outcome=IndexingOutcome.UNAVAILABLE)
         async with (
             asyncio.timeout(90),
             search_capacity(work.scope, background=True) as acquired,

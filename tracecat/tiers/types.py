@@ -77,3 +77,11 @@ class EntitlementsDict(TypedDict, total=False):
             " and interactions via Slack and Microsoft Teams)",
         ),
     ]
+    semantic_search: Annotated[
+        bool,
+        Field(
+            title="Semantic search",
+            description="Whether semantic (vector) search over table columns"
+            " is enabled",
+        ),
+    ]

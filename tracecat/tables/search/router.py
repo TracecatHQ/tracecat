@@ -23,11 +23,21 @@ from tracecat.tables.search.schemas import (
     TableSearchSelectionErrorResponse,
 )
 from tracecat.tables.search.service import TableSearchService
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
+
+
+async def require_semantic_search_entitlement(
+    role: WorkspaceActorRouteRole, session: AsyncDBSession
+) -> None:
+    await check_entitlement(session, role, Entitlement.SEMANTIC_SEARCH)
+
 
 router = APIRouter(
     prefix="/{table_id}/search",
     tags=["tables"],
     responses={code: {"model": TableSearchErrorResponse} for code in (404, 409)},
+    dependencies=[Depends(require_semantic_search_entitlement)],
 )
 
 

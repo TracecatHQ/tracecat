@@ -1,9 +1,10 @@
 "use client"
 
-import { SearchXIcon, TextSearchIcon } from "lucide-react"
+import { LockIcon, SearchXIcon, TextSearchIcon } from "lucide-react"
 import type { MouseEvent } from "react"
 import type { TableColumnRead } from "@/client"
 import { Spinner } from "@/components/loading/spinner"
+import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import { useTableSearchContext } from "@/components/tables/table-search-context"
 import {
   AlertDialog,
@@ -22,6 +23,25 @@ function isTextColumn(column: TableColumnRead) {
   return column.type.toUpperCase() === "TEXT"
 }
 
+/** Enterprise only dialog shown when an unentitled org opens semantic search. */
+export function TableSearchLockedModal({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  return (
+    <LockedFeatureModal
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Enterprise only"
+      description="Semantic search is only available on enterprise plans."
+      bullets={[]}
+    />
+  )
+}
+
 /** Column menu item that opens the enable or disable vector search confirm. */
 export function TableSearchColumnMenuItem({
   column,
@@ -32,6 +52,18 @@ export function TableSearchColumnMenuItem({
 }) {
   const search = useTableSearchContext()
   if (!search?.canRead || !isTextColumn(column)) return null
+  if (search.locked)
+    return (
+      <DropdownMenuItem
+        className="py-1 text-xs text-foreground/80"
+        onSelect={() => onSelectAction(true)}
+      >
+        <TextSearchIcon className="mr-2 size-3 group-hover/item:text-accent-foreground" />
+        Enable vector search
+        <LockIcon className="ml-3 size-3 text-muted-foreground" />
+      </DropdownMenuItem>
+    )
+  if (!search.entitled) return null
   const { configuration, provider, selection, retry, canUpdate } = search
   const selected =
     configuration.data?.selected_column_ids?.includes(column.id) ?? false
@@ -72,6 +104,14 @@ export function TableSearchColumnDialog({
 }) {
   const search = useTableSearchContext()
   if (!search?.canRead || !isTextColumn(column)) return null
+  if (search.locked)
+    return enabled ? (
+      <TableSearchLockedModal
+        open={open}
+        onOpenChange={(next) => !next && onOpenChange()}
+      />
+    ) : null
+  if (!search.entitled) return null
   const { provider, selection } = search
   const destination = provider.data?.configuration
   const title = enabled ? "Enable vector search" : "Disable vector search"

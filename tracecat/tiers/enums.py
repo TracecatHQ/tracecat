@@ -17,3 +17,4 @@ class Entitlement(StrEnum):
     WATCHTOWER = "watchtower"
     EXTERNAL_SECRET_STORES = "external_secret_stores"
     AGENT_CHANNELS = "agent_channels"
+    SEMANTIC_SEARCH = "semantic_search"

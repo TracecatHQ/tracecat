@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from tracecat.auth.dependencies import WorkspaceUserPathRole, require_workspace_id_path
+from tracecat.db.dependencies import AsyncDBSession
 from tracecat.search.embeddings.schemas import (
     EmbeddingConfigurationRead,
     EmbeddingErrorRead,
@@ -11,6 +12,15 @@ from tracecat.search.embeddings.schemas import (
 from tracecat.search.embeddings.service import WorkspaceEmbeddingService
 from tracecat.search.embeddings.types import EmbeddingError, EmbeddingErrorCode
 from tracecat.search.types import SearchError
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
+
+
+async def require_semantic_search_entitlement(
+    role: WorkspaceUserPathRole, session: AsyncDBSession
+) -> None:
+    await check_entitlement(session, role, Entitlement.SEMANTIC_SEARCH)
+
 
 router = APIRouter(
     prefix="/workspaces/{workspace_id}/search/configuration",
@@ -18,7 +28,10 @@ router = APIRouter(
     responses={
         code: {"model": EmbeddingErrorResponse} for code in (400, 409, 429, 502, 504)
     },
-    dependencies=[Depends(require_workspace_id_path)],
+    dependencies=[
+        Depends(require_workspace_id_path),
+        Depends(require_semantic_search_entitlement),
+    ],
 )
 
 
