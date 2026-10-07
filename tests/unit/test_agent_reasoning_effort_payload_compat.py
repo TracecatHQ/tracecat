@@ -3,8 +3,10 @@
 A newer app version replaces ``enable_thinking`` with ``reasoning_effort`` in
 the agent configs it writes to Temporal. While both versions share task queues,
 this version must decode those payloads through the production converter:
-``"off"`` disables thinking, and any other level, or null, enables it. Payloads
-in today's shape must decode unchanged.
+``"off"`` disables thinking, and any other level, or null, enables it. An
+explicit ``enable_thinking`` wins, and payloads in today's shape decode
+unchanged. Constructing a config directly, as in ``AgentConfig(**payload)``,
+must map the keys the same way.
 """
 
 import json
@@ -28,6 +30,7 @@ from tracecat.agent.session.types import AgentSessionEntity
 from tracecat.agent.subagents import ResolvedAttachedSubagentRef
 from tracecat.agent.types import AgentConfig
 from tracecat.agent.workflow_config import agent_config_to_payload
+from tracecat.agent.workflow_schemas import AgentConfigPayload
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.dsl._converter import PydanticORJSONPayloadConverter
@@ -37,8 +40,10 @@ CONFIG_CASES: list[tuple[dict[str, Any], bool]] = [
     ({"reasoning_effort": None}, True),
     ({"reasoning_effort": "off"}, False),
     ({"reasoning_effort": "high"}, True),
+    ({"enable_thinking": True, "reasoning_effort": "off"}, True),
     ({"enable_thinking": False}, False),
 ]
+CONFIG_CASE_IDS = ["default", "off", "high", "explicit-flag-wins", "current-shape"]
 
 
 def _role() -> Role:
@@ -167,11 +172,7 @@ PAYLOAD_CASES: list[tuple[Callable[[], BaseModel], ConfigPaths, ThinkingChoices]
         "action-args",
     ],
 )
-@pytest.mark.parametrize(
-    ("config_keys", "expected"),
-    CONFIG_CASES,
-    ids=["default", "off", "high", "current-shape"],
-)
+@pytest.mark.parametrize(("config_keys", "expected"), CONFIG_CASES, ids=CONFIG_CASE_IDS)
 def test_payload_keeps_thinking_choice(
     build: Callable[[], BaseModel],
     config_paths: ConfigPaths,
@@ -193,3 +194,40 @@ def test_payload_keeps_thinking_choice(
     decoded = converter.from_payload(payload, type(obj))
 
     assert thinking_choices(decoded) == [expected] * len(config_paths(data))
+
+
+# (config type, its required constructor arguments)
+CONSTRUCTOR_CASES: list[tuple[Callable[..., Any], dict[str, Any]]] = [
+    (AgentConfig, {"model_name": "gpt-5-mini", "model_provider": "openai"}),
+    (SandboxAgentConfig, {"model_name": "gpt-5-mini", "model_provider": "openai"}),
+    (
+        AgentConfigPayload,
+        {"model_name": "gpt-5-mini", "model_provider": "openai", "retries": 3},
+    ),
+    (
+        AgentActionArgs,
+        {
+            "user_prompt": "Investigate the alert",
+            "model_name": "gpt-5-mini",
+            "model_provider": "openai",
+        },
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("config_type", "required"),
+    CONSTRUCTOR_CASES,
+    ids=["agent-config", "sandbox-config", "config-payload", "action-args"],
+)
+@pytest.mark.parametrize(("config_keys", "expected"), CONFIG_CASES, ids=CONFIG_CASE_IDS)
+def test_constructor_keeps_thinking_choice(
+    config_type: Callable[..., Any],
+    required: dict[str, Any],
+    config_keys: dict[str, Any],
+    expected: bool,
+) -> None:
+    """Pydantic dataclass constructors validate ``ArgsKwargs``, not a dict."""
+    config = config_type(**required, **config_keys)
+
+    assert config.enable_thinking is expected

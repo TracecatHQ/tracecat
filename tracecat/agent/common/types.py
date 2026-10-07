@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, TypeGuard
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic_core import ArgsKwargs
 
 from tracecat.agent.subagents import AgentSubagentsConfig
 from tracecat.integrations.schemas import MCPToolStatus
@@ -21,8 +22,15 @@ def read_reasoning_effort_as_enable_thinking(data: Any) -> Any:
     For ``mode="before"`` validators on configs that cross Temporal boundaries,
     so this version can run payloads that a newer worker wrote. ``"off"`` maps to
     ``False``; any other level, or null, maps to ``True``. An explicit
-    ``enable_thinking`` key takes precedence.
+    ``enable_thinking`` key takes precedence. Pydantic dataclass constructors
+    pass ``ArgsKwargs``, whose keyword arguments are mapped the same way.
     """
+    if isinstance(data, ArgsKwargs):
+        if data.kwargs is None:
+            return data
+        return ArgsKwargs(
+            data.args, read_reasoning_effort_as_enable_thinking(data.kwargs)
+        )
     if not isinstance(data, dict) or "reasoning_effort" not in data:
         return data
     data = dict(data)
