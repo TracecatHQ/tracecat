@@ -203,6 +203,23 @@ describe("CaseTasksPanel", () => {
     expect(screen.queryByLabelText("Task title")).not.toBeInTheDocument()
   })
 
+  it("lists tasks alphabetically by title, whatever order the server sent", () => {
+    setTasks([
+      makeTask({ id: "t1", title: "Task 10" }),
+      makeTask({ id: "t2", title: "bravo" }),
+      makeTask({ id: "t3", title: "Task 2" }),
+      makeTask({ id: "t4", title: "Alpha" }),
+    ])
+
+    renderPanel()
+
+    expect(
+      screen
+        .getAllByText(/^(Alpha|bravo|Task 2|Task 10)$/)
+        .map((title) => title.textContent)
+    ).toEqual(["Alpha", "bravo", "Task 2", "Task 10"])
+  })
+
   it("hides the description until the chevron expands it", () => {
     setTasks([
       makeTask({ id: "t1", title: "Documented task", description: "- a" }),
