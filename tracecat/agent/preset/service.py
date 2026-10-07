@@ -16,6 +16,7 @@ from sqlalchemy.orm import load_only, selectinload
 
 from tracecat import config
 from tracecat.agent.access.service import AgentModelAccessService
+from tracecat.agent.backends.registry import subagent_approvals_available
 from tracecat.agent.channels.service import AgentChannelService
 from tracecat.agent.common.config import AGENT_RUNTIME_PROTECTED_ENV_VARS
 from tracecat.agent.common.types import (
@@ -407,8 +408,11 @@ class AgentPresetService(BaseWorkspaceService):
         self, presets: Sequence[AgentPreset]
     ) -> list[AgentPresetReadMinimal]:
         policies = await self.resolve_tool_policies(presets)
+        supports_subagent_approvals = subagent_approvals_available()
         return [
-            build_agent_preset_read_minimal(preset).model_copy(
+            build_agent_preset_read_minimal(
+                preset, supports_subagent_approvals=supports_subagent_approvals
+            ).model_copy(
                 update={
                     "capabilities": _agent_preset_capabilities(
                         agents_config=preset.agents,
@@ -419,6 +423,7 @@ class AgentPresetService(BaseWorkspaceService):
                     "current_version_subagent_eligibility": build_subagent_eligibility(
                         agents_config=preset.agents,
                         tool_approvals=policies[preset.id].tool_approvals,
+                        supports_subagent_approvals=supports_subagent_approvals,
                     ),
                 }
             )
@@ -499,6 +504,7 @@ class AgentPresetService(BaseWorkspaceService):
             subagent_eligibility=build_subagent_eligibility(
                 agents_config=agents,
                 tool_approvals=policy.tool_approvals,
+                supports_subagent_approvals=subagent_approvals_available(),
             ),
             created_at=version.created_at,
             updated_at=version.updated_at,
@@ -1020,6 +1026,7 @@ class AgentPresetService(BaseWorkspaceService):
             parent_preset_id=parent_preset_id,
             parent_slug=parent_slug,
             follow_latest_versions=True,
+            supports_subagent_approvals=subagent_approvals_available(),
         )
         binding = resolved.to_agents_binding()
         await self._lock_active_subagent_presets(binding)
@@ -1774,6 +1781,7 @@ class AgentPresetService(BaseWorkspaceService):
         policies = await self.resolve_tool_policies(
             rows, use_latest_skill_versions=False
         )
+        supports_subagent_approvals = subagent_approvals_available()
         versions = [
             AgentPresetVersionReadMinimal(
                 id=row.id,
@@ -1791,6 +1799,7 @@ class AgentPresetService(BaseWorkspaceService):
                 subagent_eligibility=build_subagent_eligibility(
                     agents_config=row.agents,
                     tool_approvals=policies[row.id].tool_approvals,
+                    supports_subagent_approvals=supports_subagent_approvals,
                 ),
             )
             for row in rows
@@ -2429,6 +2438,7 @@ class AgentPresetService(BaseWorkspaceService):
                 parent_preset_id=version.preset_id,
                 include_runtime_config=False,
                 follow_latest_versions=True,
+                supports_subagent_approvals=subagent_approvals_available(),
             )
             binding = resolved_agents.to_agents_binding()
             agents = AgentSubagentsConfig(

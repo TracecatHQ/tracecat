@@ -4,7 +4,7 @@ import uuid
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from cryptography.fernet import Fernet
@@ -14,6 +14,8 @@ from temporalio.api.failure.v1 import Failure
 from temporalio.exceptions import ActivityError, ApplicationError
 from tracecat_ee.agent.workflows.durable import _agent_activity_classification
 
+from tracecat.agent.backends import registry
+from tracecat.agent.backends.default import DefaultBackend
 from tracecat.agent.preset.activities import (
     ResolveAgentPresetConfigActivityInput,
     ResolveAgentPresetVersionRefActivityInput,
@@ -24,8 +26,10 @@ from tracecat.agent.preset.activities import (
     resolve_custom_model_provider_config_activity,
 )
 from tracecat.agent.preset.resolver import (
+    AgentPresetResolutionService,
     ResolvedAgentsRuntimeConfig,
     ResolvedSubagentConfig,
+    resolve_agents_config,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.service import AgentManagementService
@@ -625,10 +629,34 @@ async def test_resolve_agents_config_classifies_missing_subagent_preset(
     assert exc_info.value.non_retryable is True
 
 
+class _ApprovingBackend(DefaultBackend):
+    subagent_approvals = True
+
+
+@pytest.fixture
+def approving_backend_installed() -> Iterator[None]:
+    """Another enabled backend runs approval-gated subagents."""
+    registry.get_agent_backends.cache_clear()
+    try:
+        with patch.object(
+            registry,
+            "entry_points",
+            return_value=[
+                SimpleNamespace(name="external", load=lambda: _ApprovingBackend)
+            ],
+        ):
+            assert registry.subagent_approvals_available()
+            yield
+    finally:
+        registry.get_agent_backends.cache_clear()
+
+
 @pytest.mark.anyio
+@pytest.mark.usefixtures("approving_backend_installed")
 async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The built-in backend's resolution rejects them, whatever else is installed."""
     version = SimpleNamespace(
         id=uuid.uuid4(),
         preset_id=uuid.uuid4(),
@@ -672,6 +700,48 @@ async def test_resolve_agents_config_rejects_subagent_with_tool_approvals(
     assert classification.owner is RuntimeErrorOwner.USER
     assert classification.kind is RuntimeErrorKind.AGENT_CONFIGURATION_INVALID
     assert exc_info.value.non_retryable is True
+
+
+@pytest.mark.anyio
+async def test_resolve_agents_config_accepts_subagent_with_tool_approvals_on_request() -> (
+    None
+):
+    """A backend that holds a subagent's calls for the parent's decision opts in."""
+    version = SimpleNamespace(
+        id=uuid.uuid4(),
+        preset_id=uuid.uuid4(),
+        version=1,
+        agents={},
+        tool_approvals={"core.http_request": True},
+    )
+    service = SimpleNamespace(
+        resolve_agent_preset_version=AsyncMock(return_value=version),
+        resolve_preset_tool_policy=AsyncMock(),
+        get_preset=AsyncMock(return_value=None),
+        resolve_agent_preset_config=AsyncMock(
+            return_value=AgentConfig(
+                model_name="gpt-4o-mini",
+                model_provider="openai",
+                tool_approvals=version.tool_approvals,
+            )
+        ),
+    )
+
+    result = await resolve_agents_config(
+        cast(AgentPresetResolutionService, service),
+        agents=AgentSubagentsConfig.model_validate(
+            {"subagents": [{"preset": "approval-child"}]}
+        ),
+        include_runtime_config=True,
+        supports_subagent_approvals=True,
+    )
+
+    (child,) = result.subagents
+    assert child.binding.preset_id == version.preset_id
+    assert child.binding.preset_version_id == version.id
+    assert child.config is not None
+    assert child.config.tool_approvals == version.tool_approvals
+    service.resolve_preset_tool_policy.assert_not_awaited()
 
 
 @pytest.mark.anyio

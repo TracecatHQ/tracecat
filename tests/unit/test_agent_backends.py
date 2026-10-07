@@ -122,6 +122,24 @@ def test_disabled_plugins_cannot_be_selected():
         registry.get_agent_backend("external")
 
 
+def test_subagent_approvals_need_an_enabled_backend_that_runs_them():
+    class ApprovingBackend(DefaultBackend):
+        subagent_approvals = True
+
+    # The built-in backend never runs approval-gated subagents.
+    assert DefaultBackend.subagent_approvals is False
+    with patch.object(registry, "entry_points", return_value=[]):
+        assert not registry.subagent_approvals_available()
+    registry.get_agent_backends.cache_clear()
+    provider = ApprovingBackend()
+    with patch.object(
+        registry, "entry_points", return_value=[entry("external", lambda: provider)]
+    ):
+        assert registry.subagent_approvals_available()
+        with patch.object(provider, "is_enabled", return_value=False):
+            assert not registry.subagent_approvals_available()
+
+
 @pytest.mark.parametrize(
     "missing",
     ["name", "task_queue", "default_harness", "supported_harnesses", "workflow"],
@@ -169,6 +187,8 @@ def test_discovery_rejects_missing_required_attributes(missing: str):
         ("supported_harnesses", "claude_code"),
         ("supported_harnesses", ["claude_code"]),
         ("supported_harnesses", frozenset({"claude_code", 123})),
+        ("subagent_approvals", "yes"),
+        ("subagent_approvals", 1),
         ("workflow", None),
         ("workflow", object()),
     ],
