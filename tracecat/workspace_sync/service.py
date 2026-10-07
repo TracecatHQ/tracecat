@@ -8,7 +8,7 @@ from collections import Counter, deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from difflib import unified_diff
-from typing import Any, cast
+from typing import Any, Self, cast
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -116,7 +116,11 @@ from tracecat.workspace_sync.transport import (
     VcsTreeSnapshot,
     vcs_transport_for_provider,
 )
-from tracecat.workspace_sync.types import PreparedSnapshot
+from tracecat.workspace_sync.types import (
+    PreparedPullPreview,
+    PreparedSnapshot,
+    SyncMappingTarget,
+)
 from tracecat.workspace_sync.workflow import (
     workflow_source_path,
     workflow_spec_from_orm,
@@ -135,16 +139,6 @@ class ProjectableWorkflowClosure:
 
     workflows: list[Workflow]
     dsl_by_id: dict[uuid.UUID, DSLInput]
-
-
-@dataclass(frozen=True, slots=True)
-class SyncMappingTarget:
-    """Desired sync mapping state for one projected or imported resource."""
-
-    resource_type: str
-    source_id: str
-    source_path: str
-    local_id: uuid.UUID
 
 
 class WorkspaceSyncService(SyncMappingService):
@@ -177,7 +171,7 @@ class WorkspaceSyncService(SyncMappingService):
         role: Role,
         *,
         transport_factory: VcsTransportFactory | None = None,
-    ) -> WorkspaceSyncService:
+    ) -> Self:
         """Construct the service using the provider configured in workspace settings.
 
         The VCS provider is workspace state (``git_provider``), not a request
@@ -253,6 +247,23 @@ class WorkspaceSyncService(SyncMappingService):
             files=sorted(projection.files),
         )
 
+    async def project_export_preview(
+        self,
+        *,
+        resource_ids: dict[SyncResourceType, set[uuid.UUID]] | None,
+        include_schedules: bool,
+    ) -> WorkspaceProjection:
+        """Project and authorize an export without creating sync mappings."""
+        self._require_workspace_sync_scope()
+        projection = await self.project_workspace(
+            resource_ids=resource_ids,
+            include_schedules=include_schedules,
+            create_missing_mappings=False,
+        )
+        self._require_projected_export_scopes(projection.spec)
+        self._validate_projected_workspace_dependencies(projection.spec)
+        return projection
+
     async def preview_export_workspace(
         self,
         params: WorkspaceSyncExportPreviewRequest,
@@ -266,10 +277,9 @@ class WorkspaceSyncService(SyncMappingService):
         """
         self._require_workspace_sync_scope()
         resource_ids = await self._local_ids_from_resource_refs(params.resources)
-        projection = await self.project_workspace(
+        projection = await self.project_export_preview(
             resource_ids=resource_ids,
             include_schedules=params.include_schedules,
-            create_missing_mappings=False,
         )
         self.logger.info(
             "Projected workspace sync export",
@@ -278,8 +288,6 @@ class WorkspaceSyncService(SyncMappingService):
             projected_file_count=len(projection.files),
             projected_resource_counts=projection.spec.resource_count_map(),
         )
-        self._require_projected_export_scopes(projection.spec)
-        self._validate_projected_workspace_dependencies(projection.spec)
         resource_diffs: list[PullResourceDiff] = []
         if params.compare_ref:
             url = await self._workspace_git_url()
@@ -400,56 +408,14 @@ class WorkspaceSyncService(SyncMappingService):
         self._require_pull_scopes(snapshot.spec, dry_run=options.dry_run)
         # A dry run previews the diff and validates workflows but never writes.
         if options.dry_run:
-            prepared = await self._prepare_snapshot_for_import(
+            prepared = await self.prepare_pull_preview(
                 snapshot,
+                sync_schedules=sync_schedules,
                 requested_catalog_mappings=options.catalog_mappings,
                 requested_mcp_integration_mappings=options.mcp_integration_mappings,
                 requested_secret_store_mappings=options.secret_store_mappings,
             )
-            resource_diffs: list[PullResourceDiff] = []
-            diagnostics = prepared.diagnostics
-            if not diagnostics:
-                resource_diffs = await self._resource_diffs_for_pull(
-                    prepared.snapshot,
-                    sync_schedules=sync_schedules,
-                )
-                diagnostics = await self._validate_workflow_import(prepared.snapshot)
-            if diagnostics:
-                return self._failed_pull_result(
-                    snapshot,
-                    diagnostics,
-                    resource_counts=resource_counts,
-                    resource_diffs=resource_diffs,
-                    catalog_mapping_requirements=(
-                        prepared.catalog_mapping_requirements
-                    ),
-                    mcp_integration_mapping_requirements=(
-                        prepared.mcp_integration_mapping_requirements
-                    ),
-                    secret_store_mapping_requirements=(
-                        prepared.secret_store_mapping_requirements
-                    ),
-                    library_skill_installs=prepared.library_skill_installs,
-                )
-            return PullResult(
-                success=True,
-                commit_sha=snapshot.commit_sha,
-                workflows_found=len(snapshot.spec.workflows),
-                workflows_imported=0,
-                diagnostics=[],
-                message=(
-                    "Dry run completed - "
-                    f"{len(resource_diffs)} resource change(s) detected"
-                ),
-                resource_counts=resource_counts,
-                resource_diffs=resource_diffs,
-                files=sorted(snapshot.files),
-                resources=_sync_preview_resources_from_spec(snapshot.spec),
-                secret_store_mapping_requirements=(
-                    prepared.secret_store_mapping_requirements
-                ),
-                library_skill_installs=prepared.library_skill_installs,
-            )
+            return prepared.preview
         # Real pull: reconcile the snapshot into the database.
         return await self._import_snapshot(
             snapshot,
@@ -458,6 +424,66 @@ class WorkspaceSyncService(SyncMappingService):
             requested_mcp_integration_mappings=options.mcp_integration_mappings,
             requested_secret_store_mappings=options.secret_store_mappings,
         )
+
+    async def prepare_pull_preview(
+        self,
+        snapshot: WorkspaceRemoteSnapshot,
+        *,
+        sync_schedules: bool,
+        requested_catalog_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
+        requested_mcp_integration_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
+        requested_secret_store_mappings: Mapping[str, uuid.UUID | None] | None = None,
+        parse_diagnostics: list[PullDiagnostic] | None = None,
+    ) -> PreparedPullPreview:
+        """Correlate, diff, and validate the same plan for all pull entrypoints."""
+        await self._require_spec_entitlements(snapshot.spec)
+        self._require_pull_scopes(snapshot.spec, dry_run=True)
+        resource_counts = self._resource_counts_from_spec(snapshot.spec)
+        prepared = await self._prepare_snapshot_for_import(
+            snapshot,
+            requested_catalog_mappings=requested_catalog_mappings,
+            requested_mcp_integration_mappings=requested_mcp_integration_mappings,
+            requested_secret_store_mappings=requested_secret_store_mappings,
+        )
+        resource_diffs: list[PullResourceDiff] = []
+        diagnostics = [*(parse_diagnostics or []), *prepared.diagnostics]
+        if not diagnostics:
+            resource_diffs = await self._resource_diffs_for_pull(
+                prepared.snapshot,
+                sync_schedules=sync_schedules,
+            )
+            diagnostics = await self._validate_workflow_import(prepared.snapshot)
+        if diagnostics:
+            preview = self._failed_pull_result(
+                snapshot,
+                diagnostics,
+                resource_counts=resource_counts,
+                resource_diffs=resource_diffs,
+                catalog_mapping_requirements=(prepared.catalog_mapping_requirements),
+                mcp_integration_mapping_requirements=(
+                    prepared.mcp_integration_mapping_requirements
+                ),
+                secret_store_mapping_requirements=prepared.secret_store_mapping_requirements,
+                library_skill_installs=prepared.library_skill_installs,
+            )
+            return PreparedPullPreview(snapshot=prepared.snapshot, preview=preview)
+        preview = PullResult(
+            success=True,
+            commit_sha=snapshot.commit_sha,
+            workflows_found=len(snapshot.spec.workflows),
+            workflows_imported=0,
+            diagnostics=[],
+            message=(
+                f"Dry run completed - {len(resource_diffs)} resource change(s) detected"
+            ),
+            resource_counts=resource_counts,
+            resource_diffs=resource_diffs,
+            files=sorted(snapshot.files),
+            resources=_sync_preview_resources_from_spec(snapshot.spec),
+            secret_store_mapping_requirements=prepared.secret_store_mapping_requirements,
+            library_skill_installs=prepared.library_skill_installs,
+        )
+        return PreparedPullPreview(snapshot=prepared.snapshot, preview=preview)
 
     async def project_workspace(
         self,
@@ -573,6 +599,26 @@ class WorkspaceSyncService(SyncMappingService):
             manifest=manifest,
             spec=spec,
             files=self._files_from_spec(manifest=manifest, spec=spec),
+            mapping_targets=[
+                *(
+                    SyncMappingTarget(
+                        resource_type=SyncResourceType.WORKFLOW.value,
+                        source_id=source_id,
+                        source_path=workflow_source_path(source_id),
+                        local_id=local_id,
+                    )
+                    for local_id, source_id in source_workflow_ids.items()
+                ),
+                *(
+                    SyncMappingTarget(
+                        resource_type=resource.resource_type.value,
+                        source_id=resource.source_id,
+                        source_path=resource.source_path,
+                        local_id=resource.local_id,
+                    )
+                    for resource in projected_resources
+                ),
+            ],
         )
 
     async def _workflow_specs_with_case_tag_source_ids(
@@ -999,6 +1045,8 @@ class WorkspaceSyncService(SyncMappingService):
         requested_catalog_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
         requested_mcp_integration_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
         requested_secret_store_mappings: Mapping[str, uuid.UUID | None] | None = None,
+        changed_resources: set[tuple[str, str]] | None = None,
+        commit: bool = True,
     ) -> PullResult:
         """Reconcile a validated snapshot into the database within one transaction.
 
@@ -1033,6 +1081,49 @@ class WorkspaceSyncService(SyncMappingService):
                 ),
             )
 
+        try:
+            return await self.import_prepared_snapshot(
+                snapshot,
+                sync_schedules=sync_schedules,
+                changed_resources=changed_resources,
+                commit=commit,
+            )
+        except Exception as e:
+            # The synchronous API returns diagnostics. Durable callers use the
+            # transaction-neutral method directly so infrastructure errors retain
+            # their retry classification at the activity boundary.
+            return PullResult(
+                success=False,
+                commit_sha=snapshot.commit_sha,
+                workflows_found=len(snapshot.spec.workflows),
+                workflows_imported=0,
+                diagnostics=[
+                    PullDiagnostic(
+                        workflow_path="",
+                        workflow_title=None,
+                        error_type="transaction",
+                        message=f"Workspace import transaction failed: {str(e)}",
+                        details={"exception": str(e)},
+                    )
+                ],
+                message="Workspace import transaction failed",
+                resource_counts=self._resource_counts_from_spec(snapshot.spec),
+            )
+
+    async def import_prepared_snapshot(
+        self,
+        snapshot: WorkspaceRemoteSnapshot,
+        *,
+        sync_schedules: bool,
+        changed_resources: set[tuple[str, str]] | None = None,
+        mapping_targets: Sequence[SyncMappingTarget] | None = None,
+        commit: bool = False,
+    ) -> PullResult:
+        """Apply a correlated snapshot using the canonical import transaction.
+
+        Durable callers retain the transaction to commit their receipt alongside
+        resource writes; synchronous callers may request an immediate commit.
+        """
         remote_workflows, local_ids = await self._remote_workflows(snapshot)
 
         # Validate before writing anything; bail out on the first set of errors.
@@ -1041,7 +1132,7 @@ class WorkspaceSyncService(SyncMappingService):
             role=self.role,
         )
         workflow_diagnostics = await workflow_importer.validate_workflows(
-            remote_workflows
+            remote_workflows, normalize_existing=False
         )
         if workflow_diagnostics:
             return PullResult(
@@ -1057,8 +1148,65 @@ class WorkspaceSyncService(SyncMappingService):
                 resource_counts=self._resource_counts_from_spec(snapshot.spec),
             )
 
-        has_non_workflow_resources = self._has_non_workflow_resources(snapshot.spec)
-        if not remote_workflows and not has_non_workflow_resources:
+        import_spec = snapshot.spec
+        workflows_to_import = remote_workflows
+        unchanged_mappings: list[SyncMappingTarget] = []
+        if changed_resources is not None:
+            unchanged_resources = {
+                (adapter.resource_type.value, source_id)
+                for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS
+                for source_id in adapter.specs(snapshot.spec)
+            } - changed_resources
+            if unchanged_resources:
+                # A first pull must adopt exact matches too, so subsequent
+                # renames keep their Git identity without re-import side effects.
+                # Durable confirmation supplies its live fingerprint projection,
+                # avoiding a second scan and repeated skill blob downloads.
+                if mapping_targets is None:
+                    projection = await self.project_workspace(
+                        resource_ids={
+                            SyncResourceType(resource_type): set()
+                            for resource_type, _ in unchanged_resources
+                        },
+                        create_missing_mappings=False,
+                    )
+                    mapping_targets = projection.mapping_targets
+                unchanged_mappings = [
+                    target
+                    for target in mapping_targets
+                    if (target.resource_type, target.source_id) in unchanged_resources
+                ]
+            changed_workflow_ids = {
+                local_ids[source_id].short()
+                for resource_type, source_id in changed_resources
+                if resource_type == SyncResourceType.WORKFLOW.value
+                and source_id in local_ids
+            }
+            workflows_to_import = [
+                remote
+                for remote in remote_workflows
+                if remote.id in changed_workflow_ids
+            ]
+            import_spec = workspace_spec_from_maps(
+                {
+                    WORKFLOW_RESOURCE_ADAPTER.spec_attr: snapshot.spec.workflows,
+                    **{
+                        adapter.spec_attr: {
+                            source_id: spec
+                            for source_id, spec in adapter.specs(snapshot.spec).items()
+                            if (adapter.resource_type.value, source_id)
+                            in changed_resources
+                        }
+                        for adapter in NON_WORKFLOW_RESOURCE_ADAPTERS
+                    },
+                }
+            )
+        has_non_workflow_resources = self._has_non_workflow_resources(import_spec)
+        if (
+            not remote_workflows
+            and not has_non_workflow_resources
+            and not unchanged_mappings
+        ):
             return PullResult(
                 success=True,
                 commit_sha=snapshot.commit_sha,
@@ -1095,13 +1243,14 @@ class WorkspaceSyncService(SyncMappingService):
                                 session=self.session,
                                 role=self.role,
                                 mapping_provider=self._mapping_provider,
-                            ).import_non_workflow_resources(snapshot.spec)
+                            ).import_non_workflow_resources(import_spec)
                         await workflow_importer.import_workflows(
-                            remote_workflows,
+                            workflows_to_import,
                             sync_schedules=sync_schedules,
                         )
                         await self._upsert_mappings(
                             [
+                                *unchanged_mappings,
                                 *(
                                     SyncMappingTarget(
                                         resource_type=SyncResourceType.WORKFLOW.value,
@@ -1122,42 +1271,27 @@ class WorkspaceSyncService(SyncMappingService):
                                 ),
                             ]
                         )
-                await self.session.commit()
-        except Exception as e:
+                if commit:
+                    await self.session.commit()
+        except Exception:
             await self.session.rollback()
-            return PullResult(
-                success=False,
-                commit_sha=snapshot.commit_sha,
-                workflows_found=len(remote_workflows),
-                workflows_imported=0,
-                diagnostics=[
-                    PullDiagnostic(
-                        workflow_path="",
-                        workflow_title=None,
-                        error_type="transaction",
-                        message=f"Workspace import transaction failed: {str(e)}",
-                        details={"exception": str(e)},
-                    )
-                ],
-                message="Workspace import transaction failed",
-                resource_counts=self._resource_counts_from_spec(snapshot.spec),
-            )
+            raise
 
         return PullResult(
             success=True,
             commit_sha=snapshot.commit_sha,
             workflows_found=len(remote_workflows),
-            workflows_imported=len(remote_workflows),
+            workflows_imported=len(workflows_to_import),
             diagnostics=[],
             message=(
                 "Successfully imported workspace resources"
                 if imported_resources
-                else f"Successfully imported {len(remote_workflows)} workflows"
+                else f"Successfully imported {len(workflows_to_import)} workflows"
             ),
             resource_counts=self._resource_counts_from_imported(
                 snapshot.spec,
                 imported_resources,
-                imported_workflows=len(remote_workflows),
+                imported_workflows=len(workflows_to_import),
             ),
             library_skill_installs=library_skill_installs,
         )

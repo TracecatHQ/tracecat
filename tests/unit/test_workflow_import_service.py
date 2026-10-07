@@ -1256,3 +1256,113 @@ class TestWorkflowImportService:
         assert result.success is True
         assert result.workflows_imported == 1
         assert len(result.diagnostics) == 0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "alias",
+    [
+        ["synthetic-private-alias"],
+        {"name": "synthetic-private-alias"},
+        42,
+        True,
+        [],
+        {},
+    ],
+)
+async def test_malformed_child_alias_is_sanitized_validation_diagnostic(
+    import_service, sample_dsl, monkeypatch, alias
+):
+    action = sample_dsl.actions[0].model_copy(
+        update={
+            "action": PlatformAction.CHILD_WORKFLOW_EXECUTE,
+            "args": {"workflow_alias": alias},
+        }
+    )
+    definition = sample_dsl.model_copy(update={"actions": [action]})
+    remote = RemoteWorkflowDefinition(
+        id="wf_parent001", alias="parent-workflow", definition=definition
+    )
+    resolve = AsyncMock()
+    monkeypatch.setattr(import_service.wf_mgmt, "resolve_workflow_alias", resolve)
+    diagnostics = await import_service._validate_cross_workflow_integrity([remote])
+    assert len(diagnostics) == 1
+    diagnostic = diagnostics[0]
+    assert diagnostic.error_type == "validation"
+    assert diagnostic.message == "Child workflow alias must be a string"
+    assert diagnostic.details == {"action_ref": action.ref}
+    assert "synthetic-private-alias" not in str(diagnostic)
+    resolve.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("legacy_state", ["missing_system_resources", "stale_edges"])
+async def test_legacy_workflow_import_stays_in_caller_transaction(
+    import_service: WorkflowImportService,
+    remote_workflow_definition: RemoteWorkflowDefinition,
+    session: AsyncSession,
+    legacy_state: str,
+) -> None:
+    remote = remote_workflow_definition
+    await import_service.import_workflows([remote], sync_schedules=False)
+    await session.commit()
+    workflow_id = WorkflowUUID.new(remote.id)
+    workflow = await import_service.wf_mgmt.get_workflow(workflow_id, normalize=False)
+    assert workflow is not None
+    original_title, original_alias = workflow.title, workflow.alias
+    if legacy_state == "missing_system_resources":
+        assert workflow.webhook is not None
+        assert workflow.case_trigger is not None
+        await session.delete(workflow.webhook)
+        await session.delete(workflow.case_trigger)
+    else:
+        workflow.actions[0].upstream_edges = [
+            {"source_id": "missing-action", "source_type": "udf"}
+        ]
+    await session.commit()
+    session.expire_all()
+    modified = remote.model_copy(deep=True)
+    modified.alias = "changed-alias"
+    modified.definition.title = "Changed title"
+
+    with pytest.raises(RuntimeError, match="Failure before receipt"):
+        async with session.begin_nested():
+            # Represents a non-workflow resource flushed before workflow import.
+            session.add(
+                WorkflowTag(
+                    workspace_id=import_service.workspace_id,
+                    name="uncommitted-tag",
+                    ref="uncommitted_tag",
+                )
+            )
+            await session.flush()
+            await import_service.import_workflows([modified], sync_schedules=False)
+            normalized = await import_service.wf_mgmt.get_workflow(
+                workflow_id, normalize=False
+            )
+            assert normalized is not None
+            assert normalized.webhook is not None
+            assert normalized.case_trigger is not None
+            raise RuntimeError("Failure before receipt")
+    await session.rollback()
+    restored = await import_service.wf_mgmt.get_workflow(workflow_id, normalize=False)
+    assert restored is not None
+    assert (restored.title, restored.alias) == (original_title, original_alias)
+    if legacy_state == "missing_system_resources":
+        assert restored.webhook is None
+        assert restored.case_trigger is None
+    else:
+        assert any(
+            edge.get("source_id") == "missing-action"
+            for action in restored.actions
+            for edge in action.upstream_edges
+        )
+    assert (
+        await session.scalar(
+            select(WorkflowTag).where(
+                WorkflowTag.workspace_id == import_service.workspace_id,
+                WorkflowTag.name == "uncommitted-tag",
+            )
+        )
+        is None
+    )
