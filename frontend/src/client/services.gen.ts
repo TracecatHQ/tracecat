@@ -3753,6 +3753,7 @@ export const workflowsCreateSyncOperation = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      404: "Not Found",
       409: "Conflict",
       422: "Validation Error",
     },
@@ -3783,6 +3784,7 @@ export const workflowsListSyncOperations = (
       cursor: data.cursor,
     },
     errors: {
+      404: "Not Found",
       422: "Validation Error",
     },
   })
@@ -3808,6 +3810,7 @@ export const workflowsGetSyncOperation = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      404: "Not Found",
       422: "Validation Error",
     },
   })
@@ -3833,6 +3836,7 @@ export const workflowsApplySyncOperation = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      404: "Not Found",
       409: "Conflict",
       422: "Validation Error",
     },
@@ -3859,6 +3863,7 @@ export const workflowsRetrySyncOperation = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      404: "Not Found",
       409: "Conflict",
       422: "Validation Error",
     },
@@ -3890,6 +3895,7 @@ export const workflowsListSyncDiffs = (
     },
     errors: {
       400: "Bad Request",
+      404: "Not Found",
       410: "Gone",
       422: "Validation Error",
     },

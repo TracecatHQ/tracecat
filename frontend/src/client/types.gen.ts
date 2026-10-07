@@ -20197,6 +20197,10 @@ export type $OpenApiTs = {
          */
         202: SyncOperationRead
         /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
          * Conflict
          */
         409: SyncOperationError
@@ -20214,6 +20218,10 @@ export type $OpenApiTs = {
          */
         200: Page_SyncOperationRead_
         /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -20229,6 +20237,10 @@ export type $OpenApiTs = {
          */
         200: SyncOperationRead
         /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -20243,6 +20255,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         202: SyncOperationRead
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
         /**
          * Conflict
          */
@@ -20262,6 +20278,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         202: SyncOperationRead
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
         /**
          * Conflict
          */
@@ -20285,6 +20305,10 @@ export type $OpenApiTs = {
          * Bad Request
          */
         400: SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
         /**
          * Gone
          */
