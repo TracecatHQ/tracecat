@@ -259,3 +259,18 @@ async def test_update_preset_forwards_deprecated_enable_thinking(
         "/agent/presets/by-slug/case-triage",
         json={"enable_thinking": True},
     )
+
+
+@pytest.mark.anyio
+async def test_create_preset_forwards_deprecated_enable_thinking(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    """Callers written before reasoning levels keep working; the API maps the
+    flag to a level."""
+    await agents_client.create_preset(name="Case triage", enable_thinking=False)
+
+    mock_tracecat_client.post.assert_awaited_once_with(
+        "/agent/presets",
+        json={"name": "Case triage", "enable_thinking": False},
+    )
