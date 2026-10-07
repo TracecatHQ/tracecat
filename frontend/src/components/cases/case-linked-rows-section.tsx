@@ -19,6 +19,7 @@ import {
 import { TableSidePanelContent } from "@/components/tables/table-side-panel"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCaseLinkedTables } from "@/hooks/use-case-rows"
+import { useEntitlements } from "@/hooks/use-entitlements"
 import { cn } from "@/lib/utils"
 
 /** Props for {@link CaseLinkedRowsSection}. */
@@ -63,6 +64,8 @@ export function CaseLinkedRowsSection({
     useScopeCheck("case:update", ["table:create"], { all: true }) === true
   // Cell edits go through the table's own row update.
   const canEditCells = useScopeCheck("table:update") === true
+  const { hasEntitlement } = useEntitlements()
+  const canViewRelatedCases = hasEntitlement("case_addons")
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
   const [linkDialogTableId, setLinkDialogTableId] = useState<string>()
 
@@ -109,6 +112,7 @@ export function CaseLinkedRowsSection({
             // columns: there is nothing left to insert into.
             canAddRow={canAddRow && linkedTable.table_name != null}
             canEditCells={canEditCells}
+            canViewRelatedCases={canViewRelatedCases}
             onLinkRows={() => openDialog(linkedTable.table_id)}
           />
         ))}

@@ -525,6 +525,7 @@ async def get_linked_case_rows(
     display_group="Cases",
     description="List the cases that link a table row.",
     namespace="core.cases",
+    required_entitlements=["case_addons"],
 )
 async def list_cases_by_row(
     table_id: Annotated[

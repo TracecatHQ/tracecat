@@ -123,6 +123,8 @@ export interface CaseLinkedTableProps {
   canAddRow: boolean
   /** Whether the viewer holds `table:update`; gates editing cells. */
   canEditCells: boolean
+  /** Whether the org has `case_addons`; gates *View related cases*. */
+  canViewRelatedCases: boolean
   onLinkRows: () => void
   /**
    * Opens a row's related cases. The expanded dialog hands this up to the
@@ -171,6 +173,7 @@ export function CaseLinkedTable({
   canLink,
   canAddRow,
   canEditCells,
+  canViewRelatedCases,
   onLinkRows,
   onViewRelatedCases,
   variant = "inline",
@@ -383,6 +386,8 @@ export function CaseLinkedTable({
     return rows.find((row) => row.id === rowId) ?? null
   }
 
+  const hasRowMenu = canViewRelatedCases || canEditCells || canUpdate
+
   function handleGridPointerDown(event: PointerEvent<HTMLDivElement>) {
     if (event.button === 2 || event.ctrlKey) {
       setMenuRow(rowAtEvent(event.target))
@@ -390,7 +395,7 @@ export function CaseLinkedTable({
   }
 
   function handleGridContextMenu(event: MouseEvent<HTMLDivElement>) {
-    const row = rowAtEvent(event.target)
+    const row = hasRowMenu ? rowAtEvent(event.target) : null
     if (!row) {
       // Stops the menu opening empty; Radix skips a prevented event.
       event.preventDefault()
@@ -468,13 +473,15 @@ export function CaseLinkedTable({
         </ContextMenuTrigger>
         {menuRow && (
           <ContextMenuContent className="w-48">
-            <ContextMenuItem
-              className="text-xs"
-              onSelect={() => viewRelatedCases(menuRow)}
-            >
-              <Layers className="mr-2 size-3.5" />
-              View related cases
-            </ContextMenuItem>
+            {canViewRelatedCases && (
+              <ContextMenuItem
+                className="text-xs"
+                onSelect={() => viewRelatedCases(menuRow)}
+              >
+                <Layers className="mr-2 size-3.5" />
+                View related cases
+              </ContextMenuItem>
+            )}
             {canEditCells && (
               <ContextMenuItem
                 className="text-xs"
@@ -487,7 +494,9 @@ export function CaseLinkedTable({
             )}
             {canUpdate && (
               <>
-                <ContextMenuSeparator />
+                {(canViewRelatedCases || canEditCells) && (
+                  <ContextMenuSeparator />
+                )}
                 <ContextMenuItem
                   className="text-xs text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
                   disabled={unlinkCaseRowsIsPending}
@@ -688,6 +697,7 @@ export function CaseLinkedTable({
         canLink={canLink}
         canAddRow={canAddRow}
         canEditCells={canEditCells}
+        canViewRelatedCases={canViewRelatedCases}
         onLinkRows={onLinkRows}
         onViewRelatedCases={(target) => {
           // The page's drawer sits outside the modal dialog, inert under it.

@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import sqlalchemy as sa
@@ -29,7 +30,7 @@ from tracecat.cases.rows.service import (
 from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.db.models import CaseEvent, CaseTableRow, Table, Workspace
-from tracecat.exceptions import TracecatNotFoundError
+from tracecat.exceptions import EntitlementRequired, TracecatNotFoundError
 from tracecat.pagination import CursorPaginationParams
 from tracecat.tables.enums import SqlType
 from tracecat.tables.schemas import TableColumnCreate, TableCreate, TableRowInsert
@@ -1847,3 +1848,20 @@ async def test_list_linked_cases_raises_for_missing_table(
             row_id=uuid.uuid4(),
             params=CursorPaginationParams(limit=10),
         )
+
+
+@pytest.mark.anyio
+async def test_list_linked_cases_requires_case_addons(
+    case_rows_service: CaseTableRowsService,
+) -> None:
+    with patch.object(
+        case_rows_service,
+        "has_entitlement",
+        new=AsyncMock(return_value=False),
+    ):
+        with pytest.raises(EntitlementRequired, match="case_addons"):
+            await case_rows_service.list_linked_cases(
+                table_id=uuid.uuid4(),
+                row_id=uuid.uuid4(),
+                params=CursorPaginationParams(limit=10),
+            )
