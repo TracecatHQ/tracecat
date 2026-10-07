@@ -662,6 +662,9 @@ async def test_workspace_chat_preset_config_scope_filters_actions() -> None:
             # Only the one action the user is scoped for survives; the privileged
             # workflow-edit and case-delete tools are stripped.
             assert resolved.actions == ["core.workflow.get_workflow"]
+            # Saved subagents compile under the elevated role, so they carry
+            # the caller's own scopes for the tool-build filter.
+            assert resolved.subagent_action_scopes == service.role.scopes
             # Instructions still combine preset + entity context.
             assert resolved.instructions == "preset instructions\n\nentity instructions"
 

@@ -69,6 +69,11 @@ jest.mock("@/hooks/use-chat", () => ({
   makeContinueMessage: jest.fn(),
 }))
 jest.mock("@/lib/hooks", () => ({
+  useUserScopes: () => ({
+    userScopes: { scopes: ["*"] },
+    isLoading: false,
+    error: null,
+  }),
   useBuilderRegistryActions: jest.fn(() => ({
     registryActions: [],
     registryActionsIsLoading: false,

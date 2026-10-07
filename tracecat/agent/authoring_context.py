@@ -23,7 +23,10 @@ from tracecat.authz.controls import has_scope
 from tracecat.integrations.enums import IntegrationStatus, OAuthGrantType
 from tracecat.integrations.schemas import ProviderKey
 from tracecat.integrations.service import IntegrationService
-from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.actions.service import (
+    RegistryActionsService,
+    infer_secret_type_from_keys,
+)
 from tracecat.secrets.constants import DEFAULT_SECRETS_ENVIRONMENT
 from tracecat.secrets.service import SecretsService, secret_key_names
 from tracecat.variables.service import VariablesService
@@ -314,6 +317,13 @@ async def build_action_contexts(
     return action_contexts
 
 
+def _effective_secret_type(secret: RegistrySecret) -> str:
+    """Infer the type from key shape for manifests stored before ``secret_type``."""
+    if "secret_type" not in secret.model_fields_set and secret.keys:
+        return infer_secret_type_from_keys(secret.keys)
+    return secret.secret_type
+
+
 async def filter_configured_actions(
     action_names: list[str], *, registry: RegistryActionsService, role: Role
 ) -> list[str]:
@@ -354,7 +364,7 @@ async def filter_configured_actions(
                     if not (
                         isinstance(secret, RegistrySecret)
                         and secret.optional
-                        and secret.secret_type in ("mtls", "ca_cert")
+                        and _effective_secret_type(secret) in ("mtls", "ca_cert")
                     )
                 ]
             )

@@ -31,7 +31,13 @@ from tracecat.exceptions import EntitlementRequired
 from tracecat.identifiers.workflow import WorkspaceUUID
 from tracecat.tiers import defaults as tier_defaults
 from tracecat.tiers.enums import Entitlement
-from tracecat.workspaces.schemas import WorkspaceUpdate
+from tracecat.workspaces.schemas import (
+    ChatCapabilitySelection,
+    WorkspaceChatSettings,
+    WorkspaceSettingsRead,
+    WorkspaceSettingsUpdate,
+    WorkspaceUpdate,
+)
 from tracecat.workspaces.service import WorkspaceService
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -205,12 +211,13 @@ async def _create_workspace(
     workspace_db: WorkspaceDatabase,
     organization_id: uuid.UUID,
     name: str,
+    settings: WorkspaceSettingsUpdate | None = None,
 ) -> Workspace:
     """Create a workspace in a fresh session for real admission behavior."""
     async with workspace_db.session_factory() as session:
         await _set_transaction_timeouts(session)
         service = WorkspaceService(session, role=_service_role(organization_id))
-        return await service.create_workspace(name)
+        return await service.create_workspace(name, settings=settings)
 
 
 async def _ensure_default_workspace(
@@ -379,3 +386,29 @@ async def test_concurrent_default_workspace_bootstrap_is_idempotent(
 
     assert results == [None, None]
     assert await workspace_db.count_workspaces(organization_id) == 1
+
+
+@pytest.mark.anyio
+async def test_create_workspace_persists_chat_limits(
+    workspace_db: WorkspaceDatabase,
+) -> None:
+    """Chat limits sent at creation must not leave the workspace unrestricted."""
+    organization_id = await workspace_db.create_organization()
+    none = ChatCapabilitySelection(mode="none")
+
+    workspace = await _create_workspace(
+        workspace_db,
+        organization_id,
+        "restricted",
+        WorkspaceSettingsUpdate(
+            chat=WorkspaceChatSettings(tools=none, mcp=none, subagents=none)
+        ),
+    )
+
+    chat = WorkspaceSettingsRead.model_validate(workspace.settings).chat
+    assert chat is not None
+    assert (chat.tools.mode, chat.mcp.mode, chat.subagents.mode) == (
+        "none",
+        "none",
+        "none",
+    )

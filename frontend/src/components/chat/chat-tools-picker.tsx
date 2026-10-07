@@ -531,7 +531,7 @@ export function ChatToolsPicker({
                         title={tool.label}
                         subtitle={tool.group}
                         checked={isSelected}
-                        disabled={!isSelected && toolsAtLimit}
+                        disabled={disabled || (!isSelected && toolsAtLimit)}
                         onToggle={() => toggleTool(tool.value)}
                       />
                     )
@@ -578,7 +578,7 @@ export function ChatToolsPicker({
                             title={integration.name}
                             subtitle={integration.description}
                             checked={isSelected}
-                            disabled={!isSelected && mcpAtLimit}
+                            disabled={disabled || (!isSelected && mcpAtLimit)}
                             onToggle={() => toggleMcp(integration.id)}
                           />
                         )
@@ -653,6 +653,7 @@ export function ChatToolsPicker({
                       onToggleTool={toggleTool}
                       selectedTools={selectedTools}
                       atLimit={toolsAtLimit}
+                      disabled={disabled}
                     />
                   )
                 })
@@ -852,6 +853,7 @@ function AddGroupRow({
   onToggleTool,
   selectedTools,
   atLimit,
+  disabled,
 }: {
   group: string
   tools: ToolOption[]
@@ -863,10 +865,11 @@ function AddGroupRow({
   onToggleTool: (value: string) => void
   selectedTools: string[]
   atLimit: boolean
+  disabled: boolean
 }) {
   // At the cap, block adding the whole group (unless it's already fully on, so
   // it can still be turned off) and any individual unselected tool in it.
-  const groupSwitchDisabled = atLimit && !allSelected
+  const groupSwitchDisabled = disabled || (atLimit && !allSelected)
   return (
     <div>
       <div className="flex items-center gap-2.5 px-3 py-1.5 hover:bg-muted">
@@ -896,7 +899,7 @@ function AddGroupRow({
         <div className="bg-muted/30">
           {tools.map((tool) => {
             const isSelected = selectedTools.includes(tool.value)
-            const toolDisabled = atLimit && !isSelected
+            const toolDisabled = disabled || (atLimit && !isSelected)
             return (
               <label
                 key={tool.value}

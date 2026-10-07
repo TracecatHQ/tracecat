@@ -202,7 +202,7 @@ class SecretAggregate(TypedDict):
     secret_type: str | None
 
 
-def _infer_secret_type_from_keys(keys: list[str]) -> str:
+def infer_secret_type_from_keys(keys: list[str]) -> str:
     """Infer registry secret_type from key shape.
 
     Handles manifests stored before the secret_type field was added.
@@ -1258,7 +1258,7 @@ class RegistryActionsService(BaseOrgService):
                     # when it wasn't explicitly set (old manifests).
                     declared_type = secret.secret_type
                     if "secret_type" not in secret.model_fields_set and secret.keys:
-                        declared_type = _infer_secret_type_from_keys(secret.keys)
+                        declared_type = infer_secret_type_from_keys(secret.keys)
 
                     entry = aggregated.setdefault(
                         secret.name,

@@ -1027,7 +1027,7 @@ class TestClaudeAgentRuntimeRun:
             },
         }
         assert set(options.allowed_tools) == {
-            "mcp__tracecat-registry__core__http_request",
+            "mcp__tracecat-registry__*",
             "mcp__local-tools__*",
             "Agent",
             "Task",
@@ -1158,7 +1158,7 @@ class TestClaudeAgentRuntimeRun:
             "args": ["sentinelone-mcp"],
         }
         assert set(options.allowed_tools) == {
-            "mcp__tracecat-registry__core__http_request",
+            "mcp__tracecat-registry__*",
             "mcp__sentinel-one__list_alerts",
             "Agent",
             "Task",
@@ -1230,7 +1230,7 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options
         options = captured_options[0]
         assert set(options.allowed_tools) == {
-            "mcp__tracecat-registry__core__http_request",
+            "mcp__tracecat-registry__*",
             "mcp__sentinel-one__quarantine_host",
             "Agent",
             "Task",
@@ -1438,7 +1438,7 @@ class TestClaudeAgentRuntimeRun:
         options = captured_options[0]
         assert options.model == "anthropic/claude-3-5-sonnet-20241022"
         assert set(options.allowed_tools) == {
-            "mcp__tracecat-registry__core__http_request",
+            "mcp__tracecat-registry__*",
             "Agent",
             "Task",
         }

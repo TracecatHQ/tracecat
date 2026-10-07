@@ -814,7 +814,7 @@ async def test_mcp_bridge_forwards_catalog_sized_auth_header(
     async def upstream(
         reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
-        received.append(await reader.readexactly(len(request)))
+        received.append(await reader.readuntil(b"\r\n\r\n"))
         writer.write(
             b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
         )
@@ -822,7 +822,9 @@ async def test_mcp_bridge_forwards_catalog_sized_auth_header(
         writer.close()
         await writer.wait_closed()
 
-    server = await asyncio.start_unix_server(upstream, path=str(socket_path))
+    server = await asyncio.start_unix_server(
+        upstream, path=str(socket_path), limit=1024 * 1024
+    )
     bridge = SandboxSocketBridge(
         socket_path=socket_path,
         max_body_size=LLM_MAX_BODY_SIZE,
@@ -839,7 +841,7 @@ async def test_mcp_bridge_forwards_catalog_sized_auth_header(
             assert (await reader.read()).endswith(b"ok")
             writer.close()
             await writer.wait_closed()
-        assert received == [request]
+        assert received == [request[:-2] + b"Connection: close\r\n\r\n"]
     finally:
         await bridge.stop()
         server.close()

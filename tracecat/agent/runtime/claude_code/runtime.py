@@ -1539,10 +1539,16 @@ class ClaudeAgentRuntime:
         """Return root Claude tools explicitly allowed for this turn."""
         allowed_tools = self._allowed_tools_for_mcp_scope(
             registry_server_name=REGISTRY_MCP_SERVER_NAME,
-            actions=actions,
+            actions=None,
             stdio_server_names=stdio_server_names,
             stdio_tools_by_server=stdio_tools_by_server,
         )
+        # The registry proxy exposes only signed actions. One wildcard keeps
+        # catalog-sized allowlists under Linux's per-argument limit.
+        if actions:
+            allowed_tools.append(
+                self._mcp_tool_wildcard_for_server(REGISTRY_MCP_SERVER_NAME)
+            )
         allowed_tools.extend(sorted(AGENT_TOOL_NAMES))
         return allowed_tools
 

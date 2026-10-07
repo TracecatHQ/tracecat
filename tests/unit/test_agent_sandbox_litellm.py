@@ -3813,7 +3813,11 @@ async def test_large_mcp_config_uses_file_instead_of_process_argument(
     )
     command = await transport._build_claude_command()
     config_path = tmp_path / "claude-mcp.json"
-    runtime_path = Path("/run/tracecat/job/claude-mcp.json") if jailed else config_path
+    runtime_path = (
+        session_paths_module.JAILED_AGENT_JOB_DIR / config_path.name
+        if jailed
+        else config_path
+    )
     assert command[command.index("--mcp-config") + 1] == str(runtime_path)
     assert all(len(arg.encode()) < 128 * 1024 for arg in command)
     assert (

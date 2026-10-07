@@ -63,6 +63,11 @@ async def test_configured_action_filter_uses_required_credentials_and_nested_ste
         "tools.oauth": [
             RegistryOAuthSecret(provider_id="example", grant_type="authorization_code")
         ],
+        # Manifests stored before ``secret_type`` carry only the key shape.
+        "tools.legacy_cert": [
+            RegistrySecret(name="ca_cert", keys=["CA_CERTIFICATE"], optional=True),
+            RegistrySecret(name="missing", keys=["TOKEN"], optional=True),
+        ],
     }
     manifest = RegistryVersionManifest(
         actions={
@@ -85,7 +90,7 @@ async def test_configured_action_filter_uses_required_credentials_and_nested_ste
         action_type="template",
         interface={"expects": {}, "returns": {}},
         implementation={
-            "template_action": {"definition": {"steps": [{"action": "tools.missing"}]}}
+            "template_action": {"definition": {"steps": [{"action": "tools.ready"}]}}
         },
     )
     registry = RegistryActionsService(
@@ -149,6 +154,7 @@ async def test_configured_action_filter_uses_required_credentials_and_nested_ste
             "tools.ready",
             "tools.auth_alternatives",
             "tools.oauth",
+            "tools.nested",
         ]
         lookup.assert_awaited_once_with(names)
         secret_service.list_org_secrets.assert_not_called()
@@ -164,6 +170,7 @@ async def test_configured_action_filter_uses_required_credentials_and_nested_ste
             "tools.org",
             "tools.auth_alternatives",
             "tools.oauth",
+            "tools.nested",
         ]
         # The org URL must not fill the incomplete workspace credential.
         secret_service.list_org_secrets.assert_awaited_once()
@@ -174,7 +181,17 @@ async def test_configured_action_filter_uses_required_credentials_and_nested_ste
             "core.free",
             "core.optional",
             "tools.ready",
+            "tools.nested",
         ]
+
+    # Real loaders: a caller without secret or integration scopes sees no
+    # credentials, so only built-in tools remain.
+    with patch.object(
+        registry, "get_actions_from_index", new=AsyncMock(return_value=indexed)
+    ):
+        assert await filter_configured_actions(
+            names, registry=registry, role=registry.role
+        ) == ["core.free", "core.optional"]
 
 
 class TestBuildExampleFromSchema:

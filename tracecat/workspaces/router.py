@@ -97,7 +97,9 @@ async def create_workspace(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     service = WorkspaceService(session, role=role)
     try:
-        workspace = await service.create_workspace(params.name)
+        workspace = await service.create_workspace(
+            params.name, settings=params.settings
+        )
     except TracecatAuthorizationError as e:
         logger.warning(
             "User does not have the required scope",

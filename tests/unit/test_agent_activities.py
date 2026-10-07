@@ -937,12 +937,14 @@ class TestBuildToolDefinitionsActivity:
         check_entitlement.assert_not_awaited()
 
     @pytest.mark.anyio
-    @pytest.mark.parametrize("entity_type", [None, "copilot"])
+    @pytest.mark.parametrize("searchable_tool_catalog", [False, True])
+    @pytest.mark.parametrize("model_provider", ["anthropic", "bedrock"])
     async def test_build_agent_tool_definitions_returns_partitioned_scopes(
         self,
         monkeypatch: pytest.MonkeyPatch,
         mock_role: Role,
-        entity_type: str | None,
+        searchable_tool_catalog: bool,
+        model_provider: str,
     ) -> None:
         build_calls: list[list[str] | None] = []
         limits: list[int] = []
@@ -951,7 +953,6 @@ class TestBuildToolDefinitionsActivity:
             actions = kwargs.get("actions")
             build_calls.append(actions)
             limits.append(kwargs["max_tools"])
-            action_name = actions[0] if actions else "core.default"
             return BuildToolsResult(
                 tools=[
                     Tool(
@@ -959,6 +960,7 @@ class TestBuildToolDefinitionsActivity:
                         description=f"{action_name} tool",
                         parameters_json_schema={"type": "object"},
                     )
+                    for action_name in actions or ["core.default"]
                 ],
                 collected_secrets=set(),
             )
@@ -998,16 +1000,17 @@ class TestBuildToolDefinitionsActivity:
                     BuildAgentScopeToolDefsArgs(
                         scope="root",
                         tool_filters=ToolFilters(actions=["core.root"]),
+                        # Auth metadata alone must not lift the cap.
                         internal_tool_context=InternalToolContext(
-                            entity_type=entity_type
+                            entity_type="copilot"
                         ),
+                        model_provider=model_provider,
+                        searchable_tool_catalog=searchable_tool_catalog,
                     ),
                     BuildAgentScopeToolDefsArgs(
                         scope="analyst",
-                        tool_filters=ToolFilters(actions=["core.child"]),
-                        internal_tool_context=InternalToolContext(
-                            entity_type=entity_type
-                        ),
+                        tool_filters=ToolFilters(actions=["core.child", "core.denied"]),
+                        action_scopes=frozenset({"action:core.child:execute"}),
                     ),
                 ],
             )
@@ -1016,9 +1019,10 @@ class TestBuildToolDefinitionsActivity:
         assert set(result.scopes) == {"root", "analyst"}
         assert set(result.scopes["root"].tool_definitions) == {"core.root"}
         assert set(result.scopes["analyst"].tool_definitions) == {"core.child"}
-        assert build_calls == [["core.root"], ["core.child"]]
+        assert build_calls == [["core.root"], ["core.child", "core.denied"]]
+        uncapped = searchable_tool_catalog and model_provider != "bedrock"
         assert limits == [
-            0 if entity_type == "copilot" else config.TRACECAT__AGENT_MAX_TOOLS,
+            0 if uncapped else config.TRACECAT__AGENT_MAX_TOOLS,
             config.TRACECAT__AGENT_MAX_TOOLS,
         ]
 

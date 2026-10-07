@@ -2752,6 +2752,7 @@ class AgentSessionService(BaseWorkspaceService):
                         preset_config,
                         instructions=combined_instructions,
                         actions=scoped_actions,
+                        subagent_action_scopes=self.role.scopes or frozenset(),
                         builtin_skills=builtin_skills,
                     )
                     yield config
@@ -2772,6 +2773,7 @@ class AgentSessionService(BaseWorkspaceService):
                         actions=actions,
                         mcp_servers=mcp_servers,
                         agents=agents,
+                        subagent_action_scopes=self.role.scopes or frozenset(),
                         builtin_skills=builtin_skills,
                     )
         elif session_entity in (

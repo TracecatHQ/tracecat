@@ -32,6 +32,7 @@ from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 from tracecat.workspaces.schemas import (
     WorkspaceSearch,
+    WorkspaceSettingsUpdate,
     WorkspaceUpdate,
 )
 
@@ -146,6 +147,7 @@ class WorkspaceService(BaseOrgService):
         self,
         name: str,
         *,
+        settings: WorkspaceSettingsUpdate | None = None,
         override_id: UUID4 | None = None,
     ) -> Workspace:
         """Create a new workspace.
@@ -159,7 +161,11 @@ class WorkspaceService(BaseOrgService):
                 self.session, self.role, Entitlement.MULTI_WORKSPACE
             )
 
-        workspace = Workspace(name=name, organization_id=self.organization_id)
+        workspace = Workspace(
+            name=name,
+            organization_id=self.organization_id,
+            settings=settings.model_dump(exclude_unset=True) if settings else {},
+        )
         if override_id:
             workspace.id = override_id
         self.session.add(workspace)
@@ -224,11 +230,28 @@ class WorkspaceService(BaseOrgService):
             if settings_update is None:
                 statement = statement.values(settings={})
             else:
-                statement = statement.values(
-                    settings=func.coalesce(Workspace.settings, cast("{}", JSONB)).op(
-                        "||"
-                    )(bindparam("settings_patch", type_=JSONB))
-                )
+                settings_expr = func.coalesce(Workspace.settings, cast("{}", JSONB)).op(
+                    "||"
+                )(bindparam("settings_patch", type_=JSONB))
+                # Null still clears ``chat``; an object merges per capability so
+                # a partial patch cannot reset omitted limits to unrestricted.
+                if isinstance(settings_update.get("chat"), dict) and (
+                    chat_patch := settings_update.pop("chat")
+                ):
+                    current_chat = func.coalesce(
+                        func.nullif(
+                            Workspace.settings.op("->")("chat"), cast("null", JSONB)
+                        ),
+                        cast("{}", JSONB),
+                    )
+                    settings_expr = settings_expr.op("||")(
+                        func.jsonb_build_object(
+                            "chat",
+                            current_chat.op("||")(bindparam("chat_patch", type_=JSONB)),
+                        )
+                    )
+                    statement_params["chat_patch"] = chat_patch
+                statement = statement.values(settings=settings_expr)
                 statement_params["settings_patch"] = settings_update
         if set_fields:
             statement = statement.values(**set_fields)

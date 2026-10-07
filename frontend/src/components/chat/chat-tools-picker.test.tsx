@@ -575,4 +575,5 @@ it("allows one-off workspace choices above the legacy extras cap and can reset",
     screen.getByRole("button", { name: "Use workspace defaults" })
   )
   expect(onReset).toHaveBeenCalledTimes(1)
+  expect(onToolsChange).toHaveBeenCalledTimes(1)
 })

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections.abc import Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -26,6 +27,9 @@ from tracecat.agent.worker import get_activities as get_agent_worker_activities
 from tracecat.dsl.interceptor import RuntimeErrorAttributionInterceptor
 from tracecat.dsl.worker import get_activities as get_dsl_worker_activities
 from tracecat.search import indexing_schedule
+
+TEMPORAL_PAYLOAD_LIMIT_BYTES = 2 * 1024 * 1024
+"""Temporal's default per-payload size limit."""
 
 
 @pytest.fixture(autouse=True)
@@ -359,9 +363,29 @@ async def test_agent_worker_registers_runtime_error_attribution_interceptor(
     assert isinstance(captured_interceptors[0], RuntimeErrorAttributionInterceptor)
 
     converter = client_factory.call_args.kwargs["data_converter"]
-    large_catalog = {"tools": ["synthetic tool definition" * 100] * 1500}
+    # Distinct schema-shaped definitions; repeated strings compress unrealistically.
+    large_catalog = {
+        "tools": [
+            {
+                "name": f"tools.vendor_{i}.action_{i}",
+                "description": f"Run vendor {i} operation {uuid.uuid4().hex}. " * 4,
+                "parameters_json_schema": {
+                    "type": "object",
+                    "properties": {
+                        f"field_{i}_{j}": {
+                            "type": "string",
+                            "description": f"Input {j} for action {i}: {uuid.uuid4().hex}",
+                        }
+                        for j in range(6)
+                    },
+                    "required": [f"field_{i}_0"],
+                },
+            }
+            for i in range(1500)
+        ]
+    }
     encoded = await converter.encode([large_catalog])
-    assert sum(len(payload.data) for payload in encoded) < 2 * 1024 * 1024
+    assert sum(len(payload.data) for payload in encoded) < TEMPORAL_PAYLOAD_LIMIT_BYTES
     # Existing non-compressing clients must still read agent-worker output.
     assert await worker.get_data_converter(compression_enabled=False).decode(
         encoded

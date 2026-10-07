@@ -653,6 +653,17 @@ def test_agent_tool_build_failure_attributes_owner_by_cause(
     assert classification.cause_type == type(error).__name__
 
 
+def test_bedrock_workspace_chat_tool_limit_tells_user_to_select_tools() -> None:
+    error = AgentToolLimitExceededError(requested=129, limit=128)
+
+    message = agent_tool_build_failure(error, bedrock_workspace_chat=True).message
+
+    assert message == (
+        "Agent requests 129 tools; the limit is 128. "
+        "Bedrock does not support all tools; select specific tools"
+    )
+
+
 def test_invalid_agent_tools_message_is_bounded() -> None:
     # The long name sorts first so it is shown and must be truncated.
     long_name = "a." + "x" * 200

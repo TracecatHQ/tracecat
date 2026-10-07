@@ -8,11 +8,14 @@ export type ResolvedChatSettings = {
 export function resolveChatSettings(
   settings?: WorkspaceChatSettings | null
 ): ResolvedChatSettings {
-  const all = { mode: "all" as const, selected: [] }
+  // Fresh arrays per category so one selection cannot alias another.
+  function all() {
+    return { mode: "all" as const, selected: [] }
+  }
   return {
-    tools: { ...all, ...settings?.tools },
-    mcp: { ...all, ...settings?.mcp },
-    subagents: { ...all, ...settings?.subagents },
+    tools: { ...all(), ...settings?.tools },
+    mcp: { ...all(), ...settings?.mcp },
+    subagents: { ...all(), ...settings?.subagents },
   }
 }
 

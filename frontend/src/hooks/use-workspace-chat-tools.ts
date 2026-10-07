@@ -35,6 +35,12 @@ export function useWorkspaceChatTools({
   mcpIntegrations: MCPIntegrationRead[]
 }) {
   const [draft, setDraft] = useState<WorkspaceChatOverrides | null>(null)
+  // The pane is reused across chats; a new chat must inherit workspace limits.
+  const [draftChatId, setDraftChatId] = useState(chat?.id)
+  if (draftChatId !== chat?.id) {
+    setDraftChatId(chat?.id)
+    setDraft(null)
+  }
   const {
     data: workspace,
     isLoading,

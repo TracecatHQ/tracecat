@@ -287,7 +287,7 @@ function CapabilityRow({
       >
         <Checkbox
           checked={value.selected.includes(option.id)}
-          disabled={Boolean(option.disabledReason)}
+          disabled={disabled || Boolean(option.disabledReason)}
           onCheckedChange={() => toggle(option.id)}
           className="mt-0.5"
         />
@@ -369,7 +369,12 @@ function CapabilityRow({
                 variant="link"
                 size="sm"
                 className="h-auto p-0 text-xs text-muted-foreground"
-                disabled={loading || Boolean(error) || available.length === 0}
+                disabled={
+                  disabled ||
+                  loading ||
+                  Boolean(error) ||
+                  available.length === 0
+                }
                 onClick={() =>
                   onChange({
                     ...value,

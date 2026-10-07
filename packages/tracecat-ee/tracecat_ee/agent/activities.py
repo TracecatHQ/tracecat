@@ -43,6 +43,7 @@ from tracecat.agent.stream.connector import AgentStream
 from tracecat.agent.tokens import InternalToolContext, UserMCPServerClaim
 from tracecat.agent.tools import build_agent_tools
 from tracecat.auth.types import Role
+from tracecat.authz.controls import has_scope
 from tracecat.common import all_activities
 from tracecat.contexts import ctx_role
 from tracecat.exceptions import (
@@ -90,6 +91,12 @@ class BuildAgentScopeToolDefsArgs(BaseModel):
     """Context for internal tools (e.g., preset_id for builder assistant)."""
     fail_on_mcp_discovery_error: bool = False
     """If true, fail closed when configured user MCP tools cannot be discovered."""
+    action_scopes: frozenset[str] | None = None
+    """Caller scopes; drop registry tools the caller cannot execute."""
+    model_provider: str | None = None
+    """Provider for the scope's model; Bedrock runs without tool search."""
+    searchable_tool_catalog: bool = False
+    """Expose the full catalog uncapped; the model discovers tools via search."""
 
 
 class BuildToolDefsResult(BaseModel):
@@ -304,27 +311,34 @@ class AgentActivities:
                 if action not in actions_to_build:
                     actions_to_build.append(action)
 
+        # Bedrock has no tool search, so a searchable catalog keeps the limit.
+        is_bedrock = args.model_provider == "bedrock"
         try:
             result = await build_agent_tools(
                 namespaces=args.tool_filters.namespaces,
                 actions=actions_to_build if actions_to_build else None,
                 tool_approvals=args.tool_approvals,
-                # Default workspace chat exposes the searchable catalog. Presets
-                # and saved subagents keep the existing authored-tool limit.
                 max_tools=(
                     0
-                    if args.scope == "root"
-                    and args.internal_tool_context is not None
-                    and args.internal_tool_context.entity_type == "copilot"
+                    if args.searchable_tool_catalog and not is_bedrock
                     else config.TRACECAT__AGENT_MAX_TOOLS
                 ),
             )
         except ValueError as e:
-            raise_application_error_from_classification(agent_tool_build_failure(e))
+            raise_application_error_from_classification(
+                agent_tool_build_failure(
+                    e,
+                    bedrock_workspace_chat=args.searchable_tool_catalog and is_bedrock,
+                )
+            )
         # Convert to dict[str, MCPToolDefinition] keyed by canonical action name
         # Tools already have canonical names (with dots, e.g., "core.cases.list_cases")
         defs: dict[str, MCPToolDefinition] = {}
         for tool in result.tools:
+            if args.action_scopes is not None and not has_scope(
+                args.action_scopes, f"action:{tool.name}:execute"
+            ):
+                continue
             defs[tool.name] = MCPToolDefinition(
                 name=tool.name,
                 description=tool.description,

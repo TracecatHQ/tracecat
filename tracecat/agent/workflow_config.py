@@ -169,6 +169,7 @@ def agent_config_to_payload(config: AgentConfig) -> AgentConfigPayload:
             else None
         ),
         agents=config.agents,
+        subagent_action_scopes=config.subagent_action_scopes,
         retries=config.retries,
         enable_thinking=config.enable_thinking,
         enable_internet_access=config.enable_internet_access,
@@ -201,6 +202,7 @@ def agent_config_from_payload(payload: AgentConfigPayload) -> AgentConfig:
             else None
         ),
         agents=payload.agents,
+        subagent_action_scopes=payload.subagent_action_scopes,
         retries=payload.retries,
         enable_thinking=payload.enable_thinking,
         enable_internet_access=payload.enable_internet_access,

@@ -55,6 +55,7 @@ def _agent_session_row(
         channel_context=None,
         tools=None,
         mcp_integrations=None,
+        workspace_chat_overrides=None,
         agent_preset_id=None,
         agent_preset_version_id=None,
         backend_id="oss",

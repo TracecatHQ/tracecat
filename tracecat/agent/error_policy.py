@@ -104,18 +104,24 @@ def invalid_agent_tools(
 
 
 def agent_tool_limit_exceeded(
-    error: AgentToolLimitExceededError,
+    error: AgentToolLimitExceededError, *, bedrock_workspace_chat: bool = False
 ) -> RuntimeErrorClassification:
     """Classify an agent that requests more tools than the configured limit."""
+    message = f"Agent requests {error.requested} tools; the limit is {error.limit}"
+    if bedrock_workspace_chat:
+        # Bedrock has no tool search, so workspace chat keeps the cap.
+        message += ". Bedrock does not support all tools; select specific tools"
     return RuntimeErrorClassification.user(
         kind=RuntimeErrorKind.AGENT_CONFIGURATION_INVALID,
-        message=f"Agent requests {error.requested} tools; the limit is {error.limit}",
+        message=message,
         retry_disposition=RetryDisposition.NON_RETRYABLE,
         cause=error,
     )
 
 
-def agent_tool_build_failure(error: ValueError) -> RuntimeErrorClassification:
+def agent_tool_build_failure(
+    error: ValueError, *, bedrock_workspace_chat: bool = False
+) -> RuntimeErrorClassification:
     """Classify a failed agent tool build by owner.
 
     Missing platform actions and failed platform builds are platform-owned.
@@ -123,7 +129,9 @@ def agent_tool_build_failure(error: ValueError) -> RuntimeErrorClassification:
     unbuildable custom registry actions are the caller's to fix.
     """
     if isinstance(error, AgentToolLimitExceededError):
-        return agent_tool_limit_exceeded(error)
+        return agent_tool_limit_exceeded(
+            error, bedrock_workspace_chat=bedrock_workspace_chat
+        )
     if not isinstance(error, AgentToolResolutionError) or (
         error.missing_platform_actions or error.failed_actions
     ):

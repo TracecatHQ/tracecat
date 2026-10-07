@@ -408,6 +408,8 @@ class AgentScopeSpec(BaseModel):
     config: AgentConfig
     internal_tool_context: InternalToolContext | None = None
     fail_on_mcp_discovery_error: bool = False
+    action_scopes: frozenset[str] | None = None
+    searchable_tool_catalog: bool = False
 
     def to_tool_defs_arg(self) -> BuildAgentScopeToolDefsArgs:
         return BuildAgentScopeToolDefsArgs(
@@ -420,6 +422,9 @@ class AgentScopeSpec(BaseModel):
             mcp_servers=self.config.mcp_servers,
             internal_tool_context=self.internal_tool_context,
             fail_on_mcp_discovery_error=self.fail_on_mcp_discovery_error,
+            action_scopes=self.action_scopes,
+            model_provider=self.config.model_provider,
+            searchable_tool_catalog=self.searchable_tool_catalog,
         )
 
 
@@ -773,11 +778,13 @@ class DurableAgentWorkflow:
         subagents: list[ResolvedSubagentConfig],
         internal_tool_context: InternalToolContext | None,
         token_ttl_seconds: int | None,
+        searchable_tool_catalog: bool = False,
     ) -> CompiledAgentRun:
         root_spec = AgentScopeSpec(
             name=ROOT_AGENT_SCOPE,
             config=cfg,
             internal_tool_context=internal_tool_context,
+            searchable_tool_catalog=searchable_tool_catalog,
         )
         if not workflow.patched(DurableAgentWorkflowPatch.BUILD_AGENT_TOOL_DEFINITIONS):
             try:
@@ -831,6 +838,9 @@ class DurableAgentWorkflow:
                 name=resolved_subagent.alias,
                 config=child_cfg,
                 fail_on_mcp_discovery_error=True,
+                # Children compile under the elevated workflow role; bound them
+                # by the caller's own action scopes.
+                action_scopes=cfg.subagent_action_scopes,
             )
             subagent_specs.append(
                 SubagentScopeSpec(
@@ -1348,6 +1358,11 @@ class DurableAgentWorkflow:
                 agent_session_initialization_failed(retryable=True)
             )
 
+        # Default workspace chat exposes the full catalog behind tool search.
+        is_default_workspace_chat = (
+            args.entity_type == AgentSessionEntity.WORKSPACE_CHAT
+            and args.agent_preset_id is None
+        )
         # Build internal tool context for builder assistant sessions
         internal_tool_context: InternalToolContext | None = None
         if args.entity_type == AgentSessionEntity.AGENT_PRESET_BUILDER:
@@ -1356,10 +1371,7 @@ class DurableAgentWorkflow:
                 entity_type="agent_preset_builder",
             )
 
-        elif (
-            args.entity_type == AgentSessionEntity.WORKSPACE_CHAT
-            and args.agent_preset_id is None
-        ):
+        elif is_default_workspace_chat:
             internal_tool_context = InternalToolContext(entity_type="copilot")
 
         # Resolve root and subagent tool definitions in one activity, while
@@ -1369,6 +1381,7 @@ class DurableAgentWorkflow:
             subagents=agents_result.subagents,
             internal_tool_context=internal_tool_context,
             token_ttl_seconds=token_ttl_seconds,
+            searchable_tool_catalog=is_default_workspace_chat,
         )
         root_registry_lock = compiled_run.registry_lock
         allowed_actions = compiled_run.root.tool_definitions

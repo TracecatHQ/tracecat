@@ -24,6 +24,8 @@ from tracecat.exceptions import (
 )
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspaces.schemas import (
+    ChatCapabilitySelection,
+    WorkspaceChatSettings,
     WorkspaceSearch,
     WorkspaceSettings,
     WorkspaceSettingsUpdate,
@@ -478,6 +480,55 @@ class TestWorkspaceService:
         )
 
         assert updated.settings == {}
+
+    async def test_update_workspace_merges_partial_chat_limits(
+        self,
+        session: AsyncSession,
+        service: WorkspaceService,
+        svc_workspace: Workspace,
+    ) -> None:
+        """A partial chat patch must not reset omitted limits to unrestricted."""
+        mcp_id = str(uuid.uuid4())
+        svc_workspace.settings = {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "chat": {
+                "tools": {"mode": "none", "selected": []},
+                "mcp": {"mode": "selected", "selected": [mcp_id]},
+                "subagents": {"mode": "none", "selected": []},
+            },
+        }
+        session.add(svc_workspace)
+        await session.commit()
+
+        updated = await service.update_workspace(
+            svc_workspace,
+            WorkspaceUpdate(
+                settings=WorkspaceSettingsUpdate(
+                    chat=WorkspaceChatSettings(
+                        tools=ChatCapabilitySelection(mode="all")
+                    )
+                )
+            ),
+        )
+
+        assert updated.settings == {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "chat": {
+                "tools": {"mode": "all"},
+                "mcp": {"mode": "selected", "selected": [mcp_id]},
+                "subagents": {"mode": "none", "selected": []},
+            },
+        }
+
+        cleared = await service.update_workspace(
+            svc_workspace,
+            WorkspaceUpdate(settings=WorkspaceSettingsUpdate(chat=None)),
+        )
+
+        assert cleared.settings == {
+            "git_repo_url": "git+ssh://git@github.com/acme/repo.git",
+            "chat": None,
+        }
 
 
 @pytest.mark.parametrize(

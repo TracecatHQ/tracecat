@@ -92,6 +92,8 @@ class AgentConfig:
     mcp_servers: list[MCPServerConfig] | None = None
     # Subagents
     agents: AgentSubagentsConfig = field(default_factory=AgentSubagentsConfig)
+    subagent_action_scopes: frozenset[str] | None = None
+    """Caller scopes that bound preset-backed subagent actions; ``None`` skips filtering."""
     retries: int = TRACECAT__AGENT_MAX_RETRIES
     deps_type: type[Any] | None = None
     custom_tools: CustomToolList | None = None
