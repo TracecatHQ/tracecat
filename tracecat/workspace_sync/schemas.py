@@ -7,7 +7,14 @@ import re
 import uuid
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
 from tracecat.agent.common.types import (
     ReasoningEffort,
@@ -321,6 +328,21 @@ class AgentPresetResourceSpec(BaseModel):
         default=False,
         description="Whether the agent may access the internet.",
     )
+
+    @computed_field(
+        description=(
+            "Deprecated: whether reasoning_effort is not off. Servers from "
+            "before reasoning levels read only this flag."
+        )
+    )
+    @property
+    def enable_thinking(self) -> bool:
+        """Export the legacy flag so older servers keep an ``off`` choice.
+
+        Imports prefer ``reasoning_effort``. Drop with the ``enable_thinking``
+        column.
+        """
+        return self.reasoning_effort != "off"
 
     @model_validator(mode="before")
     @classmethod
