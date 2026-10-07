@@ -3225,3 +3225,33 @@ async def test_list_rows_column_search_with_sort_and_cursor_round_trip(
 
     back = await list_page(second.prev_cursor)
     assert [row["name"] for row in back.items] == ["bravo"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("search_column", ["HostName", "hostname"])
+async def test_list_rows_search_column_resolves_case_normalized_name(
+    tables_service: TablesService, search_column: str
+) -> None:
+    table = await tables_service.create_table(
+        TableCreate(
+            name="search_case_table",
+            columns=[
+                TableColumnCreate(name="HostName", type=SqlType.TEXT),
+                TableColumnCreate(name="notes", type=SqlType.TEXT),
+            ],
+        )
+    )
+    assert {column.name for column in table.columns} == {"hostname", "notes"}
+    for row in (
+        {"hostname": "alpha", "notes": "bravo"},
+        {"hostname": "bravo", "notes": "alpha"},
+    ):
+        await tables_service.insert_row(table, TableRowInsert(data=row))
+
+    page = await tables_service.list_rows(
+        table,
+        CursorPaginationParams(limit=10),
+        search_term="alpha",
+        search_column=search_column,
+    )
+    assert [row["hostname"] for row in page.items] == ["alpha"]

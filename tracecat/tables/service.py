@@ -1624,8 +1624,12 @@ class BaseTablesService(BaseWorkspaceService):
             ]
 
             if search_column is not None:
-                if search_column not in {col.name for col in table.columns}:
-                    raise ValueError(f"Invalid search_column: {search_column}")
+                try:
+                    search_column = self._resolve_external_column_name(
+                        table, search_column
+                    )
+                except ValueError as e:
+                    raise ValueError(f"Invalid search_column: {search_column}") from e
                 if search_column not in searchable_columns:
                     raise ValueError(
                         f"Column {search_column} does not support text search"

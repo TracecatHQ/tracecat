@@ -244,6 +244,18 @@ describe("useCaseRowsPagination", () => {
     })
     expect(result.current.currentPage).toBe(0)
 
+    // Search from a later page, so the cursor reset is the search's doing.
+    await waitFor(() => {
+      expect(result.current.hasNextPage).toBe(true)
+    })
+    act(() => {
+      result.current.goToNextPage()
+    })
+    await waitFor(() => {
+      expect(lastCallParams().cursor).toBe("cursor-2")
+    })
+    expect(result.current.currentPage).toBe(1)
+
     rerender({ searchTerm: "abc" })
     await waitFor(() => {
       expect(lastCallParams()).toEqual(
@@ -256,6 +268,7 @@ describe("useCaseRowsPagination", () => {
         })
       )
     })
+    expect(result.current.currentPage).toBe(0)
   })
 
   it("fires nothing while disabled", async () => {

@@ -74,6 +74,7 @@ export function ColumnHeaderFilter({
             autoFocus
             type="text"
             value={term}
+            aria-label={`Search ${columnName}`}
             placeholder={`Search ${columnName}...`}
             onChange={(event) =>
               onFilterChange({ column: columnName, term: event.target.value })
