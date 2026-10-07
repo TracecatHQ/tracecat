@@ -308,6 +308,22 @@ describe("ChatSessionPane optimistic first send", () => {
 const BUBBLE = "session-1:turn-1"
 const TOOL = "mcp__tracecat__core__workflow__execute"
 const CALLS = ["first", "second", "third"]
+const PROMPT: UIMessage = {
+  id: "prompt",
+  role: "user",
+  parts: [{ type: "text", text: "Run three calls" }],
+}
+// The approval submission, which shows nothing.
+const SUBMITTED: UIMessage = {
+  id: "continue-1",
+  role: "user",
+  parts: [
+    {
+      type: "data-continue",
+      data: { kind: "continue", source: "chat", decisions: [] },
+    },
+  ],
+}
 
 /** Run Vercel UI chunks through the AI SDK, as useChat does for one request. */
 async function streamed(chunks: UIMessageChunk[]): Promise<UIMessage> {
@@ -375,25 +391,7 @@ async function liveStoppedBatch(
       { type: "tool-output-available", toolCallId: id, output },
     ]),
   ])
-  return [
-    {
-      id: "prompt",
-      role: "user",
-      parts: [{ type: "text", text: "Run three calls" }],
-    },
-    paused,
-    {
-      id: "continue-1",
-      role: "user",
-      parts: [
-        {
-          type: "data-continue",
-          data: { kind: "continue", source: "chat", decisions: [] },
-        },
-      ],
-    },
-    continuation,
-  ]
+  return [PROMPT, paused, SUBMITTED, continuation]
 }
 
 /**
@@ -488,11 +486,7 @@ describe("ChatSessionPane stopped approved calls", () => {
 
   it("shows reloaded history with the marker after the turn", () => {
     mockUseVercelChatResult.messages = [
-      {
-        id: "prompt",
-        role: "user",
-        parts: [{ type: "text", text: "Run three calls" }],
-      },
+      PROMPT,
       {
         id: "assistant-1",
         role: "assistant",
@@ -536,5 +530,74 @@ describe("ChatSessionPane stopped approved calls", () => {
       "third: output-error (Tool call cancelled)",
       "Interrupted",
     ])
+  })
+})
+
+describe("ChatSessionPane response actions", () => {
+  beforeEach(() => {
+    mockUseVercelChatResult.messages = []
+    mockUseVercelChatResult.status = "ready"
+  })
+
+  it("offers Retry when an output-only continuation fails before any text", async () => {
+    // The paused turn came from the database, so its ids differ from the
+    // continuation's bubble. The continuation streams only results, then fails.
+    const continuation = await streamed([
+      { type: "start", messageId: BUBBLE },
+      ...CALLS.flatMap((id): UIMessageChunk[] => [
+        {
+          type: "tool-input-available",
+          toolCallId: id,
+          toolName: TOOL,
+          input: {},
+        },
+        {
+          type: "tool-output-available",
+          toolCallId: id,
+          output: `{"executed":"${id}"}`,
+        },
+      ]),
+      { type: "error", errorText: "Model request failed" },
+    ])
+    mockUseVercelChatResult.status = "error"
+    mockUseVercelChatResult.messages = [
+      PROMPT,
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [
+          { type: "text", text: "Running three calls." },
+          ...CALLS.map(
+            (id) =>
+              ({
+                type: `tool-${TOOL}`,
+                toolCallId: id,
+                state: "input-available",
+                input: { operation: id },
+              }) as UIMessage["parts"][number]
+          ),
+        ],
+      },
+      {
+        id: "approval-1",
+        role: "assistant",
+        parts: [
+          {
+            type: "data-approval-request",
+            data: CALLS.map((id) => ({ tool_call_id: id, tool_name: TOOL })),
+          },
+        ],
+      },
+      SUBMITTED,
+      continuation,
+    ]
+    renderChatSessionPane()
+
+    // The results fill the paused turn's cards, so the continuation shows
+    // nothing of its own and the paused turn carries the response actions.
+    expect(timeline()).toEqual(
+      CALLS.map((id) => `${id}: output-available ({"executed":"${id}"})`)
+    )
+    expect(screen.getAllByRole("button", { name: "Retry" })).toHaveLength(1)
   })
 })
