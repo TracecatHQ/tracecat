@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path, Query
 
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
-from tracecat.authz.controls import require_scope
+from tracecat.authz.controls import check_scopes, require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import Page, PageParams, PaginationError
@@ -38,6 +38,8 @@ async def create_sync_operation(
     role: WorkspaceActorRouteRole, session: AsyncDBSession, params: SyncOperationCreate
 ) -> SyncOperationRead:
     """Accept a preview and return before any Git or resource work begins."""
+    if params.direction == "push":
+        check_scopes(role, "workspace_sync:sync")
     if params.pull is not None and params.pull.dry_run:
         raise HTTPException(
             400,

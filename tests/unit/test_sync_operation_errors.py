@@ -12,7 +12,10 @@ from fastapi import FastAPI
 from tests.unit.test_durable_workspace_sync import push_inputs
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.db.engine import get_async_session
+from tracecat.exceptions import ScopeDeniedError
+from tracecat.pagination import PageParams
 from tracecat.workspace_sync.operations import router, storage
+from tracecat.workspace_sync.operations.schemas import SyncOperationCreate
 from tracecat.workspace_sync.operations.service import SyncOperationService
 
 
@@ -126,8 +129,6 @@ async def test_operation_cursor_is_http_client_error(session, svc_role, cursor, 
 async def test_durable_pull_requires_explicit_confirmation_not_legacy_dry_run(
     session, svc_role, dry_run
 ):
-    from tracecat.pagination import PageParams
-
     app = FastAPI()
     app.include_router(router.router)
     app.dependency_overrides[get_async_session] = lambda: session
@@ -153,3 +154,24 @@ async def test_durable_pull_requires_explicit_confirmation_not_legacy_dry_run(
         assert response.json()["status"] == "queued"
         assert response.json()["result"] is None
         assert len(page.items) == 1
+
+
+@pytest.mark.anyio
+async def test_legacy_sync_scope_rejects_push_before_persistence_but_allows_pull(
+    session, svc_role
+):
+    role = svc_role.model_copy(update={"scopes": frozenset({"workflow:sync"})})
+    service = SyncOperationService(session, role)
+    with pytest.raises(ScopeDeniedError):
+        await router.create_sync_operation(
+            role=role, session=session, params=push_inputs()
+        )
+    assert (await service.list(PageParams())).items == []
+    inputs = SyncOperationCreate.model_validate(
+        {"id": str(uuid.uuid4()), "direction": "pull", "pull": {"commit_sha": "a" * 40}}
+    )
+    result = await router.create_sync_operation(
+        role=role, session=session, params=inputs
+    )
+    assert result.status == "queued"
+    assert len((await service.list(PageParams())).items) == 1
