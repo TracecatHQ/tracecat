@@ -103,11 +103,17 @@ async def agent(
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     reasoning_effort: Annotated[
         ReasoningEffort | None,
-        Doc("Reasoning level for agent runs. Leave empty to use the model default."),
+        Doc(
+            "Reasoning level for agent runs: `off`, `low`, `medium`, `high`, "
+            "or `max`. Leave empty to use the model's default."
+        ),
     ] = None,
     enable_thinking: Annotated[
         bool,
-        Doc("Deprecated. Use `reasoning_effort` instead."),
+        Doc(
+            "Deprecated. Use `reasoning_effort` instead. `false` is the same "
+            "as `reasoning_effort: off`."
+        ),
         Field(
             deprecated=True,
             json_schema_extra=LEGACY_ENABLE_THINKING_SCHEMA_EXTRA,
@@ -242,11 +248,17 @@ async def action(
     retries: Annotated[int, Doc("Number of retries for the agent.")] = 3,
     reasoning_effort: Annotated[
         ReasoningEffort | None,
-        Doc("Reasoning level for agent runs. Leave empty to use the model default."),
+        Doc(
+            "Reasoning level for agent runs: `off`, `low`, `medium`, `high`, "
+            "or `max`. Leave empty to use the model's default."
+        ),
     ] = None,
     enable_thinking: Annotated[
         bool,
-        Doc("Deprecated. Use `reasoning_effort` instead."),
+        Doc(
+            "Deprecated. Use `reasoning_effort` instead. `false` is the same "
+            "as `reasoning_effort: off`."
+        ),
         Field(
             deprecated=True,
             json_schema_extra=LEGACY_ENABLE_THINKING_SCHEMA_EXTRA,

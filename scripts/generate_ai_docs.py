@@ -195,6 +195,17 @@ PAGES: list[dict[str, Any]] = [
 
             `timeout` caps active runtime in seconds. Unset means 1800 seconds, and Tracecat clamps explicit values between 1800 seconds and `TRACECAT__AGENT_SANDBOX_TIMEOUT`, which defaults to 3600 seconds. See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape. A ceiling below 1800 seconds lowers both the default and the floor to the ceiling.
 
+            ## Reasoning levels
+
+            `reasoning_effort` accepts `off`, `low`, `medium`, `high`, or `max`. Leave it empty to use the model's default. Where a model or provider lacks a level, Tracecat falls back:
+
+            - `off` runs at `low` on Claude models that always think: Claude Opus 5.5, Claude Sonnet 5.5, and Claude Fable 5 and 5.1.
+            - `off` uses the model's default on non-Anthropic providers.
+            - `max` becomes `xhigh` on OpenAI and `high` on other non-Anthropic providers.
+            - An empty value sends `high` to non-Anthropic providers.
+            - Amazon Bedrock, Ollama, Mistral, and some Azure AI models use the model's default for every level.
+            - Non-Anthropic providers with `passthrough: true` use their endpoint's default level.
+
             ## Reference
             """
         ).strip(),
@@ -258,6 +269,19 @@ PAGES: list[dict[str, Any]] = [
             A pause for a tool approval does not count toward the timeout, and the resumed run gets the full timeout again. With the default timeout, a run that reaches it fails with `Agent execution timed out after 1800s`.
 
             See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape, and [Environment variables](/self-hosting/environment-variables) for the ceiling.
+
+            ## Reasoning levels
+
+            `reasoning_effort` accepts `off`, `low`, `medium`, `high`, or `max`. Leave it empty to use the model's default. Where a model or provider lacks a level, Tracecat falls back:
+
+            - `off` runs at `low` on Claude models that always think: Claude Opus 5.5, Claude Sonnet 5.5, and Claude Fable 5 and 5.1.
+            - `off` uses the model's default on non-Anthropic providers.
+            - `max` becomes `xhigh` on OpenAI and `high` on other non-Anthropic providers.
+            - An empty value sends `high` to non-Anthropic providers.
+            - Amazon Bedrock, Ollama, Mistral, and some Azure AI models use the model's default for every level.
+            - Non-Anthropic providers with `passthrough: true` use their endpoint's default level.
+
+            Subagent presets set their own reasoning level, but share the root preset's thinking setting. An empty level uses the root preset's level, and `off` runs at `low`. When the root preset is `off`, subagents also run without thinking, and `max` runs at `high`.
 
             ## Reference
             """
