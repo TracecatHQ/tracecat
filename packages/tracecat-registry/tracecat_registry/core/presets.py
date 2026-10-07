@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
+from pydantic import Field
 from typing_extensions import Doc
 
 from tracecat_registry import ctx, registry
+from tracecat_registry.core.agent import LEGACY_ENABLE_THINKING_SCHEMA_EXTRA
 from tracecat_registry.types import ReasoningEffort
 
 OutputTypeLiteral = Literal[
@@ -122,6 +124,10 @@ async def create_preset(
         Doc(
             "Deprecated. Use `reasoning_effort` instead. Applies only when "
             "`reasoning_effort` is empty."
+        ),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_ENABLE_THINKING_SCHEMA_EXTRA,
         ),
     ] = None,
     enable_internet_access: Annotated[
@@ -313,6 +319,10 @@ async def update_preset(
             "Deprecated. Use `reasoning_effort` instead. Applies only when "
             "`reasoning_effort` is empty: false turns reasoning off, and true "
             "clears off while keeping any other level."
+        ),
+        Field(
+            deprecated=True,
+            json_schema_extra=LEGACY_ENABLE_THINKING_SCHEMA_EXTRA,
         ),
     ] = None,
     enable_internet_access: Annotated[
