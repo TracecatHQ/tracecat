@@ -259,7 +259,7 @@ export function AgentApprovalsDialog({
             <span>This session has no pending approvals.</span>
           </div>
         ) : (
-          <ScrollArea className="max-h-[420px] pr-2">
+          <ScrollArea className="pr-2 [&>[data-radix-scroll-area-viewport]]:max-h-[420px]">
             <div className="space-y-4">
               {pendingApprovals.map((approval) => {
                 const state = formState[approval.tool_call_id] ?? {
