@@ -50,7 +50,8 @@ def resolve_oss_default_entitlements(
     inbox are open source; ``agent_addons`` only gates agent folders, tags, and
     case agent runs. Agent channels (Slack and Microsoft Teams, including approvals
     from those channels) are closed source and gated by ``agent_channels``; the
-    legacy ``agent-channels`` feature flag maps to it.
+    legacy ``agent-channels`` feature flag maps to it. Semantic table search is
+    closed source and gated by ``semantic_search``.
 
     Multi-workspace is disabled on both paths. Existing workspaces remain
     accessible; the entitlement only gates creation beyond the first workspace.
@@ -69,6 +70,7 @@ def resolve_oss_default_entitlements(
             watchtower=False,
             external_secret_stores=False,
             agent_channels=False,
+            semantic_search=False,
         )
 
     # Existing install path: map legacy feature flags to entitlement groups.
@@ -107,6 +109,7 @@ def resolve_oss_default_entitlements(
         watchtower=False,
         external_secret_stores=False,
         agent_channels=agent_channels_enabled,
+        semantic_search=False,
     )
 
 

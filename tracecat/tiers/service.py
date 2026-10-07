@@ -179,4 +179,5 @@ class TierService(BaseService):
             watchtower=resolve_entitlement("watchtower"),
             external_secret_stores=resolve_entitlement("external_secret_stores"),
             agent_channels=resolve_entitlement("agent_channels"),
+            semantic_search=resolve_entitlement("semantic_search"),
         )

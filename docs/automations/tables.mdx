@@ -153,8 +153,11 @@ A workflow that repeats the index step on every run must guard it, and downstrea
 
 ## Vector search
 
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
 Vector search finds rows by meaning in the `TEXT` columns you choose.
 Connect an [LLM provider](/agents/llm-providers) that offers an embedding model first: OpenAI, Gemini, Amazon Bedrock, Ollama, or vLLM.
+On plans without vector search, the status badge and the `Enable vector search` menu item open an Enterprise only dialog.
 
 <Steps>
   <Step title="Enable vector search on a column">
@@ -189,6 +192,18 @@ Connect an [LLM provider](/agents/llm-providers) that offers an embedding model 
 
 Repeat the first two steps to add more columns.
 To remove a column, select `Disable vector search` from the same menu; Tracecat rebuilds the index for the remaining columns.
+
+`core.table.search` takes these arguments:
+
+- `table`: Required table name.
+- `query`: Required search text, up to 512 tokens or the embedding model's smaller input limit.
+- `limit`: Optional rows per page, from 1 to 100. Defaults to 10.
+- `cursor`: Optional `next_cursor` from the previous page. Keep the other arguments unchanged. Cursors expire after five minutes, and one search returns at most 100 rows across all pages.
+- `allow_partial`: Optional boolean. Defaults to `false`, which fails while the index is still building. Set it to `true` to search only rows that are already indexed.
+
+The result has `items`, `next_cursor`, `has_more`, and `index`.
+Each item holds one distinct row: `row_id`, `score`, and `match`, where `match` names the `column_name` and the matching `text`.
+`score` is cosine similarity, not a confidence level, so compare scores within one search rather than against a fixed threshold.
 
 ## Table actions
 

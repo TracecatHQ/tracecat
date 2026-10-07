@@ -92,6 +92,11 @@ class EffectiveEntitlements(Schema):
         description="Whether agent channels are enabled (agent approvals"
         " and interactions via Slack and Microsoft Teams)",
     )
+    semantic_search: bool = Field(
+        default=False,
+        title="Semantic search",
+        description="Whether semantic (vector) search over table columns is enabled",
+    )
 
 
 class TierRead(Schema):

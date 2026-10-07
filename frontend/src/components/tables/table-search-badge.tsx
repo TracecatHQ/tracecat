@@ -1,8 +1,9 @@
 "use client"
 
-import { Loader2, TextSearchIcon } from "lucide-react"
+import { Loader2, LockIcon, TextSearchIcon } from "lucide-react"
 import { useRef, useState } from "react"
 import type { TableSearchDisplayState } from "@/client"
+import { TableSearchLockedModal } from "@/components/tables/table-search-column-control"
 import { useTableSearchContext } from "@/components/tables/table-search-context"
 import { TableSearchProgress } from "@/components/tables/table-search-progress"
 import { badgeVariants } from "@/components/ui/badge"
@@ -65,12 +66,35 @@ export function TableSearchBadge() {
   const search = useTableSearchContext()
   const { table } = useGetTable(
     { tableId: search?.tableId ?? "", workspaceId: search?.workspaceId ?? "" },
-    { enabled: search?.canRead === true }
+    { enabled: search?.canRead === true && search.entitled }
   )
   const [open, setOpen] = useState(false)
+  const [lockedOpen, setLockedOpen] = useState(false)
   const hovering = useRef(false)
   const closeTimer = useRef<ReturnType<typeof setTimeout>>()
   if (!search?.canRead) return null
+  if (search.locked)
+    return (
+      <>
+        <button
+          type="button"
+          aria-label="Semantic search: Enterprise only"
+          className={cn(
+            badgeVariants({ variant: "outline" }),
+            "h-7 gap-1.5 whitespace-nowrap px-2 font-medium text-muted-foreground focus:ring-0 focus-visible:ring-1"
+          )}
+          onClick={() => setLockedOpen(true)}
+        >
+          <LockIcon className="size-3" />
+          Semantic search
+        </button>
+        <TableSearchLockedModal
+          open={lockedOpen}
+          onOpenChange={setLockedOpen}
+        />
+      </>
+    )
+  if (!search.entitled) return null
   const hoverProps = {
     onPointerEnter: () => {
       clearTimeout(closeTimer.current)

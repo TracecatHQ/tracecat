@@ -14433,6 +14433,13 @@ export const $EffectiveEntitlements = {
         "Whether agent channels are enabled (agent approvals and interactions via Slack and Microsoft Teams)",
       default: false,
     },
+    semantic_search: {
+      type: "boolean",
+      title: "Semantic search",
+      description:
+        "Whether semantic (vector) search over table columns is enabled",
+      default: false,
+    },
   },
   type: "object",
   title: "EffectiveEntitlements",
@@ -14656,6 +14663,12 @@ export const $EntitlementsDict = {
       title: "Agent channels",
       description:
         "Whether agent channels are enabled (agent approvals and interactions via Slack and Microsoft Teams)",
+    },
+    semantic_search: {
+      type: "boolean",
+      title: "Semantic search",
+      description:
+        "Whether semantic (vector) search over table columns is enabled",
     },
   },
   type: "object",
