@@ -1,0 +1,54 @@
+frontend/src/components/agents/agent-preset-tools-list.tsx
+  s_ca02cc160d6b42::t_baa57ed93edd0e 54,63,492
+  s_ca02cc160d6b42::t_5b73decee835dc 167-172
+frontend/src/components/agents/agent-tool-picker-dialog.tsx
+  s_ca02cc160d6b42::t_baa57ed93edd0e 304-305
+tracecat/agent/preset/types.py
+  s_ca02cc160d6b42::t_baa57ed93edd0e 46
+frontend/src/client/types.gen.ts
+  s_ca02cc160d6b42::t_85ed3463827831 875-878
+frontend/tests/agent-preset-panels.test.tsx
+  s_ca02cc160d6b42::t_baa57ed93edd0e 686,829,891
+  s_ca02cc160d6b42::t_5b73decee835dc 758-761,808-811,864-867,876-879,910-914
+tracecat/agent/preset/tool_policy.py
+  s_ca02cc160d6b42::t_baa57ed93edd0e 96,105-106,147
+frontend/tests/agent-tool-picker-dialog.test.tsx
+  s_ca02cc160d6b42::t_80a57e50556f7b 529-536,542-547,551-556
+  s_ca02cc160d6b42::t_5b73decee835dc 537-541,548-550
+frontend/src/lib/agent-preset-tools.ts
+  s_ca02cc160d6b42::t_baa57ed93edd0e 183,187-188,193-195
+frontend/tests/agent-preset-tools-list.test.tsx
+  s_ca02cc160d6b42::t_baa57ed93edd0e 431,463,522
+  s_ca02cc160d6b42::t_80a57e50556f7b 554-566,570,578-581
+  s_ca02cc160d6b42::t_5b73decee835dc 353,567-569,571-577
+tracecat/agent/preset/service.py
+  s_ca02cc160d6b42::t_baa57ed93edd0e 290
+frontend/src/components/agents/agent-presets-builder.tsx
+  s_ca02cc160d6b42::t_baa57ed93edd0e 1955,2025,2041,2079,2082,2359
+frontend/src/client/schemas.gen.ts
+  s_ca02cc160d6b42::t_85ed3463827831 3149-3156
+tests/unit/test_preset_tool_policy.py
+  s_ca02cc160d6b42::t_80a57e50556f7b 46,53-95,312
+frontend/src/lib/agent-preset-tools.test.ts
+  s_ca02cc160d6b42::t_80a57e50556f7b 193-215
+tests/unit/test_agent_preset_schemas.py
+  s_ca02cc160d6b42::t_baa57ed93edd0e 503
+tracecat/agent/preset/schemas.py
+  s_ca02cc160d6b42::t_baa57ed93edd0e 372-375
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6b67ad05d8f866ae4bd86e774c01eb31edc3852e",
+  "prompts": {},
+  "sessions": {
+    "s_ca02cc160d6b42": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11b83-8b2c-7a80-820d-68ed1b1e595f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
