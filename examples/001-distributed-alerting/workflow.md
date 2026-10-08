@@ -22,17 +22,20 @@ flowchart TD
     lookup_alerts --> scatter_alerts["scatter_alerts<br/>core.transform.scatter"]
     scatter_alerts --> triage_alert["triage_alert<br/>ai.preset_agent socky"]
 
-    route -->|"to_socky: any Slack or manual payload"| claim_event["claim_event<br/>core.table.insert_rows into slack_events"]
+    route -->|"to_socky: mention, button click or manual payload"| claim_event["claim_event<br/>core.table.insert_rows into slack_events"]
     claim_event -->|"row claimed, or nothing_to_claim"| handle_event["handle_event<br/>ai.preset_agent socky"]
 
-    route -->|"owner_click"| ack_owner_click["ack_owner_click<br/>core.http_request to response_url"]
+    claim_event -->|"owner_click and row claimed"| ack_owner_click["ack_owner_click<br/>core.http_request to response_url"]
+    ack_owner_click --> handle_event
     route -->|"non_owner_click"| deny_non_owner_click["deny_non_owner_click<br/>chat.postEphemeral"]
 
     route -->|"details: entity_details_requested"| lookup_work_object["lookup_work_object<br/>core.table.lookup in slack_work_objects"]
     lookup_work_object --> present_details["present_details<br/>entity.presentDetails"]
 ```
 
-A button click sets two flags. `to_socky` is true for every click, and one of `owner_click` or `non_owner_click` is true as well. For the owner, `ack_owner_click` and `claim_event` run side by side. For anyone else, `claim_event` inserts nothing, so `handle_event` is skipped and only `deny_non_owner_click` acts.
+A button click sets two flags. `to_socky` is true for every click, and one of `owner_click` or `non_owner_click` is true as well. For the owner's first click, `claim_event` claims the answer, `ack_owner_click` swaps the buttons for a pending line, and then `handle_event` runs. A repeat click claims nothing, so both later steps are skipped and the recorded status stays as it is. For anyone else, `claim_event` inserts nothing, so `handle_event` is skipped and only `deny_non_owner_click` acts.
+
+Slack's URL verification request sets none of the branch flags (`backfill`, `details`, `to_socky`). The webhook answers it (see the README) and no step after `route` runs.
 
 ## Triggers
 
@@ -83,6 +86,7 @@ Slack Events API envelope, declared so real deliveries pass validation:
 | `is_ext_shared_channel` | `bool` | `false` | Externally shared channel flag |
 | `context_team_id` | `any` | `null` | May be null |
 | `context_enterprise_id` | `any` | `null` | Null outside Enterprise Grid |
+| `enterprise_id` | `any` | `null` | Sent only on Enterprise Grid |
 
 Slack interactivity:
 
@@ -107,6 +111,8 @@ Create these three tables before the first run.
 |---|---|---|
 | `event_id` | text | Unique index. A Slack `event_id`, or `gd_confirm:<case id>` for a button answer. |
 
+Keep this table to that one column. `claim_event` depends on it, as its section explains.
+
 `slack_work_objects`: one row per Slack card. Written by Socky, read by `lookup_work_object` and by Socky.
 
 | Column | Type | Notes |
@@ -129,7 +135,7 @@ Reads the trigger and sets six flags. Runs first on every execution. Every other
 |---|---|
 | `backfill` | `alert_ids` is not empty. This is the alert path, for one id from the intake or several passed by hand. |
 | `details` | The Slack event type is `entity_details_requested` |
-| `to_socky` | Not a details request and no `alert_ids`. This covers mentions, button clicks, URL verification and manual runs with `finding_id`. |
+| `to_socky` | Not a details request, not a URL verification request, and no `alert_ids`. This covers mentions, button clicks and manual runs with `finding_id`. |
 | `owner_click` | The payload holds a `gd_confirm_` action and the third part of the button's `block_id` equals the clicking user's ID. A `block_id` with fewer than three parts names no owner, so any click counts. |
 | `non_owner_click` | The payload holds a `gd_confirm_` action, the `block_id` names an owner, and the clicking user is someone else |
 | `nothing_to_claim` | No `event_id` and no `gd_confirm_` action. Used by `handle_event`. |
@@ -155,8 +161,8 @@ The owner's Slack user ID gets into the `block_id` when Socky posts the ask: `gd
         || '{}'), 'actions'), 0), 'block_id'), ':'), 2) == FN.lookup(FN.lookup(FN.deserialize_json(TRIGGER.payload
         || '{}'), 'user'), 'id'))) if ('gd_confirm_' in (TRIGGER.payload || ''))
         else True) }}
-      to_socky: ${{ (TRIGGER.event.type || '') != 'entity_details_requested' && not
-        TRIGGER.alert_ids }}
+      to_socky: ${{ (TRIGGER.event.type || '') != 'entity_details_requested' && (TRIGGER.type
+        || '') != 'url_verification' && not TRIGGER.alert_ids }}
   depends_on: []
   retry_policy:
     max_attempts: 1
@@ -228,7 +234,9 @@ Makes sure each Slack event and each button answer is handled once. Runs when `t
 
 Slack can deliver the same event more than once, and a person can press a button twice. This step inserts one row into `slack_events`. The table has a unique index on `event_id`, so a repeat inserts nothing and the result is 0.
 
-The key is the Slack `event_id` for an event. For the owner's button click it is `gd_confirm:<case id>`, built from the button value, so only the first answer on a case is recorded. For a click by anyone else, and for payloads with nothing to claim, the row list is empty and the result is 0.
+That count is reliable only because the row holds nothing but the index column. With `upsert` on and no other column to update, a conflict does nothing and counts no row. If the row had a second column, a repeat would update it and count 1.
+
+The key is the Slack `event_id` for an event. For the owner's button click it is `gd_confirm:<case id>`, built from the button value, so only the first answer on a case is recorded. For a click by anyone else, and for payloads with nothing to claim, the row list is empty and the result is 0. Whether the click is the owner's comes from `route`'s `owner_click` flag.
 
 ```yaml
 - ref: claim_event
@@ -236,12 +244,8 @@ The key is the Slack `event_id` for an event. For the owner's button click it is
   args:
     rows_data: '${{ FN.compact([{''event_id'': (TRIGGER.event_id if TRIGGER.event_id
       else FN.concat(''gd_confirm:'', FN.lookup(FN.at(FN.lookup(FN.deserialize_json(TRIGGER.payload
-      || ''{}''), ''actions''), 0), ''value'')))} if (TRIGGER.event_id || ((''gd_confirm_''
-      in (TRIGGER.payload || '''')) && (((True if FN.length(FN.split(FN.lookup(FN.at(FN.lookup(FN.deserialize_json(TRIGGER.payload
-      || ''{}''), ''actions''), 0), ''block_id''), '':'')) < 3 else FN.at(FN.split(FN.lookup(FN.at(FN.lookup(FN.deserialize_json(TRIGGER.payload
-      || ''{}''), ''actions''), 0), ''block_id''), '':''), 2) == FN.lookup(FN.lookup(FN.deserialize_json(TRIGGER.payload
-      || ''{}''), ''user''), ''id''))) if (''gd_confirm_'' in (TRIGGER.payload ||
-      '''')) else True))) else None]) }}'
+      || ''{}''), ''actions''), 0), ''value'')))} if (TRIGGER.event_id || ACTIONS.route.result.owner_click)
+      else None]) }}'
     table: slack_events
     upsert: true
   depends_on:
@@ -254,7 +258,7 @@ The key is the Slack `event_id` for an event. For the owner's button click it is
 
 ### handle_event
 
-Hands the whole trigger to Socky as JSON. Runs after `claim_event`, when a row was claimed or when there was nothing to claim. Socky reads the payload and loads `slack-case-threads` for a mention or a button answer, or a lifecycle skill for a manual run.
+Hands the whole trigger to Socky as JSON. Runs when a row was claimed or when there was nothing to claim. It waits for both `claim_event` and `ack_owner_click`, so on a button answer the pending line is always written before Socky replaces it. `join_strategy: any` lets it run for a mention or a manual run, where `ack_owner_click` is skipped. Socky reads the payload and loads `slack-case-threads` for a mention or a button answer, or a lifecycle skill for a manual run.
 
 ```yaml
 - ref: handle_event
@@ -266,6 +270,8 @@ Hands the whole trigger to Socky as JSON. Runs after `claim_event`, when a row w
     user_prompt: ${{ FN.serialize_json(TRIGGER) }}
   depends_on:
   - claim_event
+  - ack_owner_click
+  join_strategy: any
   run_if: ${{ ACTIONS.claim_event.result > 0 || ACTIONS.route.result.nothing_to_claim
     }}
   retry_policy:
@@ -275,7 +281,7 @@ Hands the whole trigger to Socky as JSON. Runs after `claim_event`, when a row w
 
 ### ack_owner_click
 
-Gives the owner feedback within a second of the click. Runs when `owner_click` is true, in parallel with `claim_event`.
+Gives the owner feedback within a second or two of the click. Runs after `claim_event`, when `owner_click` is true and the answer was claimed. A repeat delivery of an answer already recorded claims nothing, so this step is skipped and the final status line is not overwritten.
 
 It posts to the `response_url` from the interaction, which needs no token. The message keeps every block except the last one, the buttons, and adds a context line: `Answered Yes. Socky is recording it.` or `Answered No.` Socky later replaces that line with the final status.
 
@@ -299,8 +305,9 @@ It posts to the `response_url` from the interaction, which needs no token. The m
     timeout: 10
     url: ${{ FN.lookup(FN.deserialize_json(TRIGGER.payload), 'response_url') }}
   depends_on:
-  - route
-  run_if: ${{ ACTIONS.route.result.owner_click }}
+  - claim_event
+  run_if: ${{ ACTIONS.route.result.owner_click && (ACTIONS.claim_event.result > 0)
+    }}
   retry_policy:
     max_attempts: 1
     timeout: 30
@@ -377,8 +384,13 @@ The intake is a second, small workflow. It is not part of this export, so build 
 
 1. It has its own webhook. Point your alert source at that URL: a SIEM rule, a cloud threat detection service such as GuardDuty through its event or notification route, or anything else that can POST one alert per request.
 2. It takes the alert id from the incoming body.
-3. It upserts one row into `detection_events`: `alert_id` and `payload`, where `payload` is the body exactly as received. A resend of the same alert updates the row and does not create a second one.
-4. For a fresh alert, it runs Triage alerts with `alert_ids: ["<alert_id>"]`. One alert, one run.
+3. It looks up that `alert_id` in `detection_events` and notes whether a row exists.
+4. It upserts one row into `detection_events`: `alert_id` and `payload`, where `payload` is the body exactly as received. A resend of the same alert updates the row and does not create a second one.
+5. When the lookup in step 3 found no row, it runs Triage alerts with `alert_ids: ["<alert_id>"]`. One alert, one run.
+
+Do not use the upsert's result to tell a fresh alert from a resend. It counts updated rows as well as inserted ones, so both return 1.
+
+Triage alerts sends every stored alert to Socky as `Detection event <alert_id>`, so the alert path always uses `detection-event-case-lifecycle`, whatever the source.
 
 Socky reads the alert from `payload`. The `detection-event-case-lifecycle` skill, stage 1, lists the field names it looks for. Change that table to match the alert format of your source.
 
@@ -390,12 +402,15 @@ trigger. <My alert source> will POST one alert per request. Here is a sample
 body: <paste a sample>.
 
 1. Take the alert id from <field> in the body.
-2. Upsert a row into the table `detection_events` with `alert_id` and
-   `payload` (the full request body as JSON). Create the table with a unique
-   index on `alert_id` if it does not exist.
-3. If the row is new, execute the workflow "Triage alerts" with trigger inputs
-   {"alert_ids": ["<the alert id>"]}. Pass exactly one id per run. Do not wait
-   for it to finish.
+2. Look up that alert id in the table `detection_events`, column `alert_id`,
+   and keep whether a row was found. Create the table with a unique index on
+   `alert_id` if it does not exist.
+3. Upsert a row into `detection_events` with `alert_id` and `payload` (the
+   full request body as JSON).
+4. Only if the lookup in step 2 found no row, execute the workflow "Triage
+   alerts" with trigger inputs {"alert_ids": ["<the alert id>"]}. Pass exactly
+   one id per run. Do not wait for it to finish. Do not branch on the upsert
+   result: it is 1 for an update as well as for an insert.
 
 Send the sample body to the webhook and show me the stored row and the child
 run before you publish.
