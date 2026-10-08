@@ -430,6 +430,8 @@ class CasesService(BaseWorkspaceService):
     def _build_search_filters(
         self,
         *,
+        parent_id: uuid.UUID | None = None,
+        include_sub_cases: bool = True,
         search_term: str | None = None,
         short_id: str | None = None,
         status: CaseStatus | Sequence[CaseStatus] | None = None,
@@ -443,8 +445,6 @@ class CasesService(BaseWorkspaceService):
         end_time: datetime | None = None,
         updated_before: datetime | None = None,
         updated_after: datetime | None = None,
-        parent_id: uuid.UUID | None = None,
-        include_sub_cases: bool = True,
     ) -> list[Any]:
         filters: list[Any] = [Case.workspace_id == self.workspace_id]
 
@@ -576,16 +576,12 @@ class CasesService(BaseWorkspaceService):
         ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
-        include_durations: bool = False,
-        include_payload: bool = False,
         parent_id: uuid.UUID | None = None,
         include_sub_cases: bool = True,
+        include_durations: bool = False,
+        include_payload: bool = False,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
-        """Search cases with cursor-based pagination and filtering.
-
-        Sub-cases are included unless ``include_sub_cases`` is false. A
-        ``parent_id`` restricts results to that case's sub-cases.
-        """
+        """Search cases with cursor-based pagination and filtering."""
         include_case_addons = await self.has_entitlement(Entitlement.CASE_ADDONS)
         filters = self._build_search_filters(
             search_term=search_term,
