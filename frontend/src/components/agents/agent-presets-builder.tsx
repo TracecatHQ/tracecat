@@ -3,29 +3,21 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertCircle,
-  Bot,
   Box,
-  Braces,
-  Brackets,
   Check,
+  ChevronRight,
   ChevronsUpDown,
   Globe,
-  Hash,
-  List,
-  ListOrdered,
-  ListTodo,
   Loader2,
   type LucideIcon,
   MessageCircle,
-  Percent,
+  MousePointerClickIcon,
   Plus,
   Pyramid,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
-  ToggleLeft,
   Trash2,
-  Type,
   Webhook,
 } from "lucide-react"
 import Link from "next/link"
@@ -34,6 +26,7 @@ import {
   type FormEvent,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -74,6 +67,7 @@ import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -84,6 +78,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command"
+import { DialogDescription } from "@/components/ui/dialog"
 import {
   Empty,
   EmptyDescription,
@@ -94,12 +89,16 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import {
   Popover,
@@ -112,17 +111,11 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { ToggleTabs } from "@/components/ui/toggle-tabs"
 import {
   Tooltip,
   TooltipContent,
@@ -146,6 +139,11 @@ import {
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useSkills } from "@/hooks/use-skills"
 import {
+  type AgentOutputPrimitive,
+  formatAgentOutputType,
+  parseAgentOutputType,
+} from "@/lib/agent-preset-output"
+import {
   AGENT_PRESET_PUBLISHING_FIELDS,
   type AgentPresetFormMode,
   buildAgentPresetUpdatePayload,
@@ -165,17 +163,6 @@ import {
   useAgentPresetDetailContext,
 } from "@/providers/agent-preset-detail"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-const DATA_TYPE_OUTPUT_TYPES = [
-  { label: "String", value: "str", icon: Type },
-  { label: "Boolean", value: "bool", icon: ToggleLeft },
-  { label: "Integer", value: "int", icon: Hash },
-  { label: "Float", value: "float", icon: Percent },
-  { label: "List of booleans", value: "list[bool]", icon: ListTodo },
-  { label: "List of floats", value: "list[float]", icon: Brackets },
-  { label: "List of integers", value: "list[int]", icon: ListOrdered },
-  { label: "List of strings", value: "list[str]", icon: List },
-] as const
 
 const DEFAULT_RETRIES = 3
 const SUBAGENT_ALIAS_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/
@@ -205,7 +192,8 @@ function AgentPresetLoadError({
   )
 }
 
-const agentPresetSchema = z
+/** Validation shared by the preset editor and its panel tests. */
+export const agentPresetSchema = z
   .object({
     name: z.string().trim().min(1, "Name is required"),
     slug: z.string().trim().min(1, "Slug is required"),
@@ -346,7 +334,8 @@ const agentPresetSchema = z
     })
   })
 
-type AgentPresetFormValues = z.infer<typeof agentPresetSchema>
+/** Editable fields for the agent preset builder. */
+export type AgentPresetFormValues = z.infer<typeof agentPresetSchema>
 type SubagentFormValue = AgentPresetFormValues["subagents"][number]
 type SkillBindingFormValue = AgentPresetFormValues["skills"][number]
 type ToolApprovalFormValue = AgentPresetFormValues["toolApprovals"][number]
@@ -363,7 +352,7 @@ const AGENT_PRESET_CAPABILITY_CONFIG = [
   {
     capability: "subagents",
     label: "Subagents",
-    Icon: Bot,
+    Icon: MousePointerClickIcon,
   },
   {
     capability: "internet_access",
@@ -1613,16 +1602,9 @@ function AgentPresetForm({
     return () => registerDetailActions(null)
   }, [detailActions, registerDetailActions])
 
-  const handleAddSubagent = useCallback(() => {
-    appendSubagent({
-      preset: "",
-      presetId: "",
-      presetVersionId: "",
-      name: "",
-      description: "",
-      maxTurns: "",
-    })
-  }, [appendSubagent])
+  function handleAddSubagent(subagent: SubagentFormValue) {
+    appendSubagent(subagent, { shouldFocus: false })
+  }
 
   const handleAddSkillBinding = useCallback(
     (binding: SkillBindingFormValue) => {
@@ -1890,7 +1872,7 @@ function AgentPresetRightPanel({
   onAddSkillBinding: (binding: SkillBindingFormValue) => void
   onRemoveSkillBinding: (index: number) => void
   subagentFields: Array<{ id: string }>
-  onAddSubagent: () => void
+  onAddSubagent: (subagent: SubagentFormValue) => void
   onRemoveSubagent: (index: number) => void
 }) {
   return (
@@ -1928,7 +1910,7 @@ function AgentPresetRightPanel({
                 className="flex h-full min-w-20 items-center justify-center rounded-none px-3 text-xs data-[state=active]:bg-transparent data-[state=active]:shadow-none"
                 value="subagents"
               >
-                <Bot className="mr-2 size-4" />
+                <MousePointerClickIcon className="mr-2 size-4" />
                 <span>Subagents</span>
               </TabsTrigger>
               <TabsTrigger
@@ -2012,6 +1994,7 @@ function AgentPresetRightPanel({
               workspaceId={workspaceId}
               isSaving={isSaving}
               skillFields={skillFields}
+              savedBindings={preset?.skills}
               onAddSkillBinding={onAddSkillBinding}
               onRemoveSkillBinding={onRemoveSkillBinding}
             />
@@ -2124,7 +2107,7 @@ function AgentPresetConfigurationPanel({
 
   return (
     <ScrollArea className="h-full [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full">
-      <div className="flex min-w-0 w-full flex-col gap-8 px-6 py-6 pb-20 text-sm">
+      <div className="flex min-w-0 w-full flex-col gap-4 px-4 py-3 pb-20 text-xs">
         <section className="min-w-0 w-full space-y-4">
           <div className="grid min-w-0 grid-cols-1 gap-4">
             <FormField
@@ -2132,7 +2115,7 @@ function AgentPresetConfigurationPanel({
               name="model_name"
               render={({ field }) => (
                 <FormItem className="flex min-w-0 items-center gap-3 space-y-0">
-                  <FormLabel className="w-32 shrink-0 font-normal text-muted-foreground">
+                  <FormLabel className="w-32 shrink-0 text-xs font-normal text-muted-foreground">
                     Model
                   </FormLabel>
                   <Popover
@@ -2271,7 +2254,10 @@ function AgentPresetConfigurationPanel({
             {hasStdioMcp ? (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="inline-flex" tabIndex={0}>
+                  <span
+                    className="inline-flex focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                    tabIndex={0}
+                  >
                     <Switch id="enable-internet-access" checked disabled />
                   </span>
                 </TooltipTrigger>
@@ -2298,7 +2284,7 @@ function AgentPresetConfigurationPanel({
             name="retries"
             render={({ field }) => (
               <FormItem className="flex items-start gap-3 space-y-0">
-                <FormLabel className="w-32 shrink-0 pt-2 font-normal text-muted-foreground">
+                <FormLabel className="w-32 shrink-0 pt-2 text-xs font-normal text-muted-foreground">
                   Retries
                 </FormLabel>
                 <div>
@@ -2332,7 +2318,8 @@ function AgentPresetConfigurationPanel({
   )
 }
 
-function AgentPresetSubagentsPanel({
+/** Edit attached subagents through a picker and flat, expandable property rows. */
+export function AgentPresetSubagentsPanel({
   form,
   isSaving,
   parentPreset,
@@ -2346,9 +2333,14 @@ function AgentPresetSubagentsPanel({
   parentPreset: AgentPresetRead | null
   agentPresets: AgentPresetReadMinimal[]
   subagentFields: Array<{ id: string }>
-  onAddSubagent: () => void
+  onAddSubagent: (subagent: SubagentFormValue) => void
   onRemoveSubagent: (index: number) => void
 }) {
+  const [isPickerOpen, setIsPickerOpen] = useState(false)
+  const appendedRowIndex = useRef<number | null>(null)
+  useEffect(() => {
+    appendedRowIndex.current = null
+  }, [subagentFields.length])
   const parentInternetAccessEnabled =
     useWatch({ control: form.control, name: "enableInternetAccess" }) ?? false
   const selectedSubagents =
@@ -2378,325 +2370,336 @@ function AgentPresetSubagentsPanel({
     parentInternetAccessEnabled,
     selectedInternetAccessSubagentAliases,
   })
-
-  let addPresetDisabledReason: string | null = null
-  if (presetOptions.length === 0) {
-    addPresetDisabledReason =
-      "Create another agent preset first, then attach it here."
-  }
-
+  const addPresetDisabledReason =
+    presetOptions.length === 0
+      ? "Create another agent preset first, then attach it here."
+      : null
   const addPresetButton = (
     <Button
       type="button"
       size="sm"
       variant="outline"
-      onClick={onAddSubagent}
+      className="h-7 gap-1.5 text-xs shadow-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+      onClick={() => setIsPickerOpen(true)}
       disabled={isSaving || presetOptions.length === 0}
     >
-      <Plus className="mr-2 size-4" />
-      Add preset
+      <Plus className="size-3.5" />
+      Add subagent
     </Button>
   )
 
+  function handleAddSubagent(preset: AgentPresetReadMinimal) {
+    appendedRowIndex.current = subagentFields.length
+    onAddSubagent({
+      preset: preset.slug,
+      presetId: preset.id,
+      presetVersionId: preset.current_version_id ?? "",
+      name: "",
+      description: "",
+      maxTurns: "",
+    })
+    setIsPickerOpen(false)
+  }
+
   return (
-    <ScrollArea className="h-full">
-      <div className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm">
-        <section className="space-y-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Preset subagents</p>
-              <p className="text-xs text-muted-foreground">
-                Attach other presets this agent can call by name, each with its
-                own description and turn limit.
-              </p>
-            </div>
-            {addPresetDisabledReason ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex">{addPresetButton}</span>
-                </TooltipTrigger>
-                <TooltipContent>{addPresetDisabledReason}</TooltipContent>
-              </Tooltip>
-            ) : (
-              addPresetButton
-            )}
-          </div>
-
-          {internetAccessWarningMessage ? (
-            <Alert variant="warning">
-              <AlertCircle className="size-4" />
-              <AlertTitle>Internet access limited</AlertTitle>
-              <AlertDescription>
-                {internetAccessWarningMessage}
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
-          {presetOptions.length === 0 ? (
-            <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
-              Create another agent preset first, then attach it here. Dynamic
-              general-purpose subagents are already available.
-            </p>
-          ) : subagentFields.length === 0 ? (
-            <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
-              No preset subagents attached. General-purpose subagents can still
-              run and inherit this agent's current scopes.
-            </p>
+    <div className="h-full overflow-auto pb-20 text-xs">
+      <div className="flex h-11 items-center gap-2 border-b border-border/50 px-4">
+        <h3 className="font-medium">Subagents</h3>
+        <span className="text-muted-foreground">{subagentFields.length}</span>
+        <div className="ml-auto">
+          {addPresetDisabledReason ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="inline-flex focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                  tabIndex={0}
+                >
+                  {addPresetButton}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{addPresetDisabledReason}</TooltipContent>
+            </Tooltip>
           ) : (
-            <div className="space-y-4">
-              {subagentFields.map((item, index) => {
-                const selectedPreset = form.watch(`subagents.${index}.preset`)
-                const selectedSubagent = selectedSubagents[index] ?? {
-                  preset: selectedPreset,
-                  presetId: "",
-                  presetVersionId: "",
-                  name: "",
-                  description: "",
-                  maxTurns: "",
-                }
-                const selectedPresetIsMissing =
-                  selectedPreset.length > 0 &&
-                  !presetOptionsBySlug.has(selectedPreset)
-                const selectedPresetOption = getSubagentPreset({
-                  subagent: selectedSubagent,
-                  presetsById: presetOptionsById,
-                  presetsBySlug: presetOptionsBySlug,
-                })
-                const selectedEligibilityIssue = selectedPresetOption
-                  ? getSubagentEligibilityIssue({
-                      preset: selectedPresetOption,
-                    })
-                  : null
-
-                return (
-                  <div
-                    key={item.id}
-                    className="space-y-4 rounded-lg border px-4 py-4"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0 flex-1 space-y-4">
-                        <FormField
-                          control={form.control}
-                          name={`subagents.${index}.preset`}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Preset</FormLabel>
-                              <Select
-                                value={field.value}
-                                onValueChange={(value) => {
-                                  field.onChange(value)
-                                  const selected =
-                                    presetOptionsBySlug.get(value)
-                                  form.setValue(
-                                    `subagents.${index}.presetId`,
-                                    selected?.id ?? ""
-                                  )
-                                  form.setValue(
-                                    `subagents.${index}.presetVersionId`,
-                                    selected?.current_version_id ?? ""
-                                  )
-                                }}
-                                disabled={isSaving}
-                              >
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select preset" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {selectedPresetIsMissing ? (
-                                    <SelectItem value={selectedPreset}>
-                                      {selectedPreset} unavailable
-                                    </SelectItem>
-                                  ) : null}
-                                  {presetOptions.map((preset) => {
-                                    const currentVersionEligibilityMessage =
-                                      getSubagentEligibilityMessage(
-                                        preset.current_version_subagent_eligibility
-                                      )
-                                    const capabilities =
-                                      getOrderedAgentPresetCapabilities(preset)
-                                    const capabilitiesLabel =
-                                      formatAgentPresetCapabilityLabels(
-                                        capabilities
-                                      )
-                                    const optionLabel = (
-                                      <span className="flex min-w-0 items-center gap-2">
-                                        <span className="min-w-0 truncate">
-                                          {preset.name}
-                                        </span>
-                                        <span className="min-w-0 truncate text-xs text-muted-foreground">
-                                          {preset.slug}
-                                        </span>
-                                        <AgentPresetCapabilityIcons
-                                          capabilities={capabilities}
-                                        />
-                                      </span>
-                                    )
-
-                                    if (currentVersionEligibilityMessage) {
-                                      return (
-                                        <Tooltip key={preset.id}>
-                                          <TooltipTrigger asChild>
-                                            <SelectItem value={preset.slug}>
-                                              {optionLabel}
-                                            </SelectItem>
-                                          </TooltipTrigger>
-                                          <TooltipContent
-                                            side="right"
-                                            className="max-w-xs"
-                                          >
-                                            <div className="space-y-2">
-                                              {capabilitiesLabel ? (
-                                                <div className="space-y-0.5">
-                                                  <p className="font-medium">
-                                                    Capabilities
-                                                  </p>
-                                                  <p className="text-muted-foreground">
-                                                    {capabilitiesLabel}
-                                                  </p>
-                                                </div>
-                                              ) : null}
-                                              <div className="space-y-0.5">
-                                                <p className="font-medium">
-                                                  Current version
-                                                </p>
-                                                <p className="text-muted-foreground">
-                                                  {
-                                                    currentVersionEligibilityMessage
-                                                  }
-                                                </p>
-                                              </div>
-                                            </div>
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      )
-                                    }
-
-                                    return (
-                                      <SelectItem
-                                        key={preset.id}
-                                        value={preset.slug}
-                                      >
-                                        {optionLabel}
-                                      </SelectItem>
-                                    )
-                                  })}
-                                </SelectContent>
-                              </Select>
-                              <FormDescription>
-                                The preset head is stored in the agent binding.
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <FormField
-                            control={form.control}
-                            name={`subagents.${index}.name`}
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Alias</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    placeholder="triage-analyst"
-                                    value={field.value ?? ""}
-                                    onChange={field.onChange}
-                                    disabled={isSaving}
-                                  />
-                                </FormControl>
-                                <FormDescription>
-                                  Optional. Defaults to the preset slug.
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-
-                        {selectedEligibilityIssue ? (
-                          <Alert variant="destructive" className="text-xs">
-                            <AlertCircle className="size-4" />
-                            <AlertTitle>Cannot attach this preset</AlertTitle>
-                            <AlertDescription>
-                              {selectedEligibilityIssue.message}
-                            </AlertDescription>
-                          </Alert>
-                        ) : null}
-
-                        <FormField
-                          control={form.control}
-                          name={`subagents.${index}.description`}
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Description</FormLabel>
-                              <FormControl>
-                                <Textarea
-                                  placeholder="When should the parent delegate to this subagent?"
-                                  value={field.value ?? ""}
-                                  onChange={field.onChange}
-                                  disabled={isSaving}
-                                />
-                              </FormControl>
-                              <FormDescription>
-                                Used to decide when to call the subagent.
-                              </FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-
-                        <FormField
-                          control={form.control}
-                          name={`subagents.${index}.maxTurns`}
-                          render={({ field }) => (
-                            <FormItem className="max-w-[220px]">
-                              <FormLabel>Max turns</FormLabel>
-                              <FormControl>
-                                <Input
-                                  type="number"
-                                  min={1}
-                                  placeholder="No limit"
-                                  value={field.value ?? ""}
-                                  onChange={field.onChange}
-                                  disabled={isSaving}
-                                />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="shrink-0 text-muted-foreground"
-                        onClick={() => onRemoveSubagent(index)}
-                        disabled={isSaving}
-                        aria-label="Remove subagent"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+            addPresetButton
           )}
-        </section>
+        </div>
       </div>
-    </ScrollArea>
+      {internetAccessWarningMessage ? (
+        <Alert variant="warning" className="m-4 w-auto">
+          <AlertCircle className="size-4" />
+          <AlertTitle>Internet access limited</AlertTitle>
+          <AlertDescription>{internetAccessWarningMessage}</AlertDescription>
+        </Alert>
+      ) : null}
+      {subagentFields.length === 0 ? (
+        <p className="px-4 py-3 text-muted-foreground">
+          {presetOptions.length === 0
+            ? "Create another agent preset first, then attach it here. Dynamic general-purpose subagents are already available."
+            : "No preset subagents attached. General-purpose subagents can still run and inherit this agent's current scopes."}
+        </p>
+      ) : null}
+      {subagentFields.map((item, index) => {
+        const subagent = selectedSubagents[index]
+        const preset = subagent
+          ? getSubagentPreset({
+              subagent,
+              presetsById: presetOptionsById,
+              presetsBySlug: presetOptionsBySlug,
+            })
+          : null
+        return (
+          <AgentPresetSubagentRow
+            key={item.id}
+            form={form}
+            index={index}
+            preset={preset}
+            isSaving={isSaving}
+            initiallyExpanded={appendedRowIndex.current === index}
+            onRemove={onRemoveSubagent}
+          />
+        )
+      })}
+      <CommandDialog open={isPickerOpen} onOpenChange={setIsPickerOpen}>
+        <DialogDescription className="sr-only">
+          Choose a preset to attach as a subagent.
+        </DialogDescription>
+        <CommandInput placeholder="Search subagents..." />
+        <CommandList>
+          <CommandEmpty>No presets found.</CommandEmpty>
+          <CommandGroup heading="Workspace presets">
+            {presetOptions.map((preset) => {
+              const eligibilityMessage = getSubagentEligibilityMessage(
+                preset.current_version_subagent_eligibility
+              )
+              const capabilities = getOrderedAgentPresetCapabilities(preset)
+              return (
+                <CommandItem
+                  key={preset.id}
+                  value={preset.id}
+                  keywords={[preset.name, preset.slug]}
+                  disabled={isSaving}
+                  onSelect={() => handleAddSubagent(preset)}
+                  className="flex min-w-0 flex-col items-stretch gap-0.5"
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <MousePointerClickIcon className="!size-4 shrink-0 text-primary" />
+                    <span className="min-w-0 truncate">{preset.name}</span>
+                    <span className="truncate font-mono text-xs text-muted-foreground">
+                      {preset.slug}
+                    </span>
+                    <AgentPresetCapabilityIcons capabilities={capabilities} />
+                    {eligibilityMessage ? (
+                      <AlertCircle
+                        className="!size-3.5 shrink-0 text-destructive"
+                        aria-label="Cannot attach this preset"
+                      />
+                    ) : null}
+                  </span>
+                  {eligibilityMessage ? (
+                    <span className="text-xs text-muted-foreground">
+                      {eligibilityMessage}
+                    </span>
+                  ) : null}
+                </CommandItem>
+              )
+            })}
+          </CommandGroup>
+        </CommandList>
+      </CommandDialog>
+    </div>
   )
 }
 
-function AgentPresetSkillsPanel({
+function AgentPresetSubagentRow({
+  form,
+  index,
+  preset,
+  isSaving,
+  initiallyExpanded,
+  onRemove,
+}: {
+  form: UseFormReturn<AgentPresetFormValues>
+  index: number
+  preset: AgentPresetReadMinimal | null
+  isSaving: boolean
+  initiallyExpanded: boolean
+  onRemove: (index: number) => void
+}) {
+  const [isExpanded, setIsExpanded] = useState(initiallyExpanded)
+  const subagent = useWatch({
+    control: form.control,
+    name: `subagents.${index}`,
+  })
+  const bodyId = useId()
+  if (!subagent) return null
+  const eligibilityIssue = preset
+    ? getSubagentEligibilityIssue({ preset })
+    : null
+  const rowErrors = form.formState.errors.subagents?.[index]
+  const presetError = rowErrors?.preset?.message
+  const presetAliasError =
+    presetError === "This alias is reserved" ||
+    presetError === "Subagent aliases must be unique"
+      ? presetError
+      : undefined
+  const forcedOpen = Boolean(rowErrors) || Boolean(eligibilityIssue)
+  const expanded = isExpanded || forcedOpen
+  const presetSlug = preset?.slug ?? subagent.preset
+  const presetName = preset?.name ?? `${subagent.preset} unavailable`
+
+  return (
+    <div className="border-b border-border/50">
+      <div className="flex min-w-0 items-center gap-2 pr-3 hover:bg-muted/50">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 px-4 py-2.5 text-left disabled:cursor-default disabled:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          aria-expanded={expanded}
+          aria-controls={expanded ? bodyId : undefined}
+          aria-disabled={forcedOpen}
+          disabled={forcedOpen}
+          onClick={() => setIsExpanded(!expanded)}
+        >
+          <ChevronRight
+            className={cn(
+              "size-4 shrink-0 text-muted-foreground",
+              expanded && "rotate-90"
+            )}
+          />
+          <MousePointerClickIcon className="size-4 shrink-0 text-primary" />
+          <span className="truncate font-medium">{presetName}</span>
+          <span className="truncate font-mono text-[10px] text-muted-foreground">
+            {subagent.name.trim() || presetSlug}
+          </span>
+          <span className="min-w-0 flex-1 truncate text-muted-foreground">
+            {subagent.description}
+          </span>
+        </button>
+        {presetError && !presetAliasError ? (
+          <FormField
+            control={form.control}
+            name={`subagents.${index}.preset`}
+            render={() => (
+              <FormItem className="space-y-0">
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        ) : null}
+        {preset?.model_name ? (
+          <Badge
+            variant="secondary"
+            className="h-5 shrink-0 gap-1 px-2 text-[10px] font-normal"
+          >
+            <ProviderIcon
+              providerId={getProviderIconId(preset.model_provider)}
+              className="size-3 shrink-0 rounded-none bg-transparent p-0"
+            />
+            {preset.model_name}
+          </Badge>
+        ) : null}
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-6 shrink-0 text-muted-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          onClick={() => onRemove(index)}
+          disabled={isSaving}
+          aria-label={`Remove ${presetName}`}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
+      {expanded ? (
+        <div id={bodyId} className="space-y-3 px-4 pb-4">
+          {eligibilityIssue ? (
+            <Alert variant="destructive" className="text-xs">
+              <AlertCircle className="size-4" />
+              <AlertTitle>Cannot attach this preset</AlertTitle>
+              <AlertDescription>{eligibilityIssue.message}</AlertDescription>
+            </Alert>
+          ) : null}
+          <FormField
+            control={form.control}
+            name={`subagents.${index}.name`}
+            render={({ field }) => (
+              <FormItem className="flex items-start gap-3 space-y-0">
+                <FormLabel className="w-32 shrink-0 pt-2 text-xs font-normal text-muted-foreground">
+                  Alias
+                </FormLabel>
+                <div className="min-w-0 flex-1">
+                  <FormControl>
+                    <Input
+                      {...field}
+                      placeholder={presetSlug}
+                      disabled={isSaving}
+                      className="h-8 max-w-60 font-mono shadow-none"
+                    />
+                  </FormControl>
+                  <FormMessage>{presetAliasError}</FormMessage>
+                </div>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name={`subagents.${index}.description`}
+            render={({ field }) => (
+              <FormItem className="flex items-start gap-3 space-y-0">
+                <FormLabel className="w-32 shrink-0 pt-2 text-xs font-normal text-muted-foreground">
+                  Delegate when
+                </FormLabel>
+                <div className="min-w-0 flex-1">
+                  <FormControl>
+                    <Textarea
+                      {...field}
+                      placeholder="When should the parent delegate to this subagent?"
+                      disabled={isSaving}
+                      rows={2}
+                      className="min-h-[52px] shadow-none"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </div>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name={`subagents.${index}.maxTurns`}
+            render={({ field }) => (
+              <FormItem className="flex items-start gap-3 space-y-0">
+                <FormLabel className="w-32 shrink-0 pt-2 text-xs font-normal text-muted-foreground">
+                  Max turns
+                </FormLabel>
+                <div className="min-w-0 flex-1">
+                  <FormControl>
+                    <Input
+                      {...field}
+                      type="number"
+                      min={1}
+                      placeholder="No limit"
+                      disabled={isSaving}
+                      className="h-8 w-24 shadow-none"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </div>
+              </FormItem>
+            )}
+          />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/** Edit skill bindings while showing version metadata from the saved preset. */
+export function AgentPresetSkillsPanel({
   form,
   workspaceId,
   isSaving,
   skillFields,
+  savedBindings,
   onAddSkillBinding,
   onRemoveSkillBinding,
 }: {
@@ -2704,6 +2707,7 @@ function AgentPresetSkillsPanel({
   workspaceId: string
   isSaving: boolean
   skillFields: Array<{ id: string }>
+  savedBindings?: AgentPresetRead["skills"]
   onAddSkillBinding: (binding: SkillBindingFormValue) => void
   onRemoveSkillBinding: (index: number) => void
 }) {
@@ -2721,87 +2725,105 @@ function AgentPresetSkillsPanel({
       }),
     [attachedSkillIds, skills]
   )
-  const hasUnattachedSkills = useMemo(
-    () => (skills ?? []).some((skill) => !attachedSkillIds.has(skill.id)),
-    [attachedSkillIds, skills]
+  let addSkillDisabledReason: string | null = null
+  if (!skillsLoading && !skillsError && availableSkillsToAdd.length === 0) {
+    if (!skills?.length) {
+      addSkillDisabledReason = "No skills in this workspace yet"
+    } else if (!skills.some((skill) => skill.current_version_id)) {
+      addSkillDisabledReason =
+        "Only skills with published versions can be attached."
+    } else {
+      addSkillDisabledReason =
+        "All workspace skills are already attached to this preset."
+    }
+  }
+  const addSkillButton = (
+    <Button
+      type="button"
+      size="sm"
+      variant="outline"
+      className="h-7 gap-1.5 text-xs shadow-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+      onClick={() => setIsPickerOpen(true)}
+      disabled={isSaving || skillsLoading || availableSkillsToAdd.length === 0}
+    >
+      <Plus className="size-3.5" />
+      Add skill
+    </Button>
   )
 
   function handleAddSkill(skillId: string) {
-    onAddSkillBinding({
-      skillId,
-    })
+    onAddSkillBinding({ skillId })
     setIsPickerOpen(false)
   }
 
+  function renderSkills() {
+    if (skillsError) {
+      return (
+        <Alert variant="destructive" className="m-4 w-auto">
+          <AlertCircle className="size-4" />
+          <AlertTitle>Unable to load skills</AlertTitle>
+          <AlertDescription>
+            {getApiErrorDetail(skillsError) ?? "Please try again."}
+          </AlertDescription>
+        </Alert>
+      )
+    }
+    if (skillsLoading) {
+      return (
+        <p className="px-4 py-3 text-muted-foreground">Loading skills...</p>
+      )
+    }
+    if (skillFields.length === 0) {
+      return (
+        <p className="px-4 py-3 text-muted-foreground">
+          No skills attached yet.
+        </p>
+      )
+    }
+    return skillFields.map((item, index) => (
+      <AgentPresetSkillBindingRow
+        key={item.id}
+        form={form}
+        workspaceId={workspaceId}
+        index={index}
+        isSaving={isSaving}
+        availableSkills={skills ?? []}
+        savedBinding={savedBindings?.find(
+          (binding) => binding.skill_id === selectedSkills[index]?.skillId
+        )}
+        onRemove={onRemoveSkillBinding}
+      />
+    ))
+  }
+
   return (
-    <div className="h-full overflow-auto">
-      <div className="flex min-w-0 w-full flex-col gap-8 px-6 py-6 pb-20 text-sm">
-        <section className="min-w-0 w-full space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Attached skills</p>
-              <p className="text-xs text-muted-foreground">
-                Attach published skills to this preset.
-              </p>
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => setIsPickerOpen(true)}
-              disabled={
-                isSaving || skillsLoading || availableSkillsToAdd.length === 0
-              }
-            >
-              <Plus className="mr-2 size-4" />
-              Add skill
-            </Button>
-          </div>
-          {skillsError ? (
-            <Alert variant="destructive">
-              <AlertCircle className="size-4" />
-              <AlertTitle>Unable to load skills</AlertTitle>
-              <AlertDescription>
-                {getApiErrorDetail(skillsError) ?? "Please try again."}
-              </AlertDescription>
-            </Alert>
-          ) : skillsLoading ? (
-            <div className="flex items-center gap-2 rounded-md border px-3 py-4 text-xs text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" />
-              Loading skills...
-            </div>
-          ) : skillFields.length === 0 ? (
-            <p className="rounded-md border border-dashed px-3 py-4 text-xs text-muted-foreground">
-              No skills attached yet.
-            </p>
+    <div className="h-full overflow-auto pb-20 text-xs">
+      <div className="flex h-11 items-center gap-2 border-b border-border/50 px-4">
+        <h3 className="font-medium">Skills</h3>
+        <span className="text-muted-foreground">{skillFields.length}</span>
+        <div className="ml-auto">
+          {addSkillDisabledReason ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="inline-flex focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                  tabIndex={0}
+                >
+                  {addSkillButton}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{addSkillDisabledReason}</TooltipContent>
+            </Tooltip>
           ) : (
-            <div className="min-w-0 w-full space-y-3">
-              {skillFields.map((item, index) => (
-                <AgentPresetSkillBindingRow
-                  key={item.id}
-                  form={form}
-                  workspaceId={workspaceId}
-                  index={index}
-                  isSaving={isSaving}
-                  availableSkills={skills ?? []}
-                  onRemove={onRemoveSkillBinding}
-                />
-              ))}
-            </div>
+            addSkillButton
           )}
-          {!skillsLoading &&
-          !skillsError &&
-          skillFields.length > 0 &&
-          availableSkillsToAdd.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              {hasUnattachedSkills
-                ? "Only skills with published versions can be attached."
-                : "All workspace skills are already attached to this preset."}
-            </p>
-          ) : null}
-        </section>
+        </div>
       </div>
+      {renderSkills()}
       <CommandDialog open={isPickerOpen} onOpenChange={setIsPickerOpen}>
+        <DialogDescription className="sr-only">
+          Choose a published skill to attach.
+        </DialogDescription>
         <CommandInput placeholder="Search skills..." />
         <CommandList>
           <CommandEmpty>No skills found.</CommandEmpty>
@@ -2810,6 +2832,7 @@ function AgentPresetSkillsPanel({
               <CommandItem
                 key={skill.id}
                 value={buildSkillCommandItemValue(skill)}
+                disabled={isSaving}
                 onSelect={() => handleAddSkill(skill.id)}
               >
                 <div className="flex min-w-0 flex-col gap-0.5">
@@ -2833,6 +2856,7 @@ function AgentPresetSkillBindingRow({
   index,
   isSaving,
   availableSkills,
+  savedBinding,
   onRemove,
 }: {
   form: UseFormReturn<AgentPresetFormValues>
@@ -2840,86 +2864,84 @@ function AgentPresetSkillBindingRow({
   index: number
   isSaving: boolean
   availableSkills: SkillReadMinimal[]
+  savedBinding?: NonNullable<AgentPresetRead["skills"]>[number]
   onRemove: (index: number) => void
 }) {
-  const skillFieldName = `skills.${index}.skillId` as const
-  const selectedSkillId = form.watch(skillFieldName)
+  const selectedSkillId = form.watch(`skills.${index}.skillId`)
   const selectedSkill = availableSkills.find(
     (skill) => skill.id === selectedSkillId
   )
-  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false)
-  const skillHref = selectedSkillId
-    ? `/workspaces/${workspaceId}/skills/${selectedSkillId}`
-    : null
-  const displaySkillName = selectedSkill?.name
-  const displaySkillDescription = selectedSkill?.description?.trim() || null
+  const displaySkillName =
+    selectedSkill?.name ?? savedBinding?.skill_name ?? "Unknown skill"
+  const displaySkillDescription = selectedSkill?.description?.trim()
 
   function handleOpenSkill() {
-    if (!skillHref) {
-      return
+    if (selectedSkillId) {
+      window.open(
+        `/workspaces/${workspaceId}/skills/${selectedSkillId}`,
+        "_blank",
+        "noopener,noreferrer"
+      )
     }
-    window.open(skillHref, "_blank", "noopener,noreferrer")
   }
 
   return (
-    <div className="flex min-w-0 items-start gap-3 rounded-md border px-3 py-2.5">
-      <Pyramid className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-      <div className="min-w-0 flex-1 space-y-0.5">
-        <div className="flex min-w-0 items-center gap-2">
-          {skillHref ? (
+    <div className="group flex h-9 min-w-0 items-center gap-3 border-b border-border/50 px-4 hover:bg-muted/50">
+      <Pyramid className="size-4 shrink-0 text-primary" />
+      <div className="min-w-0 flex-1">
+        <HoverCard>
+          <HoverCardTrigger asChild>
             <button
               type="button"
-              className="min-w-0 truncate rounded-sm text-left text-sm font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="max-w-full truncate rounded-sm text-left underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
               onClick={handleOpenSkill}
+              disabled={!selectedSkillId}
             >
-              {displaySkillName ?? "Unknown skill"}
+              {displaySkillName}
             </button>
-          ) : (
-            <span className="truncate text-sm font-medium">
-              {displaySkillName ?? "Unknown skill"}
-            </span>
-          )}
-        </div>
-        {displaySkillDescription ? (
-          <div className="space-y-1">
-            <p
-              className={
-                isDescriptionExpanded
-                  ? "text-xs text-muted-foreground"
-                  : "line-clamp-2 text-xs text-muted-foreground"
-              }
+          </HoverCardTrigger>
+          {displaySkillDescription ? (
+            <HoverCardContent
+              align="start"
+              className="w-96 max-w-[calc(100vw-2rem)] space-y-1 p-3 text-xs shadow-none"
             >
-              {displaySkillDescription}
-            </p>
-            <button
-              type="button"
-              className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-              onClick={(event) => {
-                event.stopPropagation()
-                setIsDescriptionExpanded((value) => !value)
-              }}
-            >
-              {isDescriptionExpanded ? "Show less" : "Show more"}
-            </button>
-          </div>
-        ) : null}
+              <p className="font-medium">{displaySkillName}</p>
+              <p className="text-muted-foreground">{displaySkillDescription}</p>
+            </HoverCardContent>
+          ) : null}
+        </HoverCard>
       </div>
       <Button
         type="button"
         variant="ghost"
         size="icon"
-        className="size-7 shrink-0 text-muted-foreground"
+        className="size-6 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={() => onRemove(index)}
         disabled={isSaving}
-        aria-label="Remove attached skill"
+        aria-label={`Remove ${displaySkillName}`}
       >
         <Trash2 className="size-3.5" />
       </Button>
+      {savedBinding?.skill_version != null ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge
+              variant="secondary"
+              tabIndex={0}
+              className="h-5 shrink-0 px-2 font-mono text-[10px] font-normal focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+            >
+              v{savedBinding.skill_version}
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>Runs the latest published version</TooltipContent>
+        </Tooltip>
+      ) : null}
     </div>
   )
 }
 
-function AgentPresetStructuredOutputPanel({
+/** Configure text, primitive, or JSON-schema output without changing its stored shape. */
+export function AgentPresetStructuredOutputPanel({
   form,
   isSaving,
 }: {
@@ -2927,117 +2949,158 @@ function AgentPresetStructuredOutputPanel({
   isSaving: boolean
 }) {
   const outputTypeKind = form.watch("outputTypeKind")
+  const outputTypeDataType = form.watch("outputTypeDataType")
+  const { type, isList } = parseAgentOutputType(outputTypeDataType)
 
   return (
-    <ScrollArea className="h-full">
-      <div className="flex flex-col gap-8 px-6 py-6 pb-20 text-sm">
-        <section className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <FormField
-              control={form.control}
-              name="outputTypeKind"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Output type</FormLabel>
+    <div className="h-full overflow-auto px-4 py-2 pb-20 text-xs">
+      <FormField
+        control={form.control}
+        name="outputTypeKind"
+        render={({ field }) => (
+          <FormItem className="flex min-h-11 items-start gap-3 space-y-0 py-2">
+            <FormLabel className="w-32 shrink-0 pt-1.5 text-xs font-normal text-muted-foreground">
+              Format
+            </FormLabel>
+            <div className="min-w-0">
+              <FormControl>
+                <ToggleTabs<AgentPresetFormValues["outputTypeKind"]>
+                  value={field.value}
+                  onValueChange={(value) => {
+                    if (
+                      value === "data-type" &&
+                      !form.getValues("outputTypeDataType")
+                    ) {
+                      form.setValue("outputTypeDataType", "str", {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      })
+                    }
+                    if (
+                      value !== "data-type" &&
+                      form.formState.defaultValues?.outputTypeKind !==
+                        "data-type"
+                    ) {
+                      form.resetField("outputTypeDataType")
+                    }
+                    field.onChange(value)
+                  }}
+                  onBlur={field.onBlur}
+                  options={[
+                    { value: "none", content: "Text" },
+                    { value: "data-type", content: "Structured" },
+                    { value: "json", content: "JSON schema" },
+                  ]}
+                  aria-label="Format"
+                  role="group"
+                  size="sm"
+                  className="[&_button:focus-visible]:ring-1 [&_button:focus-visible]:ring-inset [&_button:focus-visible]:ring-ring"
+                  disabled={isSaving}
+                />
+              </FormControl>
+              <FormMessage />
+            </div>
+          </FormItem>
+        )}
+      />
+      {outputTypeKind === "data-type" ? (
+        <>
+          <FormField
+            control={form.control}
+            name="outputTypeDataType"
+            render={({ field }) => (
+              <FormItem className="flex min-h-11 items-start gap-3 space-y-0 py-2">
+                <FormLabel className="w-32 shrink-0 pt-1.5 text-xs font-normal text-muted-foreground">
+                  Type
+                </FormLabel>
+                <div className="min-w-0">
                   <FormControl>
-                    <Select
-                      value={field.value}
-                      onValueChange={field.onChange}
+                    <ToggleTabs<AgentOutputPrimitive | "">
+                      value={type}
+                      onValueChange={(value) =>
+                        field.onChange(
+                          value
+                            ? formatAgentOutputType({ type: value, isList })
+                            : ""
+                        )
+                      }
+                      onBlur={field.onBlur}
+                      options={[
+                        { value: "str", content: "String" },
+                        { value: "int", content: "Integer" },
+                        { value: "float", content: "Float" },
+                        { value: "bool", content: "Boolean" },
+                      ]}
+                      aria-label="Type"
+                      role="group"
+                      size="sm"
+                      className="[&_button:focus-visible]:ring-1 [&_button:focus-visible]:ring-inset [&_button:focus-visible]:ring-ring"
                       disabled={isSaving}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">
-                          <div className="flex items-center gap-2">
-                            <Type className="size-4" />
-                            <span>Text only</span>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="data-type">
-                          <div className="flex items-center gap-2">
-                            <Box className="size-4" />
-                            <span>Structured</span>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="json">
-                          <div className="flex items-center gap-2">
-                            <Braces className="size-4" />
-                            <span>JSON schema</span>
-                          </div>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-            {outputTypeKind === "data-type" ? (
-              <FormField
-                control={form.control}
-                name="outputTypeDataType"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Data type</FormLabel>
-                    <FormControl>
-                      <Select
-                        value={field.value ?? ""}
-                        onValueChange={field.onChange}
-                        disabled={isSaving}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {DATA_TYPE_OUTPUT_TYPES.map((option) => {
-                            const Icon = option.icon
-                            return (
-                              <SelectItem
-                                key={option.value}
-                                value={option.value}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <Icon className="size-4" />
-                                  <span>{option.label}</span>
-                                </div>
-                              </SelectItem>
-                            )
-                          })}
-                        </SelectContent>
-                      </Select>
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-            ) : null}
-          </div>
-          {outputTypeKind === "json" ? (
-            <FormField
-              control={form.control}
-              name="outputTypeJson"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>JSON schema</FormLabel>
-                  <FormDescription>
-                    Define a JSON schema for structured output.
-                  </FormDescription>
-                  <FormControl>
-                    <CodeEditor
-                      value={field.value ?? ""}
-                      onChange={(value) => field.onChange(value)}
-                      language="json"
-                      readOnly={isSaving}
-                      className="min-h-[200px]"
                     />
                   </FormControl>
-                </FormItem>
-              )}
-            />
-          ) : null}
-        </section>
-      </div>
-    </ScrollArea>
+                  <FormMessage />
+                </div>
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="outputTypeDataType"
+            render={({ field }) => (
+              <FormItem className="flex min-h-11 items-center gap-3 space-y-0 py-2">
+                <FormLabel className="w-32 shrink-0 text-xs font-normal text-muted-foreground">
+                  List of values
+                </FormLabel>
+                <FormControl>
+                  <Switch
+                    checked={isList}
+                    onCheckedChange={(checked) =>
+                      field.onChange(
+                        type
+                          ? formatAgentOutputType({ type, isList: checked })
+                          : ""
+                      )
+                    }
+                    onBlur={field.onBlur}
+                    disabled={isSaving || !type}
+                    className="shadow-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring [&_span]:shadow-none"
+                  />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+          <div className="flex min-h-11 items-center gap-3">
+            <span className="w-32 shrink-0 text-muted-foreground">Returns</span>
+            <output className="font-mono">{outputTypeDataType}</output>
+          </div>
+        </>
+      ) : null}
+      {outputTypeKind === "json" ? (
+        <FormField
+          control={form.control}
+          name="outputTypeJson"
+          render={({ field }) => (
+            <FormItem className="flex items-start gap-3 space-y-0 py-2">
+              <FormLabel className="w-32 shrink-0 pt-2 text-xs font-normal text-muted-foreground">
+                JSON schema
+              </FormLabel>
+              <div className="min-w-0 flex-1">
+                <FormControl>
+                  <CodeEditor
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                    language="json"
+                    readOnly={isSaving}
+                    className="min-h-[200px]"
+                  />
+                </FormControl>
+                <FormMessage />
+              </div>
+            </FormItem>
+          )}
+        />
+      ) : null}
+    </div>
   )
 }
 
@@ -3565,7 +3628,7 @@ function AgentPresetCapabilityIcons({
       title={label}
     >
       {configs.map(({ capability, Icon }) => (
-        <Icon key={capability} className="size-3.5" aria-hidden="true" />
+        <Icon key={capability} className="!size-3.5" aria-hidden="true" />
       ))}
     </span>
   )
