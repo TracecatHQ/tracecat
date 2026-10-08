@@ -9,10 +9,12 @@ from pydantic import JsonValue, TypeAdapter
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from temporalio.exceptions import ApplicationError
+from tracecat_ee.secrets.references.service import SecretReferencesService
 
 from tracecat.db.locks import try_pg_advisory_xact_lock
 from tracecat.db.models import Action, Workflow, WorkspaceSyncResourceMapping
 from tracecat.exceptions import TracecatValidationError
+from tracecat.secrets.enums import SecretSource
 from tracecat.sync import PullResult, PushStatus
 from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.operations.schemas import (
@@ -28,6 +30,7 @@ from tracecat.workspace_sync.operations.types import (
 )
 from tracecat.workspace_sync.schemas import (
     WorkspaceProjection,
+    WorkspaceRemoteSnapshot,
     WorkspaceSyncExportPreview,
 )
 from tracecat.workspace_sync.service import (
@@ -58,6 +61,35 @@ class DurableSyncService(WorkspaceSyncService):
                 "provider": settings.get("git_provider")
                 or self._mapping_provider.value,
                 "url": settings.get("git_repo_url"),
+            }
+        )
+
+    async def secret_store_fingerprint(
+        self, snapshot: WorkspaceRemoteSnapshot
+    ) -> str | None:
+        """Bind reviewed external secret references to their effective stores."""
+        names = {
+            spec.store
+            for spec in snapshot.spec.secret_metadata.values()
+            if spec.source == SecretSource.AWS_SECRETS_MANAGER and spec.store
+        }
+        if not names:
+            return None
+        stores = await SecretReferencesService(
+            session=self.session, role=self.role
+        ).list_all_authorized_stores()
+        # Only referenced stores matter. Hash configuration privately; neither
+        # credentials nor organization-wide store metadata belong in previews.
+        return fingerprint(
+            {
+                store.name: {
+                    "id": str(store.id),
+                    "provider": store.provider,
+                    "enabled": store.enabled,
+                    "config": store.config,
+                }
+                for store in stores
+                if store.name in names
             }
         )
 
@@ -265,6 +297,9 @@ class DurableSyncService(WorkspaceSyncService):
         )
         return PreparedSync(
             snapshot=prepared.snapshot,
+            secret_store_fingerprint=await self.secret_store_fingerprint(
+                prepared.snapshot
+            ),
             preview=prepared.preview,
             workspace_fingerprint=await self.local_fingerprint(inputs),
             repository_fingerprint=repository_fingerprint,
@@ -417,6 +452,11 @@ class DurableSyncService(WorkspaceSyncService):
             params = inputs.pull
             if snapshot is None or params is None:
                 raise StaleSyncPreviewError("Missing prepared snapshot")
+            if (
+                await self.secret_store_fingerprint(snapshot)
+                != prepared.secret_store_fingerprint
+            ):
+                raise StaleSyncPreviewError("Secret stores changed; preview again")
             projection = await self.project_workspace(
                 include_schedules=params.sync_schedules,
                 create_missing_mappings=False,
