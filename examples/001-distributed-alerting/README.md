@@ -1,6 +1,6 @@
 # 001: Distributed alerting with one agent
 
-Socky is a single agent preset that triages security alerts. For each alert it investigates, writes a Tracecat case, publishes the case to a Slack channel, asks the person linked to the activity "was this you?" with Yes and No buttons, and records the answer on the case.
+Socky is a single agent preset that triages security alerts from any source: SIEM detections, GuardDuty findings, identity alerts, endpoint alerts. For each alert it investigates, writes a Tracecat case, publishes the case to a Slack channel, asks the person linked to the activity "was this you?" with Yes and No buttons, and records the answer on the case.
 
 This folder holds everything needed to rebuild it: the workflow, the agent prompt, six skills and the Slack app manifest. All values are placeholders. Nothing here is specific to one organisation.
 
@@ -17,17 +17,17 @@ The skills:
 
 | Skill | What it covers |
 |---|---|
-| `detection-event-case-lifecycle` | An alert from the intake webhook, in a SIEM rule's alert format, from intake to a published case |
-| `guardduty-case-lifecycle` | An AWS GuardDuty finding from fetch to a published case |
+| `detection-event-case-lifecycle` | An alert from any source, in any JSON shape, from intake to a published case. The default for every alert. |
+| `guardduty-case-lifecycle` | An AWS GuardDuty finding from fetch to a published case. The example of a per-source lifecycle skill. |
 | `slack-case-threads` | Mentions in a case thread and the owner's Yes/No buttons |
-| `aws-cloud-incident-response-core` | AWS evidence rules, identity resolution, wording and the investigation record |
+| `aws-cloud-incident-response-core` | AWS evidence rules and identity resolution, plus the enrichment and wording rules and the investigation record used for every alert |
 | `hypothesis-driven-triage` | The triage method and the question library per finding family |
 | `case-output` | The case report layout, the Slack card, the brief, the evidence table and thread replies |
 
 ## How it fits together
 
-1. Your alert source sends each alert to a webhook. A small intake workflow stores it in a table and starts Triage alerts with that one alert id. One alert, one run, one agent call.
-2. Triage alerts runs Socky on the alert. Socky deduplicates against open cases, investigates with read-only tools, writes the case, and posts one Slack thread: a Work Object card, a short brief, an evidence table and, when the records link the activity to an employee, the Yes/No ask.
+1. Each alert source sends its alerts to a webhook. A small intake workflow stores the alert in a table with a `source` slug and starts Triage alerts with that one alert id. One alert, one run, one agent call.
+2. Triage alerts runs Socky on the alert. Socky loads the lifecycle skill for the source, or the generic one, deduplicates against open cases, investigates with read-only tools, writes the case, and posts one Slack thread: a Work Object card, a short brief, an evidence table and, when the records link the activity to an employee, the Yes/No ask.
 3. Slack sends mentions and button clicks to the same workflow. The owner's first click is acknowledged at once, then Socky records the answer: Yes sets the case to Benign, No sets it to Escalate. A click by anyone else gets a private refusal.
 4. When someone opens the card's details panel, the workflow answers from a table. No agent runs.
 
@@ -38,24 +38,54 @@ The workflow does the fast, deterministic parts: routing, deduplicating Slack ev
 - A Tracecat workspace with agents, cases and tables.
 - A coding agent connected to the Tracecat MCP, if you want to build the workflow from the prompts in `workflow.md`.
 - A Slack workspace where you can create and install apps.
-- An alert source that can POST each alert to a webhook: a SIEM rule, a cloud threat detection service such as GuardDuty through its event or notification route, or your own tooling.
+- One or more alert sources that can POST each alert to a webhook: a SIEM rule, a cloud threat detection service such as GuardDuty through its event or notification route, an identity provider, an endpoint tool, or your own tooling.
 - AWS access through a read-only audit role, if you triage AWS alerts. Store it as the AWS credential the `tools.aws_boto3` actions use.
-- Optional: an MCP server for your SIEM, so Socky can read the events behind an alert.
+- Optional: an MCP server for your SIEM, or a read tool for an alert source, so Socky can read the events behind an alert. Without one, Socky works from the alert payload and says what it could not check.
 - Optional: threat enrichment tools for IP, domain, URL and file-hash reputation.
 
-Case custom fields the skills write: `finding_ids`, `finding_count`, `finding_type`, `first_seen`, `last_seen`, `principal`, `region`, `resource`, `aws_account`, `disposition`, `due_date`, `linked_person`. Create them in the workspace's case settings.
+Case custom fields the skills write. Create them in the workspace's case settings with these names and types. The type matters: a list written to a `TEXT` field is rejected.
+
+| Field | Type | Holds |
+|---|---|---|
+| `finding_ids` | `JSONB` | A list of the alert or finding ids on the case |
+| `finding_count` | `INTEGER` | The number of events across those alerts |
+| `finding_type` | `TEXT` | The detection name or finding type |
+| `first_seen` | `TIMESTAMPTZ` | The earliest event time on the case |
+| `last_seen` | `TIMESTAMPTZ` | The latest event time on the case |
+| `principal` | `TEXT` | The identity that acted |
+| `region` | `TEXT` | The cloud region, when the alert has one |
+| `resource` | `TEXT` | The thing acted on |
+| `aws_account` | `TEXT` | The AWS account id, for AWS alerts only |
+| `disposition` | `TEXT` | `Open`, `Benign`, `Escalate`, or `Inconclusive` when a person sets it |
+| `due_date` | `TIMESTAMPTZ` | When the case is due |
+| `linked_person` | `TEXT` | The person the records link to the activity |
+
+The add-field dialog shows these types as JSON, Integer, Text and Date and time.
 
 ## Setup order
 
 1. Create the three tables listed in `workflow.md`: `detection_events`, `slack_events`, `slack_work_objects`. Each needs its unique index.
-2. Create the case custom fields above.
+2. Create the case custom fields above, with the types listed.
 3. Add the six skills from `skills/`. Keep each skill's file names. Replace the placeholders listed below first.
-4. Create the agent preset from `agent/preset.md` with the slug `socky`. Grant the tools, bind the skills, attach your SIEM MCP if you have one.
+4. Create the agent preset from `agent/preset.md` with the slug `socky`. Grant the tools, bind the skills, and attach your SIEM MCP or other source read tools if you have them.
 5. Create the Slack app from `slack-app-manifest.json`, install it, store its token and invite it to the triage channel (next section, part 1).
 6. Build the Triage alerts workflow from `workflow.md`. Add a webhook trigger and publish it.
 7. Add the workflow's webhook URL to the Slack app (next section, part 2).
-8. Build the alert intake workflow from the contract at the end of `workflow.md`, and point your alert source at its webhook.
+8. Build the alert intake workflow from the contract at the end of `workflow.md`, pick a `source` slug for each alert source, and point each source at the intake webhook (see "Alert sources").
 9. Test: run Triage alerts by hand with `alert_ids` set to one stored alert. Check the case, the Slack thread, the details panel, and both buttons.
+
+## Alert sources
+
+The alert path takes any source and any JSON shape. To add a source:
+
+1. Pick a `source` slug for it: short, lowercase, letters, digits and hyphens. For example `siem`, `guardduty`, `idp`, `edr`.
+2. Point the source at the intake webhook. The intake stores each alert in `detection_events` as `alert_id`, `source` and `payload`, where `payload` is the alert as received.
+3. That is enough. `triage_alert` sends Socky `Detection event <alert_id> (source <source>)` and the payload. With no skill for the source, Socky loads `detection-event-case-lifecycle`. It reads the payload into a fixed set of common fields (detection name, source severity, account, principal, resource, first and last seen, event count, link) and leaves empty what the payload lacks.
+4. Optional: add a skill named `<source>-case-lifecycle` for source-specific handling and bind it to the preset. Socky loads it by name for that source. `guardduty-case-lifecycle` is the example: it reads the full finding from AWS and maps GuardDuty finding types to families.
+
+Socky investigates with what it has. With a SIEM MCP or a read tool for the source, it reads the events behind the alert. With neither, it works from the payload, the enrichment tools and prior cases, and the case says what it could not check.
+
+The intake contract is at the end of `workflow.md`.
 
 ## Slack app setup
 
@@ -140,8 +170,9 @@ Slack's documentation:
 | `C0123456789` | Both `slack-delivery.md` files, both lifecycle skills | The channel ID of your triage channel |
 | `https://<your-tracecat-host>/workspaces/<workspace-id>/cases/<case_id>` | Both lifecycle skills | Your Tracecat host and workspace ID. Leave `<case_id>` as it is. |
 | `<your-read-only-audit-role>` | Both lifecycle skills, `aws-cloud-incident-response-core` | The read-only role your AWS credential assumes |
-| `<siem>`, `<siem-alert-url>` | `detection-event-case-lifecycle` | A short name for your SIEM, used in tags, and the URL pattern of an alert in it |
-| `<adapt to your SIEM>` | Skills | Marks field names, table names and SQL that follow one SIEM's schema. Rewrite them for yours. |
+| `<siem-alert-url>` | `detection-event-case-lifecycle`, "Fixed values" | Optional. The URL pattern of an alert in a source whose payload carries no link. Delete the example if you have none. |
+| `<source>` | Lifecycle skills, `slack-delivery.md`, prompt | Not a placeholder to replace. Socky fills it at run time from the `source` column. |
+| `<adapt to your SIEM>` | Skills | Marks table names and SQL that follow one SIEM's schema. Rewrite them for yours, or ignore them if you have no SIEM. |
 | `<your-shared-workload-role>`, `<tenant prefix length>` | Lifecycle skills, `hypothesis-library.md` | Only if many tenants or jobs share one role in your AWS accounts. Otherwise delete those checks. |
 | `U0123456789`, `jane.doe@example.com`, `Jane Doe`, `CASE-0001`, `123456789012` | Skills | Examples only. Leave them. |
 
@@ -180,8 +211,9 @@ Keep it current. A stale employee list sends the Yes/No ask to nobody.
 
 ### Other additions
 
-- Add a lifecycle or evidence skill per additional alert source (identity, SaaS, endpoint) as needed. Name a lifecycle skill `<source>-case-lifecycle` and the prompt routes to it by name on manual runs and chat requests. Sources without one use the generic path in the prompt.
-- The alert webhook path does not route by source. `triage_alert` starts every prompt with `Detection event <alert_id>`, which loads `detection-event-case-lifecycle`. To triage another alert format on that path, change the field table in stage 1 of that skill. To send a source to its own lifecycle skill, store the source with the alert and change the first line of the `triage_alert` prompt.
+- A `<source>-case-lifecycle` skill for a source that deserves its own handling: its own family mapping, a fetch of the full alert from the source, or its own card. Name it after the `source` slug and the prompt routes to it on the alert path, on manual runs and on chat requests. Start from `guardduty-case-lifecycle`.
+- An evidence skill per platform beyond AWS (identity, SaaS, endpoint), with that platform's read methods and identity rules. `aws-cloud-incident-response-core` is the model.
+- A URL pattern in "Fixed values" of `detection-event-case-lifecycle` for each source whose alerts carry no link. Without one, the card has no button that opens the alert in that source.
 
 ## Known gaps in the source
 
@@ -190,4 +222,7 @@ The skills are sanitised copies from a working setup. A few parts still disagree
 - `slack-case-threads` says the app subscribes only to `app_mention`. The manifest also subscribes to `entity_details_requested`, which the workflow answers before the agent is involved.
 - A failed `handle_event` is not retried. The run shows as failed and the Slack event stays claimed; for an owner click the message stays at `Socky is recording it.` Recover by deleting the event's row from `slack_events` and re-running the workflow by hand with the same trigger input. `workflow.md` has the details.
 - `hypothesis-library.md` says the workflow posts open questions. Socky posts everything itself.
-- The skills were written for GuardDuty first. `detection-event-case-lifecycle` stage 7 lists the substitutions for other alerts.
+- `case-output`, `hypothesis-driven-triage` and `aws-cloud-incident-response-core` were written for GuardDuty first. `detection-event-case-lifecycle` stages 5 and 7 list the substitutions for other alerts. The family questions in `hypothesis-library.md` are AWS and Kubernetes ones; other alerts use its `generic` family unless you add your own.
+- Case deduplication is not atomic. Two alerts for the same group that arrive at the same moment can each find no case and each create one. A person merges the two cases by hand. If you need a guarantee, serialise runs per source in the intake workflow.
+- The intake triages each `alert_id` once. A source that updates an alert in place under the same id, as GuardDuty does when a finding recurs, gets no second run. Replay it by hand with `alert_ids`.
+- An alert that lacks a field stays without it. With no detection name it is not grouped with other alerts, and with no link the card has no button that opens the alert in its source.

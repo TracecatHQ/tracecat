@@ -1,6 +1,6 @@
 ---
 name: case-output
-description: Load before writing a GuardDuty case description, its Slack card, brief or evidence table, or a reply in a case's Slack thread. How the investigating agent turns its investigation into the case report and the Slack alert that a small security team acts on in under a minute, and how it replies in a case's Slack thread. Covers the fixed layout (status line, headings, closure sentences, Verdict line) you assemble exactly, the judgment text you write, and the self-check every report passes before it is written. Plain English, no jargon, no raw queries.
+description: Load before writing a case description, its Slack card, brief or evidence table, or a reply in a case's Slack thread. How the investigating agent turns its investigation into the case report and the Slack alert that a small security team acts on in under a minute, and how it replies in a case's Slack thread. Covers the fixed layout (status line, headings, closure sentences, Verdict line) you assemble exactly, the judgment text you write, and the self-check every report passes before it is written. Plain English, no jargon, no raw queries. Written around GuardDuty findings; for an alert from any other source, detection-event-case-lifecycle lists the substitutions.
 ---
 
 

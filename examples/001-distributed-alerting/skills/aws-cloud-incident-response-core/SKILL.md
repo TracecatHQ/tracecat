@@ -1,6 +1,6 @@
 ---
 name: aws-cloud-incident-response-core
-description: Load before the first query of any AWS GuardDuty case investigation, whether you are triaging a finding or answering a question in a case thread. Operating rules for the investigating agent. Covers read-only access to AWS, the split between GuardDuty findings read through boto3 and hunting and hypothesis tests in the SIEM, evidence and identity resolution rules, neutral wording, and the investigation record you build before writing anything. Load with business-context (when that skill exists), hypothesis-driven-triage and case-output.
+description: Load before the first query of any AWS GuardDuty case investigation, whether you are triaging a finding or answering a question in a case thread. Operating rules for the investigating agent. Covers read-only access to AWS, the split between GuardDuty findings read through boto3 and hunting and hypothesis tests in the SIEM, evidence and identity resolution rules, neutral wording, and the investigation record you build before writing anything. Load with business-context (when that skill exists), hypothesis-driven-triage and case-output. The enrichment, wording and oversight rules and the investigation record apply to every alert, AWS or not; for an alert from any other source, detection-event-case-lifecycle lists the substitutions.
 metadata:
   tools:
     - tools.aws_boto3.call_api

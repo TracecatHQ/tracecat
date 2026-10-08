@@ -1,6 +1,6 @@
 ---
 name: slack-case-threads
-description: Load when the prompt is a raw Slack payload, either an Events API envelope or an Interactivity payload. Covers how Socky handles an app_mention (acknowledge, read the thread from Slack, answer, record on the case, mark done) and the owner's Yes/No buttons on a GuardDuty case. Conversation history is read from Slack with list_replies and list_messages, never from stored state. For a mention, load aws-cloud-incident-response-core and case-output before answering anything that needs evidence. For the owner's Yes/No buttons, load nothing else, because this skill holds every rule that path needs.
+description: Load when the prompt is a raw Slack payload, either an Events API envelope or an Interactivity payload. Covers how Socky handles an app_mention (acknowledge, read the thread from Slack, answer, record on the case, mark done) and the owner's Yes/No buttons on a case. Conversation history is read from Slack with list_replies and list_messages, never from stored state. For a mention, load aws-cloud-incident-response-core and case-output before answering anything that needs evidence. For the owner's Yes/No buttons, load nothing else, because this skill holds every rule that path needs.
 metadata:
   tools:
     - tools.slack.add_reaction
@@ -50,7 +50,7 @@ Work out `payload` with a JSON parse of the string. Slack form-encodes interacti
    - one `Slack: ` case comment;
    - at most one direct message, under the rules there.
 
-   For an investigative question, fetch the case's evidence the way its own lifecycle skill does. A case tagged `guardduty`: its findings with boto3, as guardduty-case-lifecycle stage 1 describes. A case tagged `detection-event`: the events behind its alert ids in the SIEM, as detection-event-case-lifecycle stage 5 describes; its `finding_ids` are alert ids, not GuardDuty findings. Test the question in the SIEM with the method in hypothesis-driven-triage.
+   For an investigative question, fetch the case's evidence the way its own lifecycle skill does. A case tagged `guardduty`: its findings with boto3, as guardduty-case-lifecycle stage 1 describes. A case tagged `detection-event`: the events behind its alert ids, as detection-event-case-lifecycle stage 5 describes, from the SIEM, the source's read tool, or the facts stored on the case when you have neither; its `finding_ids` are alert ids, not GuardDuty findings, and its `source-<source>` tag names the source. Test the question with the method in hypothesis-driven-triage, and say what you could not check.
 5. **Outside a case thread** (no case found): answer helpfully in the thread with the same evidence rules. Add no case comment and change nothing on any case.
 6. **Mark done.** The reader should be left with a single green tick, never a tick sitting beside the eyes. Do these two in this order, on the same `event.channel` and `event.ts`:
    - Call `tools.slack.add_reaction` with `name` `white_check_mark`.

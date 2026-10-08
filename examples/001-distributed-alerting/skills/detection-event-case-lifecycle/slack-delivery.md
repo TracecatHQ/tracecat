@@ -5,7 +5,7 @@ A case is published in `#security-alerts` (`C0123456789`) as one thread, in the 
 1. **Work Object card**: the thread parent.
 2. **Brief** (Reply 1): the answer.
 3. **Evidence table** (Reply 2): one row per entity a responder would act on.
-4. **Owner ask**: the Yes/No buttons, only when the records link the session to an employee.
+4. **Owner ask**: the Yes/No buttons, only when the records link the activity to an employee.
 
 A re-triage edits these messages in place; it never posts a second card or brief. What each message says is defined in case-output, read with the substitutions in this skill's stage 7. This file covers where each message goes and how it is kept current.
 
@@ -30,7 +30,7 @@ The card and the details panel show the same entity: one object in the shape Sla
     "attributes": {
       "title": { "text": "<case title>" },
       "display_id": "<case short id, e.g. CASE-0001>",
-      "display_type": "Detection triage",
+      "display_type": "<source> alert triage",
       "product_name": "Tracecat",
       "metadata_last_modified": <integer epoch seconds, see below>
     },
@@ -40,7 +40,7 @@ The card and the details panel show the same entity: one object in the shape Sla
     "actions": {
       "primary_actions": [
         { "text": "Open Tracecat case", "action_id": "gd_open_case", "url": "<case URL>", "accessibility_label": "Open this case in Tracecat" },
-        { "text": "Open alert in SIEM", "action_id": "gd_open_alert", "url": "<alert link for the first alert id>", "accessibility_label": "Open this alert in the SIEM" }
+        { "text": "Open alert in <source>", "action_id": "gd_open_alert", "url": "<alert link>", "accessibility_label": "Open this alert in its source" }
       ],
       "overflow_actions": []
     }
@@ -48,12 +48,16 @@ The card and the details panel show the same entity: one object in the shape Sla
 }
 ```
 
+`<source>` is the source slug from the prompt, as given: `siem alert triage`, `Open alert in idp`. With the source `unknown`, the `display_type` is `Alert triage` and the button reads `Open alert`.
+
+The second button, `gd_open_alert`, opens the first alert on the case that has a link. When no alert on the case has a link, leave the button out: `primary_actions` then holds `gd_open_case` alone. Never post a button without a URL.
+
 Each custom field is `{"key": <key>, "label": <label>, "type": "string", "long": true, "value": <value>}`:
 
 | key | label | value |
 |---|---|---|
-| `seen` | Seen | `<first seen> to <last seen>, <count> events`, in reader format; when first and last seen are the same instant, `<time>, <count> events`. Write `1 event` when the count is 1 |
-| `rule` | Detection rule | the card rule from case-output (120 characters at most) |
+| `seen` | Seen | `<first seen> to <last seen>, <count> events`, in reader format; when first and last seen are the same instant, `<time>, <count> events`; when the case has no times, `<count> events` alone. Write `1 event` when the count is 1 |
+| `rule` | Detection | the card rule from case-output (120 characters at most) |
 | `verdict` | Verdict | `<status> · <confidence>`, for example `Open · medium` |
 | `deviation` | Deviation | the card deviation from case-output; leave the row out when you have none |
 | `account` | Account | `<deployment name or Unknown deployment> (<account id>)`; leave the row out when the alert names no account |
@@ -61,7 +65,7 @@ Each custom field is `{"key": <key>, "label": <label>, "type": "string", "long":
 | `object` | Object | the alert's resource, or `not recorded` |
 | `finding_ids` | Alert IDs | every alert id on the case, comma separated |
 
-The keys stay as they are, `finding_ids` included, because the thread and button handling read the entity by key. Compared with a GuardDuty card, the labels, the `display_type`, the second button (`gd_open_alert`) and the alert-specific values in the table above differ. Everything else is the GuardDuty shape.
+The values come from the common fields of detection-event-case-lifecycle stage 1 and from the case's fields, never from the payload's own key names. The keys stay as they are, `finding_ids` included, because the thread and button handling read the entity by key. Compared with a GuardDuty card, the labels, the `display_type`, the second button (`gd_open_alert`) and the alert-specific values in the table above differ. Everything else is the GuardDuty shape.
 
 `seen` comes first because the card's collapsed preview shows only the top rows; the time is what a responder needs before anything else.
 
@@ -95,7 +99,7 @@ The keys stay as they are, `finding_ids` included, because the thread and button
 
    Pass exactly these five columns. The table keeps its own `created_at` and `updated_at`; sending `updated_at` fails with "Column 'updated_at' does not exist".
 
-   The row is what answers the card's details panel. Together with the brief, it also tells a later run that this alert is already published. Write it every time you post or refresh the card, and whenever the verdict changes.
+   The row is what answers the card's details panel. Together with the brief, the evidence table and the owner ask when one is due, it also tells a later run that this alert is already published. Write it every time you post or refresh the card, and whenever the verdict changes.
 
 ## Post or edit the brief
 
@@ -114,7 +118,7 @@ Follow case-output ("Evidence table"). Post it with `tools.slack.post_message`, 
 
 ## Owner ask
 
-Post the ask only when the linked email is set **and** the thread holds no owner ask yet (see "Find what is already posted"). The person is asked once per case, not on every re-triage: when the ask is in the thread, never post a second one. When an earlier run posted the brief but not the ask, because the lookup found no one or the post failed, this run posts it. A case the owner has answered stops in stage 4 and never reaches this step.
+Post the ask only when the linked email is set **and** the thread holds no owner ask yet (see "Find what is already posted"). The person is asked once per case, not on every re-triage: when the ask is in the thread, never post a second one. When an earlier run posted the brief but not the ask, because the lookup found no one or the post failed, this run posts it. Stage 3 of the lifecycle skill sends such a run here: it stops only when every message the case needs is in the thread. A case the owner has answered stops in stage 4 and never reaches this step.
 
 Slack mentions in a case thread appear only in the brief's next-step question and in the thank-you after an answer. The ask itself tags no one and asks nothing: the brief's step 1 already asks the person by name. The ask says why and what each answer does, then the buttons. It never restates the alert.
 
@@ -123,7 +127,7 @@ Slack mentions in a case thread appear only in the brief's next-step question an
 
 ```json
 [
-  { "type": "section", "text": { "type": "mrkdwn", "text": "We're asking because our records link this session to you and a detection rule flagged the activity. *Yes* records the case as Benign. *No* moves it to Escalate, and the security team will treat it as a possible credential compromise." } },
+  { "type": "section", "text": { "type": "mrkdwn", "text": "We're asking because our records link this activity to you and a security alert flagged it. *Yes* records the case as Benign. *No* moves it to Escalate, and the security team will treat it as a possible credential compromise." } },
   { "type": "actions", "block_id": "gd_confirm:<short id>:<user id>:<email>:<display name>", "elements": [
     { "type": "button", "action_id": "gd_confirm_yes", "style": "primary", "text": { "type": "plain_text", "text": "Yes, that was me" }, "value": "<case_id>" },
     { "type": "button", "action_id": "gd_confirm_no", "style": "danger", "text": { "type": "plain_text", "text": "No, not me" }, "value": "<case_id>" }

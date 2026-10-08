@@ -1,6 +1,6 @@
 ---
 name: hypothesis-driven-triage
-description: Load before the first query when triaging or answering questions on a Tracecat case of AWS GuardDuty findings. Question driven method for triaging a Tracecat case containing one or more related AWS GuardDuty findings. Identify the finding family, ask the decision questions, answer them from the SIEM and prior cases, record what cannot be answered, and set a verdict backed by evidence. Use with business-context (when that skill exists), aws-cloud-incident-response-core, case-output, and the bundled hypothesis-library.md.
+description: Load before the first query when triaging or answering questions on a Tracecat case of AWS GuardDuty findings. Question driven method for triaging a Tracecat case containing one or more related AWS GuardDuty findings. Identify the finding family, ask the decision questions, answer them from the SIEM and prior cases, record what cannot be answered, and set a verdict backed by evidence. Use with business-context (when that skill exists), aws-cloud-incident-response-core, case-output, and the bundled hypothesis-library.md. Written around GuardDuty findings; for an alert from any other source, detection-event-case-lifecycle lists the substitutions.
 ---
 
 
