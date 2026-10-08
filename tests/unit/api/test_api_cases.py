@@ -1990,3 +1990,29 @@ async def test_update_comment_reparenting_returns_bad_request(
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Changing a comment parent is not supported"
+
+
+@pytest.mark.anyio
+async def test_search_cases_rejects_parent_id_with_top_level(
+    client: TestClient,
+    test_admin_role: Role,
+) -> None:
+    """Contradictory hierarchy filters are a client error, not a 500."""
+    with patch.object(cases_router, "CasesService") as MockService:
+        mock_svc = AsyncMock()
+        mock_svc.search_cases.side_effect = TracecatValidationError(
+            "parent_id cannot be combined with hierarchy=top_level"
+        )
+        MockService.return_value = mock_svc
+
+        response = client.get(
+            "/cases/search",
+            params={
+                "workspace_id": str(test_admin_role.workspace_id),
+                "parent_id": str(uuid.uuid4()),
+                "hierarchy": "top_level",
+            },
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "cannot be combined" in response.json()["detail"]

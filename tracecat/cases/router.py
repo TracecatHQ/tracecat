@@ -298,7 +298,7 @@ async def list_cases(
             include_payload=include_payload,
             hierarchy=hierarchy,
         )
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         logger.warning(f"Invalid request for list cases: {e}")
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
@@ -473,7 +473,7 @@ async def search_cases(
             parent_id=parent_id,
             hierarchy=hierarchy,
         )
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         logger.warning(f"Invalid request for search cases: {e}")
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
@@ -608,7 +608,7 @@ async def search_case_aggregates(
             parent_id=parent_id,
             hierarchy=hierarchy,
         )
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         logger.warning(f"Invalid request for case aggregate counts: {e}")
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,

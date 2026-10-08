@@ -380,3 +380,16 @@ async def test_sub_cases_require_case_addons(cases_service: CasesService) -> Non
     refreshed = await cases_service.get_case(child_id)
     assert refreshed is not None
     assert refreshed.parent_id == parent_id
+
+
+@pytest.mark.anyio
+async def test_parent_filter_rejects_top_level_hierarchy(
+    cases_service: CasesService,
+) -> None:
+    parent_id = (await _create(cases_service, "Parent")).id
+    with pytest.raises(TracecatValidationError, match="cannot be combined"):
+        await cases_service.search_cases(
+            CursorPaginationParams(limit=10),
+            parent_id=parent_id,
+            hierarchy="top_level",
+        )
