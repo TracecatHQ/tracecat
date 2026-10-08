@@ -1,6 +1,6 @@
 "use client"
 
-import { CopyIcon } from "lucide-react"
+import { CheckCheckIcon, CopyIcon } from "lucide-react"
 import React from "react"
 import type {
   SecretStoreCreate,
@@ -320,6 +320,12 @@ function PolicyBlock({
 
 function StorePolicies({ store }: { store: SecretStoreRead }) {
   const [activeId, setActiveId] = React.useState("trust")
+  const [copied, setCopied] = React.useState(false)
+  React.useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), 2000)
+    return () => clearTimeout(timer)
+  }, [copied])
   const policies = [
     {
       id: "trust",
@@ -342,7 +348,10 @@ function StorePolicies({ store }: { store: SecretStoreRead }) {
   return (
     <Tabs
       value={active.id}
-      onValueChange={setActiveId}
+      onValueChange={(id) => {
+        setActiveId(id)
+        setCopied(false)
+      }}
       className="min-w-0 rounded-md border"
     >
       <div className="flex items-center justify-between gap-2 border-b pr-2">
@@ -363,15 +372,20 @@ function StorePolicies({ store }: { store: SecretStoreRead }) {
           size="sm"
           className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
           aria-label={`Copy ${active.title.toLowerCase()}`}
-          onClick={() =>
-            copyToClipboard({
+          onClick={async () => {
+            const landed = await copyToClipboard({
               value: active.policy,
               message: `Copied ${active.title.toLowerCase()}`,
             })
-          }
+            setCopied(landed)
+          }}
         >
-          <CopyIcon className="size-3.5" />
-          Copy
+          {copied ? (
+            <CheckCheckIcon className="size-3.5" />
+          ) : (
+            <CopyIcon className="size-3.5" />
+          )}
+          {copied ? "Copied" : "Copy"}
         </Button>
       </div>
       {policies.map((item) => (

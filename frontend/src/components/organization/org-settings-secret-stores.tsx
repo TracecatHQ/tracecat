@@ -467,21 +467,19 @@ function StoreRow({
                     Finish setup
                   </DropdownMenuItem>
                 )}
+                {canUpdate && (
+                  // A store in setup may need its region fixed before the role saves.
+                  <DropdownMenuItem
+                    className="text-xs"
+                    onSelect={() => setEditing(true)}
+                  >
+                    Edit store
+                  </DropdownMenuItem>
+                )}
                 {canUpdate && setupComplete && (
-                  <>
-                    <DropdownMenuItem
-                      className="text-xs"
-                      onSelect={() => setEditing(true)}
-                    >
-                      Edit store
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      className="text-xs"
-                      onSelect={handleToggle}
-                    >
-                      {toggleLabel}
-                    </DropdownMenuItem>
-                  </>
+                  <DropdownMenuItem className="text-xs" onSelect={handleToggle}>
+                    {toggleLabel}
+                  </DropdownMenuItem>
                 )}
                 {canUpdate && canDelete && <DropdownMenuSeparator />}
                 {canDelete && (
@@ -651,6 +649,11 @@ function StoreSetupDialogContent({
 /** Secret counts per workspace: top few inline, the rest in a searchable list. */
 function StoreUsage({ store }: { store: SecretStoreRead }) {
   const { workspaces } = useWorkspaceManager()
+  // Org-wide secret:read covers every workspace; otherwise let the workspace
+  // landing page pick a section the user can read.
+  const canReadCredentials = useScopeCheck("secret:read") === true
+  const workspaceHref = (id: string) =>
+    canReadCredentials ? `/workspaces/${id}/credentials` : `/workspaces/${id}`
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState("")
   const usage = store.workspace_usage ?? []
@@ -681,7 +684,7 @@ function StoreUsage({ store }: { store: SecretStoreRead }) {
           <span className="truncate text-muted-foreground">{row.name}</span>
           {row.canOpen ? (
             <Link
-              href={`/workspaces/${row.id}/credentials`}
+              href={workspaceHref(row.id)}
               className="shrink-0 text-primary hover:underline"
             >
               {pluralize(row.count, "secret")}
@@ -733,7 +736,7 @@ function StoreUsage({ store }: { store: SecretStoreRead }) {
                 return row.canOpen ? (
                   <Link
                     key={row.id}
-                    href={`/workspaces/${row.id}/credentials`}
+                    href={workspaceHref(row.id)}
                     className={cn(className, "hover:bg-muted")}
                   >
                     {content}

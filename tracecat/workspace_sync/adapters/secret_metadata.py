@@ -3,19 +3,28 @@
 from __future__ import annotations
 
 import re
+from typing import TypedDict
 
 import sqlalchemy as sa
 from pydantic import BaseModel, SecretStr
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from tracecat.db.models import Secret
-from tracecat.secrets.enums import SecretType
-from tracecat.secrets.schemas import EXPRESSION_SECRET_NAME_PATTERN, SecretKeyValue
+from tracecat.exceptions import TracecatAuthorizationError
+from tracecat.secrets.enums import SecretSource, SecretType
+from tracecat.secrets.schemas import (
+    EXPRESSION_SECRET_NAME_PATTERN,
+    AwsSecretKeyMapping,
+    SecretKeyValue,
+)
 from tracecat.secrets.service import (
     SecretsService,
     is_external_reference,
     secret_key_names,
 )
+from tracecat.tiers.entitlements import check_entitlement
+from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.adapters.base import (
     EnvironmentScopedManifestAdapter,
     ImportedResource,
@@ -99,6 +108,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         """Build the base secret metadata projection query."""
         return (
             select(Secret)
+            .options(selectinload(Secret.store))
             .where(Secret.workspace_id == workspace_service.workspace_id)
             .order_by(Secret.environment.asc(), Secret.name.asc(), Secret.id.asc())
         )
@@ -131,6 +141,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 keys=keys,
                 tags=sorted((secret.tags or {}).keys()),
                 description=secret.description,
+                **_external_reference_fields(secret),
             )
             resources.append(self.projected_resource(source_id, secret.id))
         return ResourceProjection(specs=specs, resources=resources)
@@ -181,13 +192,20 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 spec=spec,
                 swap=swap,
             )
+            if spec.source == SecretSource.AWS_SECRETS_MANAGER:
+                secret = await self._import_external_reference(
+                    workspace_service, source_id=source_id, spec=spec, secret=secret
+                )
+                imported.append(self.imported_resource(source_id, secret.id))
+                continue
             # Pull the current decrypted values so existing keys keep their
             # secret values across the sync; the spec only carries key names.
             existing_values: dict[str, SecretStr] = {}
             if secret is not None and is_external_reference(secret):
-                # The store owns the values, so keys and type can only change
-                # in the target. Reject a spec that disagrees instead of
-                # reporting a silent partial import.
+                # A spec without a reference (exported before references were
+                # synced) can only change metadata. The store owns the values,
+                # so reject keys or type that disagree instead of reporting a
+                # silent partial import.
                 declared_keys = sorted(secret_key_names(secret_service, secret))
                 spec_type = SecretType(spec.secret_type or SecretType.CUSTOM.value)
                 if sorted(spec.keys) != declared_keys or spec_type != secret.type:
@@ -196,13 +214,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                         f"externally backed secret {secret.name!r}; its keys and "
                         "type must be changed in the target workspace, not synced."
                     )
-                if not re.fullmatch(EXPRESSION_SECRET_NAME_PATTERN, spec.name):
-                    raise ValueError(
-                        f"Secret metadata sync source id {source_id!r} names an "
-                        f"externally backed secret {spec.name!r}; AWS-backed secret "
-                        "names must be snake_case and start with a letter or "
-                        "underscore."
-                    )
+                _require_reference_name(source_id, spec.name)
                 secret.name = spec.name
                 secret.environment = spec.environment
                 secret.tags = dict.fromkeys(spec.tags, "") if spec.tags else None
@@ -255,6 +267,89 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             imported.append(self.imported_resource(source_id, secret.id))
         return imported
 
+    async def _import_external_reference(
+        self,
+        workspace_service: SyncMappingService,
+        *,
+        source_id: str,
+        spec: SecretMetadataResourceSpec,
+        secret: Secret | None,
+    ) -> Secret:
+        """Create or update an AWS-backed secret from its synced reference.
+
+        The store is matched by name in the target organization and must be
+        authorized for the target workspace, as when creating a reference.
+        """
+        if (
+            spec.store is None
+            or spec.remote_reference is None
+            or spec.key_mapping is None
+        ):
+            raise ValueError(
+                f"Secret metadata sync source id {source_id!r} is missing its "
+                "store, remote_reference, or key_mapping."
+            )
+        if secret is not None and not is_external_reference(secret):
+            raise ValueError(
+                f"Secret metadata sync source id {source_id!r} is AWS-backed, but "
+                f"{secret.name!r} is stored in Tracecat in this workspace. Delete "
+                "or rename that secret first."
+            )
+        if SecretType(spec.secret_type or SecretType.CUSTOM.value) != SecretType.CUSTOM:
+            raise ValueError(
+                f"Secret metadata sync source id {source_id!r} is AWS-backed; "
+                "AWS-backed secrets must use the custom type."
+            )
+        _require_reference_name(source_id, spec.name)
+        await check_entitlement(
+            workspace_service.session,
+            workspace_service.role,
+            Entitlement.EXTERNAL_SECRET_STORES,
+        )
+        from tracecat_ee.secrets.references.service import SecretReferencesService
+
+        references = SecretReferencesService(
+            session=workspace_service.session, role=workspace_service.role
+        )
+        try:
+            store = await references.get_authorized_store_by_name(spec.store)
+        except TracecatAuthorizationError as e:
+            raise ValueError(
+                f"Secret metadata sync source id {source_id!r} reads from secret "
+                f"store {spec.store!r}, which does not exist or is not authorized "
+                "for this workspace."
+            ) from e
+        try:
+            references.validate_reference(store, spec.remote_reference)
+        except ValueError as e:
+            raise ValueError(
+                f"Secret metadata sync source id {source_id!r}: {e}"
+            ) from e
+
+        tags = dict.fromkeys(spec.tags, "") if spec.tags else None
+        if secret is None:
+            secret = Secret(
+                workspace_id=workspace_service.workspace_id,
+                name=spec.name,
+                type=SecretType.CUSTOM.value,
+                encrypted_keys=references.encrypt_keys([]),
+                environment=spec.environment,
+                tags=tags,
+                description=spec.description,
+                source=SecretSource.AWS_SECRETS_MANAGER.value,
+            )
+        else:
+            secret.name = spec.name
+            secret.environment = spec.environment
+            secret.tags = tags
+            secret.description = spec.description
+        secret.store_id = store.id
+        secret.remote_reference = spec.remote_reference
+        secret.remote_key_mapping = spec.key_mapping.model_dump(mode="json")
+        workspace_service.session.add(secret)
+        await workspace_service.session.flush()
+        return secret
+
     async def _secret_for_import(
         self,
         workspace_service: SyncMappingService,
@@ -295,4 +390,35 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         """Load the secret mapped to ``source_id`` via the sync mapping, if any."""
         return await self._row_by_source_id(
             workspace_service, source_id=source_id, model=Secret
+        )
+
+
+class _ExternalReferenceFields(TypedDict, total=False):
+    source: SecretSource
+    store: str
+    remote_reference: str | None
+    key_mapping: AwsSecretKeyMapping
+
+
+def _external_reference_fields(secret: Secret) -> _ExternalReferenceFields:
+    """Return the synced reference of an AWS-backed secret, never its values."""
+    if not is_external_reference(secret) or secret.store is None:
+        return {}
+    return {
+        "source": SecretSource.AWS_SECRETS_MANAGER,
+        "store": secret.store.name,
+        "remote_reference": secret.remote_reference,
+        "key_mapping": AwsSecretKeyMapping.model_validate(
+            secret.remote_key_mapping or {}
+        ),
+    }
+
+
+def _require_reference_name(source_id: str, name: str) -> None:
+    """Reject names that AWS-backed secrets can't use."""
+    if not re.fullmatch(EXPRESSION_SECRET_NAME_PATTERN, name):
+        raise ValueError(
+            f"Secret metadata sync source id {source_id!r} names an externally "
+            f"backed secret {name!r}; AWS-backed secret names must be snake_case "
+            "and start with a letter or underscore."
         )
