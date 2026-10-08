@@ -734,6 +734,7 @@ export type AgentPresetDirectoryItem = {
   model_name: string
   folder_id: string | null
   tags: Array<TagRead>
+  tool_summary?: AgentPresetToolSummary
   created_at: string
   updated_at: string
 }
@@ -795,6 +796,7 @@ export type AgentPresetReadMinimal = {
   tags?: Array<TagRead>
   current_version_id?: string | null
   capabilities?: Array<AgentPresetCapability>
+  tool_summary?: AgentPresetToolSummary
   current_version_subagent_eligibility?: AgentPresetSubagentEligibility
   created_at: string
   updated_at: string
@@ -870,10 +872,24 @@ export type AgentPresetToolPolicyPreview = {
  */
 export type AgentPresetToolPolicyRead = {
   actions?: Array<string>
+  /**
+   * Effective registry actions granted by attached skills.
+   */
+  skill_actions?: Array<string>
+  max_tools?: number | null
   requires_internet_access?: boolean
   has_approvals?: boolean
   blocked_tools?: Array<PresetToolSourceRead>
   internet_sources?: Array<PresetToolSourceRead>
+}
+
+/**
+ * Effective registry tool count and tool sources for preset list UIs.
+ */
+export type AgentPresetToolSummary = {
+  tool_count?: number
+  namespaces?: Array<string>
+  mcp_slugs?: Array<string>
 }
 
 /**
@@ -901,6 +917,34 @@ export type AgentPresetUpdate = {
   enable_thinking?: boolean | null
   enable_internet_access?: boolean | null
   skills?: Array<AgentPresetSkillBindingBase> | null
+}
+
+/**
+ * Structured details for agent preset validation failures.
+ */
+export type AgentPresetValidationErrorDetail = {
+  message: string
+  code?: string | null
+  tool_count?: number | null
+  max_tools?: number | null
+  missing_skill_ids?: Array<string> | null
+  skill_id?: string | null
+  skill_names?: Array<string> | null
+  skills?: Array<string> | null
+  skill_version_id?: string | null
+  skill_version_ids?: Array<string> | null
+  preset_id?: string | null
+  preset_version_id?: string | null
+  mcp_integration_id?: string | null
+  mcp_integration_ids?: Array<string> | null
+  tool_ids?: Array<string> | null
+}
+
+/**
+ * HTTP response body for agent preset validation failures.
+ */
+export type AgentPresetValidationErrorResponse = {
+  detail: string | AgentPresetValidationErrorDetail
 }
 
 /**
@@ -7123,6 +7167,10 @@ export type RegistryActionReadMinimal = {
    * Availability metadata for this action
    */
   availability?: RegistryActionAvailability
+  /**
+   * Whether the action requires approval by default when used as an agent tool
+   */
+  requires_approval?: boolean
   /**
    * The full action identifier.
    */
@@ -18831,6 +18879,10 @@ export type $OpenApiTs = {
          */
         201: AgentPresetRead
         /**
+         * Invalid agent preset configuration
+         */
+        400: AgentPresetValidationErrorResponse
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -18848,7 +18900,7 @@ export type $OpenApiTs = {
         /**
          * Invalid tool policy selections
          */
-        400: unknown
+        400: AgentPresetValidationErrorResponse
         /**
          * Validation Error
          */
@@ -18877,6 +18929,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentPresetRead
+        /**
+         * Invalid agent preset configuration
+         */
+        400: AgentPresetValidationErrorResponse
         /**
          * Validation Error
          */
@@ -18925,6 +18981,10 @@ export type $OpenApiTs = {
          */
         200: CursorPaginatedResponse_AgentPresetVersionReadMinimal_
         /**
+         * Invalid agent preset configuration
+         */
+        400: AgentPresetValidationErrorResponse
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -18939,6 +18999,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentPresetVersionRead
+        /**
+         * Invalid agent preset configuration
+         */
+        400: AgentPresetValidationErrorResponse
         /**
          * Validation Error
          */
@@ -18955,6 +19019,10 @@ export type $OpenApiTs = {
          */
         200: AgentPresetVersionDiff
         /**
+         * Invalid agent preset configuration
+         */
+        400: AgentPresetValidationErrorResponse
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -18969,6 +19037,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentPresetRead
+        /**
+         * Invalid agent preset configuration
+         */
+        400: AgentPresetValidationErrorResponse
         /**
          * Validation Error
          */

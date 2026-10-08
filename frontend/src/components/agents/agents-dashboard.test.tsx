@@ -1,7 +1,14 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { agentFoldersGetFolder } from "@/client"
+import { type AgentPresetReadMinimal, agentFoldersGetFolder } from "@/client"
 import { AgentsDashboard } from "@/components/agents/agents-dashboard"
+import { OpenAIIcon } from "@/components/icons"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 const mockHasEntitlement = jest.fn<boolean, [string]>(() => false)
@@ -85,6 +92,7 @@ const PRESET = {
   use_in_chat: false,
   model_provider: "openai",
   model_name: "gpt-test",
+  tool_summary: { tool_count: 0, namespaces: [], mcp_slugs: [] },
   folder_id: "folder-1",
   tags: [{ id: "tag-1", name: "legacy", ref: "legacy", color: "#000" }],
   created_at: "2026-01-01T00:00:00Z",
@@ -142,6 +150,227 @@ describe("AgentsDashboard entitlement split", () => {
     mockUseAgentFolders.mockReturnValue({
       folders: [],
       foldersIsLoading: false,
+    })
+  })
+
+  describe.each(["list", "folders"] as const)("%s row details", (view) => {
+    function renderPreset(summary: AgentPresetReadMinimal["tool_summary"]) {
+      mockHasEntitlement.mockReturnValue(true)
+      mockSearchParams.current = new URLSearchParams(`view=${view}`)
+      const preset = { ...PRESET, tool_summary: summary }
+      mockUseAgentPresets.mockReturnValue({
+        presets: [preset],
+        presetsIsLoading: false,
+        presetsError: null,
+      })
+      mockUseAgentDirectoryItems.mockReturnValue({
+        directoryItems: [{ ...preset, type: "preset" }],
+        directoryItemsIsLoading: false,
+        directoryItemsError: null,
+      })
+      return renderDashboard()
+    }
+
+    it("shows unique sources, MCP integrations, and a model with its provider icon", async () => {
+      renderPreset({
+        tool_count: 4,
+        namespaces: [
+          "tools.slack",
+          "tools.slack_sdk",
+          "tools.slack_blocks",
+          "tools.jira",
+        ],
+        mcp_slugs: ["runreveal"],
+      })
+      const sources = within(screen.getByTestId("tool-sources"))
+      const slack = sources.getByRole("img", {
+        name: "tools.slack, tools.slack_sdk, tools.slack_blocks",
+      })
+      expect(
+        sources.queryByLabelText("tools.slack_sdk")
+      ).not.toBeInTheDocument()
+      expect(
+        sources.queryByLabelText("tools.slack_blocks")
+      ).not.toBeInTheDocument()
+      expect(sources.getByLabelText("tools.jira")).toBeInTheDocument()
+      expect(sources.getByRole("separator")).toHaveAttribute(
+        "aria-orientation",
+        "vertical"
+      )
+      const mcp = sources.getByLabelText("runreveal")
+      expect(mcp.querySelector("svg")).toBeInTheDocument()
+      expect(slack.firstElementChild).toHaveClass("size-5", "rounded", "border")
+      const model = screen.getByText(PRESET.model_name)
+      const expectedIcon = render(<OpenAIIcon />)
+      const expectedPath = expectedIcon.container
+        .querySelector("path")
+        ?.getAttribute("d")
+      expect(expectedPath).toBeTruthy()
+      expect(model.querySelector("svg path")).toHaveAttribute("d", expectedPath)
+      expectedIcon.unmount()
+      expect(model.firstElementChild).toHaveClass("rounded-none")
+      expect(model.firstElementChild).toHaveClass(
+        "size-3",
+        "bg-transparent",
+        "p-0"
+      )
+      expect(screen.queryByText(PRESET.model_provider)).not.toBeInTheDocument()
+
+      await userEvent.hover(sources.getByText("4 tools"))
+      expect(
+        await screen.findByRole(
+          "tooltip",
+          {
+            name: "Registry tools. MCP tools are not counted.",
+          },
+          { timeout: 2000 }
+        )
+      ).toBeInTheDocument()
+    })
+
+    it("shows the provider slug in the model badge tooltip", async () => {
+      renderPreset(undefined)
+      await userEvent.hover(screen.getByText(PRESET.model_name))
+      expect(
+        await screen.findByRole("tooltip", {}, { timeout: 2000 })
+      ).toHaveTextContent(PRESET.model_provider)
+    })
+
+    it.each(["tools.slack", "runreveal"])(
+      "names the %s source in a tooltip",
+      async (source) => {
+        renderPreset({
+          tool_count: 1,
+          namespaces: ["tools.slack"],
+          mcp_slugs: ["runreveal"],
+        })
+        await userEvent.hover(screen.getByLabelText(source))
+        expect(
+          await screen.findByRole("tooltip", {}, { timeout: 2000 })
+        ).toHaveTextContent(source)
+      }
+    )
+
+    it("omits the tool area for an empty summary", () => {
+      renderPreset({ tool_count: 0, namespaces: [], mcp_slugs: [] })
+      expect(screen.queryByTestId("tool-sources")).not.toBeInTheDocument()
+      expect(screen.queryByText("0 tools")).not.toBeInTheDocument()
+      expect(screen.getByText(PRESET.model_name)).toBeInTheDocument()
+    })
+
+    it("uses the singular count and omits the divider without MCP integrations", () => {
+      renderPreset({
+        tool_count: 1,
+        namespaces: ["tools.slack"],
+        mcp_slugs: [],
+      })
+      const sources = within(screen.getByTestId("tool-sources"))
+      expect(sources.getByText("1 tool")).toBeInTheDocument()
+      expect(sources.queryByRole("separator")).not.toBeInTheDocument()
+    })
+
+    it("shows MCP-only presets without a registry tool count", () => {
+      renderPreset({ tool_count: 0, namespaces: [], mcp_slugs: ["runreveal"] })
+      const sources = within(screen.getByTestId("tool-sources"))
+      expect(sources.getByLabelText("runreveal")).toBeInTheDocument()
+      expect(sources.queryByText("0 tools")).not.toBeInTheDocument()
+    })
+
+    it.each([
+      ["custom.first", "custom.second"],
+      ["tools.gitlab", "tools.misp", "tools.opensearch"],
+      ["ai", "ai.agent", "ai.skill", "custom.first"],
+    ])("preserves namespaces sharing one icon: %s", async (...namespaces) => {
+      renderPreset({
+        tool_count: 2,
+        namespaces,
+        mcp_slugs: [],
+      })
+      const tile = screen.getByRole("img", {
+        name: namespaces.join(", "),
+      })
+      expect(
+        within(screen.getByTestId("tool-sources")).getAllByRole("img")
+      ).toHaveLength(1)
+      expect(tile.closest("button")?.textContent).toContain("2 tools")
+      expect(tile.closest("button")).toHaveAccessibleName(
+        expect.stringContaining(namespaces.join(", "))
+      )
+      await userEvent.click(tile)
+      expect(mockPush).toHaveBeenCalledWith(expect.stringContaining(PRESET.id))
+    })
+
+    it("handles an undefined summary", () => {
+      renderPreset(undefined)
+      expect(screen.queryByTestId("tool-sources")).not.toBeInTheDocument()
+      expect(screen.getByText(PRESET.model_name)).toBeInTheDocument()
+    })
+
+    it.each([8, 9])("caps exactly %i distinct sources", async (count) => {
+      const namespaces = [
+        "tools.slack",
+        "tools.jira",
+        "tools.github",
+        "tools.notion",
+        "tools.linear",
+        "tools.sentry",
+        "tools.exa",
+        "tools.wiz",
+        "tools.datadog",
+      ].slice(0, count)
+      renderPreset({ tool_count: count, namespaces, mcp_slugs: [] })
+      if (count === 8) {
+        expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument()
+      } else {
+        await userEvent.hover(screen.getByText("+1"))
+        expect(
+          await screen.findByRole("tooltip", {}, { timeout: 2000 })
+        ).toHaveTextContent("tools.datadog")
+      }
+    })
+
+    it("caps MCP integrations at eight without merging shared icons", async () => {
+      const slugs = Array.from(
+        { length: 9 },
+        (_, index) => `synthetic-mcp-${index}`
+      )
+      renderPreset({ tool_count: 0, namespaces: [], mcp_slugs: slugs })
+      const sources = within(screen.getByTestId("tool-sources"))
+      expect(sources.getAllByRole("img")).toHaveLength(8)
+      expect(sources.queryByLabelText(slugs[8])).not.toBeInTheDocument()
+      await userEvent.hover(sources.getByText("+1"))
+      expect(
+        await screen.findByRole("tooltip", {}, { timeout: 2000 })
+      ).toHaveTextContent(slugs[8])
+    })
+
+    it("caps registry tiles at eight after deduplication", () => {
+      renderPreset({
+        tool_count: 12,
+        namespaces: [
+          "tools.slack",
+          "tools.slack_sdk",
+          "tools.slack_blocks",
+          "tools.jira",
+          "tools.github",
+          "tools.notion",
+          "tools.linear",
+          "tools.sentry",
+          "tools.exa",
+          "tools.wiz",
+          "tools.datadog",
+          "tools.snowflake",
+        ],
+        mcp_slugs: ["runreveal"],
+      })
+      const sources = within(screen.getByTestId("tool-sources"))
+      expect(sources.getByText("+2")).toBeInTheDocument()
+      expect(sources.getByLabelText("tools.wiz")).toBeInTheDocument()
+      expect(sources.queryByLabelText("tools.datadog")).not.toBeInTheDocument()
+      expect(
+        sources.queryByLabelText("tools.snowflake")
+      ).not.toBeInTheDocument()
+      expect(sources.getByLabelText("runreveal")).toBeInTheDocument()
     })
   })
 

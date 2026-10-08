@@ -430,14 +430,7 @@ export function SlackChannelPanel({
 
   return (
     <ScrollArea className="h-full">
-      <div className="flex flex-col gap-4 px-6 py-6 pb-16">
-        <div className="space-y-1">
-          <h3 className="text-base font-medium">Integrations</h3>
-          <p className="text-xs text-muted-foreground">
-            Connect this agent preset to external channels.
-          </p>
-        </div>
-
+      <div className="flex flex-col gap-4 px-4 pt-4 pb-16">
         <div className="rounded border">
           <div className="flex items-center gap-4 p-4">
             <div className="flex size-10 items-center justify-center rounded border bg-muted/30">

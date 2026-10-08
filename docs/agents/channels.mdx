@@ -45,7 +45,7 @@ Reactions on your message show whether the agent is working, finished, or failed
 ## Approve tool calls in Slack
 
 Tools that require approval on the preset pause the agent in Slack too.
-See [Human-in-the-loop](/agents/human-in-the-loop) to set approval rules.
+See [Human-in-the-loop](/agents/human-in-the-loop#set-approvals-on-a-preset) to set a tool to `Ask`.
 
 For each pending call, the agent posts an `Approval required` message with the tool name, arguments, and `Approve` and `Deny` buttons.
 After a reviewer clicks a button, Tracecat updates the message with the decision and the reviewer, and the agent continues once every pending call in the batch has a decision.

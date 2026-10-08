@@ -46,6 +46,7 @@ from tracecat.agent.preset.schemas import (
     ToolApprovalFieldChange,
     _agent_preset_capabilities,
     build_agent_preset_read_minimal,
+    build_agent_preset_tool_summary,
     build_subagent_eligibility,
 )
 from tracecat.agent.preset.tool_policy import (
@@ -286,6 +287,10 @@ class AgentPresetService(BaseWorkspaceService):
     def _tool_policy_read(policy: EffectivePresetTools) -> AgentPresetToolPolicyRead:
         return AgentPresetToolPolicyRead(
             actions=list(policy.actions),
+            skill_actions=list(policy.skill_actions),
+            max_tools=config.TRACECAT__AGENT_MAX_TOOLS
+            if config.TRACECAT__AGENT_MAX_TOOLS > 0
+            else None,
             requires_internet_access=policy.requires_internet_access,
             has_approvals=has_manual_tool_approvals(policy.tool_approvals),
             blocked_tools=[
@@ -414,6 +419,9 @@ class AgentPresetService(BaseWorkspaceService):
                 preset, supports_subagent_approvals=supports_subagent_approvals
             ).model_copy(
                 update={
+                    "tool_summary": build_agent_preset_tool_summary(
+                        policies[preset.id]
+                    ),
                     "capabilities": _agent_preset_capabilities(
                         agents_config=preset.agents,
                         tool_approvals=policies[preset.id].tool_approvals,

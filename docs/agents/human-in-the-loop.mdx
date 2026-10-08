@@ -12,11 +12,11 @@ The agent pauses before it calls an approval-gated tool, and a reviewer approves
 
 Choose where to set approvals based on how you run the agent:
 
-- Agent presets (recommended): Open the preset, select the `Tools` tab, then under `Approval rules` click `Add rule`, choose the tool, and set `Manual approval` to `Required`. Every `ai.preset_agent` run and chat with the preset uses these rules.
+- Agent presets (recommended): Open the preset, select the `Tools` tab, expand the tool's group, and set the tool to `Ask`. Every `ai.preset_agent` run and chat with the preset uses that setting.
 - MCP integrations: Turn on `Approval` for a tool on a remote MCP integration. Approvals are not supported for `stdio` MCP servers.
 - `ai.agent`: Set `tool_approvals` on the action. Keys are action names, and `true` requires approval.
 
-For example, give a `case-triage` preset an approval rule for `core.cases.update_case`, then run it from a workflow:
+For example, set `core.cases.update_case` to `Ask` on a `case-triage` preset, then run it from a workflow:
 
 ```yaml
 - ref: triage_case
@@ -31,6 +31,22 @@ The agent pauses before it calls `core.cases.update_case` and waits for a decisi
 
 A pause for a tool approval does not count toward the agent timeout.
 The workflow-level `timeout` still bounds the whole run, including approval waits.
+
+## Set approvals on a preset
+
+Each tool in a preset's `Tools` tab has a toggle:
+
+- `Auto`: The agent calls the tool without asking.
+- `Ask`: The agent pauses before the call and waits for a decision in the inbox.
+
+Click the toggle to switch a tool, then click `Publish version` in the top right.
+To change a whole group, right-click it and choose `Require approval for all` or `Run all automatically`.
+
+![Set a tool to Ask on a preset](/img/agents/tool-approval-toggle.gif)
+
+A group with tools on `Ask` shows a badge such as `1 need approval`.
+Tools from attached skills appear under `From skills` with the same toggle.
+An MCP integration row shows the same badge for tools that require approval on the integration.
 
 ## Review tool calls in the inbox
 
@@ -58,6 +74,6 @@ Enterprise adds:
 
 ## Related pages
 
-- See [AI preset agent](/agents/ai-preset-agent) to save approval rules on a reusable agent.
+- See [AI preset agent](/agents/ai-preset-agent#add-tools) to add the tools you set to `Ask`.
 - See [AI agent](/agents/ai-agent) for the `tool_approvals` input on inline agents.
 - See [MCP servers](/automations/integrations/mcp-integrations) to require approval for MCP tools.

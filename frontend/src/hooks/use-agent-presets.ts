@@ -8,6 +8,8 @@ import {
   type AgentPresetMoveToFolder,
   type AgentPresetRead,
   type AgentPresetReadMinimal,
+  type AgentPresetToolPolicyPreview,
+  type AgentPresetToolPolicyRead,
   type AgentPresetUpdate,
   type AgentPresetVersionRead,
   type AgentPresetVersionReadMinimal,
@@ -25,6 +27,7 @@ import {
   agentPresetsListAgentPresets,
   agentPresetsListAgentPresetVersions,
   agentPresetsMoveAgentPresetToFolder,
+  agentPresetsPreviewToolPolicy,
   agentPresetsRestoreAgentPresetVersion,
   agentPresetsUpdateAgentPreset,
   agentTagsCreateAgentTag,
@@ -36,12 +39,28 @@ import {
   workspacesUpdateWorkspace,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { getAgentPresetErrorMessage } from "@/lib/agent-presets"
 import {
   getApiErrorDetail,
   retryHandler,
   type TracecatApiError,
 } from "@/lib/errors"
 import { useMutation, useQueries, useQuery, useQueryClient } from "@/lib/query"
+
+/** Preview unsaved skill tools without surfacing validation failures as toasts. */
+export function useAgentPresetToolPolicyPreview(
+  workspaceId: string,
+  requestBody: AgentPresetToolPolicyPreview,
+  { enabled }: { enabled: boolean }
+) {
+  return useQuery<AgentPresetToolPolicyRead>({
+    queryKey: ["agent-preset-tool-policy-preview", workspaceId, requestBody],
+    queryFn: () => agentPresetsPreviewToolPolicy({ workspaceId, requestBody }),
+    enabled: enabled && Boolean(workspaceId),
+    retry: false,
+    meta: { suppressErrorToast: true },
+  })
+}
 
 async function listAllAgentFolders({
   workspaceId,
@@ -306,10 +325,10 @@ export function useCreateAgentPreset(workspaceId: string) {
       })
     },
     onError: (error) => {
-      const detail =
-        typeof error.body?.detail === "string"
-          ? error.body.detail
-          : "Failed to create agent preset."
+      const detail = getAgentPresetErrorMessage(
+        error,
+        "Failed to create agent preset."
+      )
       toast({
         title: "Create failed",
         description: detail,
@@ -365,10 +384,10 @@ export function useUpdateAgentPreset(workspaceId: string) {
       })
     },
     onError: (error) => {
-      const detail =
-        typeof error.body?.detail === "string"
-          ? error.body.detail
-          : "Failed to update agent preset."
+      const detail = getAgentPresetErrorMessage(
+        error,
+        "Failed to update agent preset."
+      )
       toast({
         title: "Update failed",
         description: detail,
@@ -502,10 +521,10 @@ export function useRestoreAgentPresetVersion(workspaceId: string) {
       })
     },
     onError: (error) => {
-      const detail =
-        typeof error.body?.detail === "string"
-          ? error.body.detail
-          : "Failed to restore preset version."
+      const detail = getAgentPresetErrorMessage(
+        error,
+        "Failed to restore preset version."
+      )
       toast({
         title: "Restore failed",
         description: detail,

@@ -3,6 +3,8 @@ import type { ReactElement } from "react"
 import {
   DatabricksIcon,
   getIcon,
+  getIconSource,
+  getModelProviderIconId,
   MicrosoftGraphIcon,
   MicrosoftIcon,
   MicrosoftOutlookIcon,
@@ -259,4 +261,66 @@ describe("OAuth provider and credential icons", () => {
       expect(svgTitle(<Icon />)).toBe(title)
     }
   )
+})
+
+describe("icon source identities", () => {
+  it.each([
+    "tools.slack_sdk",
+    "tools.slack_blocks",
+    "tools.slack.post_message",
+  ])("shares the Slack icon with %s", (key) => {
+    expect(getIconSource(key)).toBe(getIconSource("tools.slack"))
+  })
+
+  it.each([
+    ["core.sql", "core.duckdb"],
+    ["tools.emailrep", "tools.sublime"],
+  ])("shares the icon source for %s and %s", (first, second) => {
+    expect(getIconSource(first)).toBe(getIconSource(second))
+  })
+
+  it("distinguishes unrelated icons", () => {
+    expect(getIconSource("tools.slack")).not.toBe(getIconSource("tools.jira"))
+  })
+
+  it("shares catalog icons and resolves their action keys", () => {
+    expect(getIconSource("tools.crowdstrike")).toBe(
+      getIconSource("tools.falconpy.call_method")
+    )
+    expect(getIconSource("tools.crowdstrike")).not.toBe(
+      getIconSource("tools.splunk")
+    )
+  })
+
+  it("resolves Lucide icons and generic fallbacks consistently", () => {
+    expect(getIconSource("tools.abuseipdb.check_ip")).toBe(
+      getIconSource("tools.abuseipdb")
+    )
+    expect(getIconSource("tools.abuseipdb")).not.toBe(
+      getIconSource("tools.anyrun")
+    )
+    expect(getIconSource("unknown.action")).toBe(getIconSource("unknown"))
+    expect(getIconSource("tools.unknown")).toBe(getIconSource("tools"))
+  })
+})
+
+describe("model provider icons", () => {
+  it.each([
+    ["anthropic", "anthropic"],
+    ["azure_ai", "microsoft"],
+    ["azure_openai", "microsoft"],
+    ["bedrock", "amazon-bedrock"],
+    ["gemini", "google"],
+    ["vertex_ai", "google"],
+    ["mistral", "mistral"],
+    ["openai", "openai"],
+    ["litellm", "litellm"],
+    ["ollama", "ollama"],
+    ["openrouter", "openrouter"],
+    ["vllm", "vllm"],
+    ["unknown", "custom"],
+    ["", "custom"],
+  ])("maps %s to %s", (provider, iconId) => {
+    expect(getModelProviderIconId(provider)).toBe(iconId)
+  })
 })

@@ -2023,6 +2023,7 @@ export function useGetRegistryAction(actionName?: string) {
 
 // For selector node
 interface UseRegistryActionsOptions {
+  staleTime?: number
   versions?: string[]
   includeLocked?: boolean
 }
@@ -2034,6 +2035,7 @@ export function useRegistryActions(options?: UseRegistryActionsOptions) {
     error: registryActionsError,
   } = useQuery<RegistryActionReadMinimal[]>({
     queryKey: ["registry_actions", options?.versions, options?.includeLocked],
+    staleTime: options?.staleTime,
     queryFn: async () => {
       return await registryActionsListRegistryActions({
         includeLocked: options?.includeLocked,
@@ -2137,6 +2139,7 @@ export function useRegistryRepositories() {
     ) => await registryRepositoriesDeleteRegistryRepository(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["registry_repositories"] })
+      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
       toast({
         title: "Deleted registry repository",
         description: "Registry repository deleted successfully.",

@@ -21,11 +21,14 @@ from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetRead,
     AgentPresetSkillBindingRead,
+    AgentPresetToolSummary,
     AgentPresetUpdate,
     AgentPresetVersionReadMinimal,
     build_agent_preset_read_minimal,
+    build_agent_preset_tool_summary,
     build_subagent_eligibility,
 )
+from tracecat.agent.preset.types import EffectivePresetTools
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     AnyAttachedSubagentRef,
@@ -256,6 +259,7 @@ def test_agent_preset_read_minimal_exposes_capabilities() -> None:
     )
 
     dumped = payload.model_dump(mode="json")
+    assert payload.tool_summary == AgentPresetToolSummary()
     assert dumped["capabilities"] == ["approvals", "internet_access"]
     assert dumped["current_version_subagent_eligibility"] == {
         "eligible": False,
@@ -478,3 +482,32 @@ def test_agent_preset_update_allows_omitting_non_nullable_fields() -> None:
     update = AgentPresetUpdate.model_validate({"name": "Renamed"})
     assert update.retries is None
     assert "retries" not in update.model_fields_set
+
+
+@pytest.mark.parametrize(
+    "actions, namespaces",
+    [
+        ((), []),
+        (
+            ("tools.virustotal.lookup_url", "core.cases.read", "tools.virustotal.scan"),
+            ["core.cases", "tools.virustotal"],
+        ),
+    ],
+)
+def test_build_agent_preset_tool_summary(
+    actions: tuple[str, ...], namespaces: list[str]
+) -> None:
+    """Summaries count registry actions and report distinct sorted namespaces."""
+    policy = EffectivePresetTools(
+        actions=actions,
+        skill_actions=(),
+        mcp_grants=(),
+        mcp_slugs=(),
+        tool_approvals={},
+        requires_internet_access=False,
+        blocked_tools=(),
+        internet_sources=(),
+    )
+    assert build_agent_preset_tool_summary(policy) == AgentPresetToolSummary(
+        tool_count=len(actions), namespaces=namespaces
+    )

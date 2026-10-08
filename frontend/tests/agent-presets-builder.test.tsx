@@ -5,7 +5,60 @@ import {
   buildDuplicateAgentSlug,
   buildSkillCommandItemValue,
   canSubmitAgentPresetForm,
+  getAgentPresetErrorMessage,
 } from "@/lib/agent-presets"
+
+describe("getAgentPresetErrorMessage", () => {
+  it("explains the effective tool count and limit", () => {
+    const error = Object.assign(new Error("Bad request"), {
+      body: {
+        detail: {
+          code: "agent_tool_limit_exceeded",
+          message: "Invalid preset configuration",
+          tool_count: 140,
+          max_tools: 128,
+        },
+      },
+    })
+
+    expect(getAgentPresetErrorMessage(error, "Save failed.")).toBe(
+      "This agent has 140 tools; the limit is 128."
+    )
+  })
+
+  it("shows the message from a structured validation detail", () => {
+    const error = Object.assign(new Error("Bad request"), {
+      body: {
+        detail: {
+          code: "skill_not_published",
+          message: "Only published skills can be attached.",
+        },
+      },
+    })
+    expect(getAgentPresetErrorMessage(error, "Save failed.")).toBe(
+      "Only published skills can be attached."
+    )
+  })
+
+  it("preserves a string API detail", () => {
+    const error = Object.assign(new Error("Bad request"), {
+      body: { detail: "Agent preset slug already exists" },
+    })
+
+    expect(getAgentPresetErrorMessage(error, "Save failed.")).toBe(
+      "Agent preset slug already exists"
+    )
+  })
+
+  it.each([null, undefined, {}, "unknown error"])(
+    "uses the fallback when no API message is available: %p",
+    (error) => {
+      expect(getAgentPresetErrorMessage(error, "Save failed.")).toBe(
+        "Save failed."
+      )
+    }
+  )
+})
 
 const presetPayload = {
   name: "Triage agent",

@@ -241,30 +241,48 @@ export function getFlairSize(size: "sm" | "md" | "lg"): string {
   }
 }
 
-export function getIcon(key: string, props?: CustomIconProps): JSX.Element {
-  // Try exact match
-  if (UDFIcons[key]) {
-    return UDFIcons[key](props ?? {})
-  }
+function resolveIconKey(key: string): string | undefined {
   const segments = key.split(".")
-  // Try all until last segment
   for (let i = segments.length; i > 0; i--) {
     const subKey = segments.slice(0, i).join(".")
     if (UDFIcons[subKey]) {
-      return UDFIcons[subKey](props ?? {})
+      return subKey
     }
   }
+  return undefined
+}
 
-  // Try top level namespace match
-  const topLevelNamespace = segments[0]
-  if (UDFIcons[topLevelNamespace]) {
-    return UDFIcons[topLevelNamespace](props ?? {})
+/** Return a stable identity for the icon shared by action or namespace keys. */
+export function getIconSource(key: string): object | string {
+  const resolvedKey = resolveIconKey(key)
+  if (!resolvedKey) {
+    return "default"
+  }
+  const renderer: IconRenderer = UDFIcons[resolvedKey]
+  return renderer.source ?? renderer
+}
+
+// Icon factories return a styled wrapper; preserve its props for button content.
+function inlineIcon(icon: JSX.Element): JSX.Element {
+  return icon.type === "div" ? <span {...icon.props} /> : icon
+}
+
+/** Render the closest matching action or namespace icon. */
+export function getIcon(
+  key: string,
+  { inline = false, ...props }: CustomIconProps & { inline?: boolean } = {}
+): JSX.Element {
+  const resolvedKey = resolveIconKey(key)
+  if (resolvedKey) {
+    const icon = UDFIcons[resolvedKey](props)
+    return inline ? inlineIcon(icon) : icon
   }
 
   // return default icon
-  const { className, ...rest } = props ?? {}
+  const { className, ...rest } = props
+  const Wrapper = inline ? "span" : "div"
   return (
-    <div
+    <Wrapper
       className={cn(
         basicIconsCommon,
         "bg-sky-500/10 text-sky-600 dark:text-sky-400",
@@ -272,29 +290,38 @@ export function getIcon(key: string, props?: CustomIconProps): JSX.Element {
       )}
     >
       <BoxIcon className="size-6" {...rest} />
-    </div>
+    </Wrapper>
   )
 }
 export const basicIconsCommon =
   "flex p-1 shrink-0 rounded-full items-center justify-center bg-muted"
 
+type IconRenderer = ((props: CustomIconProps) => JSX.Element) & {
+  source?: object
+}
+
 function createIconRenderer(
   Icon: (props: IconProps) => JSX.Element,
   options?: { wrapperClassName?: string; iconClassName?: string }
 ) {
-  return ({
+  function renderIcon({
     className,
     iconClassName,
     flairsize: _unusedFlairSize,
     ...rest
-  }: CustomIconProps) => (
-    <div className={cn(basicIconsCommon, options?.wrapperClassName, className)}>
-      <Icon
-        {...rest}
-        className={cn("size-full", options?.iconClassName, iconClassName)}
-      />
-    </div>
-  )
+  }: CustomIconProps) {
+    return (
+      <div
+        className={cn(basicIconsCommon, options?.wrapperClassName, className)}
+      >
+        <Icon
+          {...rest}
+          className={cn("size-full", options?.iconClassName, iconClassName)}
+        />
+      </div>
+    )
+  }
+  return Object.assign(renderIcon, { source: Icon })
 }
 
 function createCatalogIconRenderer(
@@ -302,27 +329,33 @@ function createCatalogIconRenderer(
   options?: { wrapperClassName?: string; iconClassName?: string }
 ) {
   const Icon = mcpCatalogProviderIcons[key]
-  return ({ className, iconClassName, ...rest }: CustomIconProps) =>
-    Icon({
+  function renderIcon({ className, iconClassName, ...rest }: CustomIconProps) {
+    return Icon({
       ...rest,
       className: cn(basicIconsCommon, options?.wrapperClassName, className),
       iconClassName: cn(options?.iconClassName, iconClassName),
     })
+  }
+  return Object.assign(renderIcon, { source: Icon })
 }
 
 function createColoredLucideRenderer(Icon: LucideIcon, colorClassName: string) {
-  return ({
+  function renderIcon({
     className,
     iconClassName,
     flairsize: _unusedFlairSize,
     ...rest
-  }: CustomIconProps) => (
-    <div className={cn(basicIconsCommon, colorClassName, className)}>
-      <Icon className={iconClassName} {...rest} />
-    </div>
-  )
+  }: CustomIconProps) {
+    return (
+      <div className={cn(basicIconsCommon, colorClassName, className)}>
+        <Icon className={iconClassName} {...rest} />
+      </div>
+    )
+  }
+  return Object.assign(renderIcon, { source: Icon })
 }
 
+/** Icon renderers keyed by registry action or namespace. */
 export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
   {
     // Triggers namespace
@@ -580,27 +613,13 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Table {...rest} />
       </div>
     ),
-    "core.sql": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-teal-500/10 text-teal-600 dark:text-teal-400",
-          className
-        )}
-      >
-        <DatabaseIcon {...rest} />
-      </div>
+    "core.sql": createColoredLucideRenderer(
+      DatabaseIcon,
+      "bg-teal-500/10 text-teal-600 dark:text-teal-400"
     ),
-    "core.duckdb": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-teal-500/10 text-teal-600 dark:text-teal-400",
-          className
-        )}
-      >
-        <DatabaseIcon {...rest} />
-      </div>
+    "core.duckdb": createColoredLucideRenderer(
+      DatabaseIcon,
+      "bg-teal-500/10 text-teal-600 dark:text-teal-400"
     ),
     tools: createIconRenderer((props: IconProps) => <BlocksIcon {...props} />),
     "tools.datadog": createIconRenderer(DatadogIcon),
@@ -609,7 +628,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       iconClassName: "h-auto w-full",
     }),
     // Sublime namespace
-    "tools.sublime": createIconRenderer(SublimeIcon, {
+    "tools.sublime": createIconRenderer(EmailrepIcon, {
       iconClassName: "h-auto w-full",
     }),
     // URLScan namespace
@@ -1076,6 +1095,33 @@ const mcpProviderIconAliases: Record<string, string> = {
   "secureannex-mcp": "secureannex_mcp",
 }
 
+/** Map a model provider to its shared provider icon. */
+export function getModelProviderIconId(provider: string): string {
+  switch (provider) {
+    case "anthropic":
+      return "anthropic"
+    case "azure_ai":
+    case "azure_openai":
+      return "microsoft"
+    case "bedrock":
+      return "amazon-bedrock"
+    case "gemini":
+    case "vertex_ai":
+      return "google"
+    case "mistral":
+      return "mistral"
+    case "openai":
+      return "openai"
+    case "litellm":
+    case "ollama":
+    case "openrouter":
+    case "vllm":
+      return provider
+    default:
+      return "custom"
+  }
+}
+
 export function getMcpProviderIconId(slug: string | null | undefined): string {
   if (!slug) {
     return "custom"
@@ -1106,24 +1152,27 @@ export function getMcpProviderIconId(slug: string | null | undefined): string {
   )
 }
 
+/** Render a provider badge, optionally with phrasing content for use in buttons. */
 export function ProviderIcon({
   providerId,
   className,
+  inline = false,
   ...rest
 }: {
   providerId: string
   className?: string
+  inline?: boolean
 }) {
   const Icon = providerIcons[providerId] ?? providerIcons["custom"]
-  return (
-    <Icon
-      className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted p-1",
-        className
-      )}
-      {...rest}
-    />
-  )
+  const props = {
+    className: cn(
+      "flex shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted p-1",
+      className
+    ),
+    ...rest,
+  }
+  if (inline) return inlineIcon(Icon(props))
+  return <Icon {...props} />
 }
 
 /**
