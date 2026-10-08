@@ -1,6 +1,6 @@
 ---
 name: slack-case-threads
-description: Load when the prompt is a raw Slack payload, either an Events API envelope or an Interactivity payload. Covers how Socky handles an app_mention (acknowledge, read the thread from Slack, answer, record on the case, mark done) and the owner's Yes/No buttons on a case. Conversation history is read from Slack with list_replies and list_messages, never from stored state. For a mention, load aws-cloud-incident-response-core and case-output before answering anything that needs evidence. For the owner's Yes/No buttons, load nothing else, because this skill holds every rule that path needs.
+description: Load when the prompt is a raw Slack payload, either an Events API envelope or an Interactivity payload. Covers how Socky handles an app_mention (acknowledge, read the thread from Slack, answer, record on the case, mark done) and the owner's Yes/No buttons on a GuardDuty case. Conversation history is read from Slack with list_replies and list_messages, never from stored state. For a mention, load aws-cloud-incident-response-core and case-output before answering anything that needs evidence. For the owner's Yes/No buttons, load nothing else, because this skill holds every rule that path needs.
 metadata:
   tools:
     - tools.slack.add_reaction
@@ -20,7 +20,7 @@ metadata:
 
 # Slack case threads
 
-The workflow hands you whatever Slack sent, unchanged, as JSON. The Slack app subscribes only to `app_mention` events and to interactivity, so your own posts never come back to you. Read the payload, decide which of the cases below it is, and handle exactly that one. Test the rows of the table in order; the first that matches decides. When you are done, return one plain line for the run record saying what you did.
+The workflow hands you whatever Slack sent, unchanged, as JSON. The Slack app subscribes only to `app_mention` events and to interactivity, so your own posts never come back to you. Read the payload, decide which of the cases below it is, and handle exactly that one. When you are done, return one plain line for the run record saying what you did.
 
 ## Read the payload
 
@@ -29,8 +29,8 @@ The workflow hands you whatever Slack sent, unchanged, as JSON. The Slack app su
 | `type` is `url_verification` | Slack checking the Request URL | Return `url_verification: nothing to do.` |
 | `payload` is a JSON string whose `type` is `block_actions` and whose `actions[0].action_id` is `gd_confirm_yes` or `gd_confirm_no` | The owner answered the ask | [Owner buttons](#owner-buttons) |
 | `payload` is any other JSON string | Another button or view on a bot message | Return `Interaction <type> <action_id>: not handled.` |
-| `event.bot_id` is set, or `event.user` equals `authorizations[0].user_id` | A bot, or you | Return `Ignored a bot event.` |
 | `type` is `event_callback` and `event.type` is `app_mention` | Someone mentioned the bot | [Mentions](#mentions) |
+| `event.bot_id` is set, or `event.user` equals `authorizations[0].user_id` | A bot, or you | Return `Ignored a bot event.` |
 | anything else | Not for you | Return `Ignored <type>/<event.type>.` |
 
 Work out `payload` with a JSON parse of the string. Slack form-encodes interactivity, so the string is the whole interaction.
@@ -50,7 +50,7 @@ Work out `payload` with a JSON parse of the string. Slack form-encodes interacti
    - one `Slack: ` case comment;
    - at most one direct message, under the rules there.
 
-   For an investigative question, fetch the case's evidence the way its own lifecycle skill does. A case tagged `guardduty`: its findings with boto3, as guardduty-case-lifecycle stage 1 describes. A case tagged `detection-event`: the events behind its alert ids, as detection-event-case-lifecycle stage 5 describes, from the SIEM, the source's read tool, or the facts stored on the case when you have neither; its `finding_ids` are alert ids, not GuardDuty findings, and its `source-<source>` tag names the source. Test the question with the method in hypothesis-driven-triage, and say what you could not check.
+   For an investigative question, fetch the case's findings with boto3 as guardduty-case-lifecycle stage 1 describes. Test the question in the SIEM with the method in hypothesis-driven-triage.
 5. **Outside a case thread** (no case found): answer helpfully in the thread with the same evidence rules. Add no case comment and change nothing on any case.
 6. **Mark done.** The reader should be left with a single green tick, never a tick sitting beside the eyes. Do these two in this order, on the same `event.channel` and `event.ts`:
    - Call `tools.slack.add_reaction` with `name` `white_check_mark`.
@@ -62,7 +62,7 @@ A mention never changes a case's status, severity, disposition or tags, whatever
 
 ## Owner buttons
 
-This path is timed: the person who pressed is watching the ask. Everything the first visible write needs is already in `payload`, so load no other skill, read no bundled file, and make no call before the first write turn. Do not call `get_case`, `list_replies` or a shell or Python tool first. The workflow's `ack_owner_click` has already replaced the buttons with `:hourglass_flowing_sand: Answered Yes. Socky is recording it.` (or `Answered No.`), with no mention; your first write swaps that for the final status line.
+This path is timed: the person who pressed is watching the ask. Everything the first visible write needs is already in `payload`, so load no other skill, read no bundled file, and make no call before the first write turn. Do not call `get_case`, `list_replies` or a shell or Python tool first. The workflow's `ack_owner_click` has already replaced the buttons with `:hourglass_flowing_sand: <@USER> answered Yes. Socky is recording it.` (or `No`); your first write swaps that for the final status line.
 
 ### Read everything from `payload`
 
@@ -105,7 +105,7 @@ The press time is always wrapped in backticks (Slack inline code) in the status 
 *Verdict:* Benign. Jane Doe (jane.doe@example.com) confirmed this activity at `30 Sep 2026, 01:00 UTC`.
 ```
 
-On a current ask, Slack mentions appear only in the thank-you (and in the brief's step 1, which you leave unchanged). On a legacy ask `<person>` is `<@USER>`, so the mention also appears in the status line, the Verdict line and the case comment.
+Slack mentions appear only in the thank-you (and in the brief's step 1, which you leave unchanged).
 
 The templates:
 
@@ -125,7 +125,7 @@ No Verdict line:   *Verdict:* Escalate. <person> denied this activity at `<press
 - **Brief.** In the `list_replies` result, the brief is the bot's reply whose text starts `*Verdict:*`. Replace its first paragraph and keep every paragraph after it unchanged, then save it with `tools.slack.update_message`, passing the whole brief as `text` with the blank lines between paragraphs:
   - Yes: the Yes Verdict line from "Exact text".
   - No: the No Verdict line from "Exact text".
-- **Card.** Take the row's `entity`. Set the `verdict` custom field to `Benign · owner confirmed` or `Escalate · owner denied`, and `entity_payload.attributes.metadata_last_modified` to the press epoch, an integer (`int(action_ts)`, never the decimal `action_ts`). It must be greater than the stored value, or Slack keeps the old card: when a re-triage refreshed the card after the press and the press epoch is not greater, use the stored value plus 1. The row gets the same entity. Call `tools.slack_sdk.call_method` with `sdk_method` `chat_update` and params `channel` = the row's `channel`, `ts` = the row's `message_ts`, `text` `" "` (one space: `chat_update` rejects a missing or empty text with `no_text`, and any other text shows above the card), and `metadata` `{"entities": [<entity plus "app_unfurl_url": <entity url>>]}`. When Slack rejects metadata on `chat_update`, call `chat_unfurl` with the same `channel`, `ts` and `metadata`, as the card delivery instructions do.
+- **Card.** Take the row's `entity`. Set the `verdict` custom field to `Benign · owner confirmed` or `Escalate · owner denied`, and `entity_payload.attributes.metadata_last_modified` to the press epoch, an integer (`int(action_ts)`, never the decimal `action_ts`; it must be greater than the stored value). The row gets the same entity. Call `tools.slack_sdk.call_method` with `sdk_method` `chat_update` and params `channel` = the row's `channel`, `ts` = the row's `message_ts`, `text` `" "` (one space: `chat_update` rejects a missing or empty text with `no_text`, and any other text shows above the card), and `metadata` `{"entities": [<entity plus "app_unfurl_url": <entity url>>]}`.
 - **Row.** `core.table.insert_row` with `upsert` true, table `slack_work_objects`, and `row_data` with exactly these five columns: `external_ref_id` (case id), `case_id`, `channel`, `message_ts`, `entity` (the updated entity, without `app_unfurl_url`). Never send `updated_at`: it fails with "Column 'updated_at' does not exist".
 
 When the thread has no brief or the table has no row, skip that write and say so in the return line. Only then, and only when a later write needs something the payload lacks, call `core.cases.get_case` on the case id.
