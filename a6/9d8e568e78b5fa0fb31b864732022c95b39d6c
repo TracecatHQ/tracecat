@@ -1,0 +1,32 @@
+frontend/tests/agent-preset-panels.test.tsx
+  s_9a6d141f2bc245::t_2469058a7d51fc 2,661-662,666-667,672,684-685,738,743-744,782,805-808,904
+  s_9a6d141f2bc245::t_e2aa1e2571895f 783-785,822-824,842-844,850-854,882-884,886-890
+  s_9a6d141f2bc245::t_4b7b5ce5e6a4ed 817-821,825-841,845-849,855-881,885,891-892
+frontend/src/components/agents/agent-tool-picker-dialog.tsx
+  s_9a6d141f2bc245::t_f2bb00920a9358 38,88,107-111,540,542-543
+frontend/src/components/agents/agent-presets-builder.tsx
+  s_9a6d141f2bc245::t_f2bb00920a9358 1957,2014,2031,2060-2063,2067-2069,2083,2363
+  s_9a6d141f2bc245::t_e2aa1e2571895f 2064-2066
+frontend/src/components/agents/agent-preset-tools-list.tsx
+  s_9a6d141f2bc245::t_f2bb00920a9358 115-116,491
+frontend/tests/agent-tool-picker-dialog.test.tsx
+  s_9a6d141f2bc245::t_2469058a7d51fc 78,84,100,414,423-429,435-448,471,473
+  s_9a6d141f2bc245::t_e2aa1e2571895f 449-470,472
+  s_9a6d141f2bc245::t_3bbcab75d2e9c2 422,430-434
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a69d8e568e78b5fa0fb31b864732022c95b39d6c",
+  "prompts": {},
+  "sessions": {
+    "s_9a6d141f2bc245": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11993-b019-7232-b693-e642c2422d43",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
