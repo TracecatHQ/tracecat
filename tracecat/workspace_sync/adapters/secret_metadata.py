@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import TypedDict
 
 import sqlalchemy as sa
@@ -162,14 +162,15 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         workspace_service: SyncMappingService,
         secret_metadata: dict[str, SecretMetadataResourceSpec],
         *,
-        requested_store_mappings: Mapping[str, uuid.UUID] | None = None,
+        requested_store_mappings: Mapping[str, uuid.UUID | None] | None = None,
     ) -> CorrelatedSecretStores:
         """Point AWS-backed specs at authorized stores before preview or import.
 
         A store name matching a usable authorized store resolves as is. A chosen
         store replaces the name for every secret that uses it. Names left
         unmatched are returned as requirements without blocking; those secrets
-        import unlinked. Secrets already linked here keep that link.
+        import unlinked. A name mapped to ``None`` skips matching and imports
+        unlinked. Secrets already linked here keep that link.
         """
         requested = requested_store_mappings or {}
         by_store: dict[str, list[tuple[str, SecretMetadataResourceSpec]]] = {}
@@ -237,7 +238,9 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             )
             for store in stores
         ]
-        existing = await self._existing_secrets(workspace_service, external)
+        existing = await self._existing_secrets(
+            workspace_service, external, batch_source_ids=secret_metadata
+        )
 
         correlated = dict(secret_metadata)
         requirements: list[SecretStoreMappingRequirement] = []
@@ -248,6 +251,17 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                     source_id, spec, secret, stores_by_id, diagnostics
                 )
         for name, specs in sorted(by_store.items()):
+            if name in requested and requested[name] is None:
+                for source_id, spec in specs:
+                    secret = existing.get(source_id)
+                    correlated[source_id] = (
+                        self._kept_linked_reference(
+                            source_id, spec, secret, stores_by_id, diagnostics
+                        )
+                        if secret is not None and _is_linked(secret)
+                        else spec.model_copy(update={"store": None})
+                    )
+                continue
             target_id = requested.get(name)
             store = (
                 stores_by_id.get(target_id)
@@ -392,15 +406,21 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         self,
         workspace_service: SyncMappingService,
         specs: Mapping[str, SecretMetadataResourceSpec],
+        *,
+        batch_source_ids: Iterable[str],
     ) -> dict[str, Secret]:
         """Resolve the secret each spec imports into, as ``_secret_for_import`` does.
 
-        Sync mappings win so renames and swaps keep their rows; only specs with
-        no mapped row fall back to (name, environment).
+        Sync mappings win so renames and swaps keep their rows. Specs with no
+        mapped row fall back to (name, environment), skipping rows mapped to any
+        source in ``batch_source_ids``: import parks or keeps those for their
+        own source before its fallback runs.
         """
         if not specs:
             return {}
-        local_ids = await self.local_ids_by_source_id(workspace_service, specs)
+        local_ids = await self.local_ids_by_source_id(
+            workspace_service, batch_source_ids
+        )
         rows_by_id: dict[uuid.UUID, Secret] = {}
         if local_ids:
             rows = await workspace_service.session.execute(
@@ -415,7 +435,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         resolved = {
             source_id: rows_by_id[local_id]
             for source_id, local_id in local_ids.items()
-            if local_id in rows_by_id
+            if source_id in specs and local_id in rows_by_id
         }
         unmapped = {
             source_id: spec
@@ -428,6 +448,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 .options(selectinload(Secret.store))
                 .where(
                     Secret.workspace_id == workspace_service.workspace_id,
+                    Secret.id.not_in(set(local_ids.values())),
                     sa.tuple_(Secret.name, Secret.environment).in_(
                         {(spec.name, spec.environment) for spec in unmapped.values()}
                     ),

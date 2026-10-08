@@ -923,7 +923,7 @@ class WorkspaceSyncService(SyncMappingService):
         *,
         requested_catalog_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
         requested_mcp_integration_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
-        requested_secret_store_mappings: Mapping[str, uuid.UUID] | None = None,
+        requested_secret_store_mappings: Mapping[str, uuid.UUID | None] | None = None,
     ) -> PreparedSnapshot:
         """Resolve deployment-local references before validating or importing."""
         correlated = await AGENT_PRESET_RESOURCE_ADAPTER.correlate_catalog_ids(
@@ -973,7 +973,7 @@ class WorkspaceSyncService(SyncMappingService):
         sync_schedules: bool,
         requested_catalog_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
         requested_mcp_integration_mappings: Mapping[uuid.UUID, uuid.UUID] | None = None,
-        requested_secret_store_mappings: Mapping[str, uuid.UUID] | None = None,
+        requested_secret_store_mappings: Mapping[str, uuid.UUID | None] | None = None,
     ) -> PullResult:
         """Reconcile a validated snapshot into the database within one transaction.
 

@@ -27337,15 +27337,23 @@ export const $SecretStoreMappingSelection = {
       title: "Source Store",
     },
     target_store_id: {
-      type: "string",
-      format: "uuid",
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
       title: "Target Store Id",
     },
   },
   type: "object",
   required: ["source_store", "target_store_id"],
   title: "SecretStoreMappingSelection",
-  description: "User-selected authorized store for one unmatched store name.",
+  description:
+    "User-selected store for one store name; null leaves its secrets unlinked.",
 } as const
 
 export const $SecretStoreProvider = {

@@ -8314,11 +8314,11 @@ export type SecretStoreMappingRequirementReason =
   | "invalid_selection"
 
 /**
- * User-selected authorized store for one unmatched store name.
+ * User-selected store for one store name; null leaves its secrets unlinked.
  */
 export type SecretStoreMappingSelection = {
   source_store: string
-  target_store_id: string
+  target_store_id: string | null
 }
 
 /**

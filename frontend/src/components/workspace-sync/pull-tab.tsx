@@ -774,7 +774,7 @@ function SecretStoreMappingRequirements({
   return (
     <MappingRequirementsCard
       heading="Choose secret stores"
-      description="These stores aren't authorized for this workspace. Pick a store for each, or leave the secrets unlinked and link them later in Credentials."
+      description="Pick a store for each name, or leave its secrets unlinked and link them later in Credentials."
       placeholder="Leave unlinked"
       items={items}
       selections={selections}
@@ -789,11 +789,10 @@ function secretStoreMappingSelections(
   mappings: Record<string, string>
 ): SecretStoreMappingSelection[] {
   return Object.entries(mappings)
-    .filter(([, targetStoreId]) => targetStoreId !== LEAVE_UNLINKED)
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([sourceStore, targetStoreId]) => ({
       source_store: sourceStore,
-      target_store_id: targetStoreId,
+      target_store_id: targetStoreId === LEAVE_UNLINKED ? null : targetStoreId,
     }))
 }
 

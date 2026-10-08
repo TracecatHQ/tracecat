@@ -114,7 +114,7 @@ test("one store choice in the pull preview applies to every secret using that na
   )
 })
 
-test("leaving a store unlinked sends no mapping for it", async () => {
+test("leaving a store unlinked sends an explicit unlinked choice", async () => {
   mockPullWorkflows
     .mockResolvedValueOnce(
       previewResult({ secret_store_mapping_requirements: [unmatchedStore] })
@@ -154,6 +154,11 @@ test("leaving a store unlinked sends no mapping for it", async () => {
   await user.click(screen.getByRole("button", { name: /Preview changes/ }))
 
   expect(mockPullWorkflows).toHaveBeenLastCalledWith(
-    expect.objectContaining({ dry_run: true, secret_store_mappings: [] })
+    expect.objectContaining({
+      dry_run: true,
+      secret_store_mappings: [
+        { source_store: "source-production", target_store_id: null },
+      ],
+    })
   )
 })

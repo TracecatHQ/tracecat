@@ -75,6 +75,7 @@ from tracecat.sync import PullOptions, PushStatus
 from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
 from tracecat.tiers.enums import Entitlement
+from tracecat.workflow.store.schemas import WorkflowSyncPullRequest
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
     RESOURCE_ADAPTERS_BY_TYPE,
@@ -7823,6 +7824,90 @@ async def test_secret_store_mapping_preview_keeps_manual_link_for_storeless_spec
     assert result.success is True, result.diagnostics
     await session.refresh(secret)
     assert secret.store_id == east.id
+
+
+_AWS_OTHER_SECRET_ARN = (
+    "arn:aws:secretsmanager:us-east-1:123456789012:secret:other-XyZ123"
+)
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_fallback_skips_row_vacated_by_rename(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    east = await _aws_store(session, svc_role, name="east")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    first = await _secret_specs_snapshot(
+        service, _aws_secret_spec(id="default/alpha", name="alpha", store="src")
+    )
+    result = await service._import_snapshot(
+        first,
+        sync_schedules=False,
+        requested_secret_store_mappings={"src": east.id},
+    )
+    assert result.success is True, result.diagnostics
+    old_id = (await _workspace_secret(session, svc_role, "alpha")).id
+
+    renamed = await _secret_specs_snapshot(
+        service,
+        _aws_secret_spec(id="default/alpha", name="beta", store="src"),
+        _aws_secret_spec(
+            id="default/new_alpha",
+            name="alpha",
+            store="src",
+            remote_reference=_AWS_OTHER_SECRET_ARN,
+        ),
+    )
+    prepared = await service._prepare_snapshot_for_import(renamed)
+    assert prepared.diagnostics == []
+    [requirement] = prepared.secret_store_mapping_requirements
+    assert [a.secret_name for a in requirement.affected_secrets] == ["alpha"]
+    result = await service._import_snapshot(renamed, sync_schedules=False)
+
+    assert result.success is True, result.diagnostics
+    beta = await _workspace_secret(session, svc_role, "beta")
+    alpha = await _workspace_secret(session, svc_role, "alpha")
+    assert (beta.id, beta.store_id) == (old_id, east.id)
+    assert alpha.id != old_id
+    assert (alpha.store_id, alpha.remote_reference) == (None, _AWS_OTHER_SECRET_ARN)
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_leave_unlinked_skips_name_match(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    await _aws_store(session, svc_role, name="missing", region="us-west-2")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+    request = WorkflowSyncPullRequest.model_validate(
+        {
+            "commit_sha": "m" * 40,
+            "secret_store_mappings": [
+                {"source_store": "missing", "target_store_id": None}
+            ],
+        }
+    )
+    mappings = {
+        mapping.source_store: mapping.target_store_id
+        for mapping in request.secret_store_mappings
+    }
+
+    prepared = await service._prepare_snapshot_for_import(
+        snapshot, requested_secret_store_mappings=mappings
+    )
+    assert prepared.diagnostics == []
+    assert prepared.secret_store_mapping_requirements == []
+    result = await service._import_snapshot(
+        snapshot, sync_schedules=False, requested_secret_store_mappings=mappings
+    )
+
+    assert result.success is True, result.diagnostics
+    secret = await _workspace_secret(session, svc_role, "vendor_api")
+    assert (secret.store_id, secret.remote_reference) == (None, _AWS_SECRET_ARN)
 
 
 @pytest.mark.anyio

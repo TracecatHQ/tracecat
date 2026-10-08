@@ -93,10 +93,10 @@ class McpIntegrationMappingSelection(BaseModel):
 
 
 class SecretStoreMappingSelection(BaseModel):
-    """User-selected authorized store for one unmatched store name."""
+    """User-selected store for one store name; null leaves its secrets unlinked."""
 
     source_store: str = Field(..., min_length=1)
-    target_store_id: UUID
+    target_store_id: UUID | None
 
 
 class WorkflowSyncPullRequest(BaseModel):

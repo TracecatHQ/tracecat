@@ -41,8 +41,8 @@ class PullOptions:
     mcp_integration_mappings: Mapping[UUID, UUID] = field(default_factory=dict)
     """Explicit source-to-target MCP integration choices for unresolved references."""
 
-    secret_store_mappings: Mapping[str, UUID] = field(default_factory=dict)
-    """Explicit target stores for AWS-backed secrets whose store name has no match."""
+    secret_store_mappings: Mapping[str, UUID | None] = field(default_factory=dict)
+    """Explicit target stores for AWS-backed secrets; ``None`` leaves them unlinked."""
 
 
 @dataclass(frozen=True)
