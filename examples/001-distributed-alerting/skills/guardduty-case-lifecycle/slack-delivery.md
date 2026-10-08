@@ -93,7 +93,7 @@ Each custom field is `{"key": <key>, "label": <label>, "type": "string", "long":
 
    Pass exactly these five columns. The table keeps its own `created_at` and `updated_at`; sending `updated_at` fails with "Column 'updated_at' does not exist".
 
-   The row is what answers the card's details panel. Write it every time you post or refresh the card, and whenever the verdict changes.
+   The row is what answers the card's details panel. It does not mean the case is published: a later run checks the thread for the brief, the evidence table and the owner ask when one is due. Write it every time you post or refresh the card, and whenever the verdict changes.
 
 ## Post or edit the brief
 
@@ -112,7 +112,7 @@ Follow case-output ("Evidence table"). Post it with `tools.slack.post_message`, 
 
 ## Owner ask
 
-Post the ask only when the linked email is set **and** the thread holds no owner ask yet (see "Find what is already posted"). The person is asked once per case, not on every re-triage: when the ask is in the thread, never post a second one. When an earlier run posted the brief but not the ask, because the lookup found no one or the post failed, this run posts it. A case the owner has answered stops in stage 4 and never reaches this step.
+Post the ask only when the linked email is set **and** the thread holds no owner ask yet (see "Find what is already posted"). The person is asked once per case, not on every re-triage: when the ask is in the thread, never post a second one. When an earlier run posted the brief but not the ask, because the lookup found no one or the post failed, this run posts it. Stage 3 of the lifecycle skill sends such a run here: it stops only when every message the case needs is in the thread. A case the owner has answered stops in stage 4 and never reaches this step.
 
 Slack mentions in a case thread appear only in the brief's next-step question and in the thank-you after an answer. The ask itself tags no one and asks nothing: the brief's step 1 already asks the person by name. The ask says why and what each answer does, then the buttons. It never restates the finding.
 
