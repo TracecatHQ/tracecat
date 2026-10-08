@@ -106,6 +106,11 @@ it("groups MCP, Tracecat and custom tools, excluding unselectable actions", () =
   ])
   expect(index.groups[1].title).toBe("Test tools")
   expect(index.byKey.has("core.script.run_python")).toBe(false)
+  expect(
+    buildToolIndex([registryTool("core.script.run_python")], [], {
+      filterAgentTools: false,
+    }).byKey.has("core.script.run_python")
+  ).toBe(true)
   expect(index.entries[0].key).toBe("tools.custom.one")
 })
 

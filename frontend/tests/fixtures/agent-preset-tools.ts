@@ -1,4 +1,11 @@
+import fuzzysort from "fuzzysort"
 import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
+import {
+  buildToolIndex,
+  createToolIndex,
+  type ToolEntry,
+  type ToolIndex,
+} from "@/lib/agent-preset-tools"
 
 /** Build synthetic registry entries for preset tool tests. */
 export function registryTool(
@@ -51,5 +58,35 @@ export function largeToolCatalog(): RegistryActionReadMinimal[] {
     registryTool(
       `tools.vendor_${String(Math.floor(i / 12)).padStart(3, "0")}.action_${i}`
     )
+  )
+}
+
+/** Build one hand-made MCP entry stored in `actions`, as a flat id list needs. */
+export function mcpToolEntry(key: string, title: string): ToolEntry {
+  return {
+    id: key,
+    key,
+    target: "actions",
+    title,
+    description: `Description of ${title}`,
+    defaultAsk: false,
+    locked: false,
+    namespace: "test-mcp",
+    section: "mcp",
+    preparedTitle: fuzzysort.prepare(title),
+    preparedKey: fuzzysort.prepare(key),
+  }
+}
+
+/** A caller-built index: one MCP server granted whole or per tool, plus a registry action. */
+export function flatIdToolIndex(): ToolIndex {
+  return createToolIndex(
+    [
+      mcpToolEntry("mcp.test-mcp", "Whole server"),
+      mcpToolEntry("mcp.test-mcp.read", "Read"),
+      mcpToolEntry("mcp.test-mcp.write", "Write"),
+      ...buildToolIndex([registryTool("tools.test.first")]).entries,
+    ],
+    new Map([["mcp:test-mcp", "Test MCP"]])
   )
 }
