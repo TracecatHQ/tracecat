@@ -5,6 +5,7 @@ import {
   BotIcon,
   BoxIcon,
   ChevronDown,
+  GitBranchIcon,
   KeyRound,
   LayersIcon,
   ListChecksIcon,
@@ -104,13 +105,19 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const canViewServiceAccounts = useScopeCheck("workspace:service_account:read")
   const canViewMcpAccess = useScopeCheck("workspace:read")
   const canViewCases = useScopeCheck("case:read")
+  // Sync users push/pull; workspace admins manage the repository connection.
+  const canOpenGitSync = useScopeCheck(undefined, [
+    "workspace_sync:sync",
+    "workspace:update",
+  ])
   const canAccessMissionControl =
     canExecuteAgents === true && canViewAgents === true
   const shouldLoadEntitlements =
     canViewAgents === true ||
     canExecuteAgents === true ||
     canViewServiceAccounts === true ||
-    canViewInbox === true
+    canViewInbox === true ||
+    canOpenGitSync === true
   const {
     hasEntitlement,
     hasEntitlementData,
@@ -121,6 +128,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const entitlementsKnown = !entitlementsIsLoading && hasEntitlementData
   const workspaceChatEnabled = hasEntitlement("workspace_chat")
   const serviceAccountsEnabled = hasEntitlement("service_accounts")
+  const gitSyncEnabled = hasEntitlement("git_sync")
   const { data: pendingApprovalsCount = 0 } = usePendingApprovalsCount(
     workspaceId,
     {
@@ -214,6 +222,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         isActive: pathname?.startsWith(`${basePath}/actions`),
         visible: canViewActions === true,
       },
+      {
+        title: "Git Sync",
+        url: `${basePath}/git-sync`,
+        icon: GitBranchIcon,
+        isActive: pathname?.startsWith(`${basePath}/git-sync`),
+        visible: canOpenGitSync === true && gitSyncEnabled,
+      },
     ],
     [
       basePath,
@@ -229,6 +244,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       workspaceChatEnabled,
       canViewAgents,
       canViewActions,
+      canOpenGitSync,
+      gitSyncEnabled,
     ]
   )
 
