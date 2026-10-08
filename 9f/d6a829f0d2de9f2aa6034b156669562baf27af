@@ -1,0 +1,54 @@
+frontend/tests/skill-tools-panel.test.tsx
+  s_46298366954001::t_ec117e99c2b38e 1-232,235-260,264-559,562-568,570-574,576-581,583-592,594-621
+  s_46298366954001::t_3edcf134624d6f 233-234
+  s_46298366954001::t_e8af0fbe9b817f 261-263
+  s_46298366954001::t_1cc73d9a48fdad 569
+  s_46298366954001::t_69adc52455ad43 560-561,575,582,593
+frontend/src/components/agents/agent-presets-builder.tsx
+  s_46298366954001::t_0ea29f5ef85938 1958-1968
+frontend/src/components/builder/panel/action-panel-fields.tsx
+  s_46298366954001::t_6a047439efbb55 956-961
+frontend/src/components/tools/tool-picker-dialog.tsx
+  s_46298366954001::t_6a047439efbb55 74,82-86,89-93,651-654
+frontend/src/components/tools/tool-selection-list.tsx
+  s_46298366954001::t_ce567c63631583 184-192,271-277,297,448,522,544,559,574,589-590
+  s_46298366954001::t_e4ec3bc794d977 62-63,87
+frontend/src/components/skills/editor-panel.tsx
+  s_46298366954001::t_013a93b27b67eb 15,21,54,67-70,177-187,194-195,226-395,524-540,546-550
+  s_46298366954001::t_9e71de16fc67ab 188-193,196-202,541-543
+frontend/tests/agent-tools-field.test.tsx
+  s_46298366954001::t_e8af0fbe9b817f 271-279
+frontend/src/components/skills/skill-tools-panel.tsx
+  s_46298366954001::t_ddcdb66dc40b85 1-145
+frontend/tests/agent-tool-picker-dialog.test.tsx
+  s_46298366954001::t_e8af0fbe9b817f 703-748
+frontend/tests/skill-tools.test.ts
+  s_46298366954001::t_610a5a5b78a9a2 4,136,138,151,156,158-165,167-174,176-177,179-187,192,211,233,236,272-273,285-292
+  s_46298366954001::t_ec117e99c2b38e 6,388-438
+frontend/src/lib/skill-tools.ts
+  s_46298366954001::t_e4ec3bc794d977 1,12-18,341-346,348,351-356,365-389,393-404,406-407
+  s_46298366954001::t_9edfeda316fb76 152-156,273-312
+  s_46298366954001::t_c97da4ed89e081 313
+frontend/tests/agent-preset-combobox.test.tsx
+  s_46298366954001::t_e8af0fbe9b817f 88-101
+frontend/tests/agent-model-combobox.test.tsx
+  s_46298366954001::t_e8af0fbe9b817f 186-205
+frontend/src/components/agents/agent-model-combobox.tsx
+  s_46298366954001::t_6a047439efbb55 277,282-283
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9fd6a829f0d2de9f2aa6034b156669562baf27af",
+  "prompts": {},
+  "sessions": {
+    "s_46298366954001": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8148e7d1-b082-4023-a384-0ae94ce7c897",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
