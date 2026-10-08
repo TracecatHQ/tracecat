@@ -36,6 +36,7 @@ import {
   workspacesUpdateWorkspace,
 } from "@/client"
 import { toast } from "@/components/ui/use-toast"
+import { getAgentPresetErrorMessage } from "@/lib/agent-presets"
 import {
   getApiErrorDetail,
   retryHandler,
@@ -306,10 +307,10 @@ export function useCreateAgentPreset(workspaceId: string) {
       })
     },
     onError: (error) => {
-      const detail =
-        typeof error.body?.detail === "string"
-          ? error.body.detail
-          : "Failed to create agent preset."
+      const detail = getAgentPresetErrorMessage(
+        error,
+        "Failed to create agent preset."
+      )
       toast({
         title: "Create failed",
         description: detail,
@@ -365,10 +366,10 @@ export function useUpdateAgentPreset(workspaceId: string) {
       })
     },
     onError: (error) => {
-      const detail =
-        typeof error.body?.detail === "string"
-          ? error.body.detail
-          : "Failed to update agent preset."
+      const detail = getAgentPresetErrorMessage(
+        error,
+        "Failed to update agent preset."
+      )
       toast({
         title: "Update failed",
         description: detail,
@@ -502,10 +503,10 @@ export function useRestoreAgentPresetVersion(workspaceId: string) {
       })
     },
     onError: (error) => {
-      const detail =
-        typeof error.body?.detail === "string"
-          ? error.body.detail
-          : "Failed to restore preset version."
+      const detail = getAgentPresetErrorMessage(
+        error,
+        "Failed to restore preset version."
+      )
       toast({
         title: "Restore failed",
         description: detail,
