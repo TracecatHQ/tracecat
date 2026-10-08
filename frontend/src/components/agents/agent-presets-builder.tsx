@@ -1954,6 +1954,7 @@ function AgentPresetRightPanel({
               maxTools={preset?.tool_policy?.max_tools}
               effectiveActions={preset?.tool_policy?.actions}
               savedActions={preset?.actions}
+              savedNamespaces={preset?.namespaces}
               form={form}
               isSaving={isSaving}
               registryActions={registryActions}
@@ -2010,6 +2011,7 @@ function AgentPresetRightPanel({
 export function AgentPresetConfigurationPanel({
   workspaceId,
   savedSkillIds,
+  savedNamespaces,
   form,
   isSaving,
   registryActions,
@@ -2026,6 +2028,7 @@ export function AgentPresetConfigurationPanel({
 }: {
   workspaceId: string
   savedSkillIds?: string[]
+  savedNamespaces?: string[] | null
   form: UseFormReturn<AgentPresetFormValues>
   isSaving: boolean
   registryActions?: RegistryActionReadMinimal[]
@@ -2054,7 +2057,16 @@ export function AgentPresetConfigurationPanel({
     savedSkillIds === undefined ||
     skillIds.length !== savedIds.length ||
     skillIds.some((id, index) => id !== savedIds[index])
-  const previewEnabled = skillsChanged && skillIds.length > 0
+  const namespaceFilters = [...new Set(namespaces)].sort()
+  const savedFilters = [...new Set(savedNamespaces)].sort()
+  const namespacesChanged =
+    namespaceFilters.length !== savedFilters.length ||
+    namespaceFilters.some(
+      (namespace, index) => namespace !== savedFilters[index]
+    )
+  const policyChanged = skillsChanged || namespacesChanged
+  const previewEnabled =
+    savedSkillIds === undefined || (policyChanged && skillIds.length > 0)
   const { data: preview, isError: previewFailed } =
     useAgentPresetToolPolicyPreview(
       workspaceId,
@@ -2068,7 +2080,7 @@ export function AgentPresetConfigurationPanel({
       { enabled: previewEnabled }
     )
   let skillActions = effectiveActions
-  if (skillsChanged) {
+  if (policyChanged) {
     skillActions =
       previewEnabled && !previewFailed ? preview?.actions : undefined
   }
@@ -2348,7 +2360,7 @@ export function AgentPresetConfigurationPanel({
             (savedSkillIds === undefined ? preview?.max_tools : undefined)
           }
           effectiveActions={skillActions}
-          savedActions={skillsChanged ? undefined : savedActions}
+          savedActions={policyChanged ? undefined : savedActions}
         />
       </div>
     </ScrollArea>

@@ -35,6 +35,7 @@ interface PickerProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   maxTools?: number | null
+  skillActions?: string[]
   disabled?: boolean
 }
 
@@ -84,6 +85,7 @@ function PickerBody({
   index,
   onOpenChange,
   maxTools,
+  skillActions,
   disabled,
   searchRef,
 }: Omit<PickerProps, "open"> & {
@@ -102,7 +104,11 @@ function PickerBody({
   const listRef = useRef<HTMLDivElement>(null)
   const listId = useId()
   const count = selection.actions.size
-  const overLimit = maxTools != null && count > maxTools
+  const skillCount = [...new Set(skillActions)].filter(
+    (key) => !selection.actions.has(key)
+  ).length
+  const totalCount = count + skillCount
+  const overLimit = maxTools != null && totalCount > maxTools
   const toolLabel = count === 1 ? "tool" : "tools"
   const selectedIds = useMemo(
     () =>
@@ -531,9 +537,10 @@ function PickerBody({
       <div className="flex h-14 shrink-0 items-center gap-2 border-t px-4 text-xs">
         <span className={cn(overLimit && "text-rose-500")}>
           {maxTools != null
-            ? `${count} of ${maxTools} tools`
+            ? `${totalCount} of ${maxTools} tools`
             : `${count} ${toolLabel} selected`}
-          {overLimit && ` · remove ${count - maxTools} to continue`}
+          {maxTools != null && skillCount > 0 && ` (${skillCount} from skills)`}
+          {overLimit && ` · remove ${totalCount - maxTools} to continue`}
           {selection.mcp.size > 0 &&
             ` · ${selection.mcp.size} MCP ${selection.mcp.size === 1 ? "integration" : "integrations"}`}
         </span>

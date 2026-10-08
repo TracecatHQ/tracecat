@@ -112,9 +112,8 @@ export function AgentPresetToolsList({
   const blocked = getBlockedActions(actions, namespaces)
   const loading = registryLoading || mcpLoading
   const ready = !loading && !toolsLoadError
-  const skillKeys = new Set(
-    effectiveActions?.filter((key) => !saved.has(key) && !selected.has(key))
-  )
+  const skillActions = effectiveActions?.filter((key) => !saved.has(key))
+  const skillKeys = new Set(skillActions?.filter((key) => !selected.has(key)))
   const unavailable = ready
     ? actions.filter((key) => !index.byKey.has(key))
     : []
@@ -489,6 +488,7 @@ export function AgentPresetToolsList({
         open={open && ready}
         onOpenChange={setOpen}
         maxTools={maxTools}
+        skillActions={skillActions}
         disabled={isSaving}
       />
     </section>

@@ -58,7 +58,6 @@ export function useAgentPresetToolPolicyPreview(
     queryFn: () => agentPresetsPreviewToolPolicy({ workspaceId, requestBody }),
     enabled: enabled && Boolean(workspaceId),
     retry: false,
-    placeholderData: (previousData) => previousData,
     meta: { suppressErrorToast: true },
   })
 }

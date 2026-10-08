@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useEffect } from "react"
 import { useFieldArray, useForm } from "react-hook-form"
@@ -658,14 +658,18 @@ it("preserves false approval entries in the form-to-payload mapping", () => {
 function ConfigurationTestForm({
   savedSkillIds,
   skillIds = savedSkillIds ?? [],
+  savedNamespaces = ["tools.test"],
+  namespaces = savedNamespaces,
 }: {
   savedSkillIds?: string[]
   skillIds?: string[]
+  savedNamespaces?: string[]
+  namespaces?: string[]
 }) {
   const form = useForm<AgentPresetFormValues>({
     defaultValues: {
       actions: ["tools.test.authored"],
-      namespaces: ["tools.test"],
+      namespaces,
       mcpIntegrations: ["mcp-example"],
       toolApprovals: [],
       skills: skillIds.map((skillId) => ({ skillId })),
@@ -677,6 +681,8 @@ function ConfigurationTestForm({
         <AgentPresetConfigurationPanel
           workspaceId="workspace-example"
           savedSkillIds={savedSkillIds}
+          savedNamespaces={savedNamespaces}
+          maxTools={savedSkillIds === undefined ? undefined : 128}
           effectiveActions={["tools.test.authored", "tools.test.saved"]}
           savedActions={["tools.test.authored"]}
           form={form}
@@ -729,11 +735,13 @@ function renderConfiguration(
   )
 }
 
-it("uses saved skill policy without a preview when ids are unchanged, ignoring order and empty ids", () => {
+it("uses saved skill policy when ids and namespace filters are unchanged, ignoring order and empty ids", () => {
   jest.mocked(agentPresetsPreviewToolPolicy).mockClear()
   renderConfiguration({
     savedSkillIds: ["first-skill", "second-skill"],
     skillIds: ["second-skill", "", "first-skill"],
+    savedNamespaces: ["tools.test", "tools.other"],
+    namespaces: ["tools.other", "tools.test"],
   })
   expect(agentPresetsPreviewToolPolicy).not.toHaveBeenCalled()
   const group = screen.getByText("From skills").parentElement as HTMLElement
@@ -771,6 +779,10 @@ it("previews changed skills and removes the group without a request when all ski
   await user.click(screen.getByRole("button", { name: "Remove skills" }))
   expect(screen.queryByText("From skills")).not.toBeInTheDocument()
   expect(preview).toHaveBeenCalledTimes(1)
+  await user.click(screen.getByRole("button", { name: "Add tools" }))
+  expect(
+    screen.getByText("1 of 128 tools · 1 MCP integration")
+  ).toBeInTheDocument()
 })
 
 it("hides saved skill tools during the first preview and hides previous tools after an error", async () => {
@@ -790,13 +802,92 @@ it("hides saved skill tools during the first preview and hides previous tools af
   await user.click(screen.getByRole("button", { name: "Change skills" }))
   expect(preview).toHaveBeenCalledTimes(1)
   expect(screen.queryByText("From skills")).not.toBeInTheDocument()
-  resolvePreview({ actions: ["tools.test.preview"] })
+  await act(async () => {
+    resolvePreview({ actions: ["tools.test.preview"] })
+    await pending
+  })
   expect(await screen.findByText("tools.test.preview")).toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "Invalid skills" }))
   await waitFor(() =>
     expect(screen.queryByText("From skills")).not.toBeInTheDocument()
   )
   expect(preview).toHaveBeenCalledTimes(2)
+})
+
+it("previews cleared namespace filters even when skills are unchanged", async () => {
+  const user = userEvent.setup()
+  const preview = jest
+    .mocked(agentPresetsPreviewToolPolicy)
+    .mockClear()
+    .mockResolvedValue({
+      actions: ["tools.test.authored", "tools.test.preview"],
+    })
+  renderConfiguration({ savedSkillIds: ["saved-skill"] })
+  expect(preview).not.toHaveBeenCalled()
+  await user.click(screen.getByRole("button", { name: "Clear" }))
+  expect(await screen.findByText("tools.test.preview")).toBeInTheDocument()
+  expect(preview).toHaveBeenCalledTimes(1)
+  expect(preview).toHaveBeenCalledWith({
+    workspaceId: "workspace-example",
+    requestBody: {
+      actions: [],
+      namespaces: [],
+      mcp_integrations: ["mcp-example"],
+      skill_ids: ["saved-skill"],
+      tool_approvals: {},
+    },
+  })
+  expect(screen.queryByText("tools.test.saved")).not.toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Add tools" }))
+  expect(
+    screen.getByText("2 of 128 tools (1 from skills) · 1 MCP integration")
+  ).toBeInTheDocument()
+})
+
+it("hides previous preview tools while changed skills are pending", async () => {
+  const user = userEvent.setup()
+  let resolvePreview: (policy: AgentPresetToolPolicyRead) => void = () => {}
+  const pending = new CancelablePromise<AgentPresetToolPolicyRead>(
+    (resolve) => {
+      resolvePreview = resolve
+    }
+  )
+  const preview = jest
+    .mocked(agentPresetsPreviewToolPolicy)
+    .mockClear()
+    .mockResolvedValueOnce({ actions: ["tools.test.preview"] })
+    .mockReturnValueOnce(pending)
+  renderConfiguration({ skillIds: ["first-skill"] })
+  expect(await screen.findByText("tools.test.preview")).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Change skills" }))
+  expect(preview).toHaveBeenCalledTimes(2)
+  expect(screen.queryByText("From skills")).not.toBeInTheDocument()
+  expect(screen.queryByText("tools.test.preview")).not.toBeInTheDocument()
+  await act(async () => {
+    resolvePreview({ actions: ["tools.test.saved"] })
+    await pending
+  })
+  expect(await screen.findByText("tools.test.saved")).toBeInTheDocument()
+  expect(screen.queryByText("tools.test.preview")).not.toBeInTheDocument()
+})
+
+it("previews a new preset without skills once and uses its tool limit", async () => {
+  const user = userEvent.setup()
+  const preview = jest
+    .mocked(agentPresetsPreviewToolPolicy)
+    .mockClear()
+    .mockResolvedValue({ actions: [], max_tools: 7 })
+  renderConfiguration({})
+  await user.click(screen.getByRole("button", { name: "Add tools" }))
+  expect(
+    await screen.findByText("1 of 7 tools · 1 MCP integration")
+  ).toBeInTheDocument()
+  expect(preview).toHaveBeenCalledTimes(1)
+  expect(preview).toHaveBeenCalledWith(
+    expect.objectContaining({
+      requestBody: expect.objectContaining({ actions: [], skill_ids: [] }),
+    })
+  )
 })
 
 it("previews skills on a new preset and uses the preview tool limit", async () => {
@@ -810,7 +901,7 @@ it("previews skills on a new preset and uses the preview tool limit", async () =
   expect(preview).toHaveBeenCalledTimes(1)
   await user.click(screen.getByRole("button", { name: "Add tools" }))
   expect(
-    screen.getByText("1 of 7 tools · 1 MCP integration")
+    screen.getByText("2 of 7 tools (1 from skills) · 1 MCP integration")
   ).toBeInTheDocument()
 })
 

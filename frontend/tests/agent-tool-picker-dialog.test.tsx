@@ -75,11 +75,13 @@ function TestForm({
   values = defaults,
   catalog = index,
   maxTools = 128,
+  skillActions,
   onWrite = jest.fn(),
 }: {
   values?: PresetToolFields
   catalog?: ToolIndex
   maxTools?: number | null
+  skillActions?: string[]
   onWrite?: jest.Mock
 }) {
   const form = useForm<PresetToolFields>({ defaultValues: values })
@@ -95,6 +97,7 @@ function TestForm({
         open={open}
         onOpenChange={setOpen}
         maxTools={maxTools}
+        skillActions={skillActions}
       />
       <button type="button" onClick={() => setOpen(true)}>
         Open
@@ -408,10 +411,63 @@ it.each([
     render(
       <TestForm
         maxTools={null}
+        skillActions={["tools.skill.extra"]}
         values={{ ...defaults, actions, mcpIntegrations: mcp }}
       />
     )
     expect(screen.getByText(expected)).toBeInTheDocument()
+  }
+)
+
+it("keeps divs out of buttons in tool option rows and the source rail", () => {
+  render(<TestForm />)
+  const rail = screen.getByRole("navigation", { name: "Tool sources" })
+  const rows = [
+    ...screen.getAllByRole("option"),
+    ...within(rail).getAllByRole("button"),
+  ]
+  for (const row of rows) {
+    if (row.matches("button")) {
+      expect(row.querySelector("div")).toBeNull()
+    } else {
+      expect(row.querySelector("button div")).toBeNull()
+    }
+  }
+})
+
+it.each([
+  {
+    skillActions: ["tools.alpha.first", "tools.beta.third"],
+    expected: "3 of 3 tools (1 from skills)",
+    overLimit: false,
+  },
+  {
+    skillActions: ["tools.beta.third", "tools.skill.extra"],
+    expected: "4 of 3 tools (2 from skills) · remove 1 to continue",
+    overLimit: true,
+  },
+])(
+  "counts the union of selected and skill tools: $expected",
+  ({ skillActions, expected, overLimit }) => {
+    render(
+      <TestForm
+        maxTools={3}
+        skillActions={skillActions}
+        values={{
+          ...defaults,
+          actions: ["tools.alpha.first", "tools.alpha.second"],
+        }}
+      />
+    )
+    const footer = screen.getByText(expected)
+    const done = screen.getByRole("button", { name: "Done" })
+    if (overLimit) {
+      expect(footer).toHaveClass("text-rose-500")
+      expect(done).toBeDisabled()
+    } else {
+      expect(footer).not.toHaveClass("text-rose-500")
+      expect(done).toBeEnabled()
+    }
   }
 )
 
@@ -420,9 +476,6 @@ it("allows group selection over the limit but requires deselection before Done",
   render(<TestForm maxTools={1} />)
   const done = screen.getByRole("button", { name: "Done" })
   expect(done).toBeEnabled()
-  for (const button of screen.getAllByRole("button")) {
-    expect(button.querySelector("div")).toBeNull()
-  }
   await user.click(screen.getByRole("button", { name: "Alpha 2" }))
   await user.click(
     screen.getByRole("checkbox", { name: "Select all in Alpha" })
