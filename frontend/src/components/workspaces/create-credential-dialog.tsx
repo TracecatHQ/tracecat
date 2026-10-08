@@ -1497,33 +1497,31 @@ export function CreateCredentialDialog({
                         )}
                         <div className="flex flex-col space-y-2">
                           {fields.map((field, index) => {
-                            return (
-                              <div
-                                key={`${field.id}.${index}`}
-                                className="flex w-full items-center gap-2"
-                              >
-                                <FormControl className="flex-1">
-                                  <Input
-                                    id={`key-${index}`}
-                                    className="text-sm"
-                                    {...register(
-                                      `${inputKey}.${index}.key` as const,
-                                      {
-                                        required: true,
-                                      }
-                                    )}
-                                    placeholder="Key"
-                                    disabled={
-                                      !!selectedTool &&
-                                      (selectedTool.keys?.includes(
-                                        field.key || ""
-                                      ) ||
-                                        selectedTool.optional_keys?.includes(
-                                          field.key || ""
-                                        ))
-                                    }
-                                  />
-                                </FormControl>
+                            const isTemplateKey = Boolean(
+                              selectedTool &&
+                                (selectedTool.keys?.includes(field.key || "") ||
+                                  selectedTool.optional_keys?.includes(
+                                    field.key || ""
+                                  ))
+                            )
+                            const keyRegistration = register(
+                              `${inputKey}.${index}.key` as const,
+                              {
+                                required: true,
+                              }
+                            )
+                            const valueRow = (
+                              <div className="flex w-full items-center gap-2">
+                                {!isTemplateKey && (
+                                  <FormControl className="flex-1">
+                                    <Input
+                                      id={`key-${index}`}
+                                      className="text-sm"
+                                      {...keyRegistration}
+                                      placeholder="Key"
+                                    />
+                                  </FormControl>
+                                )}
                                 <FormControl className="flex-1">
                                   <Input
                                     id={`value-${index}`}
@@ -1542,24 +1540,39 @@ export function CreateCredentialDialog({
                                     type="password"
                                   />
                                 </FormControl>
-
                                 <Button
                                   type="button"
                                   variant="ghost"
                                   onClick={() => remove(index)}
                                   disabled={
-                                    (!!selectedTool &&
-                                      (selectedTool.keys?.includes(
-                                        field.key || ""
-                                      ) ||
-                                        selectedTool.optional_keys?.includes(
-                                          field.key || ""
-                                        ))) ||
+                                    isTemplateKey ||
                                     (!selectedTool && fields.length === 1)
                                   }
                                 >
                                   <Trash2Icon className="size-3.5" />
                                 </Button>
+                              </div>
+                            )
+                            if (!isTemplateKey) {
+                              return (
+                                <div key={`${field.id}.${index}`}>
+                                  {valueRow}
+                                </div>
+                              )
+                            }
+                            return (
+                              <div
+                                key={`${field.id}.${index}`}
+                                className="flex w-full flex-col gap-1.5"
+                              >
+                                <Label
+                                  htmlFor={`value-${index}`}
+                                  className="break-all font-mono text-xs text-muted-foreground"
+                                >
+                                  {field.key}
+                                </Label>
+                                <input type="hidden" {...keyRegistration} />
+                                {valueRow}
                               </div>
                             )
                           })}
