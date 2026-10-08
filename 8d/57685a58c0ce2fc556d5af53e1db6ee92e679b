@@ -1,0 +1,27 @@
+frontend/src/hooks/use-agent-presets.ts
+  s_bb1d406c176bda::t_9ca2338fcd969b 39,310-313,369-372,506-509
+frontend/src/lib/agent-presets.ts
+  s_bb1d406c176bda::t_efd6191d6e2b09 6,11-40
+frontend/tests/agent-presets-builder.test.tsx
+  s_bb1d406c176bda::t_32bad95807114b 8,11-47
+tests/unit/test_agent_preset_router.py
+  s_bb1d406c176bda::t_99f4d7c9df7694 1,10-23,65-157
+tracecat/agent/preset/router.py
+  s_bb1d406c176bda::t_dbe168e013867c 29-35,68,88-89,146-147,209-215,238-241,277-280,318
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8d57685a58c0ce2fc556d5af53e1db6ee92e679b",
+  "prompts": {},
+  "sessions": {
+    "s_bb1d406c176bda": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84c01265-31fb-45c0-8bf6-a69fe6bc6c37",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
