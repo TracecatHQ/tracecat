@@ -1,0 +1,25 @@
+frontend/src/components/agents/agent-presets-builder.tsx
+  s_bb1d406c176bda::t_0f770c11337182 8,14,29,70,81,97-101,118,141-145,195-196,337-338,355,1605-1607,1875,1913,1997,2110,2118,2257-2260,2287,2321-2322,2336,2339-2343,2373-2376,2382-2383,2386-2387,2391-2403,2405-2511,2513-2615,2617-2618,2621-2692,2696-2697,2702,2710,2728-2751,2755,2759-2798,2800-2816,2818,2820,2822,2824-2826,2835,2859,2867,2870,2874-2876,2879-2884,2889-2893,2896,2898,2900,2902-2906,2908-2912,2918,2921,2925-2938,2943-2944,2952-2953,2956-3016,3018-3037,3041-3103,3631
+frontend/src/lib/agent-preset-output.ts
+  s_bb1d406c176bda::t_a546a8158e1647 1-26
+frontend/tests/agent-preset-output.test.ts
+  s_bb1d406c176bda::t_f1af66e415a8ee 1-31
+frontend/tests/agent-preset-panels.test.tsx
+  s_bb1d406c176bda::t_a04f59db357be5 1-580
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e1e40be8f4473de168ba9db7a62c14813233c603",
+  "prompts": {},
+  "sessions": {
+    "s_bb1d406c176bda": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84c01265-31fb-45c0-8bf6-a69fe6bc6c37",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
