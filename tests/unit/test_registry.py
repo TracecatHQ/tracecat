@@ -7,14 +7,43 @@ import textwrap
 from datetime import datetime
 from importlib.machinery import ModuleSpec
 from types import ModuleType
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
 from tracecat.exceptions import RegistryValidationError
 from tracecat.git.utils import GitUrl, parse_git_url
+from tracecat.registry.actions.schemas import RegistryActionReadMinimal
 from tracecat.registry.actions.service import RegistryActionsService
+from tracecat.registry.actions.types import IndexEntry
 from tracecat.registry.repository import Repository
+
+
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        ({"requires_approval": True}, True),
+        ({"requires_approval": False}, False),
+        ({}, False),
+    ],
+)
+def test_registry_action_read_minimal_from_index_requires_approval(
+    options: dict[str, bool], expected: bool
+) -> None:
+    entry = IndexEntry(
+        id=uuid4(),
+        namespace="tools.test",
+        name="action",
+        action_type="udf",
+        description="Test action",
+        default_title=None,
+        display_group=None,
+        options=options,
+    )
+
+    action = RegistryActionReadMinimal.from_index(entry, origin="builtin")
+
+    assert action.requires_approval is expected
 
 
 @pytest.mark.anyio

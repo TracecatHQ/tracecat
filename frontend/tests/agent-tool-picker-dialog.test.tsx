@@ -21,12 +21,6 @@ import {
   registryTool,
 } from "./fixtures/agent-preset-tools"
 
-jest.mock("@/components/icons", () => ({
-  getIcon: () => null,
-  getMcpProviderIconId: (id: string) => id,
-  ProviderIcon: () => null,
-}))
-
 const actions = [
   registryTool("tools.alpha.first", { display_group: "Alpha" }),
   registryTool("tools.alpha.second"),
@@ -421,14 +415,46 @@ it.each([
   }
 )
 
-it("allows Done when the registry selection exceeds the limit", async () => {
+it("allows group selection over the limit but requires deselection before Done", async () => {
+  const user = userEvent.setup()
+  render(<TestForm maxTools={1} />)
+  const done = screen.getByRole("button", { name: "Done" })
+  expect(done).toBeEnabled()
+  for (const button of screen.getAllByRole("button")) {
+    expect(button.querySelector("div")).toBeNull()
+  }
+  await user.click(screen.getByRole("button", { name: "Alpha 2" }))
+  await user.click(
+    screen.getByRole("checkbox", { name: "Select all in Alpha" })
+  )
+  expect(screen.getByText("2 of 1 tools · remove 1 to continue")).toHaveClass(
+    "text-rose-500"
+  )
+  expect(done).toBeDisabled()
+  await user.click(done)
+  expect(screen.getByRole("dialog")).toBeInTheDocument()
+  expect(values().actions).toEqual([])
+  await user.click(screen.getByRole("option", { name: /tools.alpha.second/ }))
+  expect(screen.getByText("1 of 1 tools")).not.toHaveClass("text-rose-500")
+  expect(done).toBeEnabled()
+  await user.click(done)
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  expect(values().actions).toEqual(["tools.alpha.first"])
+})
+
+it("removes an Auto override when deselecting a default-ask action", async () => {
+  const user = userEvent.setup()
   render(
     <TestForm
-      maxTools={1}
-      values={{ ...defaults, actions: ["first", "second"] }}
+      catalog={buildToolIndex([{ ...actions[0], requires_approval: true }])}
+      values={{
+        ...defaults,
+        actions: [actions[0].action],
+        toolApprovals: [{ tool: actions[0].action, allow: false }],
+      }}
     />
   )
-  expect(screen.getByText("2 of 1 tools")).toBeInTheDocument()
-  await userEvent.click(screen.getByRole("button", { name: "Done" }))
-  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  await user.click(screen.getByRole("option", { name: /tools.alpha.first/ }))
+  await user.click(screen.getByRole("button", { name: "Done" }))
+  expect(values().toolApprovals).toEqual([])
 })

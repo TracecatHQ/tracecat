@@ -1,19 +1,34 @@
 import { zodResolver } from "@hookform/resolvers/zod"
-import { render, screen, within } from "@testing-library/react"
+import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useEffect } from "react"
 import { useFieldArray, useForm } from "react-hook-form"
-import type { AgentPresetReadMinimal, SkillReadMinimal } from "@/client"
 import {
+  type AgentPresetReadMinimal,
+  type AgentPresetToolPolicyRead,
+  agentPresetsPreviewToolPolicy,
+  CancelablePromise,
+  type SkillReadMinimal,
+} from "@/client"
+import {
+  AgentPresetConfigurationPanel,
   type AgentPresetFormValues,
   AgentPresetSkillsPanel,
   AgentPresetStructuredOutputPanel,
   AgentPresetSubagentsPanel,
   agentPresetSchema,
+  formValuesToPayload,
 } from "@/components/agents/agent-presets-builder"
 import { Form } from "@/components/ui/form"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useSkills } from "@/hooks/use-skills"
+import { QueryClient, QueryClientProvider } from "@/lib/query"
+import { registryTool } from "./fixtures/agent-preset-tools"
+
+jest.mock("@/client", () => ({
+  ...jest.requireActual("@/client"),
+  agentPresetsPreviewToolPolicy: jest.fn(),
+}))
 
 // These unrelated builder panes pull in ESM-only editor/chat dependencies.
 jest.mock("@/components/chat/chat-session-pane", () => ({
@@ -604,3 +619,229 @@ it.each([
     )
   }
 )
+
+it("remembers Integer after Structured, Text, and Structured", async () => {
+  const user = userEvent.setup()
+  render(<TestForm panel="output" />)
+  await user.click(screen.getByRole("button", { name: "Structured" }))
+  await user.click(screen.getByRole("button", { name: "Integer" }))
+  await user.click(screen.getByRole("button", { name: "Text" }))
+  expect(values().outputTypeDataType).toBe("")
+  expect(screen.getByTestId("dirty")).toHaveTextContent("false")
+  await user.click(screen.getByRole("button", { name: "Structured" }))
+  expect(screen.getByRole("button", { name: "Integer" })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  )
+  expect(values().outputTypeDataType).toBe("int")
+})
+
+it("preserves false approval entries in the form-to-payload mapping", () => {
+  const formValues = agentPresetSchema.parse({
+    name: "Example",
+    slug: "example",
+    outputTypeKind: "none",
+    retries: 3,
+    model_provider: "openai",
+    model_name: "example-model",
+    toolApprovals: [
+      { tool: "tools.test.ask", allow: false },
+      { tool: "tools.test.auto", allow: true },
+    ],
+  })
+  expect(formValuesToPayload(formValues).tool_approvals).toEqual({
+    "tools.test.ask": false,
+    "tools.test.auto": true,
+  })
+})
+
+function ConfigurationTestForm({
+  savedSkillIds,
+  skillIds = savedSkillIds ?? [],
+}: {
+  savedSkillIds?: string[]
+  skillIds?: string[]
+}) {
+  const form = useForm<AgentPresetFormValues>({
+    defaultValues: {
+      actions: ["tools.test.authored"],
+      namespaces: ["tools.test"],
+      mcpIntegrations: ["mcp-example"],
+      toolApprovals: [],
+      skills: skillIds.map((skillId) => ({ skillId })),
+    },
+  })
+  return (
+    <TooltipProvider>
+      <Form {...form}>
+        <AgentPresetConfigurationPanel
+          workspaceId="workspace-example"
+          savedSkillIds={savedSkillIds}
+          effectiveActions={["tools.test.authored", "tools.test.saved"]}
+          savedActions={["tools.test.authored"]}
+          form={form}
+          isSaving={false}
+          registryActions={[
+            registryTool("tools.test.authored"),
+            registryTool("tools.test.saved"),
+            registryTool("tools.test.preview"),
+          ]}
+          registryLoading={false}
+          mcpLoading={false}
+          toolsLoadError={false}
+          enabledModelOptions={[]}
+          enabledModelsLoaded={false}
+          mcpIntegrations={[]}
+          hasStdioMcp={false}
+        />
+        <button
+          type="button"
+          onClick={() => form.setValue("skills", [{ skillId: "new-skill" }])}
+        >
+          Change skills
+        </button>
+        <button type="button" onClick={() => form.setValue("skills", [])}>
+          Remove skills
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            form.setValue("skills", [{ skillId: "invalid-skill" }])
+          }
+        >
+          Invalid skills
+        </button>
+      </Form>
+    </TooltipProvider>
+  )
+}
+
+function renderConfiguration(
+  props: Parameters<typeof ConfigurationTestForm>[0]
+) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={client}>
+      <ConfigurationTestForm {...props} />
+    </QueryClientProvider>
+  )
+}
+
+it("uses saved skill policy without a preview when ids are unchanged, ignoring order and empty ids", () => {
+  jest.mocked(agentPresetsPreviewToolPolicy).mockClear()
+  renderConfiguration({
+    savedSkillIds: ["first-skill", "second-skill"],
+    skillIds: ["second-skill", "", "first-skill"],
+  })
+  expect(agentPresetsPreviewToolPolicy).not.toHaveBeenCalled()
+  const group = screen.getByText("From skills").parentElement as HTMLElement
+  expect(within(group).getByText("tools.test.saved")).toBeInTheDocument()
+  expect(
+    within(group).queryByText("tools.test.authored")
+  ).not.toBeInTheDocument()
+})
+
+it("previews changed skills and removes the group without a request when all skills are removed", async () => {
+  const user = userEvent.setup()
+  const preview = jest
+    .mocked(agentPresetsPreviewToolPolicy)
+    .mockClear()
+    .mockResolvedValue({ actions: ["tools.test.preview"] })
+  renderConfiguration({ savedSkillIds: ["saved-skill"] })
+  expect(preview).not.toHaveBeenCalled()
+  await user.click(screen.getByRole("button", { name: "Change skills" }))
+  await waitFor(() =>
+    expect(preview).toHaveBeenCalledWith({
+      workspaceId: "workspace-example",
+      requestBody: {
+        actions: [],
+        namespaces: ["tools.test"],
+        mcp_integrations: ["mcp-example"],
+        skill_ids: ["new-skill"],
+        tool_approvals: {},
+      },
+    })
+  )
+  expect(await screen.findByText("tools.test.preview")).toBeInTheDocument()
+  const group = screen.getByText("From skills").parentElement as HTMLElement
+  expect(within(group).getByText("tools.test.preview")).toBeInTheDocument()
+  expect(screen.queryByText("tools.test.saved")).not.toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Remove skills" }))
+  expect(screen.queryByText("From skills")).not.toBeInTheDocument()
+  expect(preview).toHaveBeenCalledTimes(1)
+})
+
+it("hides saved skill tools during the first preview and hides previous tools after an error", async () => {
+  const user = userEvent.setup()
+  let resolvePreview: (policy: AgentPresetToolPolicyRead) => void = () => {}
+  const pending = new CancelablePromise<AgentPresetToolPolicyRead>(
+    (resolve) => {
+      resolvePreview = resolve
+    }
+  )
+  const preview = jest
+    .mocked(agentPresetsPreviewToolPolicy)
+    .mockClear()
+    .mockReturnValueOnce(pending)
+    .mockRejectedValueOnce({ status: 400 })
+  renderConfiguration({ savedSkillIds: ["saved-skill"] })
+  await user.click(screen.getByRole("button", { name: "Change skills" }))
+  expect(preview).toHaveBeenCalledTimes(1)
+  expect(screen.queryByText("From skills")).not.toBeInTheDocument()
+  resolvePreview({ actions: ["tools.test.preview"] })
+  expect(await screen.findByText("tools.test.preview")).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Invalid skills" }))
+  await waitFor(() =>
+    expect(screen.queryByText("From skills")).not.toBeInTheDocument()
+  )
+  expect(preview).toHaveBeenCalledTimes(2)
+})
+
+it("previews skills on a new preset and uses the preview tool limit", async () => {
+  const user = userEvent.setup()
+  const preview = jest
+    .mocked(agentPresetsPreviewToolPolicy)
+    .mockClear()
+    .mockResolvedValue({ actions: ["tools.test.preview"], max_tools: 7 })
+  renderConfiguration({ skillIds: ["new-skill"] })
+  expect(await screen.findByText("tools.test.preview")).toBeInTheDocument()
+  expect(preview).toHaveBeenCalledTimes(1)
+  await user.click(screen.getByRole("button", { name: "Add tools" }))
+  expect(
+    screen.getByText("1 of 7 tools · 1 MCP integration")
+  ).toBeInTheDocument()
+})
+
+it("uses one accessible subagent toggle and keeps the name and removal independent", async () => {
+  const user = userEvent.setup()
+  const open = jest.spyOn(window, "open").mockImplementation(() => null)
+  render(<TestForm panel="subagents" defaults={{ subagents: [subagent] }} />)
+  const toggle = screen.getByRole("button", {
+    name: "Example agent example-agent",
+  })
+  const header = toggle.parentElement as HTMLElement
+  expect(within(header).getAllByRole("button", { hidden: true })).toHaveLength(
+    3
+  )
+  expect(header.querySelector("button[aria-hidden=true]")).toBeNull()
+  expect(header.querySelector("button div")).toBeNull()
+  await user.click(screen.getByRole("button", { name: "Example agent" }))
+  expect(open).toHaveBeenCalledWith(
+    "/workspaces/workspace-example/agents/preset-example",
+    "_blank",
+    "noopener,noreferrer"
+  )
+  expect(toggle).toHaveAttribute("aria-expanded", "false")
+  await user.click(toggle)
+  expect(toggle).toHaveAttribute("aria-expanded", "true")
+  await user.type(
+    screen.getByRole("textbox", { name: "Delegate when" }),
+    "Example task"
+  )
+  expect(toggle).toHaveAttribute("aria-expanded", "true")
+  await user.click(screen.getByRole("button", { name: "Remove Example agent" }))
+  expect(values().subagents).toEqual([])
+  open.mockRestore()
+})

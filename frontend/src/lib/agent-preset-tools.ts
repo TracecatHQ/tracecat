@@ -19,6 +19,7 @@ export interface ToolEntry {
   key: string
   title: string
   description: string
+  defaultAsk: boolean
   namespace: string
   section: "mcp" | "tracecat" | "custom"
   preparedTitle: Fuzzysort.Prepared
@@ -77,6 +78,7 @@ export function buildToolIndex(
         key: action.action,
         title,
         description: action.description,
+        defaultAsk: action.requires_approval ?? false,
         namespace: action.namespace,
         section: isCustomRegistryOrigin(action.origin) ? "custom" : "tracecat",
         preparedTitle: fuzzysort.prepare(title),
@@ -92,6 +94,7 @@ export function buildToolIndex(
         key: integration.id,
         title: integration.name,
         description: integration.description ?? "",
+        defaultAsk: false,
         namespace: integration.slug,
         section: "mcp",
         integration,
@@ -145,30 +148,48 @@ export function applyToolSelection(
     : result
 }
 
+/** Resolve a stored override before falling back to the action's approval default. */
+export function getToolApproval(
+  rules: PresetToolFields["toolApprovals"],
+  key: string,
+  index: ToolIndex
+): boolean {
+  return (
+    rules.find((rule) => rule.tool === key)?.allow ??
+    index.byKey.get(key)?.defaultAsk ??
+    false
+  )
+}
+
 /** Set an explicit approval choice without rewriting unrelated entries. */
 export function setToolApproval(
   rules: PresetToolFields["toolApprovals"],
   key: string,
-  ask: boolean
+  ask: boolean,
+  defaultAsk = false
 ): PresetToolFields["toolApprovals"] {
   const index = rules.findIndex((rule) => rule.tool === key)
-  if (!ask) {
-    const next = rules.filter((rule) => rule.tool !== key || !rule.allow)
+  if (ask === defaultAsk) {
+    const next = rules.filter(
+      (rule) => rule.tool !== key || rule.allow === defaultAsk
+    )
     return next.length === rules.length ? rules : next
   }
-  if (index < 0) return [...rules, { tool: key, allow: true }]
-  if (rules[index].allow) return rules
-  return rules.map((rule, i) => (i === index ? { ...rule, allow: true } : rule))
+  if (index < 0) return [...rules, { tool: key, allow: ask }]
+  if (rules[index].allow === ask) return rules
+  return rules.map((rule, i) => (i === index ? { ...rule, allow: ask } : rule))
 }
 
-/** Remove tools and their active approvals, retaining untouched false rules. */
+/** Remove tools and their approval rules, retaining false rules that restate an auto default. */
 export function removeTools(
   fields: Pick<PresetToolFields, "actions" | "toolApprovals">,
-  removed: ReadonlySet<string>
+  removed: ReadonlySet<string>,
+  defaultAskKeys: ReadonlySet<string> = new Set()
 ): Pick<PresetToolFields, "actions" | "toolApprovals"> {
   const actions = fields.actions.filter((key) => !removed.has(key))
   const rules = fields.toolApprovals.filter(
-    (rule) => !rule.allow || !removed.has(rule.tool)
+    (rule) =>
+      !removed.has(rule.tool) || (!rule.allow && !defaultAskKeys.has(rule.tool))
   )
   return {
     actions:

@@ -1,10 +1,12 @@
 """Validation error contracts for agent preset routes."""
 
 import uuid
+from typing import get_args
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracecat.agent.preset.router import (
@@ -14,15 +16,75 @@ from tracecat.agent.preset.router import (
     list_agent_preset_versions,
     preview_tool_policy,
     restore_agent_preset_version,
+    router,
     update_agent_preset,
 )
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
     AgentPresetToolPolicyPreview,
     AgentPresetUpdate,
+    AgentPresetValidationErrorResponse,
 )
+from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.types import Role
+from tracecat.db.engine import get_async_session
 from tracecat.exceptions import TracecatValidationError
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        {"code": "agent_tool_limit_exceeded", "tool_count": 140, "max_tools": 128},
+        "Agent preset slug cannot be empty",
+    ],
+)
+def test_preset_validation_error_response_contract(
+    detail: dict[str, str | int] | str,
+) -> None:
+    role = Role(
+        type="service",
+        service_id="tracecat-api",
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        scopes=frozenset({"agent:create"}),
+    )
+    app = FastAPI()
+    app.include_router(router)
+    role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
+    app.dependency_overrides[role_dependency] = lambda: role
+    app.dependency_overrides[get_async_session] = lambda: AsyncMock(spec=AsyncSession)
+    with (
+        patch(
+            "tracecat.agent.preset.router.AgentPresetService.create_preset",
+            new_callable=AsyncMock,
+            side_effect=TracecatValidationError(
+                "Invalid preset configuration", detail=detail
+            ),
+        ),
+        TestClient(app) as client,
+    ):
+        response = client.post(
+            "/agent/presets",
+            json={
+                "name": "Test agent",
+                "model_name": "test-model",
+                "model_provider": "openai",
+            },
+        )
+
+    assert response.status_code == 400
+    expected = (
+        {**detail, "message": "Invalid preset configuration"}
+        if isinstance(detail, dict)
+        else detail
+    )
+    assert response.json() == {"detail": expected}
+    parsed = AgentPresetValidationErrorResponse.model_validate(response.json())
+    assert parsed.model_dump(exclude_unset=True) == response.json()
+    error_schema = app.openapi()["paths"]["/agent/presets"]["post"]["responses"]["400"]
+    assert error_schema["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/AgentPresetValidationErrorResponse"
+    }
 
 
 @pytest.mark.anyio

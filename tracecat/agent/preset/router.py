@@ -12,6 +12,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetToolPolicyPreview,
     AgentPresetToolPolicyRead,
     AgentPresetUpdate,
+    AgentPresetValidationErrorResponse,
     AgentPresetVersionDiff,
     AgentPresetVersionRead,
     AgentPresetVersionReadMinimal,
@@ -54,7 +55,10 @@ async def list_agent_presets(
     "/tool-policy",
     response_model=AgentPresetToolPolicyRead,
     responses={
-        status.HTTP_400_BAD_REQUEST: {"description": "Invalid tool policy selections"},
+        status.HTTP_400_BAD_REQUEST: {
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid tool policy selections",
+        },
     },
 )
 @require_scope("agent:read")
@@ -77,7 +81,8 @@ async def preview_tool_policy(
     status_code=status.HTTP_201_CREATED,
     responses={
         status.HTTP_400_BAD_REQUEST: {
-            "description": "Invalid agent preset configuration"
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid agent preset configuration",
         },
     },
 )
@@ -138,7 +143,8 @@ async def get_agent_preset_by_slug(
     response_model=AgentPresetRead,
     responses={
         status.HTTP_400_BAD_REQUEST: {
-            "description": "Invalid agent preset configuration"
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid agent preset configuration",
         },
     },
 )
@@ -202,7 +208,8 @@ async def delete_agent_preset(
     response_model=CursorPaginatedResponse[AgentPresetVersionReadMinimal],
     responses={
         status.HTTP_400_BAD_REQUEST: {
-            "description": "Invalid agent preset configuration"
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid agent preset configuration",
         },
     },
 )
@@ -241,7 +248,8 @@ async def list_agent_preset_versions(
     response_model=AgentPresetVersionRead,
     responses={
         status.HTTP_400_BAD_REQUEST: {
-            "description": "Invalid agent preset configuration"
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid agent preset configuration",
         },
     },
 )
@@ -275,7 +283,8 @@ async def get_agent_preset_version(
     response_model=AgentPresetVersionDiff,
     responses={
         status.HTTP_400_BAD_REQUEST: {
-            "description": "Invalid agent preset configuration"
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid agent preset configuration",
         },
     },
 )
@@ -319,7 +328,8 @@ async def compare_agent_preset_versions(
     response_model=AgentPresetRead,
     responses={
         status.HTTP_400_BAD_REQUEST: {
-            "description": "Invalid agent preset configuration"
+            "model": AgentPresetValidationErrorResponse,
+            "description": "Invalid agent preset configuration",
         },
     },
 )

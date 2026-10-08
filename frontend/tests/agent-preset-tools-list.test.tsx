@@ -8,12 +8,6 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import type { PresetToolFields } from "@/lib/agent-preset-tools"
 import { mcpIntegration, registryTool } from "./fixtures/agent-preset-tools"
 
-jest.mock("@/components/icons", () => ({
-  getIcon: () => null,
-  getMcpProviderIconId: (id: string) => id,
-  ProviderIcon: () => null,
-}))
-
 const actions = [
   registryTool("tools.test.first", { display_group: "Test tools" }),
   registryTool("tools.test.second"),
@@ -490,4 +484,76 @@ it("does not turn removed saved actions into skill tools or retain their approva
     })
   ).not.toBeInTheDocument()
   expect(values().toolApprovals).toEqual([])
+})
+
+it("shows a default-ask action as Ask and stores only its Auto override", async () => {
+  const user = userEvent.setup()
+  render(
+    <TestForm
+      values={{ ...defaults, actions: [actions[0].action], toolApprovals: [] }}
+      listProps={{
+        registryActions: [{ ...actions[0], requires_approval: true }],
+      }}
+    />
+  )
+  const group = screen.getByRole("button", { name: /Test tools tools.test/ })
+  expect(within(group).getByText("1 need approval")).toBeInTheDocument()
+  expect(group.querySelector("div")).toBeNull()
+  await user.click(group)
+  const toggle = screen.getByRole("button", {
+    name: "Require approval for tools.test.first",
+  })
+  expect(toggle).toHaveTextContent("Ask")
+  await user.click(toggle)
+  expect(toggle).toHaveTextContent("Auto")
+  expect(values().toolApprovals).toEqual([
+    { tool: actions[0].action, allow: false },
+  ])
+  expect(screen.queryByText("1 need approval")).not.toBeInTheDocument()
+  await user.click(toggle)
+  expect(toggle).toHaveTextContent("Ask")
+  expect(values().toolApprovals).toEqual([])
+})
+
+it("uses action defaults for skill tools and bulk approval changes", async () => {
+  const user = userEvent.setup()
+  render(
+    <TestForm
+      values={{ ...defaults, actions: [actions[1].action], toolApprovals: [] }}
+      listProps={{
+        registryActions: actions.map((action) => ({
+          ...action,
+          requires_approval: true,
+        })),
+        effectiveActions: [actions[0].action],
+      }}
+    />
+  )
+  const skillToggle = screen.getByRole("button", {
+    name: "Require approval for tools.test.first",
+  })
+  expect(skillToggle).toHaveTextContent("Ask")
+  await user.click(skillToggle)
+  expect(values().toolApprovals).toEqual([
+    { tool: actions[0].action, allow: false },
+  ])
+  fireEvent.contextMenu(
+    screen.getByRole("button", { name: /Test tools tools.test/ })
+  )
+  await user.click(
+    screen.getByRole("menuitem", { name: "Run all automatically" })
+  )
+  expect(values().toolApprovals).toContainEqual({
+    tool: actions[1].action,
+    allow: false,
+  })
+  fireEvent.contextMenu(
+    screen.getByRole("button", { name: /Test tools tools.test/ })
+  )
+  await user.click(
+    screen.getByRole("menuitem", { name: "Require approval for all" })
+  )
+  expect(values().toolApprovals).toEqual([
+    { tool: actions[0].action, allow: false },
+  ])
 })

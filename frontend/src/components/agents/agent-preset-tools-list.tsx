@@ -6,7 +6,7 @@ import { useFormContext, useWatch } from "react-hook-form"
 import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
 import { AgentToolPickerDialog } from "@/components/agents/agent-tool-picker-dialog"
 import { getIcon, getMcpProviderIconId, ProviderIcon } from "@/components/icons"
-import { Badge } from "@/components/ui/badge"
+import { Badge, badgeVariants } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   ContextMenu,
@@ -24,6 +24,7 @@ import { Item } from "@/components/ui/item"
 import {
   buildToolIndex,
   getBlockedActions,
+  getToolApproval,
   type PresetToolFields,
   removeTools,
   setToolApproval,
@@ -102,9 +103,12 @@ export function AgentPresetToolsList({
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const selected = new Set(actions)
   const saved = new Set(savedActions)
-  const approvals = new Set(
-    rules.filter((rule) => rule.allow).map((rule) => rule.tool)
+  const defaultAskKeys = new Set(
+    index.entries.filter((entry) => entry.defaultAsk).map((entry) => entry.key)
   )
+  function asksForApproval(key: string) {
+    return getToolApproval(rules, key, index)
+  }
   const blocked = getBlockedActions(actions, namespaces)
   const loading = registryLoading || mcpLoading
   const ready = !loading && !toolsLoadError
@@ -153,12 +157,19 @@ export function AgentPresetToolsList({
   }
 
   function changeApproval(key: string, ask: boolean) {
-    writeRules(setToolApproval(getValues("toolApprovals"), key, ask))
+    writeRules(
+      setToolApproval(
+        getValues("toolApprovals"),
+        key,
+        ask,
+        defaultAskKeys.has(key)
+      )
+    )
   }
 
   function remove(keys: string[]) {
     const current = getValues()
-    const next = removeTools(current, new Set(keys))
+    const next = removeTools(current, new Set(keys), defaultAskKeys)
     if (next.actions !== current.actions)
       setValue("actions", next.actions, { shouldDirty: true })
     writeRules(next.toolApprovals)
@@ -166,7 +177,8 @@ export function AgentPresetToolsList({
 
   function groupApproval(keys: string[], ask: boolean) {
     let next = getValues("toolApprovals")
-    for (const key of keys) next = setToolApproval(next, key, ask)
+    for (const key of keys)
+      next = setToolApproval(next, key, ask, defaultAskKeys.has(key))
     writeRules(next)
   }
 
@@ -272,7 +284,7 @@ export function AgentPresetToolsList({
             if (!visible.length) return null
             const keys = allowed.map((entry) => entry.key)
             const approvalCount = keys.filter((key) =>
-              approvals.has(key)
+              asksForApproval(key)
             ).length
             const isExpanded = expanded.has(group.id) || Boolean(search)
             return (
@@ -298,6 +310,7 @@ export function AgentPresetToolsList({
                         <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
                       )}
                       {getIcon(group.entries[0].key, {
+                        inline: true,
                         className: "size-6 shrink-0 rounded border",
                       })}
                       <span className="min-w-0 shrink-[1] truncate text-xs font-medium">
@@ -306,19 +319,27 @@ export function AgentPresetToolsList({
                       <span className="min-w-0 shrink-[100] truncate font-mono text-[10px] text-muted-foreground">
                         {group.namespace}
                       </span>
-                      <div className="ml-auto flex shrink-0 items-center gap-1">
+                      <span className="ml-auto flex shrink-0 items-center gap-1">
                         {approvalCount > 0 && (
-                          <Badge
-                            variant="secondary"
-                            className={cn(COUNT_BADGE, APPROVAL_COLOR)}
+                          <span
+                            className={cn(
+                              badgeVariants({ variant: "secondary" }),
+                              COUNT_BADGE,
+                              APPROVAL_COLOR
+                            )}
                           >
                             {approvalCount} need approval
-                          </Badge>
+                          </span>
                         )}
-                        <Badge variant="secondary" className={COUNT_BADGE}>
+                        <span
+                          className={cn(
+                            badgeVariants({ variant: "secondary" }),
+                            COUNT_BADGE
+                          )}
+                        >
                           {allowed.length} of {group.entries.length}
-                        </Badge>
-                      </div>
+                        </span>
+                      </span>
                     </button>
                   </ContextMenuTrigger>
                   <ContextMenuContent className="w-52 shadow-none">
@@ -351,10 +372,10 @@ export function AgentPresetToolsList({
                       key={entry.key}
                       tool={entry.key}
                       title={entry.title}
-                      ask={approvals.has(entry.key)}
+                      ask={asksForApproval(entry.key)}
                       disabled={isSaving}
                       onApproval={() =>
-                        changeApproval(entry.key, !approvals.has(entry.key))
+                        changeApproval(entry.key, !asksForApproval(entry.key))
                       }
                       onRemove={() => remove([entry.key])}
                     />
@@ -422,9 +443,9 @@ export function AgentPresetToolsList({
                   tool={key}
                   title={index.byKey.get(key)?.title}
                   showIcon
-                  ask={approvals.has(key)}
+                  ask={asksForApproval(key)}
                   disabled={isSaving}
-                  onApproval={() => changeApproval(key, !approvals.has(key))}
+                  onApproval={() => changeApproval(key, !asksForApproval(key))}
                 />
               ))}
             </div>
@@ -525,7 +546,11 @@ function ActionRow({
               {ask ? "Ask" : "Auto"}
             </Button>
           </HoverCardTrigger>
-          <HoverCardContent className="w-64 p-3 text-xs">
+          <HoverCardContent
+            align="end"
+            collisionPadding={8}
+            className="w-64 p-3 text-xs"
+          >
             {ask
               ? "This tool call needs human-in-the-loop approval. Click to run it automatically."
               : "Click to require human-in-the-loop approval for this tool call."}

@@ -8,6 +8,8 @@ import {
   type AgentPresetMoveToFolder,
   type AgentPresetRead,
   type AgentPresetReadMinimal,
+  type AgentPresetToolPolicyPreview,
+  type AgentPresetToolPolicyRead,
   type AgentPresetUpdate,
   type AgentPresetVersionRead,
   type AgentPresetVersionReadMinimal,
@@ -25,6 +27,7 @@ import {
   agentPresetsListAgentPresets,
   agentPresetsListAgentPresetVersions,
   agentPresetsMoveAgentPresetToFolder,
+  agentPresetsPreviewToolPolicy,
   agentPresetsRestoreAgentPresetVersion,
   agentPresetsUpdateAgentPreset,
   agentTagsCreateAgentTag,
@@ -43,6 +46,22 @@ import {
   type TracecatApiError,
 } from "@/lib/errors"
 import { useMutation, useQueries, useQuery, useQueryClient } from "@/lib/query"
+
+/** Preview unsaved skill tools without surfacing validation failures as toasts. */
+export function useAgentPresetToolPolicyPreview(
+  workspaceId: string,
+  requestBody: AgentPresetToolPolicyPreview,
+  { enabled }: { enabled: boolean }
+) {
+  return useQuery<AgentPresetToolPolicyRead>({
+    queryKey: ["agent-preset-tool-policy-preview", workspaceId, requestBody],
+    queryFn: () => agentPresetsPreviewToolPolicy({ workspaceId, requestBody }),
+    enabled: enabled && Boolean(workspaceId),
+    retry: false,
+    placeholderData: (previousData) => previousData,
+    meta: { suppressErrorToast: true },
+  })
+}
 
 async function listAllAgentFolders({
   workspaceId,

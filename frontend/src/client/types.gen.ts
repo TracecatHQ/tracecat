@@ -916,6 +916,34 @@ export type AgentPresetUpdate = {
 }
 
 /**
+ * Structured details for agent preset validation failures.
+ */
+export type AgentPresetValidationErrorDetail = {
+  message: string
+  code?: string | null
+  tool_count?: number | null
+  max_tools?: number | null
+  missing_skill_ids?: Array<string> | null
+  skill_id?: string | null
+  skill_names?: Array<string> | null
+  skills?: Array<string> | null
+  skill_version_id?: string | null
+  skill_version_ids?: Array<string> | null
+  preset_id?: string | null
+  preset_version_id?: string | null
+  mcp_integration_id?: string | null
+  mcp_integration_ids?: Array<string> | null
+  tool_ids?: Array<string> | null
+}
+
+/**
+ * HTTP response body for agent preset validation failures.
+ */
+export type AgentPresetValidationErrorResponse = {
+  detail: string | AgentPresetValidationErrorDetail
+}
+
+/**
  * Structured diff between two preset versions.
  */
 export type AgentPresetVersionDiff = {
@@ -7135,6 +7163,10 @@ export type RegistryActionReadMinimal = {
    * Availability metadata for this action
    */
   availability?: RegistryActionAvailability
+  /**
+   * Whether the action requires approval by default when used as an agent tool
+   */
+  requires_approval?: boolean
   /**
    * The full action identifier.
    */
@@ -18814,7 +18846,7 @@ export type $OpenApiTs = {
         /**
          * Invalid agent preset configuration
          */
-        400: unknown
+        400: AgentPresetValidationErrorResponse
         /**
          * Validation Error
          */
@@ -18833,7 +18865,7 @@ export type $OpenApiTs = {
         /**
          * Invalid tool policy selections
          */
-        400: unknown
+        400: AgentPresetValidationErrorResponse
         /**
          * Validation Error
          */
@@ -18865,7 +18897,7 @@ export type $OpenApiTs = {
         /**
          * Invalid agent preset configuration
          */
-        400: unknown
+        400: AgentPresetValidationErrorResponse
         /**
          * Validation Error
          */
@@ -18916,7 +18948,7 @@ export type $OpenApiTs = {
         /**
          * Invalid agent preset configuration
          */
-        400: unknown
+        400: AgentPresetValidationErrorResponse
         /**
          * Validation Error
          */
@@ -18935,7 +18967,7 @@ export type $OpenApiTs = {
         /**
          * Invalid agent preset configuration
          */
-        400: unknown
+        400: AgentPresetValidationErrorResponse
         /**
          * Validation Error
          */
@@ -18954,7 +18986,7 @@ export type $OpenApiTs = {
         /**
          * Invalid agent preset configuration
          */
-        400: unknown
+        400: AgentPresetValidationErrorResponse
         /**
          * Validation Error
          */
@@ -18973,7 +19005,7 @@ export type $OpenApiTs = {
         /**
          * Invalid agent preset configuration
          */
-        400: unknown
+        400: AgentPresetValidationErrorResponse
         /**
          * Validation Error
          */

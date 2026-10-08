@@ -124,6 +124,7 @@ import {
 import {
   useAgentPreset,
   useAgentPresets,
+  useAgentPresetToolPolicyPreview,
   useAgentPresetVersion,
   useAgentPresetVersions,
   useCreateAgentPreset,
@@ -408,7 +409,9 @@ export function AgentPresetsBuilder({
 
   const { presets, presetsIsLoading, presetsError } =
     useAgentPresets(workspaceId)
-  const { registryActions, registryActionsError } = useRegistryActions()
+  const { registryActions, registryActionsError } = useRegistryActions({
+    staleTime: 5 * 60 * 1000,
+  })
   const { models, providers } = useWorkspaceAgentModels(workspaceId)
   const enabledModelsLoaded = models !== undefined
 
@@ -550,7 +553,9 @@ export function AgentPresetArtifactView({
   onTabChange?: (tab: string) => void
 }) {
   const { presets } = useAgentPresets(workspaceId)
-  const { registryActions, registryActionsError } = useRegistryActions()
+  const { registryActions, registryActionsError } = useRegistryActions({
+    staleTime: 5 * 60 * 1000,
+  })
   const { models, providers } = useWorkspaceAgentModels(workspaceId)
   const enabledModelsLoaded = models !== undefined
   const { mcpIntegrations, mcpIntegrationsError } =
@@ -1940,6 +1945,12 @@ function AgentPresetRightPanel({
 
           <TabsContent value="configuration" className="mt-0 h-full">
             <AgentPresetConfigurationPanel
+              workspaceId={workspaceId}
+              savedSkillIds={
+                preset
+                  ? (preset.skills ?? []).map((skill) => skill.skill_id)
+                  : undefined
+              }
               maxTools={preset?.tool_policy?.max_tools}
               effectiveActions={preset?.tool_policy?.actions}
               savedActions={preset?.actions}
@@ -1995,7 +2006,10 @@ function AgentPresetRightPanel({
   )
 }
 
-function AgentPresetConfigurationPanel({
+/** Configure the model and tools, previewing skills from the current form. */
+export function AgentPresetConfigurationPanel({
+  workspaceId,
+  savedSkillIds,
   form,
   isSaving,
   registryActions,
@@ -2010,6 +2024,8 @@ function AgentPresetConfigurationPanel({
   effectiveActions,
   savedActions,
 }: {
+  workspaceId: string
+  savedSkillIds?: string[]
   form: UseFormReturn<AgentPresetFormValues>
   isSaving: boolean
   registryActions?: RegistryActionReadMinimal[]
@@ -2024,6 +2040,38 @@ function AgentPresetConfigurationPanel({
   effectiveActions?: string[] | null
   savedActions?: string[] | null
 }) {
+  const skills = useWatch({ control: form.control, name: "skills" })
+  const namespaces = useWatch({ control: form.control, name: "namespaces" })
+  const selectedMcpIntegrations = useWatch({
+    control: form.control,
+    name: "mcpIntegrations",
+  })
+  const skillIds = [
+    ...new Set(skills.map((skill) => skill.skillId).filter(Boolean)),
+  ].sort()
+  const savedIds = [...new Set(savedSkillIds?.filter(Boolean))].sort()
+  const skillsChanged =
+    savedSkillIds === undefined ||
+    skillIds.length !== savedIds.length ||
+    skillIds.some((id, index) => id !== savedIds[index])
+  const previewEnabled = skillsChanged && skillIds.length > 0
+  const { data: preview, isError: previewFailed } =
+    useAgentPresetToolPolicyPreview(
+      workspaceId,
+      {
+        actions: [],
+        namespaces,
+        mcp_integrations: selectedMcpIntegrations,
+        skill_ids: skillIds,
+        tool_approvals: {},
+      },
+      { enabled: previewEnabled }
+    )
+  let skillActions = effectiveActions
+  if (skillsChanged) {
+    skillActions =
+      previewEnabled && !previewFailed ? preview?.actions : undefined
+  }
   const catalogId = form.watch("catalog_id")
   const sourceId = form.watch("source_id")
   const modelProvider = form.watch("model_provider")
@@ -2062,6 +2110,7 @@ function AgentPresetConfigurationPanel({
       return (
         <span className="flex min-w-0 items-center gap-2">
           <ProviderIcon
+            inline
             providerId={selectedModel.iconId}
             className="size-4 shrink-0 rounded-none bg-transparent p-0"
           />
@@ -2077,6 +2126,7 @@ function AgentPresetConfigurationPanel({
       return (
         <span className="flex min-w-0 items-center gap-2">
           <ProviderIcon
+            inline
             providerId={getModelProviderIconId(modelProvider)}
             className="size-4 shrink-0 rounded-none bg-transparent p-0"
           />
@@ -2293,9 +2343,12 @@ function AgentPresetConfigurationPanel({
           toolsLoadError={toolsLoadError}
           mcpIntegrations={mcpIntegrations}
           isSaving={isSaving}
-          maxTools={maxTools}
-          effectiveActions={effectiveActions}
-          savedActions={savedActions}
+          maxTools={
+            maxTools ??
+            (savedSkillIds === undefined ? preview?.max_tools : undefined)
+          }
+          effectiveActions={skillActions}
+          savedActions={skillsChanged ? undefined : savedActions}
         />
       </div>
     </ScrollArea>
@@ -2550,10 +2603,10 @@ function AgentPresetSubagentRow({
 
   return (
     <div className="border-b border-border/50">
-      <div className="group flex min-w-0 items-center gap-2 pl-4 pr-3 hover:bg-muted/50">
+      <div className="group relative flex min-w-0 items-center gap-2 pl-4 pr-3 hover:bg-muted/50">
         <button
           type="button"
-          className="flex shrink-0 items-center gap-2 rounded-sm py-2.5 disabled:cursor-default disabled:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          className="after:absolute after:inset-0 after:content-[''] flex shrink-0 items-center gap-2 rounded-sm py-2.5 disabled:cursor-default disabled:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           aria-label={`${presetName} ${alias}`}
           aria-expanded={expanded}
           aria-controls={expanded ? bodyId : undefined}
@@ -2572,7 +2625,7 @@ function AgentPresetSubagentRow({
         {preset ? (
           <button
             type="button"
-            className="min-w-0 shrink truncate rounded-sm text-left font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+            className="relative z-10 min-w-0 shrink truncate rounded-sm text-left font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
             onClick={handleOpenAgent}
           >
             {presetName}
@@ -2594,21 +2647,14 @@ function AgentPresetSubagentRow({
             {preset.model_name}
           </Badge>
         ) : null}
-        <button
-          type="button"
-          tabIndex={-1}
-          aria-hidden="true"
-          className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left disabled:cursor-default"
-          disabled={forcedOpen}
-          onClick={() => setIsExpanded(!expanded)}
-        >
+        <span className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left">
           <span className="truncate font-mono text-[10px] text-muted-foreground">
             {alias}
           </span>
           <span className="min-w-0 flex-1 truncate text-muted-foreground">
             {subagent.description}
           </span>
-        </button>
+        </span>
         {presetError && !presetAliasError ? (
           <FormField
             control={form.control}
@@ -2624,7 +2670,7 @@ function AgentPresetSubagentRow({
           type="button"
           variant="ghost"
           size="icon"
-          className="size-6 shrink-0 border border-transparent hover:border-rose-500 hover:bg-transparent hover:text-rose-500 text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          className="relative z-10 size-6 shrink-0 border border-transparent hover:border-rose-500 hover:bg-transparent hover:text-rose-500 text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           onClick={() => onRemove(index)}
           disabled={isSaving}
           aria-label={`Remove ${presetName}`}
@@ -2973,6 +3019,7 @@ export function AgentPresetStructuredOutputPanel({
 }) {
   const outputTypeKind = form.watch("outputTypeKind")
   const outputTypeDataType = form.watch("outputTypeDataType")
+  const rememberedDataType = useRef(outputTypeDataType)
   const { type, isList } = parseAgentOutputType(outputTypeDataType)
 
   return (
@@ -2994,16 +3041,23 @@ export function AgentPresetStructuredOutputPanel({
                       value === "data-type" &&
                       !form.getValues("outputTypeDataType")
                     ) {
-                      form.setValue("outputTypeDataType", "str", {
-                        shouldDirty: true,
-                        shouldValidate: true,
-                      })
+                      form.setValue(
+                        "outputTypeDataType",
+                        rememberedDataType.current || "str",
+                        {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        }
+                      )
                     }
                     if (
                       value !== "data-type" &&
                       form.formState.defaultValues?.outputTypeKind !==
                         "data-type"
                     ) {
+                      rememberedDataType.current =
+                        form.getValues("outputTypeDataType") ||
+                        rememberedDataType.current
                       form.resetField("outputTypeDataType")
                     }
                     field.onChange(value)
@@ -3444,7 +3498,8 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
   }
 }
 
-function formValuesToPayload(
+/** Convert editor values to the API payload, preserving explicit approval choices. */
+export function formValuesToPayload(
   values: AgentPresetFormValues,
   options?: { forceInternetAccess?: boolean }
 ): AgentPresetCreate {

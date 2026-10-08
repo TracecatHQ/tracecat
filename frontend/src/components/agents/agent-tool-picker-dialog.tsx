@@ -102,6 +102,7 @@ function PickerBody({
   const listRef = useRef<HTMLDivElement>(null)
   const listId = useId()
   const count = selection.actions.size
+  const overLimit = maxTools != null && count > maxTools
   const toolLabel = count === 1 ? "tool" : "tools"
   const selectedIds = useMemo(
     () =>
@@ -262,7 +263,7 @@ function PickerBody({
   }
 
   function done() {
-    if (disabled) return
+    if (disabled || overLimit) return
     const current = getValues()
     const actions = applyToolSelection(
       current.actions,
@@ -281,7 +282,15 @@ function PickerBody({
     const removed = new Set(
       current.actions.filter((key) => !selection.actions.has(key))
     )
-    const { toolApprovals } = removeTools(current, removed)
+    const { toolApprovals } = removeTools(
+      current,
+      removed,
+      new Set(
+        index.entries
+          .filter((entry) => entry.defaultAsk)
+          .map((entry) => entry.key)
+      )
+    )
     if (actions !== current.actions)
       setValue("actions", actions, { shouldDirty: true })
     if (mcp !== current.mcpIntegrations)
@@ -520,10 +529,11 @@ function PickerBody({
         </div>
       </div>
       <div className="flex h-14 shrink-0 items-center gap-2 border-t px-4 text-xs">
-        <span>
+        <span className={cn(overLimit && "text-rose-500")}>
           {maxTools != null
             ? `${count} of ${maxTools} tools`
             : `${count} ${toolLabel} selected`}
+          {overLimit && ` · remove ${count - maxTools} to continue`}
           {selection.mcp.size > 0 &&
             ` · ${selection.mcp.size} MCP ${selection.mcp.size === 1 ? "integration" : "integrations"}`}
         </span>
@@ -538,7 +548,12 @@ function PickerBody({
         >
           Cancel
         </Button>
-        <Button type="button" size="sm" disabled={disabled} onClick={done}>
+        <Button
+          type="button"
+          size="sm"
+          disabled={disabled || overLimit}
+          onClick={done}
+        >
           Done
         </Button>
       </div>
@@ -601,11 +616,12 @@ function ToolIcon({
   if (entry.integration)
     return (
       <ProviderIcon
+        inline
         providerId={getMcpProviderIconId(entry.integration.slug)}
         className={className}
       />
     )
-  return getIcon(entry.key, { className })
+  return getIcon(entry.key, { className, inline: true })
 }
 
 function GroupHeader({

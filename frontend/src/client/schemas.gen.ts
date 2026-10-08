@@ -3458,6 +3458,211 @@ export const $AgentPresetUpdate = {
   description: "Payload for updating an existing agent preset.",
 } as const
 
+export const $AgentPresetValidationErrorDetail = {
+  properties: {
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    code: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Code",
+    },
+    tool_count: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Count",
+    },
+    max_tools: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Tools",
+    },
+    missing_skill_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Missing Skill Ids",
+    },
+    skill_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skill Id",
+    },
+    skill_names: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skill Names",
+    },
+    skills: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skills",
+    },
+    skill_version_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skill Version Id",
+    },
+    skill_version_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Skill Version Ids",
+    },
+    preset_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Preset Id",
+    },
+    preset_version_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Preset Version Id",
+    },
+    mcp_integration_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integration Id",
+    },
+    mcp_integration_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Mcp Integration Ids",
+    },
+    tool_ids: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Tool Ids",
+    },
+  },
+  type: "object",
+  required: ["message"],
+  title: "AgentPresetValidationErrorDetail",
+  description: "Structured details for agent preset validation failures.",
+} as const
+
+export const $AgentPresetValidationErrorResponse = {
+  properties: {
+    detail: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          $ref: "#/components/schemas/AgentPresetValidationErrorDetail",
+        },
+      ],
+      title: "Detail",
+    },
+  },
+  type: "object",
+  required: ["detail"],
+  title: "AgentPresetValidationErrorResponse",
+  description: "HTTP response body for agent preset validation failures.",
+} as const
+
 export const $AgentPresetVersionDiff = {
   properties: {
     base_version_id: {
@@ -23241,6 +23446,13 @@ export const $RegistryActionReadMinimal = {
     availability: {
       $ref: "#/components/schemas/RegistryActionAvailability",
       description: "Availability metadata for this action",
+    },
+    requires_approval: {
+      type: "boolean",
+      title: "Requires Approval",
+      description:
+        "Whether the action requires approval by default when used as an agent tool",
+      default: false,
     },
     action: {
       type: "string",

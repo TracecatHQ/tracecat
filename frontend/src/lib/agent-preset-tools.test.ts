@@ -2,6 +2,7 @@ import {
   applyToolSelection,
   buildToolIndex,
   getBlockedActions,
+  getToolApproval,
   removeTools,
   searchTools,
   setToolApproval,
@@ -122,4 +123,70 @@ it("matches prepared titles and keys only, and caps results at 200", () => {
   expect(searchTools(index, "key_token")[0].key).toBe("core.test.key_token")
   expect(searchTools(index, "descriptiononly")).toEqual([])
   expect(searchTools(index, "action")).toHaveLength(200)
+})
+
+it("resolves explicit approvals before registry defaults, including unknown keys", () => {
+  const index = buildToolIndex(
+    [
+      registryTool("tools.test.ask", { requires_approval: true }),
+      registryTool("tools.test.auto"),
+    ],
+    [mcpIntegration()]
+  )
+  expect(index.byKey.get("tools.test.ask")?.defaultAsk).toBe(true)
+  expect(index.byKey.get("mcp:mcp-test")?.defaultAsk).toBe(false)
+  expect(getToolApproval([], "tools.test.ask", index)).toBe(true)
+  expect(getToolApproval([], "tools.test.auto", index)).toBe(false)
+  expect(getToolApproval([], "unknown", index)).toBe(false)
+  expect(
+    getToolApproval(
+      [{ tool: "tools.test.ask", allow: false }],
+      "tools.test.ask",
+      index
+    )
+  ).toBe(false)
+  expect(
+    getToolApproval([{ tool: "unknown", allow: true }], "unknown", index)
+  ).toBe(true)
+})
+
+it("sets default-ask overrides in order and reuses unchanged approval arrays", () => {
+  const rules = [
+    { tool: "first", allow: true },
+    { tool: "second", allow: false },
+  ]
+  expect(setToolApproval(rules, "first", true, true)).toBe(rules)
+  expect(setToolApproval(rules, "second", false, true)).toBe(rules)
+  expect(setToolApproval(rules, "missing", true, true)).toBe(rules)
+  expect(setToolApproval(rules, "first", false, true)).toEqual([
+    { tool: "first", allow: false },
+    rules[1],
+  ])
+  expect(setToolApproval(rules, "third", false, true)).toEqual([
+    ...rules,
+    { tool: "third", allow: false },
+  ])
+  expect(setToolApproval(rules, "second", true, true)).toEqual([rules[0]])
+})
+
+it("removes a removed tool's rules, retaining false rules on default-auto tools", () => {
+  const fields = {
+    actions: ["ask", "auto"],
+    toolApprovals: [
+      { tool: "ask", allow: false },
+      { tool: "ask", allow: true },
+      { tool: "auto", allow: false },
+      { tool: "auto", allow: true },
+      { tool: "other", allow: false },
+    ],
+  }
+  expect(
+    removeTools(fields, new Set(fields.actions), new Set(["ask"]))
+  ).toEqual({
+    actions: [],
+    toolApprovals: [fields.toolApprovals[2], fields.toolApprovals[4]],
+  })
+  const unchanged = removeTools(fields, new Set(["missing"]), new Set(["ask"]))
+  expect(unchanged.actions).toBe(fields.actions)
+  expect(unchanged.toolApprovals).toBe(fields.toolApprovals)
 })

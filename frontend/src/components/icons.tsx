@@ -262,17 +262,27 @@ export function getIconSource(key: string): object | string {
   return renderer.source ?? renderer
 }
 
+// Icon factories return a styled wrapper; preserve its props for button content.
+function inlineIcon(icon: JSX.Element): JSX.Element {
+  return icon.type === "div" ? <span {...icon.props} /> : icon
+}
+
 /** Render the closest matching action or namespace icon. */
-export function getIcon(key: string, props?: CustomIconProps): JSX.Element {
+export function getIcon(
+  key: string,
+  { inline = false, ...props }: CustomIconProps & { inline?: boolean } = {}
+): JSX.Element {
   const resolvedKey = resolveIconKey(key)
   if (resolvedKey) {
-    return UDFIcons[resolvedKey](props ?? {})
+    const icon = UDFIcons[resolvedKey](props)
+    return inline ? inlineIcon(icon) : icon
   }
 
   // return default icon
-  const { className, ...rest } = props ?? {}
+  const { className, ...rest } = props
+  const Wrapper = inline ? "span" : "div"
   return (
-    <div
+    <Wrapper
       className={cn(
         basicIconsCommon,
         "bg-sky-500/10 text-sky-600 dark:text-sky-400",
@@ -280,7 +290,7 @@ export function getIcon(key: string, props?: CustomIconProps): JSX.Element {
       )}
     >
       <BoxIcon className="size-6" {...rest} />
-    </div>
+    </Wrapper>
   )
 }
 export const basicIconsCommon =
@@ -1142,24 +1152,27 @@ export function getMcpProviderIconId(slug: string | null | undefined): string {
   )
 }
 
+/** Render a provider badge, optionally with phrasing content for use in buttons. */
 export function ProviderIcon({
   providerId,
   className,
+  inline = false,
   ...rest
 }: {
   providerId: string
   className?: string
+  inline?: boolean
 }) {
   const Icon = providerIcons[providerId] ?? providerIcons["custom"]
-  return (
-    <Icon
-      className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted p-1",
-        className
-      )}
-      {...rest}
-    />
-  )
+  const props = {
+    className: cn(
+      "flex shrink-0 items-center justify-center overflow-hidden rounded-sm bg-muted p-1",
+      className
+    ),
+    ...rest,
+  }
+  if (inline) return inlineIcon(Icon(props))
+  return <Icon {...props} />
 }
 
 /**
