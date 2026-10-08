@@ -1,0 +1,22 @@
+examples/001-distributed-alerting/skills/guardduty-case-lifecycle/slack-delivery.md
+  s_83bf14aae93893::t_6e769ab49bd811 96,115
+examples/001-distributed-alerting/skills/guardduty-case-lifecycle/SKILL.md
+  s_83bf14aae93893::t_6e769ab49bd811 3,24,43,68-77,82,98
+  s_83bf14aae93893::t_d3f2abae27eafa 99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3e796c735666fee74c888675dfe56332aa3374fb",
+  "prompts": {},
+  "sessions": {
+    "s_83bf14aae93893": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "787e3dff-fab1-4f72-b752-15660565215d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
