@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any, Literal
 
@@ -11,8 +12,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
-from tracecat.secrets.enums import SecretSource
-from tracecat.secrets.schemas import AWS_SECRET_ID_PATTERN, AwsSecretKeyMapping
+from tracecat.secrets.enums import SecretSource, SecretType
+from tracecat.secrets.schemas import (
+    AWS_SECRET_ID_PATTERN,
+    EXPRESSION_SECRET_NAME_PATTERN,
+    AwsSecretKeyMapping,
+)
 from tracecat.sync import CommitInfo, PullResourceDiff
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
@@ -661,6 +666,13 @@ class SecretMetadataResourceSpec(BaseModel):
         if self.key_mapping is None or self.remote_reference is None:
             raise ValueError(
                 "AWS-backed secret metadata requires remote_reference and key_mapping"
+            )
+        if self.secret_type not in (None, SecretType.CUSTOM.value):
+            raise ValueError("AWS-backed secrets must use the custom type")
+        if not re.fullmatch(EXPRESSION_SECRET_NAME_PATTERN, self.name):
+            raise ValueError(
+                "AWS-backed secret names must be snake_case and start with a "
+                "letter or underscore"
             )
         if sorted(self.keys) != sorted(self.key_mapping.output_keys()):
             raise ValueError("keys must match the key_mapping output keys")

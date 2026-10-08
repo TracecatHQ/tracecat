@@ -218,6 +218,10 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 )
             )
             return CorrelatedSecretStores(secret_metadata, diagnostics, [])
+        existing = await self._existing_secrets(
+            workspace_service, secret_metadata, batch_source_ids=secret_metadata
+        )
+        diagnostics.extend(self._source_conflicts(secret_metadata, existing))
         if not external:
             return CorrelatedSecretStores(secret_metadata, diagnostics, [])
 
@@ -238,9 +242,6 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             )
             for store in stores
         ]
-        existing = await self._existing_secrets(
-            workspace_service, external, batch_source_ids=secret_metadata
-        )
 
         correlated = dict(secret_metadata)
         requirements: list[SecretStoreMappingRequirement] = []
@@ -279,6 +280,11 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                     secret = existing.get(source_id)
                     if secret is None or not _is_linked(secret):
                         affected.append((source_id, spec))
+                        if reason == "unresolved":
+                            # Import leaves these unlinked; preview the same.
+                            correlated[source_id] = spec.model_copy(
+                                update={"store": None}
+                            )
                     elif reason == "unresolved":
                         correlated[source_id] = self._kept_linked_reference(
                             source_id, spec, secret, stores_by_id, diagnostics
@@ -330,6 +336,52 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                     )
                 )
         return CorrelatedSecretStores(correlated, diagnostics, requirements)
+
+    def _source_conflicts(
+        self,
+        secret_metadata: Mapping[str, SecretMetadataResourceSpec],
+        existing: Mapping[str, Secret],
+    ) -> list[PullDiagnostic]:
+        """Report specs whose target secret import rejects for its source."""
+        diagnostics: list[PullDiagnostic] = []
+        for source_id, spec in sorted(secret_metadata.items()):
+            if (secret := existing.get(source_id)) is None:
+                continue
+            message: str | None = None
+            if spec.source == SecretSource.AWS_SECRETS_MANAGER:
+                if not is_external_reference(secret):
+                    message = (
+                        f"Secret {spec.name!r} is AWS-backed, but {secret.name!r} "
+                        "is stored in Tracecat in this workspace. Delete or "
+                        "rename that secret first."
+                    )
+            elif is_external_reference(secret):
+                declared_keys = AwsSecretKeyMapping.model_validate(
+                    secret.remote_key_mapping or {}
+                ).output_keys()
+                spec_type = SecretType(spec.secret_type or SecretType.CUSTOM.value)
+                if (
+                    sorted(spec.keys) != sorted(declared_keys)
+                    or spec_type != secret.type
+                    or not re.fullmatch(EXPRESSION_SECRET_NAME_PATTERN, spec.name)
+                ):
+                    message = (
+                        f"Secret {spec.name!r} is stored in Tracecat in this "
+                        f"repository, but {secret.name!r} is AWS-backed in this "
+                        "workspace. Change its keys, type, or name in this "
+                        "workspace instead."
+                    )
+            if message is not None:
+                diagnostics.append(
+                    PullDiagnostic(
+                        workflow_path=self.source_path(source_id),
+                        workflow_title=None,
+                        error_type="validation",
+                        message=message,
+                        details={"code": "secret_source_conflict"},
+                    )
+                )
+        return diagnostics
 
     def _kept_linked_reference(
         self,

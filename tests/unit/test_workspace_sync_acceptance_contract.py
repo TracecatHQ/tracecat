@@ -748,9 +748,16 @@ async def test_pull_dry_run_reports_per_resource_counts(
     )
     workspace_sync_service._validate_workflow_import = AsyncMock(return_value=[])
 
-    with patch(
-        "tracecat.workspace_sync.service.vcs_transport_for_provider",
-        return_value=transport,
+    with (
+        patch(
+            "tracecat.workspace_sync.service.vcs_transport_for_provider",
+            return_value=transport,
+        ),
+        patch.object(
+            SECRET_METADATA_RESOURCE_ADAPTER,
+            "_existing_secrets",
+            AsyncMock(return_value={}),
+        ),
     ):
         result = await workspace_sync_service.pull(
             options=PullOptions(commit_sha="b" * 40, dry_run=True)
@@ -7321,7 +7328,6 @@ async def test_secret_metadata_import_updates_external_reference(
             },
             "region",
         ),
-        ({}, {"name": "vendor-api"}, "snake_case"),
     ],
 )
 async def test_secret_metadata_import_rejects_unusable_external_reference(
@@ -7826,6 +7832,103 @@ async def test_secret_store_mapping_preview_keeps_manual_link_for_storeless_spec
     assert secret.store_id == east.id
 
 
+@pytest.mark.anyio
+async def test_secret_store_mapping_preview_rejects_local_secret_target(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    await _aws_store(session, svc_role)
+    secret_service = SecretsService(session=session, role=svc_role)
+    session.add(
+        Secret(
+            workspace_id=svc_role.workspace_id,
+            name="vendor_api",
+            environment="default",
+            encrypted_keys=secret_service.encrypt_keys(
+                [SecretKeyValue(key="TOKEN", value=SecretStr("local"))]
+            ),
+        )
+    )
+    await session.flush()
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api", store="prod")
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert [d.details.get("code") for d in prepared.diagnostics] == [
+        "secret_source_conflict"
+    ]
+    assert result.success is False
+    assert [d.details.get("code") for d in result.diagnostics] == [
+        "secret_source_conflict"
+    ]
+    secret = await _workspace_secret(session, svc_role, "vendor_api")
+    assert secret.source != SecretSource.AWS_SECRETS_MANAGER
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_preview_rejects_local_spec_for_aws_secret(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    await _aws_store(session, svc_role)
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    result = await service._import_snapshot(
+        await _secret_snapshot(service, "vendor_api", store="prod"),
+        sync_schedules=False,
+    )
+    assert result.success is True, result.diagnostics
+    snapshot = await _secret_specs_snapshot(
+        service,
+        {
+            "version": 1,
+            "type": "secret_metadata",
+            "id": "default/vendor_api",
+            "name": "vendor_api",
+            "environment": "default",
+            "keys": ["OTHER"],
+        },
+    )
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert [d.details.get("code") for d in prepared.diagnostics] == [
+        "secret_source_conflict"
+    ]
+    assert result.success is False
+    secret = await _workspace_secret(session, svc_role, "vendor_api")
+    assert secret.source == SecretSource.AWS_SECRETS_MANAGER
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_unresolved_store_has_no_repeat_diff(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    await _aws_store(session, svc_role, name="available")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_specs_snapshot(
+        service, _aws_secret_spec(store="missing", secret_type="custom")
+    )
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is True, result.diagnostics
+    assert (await _workspace_secret(session, svc_role, "vendor_api")).store_id is None
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.diagnostics == []
+    [requirement] = prepared.secret_store_mapping_requirements
+    assert requirement.source_store == "missing"
+    diffs = await service._resource_diffs_for_pull(
+        prepared.snapshot, sync_schedules=False
+    )
+    assert diffs == [], [(diff.source_path, diff.diff) for diff in diffs]
+
+
 _AWS_OTHER_SECRET_ARN = (
     "arn:aws:secretsmanager:us-east-1:123456789012:secret:other-XyZ123"
 )
@@ -7990,6 +8093,8 @@ async def test_secret_metadata_import_checks_entitlement_and_store_once_per_pull
         ({"remote_reference": None}, "requires remote_reference"),
         ({"keys": ["OTHER"]}, "output keys"),
         ({"source": None}, "require source"),
+        ({"name": "Vendor-API"}, "snake_case"),
+        ({"secret_type": "ssh-key"}, "custom type"),
     ],
 )
 def test_secret_metadata_spec_requires_complete_external_reference(
