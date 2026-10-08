@@ -1,0 +1,31 @@
+examples/001-distributed-alerting/workflow.md
+  s_83bf14aae93893::t_91235498439ec2 3,5,11,25,41,44,48-57,66,79,126,130,132,158-159,188,378,381,397-398
+examples/001-distributed-alerting/agent/preset.md
+  s_83bf14aae93893::t_3e9d0efae60848 101
+examples/001-distributed-alerting/README.md
+  s_83bf14aae93893::t_f60e28b22e10ea 11
+  s_83bf14aae93893::t_8a22cd3d750392 29-30
+  s_83bf14aae93893::t_7136c38e4f244b 41
+  s_83bf14aae93893::t_b116a297fadbcf 150
+examples/001-distributed-alerting/skills/guardduty-case-lifecycle/SKILL.md
+  s_83bf14aae93893::t_37f543d78b9528 68
+  s_83bf14aae93893::t_3e84fb0f90ccc1 43
+  s_83bf14aae93893::t_7661132bc8746d 24
+  s_83bf14aae93893::t_7f5b09a01576d1 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8b58257512d785e9625832a21edbe81976538ac5",
+  "prompts": {},
+  "sessions": {
+    "s_83bf14aae93893": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "787e3dff-fab1-4f72-b752-15660565215d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
