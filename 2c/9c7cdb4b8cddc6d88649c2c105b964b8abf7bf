@@ -1,0 +1,23 @@
+frontend/tests/agent-preset-tools-list.test.tsx
+  s_bb1d406c176bda::t_c40e09583e3c82 114,118
+frontend/src/components/agents/agent-presets-builder.tsx
+  s_bb1d406c176bda::t_c40e09583e3c82 2593,2907
+frontend/src/components/agents/agent-preset-tools-list.tsx
+  s_bb1d406c176bda::t_c40e09583e3c82 34-35,204-214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2c9c7cdb4b8cddc6d88649c2c105b964b8abf7bf",
+  "prompts": {},
+  "sessions": {
+    "s_bb1d406c176bda": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84c01265-31fb-45c0-8bf6-a69fe6bc6c37",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
