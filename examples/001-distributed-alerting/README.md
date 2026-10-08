@@ -17,7 +17,7 @@ The skills:
 
 | Skill | What it covers |
 |---|---|
-| `detection-event-case-lifecycle` | A SIEM alert from intake to a published case |
+| `detection-event-case-lifecycle` | An alert from the intake webhook, in a SIEM rule's alert format, from intake to a published case |
 | `guardduty-case-lifecycle` | An AWS GuardDuty finding from fetch to a published case |
 | `slack-case-threads` | Mentions in a case thread and the owner's Yes/No buttons |
 | `aws-cloud-incident-response-core` | AWS evidence rules, identity resolution, wording and the investigation record |
@@ -28,7 +28,7 @@ The skills:
 
 1. Your alert source sends each alert to a webhook. A small intake workflow stores it in a table and starts Triage alerts with that one alert id. One alert, one run, one agent call.
 2. Triage alerts runs Socky on the alert. Socky deduplicates against open cases, investigates with read-only tools, writes the case, and posts one Slack thread: a Work Object card, a short brief, an evidence table and, when the records link the activity to an employee, the Yes/No ask.
-3. Slack sends mentions and button clicks to the same workflow. A click by the owner is acknowledged at once, then Socky records the answer: Yes sets the case to Benign, No sets it to Escalate. A click by anyone else gets a private refusal.
+3. Slack sends mentions and button clicks to the same workflow. The owner's first click is acknowledged at once, then Socky records the answer: Yes sets the case to Benign, No sets it to Escalate. A click by anyone else gets a private refusal.
 4. When someone opens the card's details panel, the workflow answers from a table. No agent runs.
 
 The workflow does the fast, deterministic parts: routing, deduplicating Slack events, checking who clicked, serving the details panel. The agent does everything that needs judgment.
@@ -108,7 +108,9 @@ Add `groups:history` if the triage channel is private.
 
 This is the most common setup mistake.
 
-Slack verifies an Event Subscriptions URL before it accepts it. It sends a POST with a `challenge` value and expects that value back in the response. A Tracecat webhook does not return the request body by default. Adding `?echo=true` makes the webhook return the request body, which contains the challenge, so the check passes. The code is in `tracecat/webhooks/router.py`.
+Slack verifies an Event Subscriptions URL before it accepts it. It sends a POST with a `challenge` value and looks for that value in the response. A Tracecat webhook does not return the request body by default. With `?echo=true`, the webhook's JSON response includes the request body, challenge included, under a `payload` key next to the run ids. It is not a bare echo of the challenge. The setup this example was exported from verifies with this URL. The code is in `tracecat/webhooks/router.py`.
+
+The verification request starts a workflow run, but `route` sets no branch flag for it, so no later step runs.
 
 Without `?echo=true`, Slack shows the URL as unverified and sends no events. Mentions and the details panel then do nothing, while the buttons still work.
 
@@ -178,13 +180,13 @@ Keep it current. A stale employee list sends the Yes/No ask to nobody.
 
 ### Other additions
 
-- Add a lifecycle or evidence skill per additional alert source (identity, SaaS, endpoint) as needed. Name a lifecycle skill `<source>-case-lifecycle` and the prompt routes to it by name. Sources without one use the generic path in the prompt.
+- Add a lifecycle or evidence skill per additional alert source (identity, SaaS, endpoint) as needed. Name a lifecycle skill `<source>-case-lifecycle` and the prompt routes to it by name on manual runs and chat requests. Sources without one use the generic path in the prompt.
+- The alert webhook path does not route by source. `triage_alert` starts every prompt with `Detection event <alert_id>`, which loads `detection-event-case-lifecycle`. To triage another alert format on that path, change the field table in stage 1 of that skill. To send a source to its own lifecycle skill, store the source with the alert and change the first line of the `triage_alert` prompt.
 
 ## Known gaps in the source
 
-The skills are sanitised copies from a working setup, and a few parts disagree with the workflow. They are kept as they were.
+The skills are sanitised copies from a working setup. A few parts still disagree with the workflow and are kept as they were.
 
 - `slack-case-threads` says the app subscribes only to `app_mention`. The manifest also subscribes to `entity_details_requested`, which the workflow answers before the agent is involved.
-- `slack-case-threads` quotes the acknowledgement line with a user mention. The workflow writes it without one: `Answered Yes. Socky is recording it.`
 - `hypothesis-library.md` says the workflow posts open questions. Socky posts everything itself.
 - The skills were written for GuardDuty first. `detection-event-case-lifecycle` stage 7 lists the substitutions for other alerts.
