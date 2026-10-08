@@ -407,6 +407,24 @@ class CasesService(BaseWorkspaceService):
             parent_id: int(count) for parent_id, count in rows if parent_id is not None
         }
 
+    @staticmethod
+    def _resolve_sub_case_filters(
+        *,
+        sub_cases_enabled: bool,
+        parent_id: uuid.UUID | None,
+        include_sub_cases: bool,
+    ) -> tuple[uuid.UUID | None, bool]:
+        """Apply the sub-case entitlement to search filters.
+
+        Without ``case_addons`` the case list stays flat: existing sub-cases
+        are not hidden, and filtering by parent is rejected.
+        """
+        if sub_cases_enabled:
+            return parent_id, include_sub_cases
+        if parent_id is not None:
+            raise EntitlementRequired(Entitlement.CASE_ADDONS.value)
+        return None, True
+
     async def get_parent_reads(
         self, parent_ids: Sequence[uuid.UUID | None]
     ) -> dict[uuid.UUID, CaseParentRead]:
@@ -607,6 +625,11 @@ class CasesService(BaseWorkspaceService):
         linked to that table row.
         """
         include_case_addons = await self.has_entitlement(Entitlement.CASE_ADDONS)
+        parent_id, include_sub_cases = self._resolve_sub_case_filters(
+            sub_cases_enabled=include_case_addons,
+            parent_id=parent_id,
+            include_sub_cases=include_sub_cases,
+        )
         filters = self._build_search_filters(
             linked_row=linked_row,
             exclude_case_id=exclude_case_id,
@@ -722,8 +745,13 @@ class CasesService(BaseWorkspaceService):
 
         # Fetch task counts and sub-case relationships for response hydration.
         task_counts = await self.get_task_counts([case.id for case in cases])
-        sub_case_counts = await self.get_sub_case_counts([case.id for case in cases])
-        parents = await self.get_parent_reads([case.parent_id for case in cases])
+        sub_case_counts: dict[uuid.UUID, int] = {}
+        parents: dict[uuid.UUID, CaseParentRead] = {}
+        if include_case_addons:
+            sub_case_counts = await self.get_sub_case_counts(
+                [case.id for case in cases]
+            )
+            parents = await self.get_parent_reads([case.parent_id for case in cases])
 
         # Convert to CaseReadMinimal objects with tags and dropdown values
         case_items = []
@@ -780,7 +808,7 @@ class CasesService(BaseWorkspaceService):
                     payload=case.payload if include_payload else None,
                     num_tasks_completed=task_counts[case.id]["completed"],
                     num_tasks_total=task_counts[case.id]["total"],
-                    parent_id=case.parent_id,
+                    parent_id=case.parent_id if include_case_addons else None,
                     parent=parents.get(case.parent_id) if case.parent_id else None,
                     num_sub_cases=sub_case_counts.get(case.id, 0),
                 )
@@ -814,6 +842,11 @@ class CasesService(BaseWorkspaceService):
         include_sub_cases: bool = True,
     ) -> CaseSearchAggregateRead:
         """Return global totals for the current case search filter set."""
+        parent_id, include_sub_cases = self._resolve_sub_case_filters(
+            sub_cases_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),
+            parent_id=parent_id,
+            include_sub_cases=include_sub_cases,
+        )
         filters = self._build_search_filters(
             search_term=search_term,
             status=status,
@@ -991,6 +1024,8 @@ class CasesService(BaseWorkspaceService):
             # ShareRowExclusiveLock on the referenced `case` table.
             await self.fields._ensure_schema_ready()
 
+            if params.parent_id is not None:
+                await self.require_entitlement(Entitlement.CASE_ADDONS)
             parent = (
                 await self._lock_parent_for_new_sub_case(params.parent_id)
                 if params.parent_id is not None
@@ -1790,6 +1825,7 @@ class CasesService(BaseWorkspaceService):
         return response
 
     @require_scope("case:update")
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def batch_set_parent(
         self, case_ids: list[uuid.UUID], parent_id: uuid.UUID
     ) -> CaseBatchResponse:
@@ -1809,6 +1845,7 @@ class CasesService(BaseWorkspaceService):
         )
 
     @require_scope("case:update")
+    @requires_entitlement(Entitlement.CASE_ADDONS)
     async def batch_clear_parent(self, case_ids: list[uuid.UUID]) -> CaseBatchResponse:
         """Remove cases from their parent case, returning them to the top level."""
         return await self._run_parent_batch(

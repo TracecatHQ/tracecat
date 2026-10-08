@@ -1496,33 +1496,37 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                 )}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              disabled={!canUpdate}
-              onSelect={(event) => {
-                event.preventDefault()
-                setParentPickerOpen(true)
-              }}
-            >
-              <span className="flex items-center gap-2">
-                <ListTreeIcon
-                  className="size-3 text-muted-foreground"
-                  aria-hidden
-                />
-                <span>Group under parent case...</span>
-              </span>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!canUpdate}
-              onSelect={async () => {
-                await handleChangeParent(null)
-              }}
-            >
-              <span className="flex items-center gap-2">
-                <X className="size-3 text-muted-foreground" aria-hidden />
-                <span>Remove from parent case</span>
-              </span>
-            </DropdownMenuItem>
+            {caseAddonsEnabled && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={!canUpdate}
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    setParentPickerOpen(true)
+                  }}
+                >
+                  <span className="flex items-center gap-2">
+                    <ListTreeIcon
+                      className="size-3 text-muted-foreground"
+                      aria-hidden
+                    />
+                    <span>Group under parent case...</span>
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!canUpdate}
+                  onSelect={async () => {
+                    await handleChangeParent(null)
+                  }}
+                >
+                  <span className="flex items-center gap-2">
+                    <X className="size-3 text-muted-foreground" aria-hidden />
+                    <span>Remove from parent case</span>
+                  </span>
+                </DropdownMenuItem>
+              </>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               disabled={isBusy}
@@ -1574,7 +1578,7 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
         </DropdownMenu>
       </ButtonGroup>
       <CaseParentPickerDialog
-        open={parentPickerOpen}
+        open={caseAddonsEnabled && parentPickerOpen}
         onOpenChange={setParentPickerOpen}
         workspaceId={workspaceId}
         excludeIds={new Set(selectedCaseIds)}

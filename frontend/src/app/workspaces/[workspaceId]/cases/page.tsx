@@ -171,7 +171,9 @@ export default function CasesPage() {
         onTagSortDirectionChange={setTagSortDirection}
         onUpdatedAfterChange={setUpdatedAfter}
         onCreatedAfterChange={setCreatedAfter}
-        onIncludeSubCasesChange={setIncludeSubCases}
+        onIncludeSubCasesChange={
+          caseAddonsEnabled ? setIncludeSubCases : undefined
+        }
         dropdownDefinitions={
           caseAddonsEnabled ? dropdownDefinitions : undefined
         }

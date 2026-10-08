@@ -64,6 +64,7 @@ from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.core.schemas import Schema
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import Case
 from tracecat.exceptions import (
     TracecatAuthorizationError,
     TracecatNotFoundError,
@@ -102,6 +103,21 @@ async def _list_case_dropdown_values(
     if not await dropdown_service.has_entitlement(Entitlement.CASE_ADDONS):
         return []
     return await dropdown_service.list_values_for_case(case_id)
+
+
+async def _read_case_parent_id(
+    *,
+    session: AsyncDBSession,
+    role: ExecutorWorkspaceRole,
+    case: Case,
+) -> uuid.UUID | None:
+    """Return the case's parent ID, or None without the sub-case entitlement."""
+    if case.parent_id is None:
+        return None
+    service = CasesService(session, role)
+    if not await service.has_entitlement(Entitlement.CASE_ADDONS):
+        return None
+    return case.parent_id
 
 
 async def _list_case_rows(
@@ -466,7 +482,7 @@ async def get_case(
         tags=tag_reads,
         dropdown_values=dropdown_reads,
         rows=rows,
-        parent_id=case.parent_id,
+        parent_id=await _read_case_parent_id(session=session, role=role, case=case),
     )
 
 
@@ -603,7 +619,9 @@ async def update_case(
         tags=tag_reads,
         dropdown_values=dropdown_reads,
         rows=rows,
-        parent_id=updated_case.parent_id,
+        parent_id=await _read_case_parent_id(
+            session=session, role=role, case=updated_case
+        ),
     )
 
 

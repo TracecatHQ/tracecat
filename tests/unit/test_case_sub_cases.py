@@ -15,7 +15,11 @@ from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, Case
 from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.db.models import Case, CaseEvent
-from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatNotFoundError,
+    TracecatValidationError,
+)
 from tracecat.pagination import CursorPaginationParams
 
 pytestmark = pytest.mark.usefixtures("db")
@@ -326,3 +330,43 @@ async def test_cross_workspace_parent_is_not_found(
     refreshed = await cases_service.get_case(child_id)
     assert refreshed is not None
     assert refreshed.parent_id is None
+
+
+@pytest.mark.anyio
+async def test_sub_cases_require_case_addons(cases_service: CasesService) -> None:
+    parent_id = (await _create(cases_service, "Parent")).id
+    child_id = (await _create(cases_service, "Child")).id
+    await cases_service.batch_set_parent([child_id], parent_id)
+
+    with patch.object(
+        CasesService, "has_entitlement", new=AsyncMock(return_value=False)
+    ):
+        with pytest.raises(EntitlementRequired):
+            await cases_service.batch_set_parent([child_id], parent_id)
+        with pytest.raises(EntitlementRequired):
+            await cases_service.batch_clear_parent([child_id])
+        with pytest.raises(EntitlementRequired):
+            await _create(cases_service, "New child", parent_id=parent_id)
+        with pytest.raises(EntitlementRequired):
+            await _search_ids(cases_service, parent_id=parent_id)
+        with pytest.raises(EntitlementRequired):
+            await cases_service.get_search_case_aggregates(parent_id=parent_id)
+
+        # Without the entitlement the list is flat: nothing is hidden and no
+        # hierarchy metadata is returned.
+        response = await cases_service.search_cases(
+            CursorPaginationParams(limit=100), include_sub_cases=False
+        )
+        items = {item.id: item for item in response.items}
+        assert {parent_id, child_id} <= items.keys()
+        assert items[child_id].parent_id is None
+        assert items[child_id].parent is None
+        assert items[parent_id].num_sub_cases == 0
+        aggregate = await cases_service.get_search_case_aggregates(
+            include_sub_cases=False
+        )
+        assert aggregate.total == len(items)
+
+    refreshed = await cases_service.get_case(child_id)
+    assert refreshed is not None
+    assert refreshed.parent_id == parent_id

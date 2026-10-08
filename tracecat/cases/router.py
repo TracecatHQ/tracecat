@@ -69,6 +69,7 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Case
 from tracecat.exceptions import (
+    EntitlementRequired,
     TracecatAuthorizationError,
     TracecatConflictError,
     TracecatNotFoundError,
@@ -147,7 +148,7 @@ async def _build_case_read(
         )
         rows = hydrated.get(case.id, [])
 
-    parent, num_sub_cases = await _read_case_hierarchy(service, case)
+    parent_id, parent, num_sub_cases = await _read_case_hierarchy(service, case)
 
     return CaseRead(
         id=case.id,
@@ -167,7 +168,7 @@ async def _build_case_read(
         tags=tag_reads,
         dropdown_values=dropdown_reads,
         rows=rows,
-        parent_id=case.parent_id,
+        parent_id=parent_id,
         parent=parent,
         num_sub_cases=num_sub_cases,
     )
@@ -175,12 +176,17 @@ async def _build_case_read(
 
 async def _read_case_hierarchy(
     service: CasesService, case: Case
-) -> tuple[CaseParentRead | None, int]:
-    """Return the parent summary and direct sub-case count for one case."""
+) -> tuple[uuid.UUID | None, CaseParentRead | None, int]:
+    """Return the parent ID, parent summary, and direct sub-case count for a case.
+
+    Sub-cases require ``case_addons``; without it every case reads as top-level.
+    """
+    if not await service.has_entitlement(Entitlement.CASE_ADDONS):
+        return None, None, 0
     counts = await service.get_sub_case_counts([case.id])
     parents = await service.get_parent_reads([case.parent_id])
     parent = parents.get(case.parent_id) if case.parent_id else None
-    return parent, counts.get(case.id, 0)
+    return case.parent_id, parent, counts.get(case.id, 0)
 
 
 async def _read_case_field(
@@ -310,7 +316,7 @@ async def list_cases(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except HTTPException:
+    except (HTTPException, EntitlementRequired):
         raise
     except Exception as e:
         logger.error(f"Failed to list cases: {e}")
@@ -485,7 +491,7 @@ async def search_cases(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except HTTPException:
+    except (HTTPException, EntitlementRequired):
         raise
     except Exception as e:
         logger.error(f"Failed to search cases: {e}")
@@ -620,7 +626,7 @@ async def search_case_aggregates(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except HTTPException:
+    except (HTTPException, EntitlementRequired):
         raise
     except Exception as e:
         logger.error(f"Failed to fetch case aggregate counts: {e}")

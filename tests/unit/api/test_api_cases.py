@@ -54,7 +54,7 @@ def stub_case_hierarchy():
     with patch.object(
         cases_router,
         "_read_case_hierarchy",
-        new=AsyncMock(return_value=(None, 0)),
+        new=AsyncMock(return_value=(None, None, 0)),
     ) as mock_hierarchy:
         yield mock_hierarchy
 

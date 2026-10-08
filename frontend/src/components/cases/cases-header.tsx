@@ -555,7 +555,7 @@ export function CasesHeader({
     hasDropdownFilters ||
     isDateFilterActive(updatedAfter) ||
     (isDateFilterActive(createdAfter) && !hasDefaultCreatedAfter) ||
-    includeSubCases
+    (includeSubCases && onIncludeSubCasesChange !== undefined)
 
   const handleReset = () => {
     onSearchChange("")
