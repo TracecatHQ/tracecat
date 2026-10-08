@@ -1,6 +1,6 @@
 # Triage alerts workflow
 
-One workflow with one webhook and 10 steps. The alert intake and Slack both call it, and `route` decides which branch runs. Each alert gets one run and one agent call. Settings: environment `default`, timeout 3600 seconds.
+One workflow with one webhook and 13 steps. The alert intake and Slack both call it, and `route` decides which branch runs. Each alert gets one run and one agent call. Settings: environment `default`, timeout 3600 seconds.
 
 ## Diagram
 
@@ -23,7 +23,12 @@ flowchart TD
     route -->|"to_socky: any Slack or manual payload"| claim_event["claim_event<br/>core.table.insert_rows into slack_events"]
     claim_event -->|"row claimed, or nothing_to_claim"| handle_event["handle_event<br/>ai.preset_agent socky"]
 
-    route -->|"owner_click"| ack_owner_click["ack_owner_click<br/>core.http_request to response_url"]
+    claim_event -->|"mention, and row claimed"| ack_mention["ack_mention<br/>add eyes reaction: received<br/>reactions.add eyes"]
+    handle_event -->|"mention, and the agent run succeeded"| mark_done["mark_done<br/>add green check reaction: done<br/>reactions.add white_check_mark"]
+    ack_mention -.->|"error path only"| mark_done
+    mark_done --> clear_eyes["clear_eyes<br/>remove eyes reaction<br/>reactions.remove eyes"]
+
+    route -->|"owner_click"| ack_owner_click["ack_owner_click<br/>fast acknowledgement of a button click<br/>core.http_request to response_url"]
     route -->|"non_owner_click"| deny_non_owner_click["deny_non_owner_click<br/>chat.postEphemeral"]
 
     route -->|"details: entity_details_requested"| lookup_work_object["lookup_work_object<br/>core.table.lookup in slack_work_objects"]
@@ -31,6 +36,8 @@ flowchart TD
 ```
 
 A button click sets `to_socky` and one of `owner_click` or `non_owner_click`. For the owner, `ack_owner_click` and `claim_event` run side by side. For anyone else, `claim_event` inserts nothing, so `handle_event` is skipped and only `deny_non_owner_click` acts.
+
+A mention sets `to_socky` and `mention`. `ack_mention` and `handle_event` both follow `claim_event` and run side by side, so the eyes appear without waiting for the agent. When `handle_event` succeeds, `mark_done` adds the green check and `clear_eyes` removes the eyes. The dotted edge is an error path: it runs nothing extra, and it keeps a failed `ack_mention` from failing the run.
 
 ## Entrypoint inputs
 
@@ -61,12 +68,13 @@ Create these before the first run. Each needs exactly one unique index, on its f
 
 ### route
 
-Runs first on every execution and sets six flags from the trigger. Every other branch starts from one of them.
+Runs first on every execution and sets seven flags from the trigger. Every other branch starts from one of them.
 
 | Flag | True when |
 |---|---|
 | `backfill` | `alert_ids` is not empty. This is the alert path. |
 | `details` | The Slack event type is `entity_details_requested` |
+| `mention` | The Slack event type is `app_mention`. Read by `ack_mention` and `mark_done`. |
 | `to_socky` | Not a details request and no `alert_ids`: mentions, button clicks, URL verification, manual runs with `finding_id` |
 | `owner_click` | The payload holds a `gd_confirm_` action and the third part of the button's `block_id` is the clicking user's ID. A `block_id` with fewer than three parts names no owner, so any click counts. |
 | `non_owner_click` | The payload holds a `gd_confirm_` action, the `block_id` names an owner, and someone else clicked |
@@ -81,6 +89,7 @@ Socky writes the owner into the `block_id` when it posts the ask: `gd_confirm:<s
     value:
       backfill: ${{ True if TRIGGER.alert_ids else False }}
       details: ${{ (TRIGGER.event.type || '') == 'entity_details_requested' }}
+      mention: ${{ (TRIGGER.event.type || '') == 'app_mention' }}
       non_owner_click: ${{ ((False if FN.length(FN.split(FN.lookup(FN.at(FN.lookup(FN.deserialize_json(TRIGGER.payload
         || '{}'), 'actions'), 0), 'block_id'), ':')) < 3 else FN.at(FN.split(FN.lookup(FN.at(FN.lookup(FN.deserialize_json(TRIGGER.payload
         || '{}'), 'actions'), 0), 'block_id'), ':'), 2) != FN.lookup(FN.lookup(FN.deserialize_json(TRIGGER.payload
@@ -184,6 +193,27 @@ Runs when `to_socky` is true. Inserts one row into `slack_events`, keyed on the 
     timeout: 30
 ```
 
+### ack_mention
+
+Runs alongside `handle_event` when the event is an `app_mention` and `claim_event` claimed it. Adds the `eyes` reaction to the mention, so the person sees it was received before the agent starts. A repeat delivery claims nothing, so the reaction is not added twice. `mark_done` lists this step's error path in `depends_on`, so a failed reaction call does not fail the run or cancel `handle_event`.
+
+```yaml
+- ref: ack_mention
+  action: tools.slack_sdk.call_method
+  args:
+    params:
+      channel: ${{ TRIGGER.event.channel }}
+      name: eyes
+      timestamp: ${{ TRIGGER.event.ts }}
+    sdk_method: reactions.add
+  depends_on:
+  - claim_event
+  run_if: ${{ ACTIONS.route.result.mention && ACTIONS.claim_event.result > 0 }}
+  retry_policy:
+    max_attempts: 1
+    timeout: 30
+```
+
 ### handle_event
 
 Runs when `claim_event` claimed a row or there was nothing to claim. Hands the whole trigger to Socky as JSON. Socky loads `slack-case-threads` for a mention or a button answer, or a lifecycle skill for a manual run.
@@ -205,9 +235,52 @@ Runs when `claim_event` claimed a row or there was nothing to claim. Hands the w
     timeout: 1800
 ```
 
+### mark_done
+
+Runs when `handle_event` succeeded for a mention. Adds the `white_check_mark` reaction, the green check, to the mention. If `handle_event` fails, the run stops, so neither this step nor `clear_eyes` runs and the eyes stay as a sign the mention is not finished. `join_strategy: any` is required: of the two dependencies, only `handle_event` is a success path.
+
+```yaml
+- ref: mark_done
+  action: tools.slack_sdk.call_method
+  args:
+    params:
+      channel: ${{ TRIGGER.event.channel }}
+      name: white_check_mark
+      timestamp: ${{ TRIGGER.event.ts }}
+    sdk_method: reactions.add
+  depends_on:
+  - handle_event
+  - ack_mention.error
+  join_strategy: any
+  run_if: ${{ ACTIONS.route.result.mention }}
+  retry_policy:
+    max_attempts: 1
+    timeout: 30
+```
+
+### clear_eyes
+
+Runs after `mark_done` and removes the `eyes` reaction. The check goes on first, so the mention is never left with no reaction. If `ack_mention` failed there are no eyes to remove, so this step fails with `no_reaction` and the run ends as failed, with the answer and the check already in place.
+
+```yaml
+- ref: clear_eyes
+  action: tools.slack_sdk.call_method
+  args:
+    params:
+      channel: ${{ TRIGGER.event.channel }}
+      name: eyes
+      timestamp: ${{ TRIGGER.event.ts }}
+    sdk_method: reactions.remove
+  depends_on:
+  - mark_done
+  retry_policy:
+    max_attempts: 1
+    timeout: 30
+```
+
 ### ack_owner_click
 
-Runs when `owner_click` is true, alongside `claim_event`. Posts to the interaction's `response_url`: the same message without its last block, the buttons, plus a context line such as `Answered Yes. Socky is recording it.` Socky replaces that line with the final status.
+Runs when `owner_click` is true, alongside `claim_event`. This is the fast acknowledgement for a button click, as `ack_mention` is for a mention. Posts to the interaction's `response_url`: the same message without its last block, the buttons, plus a context line such as `Answered Yes. Socky is recording it.` Socky replaces that line with the final status.
 
 ```yaml
 - ref: ack_owner_click

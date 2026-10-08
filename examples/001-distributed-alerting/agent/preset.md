@@ -22,7 +22,7 @@ Grant these on the preset. Leave out a group you do not use, and remove its line
 |---|---|
 | Cases | `core.cases.search_cases`, `core.cases.list_cases`, `core.cases.get_case`, `core.cases.create_case`, `core.cases.update_case`, `core.cases.add_case_tag`, `core.cases.create_comment` |
 | Tables | `core.table.lookup`, `core.table.search`, `core.table.search_rows`, `core.table.insert_row` |
-| Slack | `tools.slack.post_message`, `tools.slack.update_message`, `tools.slack.add_reaction`, `tools.slack.remove_reaction`, `tools.slack.list_replies`, `tools.slack.list_messages`, `tools.slack.lookup_user_by_email`, `tools.slack_sdk.call_method` |
+| Slack | `tools.slack.post_message`, `tools.slack.update_message`, `tools.slack.list_replies`, `tools.slack.list_messages`, `tools.slack.lookup_user_by_email`, `tools.slack_sdk.call_method` |
 | AWS, read only | `tools.aws_boto3.call_api`, `tools.aws_boto3.call_paginated_api`, with a read-only audit role as the credential |
 | Threat enrichment | The IP, domain, URL and file-hash reputation actions you use |
 | SIEM | The MCP server of your SIEM, to read the events behind an alert |

@@ -8,7 +8,7 @@ All values are placeholders.
 
 | File | What it is |
 |---|---|
-| [`workflow.md`](workflow.md) | The Triage alerts workflow: a diagram, the 10 steps with their code, and a prompt for the alert intake |
+| [`workflow.md`](workflow.md) | The Triage alerts workflow: a diagram, the 13 steps with their code, and a prompt for the alert intake |
 | [`agent/preset.md`](agent/preset.md) | The Socky preset: settings, tools, skills and the full prompt |
 | [`skills/`](skills/) | Six skills the preset loads on demand: two alert lifecycles, Slack threads, AWS evidence rules, the triage method, and the output formats |
 | [`slack-app-manifest.json`](slack-app-manifest.json) | The Slack app |
@@ -74,7 +74,7 @@ This is the most common setup mistake. Slack verifies the URL by sending a `chal
 | `channels:history` | Reading the thread and the channel |
 | `chat:write` | Posting and updating messages, the ephemeral denial, and the optional direct message |
 | `links:write` | The `chat.unfurl` fallback in the delivery skills |
-| `reactions:write` | Acknowledgement reactions |
+| `reactions:write` | The workflow's eyes and tick reactions on a mention |
 | `users:read.email`, with `users:read` | Finding the owner by email |
 
 Add `groups:history` for a private channel.
@@ -124,4 +124,4 @@ The workflow reads `gd_confirm_yes`, `gd_confirm_no`, `gd_confirm` and the table
 - The skills were written for GuardDuty and one SIEM's alert format first. Other sources need the field mapping in `detection-event-case-lifecycle` stage 1 adapted.
 - `slack-case-threads` says the app subscribes only to `app_mention`. The manifest also subscribes to `entity_details_requested`, which the workflow answers without the agent.
 - `hypothesis-library.md` says the workflow posts open questions. Socky posts everything itself.
-- The workflow code was edited to remove polling steps and has not been run since.
+- The workflow code was edited to remove polling steps and to add the three reaction steps, and has not been run since.

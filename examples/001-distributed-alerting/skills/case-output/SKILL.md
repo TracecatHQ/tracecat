@@ -194,7 +194,7 @@ Columns, in order: Business name, Entity ID, Purpose, Human / Machine, Notes.
 
 ## Thread replies
 
-A mention of the bot in a Slack thread reaches you through slack-case-threads, which reads the thread from Slack, finds the case and adds the 👀 and ✅ reactions. You act in Slack and on the case yourself. You have the case, its description and findings, the channel, the thread timestamp, the message, the Slack ID of the person who wrote it, and the bot's own Slack ID (`authorizations[0].user_id` in the payload).
+A mention of the bot in a Slack thread reaches you through slack-case-threads, which reads the thread from Slack and finds the case. The workflow adds the 👀 and ✅ reactions. You act in Slack and on the case yourself. You have the case, its description and findings, the channel, the thread timestamp, the message, the Slack ID of the person who wrote it, and the bot's own Slack ID (`authorizations[0].user_id` in the payload).
 
 Decide what the message asks for, then do exactly this:
 

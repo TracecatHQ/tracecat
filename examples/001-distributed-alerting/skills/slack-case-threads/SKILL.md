@@ -3,8 +3,6 @@ name: slack-case-threads
 description: Load when the prompt is a raw Slack payload, either an Events API envelope or an Interactivity payload. Covers how Socky handles an app_mention (acknowledge, read the thread from Slack, answer, record on the case, mark done) and the owner's Yes/No buttons on a GuardDuty case. Conversation history is read from Slack with list_replies and list_messages, never from stored state. For a mention, load aws-cloud-incident-response-core and case-output before answering anything that needs evidence. For the owner's Yes/No buttons, load nothing else, because this skill holds every rule that path needs.
 metadata:
   tools:
-    - tools.slack.add_reaction
-    - tools.slack.remove_reaction
     - tools.slack.list_replies
     - tools.slack.list_messages
     - tools.slack.post_message
@@ -37,7 +35,7 @@ Work out `payload` with a JSON parse of the string. Slack form-encodes interacti
 
 ## Mentions
 
-1. **Acknowledge.** Call `tools.slack.add_reaction` with `name` `eyes` on `event.channel` and `event.ts`.
+1. **Acknowledge.** Nothing to do. The workflow's `ack_mention` has already added the `eyes` reaction to the mention. Add no reaction yourself.
 2. **Read the conversation from Slack.** The thread is `event.thread_ts`, or `event.ts` when the mention starts a new thread.
    - Call `tools.slack.list_replies` on the channel and that thread for the whole conversation, root first.
    - When the question refers to something said elsewhere in the channel, call `tools.slack.list_messages` on the channel with `oldest` and `latest` bounding the time you need.
@@ -52,11 +50,7 @@ Work out `payload` with a JSON parse of the string. Slack form-encodes interacti
 
    For an investigative question, fetch the case's findings with boto3 as guardduty-case-lifecycle stage 1 describes. Test the question in the SIEM with the method in hypothesis-driven-triage.
 5. **Outside a case thread** (no case found): answer helpfully in the thread with the same evidence rules. Add no case comment and change nothing on any case.
-6. **Mark done.** The reader should be left with a single green tick, never a tick sitting beside the eyes. Do these two in this order, on the same `event.channel` and `event.ts`:
-   - Call `tools.slack.add_reaction` with `name` `white_check_mark`.
-   - Then call `tools.slack.remove_reaction` with `name` `eyes`, clearing the acknowledgement you added in step 1.
-
-   Add the tick first so a failure never leaves the message unmarked. When the remove call fails because the reaction is already gone or was never added, carry on; do not retry it and do not report it as an error.
+6. **Mark done.** Nothing to do. When your run finishes, the workflow's `mark_done` adds `white_check_mark` and `clear_eyes` then removes `eyes`, so the reader is left with a single green tick. Add and remove no reaction yourself. When your run fails, the eyes stay.
 
 A mention never changes a case's status, severity, disposition or tags, whatever it asks. A request to contain, disable, revoke, block, close or change the status gets the reply case-output prescribes, and nothing else.
 
