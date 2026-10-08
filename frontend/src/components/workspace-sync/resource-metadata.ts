@@ -1,4 +1,4 @@
-import type { PullResult, SyncResourceType } from "@/client"
+import type { SyncResourceType } from "@/client"
 
 export interface WorkspaceSyncResourceTypeMeta {
   label: string
@@ -111,32 +111,18 @@ export function getWorkspaceSyncResourceLabel(resourceType: string): string {
 }
 
 /**
- * Pull result resource counts with empty rows removed and stable ordering.
+ * Returns the two-letter tile for a sync resource type, or the first two
+ * letters of an unknown type.
  */
-export function workspaceSyncResourceCountEntries(result: PullResult) {
-  return Object.entries(result.resource_counts ?? {})
-    .filter(([, count]) => count.found > 0 || count.imported > 0)
-    .sort(([left], [right]) => left.localeCompare(right))
-}
-
-/**
- * Total resources found and imported across all resource types in a pull
- * result, falling back to the legacy workflow-only counters when no per-resource
- * counts are present.
- */
-export function getPullResultTotals(result: PullResult): {
-  found: number
-  imported: number
-} {
-  const entries = workspaceSyncResourceCountEntries(result)
-  if (entries.length === 0) {
-    return {
-      found: result.workflows_found ?? 0,
-      imported: result.workflows_imported ?? 0,
-    }
+export function getWorkspaceSyncResourceAbbr(resourceType: string): string {
+  if (
+    Object.prototype.hasOwnProperty.call(
+      WORKSPACE_SYNC_RESOURCE_TYPE_META,
+      resourceType
+    )
+  ) {
+    return WORKSPACE_SYNC_RESOURCE_TYPE_META[resourceType as SyncResourceType]
+      .abbr
   }
-  return {
-    found: entries.reduce((total, [, count]) => total + count.found, 0),
-    imported: entries.reduce((total, [, count]) => total + count.imported, 0),
-  }
+  return resourceType.slice(0, 2).toUpperCase()
 }

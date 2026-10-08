@@ -9,7 +9,6 @@ export type SettingsSection =
   | "workspace-runtime"
   | "workspace-models"
   | "workspace-files"
-  | "workspace-sync"
 
 interface SettingsModalContextValue {
   open: boolean

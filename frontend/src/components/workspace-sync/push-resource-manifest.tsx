@@ -3,8 +3,6 @@
 import { ChevronRightIcon, LockIcon } from "lucide-react"
 import { useState } from "react"
 import type {
-  PullResourceDiff,
-  PullResult,
   ResourcePullCount,
   SyncPreviewResource,
   SyncResourceType,
@@ -141,19 +139,6 @@ export function PushResourceManifest({
       isLoading={isLoading}
       errorMessage={errorMessage}
       direction="push"
-    />
-  )
-}
-
-/**
- * Enumerates resources found by a dry-run pull before the file-level diff.
- */
-export function PullResourceManifest({ result }: { result: PullResult }) {
-  return (
-    <WorkspaceSyncResourceManifest
-      preview={pullResultToResourceManifest(result)}
-      isLoading={false}
-      direction="pull"
     />
   )
 }
@@ -333,30 +318,6 @@ function formatGroupSummary(group: ResourceGroup): string {
     return visibleNames
   }
   return `${visibleNames} +${remaining} more`
-}
-
-function pullResultToResourceManifest(
-  result: PullResult
-): ResourceManifestPreview {
-  return {
-    resource_counts: result.resource_counts ?? {},
-    files:
-      result.files ??
-      (result.resource_diffs ?? []).map((diff) => diff.source_path),
-    resources:
-      result.resources ?? resourcesFromDiffs(result.resource_diffs ?? []),
-  }
-}
-
-function resourcesFromDiffs(
-  resourceDiffs: PullResourceDiff[]
-): ResourceManifestResource[] {
-  return resourceDiffs.map((diff) => ({
-    resource_type: diff.resource_type,
-    source_id: diff.source_id,
-    name: diff.title ?? diff.source_id,
-    path: diff.source_path,
-  }))
 }
 
 function getResourceCount(

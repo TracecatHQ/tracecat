@@ -46,6 +46,22 @@ export function getWorkspaceSyncConfiguredRef(
 }
 
 /**
+ * Returns the Git URL with its `@ref` set to `ref`, or removed when `ref` is
+ * undefined so the repository default branch applies.
+ */
+export function withWorkspaceSyncConfiguredRef(
+  gitUrl: string,
+  ref: string | undefined
+): string {
+  const trimmed = gitUrl.trim()
+  const currentRef = GIT_SSH_URL_REGEX.exec(trimmed)?.groups?.ref
+  const base = currentRef
+    ? trimmed.slice(0, trimmed.length - currentRef.length - 1)
+    : trimmed
+  return ref ? `${base}@${ref}` : base
+}
+
+/**
  * Resolves the branch that workspace sync exports use as their base.
  */
 export function getWorkspaceSyncBaseBranch(
@@ -90,6 +106,11 @@ export function useWorkspaceSyncBranchTarget({
     [newBranchPrefix]
   )
 
+  const createBranch = useCallback((name: string) => {
+    setIsCreatingBranch(true)
+    setBranch(name)
+  }, [])
+
   const resetBranchCreation = useCallback(() => {
     setIsCreatingBranch(true)
     setBranch(buildRandomSyncBranchName(newBranchPrefix))
@@ -100,6 +121,7 @@ export function useWorkspaceSyncBranchTarget({
     setBranch,
     isCreatingBranch,
     selectBranch,
+    createBranch,
     resetBranchCreation,
     defaultBranch,
     hasBranches,

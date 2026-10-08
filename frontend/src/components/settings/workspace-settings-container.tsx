@@ -8,7 +8,6 @@ import { WorkspaceFilesSettings } from "@/components/settings/workspace-files-se
 import { WorkspaceGeneralSettings } from "@/components/settings/workspace-general-settings"
 import { WorkspaceModelSettings } from "@/components/settings/workspace-model-settings"
 import { WorkspaceRuntimeSettings } from "@/components/settings/workspace-runtime-settings"
-import { WorkspaceSyncSettings } from "@/components/settings/workspace-sync-settings"
 import { Button } from "@/components/ui/button"
 import { useEntitlements } from "@/hooks/use-entitlements"
 import { useQuery } from "@/lib/query"
@@ -81,32 +80,6 @@ export function WorkspaceSettingsContainer({
       )
     case "workspace-files":
       return <WorkspaceFilesSettings workspace={workspace} />
-    case "workspace-sync":
-      return hasEntitlement("git_sync") ? (
-        <WorkspaceSyncSettings workspace={workspace} />
-      ) : (
-        <div className="flex flex-1 items-center justify-center py-12">
-          <EntitlementRequiredEmptyState
-            title="Upgrade required"
-            description="Git sync is unavailable on your current plan."
-          >
-            <Button
-              variant="link"
-              asChild
-              className="text-muted-foreground"
-              size="sm"
-            >
-              <a
-                href="https://tracecat.com"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Learn more <ArrowUpRight className="size-4" />
-              </a>
-            </Button>
-          </EntitlementRequiredEmptyState>
-        </div>
-      )
     default:
       return null
   }

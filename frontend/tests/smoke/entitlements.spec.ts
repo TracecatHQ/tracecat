@@ -82,17 +82,19 @@ test.describe("entitlement gates", () => {
     ).toBeVisible()
   })
 
-  test("direct Git sync route renders the entitlement empty state", async ({
+  test("direct Git providers route renders the entitlement empty state", async ({
     page,
   }, testInfo) => {
     await skipIfEntitled(page.request, testInfo, "git_sync")
 
     await page.goto("/organization/vcs")
 
-    await expect(page.getByRole("heading", { name: "Git sync" })).toBeVisible()
+    await expect(
+      page.getByRole("heading", { name: "Git providers" })
+    ).toBeVisible()
     await expect(page.getByText("Upgrade required")).toBeVisible()
     await expect(
-      page.getByText("Git sync is unavailable on your current plan.")
+      page.getByText("Git Sync is unavailable on your current plan.")
     ).toBeVisible()
   })
 })
