@@ -385,6 +385,8 @@ import type {
   CasesListEventsWithUsersResponse,
   CasesListFieldsData,
   CasesListFieldsResponse,
+  CasesListLinkedCasesData,
+  CasesListLinkedCasesResponse,
   CasesListTagsData,
   CasesListTagsResponse,
   CasesListTasksData,
@@ -11759,6 +11761,47 @@ export const casesUnlinkCaseRow = (
       table_id: data.tableId,
       row_id: data.rowId,
       workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Linked Cases
+ * List the cases that link a table row.
+ * @param data The data for the request.
+ * @param data.tableId
+ * @param data.rowId
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @param data.reverse
+ * @param data.orderBy Case column to order by. Default: created_at
+ * @param data.sort Direction to sort (asc or desc)
+ * @param data.excludeCaseId Leave this case out of the results
+ * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
+ * @throws ApiError
+ */
+export const casesListLinkedCases = (
+  data: CasesListLinkedCasesData
+): CancelablePromise<CasesListLinkedCasesResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/tables/{table_id}/rows/{row_id}/cases",
+    path: {
+      table_id: data.tableId,
+      row_id: data.rowId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+      reverse: data.reverse,
+      order_by: data.orderBy,
+      sort: data.sort,
+      exclude_case_id: data.excludeCaseId,
     },
     errors: {
       422: "Validation Error",

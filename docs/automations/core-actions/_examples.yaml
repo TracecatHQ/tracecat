@@ -761,6 +761,17 @@ examples:
         args:
           case_id: ${{ TRIGGER.case_id }}
 
+  cases-list-cases-by-row:
+    title: List other cases that link a row
+    language: yaml
+    code: |
+      - ref: related_cases
+        action: core.cases.list_cases_by_row
+        args:
+          table_id: ${{ ACTIONS.linked_rows.result[0].table_id }}
+          row_id: ${{ ACTIONS.linked_rows.result[0].row_id }}
+          exclude_case_id: ${{ TRIGGER.case_id }}
+
   cases-metrics:
     title: Read case metrics
     language: yaml

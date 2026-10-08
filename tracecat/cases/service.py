@@ -124,6 +124,7 @@ from tracecat.db.models import (
     CaseDropdownOption,
     CaseDropdownValue,
     CaseFields,
+    CaseTableRow,
     CaseTagLink,
     CaseTask,
     User,
@@ -445,6 +446,8 @@ class CasesService(BaseWorkspaceService):
         end_time: datetime | None = None,
         updated_before: datetime | None = None,
         updated_after: datetime | None = None,
+        linked_row: tuple[uuid.UUID, uuid.UUID] | None = None,
+        exclude_case_id: uuid.UUID | None = None,
     ) -> list[Any]:
         filters: list[Any] = [Case.workspace_id == self.workspace_id]
 
@@ -553,6 +556,21 @@ class CasesService(BaseWorkspaceService):
         if updated_before is not None:
             filters.append(Case.updated_at <= updated_before)
 
+        if linked_row is not None:
+            table_id, row_id = linked_row
+            filters.append(
+                Case.id.in_(
+                    select(CaseTableRow.case_id).where(
+                        CaseTableRow.workspace_id == self.workspace_id,
+                        CaseTableRow.table_id == table_id,
+                        CaseTableRow.row_id == row_id,
+                    )
+                )
+            )
+
+        if exclude_case_id is not None:
+            filters.append(Case.id != exclude_case_id)
+
         return filters
 
     async def search_cases(
@@ -580,10 +598,18 @@ class CasesService(BaseWorkspaceService):
         include_sub_cases: bool = True,
         include_durations: bool = False,
         include_payload: bool = False,
+        linked_row: tuple[uuid.UUID, uuid.UUID] | None = None,
+        exclude_case_id: uuid.UUID | None = None,
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
-        """Search cases with cursor-based pagination and filtering."""
+        """Search cases with cursor-based pagination and filtering.
+
+        ``linked_row`` is a ``(table_id, row_id)`` pair that keeps only cases
+        linked to that table row.
+        """
         include_case_addons = await self.has_entitlement(Entitlement.CASE_ADDONS)
         filters = self._build_search_filters(
+            linked_row=linked_row,
+            exclude_case_id=exclude_case_id,
             search_term=search_term,
             short_id=short_id,
             status=status,

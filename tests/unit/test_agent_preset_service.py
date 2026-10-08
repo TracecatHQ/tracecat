@@ -4315,13 +4315,20 @@ class TestAgentPresetService:
         assert preset.tool_approvals == {"tools.test.test_action": requires_approval}
         assert preset.current_version_id != current_version_id
 
-    async def test_create_parent_rejects_subagent_with_tool_approvals(
+    @pytest.mark.parametrize("backend_runs_approvals", [False, True])
+    async def test_create_parent_with_subagent_requiring_approval(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
         registry_actions: list[RegistryAction],
+        monkeypatch: pytest.MonkeyPatch,
+        backend_runs_approvals: bool,
     ) -> None:
-        """Preset-backed subagents cannot require manual approval in v1."""
+        """Only a backend that runs approval-gated subagents lets a parent attach one."""
+        monkeypatch.setattr(
+            "tracecat.agent.preset.service.subagent_approvals_available",
+            lambda: backend_runs_approvals,
+        )
         child_params = agent_preset_create_params.model_copy(
             update={
                 "name": "Approval Child",
@@ -4344,14 +4351,25 @@ class TestAgentPresetService:
             }
         )
 
-        with pytest.raises(
-            TracecatValidationError,
-            match=(
-                "Subagent preset 'approval-child' uses manual approvals, "
-                "which are not supported for subagents yet."
-            ),
-        ):
-            await agent_preset_service.create_preset(parent_params)
+        if not backend_runs_approvals:
+            with pytest.raises(
+                TracecatValidationError,
+                match=(
+                    "Subagent preset 'approval-child' uses manual approvals, "
+                    "which are not supported for subagents yet."
+                ),
+            ):
+                await agent_preset_service.create_preset(parent_params)
+            return
+        parent = await agent_preset_service.create_preset(parent_params)
+        (binding,) = ResolvedAgentsConfig.model_validate(parent.agents).subagents
+        assert binding.preset_id == child.id
+        assert binding.preset_version_id == child.current_version_id
+        # Resolving the parent's config from heads keeps the approval-gated child.
+        config = await agent_preset_service.resolve_agent_preset_config(
+            preset_id=parent.id
+        )
+        assert [ref.preset for ref in config.agents.subagents] == [child.slug]
 
     async def test_create_parent_rechecks_subagent_before_saving_head(
         self,
@@ -4543,13 +4561,20 @@ class TestAgentPresetService:
 
         assert updated_parent.current_version_id == original_parent_version_id
 
-    async def test_update_parent_rejects_subagent_with_tool_approvals(
+    @pytest.mark.parametrize("backend_runs_approvals", [False, True])
+    async def test_update_parent_with_subagent_requiring_approval(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
         registry_actions: list[RegistryAction],
+        monkeypatch: pytest.MonkeyPatch,
+        backend_runs_approvals: bool,
     ) -> None:
-        """Existing parent presets cannot attach approval-gated subagents."""
+        """Only a backend that runs approval-gated subagents lets a parent attach one."""
+        monkeypatch.setattr(
+            "tracecat.agent.preset.service.subagent_approvals_available",
+            lambda: backend_runs_approvals,
+        )
         child_params = agent_preset_create_params.model_copy(
             update={
                 "name": "Approval Child",
@@ -4565,23 +4590,27 @@ class TestAgentPresetService:
             )
         )
 
-        with pytest.raises(
-            TracecatValidationError,
-            match=(
-                "Subagent preset 'approval-child' uses manual approvals, "
-                "which are not supported for subagents yet."
-            ),
-        ):
-            await agent_preset_service.update_preset(
-                parent,
-                AgentPresetUpdate(
-                    agents=AgentSubagentsConfig.model_validate(
-                        {
-                            "subagents": [{"preset": child.slug}],
-                        }
-                    )
-                ),
+        update = AgentPresetUpdate(
+            agents=AgentSubagentsConfig.model_validate(
+                {
+                    "subagents": [{"preset": child.slug}],
+                }
             )
+        )
+        if not backend_runs_approvals:
+            with pytest.raises(
+                TracecatValidationError,
+                match=(
+                    "Subagent preset 'approval-child' uses manual approvals, "
+                    "which are not supported for subagents yet."
+                ),
+            ):
+                await agent_preset_service.update_preset(parent, update)
+            return
+        updated = await agent_preset_service.update_preset(parent, update)
+        (binding,) = ResolvedAgentsConfig.model_validate(updated.agents).subagents
+        assert binding.preset_id == child.id
+        assert binding.preset_version_id == child.current_version_id
 
     async def test_update_parent_rechecks_subagent_before_saving_head(
         self,

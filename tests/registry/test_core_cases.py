@@ -27,6 +27,7 @@ from tracecat_registry.core.cases import (
     get_comment_thread,
     list_attachments,
     list_cases,
+    list_cases_by_row,
     list_comment_threads,
     list_comments,
     remove_case_tag,
@@ -1343,3 +1344,49 @@ class TestCoreUploadAttachmentFromURL:
                 case_id=case_id,
                 url="https://example.com/docs/report.pdf",
             )
+
+
+@pytest.mark.anyio
+async def test_list_cases_by_row_returns_items(
+    mock_cases_client: AsyncMock,
+) -> None:
+    mock_cases_client.list_linked_cases.return_value = {
+        "items": [{"id": "case-1"}],
+        "next_cursor": "next",
+    }
+
+    result = await list_cases_by_row(
+        table_id="table-id",
+        row_id="row-id",
+        exclude_case_id="CASE-0001",
+        limit=10,
+        cursor="ignored-without-paginate",
+    )
+
+    assert result == [{"id": "case-1"}]
+    mock_cases_client.list_linked_cases.assert_awaited_once_with(
+        "table-id", "row-id", limit=10, exclude_case_id="CASE-0001"
+    )
+
+
+@pytest.mark.anyio
+async def test_list_cases_by_row_paginate_returns_response(
+    mock_cases_client: AsyncMock,
+) -> None:
+    response = {"items": [], "next_cursor": None}
+    mock_cases_client.list_linked_cases.return_value = response
+
+    result = await list_cases_by_row(
+        table_id="table-id", row_id="row-id", cursor="abc", paginate=True
+    )
+
+    assert result is response
+    mock_cases_client.list_linked_cases.assert_awaited_once_with(
+        "table-id", "row-id", limit=100, cursor="abc"
+    )
+
+
+@pytest.mark.anyio
+async def test_list_cases_by_row_rejects_large_limit() -> None:
+    with pytest.raises(TracecatValidationError):
+        await list_cases_by_row(table_id="t", row_id="r", limit=10_000)

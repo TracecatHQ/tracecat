@@ -153,3 +153,84 @@ The ID or short ID (e.g. CASE-0042) of the case to retrieve.
   args:
     case_id: ${{ TRIGGER.case_id }}
 ```
+
+## `core.cases.list_cases_by_row`
+
+List the cases that link a table row.
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+### Inputs
+
+<ParamField path="row_id" type="string" required>
+
+The ID of the linked row.
+
+</ParamField>
+
+<ParamField path="table_id" type="string" required>
+
+The ID of the table that contains the row.
+
+</ParamField>
+
+<ParamField path="cursor" type="string | null">
+
+Pagination cursor used to fetch a specific page when paginate=true.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="exclude_case_id" type="string | null">
+
+The ID or short ID (e.g. CASE-0042) of a case to leave out, usually the current case.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="limit" type="integer">
+
+Maximum number of cases to return.
+
+Default: `100`.
+
+</ParamField>
+
+<ParamField path="order_by" type="string | null">
+
+The field to order the cases by.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="paginate" type="boolean">
+
+If true, return cursor pagination metadata along with items.
+
+Default: `false`.
+
+</ParamField>
+
+<ParamField path="sort" type="string | null">
+
+The direction to order the cases by.
+
+Default: `null`.
+
+</ParamField>
+
+### Examples
+
+**List other cases that link a row**
+
+```yaml
+- ref: related_cases
+  action: core.cases.list_cases_by_row
+  args:
+    table_id: ${{ ACTIONS.linked_rows.result[0].table_id }}
+    row_id: ${{ ACTIONS.linked_rows.result[0].row_id }}
+    exclude_case_id: ${{ TRIGGER.case_id }}
+```

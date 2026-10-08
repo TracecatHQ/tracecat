@@ -250,3 +250,19 @@ async def test_update_comment_simple_only_sends_content(
         "/comments/comment-id/simple",
         json={"content": "Updated content"},
     )
+
+
+@pytest.mark.anyio
+async def test_list_linked_cases_uses_table_row_path(
+    cases_client: CasesClient, mock_tracecat_client: MagicMock
+) -> None:
+    mock_tracecat_client.get.return_value = {"items": [], "next_cursor": None}
+
+    await cases_client.list_linked_cases(
+        "table-id", "row-id", limit=5, exclude_case_id="CASE-0001", sort="asc"
+    )
+
+    mock_tracecat_client.get.assert_called_once_with(
+        "/tables/table-id/rows/row-id/cases",
+        params={"limit": 5, "sort": "asc", "exclude_case_id": "CASE-0001"},
+    )

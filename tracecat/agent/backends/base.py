@@ -70,6 +70,9 @@ class AgentBackend[InputT, OutputT](ABC):
     supported_harnesses: ClassVar[frozenset[str]]
     history: ClassVar[SessionHistoryAdapter | None] = None
     reference_capabilities: ClassVar[tuple[ReferenceCapabilities, ...]] = ()
+    # Whether preset subagents may require manual approval. A backend that sets
+    # this must hold their tool calls until a decision in the parent turn.
+    subagent_approvals: ClassVar[bool] = False
     task_queue: ClassVar[str]
     priority: ClassVar[Priority] = Priority()
     retry_policy: ClassVar[RetryPolicy] = RetryPolicy(maximum_attempts=1)
