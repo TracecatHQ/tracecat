@@ -10,38 +10,99 @@ Open `Agents` from the workspace navigation to create one, then run it from a wo
 
 ![Agents page](/img/agents/agents-list.png)
 
+Each row shows the preset's tool sources as icons, its MCP integrations after a divider, the number of registry tools, the model, and the last update.
+Hover an icon to see its namespace or MCP server.
+
 ## Configure a preset
 
 Click `Create new`, name the preset, and write instructions in the editor.
-Use the `Tools` tab to select the model, allowed Tracecat actions, and MCP integrations, and the `Skills` tab to attach published [skills](/agents/skills).
+Use the tabs in the side panel for the rest of the configuration:
+
+- `Tools`: Set `Model`, `Thinking`, `Internet access`, and `Retries`, then choose the tools the agent can call.
+- `Subagents`: Attach other presets the agent can delegate to.
+- `Skills`: Attach published [skills](/agents/skills#attach-skills-to-a-preset-agent).
+- `Output`: Choose the format of the agent's final answer.
 
 ![Agent preset tools](/img/agents/agent-preset-tools.png)
+
+The `Tools` list groups tools by namespace.
+Each group shows how many of its tools the preset uses, such as `5 of 35`, and expands to list them.
+MCP integrations appear in the same list with an `MCP` badge, and tools from attached skills appear under `From skills`.
+
+Click `Publish version` in the top right to save a change in any tab.
+
+## Add tools
+
+1. In the `Tools` tab, click `Add tools`.
+2. Search by name, or pick a source on the left: `All tools`, `Selected`, an MCP server, or a registry namespace.
+3. Check each tool the agent needs. With a namespace selected on the left, the checkbox in the list header selects every tool in it. An MCP server is one checkbox for the whole server.
+4. Click `Done`, then `Publish version`.
+
+![Add tools dialog](/img/agents/agent-preset-tool-picker.png)
+
+The footer counts the selected tools against the limit, such as `16 of 128 tools`.
+Registry actions from the preset and its skills count toward the limit. MCP tools do not.
+`Done` is disabled while the selection is over the limit, and Tracecat rejects a save over the limit with a message such as `This agent has 160 tools; the limit is 128.`
+
+To remove a tool, hover its row and click the remove button, or right-click a group and choose `Remove all`.
+
+Each tool has an `Auto` or `Ask` toggle. See [Human-in-the-loop](/agents/human-in-the-loop#set-approvals-on-a-preset) to require approval before a tool runs.
+
+## Add subagents
+
+A preset can delegate work to other presets in the workspace.
+
+1. In the `Subagents` tab, click `Add subagent` and choose a preset.
+2. Expand the row and set:
+   - `Alias`: The name the parent agent uses for the subagent. It defaults to the preset slug and must be unique on the parent.
+   - `Delegate when`: When the parent should hand work to this subagent.
+   - `Max turns`: The most turns the subagent can take. Leave it empty for no limit.
+3. Click `Publish version`.
+
+![Subagents tab](/img/agents/agent-preset-subagents.png)
+
+Each row shows the subagent's name, model, and alias. Click the name to open that preset.
+
+A preset with its own subagents cannot be attached.
+A preset with tools set to `Ask` can be attached only when an enabled agent backend supports subagent approvals.
+The picker flags a preset that cannot be attached. Hover the row to see the reason.
+
+## Set the output format
+
+In the `Output` tab, choose a `Format`:
+
+- `Text`: The agent returns plain text. This is the default.
+- `Structured`: The agent returns one typed value. Choose a `Type` of `String`, `Integer`, `Float`, or `Boolean`, and turn on `List of values` to return a list.
+- `JSON schema`: The agent returns JSON that matches the schema you enter.
+
+![Output tab](/img/agents/agent-preset-output.png)
+
+Keep `Text` unless a downstream step needs structured output.
+
+To get structured output from a single workflow step without changing the preset, set
+`output_type` on the `ai.preset_agent` action. It replaces the preset's output type for that run.
 
 ## Where tools come from
 
 Three sources on the preset side make up what the agent can call:
 
-- **Registry actions** on the preset, chosen in the `Tools` tab. The usual home for
+- Registry actions on the preset, added in the `Tools` tab. The usual home for
   actions only this agent needs.
-- **MCP integrations** attached to the preset, also in the `Tools` tab. An MCP
+- MCP integrations attached to the preset, also in the `Tools` tab. An MCP
   integration reaches a preset directly and does not need to go through a skill.
-- **A skill's [`metadata.tools`](/agents/skills#declare-tools-in-frontmatter)**, which
+- A skill's [`metadata.tools`](/agents/skills#declare-tools-in-frontmatter), which
   takes registry actions and MCP references alike. Tools declared here travel with the
   skill's instructions, so a group several agents reuse stays in one place.
 
-The effective tool set is the union of the three. A `namespaces` restriction on the preset
-filters the registry actions in that set; MCP tools are not filtered by it.
+The effective tool set is the union of the three. A `namespaces` filter set on the preset
+through the API narrows the registry actions in that set; MCP tools are not filtered by it.
+The `Tools` tab shows how many listed tools the filter blocks, with `Clear` to remove it.
 
 A workflow run can swap one piece out. The `actions` input on the `ai.preset_agent` action
 replaces the preset's registry actions for that run instead of adding to them, so registry
 actions a skill contributed are dropped for the run. MCP tools stay either way, and an
 empty list is ignored. It is handy for running a preset with a different tool set in a
 test or an eval.
-
-Leave `output_type` unset unless you specifically need structured output for a downstream step.
-
-To get structured output from a single workflow step without changing the preset, set
-`output_type` on the `ai.preset_agent` action. It replaces the preset's output type for that run.
 
 ## Availability
 
@@ -58,5 +119,6 @@ Enterprise adds:
 ## Related pages
 
 - See [AI agent](/agents/ai-agent#ai-preset-agent) for the `ai.preset_agent` inputs and examples.
+- See [Human-in-the-loop](/agents/human-in-the-loop) to require approval before a tool runs.
 - See [Skills](/agents/skills) to attach reusable instructions and files to a preset.
 - See [MCP servers](/automations/integrations/mcp-integrations) to connect servers a preset can call.
