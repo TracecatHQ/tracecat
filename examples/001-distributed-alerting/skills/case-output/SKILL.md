@@ -31,7 +31,7 @@ Two kinds of text go into every report.
 - the brief below the Verdict line;
 - the evidence table.
 
-The status word appears only in the fixed parts (the status line, the Verdict line and the card's Verdict row), never in a section body. That is how every place the status appears agrees with the status rule.
+The case's current status is stated only in the fixed parts (the status line, the Verdict line and the card's Verdict row), never in a section body. That is how every place the status appears agrees with the status rule. The closure text is not a statement of the current status: the fixed closure sentences and the bullet labels `Benign if`, `Escalate if` and `Inconclusive if` name outcomes the case could move to, and they stay.
 
 ## Oversight boundaries
 
@@ -51,7 +51,7 @@ The status word appears only in the fixed parts (the status line, the Verdict li
 - Do not reference playbook, step or check numbers. State the finding and the evidence. Do not repeat a sentence across sections.
 - Tables are for identifiers, timestamps and counts only. Reasoning is prose.
 - Use they for any person whose pronouns are not stated.
-- Formatting: every identifier in an inline code span (ARNs, session names, usernames, account IDs, regions, IP addresses, domains, pod, node, cluster and bucket names, finding IDs and types, case IDs); every date and time in an inline code span as `17 Sep 2026, 03:47 UTC`, never ISO with a T or a Z, including inside the findings table; a blank line before every list or table; every bullet and table row on its own line.
+- Formatting, in the case description only (the Slack card, the brief, the evidence table and thread replies follow the formatting rules in their own sections below): every identifier in an inline code span (ARNs, session names, usernames, account IDs, regions, IP addresses, domains, pod, node, cluster and bucket names, finding IDs and types, case IDs); every date and time in an inline code span as `17 Sep 2026, 03:47 UTC`, never ISO with a T or a Z, including inside the findings table; a blank line before every list or table; every bullet and table row on its own line.
 - Links: every case reference is a markdown link built from the workspace case URL (guardduty-case-lifecycle) with the ID swapped; every finding ID links to `https://<region>.console.aws.amazon.com/guardduty/home?region=<region>#/findings?fId=<id>`.
 - Never include a query, a table name, a tool name, a filter, a log source name, a field name, or any identifier ending in `_logs` anywhere, including the Appendix; describe records in plain words: "the account activity records", "the network flow records".
 - Never write "likely benign", "probably", "looks like normal", "definitely" or "proven" in the sections before `happened_before`.
@@ -116,7 +116,7 @@ Nothing in the body may depend on the Appendix.
 
 ## Case description
 
-Assemble the description in exactly this order, with a blank line between parts. Status, reason, confidence and severity come from guardduty-case-lifecycle stage 6. Times are in reader format.
+Assemble the description in exactly this order, with a blank line between parts. Status, reason and severity come from guardduty-case-lifecycle stage 6. Confidence is `disposition.confidence` from the investigation record. Times are in reader format.
 
 1. **The status line:**
    `**Status:** <status>. <reason>. Confidence: <confidence>.`
@@ -125,11 +125,12 @@ Assemble the description in exactly this order, with a blank line between parts.
 3. `## What is needed to close the case?`, then:
    - **The closure sentence, first, when one applies:**
      - linked email set: `<linked person> has been asked in the Slack thread to confirm or deny this activity. A yes moves the case to Benign; a no moves it to Escalate.`
+     - linked email set, but the delivery skill found no Slack user for it (it makes this correction after its lookup): `<linked person> could not be found in Slack and has not been asked. The security team asks them directly. A yes moves the case to Benign; a no moves it to Escalate.`
      - otherwise a customer deployment set: `The account owner for <customer> asks the customer to confirm or deny this workflow activity. A yes moves the case to Benign; a no moves it to Escalate.`
    - Your `needed_to_close` body.
-   - `Due by `<due time>`.`, followed by ` The case remains Open until then.` when the status is Open.
+   - ``Due by `<due time>`.``, followed by ` The case remains Open until then.` when the status is Open.
 4. `## Appendix`, then:
-   - The Report line: `- Report: `<report time>`, severity <severity>, author Socky through the Triage alerts workflow, next update `<next update time>``.
+   - The Report line: `` - Report: `<report time>`, severity <severity>, author Socky through the Triage alerts workflow, next update `<next update time>` ``. The two times sit in inline code spans, as shown.
    - Your four bullets.
 
 ## Slack card
@@ -141,8 +142,8 @@ The fixed rows:
 | Row | Value |
 |---|---|
 | Verdict | `<status> · <confidence>` |
-| Account | `<deployment name> (<account id>)` |
-| Object | the resource |
+| Account | `<deployment name or Unknown deployment> (<account id>)` |
+| Object | the resource, or `not recorded` |
 | Seen | `<first seen> to <last seen>, <count> events` |
 | Finding IDs | the finding ids |
 
@@ -172,6 +173,8 @@ Its first line is fixed: `*Verdict:* <status>, <confidence> confidence. <reason 
 
 The whole brief, with the Verdict line, is 450 characters or fewer, so your four labelled lines are 350 characters or fewer. Backticks go only around machine identifiers (ARNs, usernames, IDs, domains, addresses, finding types), never around a person's name, an email or a date.
 
+On a re-triage the delivery skill ends the edited brief with one more line, `_Updated <report time>_`. It is part of the layout, comes after the Invariant line, and does not count toward the 450 characters.
+
 Example: `*What happened:* CI role `ExampleCiPublisherRole` pushed images to the staging registry in the CI account.` then `*Next steps:*` and two or three numbered steps such as `1. Platform: name the job using this role`, then `*Attribution:* The session claims a CI job number; its operator remains unresolved.` then `*Invariant:* Only publishers listed in the approved deploy paths may publish ECR images in the CI account.`
 
 No closure criteria, no explanations, no history, no due dates: those live in the case. Every fact in the brief is also in the case; it is a digest, never new information.
@@ -198,7 +201,7 @@ A mention of the bot in a Slack thread reaches you through slack-case-threads, w
 
 Decide what the message asks for, then do exactly this:
 
-- **Reply once in the thread** with the Slack post message tool: the channel and thread timestamp of the mention, the text in `markdown_text`, link unfurling off. Line one answers the message in one or two sentences, first. Then a bulleted list, one line per bullet, each starting with `- `, only bullets that change what the reader should do. Every identifier in backticks. If something is unconfirmed, the last bullet starts with `Open:`. If a check was run, the last line says what was checked in plain words. No headings, no dashes as punctuation inside sentences, no queries, no table or field names.
+- **Reply once in the thread** with the Slack post message tool: the channel and thread timestamp of the mention, the text in `markdown_text`, link unfurling off. `markdown_text` is right here because this reply is Markdown with bullets; the `text` only rule in the delivery files covers the brief, the evidence table and the owner ask. Line one answers the message in one or two sentences, first. Then a bulleted list, one line per bullet, each starting with `- `, only bullets that change what the reader should do. Every identifier in backticks. If something is unconfirmed, the last bullet starts with `Open:`. If a check was run, the last line says what was checked in plain words. No headings, no dashes as punctuation inside sentences, no queries, no table or field names.
 - **Comment once on the case** with the case comment tool: the same content as the reply, written as prose sentences without bullets or backticks, prefixed `Slack: `.
 - **An investigative question** is answered with the same method and evidence rules as a triage: lead with the answer, then the evidence it rests on, then anything you could not check. Run every query that could change the answer. Use the case description and the case's findings first; they are what the team already sees.
 - **A request to contact someone** gets at most one direct message, written as one precise question in the "Who can answer" shape from the hypothesis library ("Did you <action> on <resource> in <cluster or account> at <UTC time>, and what were you doing?") with the case link. It asks for their account of events; it is not an accusation. The thread reply says who was asked. If the person to ask is not mentioned in the message, send nothing, and the reply names the role to ask, from the case's open questions, without claiming anyone has been contacted.
@@ -226,5 +229,5 @@ Read the assembled description, the card rows and the brief once more against th
 - 720 words or fewer before `## Appendix`, and about 400 to the end of `needed_to_close`.
 - When the status is Open, including a Benign that reads Open while a linked person is asked, the reason never says benign, expected, normal or likely.
 - The brief is 450 characters or fewer with its Verdict line, so 350 or fewer for your four lines. Next steps are 8 words or fewer each (the owner question excepted) and the Invariant 18 words or fewer. No backticks around a person's name, an email or a date in the brief. The only `<@…>` mention in the brief is the owner question in step 1.
-- The status word appears only in the status line, the Verdict line and the card's Verdict row.
+- The case's current status is stated only in the status line, the Verdict line and the card's Verdict row. The fixed closure sentences and the `Benign if`, `Escalate if` and `Inconclusive if` labels are the only other places a status word appears.
 - No one is named as having done something, and any person whose pronouns are not stated is "they".

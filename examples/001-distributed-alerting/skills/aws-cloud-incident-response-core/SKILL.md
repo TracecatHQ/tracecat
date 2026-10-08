@@ -4,6 +4,9 @@ description: Load before the first query of any AWS GuardDuty case investigation
 metadata:
   tools:
     - tools.aws_boto3.call_api
+    - core.cases.search_cases
+    - core.cases.get_case
+    # Plus the threat enrichment actions your install has. Add their names here.
 ---
 
 
@@ -27,7 +30,7 @@ For findings on shared clusters, when business-context names a shared workload r
 - All times in UTC. Investigation fields may use ISO 8601; the report sections never do (case-output).
 - Bound every SIEM query by its time column (`receivedAt` in the examples, `<adapt to your SIEM>`) and use LIMIT. Prefer source specific tables or views over a catch-all log table.
 - A failed query or tool error is a pipeline issue. Report it in `platform_notes`, not as uncertainty about the activity.
-- Before you say what an API call did, read the event's `errorCode` and `errorMessage`. A call that returned an error was attempted, not done, and the report says so: `DeleteBucket` returning `BucketNotEmpty` means the bucket was not deleted. Only a call with no error code changed anything.
+- Before you say what an API call did, read the event's `errorCode` and `errorMessage`. A call that returned an error was attempted, not done, and the report says so: `DeleteBucket` returning `BucketNotEmpty` means the bucket was not deleted. A call with no error code succeeded, which for a `Get`, `List` or `Describe` call changes nothing. Say a call changed something only when it is a write call with no error code, and the response or a later record shows the change.
 - A query that returns exactly its LIMIT has been cut off, so it does not show the whole sequence. Before you describe what an actor did to the flagged resource, read the sequence to its last call, including the minutes after the finding's last seen time, and say for each delete, detach or disable on that resource whether it took effect.
 - An AIPA instance profile ID and an AROA role ID are different object types. They never match, and that is expected.
 - For an EKS worker node, ownership comes from the cluster and nodegroup, not the node's own tags.
@@ -53,10 +56,10 @@ Never leave an external indicator with no enrichment field. The three states are
 Every case names an actor. Say what kind it is, with the evidence, before writing decision questions. Fill `actor.identity_type` with one of `human`, `automation`, `service`, `unknown` and `actor.identity_evidence` with one line naming what decided it.
 
 - **Principal type** from `userIdentity.type`: IAMUser, AssumedRole, FederatedUser, AWSService, Root. An AssumedRole session under an `AWSReservedSSO_` role is an IAM Identity Center sign in; its session name is the SSO username.
-- **User agent family** across the session's events: a browser string means a person at the console; `aws-cli`, `aws-sdk`, `Terraform`, `Go-http-client` and similar mean tooling, which a person or a pipeline can drive; an `*.amazonaws.com` agent is an AWS service acting on the principal's behalf.
+- **User agent family** across the session's events: a browser string is consistent with a person at the console and is a clue, not proof: classify the actor as `human` only with the sign in or SSO session evidence in the next bullet; `aws-cli`, `aws-sdk`, `Terraform`, `Go-http-client` and similar mean tooling, which a person or a pipeline can drive; an `*.amazonaws.com` agent is an AWS service acting on the principal's behalf.
 - **Sign in evidence**: a successful `ConsoleLogin` or SSO `Authenticate` event with MFA shortly before the activity is strong evidence of a person.
 - **Same identity, wider window**: group the last 30 days of CloudTrail for the same session name or principal by account and user agent family. Report how many accounts, which agent families, and whether the flagged activity fits that history.
-- **Other findings for the same identity**: search the SIEM's GuardDuty records (`aws_guardduty_logs` in the examples, `<adapt to your SIEM>`) for the last 90 days for the same session name, principal, or access key. List them in `actor.other_findings` by type with count, first seen, last seen, and how any earlier case on them was closed.
+- **Other findings for the same identity**: search the SIEM's GuardDuty records (`aws_guardduty_logs` in the examples, `<adapt to your SIEM>`) for the last 90 days for the same session name, principal, or access key. List them in `history.findings_90d` by type with count, first seen, last seen and the cases holding them, and put how any earlier case on them was closed in `history.prior_cases`.
 - **Resolve to a person** through the identity sources of record, in this order. First, the employee list in business-context, if you have that skill (names and email addresses): an SSO username matches an employee when it equals the email's local part, or is the first initial plus the surname (`jdoe` matches Jane Doe, `jane.doe@example.com`). A match fills `linked_person` with the name and `linked_by` with "employee list in business context, username pattern <pattern>". Also fill `linked_email` with that person's email address from the list; guardduty-case-lifecycle tags them in the Slack thread to confirm or deny the activity. Second, IdP or directory sign in logs in the SIEM, if any are ingested: run one count query for the username first; if it has no rows, say so once in `platform_notes`. Do not retry a failed identity query more than once; read the table schema first if the failure was a column error. This limit is for identity lookups only; decisive questions are rerun after a schema check until they are answered. A username that matches no employee and no log row leaves `linked_person` null. With no business-context skill there is no employee list: use the sign in logs only.
 
 The classification is evidence, not attribution. `human` means the logs show a person's session; it never means a named person did the thing.
@@ -100,7 +103,7 @@ A question in a case thread uses the same method and evidence rules, scaled to t
 
 ### Evidence expected on every triage
 
-Each is stated as found, not found, or not collected: enrichment of each external indicator (domain, IP, hash, principal: reputation, age, ownership, and the basis for GuardDuty's classification, using your threat enrichment tools when the indicator is a domain or address); whether the activity succeeded rather than was only attempted (a resolution, a connection, an API call that returned with no error code, an authentication that completed); the mapping of each finding to its indicator; the assumption about where telemetry is complete (which network interfaces, sources, accounts), stated as an assumption.
+Each is stated as found, not found, or not collected: enrichment of each external indicator (domain, IP, hash, URL: reputation, age, ownership, and the basis for GuardDuty's classification, using your threat enrichment tools as "Enrichment" describes; an AWS principal is not an external indicator and is resolved under `actor`); whether the activity succeeded rather than was only attempted (a resolution, a connection, an API call that returned with no error code, an authentication that completed); the mapping of each finding to its indicator; the assumption about where telemetry is complete (which network interfaces, sources, accounts), stated as an assumption.
 
 ```json
 {
@@ -123,10 +126,10 @@ Each is stated as found, not found, or not collected: enrichment of each externa
   ],
   "origin_count": "one origin seen several times | several independent origins | unknown",
   "findings": [
-    { "id": "GuardDuty finding ID", "type": "Finding type", "type_meaning": "One clause on what the type means, from GuardDuty's own description, no added characterisation", "first_seen": "UTC", "last_seen": "UTC", "count": 1, "indicator": "domain, IP, hash or principal the finding is about, or null", "outcome": "succeeded | attempted | not collected", "outcome_evidence": "One line" }
+    { "id": "GuardDuty finding ID", "type": "Finding type", "type_meaning": "One clause on what the type means, from GuardDuty's own description, no added characterisation", "first_seen": "UTC", "last_seen": "UTC", "count": 1, "indicator": "domain, IP, hash, URL or principal the finding is about, or null", "outcome": "succeeded | attempted | not collected", "outcome_evidence": "One line" }
   ],
   "indicators": [
-    { "value": "exactly as logged", "kind": "domain | ip | hash | principal", "reputation": "found: <summary> | not found | not collected", "age": "found: <summary> | not found | not collected", "ownership": "found: <summary> | not found | not collected", "guardduty_basis": "why GuardDuty classified it, from the finding", "source": "the enrichment tool that was called, or null when none was" }
+    { "value": "exactly as logged", "kind": "domain | ip | hash | url", "reputation": "found: <summary> | not found | not collected", "age": "found: <summary> | not found | not collected", "ownership": "found: <summary> | not found | not collected", "guardduty_basis": "why GuardDuty classified it, from the finding", "source": "the enrichment tool that was called, or null when none was" }
   ],
   "checks": [
     { "question": "Specific question with real names and UTC times", "records": "which records, in plain words", "window": "UTC window reviewed", "resources": "which resources or interfaces", "found": "One line. What was found.", "result": "found | not observed | ruled out | not collected" }

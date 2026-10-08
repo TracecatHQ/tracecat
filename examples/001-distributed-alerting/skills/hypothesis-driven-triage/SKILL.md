@@ -10,12 +10,12 @@ The aim is a verdict a small security team can trust at a glance, backed by the 
 
 ## Method, in this order
 
-1. **Read every finding on the case in full.** Note type, severity, resource, actor, account, region, first and last seen, count, and `service.additionalInfo.sample`. Fetch the raw finding JSON with boto3 as guardduty-case-lifecycle stage 1 describes; when a finding cannot be fetched, say so in `platform_notes` and do not triage a summary.
+1. **Read every finding on the case in full.** Note type, severity, resource, actor, account, region, first and last seen, count, and the sample flag (the `sample` key in `service.additionalInfo.value`, parsed as JSON). Fetch the raw finding JSON with boto3 as guardduty-case-lifecycle stage 1 describes; when a finding cannot be fetched, say so in `platform_notes` and do not triage a summary.
 2. **Route it with business-context**, if you have that skill. Which deployment (account plus region), which workload class, who owns it, which of the three explanations (Platform, Customer, Neither) could fit, and whether a known benign pattern applies. A pattern matches only when every condition in it is met, not when the name is similar. With no business-context skill, the deployment is `Unknown`, no benign pattern applies, and you say so.
 3. **Check prior cases.** Search Tracecat cases for the same principal, resource, or finding type in the last 30 days. Note how they were closed. A prior benign closure is evidence, not a verdict.
 4. **Classify the actor** as human, automation, service, or unknown, following "Classify the actor before you triage" in aws-cloud-incident-response-core: principal type, user agent family, sign in evidence, the same identity across accounts for 30 days, other GuardDuty findings for it over 90 days, and one attempt to resolve it through the identity source of record. This is the first correlation on every case, not an optional pivot.
 5. **Pick the family** in hypothesis-library.md from the finding type. Unknown types use Generic.
-6. **Write 3 to 6 decision questions.** Start from the family list, make each one specific to this case with real names, IPs, pods and UTC times, and drop any whose answer would not change the verdict.
+6. **Write 3 to 6 decision questions.** Start from the family list, make each one specific to this case with real names, IPs, pods and UTC times, and drop any whose answer would not change the verdict. The limit is on decision questions, not on checks: the baseline and family lists are checks you still run, and one decision question can cover several of them.
 7. **Answer them from the SIEM.** At least one query per question. One line per answer: what you found and where. Bound every query by time and use LIMIT. Confirm a source has rows for the account and window before treating an empty result as meaningful.
 8. **Record what you could not answer** in `closure` and `actor.would_establish`, addressed to the role that can answer it (see "Who can answer" in the library). Never address a customer. Post only as guardduty-case-lifecycle and slack-case-threads describe.
 9. **Set the disposition** using the rules below.
@@ -42,14 +42,14 @@ The reason is mandatory. Confidence is stated once and is not a substitute for t
 
 ## Judgement
 
-- Run every check the family lists. Leaving checks unrun is a failure; leaving explanations unranked when the distinguishing evidence does not exist is correct.
+- Run every check the baseline and the family list. A check that cannot change the verdict still gets a one-line answer from the records you already hold; it does not need a decision question of its own. Leaving checks unrun is a failure; leaving explanations unranked when the distinguishing evidence does not exist is correct.
 - Strong evidence counts as strong. An MFA verified SSO login by the same person from the same IP shortly before the activity is strong evidence they were present.
 - An absent sample flag means a real finding. Only `sample: true` marks a GuardDuty sample.
-- A missing log source is a telemetry gap. State it once in `platform_notes` and base the verdict on the evidence you do have. On its own it is never the reason a case stays Open.
+- A missing log source is a telemetry gap. State it once in `platform_notes` and base the verdict on the evidence you do have. The gap is never the stated reason a case stays Open. When the evidence you do have leaves the source, actor or purpose unestablished, the case is Open and the reason names that fact; a gap never pushes a case to Benign or Escalate.
 - A failed query is not an answer. When a query errors, read the table schema, rewrite it, and run it again before recording the question as unclear; the one retry limit applies only to identity lookups. Never report a decisive question as unanswerable because of a query error.
 - Business context is evidence. When it names a schedule, a workload, a benign pattern, or a known trap that fits the finding, the verdict must say so and the questions must test it, not rediscover it.
 - When the actor is a person, named or not, pivot on the session: compare the source IP, user agent and hour with the same identity's last 30 days, check what else it did in the window across every account, and check whether it has triggered this or any other finding type before. A person who is unresolved to a name is still a person; say so plainly in the summary rather than leaving the actor as a bare role.
-- A verdict is invalid if `actor.identity_type` is `unknown` while the session carries a browser user agent, an SSO role, or a console sign in. Those decide it.
+- A verdict is invalid if `actor.identity_type` is `unknown` while the session carries an SSO role or a console sign in. Those decide it. A browser user agent on its own is a clue that needs one of them.
 - When the case holds several findings, say whether they share an actor, resource, or time window, and whether the verdict applies to all of them.
 - Run every query that could change the verdict, and stop when further answers would not change it.
 - Enrich every external indicator, whether or not it came up in a SIEM query.
