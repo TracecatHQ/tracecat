@@ -27,7 +27,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useState } from "react"
 import type {
   AgentFolderDirectoryItem,
   AgentPresetDirectoryItem,
@@ -50,7 +50,13 @@ import {
   getFileTreeItems,
   ROOT_FOLDER_NAME,
 } from "@/components/dashboard/file-tree-command"
-import { getIcon } from "@/components/icons"
+import {
+  getIcon,
+  getIconSource,
+  getMcpProviderIconId,
+  getModelProviderIconId,
+  ProviderIcon,
+} from "@/components/icons"
 import { JsonViewWithControls } from "@/components/json-viewer"
 import { CenteredSpinner, Spinner } from "@/components/loading/spinner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -1590,6 +1596,95 @@ function AgentPresetContextActions({
 
 // -- Row components ----------------------------------------------------------
 
+const TOOL_SOURCE_TILE_CAP = 8
+
+const AgentToolSources = memo(function AgentToolSources({
+  summary,
+}: {
+  summary: AgentPresetDirectoryItem["tool_summary"]
+}) {
+  const {
+    tool_count: toolCount = 0,
+    namespaces: toolNamespaces = [],
+    mcp_slugs: mcpSlugs = [],
+  } = summary ?? {}
+  if (toolCount === 0 && mcpSlugs.length === 0) {
+    return null
+  }
+
+  const sources = new Map<object | string, string[]>()
+  for (const namespace of toolNamespaces) {
+    const source = getIconSource(namespace)
+    const names = sources.get(source) ?? []
+    names.push(namespace)
+    sources.set(source, names)
+  }
+  const namespaces = [...sources.values()]
+  const hiddenNames = namespaces.slice(TOOL_SOURCE_TILE_CAP).flat().join(", ")
+
+  return (
+    <div
+      data-testid="tool-sources"
+      className="flex min-w-0 items-center gap-1 overflow-hidden"
+    >
+      {namespaces.slice(0, TOOL_SOURCE_TILE_CAP).map((names) => (
+        <Tooltip key={names[0]}>
+          <TooltipTrigger asChild>
+            <span role="img" aria-label={names.join(", ")}>
+              {getIcon(names[0], { className: "size-5 rounded border" })}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{names.join(", ")}</TooltipContent>
+        </Tooltip>
+      ))}
+      {namespaces.length > TOOL_SOURCE_TILE_CAP ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="text-[11px] text-muted-foreground">
+              +{namespaces.length - TOOL_SOURCE_TILE_CAP}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{hiddenNames}</TooltipContent>
+        </Tooltip>
+      ) : null}
+      {mcpSlugs.length > 0 ? (
+        <>
+          <span
+            role="separator"
+            aria-orientation="vertical"
+            className="mx-1 h-3.5 w-px bg-border"
+          />
+          {mcpSlugs.map((slug) => (
+            <Tooltip key={slug}>
+              <TooltipTrigger asChild>
+                <span role="img" aria-label={slug}>
+                  <ProviderIcon
+                    providerId={getMcpProviderIconId(slug)}
+                    className="size-5 rounded border"
+                  />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{slug}</TooltipContent>
+            </Tooltip>
+          ))}
+        </>
+      ) : null}
+      {toolCount > 0 ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="ml-1.5 whitespace-nowrap text-[11px] text-muted-foreground">
+              {toolCount} {toolCount === 1 ? "tool" : "tools"}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            Registry tools. MCP tools are not counted.
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+    </div>
+  )
+})
+
 function AgentCatalogRow({
   item,
   onOpenPreset,
@@ -1643,12 +1738,19 @@ function AgentCatalogRow({
               <FolderIcon className="size-4 shrink-0 text-foreground" />
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <span className={ROW_NAME_COLUMN_CLASS}>{item.name}</span>
-                <div className="flex shrink-0 items-center gap-1">
+                <div className="ml-auto flex shrink-0 items-center gap-1">
+                  <Badge
+                    variant="secondary"
+                    className="h-5 px-2 text-[10px] font-normal"
+                  >
+                    <BoxIcon className="mr-1 size-3" />
+                    {item.num_items} {itemCountLabel}
+                  </Badge>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Badge
                         variant="secondary"
-                        className="h-5 cursor-default px-2 text-[10px] font-normal"
+                        className="h-5 shrink-0 cursor-default px-2 text-[10px] font-normal"
                       >
                         <Clock3 className="mr-1 size-3" />
                         {getAgentRelativeDateLabel(item.updated_at)}
@@ -1658,13 +1760,6 @@ function AgentCatalogRow({
                       {format(new Date(item.updated_at), "PPpp")}
                     </TooltipContent>
                   </Tooltip>
-                  <Badge
-                    variant="secondary"
-                    className="h-5 px-2 text-[10px] font-normal"
-                  >
-                    <BoxIcon className="mr-1 size-3" />
-                    {item.num_items} {itemCountLabel}
-                  </Badge>
                 </div>
               </div>
             </button>
@@ -1701,20 +1796,26 @@ function AgentCatalogRow({
             <MousePointerClickIcon className="size-4 shrink-0 text-primary" />
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <span className={ROW_NAME_COLUMN_CLASS}>{item.name}</span>
-              <div className="flex min-w-0 flex-1 items-center justify-start gap-2 overflow-hidden">
+              <AgentToolSources summary={item.tool_summary} />
+              <div className="ml-auto flex shrink-0 items-center gap-2">
                 <div className="flex shrink-0 items-center gap-1">
-                  <Badge
-                    variant="secondary"
-                    className="h-5 px-2 text-[10px] font-normal"
-                  >
-                    {item.model_provider}
-                  </Badge>
-                  <Badge
-                    variant="secondary"
-                    className="h-5 px-2 text-[10px] font-normal"
-                  >
-                    {item.model_name}
-                  </Badge>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant="secondary"
+                        className="h-5 shrink-0 gap-1 px-2 text-[10px] font-normal"
+                      >
+                        <ProviderIcon
+                          providerId={getModelProviderIconId(
+                            item.model_provider
+                          )}
+                          className="size-3 rounded-none bg-transparent p-0"
+                        />
+                        {item.model_name}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent>{item.model_provider}</TooltipContent>
+                  </Tooltip>
                   {defaultAgentActions.presetId === item.id ? (
                     <Badge
                       variant="outline"
@@ -1728,7 +1829,7 @@ function AgentCatalogRow({
                     <TooltipTrigger asChild>
                       <Badge
                         variant="secondary"
-                        className="h-5 cursor-default px-2 text-[10px] font-normal"
+                        className="h-5 shrink-0 cursor-default px-2 text-[10px] font-normal"
                       >
                         <Clock3 className="mr-1 size-3" />
                         {getAgentRelativeDateLabel(item.updated_at)}
@@ -2132,6 +2233,7 @@ export function AgentsDashboard() {
         use_in_chat: preset.use_in_chat,
         model_provider: preset.model_provider,
         model_name: preset.model_name,
+        tool_summary: preset.tool_summary,
         folder_id: preset.folder_id ?? null,
         tags: preset.tags ?? [],
         created_at: preset.created_at,

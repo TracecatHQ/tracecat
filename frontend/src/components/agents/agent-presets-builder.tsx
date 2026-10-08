@@ -63,7 +63,7 @@ import {
 } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
-import { ProviderIcon } from "@/components/icons"
+import { getModelProviderIconId, ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -681,7 +681,7 @@ function AgentPresetChatPane({
       name: selectedModel?.modelName ?? effectiveModelConfig.model_name,
       provider,
       baseUrl: selectedModel?.baseUrl ?? effectiveModelConfig.base_url ?? null,
-      iconId: selectedModel?.iconId ?? getProviderIconId(provider),
+      iconId: selectedModel?.iconId ?? getModelProviderIconId(provider),
     }
   }, [effectiveModelConfig, selectedModel])
 
@@ -1149,7 +1149,7 @@ function buildEnabledModelOptions(
         sourceId: model.custom_provider_id,
         modelName: model.model_name,
         modelProvider: model.model_provider,
-        iconId: getProviderIconId(model.model_provider),
+        iconId: getModelProviderIconId(model.model_provider),
         displayName: model.model_name,
         label: model.model_name,
         metadata: model.model_provider,
@@ -1165,27 +1165,6 @@ function buildEnabledModelOptions(
       }
       return a.displayName.localeCompare(b.displayName)
     })
-}
-
-function getProviderIconId(provider: string): string {
-  switch (provider) {
-    case "anthropic":
-      return "anthropic"
-    case "azure_ai":
-    case "azure_openai":
-      return "microsoft"
-    case "bedrock":
-      return "amazon-bedrock"
-    case "gemini":
-    case "vertex_ai":
-      return "google"
-    case "mistral":
-      return "mistral"
-    case "openai":
-      return "openai"
-    default:
-      return "custom"
-  }
 }
 
 function getProviderDisplayLabel(provider: string): string {
@@ -2095,7 +2074,7 @@ function AgentPresetConfigurationPanel({
       return (
         <span className="flex min-w-0 items-center gap-2">
           <ProviderIcon
-            providerId={getProviderIconId(modelProvider)}
+            providerId={getModelProviderIconId(modelProvider)}
             className="size-4 shrink-0 rounded-none bg-transparent p-0"
           />
           <span className="truncate">{legacyModelLabel}</span>
@@ -2591,7 +2570,7 @@ function AgentPresetSubagentRow({
             className="h-5 shrink-0 gap-1 px-2 text-[10px] font-normal"
           >
             <ProviderIcon
-              providerId={getProviderIconId(preset.model_provider)}
+              providerId={getModelProviderIconId(preset.model_provider)}
               className="size-3 shrink-0 rounded-none bg-transparent p-0"
             />
             {preset.model_name}

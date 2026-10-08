@@ -241,24 +241,32 @@ export function getFlairSize(size: "sm" | "md" | "lg"): string {
   }
 }
 
-export function getIcon(key: string, props?: CustomIconProps): JSX.Element {
-  // Try exact match
-  if (UDFIcons[key]) {
-    return UDFIcons[key](props ?? {})
-  }
+function resolveIconKey(key: string): string | undefined {
   const segments = key.split(".")
-  // Try all until last segment
   for (let i = segments.length; i > 0; i--) {
     const subKey = segments.slice(0, i).join(".")
     if (UDFIcons[subKey]) {
-      return UDFIcons[subKey](props ?? {})
+      return subKey
     }
   }
+  return undefined
+}
 
-  // Try top level namespace match
-  const topLevelNamespace = segments[0]
-  if (UDFIcons[topLevelNamespace]) {
-    return UDFIcons[topLevelNamespace](props ?? {})
+/** Return a stable identity for the icon shared by action or namespace keys. */
+export function getIconSource(key: string): object | string {
+  const resolvedKey = resolveIconKey(key)
+  if (!resolvedKey) {
+    return "default"
+  }
+  const renderer: IconRenderer = UDFIcons[resolvedKey]
+  return renderer.source ?? renderer
+}
+
+/** Render the closest matching action or namespace icon. */
+export function getIcon(key: string, props?: CustomIconProps): JSX.Element {
+  const resolvedKey = resolveIconKey(key)
+  if (resolvedKey) {
+    return UDFIcons[resolvedKey](props ?? {})
   }
 
   // return default icon
@@ -278,23 +286,32 @@ export function getIcon(key: string, props?: CustomIconProps): JSX.Element {
 export const basicIconsCommon =
   "flex p-1 shrink-0 rounded-full items-center justify-center bg-muted"
 
+type IconRenderer = ((props: CustomIconProps) => JSX.Element) & {
+  source?: object
+}
+
 function createIconRenderer(
   Icon: (props: IconProps) => JSX.Element,
   options?: { wrapperClassName?: string; iconClassName?: string }
 ) {
-  return ({
+  function renderIcon({
     className,
     iconClassName,
     flairsize: _unusedFlairSize,
     ...rest
-  }: CustomIconProps) => (
-    <div className={cn(basicIconsCommon, options?.wrapperClassName, className)}>
-      <Icon
-        {...rest}
-        className={cn("size-full", options?.iconClassName, iconClassName)}
-      />
-    </div>
-  )
+  }: CustomIconProps) {
+    return (
+      <div
+        className={cn(basicIconsCommon, options?.wrapperClassName, className)}
+      >
+        <Icon
+          {...rest}
+          className={cn("size-full", options?.iconClassName, iconClassName)}
+        />
+      </div>
+    )
+  }
+  return Object.assign(renderIcon, { source: Icon })
 }
 
 function createCatalogIconRenderer(
@@ -302,27 +319,33 @@ function createCatalogIconRenderer(
   options?: { wrapperClassName?: string; iconClassName?: string }
 ) {
   const Icon = mcpCatalogProviderIcons[key]
-  return ({ className, iconClassName, ...rest }: CustomIconProps) =>
-    Icon({
+  function renderIcon({ className, iconClassName, ...rest }: CustomIconProps) {
+    return Icon({
       ...rest,
       className: cn(basicIconsCommon, options?.wrapperClassName, className),
       iconClassName: cn(options?.iconClassName, iconClassName),
     })
+  }
+  return Object.assign(renderIcon, { source: Icon })
 }
 
 function createColoredLucideRenderer(Icon: LucideIcon, colorClassName: string) {
-  return ({
+  function renderIcon({
     className,
     iconClassName,
     flairsize: _unusedFlairSize,
     ...rest
-  }: CustomIconProps) => (
-    <div className={cn(basicIconsCommon, colorClassName, className)}>
-      <Icon className={iconClassName} {...rest} />
-    </div>
-  )
+  }: CustomIconProps) {
+    return (
+      <div className={cn(basicIconsCommon, colorClassName, className)}>
+        <Icon className={iconClassName} {...rest} />
+      </div>
+    )
+  }
+  return Object.assign(renderIcon, { source: Icon })
 }
 
+/** Icon renderers keyed by registry action or namespace. */
 export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
   {
     // Triggers namespace
@@ -1074,6 +1097,28 @@ const mcpProviderIconAliases: Record<string, string> = {
   "secure-annex-mcp": "secureannex_mcp",
   secureannex: "secureannex_mcp",
   "secureannex-mcp": "secureannex_mcp",
+}
+
+/** Map a model provider to its shared provider icon. */
+export function getModelProviderIconId(provider: string): string {
+  switch (provider) {
+    case "anthropic":
+      return "anthropic"
+    case "azure_ai":
+    case "azure_openai":
+      return "microsoft"
+    case "bedrock":
+      return "amazon-bedrock"
+    case "gemini":
+    case "vertex_ai":
+      return "google"
+    case "mistral":
+      return "mistral"
+    case "openai":
+      return "openai"
+    default:
+      return "custom"
+  }
 }
 
 export function getMcpProviderIconId(slug: string | null | undefined): string {
