@@ -1,0 +1,24 @@
+examples/001-distributed-alerting/README.md
+  s_83bf14aae93893::t_821e5b2ecc627d 188,191
+examples/001-distributed-alerting/workflow.md
+  s_83bf14aae93893::t_821e5b2ecc627d 241-242,265
+  s_83bf14aae93893::t_c169ca96dc0108 266
+examples/001-distributed-alerting/skills/detection-event-case-lifecycle/SKILL.md
+  s_83bf14aae93893::t_821e5b2ecc627d 85-86,91,93,95,111,144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "393ab647a8d2e756df4cd98d6020156d04971d47",
+  "prompts": {},
+  "sessions": {
+    "s_83bf14aae93893": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "787e3dff-fab1-4f72-b752-15660565215d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
