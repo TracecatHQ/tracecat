@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -275,6 +276,31 @@ describe("Store list", () => {
     expect(
       screen.getByRole("button", { name: "Copy permissions policy" })
     ).toHaveTextContent("Copy")
+  })
+
+  it("ignores a copy that finishes after switching policy tabs", async () => {
+    mockStores = [enabledStore()]
+    const user = userEvent.setup()
+    let finishCopy: () => void = () => {}
+    jest.spyOn(navigator.clipboard, "writeText").mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishCopy = resolve
+        })
+    )
+    renderSettings()
+    await user.click(screen.getByRole("button", { name: "prod" }))
+
+    await user.click(screen.getByRole("button", { name: "Copy trust policy" }))
+    await user.click(screen.getByRole("tab", { name: "Permissions policy" }))
+    await act(async () => finishCopy())
+
+    expect(
+      screen.getByRole("button", { name: "Copy permissions policy" })
+    ).toHaveTextContent("Copy")
+    expect(
+      screen.getByRole("button", { name: "Copy permissions policy" })
+    ).not.toHaveTextContent("Copied")
   })
 
   it("offers finish setup and edit, but not enable, while setup is incomplete", async () => {

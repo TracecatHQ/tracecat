@@ -320,12 +320,12 @@ function PolicyBlock({
 
 function StorePolicies({ store }: { store: SecretStoreRead }) {
   const [activeId, setActiveId] = React.useState("trust")
-  const [copied, setCopied] = React.useState(false)
+  const [copiedId, setCopiedId] = React.useState<string | null>(null)
   React.useEffect(() => {
-    if (!copied) return
-    const timer = setTimeout(() => setCopied(false), 2000)
+    if (!copiedId) return
+    const timer = setTimeout(() => setCopiedId(null), 2000)
     return () => clearTimeout(timer)
-  }, [copied])
+  }, [copiedId])
   const policies = [
     {
       id: "trust",
@@ -345,12 +345,13 @@ function StorePolicies({ store }: { store: SecretStoreRead }) {
     },
   ]
   const active = policies.find((item) => item.id === activeId) ?? policies[0]
+  const copied = copiedId === active.id
   return (
     <Tabs
       value={active.id}
       onValueChange={(id) => {
         setActiveId(id)
-        setCopied(false)
+        setCopiedId(null)
       }}
       className="min-w-0 rounded-md border"
     >
@@ -373,11 +374,12 @@ function StorePolicies({ store }: { store: SecretStoreRead }) {
           className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
           aria-label={`Copy ${active.title.toLowerCase()}`}
           onClick={async () => {
+            const policyId = active.id
             const landed = await copyToClipboard({
               value: active.policy,
               message: `Copied ${active.title.toLowerCase()}`,
             })
-            setCopied(landed)
+            if (landed) setCopiedId(policyId)
           }}
         >
           {copied ? (

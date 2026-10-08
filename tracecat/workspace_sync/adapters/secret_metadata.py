@@ -9,8 +9,9 @@ import sqlalchemy as sa
 from pydantic import BaseModel, SecretStr
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from tracecat_ee.secrets.references.service import SecretReferencesService
 
-from tracecat.db.models import Secret
+from tracecat.db.models import OrganizationSecretStore, Secret
 from tracecat.exceptions import TracecatAuthorizationError
 from tracecat.secrets.enums import SecretSource, SecretType
 from tracecat.secrets.schemas import (
@@ -185,6 +186,21 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             owner_label="secret",
         )
 
+        references: SecretReferencesService | None = None
+        if any(
+            spec.source == SecretSource.AWS_SECRETS_MANAGER
+            for spec in secret_metadata.values()
+        ):
+            await check_entitlement(
+                workspace_service.session,
+                workspace_service.role,
+                Entitlement.EXTERNAL_SECRET_STORES,
+            )
+            references = SecretReferencesService(
+                session=workspace_service.session, role=workspace_service.role
+            )
+        stores_by_name: dict[str, OrganizationSecretStore] = {}
+
         for source_id, spec in sorted(secret_metadata.items()):
             secret = await self._secret_for_import(
                 workspace_service,
@@ -192,9 +208,17 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 spec=spec,
                 swap=swap,
             )
-            if spec.source == SecretSource.AWS_SECRETS_MANAGER:
+            if (
+                references is not None
+                and spec.source == SecretSource.AWS_SECRETS_MANAGER
+            ):
                 secret = await self._import_external_reference(
-                    workspace_service, source_id=source_id, spec=spec, secret=secret
+                    workspace_service,
+                    references=references,
+                    stores_by_name=stores_by_name,
+                    source_id=source_id,
+                    spec=spec,
+                    secret=secret,
                 )
                 imported.append(self.imported_resource(source_id, secret.id))
                 continue
@@ -271,6 +295,8 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         self,
         workspace_service: SyncMappingService,
         *,
+        references: SecretReferencesService,
+        stores_by_name: dict[str, OrganizationSecretStore],
         source_id: str,
         spec: SecretMetadataResourceSpec,
         secret: Secret | None,
@@ -301,24 +327,17 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 "AWS-backed secrets must use the custom type."
             )
         _require_reference_name(source_id, spec.name)
-        await check_entitlement(
-            workspace_service.session,
-            workspace_service.role,
-            Entitlement.EXTERNAL_SECRET_STORES,
-        )
-        from tracecat_ee.secrets.references.service import SecretReferencesService
-
-        references = SecretReferencesService(
-            session=workspace_service.session, role=workspace_service.role
-        )
-        try:
-            store = await references.get_authorized_store_by_name(spec.store)
-        except TracecatAuthorizationError as e:
-            raise ValueError(
-                f"Secret metadata sync source id {source_id!r} reads from secret "
-                f"store {spec.store!r}, which does not exist or is not authorized "
-                "for this workspace."
-            ) from e
+        store = stores_by_name.get(spec.store)
+        if store is None:
+            try:
+                store = await references.get_authorized_store_by_name(spec.store)
+            except TracecatAuthorizationError as e:
+                raise ValueError(
+                    f"Secret metadata sync source id {source_id!r} reads from "
+                    f"secret store {spec.store!r}, which does not exist or is not "
+                    "authorized for this workspace."
+                ) from e
+            stores_by_name[spec.store] = store
         try:
             references.validate_reference(store, spec.remote_reference)
         except ValueError as e:

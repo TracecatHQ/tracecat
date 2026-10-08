@@ -24,6 +24,7 @@ from pydantic import SecretStr, ValidationError
 from pydantic_core import PydanticSerializationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tracecat_ee.secrets.references.service import SecretReferencesService
 
 from tests.support.fake_vcs import FakeVcsServer
 from tracecat import config
@@ -7343,6 +7344,7 @@ async def test_secret_metadata_import_requires_external_secret_stores_entitlemen
 async def test_secret_metadata_import_rejects_external_spec_for_local_secret(
     session: AsyncSession,
     svc_role: Role,
+    external_secret_stores_entitled: AsyncMock,
 ) -> None:
     await _aws_store(session, svc_role)
     secret_service = SecretsService(session=session, role=svc_role)
@@ -7360,6 +7362,45 @@ async def test_secret_metadata_import_rejects_external_spec_for_local_secret(
 
     with pytest.raises(ValueError, match="stored in Tracecat"):
         await _import_secret_spec(session, svc_role, _aws_secret_spec())
+
+
+@pytest.mark.anyio
+async def test_secret_metadata_import_checks_entitlement_and_store_once_per_pull(
+    session: AsyncSession,
+    svc_role: Role,
+    external_secret_stores_entitled: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _aws_store(session, svc_role)
+    store_lookup = AsyncMock(wraps=SecretReferencesService.get_authorized_store_by_name)
+
+    async def lookup(self: SecretReferencesService, name: str):
+        return await store_lookup(self, name)
+
+    monkeypatch.setattr(SecretReferencesService, "get_authorized_store_by_name", lookup)
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    files = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
+    for name in ("vendor_api", "vendor_app"):
+        files[f"{SECRET_METADATA_ROOT}/default/{name}.yml"] = _yaml(
+            _aws_secret_spec(id=f"default/{name}", name=name)
+        )
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="s" * 40)
+    assert diagnostics == []
+
+    await WorkspaceResourceImportService(
+        session=session, role=svc_role
+    ).import_non_workflow_resources(snapshot.spec)
+
+    assert external_secret_stores_entitled.await_count == 1
+    assert store_lookup.await_count == 1
+    secrets = (
+        await session.execute(
+            select(Secret).where(Secret.workspace_id == svc_role.workspace_id)
+        )
+    ).scalars()
+    assert sorted(
+        s.name for s in secrets if s.source == SecretSource.AWS_SECRETS_MANAGER
+    ) == ["vendor_api", "vendor_app"]
 
 
 @pytest.mark.parametrize(
