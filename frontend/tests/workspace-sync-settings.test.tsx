@@ -700,6 +700,7 @@ describe("WorkspaceSyncSettings", () => {
         sync_schedules: false,
         catalog_mappings: [],
         mcp_integration_mappings: [],
+        secret_store_mappings: [],
       })
     })
     expect(screen.getByText("Included in this pull")).toBeInTheDocument()
@@ -732,6 +733,7 @@ describe("WorkspaceSyncSettings", () => {
         sync_schedules: false,
         catalog_mappings: [],
         mcp_integration_mappings: [],
+        secret_store_mappings: [],
       })
     })
   })
@@ -881,6 +883,7 @@ describe("WorkspaceSyncSettings", () => {
           },
         ],
         mcp_integration_mappings: [],
+        secret_store_mappings: [],
       })
     })
     expect(applyPullButton).toBeEnabled()
@@ -900,6 +903,7 @@ describe("WorkspaceSyncSettings", () => {
           },
         ],
         mcp_integration_mappings: [],
+        secret_store_mappings: [],
       })
     })
   })
@@ -1163,6 +1167,7 @@ describe("WorkspaceSyncSettings", () => {
             target_mcp_integration_id: targetMcpId,
           },
         ],
+        secret_store_mappings: [],
       })
     })
     expect(applyPullButton).toBeEnabled()
@@ -1182,6 +1187,7 @@ describe("WorkspaceSyncSettings", () => {
             target_mcp_integration_id: targetMcpId,
           },
         ],
+        secret_store_mappings: [],
       })
     })
   })
@@ -1344,6 +1350,7 @@ describe("WorkspaceSyncSettings", () => {
             target_mcp_integration_id: targetMcpId,
           },
         ],
+        secret_store_mappings: [],
       })
     })
     expect(applyPullButton).toBeEnabled()
