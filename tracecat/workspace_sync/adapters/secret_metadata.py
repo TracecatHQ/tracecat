@@ -233,7 +233,14 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             for store in stores
             if store.enabled
         ]
-        linked = await self._linked_reference_identities(workspace_service)
+        existing = await self._existing_secrets(
+            workspace_service,
+            {
+                source_id: spec
+                for specs in by_store.values()
+                for source_id, spec in specs
+            },
+        )
 
         correlated = dict(secret_metadata)
         requirements: list[SecretStoreMappingRequirement] = []
@@ -248,17 +255,27 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 reason: SecretStoreMappingRequirementReason = (
                     "invalid_selection" if target_id is not None else "unresolved"
                 )
-                # Secrets already linked here keep their store, so preview
-                # them against it rather than asking again.
+                # Secrets already linked here keep their store and reference,
+                # so preview and validate exactly what import will keep.
                 affected: list[tuple[str, SecretMetadataResourceSpec]] = []
                 for source_id, spec in specs:
-                    linked_store = linked.get((spec.name, spec.environment))
-                    if linked_store is None:
+                    secret = existing.get(source_id)
+                    if (
+                        secret is None
+                        or not is_external_reference(secret)
+                        or secret.store is None
+                    ):
                         affected.append((source_id, spec))
                     elif reason == "unresolved":
-                        correlated[source_id] = spec.model_copy(
-                            update={"store": linked_store}
-                        )
+                        kept = _kept_reference_spec(spec, secret)
+                        correlated[source_id] = kept
+                        linked_store = stores_by_id.get(secret.store.id)
+                        if linked_store is not None and (
+                            diagnostic := self._reference_diagnostic(
+                                source_id, kept, linked_store
+                            )
+                        ):
+                            diagnostics.append(diagnostic)
                 if not affected and reason == "unresolved":
                     continue
                 requirement = self._store_requirement(
@@ -281,29 +298,10 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 continue
             incompatible: list[tuple[str, SecretMetadataResourceSpec]] = []
             for source_id, spec in specs:
-                if spec.remote_reference is not None:
-                    try:
-                        SecretReferencesService.validate_reference(
-                            store, spec.remote_reference
-                        )
-                    except ValueError as e:
-                        diagnostics.append(
-                            PullDiagnostic(
-                                workflow_path=self.source_path(source_id),
-                                workflow_title=None,
-                                error_type="validation",
-                                message=(
-                                    f"Secret {spec.name!r} can't use store "
-                                    f"{store.name!r}: {e}"
-                                ),
-                                details={
-                                    "code": "secret_store_reference_invalid",
-                                    "store": store.name,
-                                },
-                            )
-                        )
-                        incompatible.append((source_id, spec))
-                        continue
+                if diagnostic := self._reference_diagnostic(source_id, spec, store):
+                    diagnostics.append(diagnostic)
+                    incompatible.append((source_id, spec))
+                    continue
                 if spec.store != store.name:
                     correlated[source_id] = spec.model_copy(
                         update={"store": store.name}
@@ -353,21 +351,80 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             ],
         )
 
-    async def _linked_reference_identities(
-        self, workspace_service: SyncMappingService
-    ) -> dict[tuple[str, str], str]:
-        """Map (name, environment) of linked AWS-backed secrets to their store name."""
-        rows = await workspace_service.session.execute(
-            select(Secret.name, Secret.environment, OrganizationSecretStore.name)
-            .join(
-                OrganizationSecretStore, Secret.store_id == OrganizationSecretStore.id
+    def _reference_diagnostic(
+        self,
+        source_id: str,
+        spec: SecretMetadataResourceSpec,
+        store: OrganizationSecretStore,
+    ) -> PullDiagnostic | None:
+        """Return why ``store`` can't read ``spec``'s reference, if it can't."""
+        if spec.remote_reference is None:
+            return None
+        try:
+            SecretReferencesService.validate_reference(store, spec.remote_reference)
+        except ValueError as e:
+            return PullDiagnostic(
+                workflow_path=self.source_path(source_id),
+                workflow_title=None,
+                error_type="validation",
+                message=f"Secret {spec.name!r} can't use store {store.name!r}: {e}",
+                details={
+                    "code": "secret_store_reference_invalid",
+                    "store": store.name,
+                },
             )
-            .where(
-                Secret.workspace_id == workspace_service.workspace_id,
-                Secret.source == SecretSource.AWS_SECRETS_MANAGER.value,
+        return None
+
+    async def _existing_secrets(
+        self,
+        workspace_service: SyncMappingService,
+        specs: Mapping[str, SecretMetadataResourceSpec],
+    ) -> dict[str, Secret]:
+        """Resolve the secret each spec imports into, as ``_secret_for_import`` does.
+
+        Sync mappings win so renames and swaps keep their rows; only specs with
+        no mapped row fall back to (name, environment).
+        """
+        if not specs:
+            return {}
+        local_ids = await self.local_ids_by_source_id(workspace_service, specs)
+        rows_by_id: dict[uuid.UUID, Secret] = {}
+        if local_ids:
+            rows = await workspace_service.session.execute(
+                select(Secret)
+                .options(selectinload(Secret.store))
+                .where(
+                    Secret.workspace_id == workspace_service.workspace_id,
+                    Secret.id.in_(set(local_ids.values())),
+                )
             )
-        )
-        return {(name, environment): store for name, environment, store in rows}
+            rows_by_id = {row.id: row for row in rows.scalars()}
+        resolved = {
+            source_id: rows_by_id[local_id]
+            for source_id, local_id in local_ids.items()
+            if local_id in rows_by_id
+        }
+        unmapped = {
+            source_id: spec
+            for source_id, spec in specs.items()
+            if source_id not in resolved
+        }
+        if unmapped:
+            rows = await workspace_service.session.execute(
+                select(Secret)
+                .options(selectinload(Secret.store))
+                .where(
+                    Secret.workspace_id == workspace_service.workspace_id,
+                    sa.tuple_(Secret.name, Secret.environment).in_(
+                        {(spec.name, spec.environment) for spec in unmapped.values()}
+                    ),
+                )
+            )
+            by_identity = {(row.name, row.environment): row for row in rows.scalars()}
+            for source_id, spec in unmapped.items():
+                if (row := by_identity.get((spec.name, spec.environment))) is not None:
+                    resolved[source_id] = row
+        return resolved
 
     async def import_specs(
         self,
@@ -669,6 +726,20 @@ def _external_reference_fields(secret: Secret) -> _ExternalReferenceFields:
     if secret.store is not None:
         fields["store"] = secret.store.name
     return fields
+
+
+def _kept_reference_spec(
+    spec: SecretMetadataResourceSpec, secret: Secret
+) -> SecretMetadataResourceSpec:
+    """Return ``spec`` with the store, reference and keys ``secret`` keeps."""
+    fields = _external_reference_fields(secret)
+    key_mapping = fields.get("key_mapping")
+    return spec.model_copy(
+        update={
+            **fields,
+            "keys": sorted(key_mapping.output_keys()) if key_mapping else spec.keys,
+        }
+    )
 
 
 def _require_reference_name(source_id: str, name: str) -> None:

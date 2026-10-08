@@ -7638,6 +7638,98 @@ async def test_secret_store_mapping_preview_requires_external_secret_stores_enti
     )
 
 
+_AWS_WEST_SECRET_ARN = "arn:aws:secretsmanager:us-west-2:123456789012:secret:app-AbCdEf"
+
+
+async def _secret_specs_snapshot(
+    service: WorkspaceSyncService, *specs: dict[str, Any]
+) -> WorkspaceRemoteSnapshot:
+    files = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
+    for spec in specs:
+        files[f"{SECRET_METADATA_ROOT}/{spec['id']}.yml"] = _yaml(spec)
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="n" * 40)
+    assert diagnostics == []
+    return snapshot
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_keeps_links_when_mapped_names_swap(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    alpha_store = await _aws_store(session, svc_role, name="alpha_store")
+    beta_store = await _aws_store(session, svc_role, name="beta_store")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    first = await _secret_specs_snapshot(
+        service,
+        _aws_secret_spec(id="default/alpha", name="alpha", store="src_alpha"),
+        _aws_secret_spec(id="default/beta", name="beta", store="src_beta"),
+    )
+    result = await service._import_snapshot(
+        first,
+        sync_schedules=False,
+        requested_secret_store_mappings={
+            "src_alpha": alpha_store.id,
+            "src_beta": beta_store.id,
+        },
+    )
+    assert result.success is True, result.diagnostics
+    alpha_id = (await _workspace_secret(session, svc_role, "alpha")).id
+    beta_id = (await _workspace_secret(session, svc_role, "beta")).id
+
+    swapped = await _secret_specs_snapshot(
+        service,
+        _aws_secret_spec(id="default/alpha", name="beta", store="src_alpha"),
+        _aws_secret_spec(id="default/beta", name="alpha", store="src_beta"),
+    )
+    prepared = await service._prepare_snapshot_for_import(swapped)
+    assert prepared.diagnostics == []
+    assert prepared.secret_store_mapping_requirements == []
+    result = await service._import_snapshot(swapped, sync_schedules=False)
+
+    assert result.success is True, result.diagnostics
+    alpha_row = await session.scalar(select(Secret).where(Secret.id == alpha_id))
+    beta_row = await session.scalar(select(Secret).where(Secret.id == beta_id))
+    assert alpha_row is not None and beta_row is not None
+    assert (alpha_row.name, alpha_row.store_id) == ("beta", alpha_store.id)
+    assert (beta_row.name, beta_row.store_id) == ("alpha", beta_store.id)
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_preview_matches_apply_for_manual_link(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    west = await _aws_store(session, svc_role, name="west", region="us-west-2")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is True, result.diagnostics
+    secret = await _workspace_secret(session, svc_role, "vendor_api")
+    await SecretReferencesService(
+        session=session, role=svc_role
+    ).update_aws_secret_reference(
+        secret,
+        AwsSecretReferenceUpdate(
+            store_id=west.id, remote_reference=_AWS_WEST_SECRET_ARN
+        ),
+    )
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.diagnostics == []
+    assert prepared.secret_store_mapping_requirements == []
+    [spec] = prepared.snapshot.spec.secret_metadata.values()
+    assert (spec.store, spec.remote_reference) == ("west", _AWS_WEST_SECRET_ARN)
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert result.success is True, result.diagnostics
+    await session.refresh(secret)
+    assert secret.store_id == west.id
+    assert secret.remote_reference == _AWS_WEST_SECRET_ARN
+
+
 @pytest.mark.anyio
 async def test_secret_metadata_import_requires_external_secret_stores_entitlement(
     session: AsyncSession,
