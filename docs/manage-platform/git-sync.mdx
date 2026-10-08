@@ -68,8 +68,8 @@ Exports carry configuration, not data:
 - Secrets export metadata only; a secret file with a `value` or `values` key fails import.
   [AWS-backed secrets](/automations/core-concepts/external-secret-stores) also export
   their store name, secret name or ARN, and key mapping. If the target workspace
-  has no authorized store with that name, the secret is imported without one so
-  you can pick its store in **Credentials**.
+  has no authorized store with that name, the pull preview asks you to choose one.
+  The choice applies to every secret that uses that store name.
 
 ## Push and open a pull request
 

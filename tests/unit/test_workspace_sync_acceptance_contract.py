@@ -7119,17 +7119,19 @@ async def _aws_store(
     *,
     all_workspaces: bool = False,
     authorize: bool = True,
+    name: str = "prod",
+    region: str = "us-east-1",
 ) -> OrganizationSecretStore:
     assert role.organization_id is not None
     assert role.workspace_id is not None
     store = OrganizationSecretStore(
         organization_id=role.organization_id,
-        name="prod",
+        name=name,
         provider="aws_secrets_manager",
         config={
             "provider": "aws_secrets_manager",
             "role_arn": "arn:aws:iam::123456789012:role/reader",
-            "region": "us-east-1",
+            "region": region,
             "external_id": "external-id",
         },
         all_workspaces=all_workspaces,
@@ -7321,7 +7323,7 @@ async def test_secret_metadata_import_rejects_unusable_external_reference(
     session: AsyncSession,
     svc_role: Role,
     external_secret_stores_entitled: AsyncMock,
-    store_kwargs: dict[str, bool],
+    store_kwargs: dict[str, Any],
     overrides: dict[str, Any],
     match: str,
 ) -> None:
@@ -7344,7 +7346,7 @@ async def test_secret_metadata_import_leaves_reference_unlinked_without_matching
     session: AsyncSession,
     svc_role: Role,
     external_secret_stores_entitled: AsyncMock,
-    store_kwargs: dict[str, bool],
+    store_kwargs: dict[str, Any],
     overrides: dict[str, Any],
 ) -> None:
     await _aws_store(session, svc_role, **store_kwargs)
@@ -7436,6 +7438,155 @@ async def test_secret_metadata_projects_unlinked_reference_without_store(
     assert "store" not in dumped
     assert dumped["source"] == "aws_secrets_manager"
     assert dumped["remote_reference"] == _AWS_SECRET_ARN
+
+
+@pytest.fixture
+def store_mapping_entitled(
+    monkeypatch: pytest.MonkeyPatch, external_secret_stores_entitled: AsyncMock
+) -> None:
+    monkeypatch.setattr(
+        WorkspaceSyncService, "has_entitlement", AsyncMock(return_value=True)
+    )
+
+
+async def _secret_snapshot(
+    service: WorkspaceSyncService, *names: str, store: str = "missing"
+) -> WorkspaceRemoteSnapshot:
+    files = {MANIFEST_FILENAME: canonical_json_text(WorkspaceManifest())}
+    for name in names:
+        files[f"{SECRET_METADATA_ROOT}/default/{name}.yml"] = _yaml(
+            _aws_secret_spec(id=f"default/{name}", name=name, store=store)
+        )
+    snapshot, diagnostics = await service.parse_files(files, commit_sha="m" * 40)
+    assert diagnostics == []
+    return snapshot
+
+
+async def _workspace_secret(session: AsyncSession, role: Role, name: str) -> Secret:
+    secret = await session.scalar(
+        select(Secret).where(
+            Secret.workspace_id == role.workspace_id, Secret.name == name
+        )
+    )
+    assert secret is not None
+    return secret
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_reports_unmatched_store_without_blocking(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    await _aws_store(session, svc_role, name="unauthorized", authorize=False)
+    available = await _aws_store(session, svc_role, name="available")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(
+        service, "vendor_api", "vendor_app", store="unauthorized"
+    )
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+
+    assert prepared.diagnostics == []
+    [requirement] = prepared.secret_store_mapping_requirements
+    assert requirement.source_store == "unauthorized"
+    assert requirement.reason == "unresolved"
+    assert [c.store_id for c in requirement.candidates] == [available.id]
+    assert [a.secret_name for a in requirement.affected_secrets] == [
+        "vendor_api",
+        "vendor_app",
+    ]
+
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is True, result.diagnostics
+    for name in ("vendor_api", "vendor_app"):
+        assert (await _workspace_secret(session, svc_role, name)).store_id is None
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_links_every_secret_using_the_name(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    chosen = await _aws_store(session, svc_role, name="chosen")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api", "vendor_app")
+
+    result = await service._import_snapshot(
+        snapshot,
+        sync_schedules=False,
+        requested_secret_store_mappings={"missing": chosen.id},
+    )
+
+    assert result.success is True, result.diagnostics
+    for name in ("vendor_api", "vendor_app"):
+        secret = await _workspace_secret(session, svc_role, name)
+        assert secret.store_id == chosen.id
+        assert secret.remote_reference == _AWS_SECRET_ARN
+    # Linked secrets no longer need a choice on the next pull.
+    replayed = await service._prepare_snapshot_for_import(snapshot)
+    assert replayed.secret_store_mapping_requirements == []
+    assert replayed.diagnostics == []
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_rejects_unauthorized_choice(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    unauthorized = await _aws_store(
+        session, svc_role, name="unauthorized", authorize=False
+    )
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+
+    result = await service._import_snapshot(
+        snapshot,
+        sync_schedules=False,
+        requested_secret_store_mappings={"missing": unauthorized.id},
+    )
+
+    assert result.success is False
+    assert [d.details["code"] for d in result.diagnostics] == [
+        "secret_store_mapping_invalid"
+    ]
+    [requirement] = result.secret_store_mapping_requirements or []
+    assert requirement.reason == "invalid_selection"
+    assert (
+        await session.scalar(
+            select(Secret).where(Secret.workspace_id == svc_role.workspace_id)
+        )
+        is None
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("mappings", "code"),
+    [
+        ({"missing": None}, "secret_store_reference_invalid"),
+        ({"other": None}, "secret_store_mapping_source_not_found"),
+    ],
+)
+async def test_secret_store_mapping_rejects_unusable_choice(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+    mappings: dict[str, None],
+    code: str,
+) -> None:
+    west = await _aws_store(session, svc_role, name="west", region="us-west-2")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+
+    prepared = await service._prepare_snapshot_for_import(
+        snapshot,
+        requested_secret_store_mappings=dict.fromkeys(mappings, west.id),
+    )
+
+    assert code in [d.details["code"] for d in prepared.diagnostics]
 
 
 @pytest.mark.anyio

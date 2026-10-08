@@ -92,6 +92,13 @@ class McpIntegrationMappingSelection(BaseModel):
     target_mcp_integration_id: UUID
 
 
+class SecretStoreMappingSelection(BaseModel):
+    """User-selected authorized store for one unmatched store name."""
+
+    source_store: str = Field(..., min_length=1)
+    target_store_id: UUID
+
+
 class WorkflowSyncPullRequest(BaseModel):
     """Request model for pulling workflows from a Git repository."""
 
@@ -122,6 +129,11 @@ class WorkflowSyncPullRequest(BaseModel):
         description="Explicit source-to-target MCP integration choices from the pull preview.",
     )
 
+    secret_store_mappings: list[SecretStoreMappingSelection] = Field(
+        default_factory=list,
+        description="Target stores for AWS-backed secrets whose store name has no match.",
+    )
+
     @model_validator(mode="after")
     def _catalog_mapping_sources_are_unique(self) -> "WorkflowSyncPullRequest":
         source_ids = [mapping.source_catalog_id for mapping in self.catalog_mappings]
@@ -141,6 +153,15 @@ class WorkflowSyncPullRequest(BaseModel):
             raise ValueError(
                 "mcp_integration_mappings contains duplicate "
                 "source_mcp_integration_id values"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _secret_store_mapping_sources_are_unique(self) -> "WorkflowSyncPullRequest":
+        names = [mapping.source_store for mapping in self.secret_store_mappings]
+        if len(names) != len(set(names)):
+            raise ValueError(
+                "secret_store_mappings contains duplicate source_store values"
             )
         return self
 

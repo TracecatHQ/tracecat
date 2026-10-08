@@ -6973,6 +6973,7 @@ export type PullResult = {
   resources?: Array<SyncPreviewResource> | null
   catalog_mapping_requirements?: Array<CatalogMappingRequirement> | null
   mcp_integration_mapping_requirements?: Array<McpIntegrationMappingRequirement> | null
+  secret_store_mapping_requirements?: Array<SecretStoreMappingRequirement> | null
 }
 
 /**
@@ -8286,6 +8287,38 @@ export type SecretStoreCreate = {
  */
 export type SecretStoreErrorResponse = {
   detail: string | Array<SecretStoreRequestValidationError>
+}
+
+export type SecretStoreMappingAffectedSecret = {
+  secret_name: string
+  environment: string
+  path: string
+}
+
+export type SecretStoreMappingCandidate = {
+  store_id: string
+  name: string
+  region: string | null
+}
+
+export type SecretStoreMappingRequirement = {
+  source_store: string
+  reason: SecretStoreMappingRequirementReason
+  message: string
+  candidates: Array<SecretStoreMappingCandidate>
+  affected_secrets: Array<SecretStoreMappingAffectedSecret>
+}
+
+export type SecretStoreMappingRequirementReason =
+  | "unresolved"
+  | "invalid_selection"
+
+/**
+ * User-selected authorized store for one unmatched store name.
+ */
+export type SecretStoreMappingSelection = {
+  source_store: string
+  target_store_id: string
 }
 
 /**
@@ -11388,6 +11421,10 @@ export type WorkflowSyncPullRequest = {
    * Explicit source-to-target MCP integration choices from the pull preview.
    */
   mcp_integration_mappings?: Array<McpIntegrationMappingSelection>
+  /**
+   * Target stores for AWS-backed secrets whose store name has no match.
+   */
+  secret_store_mappings?: Array<SecretStoreMappingSelection>
 }
 
 export type WorkflowTagCreate = {

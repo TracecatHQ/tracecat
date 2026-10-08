@@ -76,6 +76,11 @@ class SecretReferencesService(SecretsService):
             ),
         )
 
+    async def list_all_authorized_stores(self) -> list[OrganizationSecretStore]:
+        """Return every external store the current workspace may reference."""
+        stmt = self._authorized_store_query().order_by(OrganizationSecretStore.name)
+        return list((await self.session.execute(stmt)).scalars().all())
+
     async def _get_authorized_store(
         self, store_id: uuid.UUID
     ) -> OrganizationSecretStore:

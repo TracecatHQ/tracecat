@@ -336,6 +336,10 @@ async def pull_workflows(
                 mapping.source_mcp_integration_id: mapping.target_mcp_integration_id
                 for mapping in params.mcp_integration_mappings
             },
+            secret_store_mappings={
+                mapping.source_store: mapping.target_store_id
+                for mapping in params.secret_store_mappings
+            },
         )
         sync_service = await WorkspaceSyncService.for_workspace(
             session=session, role=role
