@@ -1030,14 +1030,30 @@ async def test_gitlab_branch_hint_ignores_same_name_tag() -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("project_status", [403, 404])
-async def test_gitlab_branch_absence_does_not_hide_project_errors(
-    monkeypatch, project_status
-):
+@pytest.mark.parametrize("repository_status", [200, 403, 404])
+async def test_gitlab_branch_absence_requires_repository_access(
+    monkeypatch: pytest.MonkeyPatch, repository_status: int
+) -> None:
     api = _MockGitLabApi(project_path="group/subgroup/project", files={})
+    response = api.response
+    probes: list[httpx.Request] = []
+
+    def repository_access(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/repository/branches"):
+            probes.append(request)
+            return httpx.Response(repository_status, json=[])
+        return response(request)
+
+    monkeypatch.setattr(api, "response", repository_access)
     transport = _MockGitLabTransport(api=api)
-    error = GitLabApiError("Synthetic unavailable project", status_code=project_status)
-    monkeypatch.setattr(transport, "_get_project", AsyncMock(side_effect=error))
-    with pytest.raises(GitLabApiError) as caught:
-        await transport.branch_exists(url=_git_url(), branch="missing")
-    assert caught.value is error
+    # Metadata is readable even when the repository is hidden.
+    async with transport._authed_client(_git_url()) as client:
+        await transport._get_project(client=client, project_id=api.encoded_project_path)
+    if repository_status == 200:
+        assert not await transport.branch_exists(url=_git_url(), branch="missing")
+    else:
+        with pytest.raises(GitLabApiError) as caught:
+            await transport.branch_exists(url=_git_url(), branch="missing")
+        assert caught.value.status_code == repository_status
+    assert len(probes) == 1
+    assert probes[0].url.params["per_page"] == "1"
