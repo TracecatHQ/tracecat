@@ -226,12 +226,17 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 reason: SecretStoreMappingRequirementReason = (
                     "invalid_selection" if target_id is not None else "unresolved"
                 )
-                # Secrets already linked here keep their store on import.
-                affected = [
-                    (source_id, spec)
-                    for source_id, spec in specs
-                    if (spec.name, spec.environment) not in linked
-                ]
+                # Secrets already linked here keep their store, so preview
+                # them against it rather than asking again.
+                affected: list[tuple[str, SecretMetadataResourceSpec]] = []
+                for source_id, spec in specs:
+                    linked_store = linked.get((spec.name, spec.environment))
+                    if linked_store is None:
+                        affected.append((source_id, spec))
+                    elif reason == "unresolved":
+                        correlated[source_id] = spec.model_copy(
+                            update={"store": linked_store}
+                        )
                 if not affected and reason == "unresolved":
                     continue
                 requirement = self._store_requirement(
@@ -311,16 +316,19 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
 
     async def _linked_reference_identities(
         self, workspace_service: SyncMappingService
-    ) -> set[tuple[str, str]]:
-        """Return (name, environment) of AWS-backed secrets linked to a store."""
+    ) -> dict[tuple[str, str], str]:
+        """Map (name, environment) of linked AWS-backed secrets to their store name."""
         rows = await workspace_service.session.execute(
-            select(Secret.name, Secret.environment).where(
+            select(Secret.name, Secret.environment, OrganizationSecretStore.name)
+            .join(
+                OrganizationSecretStore, Secret.store_id == OrganizationSecretStore.id
+            )
+            .where(
                 Secret.workspace_id == workspace_service.workspace_id,
                 Secret.source == SecretSource.AWS_SECRETS_MANAGER.value,
-                Secret.store_id.is_not(None),
             )
         )
-        return {(row.name, row.environment) for row in rows}
+        return {(name, environment): store for name, environment, store in rows}
 
     async def import_specs(
         self,

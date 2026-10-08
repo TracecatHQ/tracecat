@@ -50,7 +50,7 @@ export function MappingRequirementsCard({
   const allSelected = items.every((item) => selections[item.key])
 
   return (
-    <div className="space-y-3 rounded-md border border-amber-200 bg-amber-50/40 p-3">
+    <div className="space-y-3 rounded-md border border-amber-200 bg-amber-50/40 p-3 dark:border-amber-500/30 dark:bg-amber-500/5">
       <div className="space-y-1">
         <h6 className="text-sm font-medium">{heading}</h6>
         <p className="text-xs text-muted-foreground">{description}</p>
@@ -60,7 +60,7 @@ export function MappingRequirementsCard({
         {items.map((item) => (
           <div
             key={item.key}
-            className="space-y-2 border-t border-amber-200 pt-3 first:border-0 first:pt-0"
+            className="space-y-2 border-t border-amber-200 pt-3 first:border-0 first:pt-0 dark:border-amber-500/30"
           >
             <div className="space-y-0.5">
               <div className="text-sm font-medium">{item.title}</div>
@@ -94,7 +94,7 @@ export function MappingRequirementsCard({
       </div>
 
       {allSelected && !mappingsMatchPreview && (
-        <p className="text-xs font-medium text-amber-700">
+        <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
           Preview changes again to validate these choices before applying.
         </p>
       )}

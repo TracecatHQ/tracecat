@@ -7528,6 +7528,10 @@ async def test_secret_store_mapping_links_every_secret_using_the_name(
     replayed = await service._prepare_snapshot_for_import(snapshot)
     assert replayed.secret_store_mapping_requirements == []
     assert replayed.diagnostics == []
+    # The preview compares against the linked store, so it shows no change.
+    assert {spec.store for spec in replayed.snapshot.spec.secret_metadata.values()} == {
+        "chosen"
+    }
 
 
 @pytest.mark.anyio
