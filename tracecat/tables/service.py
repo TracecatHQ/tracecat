@@ -1173,7 +1173,12 @@ class BaseTablesService(BaseWorkspaceService):
 
         Raises:
             TracecatNotFoundError: If the row does not exist
+            TableRowError: If no columns are provided
         """
+        if not data:
+            raise TableRowError(
+                "empty_update", "Row update must include at least one column."
+            )
         collection = await self.search.for_table(table.id)
         table = await self.search.table(table.id)
         schema_name = self._get_schema_name()
