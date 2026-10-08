@@ -85,7 +85,10 @@ from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
 from tracecat.tiers.enums import Entitlement
 from tracecat.workflow.store.import_service import WorkflowImportService
-from tracecat.workflow.store.schemas import WorkflowSyncPullRequest
+from tracecat.workflow.store.schemas import (
+    SecretStoreMappingSelection,
+    WorkflowSyncPullRequest,
+)
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
     RESOURCE_ADAPTERS_BY_TYPE,
@@ -96,6 +99,8 @@ from tracecat.workspace_sync.adapters import (
 from tracecat.workspace_sync.adapters.base import VersionedSlug
 from tracecat.workspace_sync.enums import SyncResourceType, VcsProvider
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
+from tracecat.workspace_sync.operations.domain import DurableSyncService
+from tracecat.workspace_sync.operations.schemas import SyncOperationCreate
 from tracecat.workspace_sync.resources import workflow_references
 from tracecat.workspace_sync.schemas import (
     AGENT_PRESET_ROOT,
@@ -9257,3 +9262,66 @@ async def test_pull_validation_resolves_registry_for_existing_workflow_updates(
         "Workflow 'Example enrich' uses action 'tools.example.removed', "
         "which is in no registry"
     )
+
+
+@pytest.mark.anyio
+async def test_durable_pull_preserves_secret_store_mapping(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    chosen = await _aws_store(session, svc_role, name="chosen")
+    server = FakeVcsServer()
+    url = GitUrl(host="github.com", org="example", repo="sync-test")
+    workspace = await session.scalar(
+        select(Workspace).where(Workspace.id == svc_role.workspace_id)
+    )
+    assert workspace is not None
+    workspace.settings = {
+        "git_repo_url": url.to_url(),
+        "git_provider": VcsProvider.GITHUB,
+    }
+    await session.flush()
+    service = DurableSyncService(
+        session, svc_role, transport_factory=server.transport_factory
+    )
+    snapshot = await _secret_snapshot(service, "vendor_api", "vendor_app")
+    commit = await service._transport_for_provider().write_files(
+        url=url,
+        files=snapshot.files,
+        message="Synthetic secret metadata",
+        branch="main",
+        create_pr=False,
+    )
+    assert commit.sha is not None
+    inputs = SyncOperationCreate(
+        id=uuid.uuid4(),
+        direction="pull",
+        pull=WorkflowSyncPullRequest(commit_sha=commit.sha, dry_run=True),
+    )
+    unresolved = await service.prepare(inputs)
+    assert isinstance(unresolved.preview, PullResult)
+    assert unresolved.preview.secret_store_mapping_requirements
+    assert (
+        unresolved.preview.secret_store_mapping_requirements[0].source_store
+        == "missing"
+    )
+
+    assert inputs.pull is not None
+    inputs.pull.secret_store_mappings = [
+        SecretStoreMappingSelection(source_store="missing", target_store_id=chosen.id)
+    ]
+    prepared = await service.prepare(inputs)
+    assert isinstance(prepared.preview, PullResult)
+    assert prepared.preview.success is True
+    assert prepared.snapshot is not None
+    assert {spec.store for spec in prepared.snapshot.spec.secret_metadata.values()} == {
+        "chosen"
+    }
+    # Confirmation imports the reviewed, correlated snapshot without asking again.
+    result = await service.import_prepared_snapshot(
+        prepared.snapshot, sync_schedules=False
+    )
+    assert result.success is True, result.diagnostics
+    for name in ("vendor_api", "vendor_app"):
+        assert (await _workspace_secret(session, svc_role, name)).store_id == chosen.id
