@@ -108,6 +108,20 @@ test("explains when no store is authorized", async () => {
   ).toBeInTheDocument()
 })
 
+test("explains when authorized stores are disabled or in setup", async () => {
+  mockStores = [store("eu-secrets", "eu-west-2", false)]
+  const user = userEvent.setup()
+  render(
+    <SecretSourcePicker workspaceId="ws" value={null} onChange={jest.fn()} />
+  )
+
+  await user.click(screen.getByRole("combobox"))
+  expect(
+    screen.getByText(/No stores are enabled for this workspace/)
+  ).toBeInTheDocument()
+  expect(screen.queryByText(/No stores are authorized/)).not.toBeInTheDocument()
+})
+
 test("resets to Tracecat when the selected store is no longer enabled", () => {
   mockStores = [store("eu-secrets", "eu-west-2", false)]
   const onChange = jest.fn()

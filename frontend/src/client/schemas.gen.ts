@@ -22975,6 +22975,20 @@ export const $PullResult = {
       ],
       title: "Mcp Integration Mapping Requirements",
     },
+    secret_store_mapping_requirements: {
+      anyOf: [
+        {
+          items: {
+            $ref: "#/components/schemas/SecretStoreMappingRequirement",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Secret Store Mapping Requirements",
+    },
   },
   type: "object",
   required: [
@@ -27221,6 +27235,125 @@ export const $SecretStoreErrorResponse = {
   title: "SecretStoreErrorResponse",
   description:
     "Invalid store configuration, or enabling a store before setup finishes.",
+} as const
+
+export const $SecretStoreMappingAffectedSecret = {
+  properties: {
+    secret_name: {
+      type: "string",
+      title: "Secret Name",
+    },
+    environment: {
+      type: "string",
+      title: "Environment",
+    },
+    path: {
+      type: "string",
+      title: "Path",
+    },
+  },
+  type: "object",
+  required: ["secret_name", "environment", "path"],
+  title: "SecretStoreMappingAffectedSecret",
+} as const
+
+export const $SecretStoreMappingCandidate = {
+  properties: {
+    store_id: {
+      type: "string",
+      format: "uuid",
+      title: "Store Id",
+    },
+    name: {
+      type: "string",
+      title: "Name",
+    },
+    region: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Region",
+    },
+  },
+  type: "object",
+  required: ["store_id", "name", "region"],
+  title: "SecretStoreMappingCandidate",
+} as const
+
+export const $SecretStoreMappingRequirement = {
+  properties: {
+    source_store: {
+      type: "string",
+      title: "Source Store",
+    },
+    reason: {
+      $ref: "#/components/schemas/SecretStoreMappingRequirementReason",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    candidates: {
+      items: {
+        $ref: "#/components/schemas/SecretStoreMappingCandidate",
+      },
+      type: "array",
+      title: "Candidates",
+    },
+    affected_secrets: {
+      items: {
+        $ref: "#/components/schemas/SecretStoreMappingAffectedSecret",
+      },
+      type: "array",
+      title: "Affected Secrets",
+    },
+  },
+  type: "object",
+  required: [
+    "source_store",
+    "reason",
+    "message",
+    "candidates",
+    "affected_secrets",
+  ],
+  title: "SecretStoreMappingRequirement",
+} as const
+
+export const $SecretStoreMappingRequirementReason = {
+  type: "string",
+  enum: ["unresolved", "invalid_selection"],
+} as const
+
+export const $SecretStoreMappingSelection = {
+  properties: {
+    source_store: {
+      type: "string",
+      minLength: 1,
+      title: "Source Store",
+    },
+    target_store_id: {
+      anyOf: [
+        {
+          type: "string",
+          format: "uuid",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Target Store Id",
+    },
+  },
+  type: "object",
+  required: ["source_store", "target_store_id"],
+  title: "SecretStoreMappingSelection",
+  description:
+    "User-selected store for one store name; null leaves its secrets unlinked.",
 } as const
 
 export const $SecretStoreProvider = {
@@ -37909,6 +38042,15 @@ export const $WorkflowSyncPullRequest = {
       title: "Mcp Integration Mappings",
       description:
         "Explicit source-to-target MCP integration choices from the pull preview.",
+    },
+    secret_store_mappings: {
+      items: {
+        $ref: "#/components/schemas/SecretStoreMappingSelection",
+      },
+      type: "array",
+      title: "Secret Store Mappings",
+      description:
+        "Target stores for AWS-backed secrets whose store name has no match.",
     },
   },
   type: "object",

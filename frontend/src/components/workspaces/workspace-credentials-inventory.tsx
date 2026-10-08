@@ -416,6 +416,14 @@ export function WorkspaceCredentialsInventory() {
                                             Reconfigure required
                                           </Badge>
                                         ) : null}
+                                        {isAws && !secret.store_id ? (
+                                          <Badge
+                                            variant="secondary"
+                                            className="text-[10px] text-amber-700"
+                                          >
+                                            Choose a store
+                                          </Badge>
+                                        ) : null}
                                       </ItemTitle>
                                       {isAws ? (
                                         <p
@@ -424,7 +432,7 @@ export function WorkspaceCredentialsInventory() {
                                             secret.remote_reference ?? undefined
                                           }
                                         >
-                                          {secret.store_name ?? "Unknown store"}
+                                          {secret.store_name ?? "No store"}
                                           {" · "}
                                           <code className="font-mono text-[11px]">
                                             {secret.remote_reference}
@@ -512,7 +520,11 @@ export function WorkspaceCredentialsInventory() {
                                     </ItemActions>
                                   </Item>
                                 )
-                                if (!isAws || !externalSecretStoresEnabled) {
+                                if (
+                                  !isAws ||
+                                  !externalSecretStoresEnabled ||
+                                  !secret.store_id
+                                ) {
                                   return renderItem(null)
                                 }
                                 return (

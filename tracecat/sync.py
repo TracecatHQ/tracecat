@@ -41,6 +41,9 @@ class PullOptions:
     mcp_integration_mappings: Mapping[UUID, UUID] = field(default_factory=dict)
     """Explicit source-to-target MCP integration choices for unresolved references."""
 
+    secret_store_mappings: Mapping[str, UUID | None] = field(default_factory=dict)
+    """Explicit target stores for AWS-backed secrets; ``None`` leaves them unlinked."""
+
 
 @dataclass(frozen=True)
 class CommitInfo:
@@ -206,6 +209,41 @@ class McpIntegrationMappingRequirement:
     affected_workflows: list[McpIntegrationMappingAffectedWorkflow]
 
 
+@dataclass(frozen=True)
+class SecretStoreMappingCandidate:
+    """Authorized store the user can choose for an imported store name."""
+
+    store_id: UUID
+    name: str
+    region: str | None
+
+
+@dataclass(frozen=True)
+class SecretStoreMappingAffectedSecret:
+    """AWS-backed secret that reads from an unmatched store name."""
+
+    secret_name: str
+    environment: str
+    path: str
+
+
+type SecretStoreMappingRequirementReason = Literal["unresolved", "invalid_selection"]
+
+
+@dataclass(frozen=True)
+class SecretStoreMappingRequirement:
+    """Store name in the snapshot with no authorized match in this workspace.
+
+    Unresolved names don't block the pull: their secrets import without a store.
+    """
+
+    source_store: str
+    reason: SecretStoreMappingRequirementReason
+    message: str
+    candidates: list[SecretStoreMappingCandidate]
+    affected_secrets: list[SecretStoreMappingAffectedSecret]
+
+
 def serializable_validation_errors(
     errors: Sequence[Any],
 ) -> list[dict[str, Any]]:
@@ -332,3 +370,6 @@ class PullResult:
         list[McpIntegrationMappingRequirement] | None
     ) = None
     """MCP integration choices required before this pull can be previewed or applied."""
+
+    secret_store_mapping_requirements: list[SecretStoreMappingRequirement] | None = None
+    """Store names without an authorized match; their secrets import unlinked."""

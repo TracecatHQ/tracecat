@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -16,11 +17,15 @@ const mockUpdateStore = jest.fn()
 let mockStores: SecretStoreRead[] = []
 let mockCanUpdate: boolean | undefined = true
 let mockWorkspaces: { id: string; name: string }[] = []
+let mockCanReadSecrets = true
 
 jest.mock("@/components/auth/scope-guard", () => ({
   ScopeGuard: ({ children }: { children: ReactNode }) => children,
-  useScopeCheck: (scope?: string) =>
-    scope === "org:secret:update" ? mockCanUpdate : true,
+  useScopeCheck: (scope?: string) => {
+    if (scope === "org:secret:update") return mockCanUpdate
+    if (scope === "secret:read") return mockCanReadSecrets
+    return true
+  },
 }))
 jest.mock("@/lib/hooks", () => ({
   useWorkspaceManager: () => ({ workspaces: mockWorkspaces }),
@@ -97,6 +102,7 @@ beforeEach(() => {
   mockStores = []
   mockCanUpdate = true
   mockWorkspaces = []
+  mockCanReadSecrets = true
   mockCreateStore.mockReset()
   mockUpdateStore.mockReset()
 })
@@ -252,7 +258,52 @@ describe("Store list", () => {
     ).toHaveTextContent("Copy")
   })
 
-  it("offers finish setup instead of edit while setup is incomplete", async () => {
+  it("confirms when a policy is copied", async () => {
+    mockStores = [enabledStore()]
+    const user = userEvent.setup()
+    renderSettings()
+    await user.click(screen.getByRole("button", { name: "prod" }))
+
+    await user.click(screen.getByRole("button", { name: "Copy trust policy" }))
+    expect(
+      screen.getByRole("button", { name: "Copy trust policy" })
+    ).toHaveTextContent("Copied")
+    expect(await navigator.clipboard.readText()).toContain(
+      "tracecat-test-external-id"
+    )
+
+    await user.click(screen.getByRole("tab", { name: "Permissions policy" }))
+    expect(
+      screen.getByRole("button", { name: "Copy permissions policy" })
+    ).toHaveTextContent("Copy")
+  })
+
+  it("ignores a copy that finishes after switching policy tabs", async () => {
+    mockStores = [enabledStore()]
+    const user = userEvent.setup()
+    let finishCopy: () => void = () => {}
+    jest.spyOn(navigator.clipboard, "writeText").mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishCopy = resolve
+        })
+    )
+    renderSettings()
+    await user.click(screen.getByRole("button", { name: "prod" }))
+
+    await user.click(screen.getByRole("button", { name: "Copy trust policy" }))
+    await user.click(screen.getByRole("tab", { name: "Permissions policy" }))
+    await act(async () => finishCopy())
+
+    expect(
+      screen.getByRole("button", { name: "Copy permissions policy" })
+    ).toHaveTextContent("Copy")
+    expect(
+      screen.getByRole("button", { name: "Copy permissions policy" })
+    ).not.toHaveTextContent("Copied")
+  })
+
+  it("offers finish setup and edit, but not enable, while setup is incomplete", async () => {
     mockStores = [draftStore()]
     renderSettings()
 
@@ -261,8 +312,8 @@ describe("Store list", () => {
       screen.getByRole("menuitem", { name: "Finish setup" })
     ).toBeInTheDocument()
     expect(
-      screen.queryByRole("menuitem", { name: "Edit store" })
-    ).not.toBeInTheDocument()
+      screen.getByRole("menuitem", { name: "Edit store" })
+    ).toBeInTheDocument()
     expect(
       screen.queryByRole("menuitem", { name: /Enable store|Disable store/ })
     ).not.toBeInTheDocument()
@@ -359,6 +410,25 @@ describe("Used by", () => {
     expect(
       screen.queryByRole("link", { name: "2 secrets" })
     ).not.toBeInTheDocument()
+  })
+
+  it("links to the workspace when the user cannot read its secrets", async () => {
+    mockCanReadSecrets = false
+    mockWorkspaces = [{ id: "alpha", name: "Alpha" }]
+    mockStores = [
+      enabledStore({
+        reference_count: 3,
+        workspace_usage: [{ workspace_id: "alpha", secret_count: 3 }],
+      }),
+    ]
+    const user = userEvent.setup()
+    renderSettings()
+    await user.click(screen.getByRole("button", { name: "prod" }))
+
+    expect(screen.getByRole("link", { name: "3 secrets" })).toHaveAttribute(
+      "href",
+      "/workspaces/alpha"
+    )
   })
 
   it("says when no secrets use the store", async () => {

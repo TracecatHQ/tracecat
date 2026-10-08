@@ -66,6 +66,10 @@ Exports carry configuration, not data:
 - Tables export their column schema and no rows.
 - Variables export key names and no values.
 - Secrets export metadata only; a secret file with a `value` or `values` key fails import.
+  [AWS-backed secrets](/automations/core-concepts/external-secret-stores) also export
+  their store name, secret name or ARN, and key mapping. If the target workspace
+  has no authorized store with that name, the pull preview asks you to choose one.
+  The choice applies to every secret that uses that store name.
 
 ## Push and open a pull request
 

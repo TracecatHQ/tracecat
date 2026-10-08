@@ -76,6 +76,11 @@ class SecretReferencesService(SecretsService):
             ),
         )
 
+    async def list_all_authorized_stores(self) -> list[OrganizationSecretStore]:
+        """Return every external store the current workspace may reference."""
+        stmt = self._authorized_store_query().order_by(OrganizationSecretStore.name)
+        return list((await self.session.execute(stmt)).scalars().all())
+
     async def _get_authorized_store(
         self, store_id: uuid.UUID
     ) -> OrganizationSecretStore:
@@ -107,10 +112,23 @@ class SecretReferencesService(SecretsService):
             )
         return store
 
+    async def get_authorized_store_by_name(self, name: str) -> OrganizationSecretStore:
+        """Look up an authorized store by its organization-unique name."""
+        stmt = self._authorized_store_query().where(
+            OrganizationSecretStore.name == name
+        )
+        store = (await self.session.execute(stmt)).scalar_one_or_none()
+        if store is None:
+            raise TracecatAuthorizationError(
+                f"This workspace is not authorized to use a secret store named {name!r}."
+            )
+        return await self._get_authorized_store(store.id)
+
     @staticmethod
-    def _validate_reference(
+    def validate_reference(
         store: OrganizationSecretStore, remote_reference: str
     ) -> None:
+        """Raise ``ValueError`` when the reference doesn't fit the store."""
         backend = get_backend(store.provider)
         backend.validate_reference(parse_store_config(store), remote_reference)
 
@@ -126,7 +144,7 @@ class SecretReferencesService(SecretsService):
         """
         workspace_id = self._require_workspace_id()
         store = await self._get_authorized_store(params.store_id)
-        self._validate_reference(store, params.remote_reference)
+        self.validate_reference(store, params.remote_reference)
         secret = Secret(
             workspace_id=workspace_id,
             name=params.name,
@@ -178,7 +196,7 @@ class SecretReferencesService(SecretsService):
         effective_reference = params.remote_reference or secret.remote_reference
         if effective_reference is None:
             raise ValueError("A secret ARN is required.")
-        self._validate_reference(store, effective_reference)
+        self.validate_reference(store, effective_reference)
 
         secret.store_id = store.id
         secret.remote_reference = effective_reference

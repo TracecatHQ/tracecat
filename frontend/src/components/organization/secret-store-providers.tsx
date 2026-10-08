@@ -1,6 +1,6 @@
 "use client"
 
-import { CopyIcon } from "lucide-react"
+import { CheckCheckIcon, CopyIcon } from "lucide-react"
 import React from "react"
 import type {
   SecretStoreCreate,
@@ -320,6 +320,12 @@ function PolicyBlock({
 
 function StorePolicies({ store }: { store: SecretStoreRead }) {
   const [activeId, setActiveId] = React.useState("trust")
+  const [copiedId, setCopiedId] = React.useState<string | null>(null)
+  React.useEffect(() => {
+    if (!copiedId) return
+    const timer = setTimeout(() => setCopiedId(null), 2000)
+    return () => clearTimeout(timer)
+  }, [copiedId])
   const policies = [
     {
       id: "trust",
@@ -339,10 +345,14 @@ function StorePolicies({ store }: { store: SecretStoreRead }) {
     },
   ]
   const active = policies.find((item) => item.id === activeId) ?? policies[0]
+  const copied = copiedId === active.id
   return (
     <Tabs
       value={active.id}
-      onValueChange={setActiveId}
+      onValueChange={(id) => {
+        setActiveId(id)
+        setCopiedId(null)
+      }}
       className="min-w-0 rounded-md border"
     >
       <div className="flex items-center justify-between gap-2 border-b pr-2">
@@ -363,15 +373,21 @@ function StorePolicies({ store }: { store: SecretStoreRead }) {
           size="sm"
           className="h-7 gap-1.5 px-2 text-xs text-muted-foreground"
           aria-label={`Copy ${active.title.toLowerCase()}`}
-          onClick={() =>
-            copyToClipboard({
+          onClick={async () => {
+            const policyId = active.id
+            const landed = await copyToClipboard({
               value: active.policy,
               message: `Copied ${active.title.toLowerCase()}`,
             })
-          }
+            if (landed) setCopiedId(policyId)
+          }}
         >
-          <CopyIcon className="size-3.5" />
-          Copy
+          {copied ? (
+            <CheckCheckIcon className="size-3.5" />
+          ) : (
+            <CopyIcon className="size-3.5" />
+          )}
+          {copied ? "Copied" : "Copy"}
         </Button>
       </div>
       {policies.map((item) => (

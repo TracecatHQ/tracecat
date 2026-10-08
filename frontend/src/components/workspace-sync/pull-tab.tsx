@@ -17,6 +17,8 @@ import type {
   McpIntegrationMappingRequirement,
   McpIntegrationMappingSelection,
   PullResult,
+  SecretStoreMappingRequirement,
+  SecretStoreMappingSelection,
   VcsProvider,
 } from "@/client"
 import { CommitSelector } from "@/components/registry/commit-selector"
@@ -77,12 +79,17 @@ export function WorkspaceSyncPullTab({
   const [mcpMappingRequirements, setMcpMappingRequirements] = useState<
     McpIntegrationMappingRequirement[]
   >([])
+  const [storeMappings, setStoreMappings] = useState<Record<string, string>>({})
+  const [storeMappingRequirements, setStoreMappingRequirements] = useState<
+    SecretStoreMappingRequirement[]
+  >([])
   const [pullPreview, setPullPreview] = useState<PullResult | null>(null)
   const [pullPreviewOptions, setPullPreviewOptions] = useState<{
     commitSha: string
     syncSchedules: boolean
     catalogMappingsKey: string | null
     mcpMappingsKey: string | null
+    storeMappingsKey: string | null
   } | null>(null)
   const [pullResult, setPullResult] = useState<PullResult | null>(null)
   const [pullAction, setPullAction] = useState<"preview" | "apply" | null>(null)
@@ -104,17 +111,26 @@ export function WorkspaceSyncPullTab({
     () => JSON.stringify(selectedMcpMappings),
     [selectedMcpMappings]
   )
+  const selectedStoreMappings = useMemo(
+    () => secretStoreMappingSelections(storeMappings),
+    [storeMappings]
+  )
+  const storeMappingsKey = useMemo(
+    () => JSON.stringify(selectedStoreMappings),
+    [selectedStoreMappings]
+  )
   const pullPreviewMatchesSource =
     Boolean(effectivePullSha) &&
     pullPreviewOptions !== null &&
     pullPreviewOptions.commitSha === effectivePullSha &&
     pullPreviewOptions.syncSchedules === syncSchedules
-  // Both selection sets must match what the backend last validated. Changing
-  // either one invalidates the preview until it is re-run.
+  // Every selection set must match what the backend last validated. Changing
+  // any one invalidates the preview until it is re-run.
   const pullPreviewMatchesSelection =
     pullPreviewMatchesSource &&
     pullPreviewOptions?.catalogMappingsKey === catalogMappingsKey &&
-    pullPreviewOptions?.mcpMappingsKey === mcpMappingsKey
+    pullPreviewOptions?.mcpMappingsKey === mcpMappingsKey &&
+    pullPreviewOptions?.storeMappingsKey === storeMappingsKey
   const canApplyPull =
     pullPreviewMatchesSelection && pullPreview?.success === true
 
@@ -137,6 +153,8 @@ export function WorkspaceSyncPullTab({
     setCatalogMappingRequirements([])
     setMcpMappings({})
     setMcpMappingRequirements([])
+    setStoreMappings({})
+    setStoreMappingRequirements([])
   }, [effectivePullSha, provider, resetPullPreview])
 
   useEffect(() => {
@@ -158,17 +176,22 @@ export function WorkspaceSyncPullTab({
         sync_schedules: syncSchedules,
         catalog_mappings: selectedCatalogMappings,
         mcp_integration_mappings: selectedMcpMappings,
+        secret_store_mappings: selectedStoreMappings,
       })
       setPullPreview(result)
       setCatalogMappingRequirements(result.catalog_mapping_requirements ?? [])
       setMcpMappingRequirements(
         result.mcp_integration_mapping_requirements ?? []
       )
+      setStoreMappingRequirements(
+        result.secret_store_mapping_requirements ?? []
+      )
       setPullPreviewOptions({
         commitSha: effectivePullSha,
         syncSchedules,
         catalogMappingsKey,
         mcpMappingsKey,
+        storeMappingsKey,
       })
       toast({
         title: result.success ? "Pull preview ready" : "Pull preview failed",
@@ -199,6 +222,7 @@ export function WorkspaceSyncPullTab({
         sync_schedules: syncSchedules,
         catalog_mappings: selectedCatalogMappings,
         mcp_integration_mappings: selectedMcpMappings,
+        secret_store_mappings: selectedStoreMappings,
       })
       if (result.success) {
         setPullResult(result)
@@ -208,11 +232,16 @@ export function WorkspaceSyncPullTab({
         setCatalogMappingRequirements([])
         setMcpMappings({})
         setMcpMappingRequirements([])
+        setStoreMappings({})
+        setStoreMappingRequirements([])
       } else {
         setPullPreview(result)
         setCatalogMappingRequirements(result.catalog_mapping_requirements ?? [])
         setMcpMappingRequirements(
           result.mcp_integration_mapping_requirements ?? []
+        )
+        setStoreMappingRequirements(
+          result.secret_store_mapping_requirements ?? []
         )
         setPullPreviewOptions({
           commitSha: effectivePullSha,
@@ -222,6 +251,7 @@ export function WorkspaceSyncPullTab({
           // themselves did not change.
           catalogMappingsKey: null,
           mcpMappingsKey: null,
+          storeMappingsKey: null,
         })
       }
       toast({
@@ -260,6 +290,17 @@ export function WorkspaceSyncPullTab({
     setMcpMappings((current) => ({
       ...current,
       [sourceMcpIntegrationId]: targetMcpIntegrationId,
+    }))
+    setPullResult(null)
+  }
+
+  function handleStoreMappingChange(
+    sourceStore: string,
+    targetStoreId: string
+  ) {
+    setStoreMappings((current) => ({
+      ...current,
+      [sourceStore]: targetStoreId,
     }))
     setPullResult(null)
   }
@@ -308,6 +349,9 @@ export function WorkspaceSyncPullTab({
           mcpMappingRequirements={mcpMappingRequirements}
           mcpMappings={mcpMappings}
           onMcpMappingChange={handleMcpMappingChange}
+          storeMappingRequirements={storeMappingRequirements}
+          storeMappings={storeMappings}
+          onStoreMappingChange={handleStoreMappingChange}
           mappingsMatchPreview={pullPreviewMatchesSelection}
           disabled={pullWorkflowsIsPending}
         />
@@ -415,6 +459,9 @@ function PullPreviewSummary({
   mcpMappingRequirements,
   mcpMappings,
   onMcpMappingChange,
+  storeMappingRequirements,
+  storeMappings,
+  onStoreMappingChange,
   mappingsMatchPreview,
   disabled,
 }: {
@@ -431,6 +478,9 @@ function PullPreviewSummary({
     sourceMcpIntegrationId: string,
     targetMcpIntegrationId: string
   ) => void
+  storeMappingRequirements: SecretStoreMappingRequirement[]
+  storeMappings: Record<string, string>
+  onStoreMappingChange: (sourceStore: string, targetStoreId: string) => void
   mappingsMatchPreview: boolean
   disabled: boolean
 }) {
@@ -495,6 +545,16 @@ function PullPreviewSummary({
           requirements={mcpMappingRequirements}
           selections={mcpMappings}
           onChange={onMcpMappingChange}
+          mappingsMatchPreview={mappingsMatchPreview}
+          disabled={disabled}
+        />
+      )}
+
+      {storeMappingRequirements.length > 0 && (
+        <SecretStoreMappingRequirements
+          requirements={storeMappingRequirements}
+          selections={storeMappings}
+          onChange={onStoreMappingChange}
           mappingsMatchPreview={mappingsMatchPreview}
           disabled={disabled}
         />
@@ -665,6 +725,75 @@ function McpIntegrationMappingRequirements({
       disabled={disabled}
     />
   )
+}
+
+const LEAVE_UNLINKED = "__leave_unlinked__"
+
+/**
+ * Inline resolution UI for AWS-backed secrets whose store name has no
+ * authorized match. Unmapped names import their secrets without a store.
+ */
+function SecretStoreMappingRequirements({
+  requirements,
+  selections,
+  onChange,
+  mappingsMatchPreview,
+  disabled,
+}: {
+  requirements: SecretStoreMappingRequirement[]
+  selections: Record<string, string>
+  onChange: (sourceStore: string, targetStoreId: string) => void
+  mappingsMatchPreview: boolean
+  disabled: boolean
+}) {
+  const items = useMemo(
+    () =>
+      requirements.map(
+        (requirement): MappingRequirementItem => ({
+          key: requirement.source_store,
+          title: requirement.source_store,
+          subtitle: requirement.message,
+          ariaLabel: `Target store for ${requirement.source_store}`,
+          candidates: [
+            ...requirement.candidates.map((candidate) => ({
+              value: candidate.store_id,
+              label: candidate.region
+                ? `${candidate.name} (${candidate.region})`
+                : candidate.name,
+            })),
+            { value: LEAVE_UNLINKED, label: "Leave unlinked" },
+          ],
+          affects: requirement.affected_secrets
+            .map((secret) => secret.secret_name)
+            .join(", "),
+        })
+      ),
+    [requirements]
+  )
+
+  return (
+    <MappingRequirementsCard
+      heading="Choose secret stores"
+      description="Pick a store for each name, or leave its secrets unlinked and link them later in Credentials."
+      placeholder="Leave unlinked"
+      items={items}
+      selections={selections}
+      onChange={onChange}
+      mappingsMatchPreview={mappingsMatchPreview}
+      disabled={disabled}
+    />
+  )
+}
+
+function secretStoreMappingSelections(
+  mappings: Record<string, string>
+): SecretStoreMappingSelection[] {
+  return Object.entries(mappings)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([sourceStore, targetStoreId]) => ({
+      source_store: sourceStore,
+      target_store_id: targetStoreId === LEAVE_UNLINKED ? null : targetStoreId,
+    }))
 }
 
 function catalogMappingSelections(

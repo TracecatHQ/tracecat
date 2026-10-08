@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any, Literal
 
@@ -11,6 +12,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
+from tracecat.secrets.enums import SecretSource, SecretType
+from tracecat.secrets.schemas import (
+    AWS_SECRET_ID_PATTERN,
+    EXPRESSION_SECRET_NAME_PATTERN,
+    AwsSecretKeyMapping,
+)
 from tracecat.sync import CommitInfo, PullResourceDiff
 from tracecat.workflow.store.schemas import (
     RemoteCaseTrigger,
@@ -617,6 +624,25 @@ class SecretMetadataResourceSpec(BaseModel):
     description: str | None = Field(
         default=None, description="Optional secret description."
     )
+    source: SecretSource | None = Field(
+        default=None,
+        description="Where the values live. Omitted for secrets stored in Tracecat.",
+    )
+    store: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Name of the organization secret store an externally backed secret reads from. Omitted when the secret isn't linked to a store.",
+    )
+    remote_reference: str | None = Field(
+        default=None,
+        pattern=AWS_SECRET_ID_PATTERN,
+        max_length=2048,
+        description="Secret name or ARN in the external store.",
+    )
+    key_mapping: AwsSecretKeyMapping | None = Field(
+        default=None,
+        description="How the external value maps onto the declared keys.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -625,6 +651,32 @@ class SecretMetadataResourceSpec(BaseModel):
         if isinstance(data, dict) and ({"value", "values"} & data.keys()):
             raise ValueError("secret value material is not allowed in Git")
         return data
+
+    @model_validator(mode="after")
+    def validate_external_reference(self) -> SecretMetadataResourceSpec:
+        """Require a reference and mapping for external secrets, and none otherwise."""
+        reference = (self.store, self.remote_reference, self.key_mapping)
+        if self.source != SecretSource.AWS_SECRETS_MANAGER:
+            if any(part is not None for part in reference):
+                raise ValueError(
+                    "store, remote_reference, and key_mapping require source "
+                    "aws_secrets_manager"
+                )
+            return self
+        if self.key_mapping is None or self.remote_reference is None:
+            raise ValueError(
+                "AWS-backed secret metadata requires remote_reference and key_mapping"
+            )
+        if self.secret_type not in (None, SecretType.CUSTOM.value):
+            raise ValueError("AWS-backed secrets must use the custom type")
+        if not re.fullmatch(EXPRESSION_SECRET_NAME_PATTERN, self.name):
+            raise ValueError(
+                "AWS-backed secret names must be snake_case and start with a "
+                "letter or underscore"
+            )
+        if sorted(self.keys) != sorted(self.key_mapping.output_keys()):
+            raise ValueError("keys must match the key_mapping output keys")
+        return self
 
 
 # Resource-map fields on :class:`WorkspaceSpec`, paired with their sync resource

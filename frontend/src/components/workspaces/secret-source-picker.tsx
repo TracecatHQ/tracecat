@@ -145,8 +145,9 @@ export function SecretSourcePicker({
               )}
               {!isLoading && !error && enabledStores.length === 0 && (
                 <p className="py-1.5 pl-7 pr-2 text-xs text-muted-foreground">
-                  No stores are authorized for this workspace. Ask an
-                  organization admin to add one.
+                  {stores?.length
+                    ? "No stores are enabled for this workspace. Ask an organization admin to enable one or finish its setup."
+                    : "No stores are authorized for this workspace. Ask an organization admin to add one."}
                 </p>
               )}
             </CommandGroup>
