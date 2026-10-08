@@ -85,3 +85,17 @@ it("shows an unknown saved slug with a not-found hint", () => {
     "removed-presetNot found"
   )
 })
+
+it("highlights the selected preset when the list is opened", async () => {
+  const user = userEvent.setup()
+  render(<TestField value="searchable-slug" />)
+  await user.click(screen.getByRole("combobox"))
+  expect(screen.getByRole("option", { name: /Second preset/ })).toHaveAttribute(
+    "data-selected",
+    "true"
+  )
+  expect(screen.getByRole("option", { name: /First preset/ })).toHaveAttribute(
+    "data-selected",
+    "false"
+  )
+})

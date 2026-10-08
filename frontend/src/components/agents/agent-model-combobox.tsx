@@ -274,11 +274,13 @@ export const AgentModelCombobox = forwardRef<
         align="start"
         sideOffset={4}
         className={cn(
-          "w-[max(var(--radix-popover-trigger-width),32rem)] max-w-[calc(100vw-2rem)] p-0",
+          "w-[var(--radix-popover-trigger-width)] min-w-64 max-w-[min(32rem,calc(100vw-2rem))] p-0",
           contentClassName
         )}
       >
         <Command
+          // Start on the selected model so reopening scrolls to it.
+          defaultValue={selected ? modelOptionKey(selected) : undefined}
           filter={(key, search) => {
             const option = options.find(
               (candidate) => modelOptionKey(candidate) === key

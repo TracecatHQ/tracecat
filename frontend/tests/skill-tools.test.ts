@@ -1,8 +1,9 @@
 import { parseDocument } from "yaml"
 import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
 import {
-  buildSkillToolOptions,
+  buildSkillToolIndex,
   MAX_SKILL_TOOLS,
+  normalizeSkillMcpGrants,
   readSkillFrontmatterTools,
   updateSkillFrontmatterTools,
 } from "@/lib/skill-tools"
@@ -132,9 +133,9 @@ metadata:
   })
 })
 
-describe("skill tool options", () => {
+describe("skill tool index", () => {
   it("combines registry actions with available MCP integration tools", () => {
-    const options = buildSkillToolOptions(
+    const index = buildSkillToolIndex(
       [
         registryAction,
         {
@@ -147,30 +148,48 @@ describe("skill tool options", () => {
       [mcpIntegration]
     )
 
-    expect(options.map((option) => option.value)).toEqual([
+    expect(index.entries.map((entry) => entry.id)).toEqual([
       "core.cases.get_case",
       "mcp.slack",
       "mcp.slack.post_message",
     ])
+    // The whole selection is one flat `actions` list of canonical IDs.
     expect(
-      options.find((option) => option.value === "mcp.slack")
-    ).toMatchObject({
-      label: "All tools",
-      group: "Slack",
-      kind: "mcp-integration",
+      index.entries.every(
+        (entry) => entry.target === "actions" && entry.id === entry.key
+      )
+    ).toBe(true)
+    expect(index.byKey.get("core.cases.get_case")).toMatchObject({
+      title: "Get case",
+      namespace: "core.cases",
+      section: "tracecat",
     })
-    expect(
-      options.find((option) => option.value === "mcp.slack.post_message")
-    ).toMatchObject({
-      label: "post_message",
+    expect(index.byKey.get("mcp.slack")).toMatchObject({
+      title: "All tools",
+      description: "Send and read Slack messages.",
+      namespace: "slack",
+      section: "mcp",
+    })
+    expect(index.byKey.get("mcp.slack.post_message")).toMatchObject({
+      title: "post_message",
       description: "Post a message.",
-      kind: "mcp-tool",
+      namespace: "slack",
+      section: "mcp",
     })
+    expect(
+      index.groups.map((group) => [
+        group.title,
+        group.entries.map((entry) => entry.id),
+      ])
+    ).toEqual([
+      ["Slack", ["mcp.slack", "mcp.slack.post_message"]],
+      ["Cases", ["core.cases.get_case"]],
+    ])
   })
 })
 
 it("omits MCP options with unsupported names or noncanonical IDs", () => {
-  const options = buildSkillToolOptions(
+  const index = buildSkillToolIndex(
     [],
     [
       {
@@ -189,7 +208,7 @@ it("omits MCP options with unsupported names or noncanonical IDs", () => {
       },
     ]
   )
-  expect(options.map((option) => option.value)).toEqual([
+  expect(index.entries.map((entry) => entry.id)).toEqual([
     "mcp.slack",
     "mcp.slack.issue_get",
     "mcp.slack.x",
@@ -211,10 +230,10 @@ it.each([
 
 it("offers only whole-server grants for stdio integrations", () => {
   expect(
-    buildSkillToolOptions(
+    buildSkillToolIndex(
       [],
       [{ ...mcpIntegration, server_type: "stdio" }]
-    ).map((option) => option.value)
+    ).entries.map((entry) => entry.id)
   ).toEqual(["mcp.slack"])
 })
 
@@ -250,8 +269,8 @@ it("checks the raw declaration count before deduplicating", () => {
   })
 })
 
-it("disambiguates duplicate integration names in options and chips", () => {
-  const options = buildSkillToolOptions(
+it("disambiguates duplicate integration names in group titles", () => {
+  const index = buildSkillToolIndex(
     [],
     [
       mcpIntegration,
@@ -262,16 +281,15 @@ it("disambiguates duplicate integration names in options and chips", () => {
       },
     ]
   )
-  expect(options.find((option) => option.value === "mcp.slack")).toMatchObject({
-    group: "Slack (slack)",
-    tagGroup: "Slack (slack)",
-  })
   expect(
-    options.find((option) => option.value === "mcp.slack-2.post_message")
-  ).toMatchObject({
-    group: "Slack (slack-2)",
-    tagGroup: "Slack (slack-2)",
-  })
+    index.groups.map((group) => [
+      group.title,
+      group.entries.map((entry) => entry.id),
+    ])
+  ).toEqual([
+    ["Slack (slack-2)", ["mcp.slack-2", "mcp.slack-2.post_message"]],
+    ["Slack (slack)", ["mcp.slack", "mcp.slack.post_message"]],
+  ])
 })
 
 it.each([
@@ -366,4 +384,55 @@ it("distinguishes unknown catalogs from loaded empty catalogs", () => {
   const source = "metadata: {tools: [core.cases.get_case, mcp.slack]}"
   expect(readSkillFrontmatterTools(source).valid).toBe(true)
   expect(readSkillFrontmatterTools(source, [], []).valid).toBe(false)
+})
+
+describe("normalizeSkillMcpGrants", () => {
+  it("drops per-tool grants of a server whose whole-server grant was added", () => {
+    expect(
+      normalizeSkillMcpGrants(
+        ["mcp.slack.read", "core.cases.get_case"],
+        ["mcp.slack.read", "core.cases.get_case", "mcp.slack", "mcp.slack.post"]
+      )
+    ).toEqual(["core.cases.get_case", "mcp.slack"])
+  })
+
+  it("drops a tool selected while the whole-server grant is present", () => {
+    expect(
+      normalizeSkillMcpGrants(["mcp.slack"], ["mcp.slack", "mcp.slack.read"])
+    ).toEqual(["mcp.slack"])
+  })
+
+  it("returns the same list when no edited server has a whole-server grant", () => {
+    const stored = ["mcp.slack.read", "mcp.slack", "mcp.jira.get"]
+    expect(normalizeSkillMcpGrants(stored, stored)).toBe(stored)
+    const next = [...stored, "mcp.jira.list", "core.cases.get_case"]
+    expect(normalizeSkillMcpGrants(stored, next)).toBe(next)
+  })
+
+  it("does not confuse servers whose slugs share a prefix", () => {
+    expect(
+      normalizeSkillMcpGrants(
+        ["mcp.slack-2.read"],
+        ["mcp.slack-2.read", "mcp.slack"]
+      )
+    ).toEqual(["mcp.slack-2.read", "mcp.slack"])
+  })
+})
+
+it("reports a registry action agents cannot call as unavailable", () => {
+  const frontmatter = "metadata: {tools: [core.script.run_python]}"
+  const runPython = {
+    ...registryAction,
+    action: "core.script.run_python",
+    namespace: "core.script",
+    name: "run_python",
+  }
+  expect(readSkillFrontmatterTools(frontmatter, [], [runPython])).toMatchObject(
+    { valid: false, canRemove: true, tools: ["core.script.run_python"] }
+  )
+  // Availability stays unknown without a catalogue.
+  expect(readSkillFrontmatterTools(frontmatter)).toEqual({
+    valid: true,
+    tools: ["core.script.run_python"],
+  })
 })

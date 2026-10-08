@@ -700,3 +700,49 @@ it("offers select-all for an MCP group of individually selectable tools", async 
     mcpIntegrations: [],
   })
 })
+
+it("groups digits in the source rail counts like the search placeholder", () => {
+  const catalog = buildToolIndex(largeToolCatalog(), [])
+  render(
+    <ToolPickerDialog
+      index={catalog}
+      open
+      onOpenChange={jest.fn()}
+      value={defaults}
+      onChange={jest.fn()}
+    />
+  )
+  const total = (1500).toLocaleString()
+  expect(screen.getByPlaceholderText(`Search ${total} tools`)).toBeVisible()
+  expect(
+    screen.getByRole("button", { name: `All tools ${total}` })
+  ).toBeInTheDocument()
+})
+
+it("returns focus to the element that opened the picker", async () => {
+  const user = userEvent.setup()
+  function Opener() {
+    const [open, setOpen] = useState(false)
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          Open picker
+        </button>
+        <ToolPickerDialog
+          index={index}
+          open={open}
+          onOpenChange={setOpen}
+          value={defaults}
+          onChange={jest.fn()}
+        />
+      </>
+    )
+  }
+  render(<Opener />)
+  const opener = screen.getByRole("button", { name: "Open picker" })
+  await user.click(opener)
+  expect(screen.getByRole("combobox", { name: "Search tools" })).toHaveFocus()
+  await user.keyboard("{Escape}")
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  await waitFor(() => expect(opener).toHaveFocus())
+})

@@ -953,7 +953,12 @@ function AgentPresetSelect({
         align="start"
         className="w-[max(var(--radix-popover-trigger-width),24rem)] p-0"
       >
-        <Command>
+        <Command
+          // Start on the selected preset so reopening scrolls to it.
+          defaultValue={
+            selected ? `${selected.name} ${selected.slug}` : undefined
+          }
+        >
           <CommandInput placeholder="Search agent presets..." />
           <CommandList>
             <CommandEmpty>{emptyText}</CommandEmpty>

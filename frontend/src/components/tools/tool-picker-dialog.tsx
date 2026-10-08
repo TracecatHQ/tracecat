@@ -71,6 +71,7 @@ type RailRow =
 /** Lazily mount a virtualized catalog with local, cancelable selection. */
 export function ToolPickerDialog({ open, ...props }: ToolPickerDialogProps) {
   const searchRef = useRef<HTMLInputElement>(null)
+  const openerRef = useRef<HTMLElement | null>(null)
   return (
     <Dialog open={open} onOpenChange={props.onOpenChange}>
       {open && (
@@ -78,7 +79,17 @@ export function ToolPickerDialog({ open, ...props }: ToolPickerDialogProps) {
           aria-describedby={undefined}
           onOpenAutoFocus={(event) => {
             event.preventDefault()
+            // The dialog has no Radix trigger, so remember what opened it.
+            openerRef.current =
+              document.activeElement instanceof HTMLElement
+                ? document.activeElement
+                : null
             searchRef.current?.focus()
+          }}
+          onCloseAutoFocus={(event) => {
+            // Without a trigger Radix would leave focus on the body.
+            event.preventDefault()
+            openerRef.current?.focus()
           }}
           className="flex h-[min(92dvh,960px)] w-[min(96vw,1440px)] max-w-none flex-col gap-0 overflow-hidden p-0 shadow-none [&>button]:hidden"
         >
@@ -637,9 +648,10 @@ const SourceRow = memo(function SourceRow({
         {row.title}
       </p>
     )
-  let count: string | number = row.total
-  if (row.id === "selected") count = selected
-  else if (row.entry && selected) count = `${selected}/${row.total}`
+  let count = row.total.toLocaleString()
+  if (row.id === "selected") count = selected.toLocaleString()
+  else if (row.entry && selected)
+    count = `${selected.toLocaleString()}/${row.total.toLocaleString()}`
   return (
     <button
       type="button"

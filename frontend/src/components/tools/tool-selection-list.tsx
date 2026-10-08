@@ -59,6 +59,8 @@ export interface ToolSelectionListProps {
   registryActions?: RegistryActionReadMinimal[]
   mcpIntegrations?: MCPIntegrationRead[]
   isSaving?: boolean
+  /** Disable "Add tools" while keeping removal available. Defaults to false. */
+  addDisabled?: boolean
   maxTools?: number | null
   registryLoading?: boolean
   mcpLoading?: boolean
@@ -82,6 +84,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
   registryActions = EMPTY_ACTIONS,
   mcpIntegrations = EMPTY_INTEGRATIONS,
   isSaving = false,
+  addDisabled = false,
   maxTools,
   registryLoading = false,
   mcpLoading = false,
@@ -178,6 +181,15 @@ export const ToolSelectionList = memo(function ToolSelectionList({
   const blocked = getBlockedActions(actions, namespaces)
   const loading = registryLoading || mcpLoading
   const ready = !loading && !toolsLoadError
+  const canAdd = ready && !addDisabled
+  // Forget a pending open when the picker is hidden, so it does not reopen by
+  // itself once the catalogue is ready again.
+  if (open && !canAdd) setOpen(false)
+  // The field header counts every listed grant, MCP servers included. The
+  // titled header keeps counting catalogue tools only.
+  const selectedCount =
+    actions.filter((key) => index.byKey.has(key)).length +
+    (hideTitle ? integrations.length : 0)
   const skillKeys = new Set(skillActions?.filter((key) => !selected.has(key)))
   const unavailable = ready
     ? actions.filter((key) => !index.byKey.has(key))
@@ -256,10 +268,13 @@ export const ToolSelectionList = memo(function ToolSelectionList({
     <section className="min-w-0 space-y-2">
       <div className="flex items-center gap-2">
         {!hideTitle && <h3 className="text-xs font-medium">Tools</h3>}
-        <span className="text-xs text-muted-foreground">
-          {actions.filter((key) => index.byKey.has(key)).length}
-          {hideTitle && " selected"}
-        </span>
+        {/* Nothing can be counted until the catalogue has loaded. */}
+        {ready && (
+          <span className="text-xs text-muted-foreground">
+            {selectedCount}
+            {hideTitle && " selected"}
+          </span>
+        )}
         <Button
           type="button"
           variant="ghost"
@@ -279,7 +294,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
           variant="outline"
           size="sm"
           className={cn("h-7 gap-1.5 text-xs shadow-none", FOCUS)}
-          disabled={isSaving || !ready}
+          disabled={isSaving || !canAdd}
           onClick={() => setOpen(true)}
         >
           <Plus className="size-3.5" />
@@ -430,7 +445,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
                 </ContextMenu>
                 {isExpanded &&
                   visible.map((entry) => (
-                    <ActionRow
+                    <ToolSelectionRow
                       key={entry.key}
                       tool={entry.key}
                       title={entry.title}
@@ -504,7 +519,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
                 From skills
               </h4>
               {visibleSkillKeys.map((key) => (
-                <ActionRow
+                <ToolSelectionRow
                   key={key}
                   tool={key}
                   title={index.byKey.get(key)?.title}
@@ -526,7 +541,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
                 Unavailable
               </h4>
               {visibleUnavailable.map((key) => (
-                <ActionRow
+                <ToolSelectionRow
                   key={key}
                   tool={key}
                   disabled={isSaving}
@@ -541,7 +556,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
                 Other approval rules
               </h4>
               {visibleOtherRules.map((rule) => (
-                <ActionRow
+                <ToolSelectionRow
                   key={rule.tool}
                   tool={rule.tool}
                   ask
@@ -556,7 +571,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
       )}
       <ToolPickerDialog
         index={index}
-        open={open && ready}
+        open={open && canAdd}
         onOpenChange={setOpen}
         maxTools={maxTools}
         skillActions={skillActions ?? undefined}
@@ -571,7 +586,8 @@ export const ToolSelectionList = memo(function ToolSelectionList({
   )
 })
 
-function ActionRow({
+/** One selected tool: optional title, its ID, and remove/approval controls. */
+export function ToolSelectionRow({
   tool,
   title,
   ask,

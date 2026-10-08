@@ -1955,7 +1955,17 @@ export function AgentPresetConfigurationPanel({
               name="model_name"
               render={({ field }) => (
                 <FormItem className="flex min-w-0 items-center gap-3 space-y-0">
-                  <FormLabel className="w-32 shrink-0 text-xs font-normal text-muted-foreground">
+                  <FormLabel
+                    className="w-32 shrink-0 text-xs font-normal text-muted-foreground"
+                    // A label click also clicks its control, which would open
+                    // the model list. Focus the trigger only.
+                    onClick={(event) => {
+                      event.preventDefault()
+                      document
+                        .getElementById(event.currentTarget.htmlFor)
+                        ?.focus()
+                    }}
+                  >
                     Model
                   </FormLabel>
                   <FormControl>

@@ -268,3 +268,12 @@ it("shows the count without repeating the Tools title of the form label", () => 
     screen.getByRole("button", { name: "Search allowed tools" })
   ).toBeInTheDocument()
 })
+
+it("counts a selected MCP server in the header", () => {
+  render(
+    <TestField
+      inputs={{ actions: [action.action], mcp_integrations: [integration.id] }}
+    />
+  )
+  expect(screen.getByText("2 selected")).toBeInTheDocument()
+})

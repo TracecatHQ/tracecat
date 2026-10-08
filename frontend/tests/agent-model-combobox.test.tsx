@@ -183,3 +183,23 @@ it("matches a custom-source model by name and provider only when asked", () => {
     "Model twoSynthetic source"
   )
 })
+
+it("highlights the selected model when the list is reopened", async () => {
+  const user = userEvent.setup()
+  render(
+    <AgentModelCombobox
+      options={options}
+      value={{ catalogId: "catalog-two" }}
+      onChange={jest.fn()}
+    />
+  )
+  await user.click(screen.getByRole("combobox"))
+  expect(screen.getByRole("option", { name: /Model two/ })).toHaveAttribute(
+    "data-selected",
+    "true"
+  )
+  expect(screen.getByRole("option", { name: /Model one/ })).toHaveAttribute(
+    "data-selected",
+    "false"
+  )
+})
