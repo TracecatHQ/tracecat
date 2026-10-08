@@ -436,6 +436,15 @@ class WorkspaceSyncService(SyncMappingService):
         parse_diagnostics: list[PullDiagnostic] | None = None,
     ) -> PreparedPullPreview:
         """Correlate, diff, and validate the same plan for all pull entrypoints."""
+        if parse_diagnostics:
+            return PreparedPullPreview(
+                snapshot=snapshot,
+                preview=self._failed_pull_result(
+                    snapshot,
+                    parse_diagnostics,
+                    resource_counts=self._resource_counts_from_spec(snapshot.spec),
+                ),
+            )
         await self._require_spec_entitlements(snapshot.spec)
         self._require_pull_scopes(snapshot.spec, dry_run=True)
         resource_counts = self._resource_counts_from_spec(snapshot.spec)
@@ -446,7 +455,7 @@ class WorkspaceSyncService(SyncMappingService):
             requested_secret_store_mappings=requested_secret_store_mappings,
         )
         resource_diffs: list[PullResourceDiff] = []
-        diagnostics = [*(parse_diagnostics or []), *prepared.diagnostics]
+        diagnostics = prepared.diagnostics
         if not diagnostics:
             resource_diffs = await self._resource_diffs_for_pull(
                 prepared.snapshot,

@@ -34,7 +34,7 @@ from tracecat.feature_flags import FeatureFlag
 from tracecat.git.types import GitUrl
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.logger import logger
-from tracecat.sync import CommitInfo, PullOptions, PushStatus
+from tracecat.sync import CommitInfo, PullDiagnostic, PullOptions, PushStatus
 from tracecat.vcs.github.app import GitHubAppError
 from tracecat.workflow.store.schemas import RemoteCaseTrigger, RemoteWorkflowSchedule
 from tracecat.workspace_sync.adapters import (
@@ -3176,3 +3176,60 @@ async def test_sync_import_rolls_back_preparation_failure(
     assert not result.success
     assert result.diagnostics[0].error_type == "transaction"
     rollback.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_parse_diagnostics_stop_preview_before_partial_spec_processing(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    snapshot = WorkspaceRemoteSnapshot(
+        commit_sha="a" * 40,
+        files={"variables/default/example.yml": "partial snapshot"},
+        spec=WorkspaceSpec(
+            variables={
+                "default/example": VariableResourceSpec(
+                    id="default/example", name="example", environment="default"
+                )
+            }
+        ),
+    )
+    diagnostic = PullDiagnostic(
+        workflow_path="workflows/invalid.yml",
+        workflow_title=None,
+        error_type="parse",
+        message="Invalid document",
+        details={},
+    )
+    with (
+        patch.object(
+            workspace_sync_service, "_require_spec_entitlements", new=AsyncMock()
+        ) as entitlements,
+        patch.object(workspace_sync_service, "_require_pull_scopes") as scopes,
+        patch.object(
+            workspace_sync_service, "_prepare_snapshot_for_import", new=AsyncMock()
+        ) as correlate,
+    ):
+        result = await workspace_sync_service.prepare_pull_preview(
+            snapshot, sync_schedules=False, parse_diagnostics=[diagnostic]
+        )
+        entitlements.assert_not_awaited()
+        scopes.assert_not_called()
+        correlate.assert_not_awaited()
+        assert result.snapshot is snapshot
+        assert not result.preview.success
+        assert result.preview.diagnostics == [diagnostic]
+        assert result.preview.resource_counts is not None
+        assert result.preview.resource_counts["variable"].found == 1
+        assert result.preview.resource_counts["variable"].imported == 0
+        assert result.preview.resource_diffs is None
+        assert result.preview.catalog_mapping_requirements is None
+        assert result.preview.mcp_integration_mapping_requirements is None
+
+        # Parsed snapshots must still pass authorization before correlation.
+        entitlements.side_effect = EntitlementRequired("Synthetic denial")
+        with pytest.raises(EntitlementRequired):
+            await workspace_sync_service.prepare_pull_preview(
+                snapshot, sync_schedules=False
+            )
+        entitlements.assert_awaited_once_with(snapshot.spec)
+        correlate.assert_not_awaited()
