@@ -1,0 +1,36 @@
+docs/agents/channels.mdx
+  s_bb1d406c176bda::t_8f6e281b35f544 48
+docs/agents/skills.mdx
+  s_bb1d406c176bda::t_e04640b591d60a 72-73
+  s_bb1d406c176bda::t_8f67a7576ee3fa 112-113,118-119
+  s_bb1d406c176bda::t_58b5d7f93f608f 120
+docs/agents/human-in-the-loop.mdx
+  s_bb1d406c176bda::t_49ce29b84d33b3 39
+  s_bb1d406c176bda::t_2068cf3346c2b9 77
+  s_bb1d406c176bda::t_3363d1e5157794 35-38,40-50
+  s_bb1d406c176bda::t_2e981bbb8b9472 15,19
+docs/agents/ai-preset-agent.mdx
+  s_bb1d406c176bda::t_a6c3ede9df3692 76
+  s_bb1d406c176bda::t_63e31a259e29eb 38
+  s_bb1d406c176bda::t_de88cc2dfe58e7 47
+  s_bb1d406c176bda::t_1e9151f73c879f 13-15,19-24,28-37,39-44,46,48,50-62,64-75,77-84,89,91,93,97-99,122
+  s_bb1d406c176bda::t_1861d4e122dab4 45
+  s_bb1d406c176bda::t_fe493aaf0eaed0 49
+  s_bb1d406c176bda::t_22b137eb6154e7 63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7c1ab3422b618934db55434b891905bc8b0ee021",
+  "prompts": {},
+  "sessions": {
+    "s_bb1d406c176bda": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84c01265-31fb-45c0-8bf6-a69fe6bc6c37",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
