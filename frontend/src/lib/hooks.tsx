@@ -2034,6 +2034,7 @@ export function useRegistryActions(options?: UseRegistryActionsOptions) {
     error: registryActionsError,
   } = useQuery<RegistryActionReadMinimal[]>({
     queryKey: ["registry_actions", options?.versions, options?.includeLocked],
+    staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       return await registryActionsListRegistryActions({
         includeLocked: options?.includeLocked,
@@ -2137,6 +2138,7 @@ export function useRegistryRepositories() {
     ) => await registryRepositoriesDeleteRegistryRepository(params),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["registry_repositories"] })
+      queryClient.invalidateQueries({ queryKey: ["registry_actions"] })
       toast({
         title: "Deleted registry repository",
         description: "Registry repository deleted successfully.",

@@ -57,10 +57,11 @@ import type {
   AgentPresetUpdate,
   AnyAttachedSubagentRef,
   MCPIntegrationRead,
+  RegistryActionReadMinimal,
   SkillReadMinimal,
 } from "@/client"
-import { AgentPresetApprovalRules } from "@/components/agents/agent-preset-approval-rules"
 import { AgentPresetDetailActions } from "@/components/agents/agent-preset-detail-actions"
+import { AgentPresetToolsList } from "@/components/agents/agent-preset-tools-list"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
 import { SlackChannelPanel } from "@/components/agents/external-channels/slack-channel-panel"
 import {
@@ -69,9 +70,8 @@ import {
 } from "@/components/chat/chat-history-dropdown"
 import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
-import { getIcon, getMcpProviderIconId, ProviderIcon } from "@/components/icons"
+import { ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
-import { MultiTagCommandInput, type Suggestion } from "@/components/tags-input"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -151,7 +151,6 @@ import {
   buildAgentPresetUpdatePayload,
   buildSkillCommandItemValue,
 } from "@/lib/agent-presets"
-import { isAgentToolSelectable } from "@/lib/agent-tools"
 import type { ModelInfo } from "@/lib/chat"
 import { getApiErrorDetail } from "@/lib/errors"
 import {
@@ -160,7 +159,6 @@ import {
   useRegistryActions,
   useWorkspaceAgentModels,
 } from "@/lib/hooks"
-import { registryActionToSuggestion } from "@/lib/registry"
 import { cn, slugify } from "@/lib/utils"
 import {
   type AgentPresetDetailActionsState,
@@ -378,6 +376,8 @@ const AGENT_PRESET_CAPABILITY_CONFIG = [
   Icon: LucideIcon
 }>
 
+const EMPTY_MCP_INTEGRATIONS: MCPIntegrationRead[] = []
+
 const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   name: "",
   slug: "",
@@ -419,28 +419,12 @@ export function AgentPresetsBuilder({
 
   const { presets, presetsIsLoading, presetsError } =
     useAgentPresets(workspaceId)
-  const { registryActions } = useRegistryActions()
+  const { registryActions, registryActionsError } = useRegistryActions()
   const { models, providers } = useWorkspaceAgentModels(workspaceId)
   const enabledModelsLoaded = models !== undefined
 
-  const { mcpIntegrations, mcpIntegrationsIsLoading } =
+  const { mcpIntegrations, mcpIntegrationsError } =
     useListMcpIntegrations(workspaceId)
-
-  const mcpIntegrationsForForm = useMemo(() => {
-    if (!mcpIntegrations) {
-      return []
-    }
-
-    return mcpIntegrations
-      .map((integration) => ({
-        id: integration.id,
-        name: integration.name,
-        description: integration.description,
-        serverType: integration.server_type,
-        providerId: getMcpProviderIconId(integration.slug),
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }, [mcpIntegrations])
 
   const { createAgentPreset, createAgentPresetIsPending } =
     useCreateAgentPreset(workspaceId)
@@ -486,41 +470,6 @@ export function AgentPresetsBuilder({
     presetError: selectedPresetError,
   } = useAgentPreset(workspaceId, activePresetId)
 
-  const actionSuggestions: Suggestion[] = useMemo(() => {
-    if (!registryActions) {
-      return []
-    }
-    return registryActions
-      .filter((action) => isAgentToolSelectable(action.action))
-      .map((action) => ({
-        ...registryActionToSuggestion(action),
-        label: action.default_title ?? action.name,
-        icon: getIcon(action.action, {
-          className: "size-6 p-[3px] border-[0.5px]",
-        }),
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label))
-  }, [registryActions])
-
-  const namespaceSuggestions: Suggestion[] = useMemo(() => {
-    if (!registryActions) {
-      return []
-    }
-    const seen = new Set<string>()
-    const entries: Suggestion[] = []
-    for (const action of registryActions) {
-      if (action.namespace && !seen.has(action.namespace)) {
-        seen.add(action.namespace)
-        entries.push({
-          id: action.namespace,
-          label: action.namespace,
-          value: action.namespace,
-        })
-      }
-    }
-    return entries.sort((a, b) => a.label.localeCompare(b.label))
-  }, [registryActions])
-
   const enabledModelOptions = useMemo(
     () => buildEnabledModelOptions(models, providers),
     [models, providers]
@@ -565,12 +514,13 @@ export function AgentPresetsBuilder({
         mode={selectedPreset ? "edit" : "create"}
         workspaceId={workspaceId}
         agentPresets={presets ?? []}
-        actionSuggestions={actionSuggestions}
-        namespaceSuggestions={namespaceSuggestions}
+        registryActions={registryActions}
+        registryLoading={registryActions === undefined}
+        mcpLoading={mcpIntegrations === undefined}
+        toolsLoadError={Boolean(registryActionsError || mcpIntegrationsError)}
         enabledModelOptions={enabledModelOptions}
         enabledModelsLoaded={enabledModelsLoaded}
-        mcpIntegrations={mcpIntegrationsForForm}
-        mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
+        mcpIntegrations={mcpIntegrations ?? EMPTY_MCP_INTEGRATIONS}
         isSaving={
           selectedPreset
             ? updateAgentPresetIsPending
@@ -611,69 +561,18 @@ export function AgentPresetArtifactView({
   onTabChange?: (tab: string) => void
 }) {
   const { presets } = useAgentPresets(workspaceId)
-  const { registryActions } = useRegistryActions()
+  const { registryActions, registryActionsError } = useRegistryActions()
   const { models, providers } = useWorkspaceAgentModels(workspaceId)
   const enabledModelsLoaded = models !== undefined
-  const { mcpIntegrations, mcpIntegrationsIsLoading } =
+  const { mcpIntegrations, mcpIntegrationsError } =
     useListMcpIntegrations(workspaceId)
   const { updateAgentPreset, updateAgentPresetIsPending } =
     useUpdateAgentPreset(workspaceId)
-
-  const actionSuggestions: Suggestion[] = useMemo(() => {
-    if (!registryActions) {
-      return []
-    }
-    return registryActions
-      .filter((action) => isAgentToolSelectable(action.action))
-      .map((action) => ({
-        ...registryActionToSuggestion(action),
-        label: action.default_title ?? action.name,
-        icon: getIcon(action.action, {
-          className: "size-6 p-[3px] border-[0.5px]",
-        }),
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label))
-  }, [registryActions])
-
-  const namespaceSuggestions: Suggestion[] = useMemo(() => {
-    if (!registryActions) {
-      return []
-    }
-    const seen = new Set<string>()
-    const entries: Suggestion[] = []
-    for (const action of registryActions) {
-      if (action.namespace && !seen.has(action.namespace)) {
-        seen.add(action.namespace)
-        entries.push({
-          id: action.namespace,
-          label: action.namespace,
-          value: action.namespace,
-        })
-      }
-    }
-    return entries.sort((a, b) => a.label.localeCompare(b.label))
-  }, [registryActions])
 
   const enabledModelOptions = useMemo(
     () => buildEnabledModelOptions(models, providers),
     [models, providers]
   )
-
-  const mcpIntegrationsForForm = useMemo(() => {
-    if (!mcpIntegrations) {
-      return []
-    }
-
-    return mcpIntegrations
-      .map((integration) => ({
-        id: integration.id,
-        name: integration.name,
-        description: integration.description,
-        serverType: integration.server_type,
-        providerId: getMcpProviderIconId(integration.slug),
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-  }, [mcpIntegrations])
 
   return (
     <AgentPresetForm
@@ -692,12 +591,13 @@ export function AgentPresetArtifactView({
         })
       }}
       isSaving={updateAgentPresetIsPending}
-      actionSuggestions={actionSuggestions}
-      namespaceSuggestions={namespaceSuggestions}
+      registryActions={registryActions}
+      registryLoading={registryActions === undefined}
+      mcpLoading={mcpIntegrations === undefined}
+      toolsLoadError={Boolean(registryActionsError || mcpIntegrationsError)}
       enabledModelOptions={enabledModelOptions}
       enabledModelsLoaded={enabledModelsLoaded}
-      mcpIntegrations={mcpIntegrationsForForm}
-      mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
+      mcpIntegrations={mcpIntegrations ?? EMPTY_MCP_INTEGRATIONS}
       layout="stacked"
       initialTab={parseAgentPresetSideTab(initialTab) ?? "configuration"}
       onTabChange={onTabChange}
@@ -1210,14 +1110,6 @@ function getAgentPresetSubmitLabel({
   return "Save changes"
 }
 
-type McpIntegrationOption = {
-  id: string
-  name: string
-  description?: string | null
-  serverType: MCPIntegrationRead["server_type"]
-  providerId: string
-}
-
 type EnabledModelOption = {
   catalogId: string
   sourceId: string | null
@@ -1392,7 +1284,7 @@ function syncFormModelSelection(
 
 function hasSelectedStdioMcpIntegration(
   selectedIds: string[] | undefined,
-  integrations: McpIntegrationOption[]
+  integrations: MCPIntegrationRead[]
 ): boolean {
   if (!selectedIds?.length) {
     return false
@@ -1401,7 +1293,7 @@ function hasSelectedStdioMcpIntegration(
   const selected = new Set(selectedIds)
   return integrations.some(
     (integration) =>
-      integration.serverType === "stdio" && selected.has(integration.id)
+      integration.server_type === "stdio" && selected.has(integration.id)
   )
 }
 
@@ -1417,12 +1309,13 @@ type AgentPresetFormProps = {
     payload: AgentPresetUpdate
   ) => Promise<AgentPresetRead>
   isSaving: boolean
-  actionSuggestions: Suggestion[]
-  namespaceSuggestions: Suggestion[]
+  registryActions?: RegistryActionReadMinimal[]
+  registryLoading: boolean
+  mcpLoading: boolean
+  toolsLoadError: boolean
   enabledModelOptions: EnabledModelOption[]
   enabledModelsLoaded: boolean
-  mcpIntegrations: McpIntegrationOption[]
-  mcpIntegrationsIsLoading: boolean
+  mcpIntegrations: MCPIntegrationRead[]
   layout?: "split" | "stacked"
   initialTab?: AgentPresetSideTab
   onTabChange?: (tab: AgentPresetSideTab) => void
@@ -1437,12 +1330,13 @@ function AgentPresetForm({
   onCreate,
   onUpdate,
   isSaving,
-  actionSuggestions,
-  namespaceSuggestions,
+  registryActions,
+  registryLoading,
+  mcpLoading,
+  toolsLoadError,
   enabledModelOptions,
   enabledModelsLoaded,
   mcpIntegrations,
-  mcpIntegrationsIsLoading,
   layout = "split",
   initialTab = "live-chat",
   onTabChange,
@@ -1762,12 +1656,13 @@ function AgentPresetForm({
       builderPrompt={builderPrompt}
       form={form}
       isSaving={isSaving}
-      actionSuggestions={actionSuggestions}
-      namespaceSuggestions={namespaceSuggestions}
+      registryActions={registryActions}
+      registryLoading={registryLoading}
+      mcpLoading={mcpLoading}
+      toolsLoadError={toolsLoadError}
       enabledModelOptions={enabledModelOptions}
       enabledModelsLoaded={enabledModelsLoaded}
       mcpIntegrations={mcpIntegrations}
-      mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
       hasStdioMcp={hasStdioMcp}
       skillFields={skillFields}
       onAddSkillBinding={handleAddSkillBinding}
@@ -1959,12 +1854,13 @@ function AgentPresetRightPanel({
   builderPrompt,
   form,
   isSaving,
-  actionSuggestions,
-  namespaceSuggestions,
+  registryActions,
+  registryLoading,
+  mcpLoading,
+  toolsLoadError,
   enabledModelOptions,
   enabledModelsLoaded,
   mcpIntegrations,
-  mcpIntegrationsIsLoading,
   hasStdioMcp,
   skillFields,
   onAddSkillBinding,
@@ -1982,12 +1878,13 @@ function AgentPresetRightPanel({
   builderPrompt?: string
   form: UseFormReturn<AgentPresetFormValues>
   isSaving: boolean
-  actionSuggestions: Suggestion[]
-  namespaceSuggestions: Suggestion[]
+  registryActions?: RegistryActionReadMinimal[]
+  registryLoading: boolean
+  mcpLoading: boolean
+  toolsLoadError: boolean
   enabledModelOptions: EnabledModelOption[]
   enabledModelsLoaded: boolean
-  mcpIntegrations: McpIntegrationOption[]
-  mcpIntegrationsIsLoading: boolean
+  mcpIntegrations: MCPIntegrationRead[]
   hasStdioMcp: boolean
   skillFields: Array<{ id: string }>
   onAddSkillBinding: (binding: SkillBindingFormValue) => void
@@ -2082,14 +1979,17 @@ function AgentPresetRightPanel({
 
           <TabsContent value="configuration" className="mt-0 h-full">
             <AgentPresetConfigurationPanel
+              maxTools={preset?.tool_policy?.max_tools}
+              effectiveActions={preset?.tool_policy?.actions}
               form={form}
               isSaving={isSaving}
-              actionSuggestions={actionSuggestions}
-              namespaceSuggestions={namespaceSuggestions}
+              registryActions={registryActions}
+              registryLoading={registryLoading}
+              mcpLoading={mcpLoading}
+              toolsLoadError={toolsLoadError}
               enabledModelOptions={enabledModelOptions}
               enabledModelsLoaded={enabledModelsLoaded}
               mcpIntegrations={mcpIntegrations}
-              mcpIntegrationsIsLoading={mcpIntegrationsIsLoading}
               hasStdioMcp={hasStdioMcp}
             />
           </TabsContent>
@@ -2135,23 +2035,29 @@ function AgentPresetRightPanel({
 function AgentPresetConfigurationPanel({
   form,
   isSaving,
-  actionSuggestions,
-  namespaceSuggestions,
+  registryActions,
+  registryLoading,
+  mcpLoading,
+  toolsLoadError,
   enabledModelOptions,
   enabledModelsLoaded,
   mcpIntegrations,
-  mcpIntegrationsIsLoading,
   hasStdioMcp,
+  maxTools,
+  effectiveActions,
 }: {
   form: UseFormReturn<AgentPresetFormValues>
   isSaving: boolean
-  actionSuggestions: Suggestion[]
-  namespaceSuggestions: Suggestion[]
+  registryActions?: RegistryActionReadMinimal[]
+  registryLoading: boolean
+  mcpLoading: boolean
+  toolsLoadError: boolean
   enabledModelOptions: EnabledModelOption[]
   enabledModelsLoaded: boolean
-  mcpIntegrations: McpIntegrationOption[]
-  mcpIntegrationsIsLoading: boolean
+  mcpIntegrations: MCPIntegrationRead[]
   hasStdioMcp: boolean
+  maxTools?: number | null
+  effectiveActions?: string[] | null
 }) {
   const catalogId = form.watch("catalog_id")
   const sourceId = form.watch("source_id")
@@ -2186,6 +2092,36 @@ function AgentPresetConfigurationPanel({
       : null
   const [isModelPickerOpen, setIsModelPickerOpen] = useState(false)
 
+  function renderModelLabel() {
+    if (selectedModel)
+      return (
+        <span className="flex min-w-0 items-center gap-2">
+          <ProviderIcon
+            providerId={selectedModel.iconId}
+            className="size-4 shrink-0 rounded-none bg-transparent p-0"
+          />
+          <span className="truncate" title={selectedModel.displayName}>
+            {selectedModel.displayName}
+          </span>
+          <span className="shrink-0 text-muted-foreground">
+            {selectedModel.sourceName}
+          </span>
+        </span>
+      )
+    if (legacyModelLabel)
+      return (
+        <span className="flex min-w-0 items-center gap-2">
+          <ProviderIcon
+            providerId={getProviderIconId(modelProvider)}
+            className="size-4 shrink-0 rounded-none bg-transparent p-0"
+          />
+          <span className="truncate">{legacyModelLabel}</span>
+          <span className="shrink-0 text-muted-foreground">Legacy</span>
+        </span>
+      )
+    return enabledModelOptions.length ? "Select a model" : "No enabled models"
+  }
+
   return (
     <ScrollArea className="h-full [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full">
       <div className="flex min-w-0 w-full flex-col gap-8 px-6 py-6 pb-20 text-sm">
@@ -2195,11 +2131,10 @@ function AgentPresetConfigurationPanel({
               control={form.control}
               name="model_name"
               render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Model</FormLabel>
-                  <FormDescription>
-                    Choose from the models available in this workspace.
-                  </FormDescription>
+                <FormItem className="flex min-w-0 items-center gap-3 space-y-0">
+                  <FormLabel className="w-32 shrink-0 font-normal text-muted-foreground">
+                    Model
+                  </FormLabel>
                   <Popover
                     open={isModelPickerOpen}
                     onOpenChange={setIsModelPickerOpen}
@@ -2211,47 +2146,14 @@ function AgentPresetConfigurationPanel({
                           role="combobox"
                           aria-expanded={isModelPickerOpen}
                           className={cn(
-                            "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+                            "flex h-8 min-w-0 flex-1 items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-none focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
                             !selectedModel && "text-muted-foreground"
                           )}
                           disabled={
                             isSaving || enabledModelOptions.length === 0
                           }
                         >
-                          {selectedModel ? (
-                            <span className="flex min-w-0 items-center gap-2">
-                              <ProviderIcon
-                                providerId={selectedModel.iconId}
-                                className="size-4 shrink-0 rounded-none bg-transparent p-0"
-                              />
-                              <span
-                                className="truncate"
-                                title={selectedModel.displayName}
-                              >
-                                {selectedModel.displayName}
-                              </span>
-                              <span className="shrink-0 text-muted-foreground">
-                                {selectedModel.sourceName}
-                              </span>
-                            </span>
-                          ) : legacyModelLabel ? (
-                            <span className="flex min-w-0 items-center gap-2">
-                              <ProviderIcon
-                                providerId={getProviderIconId(modelProvider)}
-                                className="size-4 shrink-0 rounded-none bg-transparent p-0"
-                              />
-                              <span className="truncate">
-                                {legacyModelLabel}
-                              </span>
-                              <span className="shrink-0 text-muted-foreground">
-                                Legacy
-                              </span>
-                            </span>
-                          ) : enabledModelOptions.length ? (
-                            "Select a model"
-                          ) : (
-                            "No enabled models"
-                          )}
+                          {renderModelLabel()}
                           <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
                         </button>
                       </PopoverTrigger>
@@ -2343,199 +2245,87 @@ function AgentPresetConfigurationPanel({
               )}
             />
           </div>
-          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
-            <FormField
-              control={form.control}
-              name="retries"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Retries</FormLabel>
+          <div className="flex items-center gap-3">
+            <label
+              htmlFor="enable-thinking"
+              className="w-32 shrink-0 text-muted-foreground"
+            >
+              Thinking
+            </label>
+            <Switch
+              id="enable-thinking"
+              checked={thinkingEnabled}
+              onCheckedChange={(checked) =>
+                form.setValue("enableThinking", checked, { shouldDirty: true })
+              }
+              disabled={isSaving}
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <label
+              htmlFor="enable-internet-access"
+              className="w-32 shrink-0 text-muted-foreground"
+            >
+              Internet access
+            </label>
+            {hasStdioMcp ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex" tabIndex={0}>
+                    <Switch id="enable-internet-access" checked disabled />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Internet access is required when a stdio MCP server is
+                  connected
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <Switch
+                id="enable-internet-access"
+                checked={internetAccessEnabled}
+                onCheckedChange={(checked) =>
+                  form.setValue("enableInternetAccess", checked, {
+                    shouldDirty: true,
+                  })
+                }
+                disabled={isSaving}
+              />
+            )}
+          </div>
+          <FormField
+            control={form.control}
+            name="retries"
+            render={({ field }) => (
+              <FormItem className="flex items-start gap-3 space-y-0">
+                <FormLabel className="w-32 shrink-0 pt-2 font-normal text-muted-foreground">
+                  Retries
+                </FormLabel>
+                <div>
                   <FormControl>
                     <Input
                       type="number"
                       min={0}
                       {...field}
                       disabled={isSaving}
+                      className="h-8 w-20 shadow-none"
                     />
                   </FormControl>
-                </FormItem>
-              )}
-            />
-          </div>
-          <div className="overflow-hidden rounded-lg border">
-            <div className="flex items-start justify-between gap-4 px-4 py-3">
-              <div className="space-y-1">
-                <label
-                  htmlFor="enable-thinking"
-                  className="text-sm font-medium leading-none"
-                >
-                  Thinking
-                </label>
-                <p className="text-xs text-muted-foreground">
-                  Adds higher reasoning effort by default.
-                </p>
-              </div>
-              <Switch
-                id="enable-thinking"
-                checked={thinkingEnabled}
-                onCheckedChange={(checked) =>
-                  form.setValue("enableThinking", checked, {
-                    shouldDirty: true,
-                  })
-                }
-                disabled={isSaving}
-              />
-            </div>
-            <div className="border-t" />
-            <div className="flex items-start justify-between gap-4 px-4 py-3">
-              <div className="space-y-1">
-                <div className="flex items-center gap-1.5">
-                  <label
-                    htmlFor="enable-internet-access"
-                    className="text-sm font-medium leading-none"
-                  >
-                    Internet access
-                  </label>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        className="text-muted-foreground transition-colors hover:text-foreground"
-                      >
-                        <AlertCircle className="size-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      Required for in-process MCP servers.
-                    </TooltipContent>
-                  </Tooltip>
+                  <FormMessage />
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Allows the agent to reach the web from the sandbox when tools
-                  need it.
-                </p>
-              </div>
-              {hasStdioMcp ? (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex">
-                      <Switch
-                        id="enable-internet-access"
-                        checked
-                        disabled
-                        onCheckedChange={(checked) =>
-                          form.setValue("enableInternetAccess", checked, {
-                            shouldDirty: true,
-                          })
-                        }
-                      />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    Internet access is required when a stdio MCP server is
-                    connected
-                  </TooltipContent>
-                </Tooltip>
-              ) : (
-                <Switch
-                  id="enable-internet-access"
-                  checked={internetAccessEnabled}
-                  onCheckedChange={(checked) =>
-                    form.setValue("enableInternetAccess", checked, {
-                      shouldDirty: true,
-                    })
-                  }
-                  disabled={isSaving}
-                />
-              )}
-            </div>
-          </div>
-        </section>
-
-        <Separator />
-
-        <section className="space-y-4">
-          <FormField
-            control={form.control}
-            name="actions"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Allowed tools</FormLabel>
-                <FormControl>
-                  <MultiTagCommandInput
-                    value={field.value}
-                    onChange={field.onChange}
-                    suggestions={actionSuggestions}
-                    placeholder="+ Add tool"
-                    searchKeys={["label", "value", "description", "group"]}
-                    allowCustomTags
-                    disabled={isSaving}
-                  />
-                </FormControl>
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="mcpIntegrations"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Allowed MCP integrations</FormLabel>
-                <FormControl>
-                  <MultiTagCommandInput
-                    value={field.value ?? []}
-                    onChange={(next) => field.onChange(next)}
-                    searchKeys={["label", "value"]}
-                    suggestions={(mcpIntegrations ?? []).map((integration) => ({
-                      id: integration.id,
-                      label: integration.name,
-                      value: integration.id,
-                      description: integration.description || "MCP Integration",
-                      icon: (
-                        <ProviderIcon
-                          providerId={integration.providerId}
-                          className="size-4 bg-transparent p-0"
-                        />
-                      ),
-                    }))}
-                    placeholder={
-                      mcpIntegrationsIsLoading
-                        ? "Loading integrations..."
-                        : "Select MCP integrations"
-                    }
-                    disabled={isSaving}
-                  />
-                </FormControl>
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="namespaces"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Tool namespaces</FormLabel>
-                <FormControl>
-                  <MultiTagCommandInput
-                    value={field.value}
-                    onChange={field.onChange}
-                    suggestions={namespaceSuggestions}
-                    placeholder="Restrict to namespaces (optional)"
-                    searchKeys={["label", "value"]}
-                    allowCustomTags
-                    disabled={isSaving}
-                  />
-                </FormControl>
               </FormItem>
             )}
           />
         </section>
-
-        <Separator />
-
-        <AgentPresetApprovalRules
+        <AgentPresetToolsList
+          registryActions={registryActions}
+          registryLoading={registryLoading}
+          mcpLoading={mcpLoading}
+          toolsLoadError={toolsLoadError}
+          mcpIntegrations={mcpIntegrations}
           isSaving={isSaving}
-          actionSuggestions={actionSuggestions}
+          maxTools={maxTools}
+          effectiveActions={effectiveActions}
         />
       </div>
     </ScrollArea>
