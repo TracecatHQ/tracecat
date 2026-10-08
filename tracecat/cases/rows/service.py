@@ -22,8 +22,12 @@ from tracecat.cases.rows.schemas import (
     CaseTableRowLinkCreate,
     CaseTableRowRead,
 )
-from tracecat.cases.schemas import TableRowLinkedEvent, TableRowUnlinkedEvent
-from tracecat.cases.service import CaseEventsService
+from tracecat.cases.schemas import (
+    CaseReadMinimal,
+    TableRowLinkedEvent,
+    TableRowUnlinkedEvent,
+)
+from tracecat.cases.service import CaseEventsService, CasesService
 from tracecat.db.models import Case, CaseTableRow, Table
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import (
@@ -32,9 +36,10 @@ from tracecat.pagination import (
     PageParams,
     paginate,
 )
-from tracecat.service import BaseWorkspaceService
+from tracecat.service import BaseWorkspaceService, requires_entitlement
 from tracecat.tables.schemas import TableColumnRead
 from tracecat.tables.service import TablesService
+from tracecat.tiers.enums import Entitlement
 
 # Linked-row caps. The case page pages through every row linked to a case, so
 # these caps bound how much link data one case can accumulate:
@@ -735,6 +740,41 @@ class CaseTableRowsService(BaseWorkspaceService):
         )
         tables = (await self.session.execute(stmt)).scalars().all()
         return {table.id: table for table in tables}
+
+    @requires_entitlement(Entitlement.CASE_ADDONS)
+    async def list_linked_cases(
+        self,
+        *,
+        table_id: uuid.UUID,
+        row_id: uuid.UUID,
+        params: CursorPaginationParams,
+        exclude_case_id: uuid.UUID | None = None,
+        order_by: Literal[
+            "created_at", "updated_at", "priority", "severity", "status", "tasks"
+        ]
+        | None = None,
+        sort: Literal["asc", "desc"] | None = None,
+    ) -> CursorPaginatedResponse[CaseReadMinimal]:
+        """List the cases linked to one table row.
+
+        Links outlive their row, so a deleted row still lists the cases that
+        linked it. Only the table has to exist.
+        """
+        table_exists = await self.session.scalar(
+            select(Table.id).where(
+                Table.workspace_id == self.workspace_id,
+                Table.id == table_id,
+            )
+        )
+        if table_exists is None:
+            raise TracecatNotFoundError(f"Table {table_id} not found")
+        return await CasesService(self.session, self.role).search_cases(
+            params=params,
+            linked_row=(table_id, row_id),
+            exclude_case_id=exclude_case_id,
+            order_by=order_by,
+            sort=sort,
+        )
 
     async def get_case_or_raise(self, case_id: uuid.UUID) -> Case:
         stmt = select(Case).where(

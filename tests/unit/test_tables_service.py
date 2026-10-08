@@ -3272,6 +3272,14 @@ async def test_list_rows_order_by_resolves_case_normalized_name(
         await tables_service.insert_row(
             table, TableRowInsert(data={"hostname": hostname})
         )
+    # Rows inserted in one transaction share created_at; make the order explicit.
+    await tables_service.session.execute(
+        sa.text(
+            f"UPDATE {tables_service._full_table_name(table.name)} "
+            "SET created_at = created_at + interval '1 second' "
+            "WHERE hostname = 'bravo'"
+        )
+    )
 
     page = await tables_service.list_rows(
         table, CursorPaginationParams(limit=10), order_by=order_by, sort="asc"

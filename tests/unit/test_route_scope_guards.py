@@ -604,6 +604,7 @@ async def test_workflow_execution_stop_scope_guards(
         (case_rows_router.batch_link_case_rows, "case:update"),
         (case_rows_router.batch_unlink_case_rows, "case:update"),
         (case_rows_router.unlink_case_row, "case:update"),
+        (case_rows_router.list_linked_cases, "case:read"),
     ],
 )
 async def test_case_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:

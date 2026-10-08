@@ -558,6 +558,18 @@ class _CasesAsync:
         cursor: str | Unset = ...,
         reverse: bool | Unset = ...,
     ) -> dict[str, Any]: ...
+    async def list_linked_cases(
+        self,
+        table_id: str,
+        row_id: str,
+        *,
+        limit: int = ...,
+        cursor: str | Unset = ...,
+        reverse: bool | Unset = ...,
+        order_by: str | Unset = ...,
+        sort: Literal["asc", "desc"] | Unset = ...,
+        exclude_case_id: str | Unset = ...,
+    ) -> types.CaseListResponse: ...
     async def link_case_row(
         self,
         case_id: str,
@@ -879,6 +891,18 @@ class _Cases:
         cursor: str | Unset = ...,
         reverse: bool | Unset = ...,
     ) -> dict[str, Any]: ...
+    def list_linked_cases(
+        self,
+        table_id: str,
+        row_id: str,
+        *,
+        limit: int = ...,
+        cursor: str | Unset = ...,
+        reverse: bool | Unset = ...,
+        order_by: str | Unset = ...,
+        sort: Literal["asc", "desc"] | Unset = ...,
+        exclude_case_id: str | Unset = ...,
+    ) -> types.CaseListResponse: ...
     def link_case_row(
         self,
         case_id: str,

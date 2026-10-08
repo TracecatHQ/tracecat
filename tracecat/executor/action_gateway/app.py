@@ -144,6 +144,9 @@ def _include_internal_routers(app: FastAPI) -> None:
         comments_router as internal_comments_router,
     )
     from tracecat.cases.internal_router import router as internal_cases_router
+    from tracecat.cases.rows.internal_router import (
+        linked_cases_router as internal_case_linked_cases_router,
+    )
     from tracecat.cases.rows.internal_router import router as internal_case_rows_router
     from tracecat.cases.tag_definitions.internal_router import (
         router as internal_case_tag_definitions_router,
@@ -165,6 +168,7 @@ def _include_internal_routers(app: FastAPI) -> None:
     app.include_router(internal_cases_router)
     app.include_router(internal_deduplicate_router)
     app.include_router(internal_case_rows_router)
+    app.include_router(internal_case_linked_cases_router)
     app.include_router(internal_comments_router)
     app.include_router(internal_case_tags_router)
     app.include_router(internal_case_tag_definitions_router)

@@ -108,6 +108,7 @@ from tracecat.cases.durations.consumer import start_case_duration_sync_consumer
 from tracecat.cases.durations.router import router as case_durations_router
 from tracecat.cases.router import case_fields_router as case_fields_router
 from tracecat.cases.router import cases_router as cases_router
+from tracecat.cases.rows.router import linked_cases_router as case_linked_cases_router
 from tracecat.cases.rows.router import router as case_rows_router
 from tracecat.cases.tag_definitions.router import (
     router as case_tag_definitions_router,
@@ -641,6 +642,7 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, cases_router)
     _include_workspace_scoped_router(app, case_versions_router)
     _include_workspace_scoped_router(app, case_rows_router)
+    _include_workspace_scoped_router(app, case_linked_cases_router)
     _include_workspace_scoped_router(app, case_fields_router)
     _include_workspace_scoped_router(app, case_tags_router)
     _include_workspace_scoped_router(app, case_tag_definitions_router)

@@ -19,12 +19,14 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { cn } from "@/lib/utils"
 
 /** What the page's one drawer is currently showing, and for whom. */
 interface CaseValueDrawerEntry {
   id: string
   title: string
   description?: string
+  size?: CaseValueDrawerSize
   /** Tells the owner to close, when the drawer is dismissed or taken over. */
   onClose: () => void
 }
@@ -35,6 +37,14 @@ interface CaseValueDrawerContextValue {
   bodyElement: HTMLElement | null
   claim: (entry: CaseValueDrawerEntry) => void
   release: (id: string) => void
+}
+
+/** `wide` suits list content, such as a row's related cases. */
+export type CaseValueDrawerSize = "default" | "wide"
+
+const DRAWER_WIDTH_CLASS: Record<CaseValueDrawerSize, string> = {
+  default: "w-[min(36rem,100vw)]",
+  wide: "w-[min(60rem,100vw)]",
 }
 
 const CaseValueDrawerContext =
@@ -49,6 +59,7 @@ interface CaseValueDrawerShellProps {
   onClose: () => void
   title: string
   description?: string
+  size?: CaseValueDrawerSize
   bodyRef?: (element: HTMLDivElement | null) => void
   children?: ReactNode
 }
@@ -69,6 +80,7 @@ function CaseValueDrawerShell({
   onClose,
   title,
   description,
+  size = "default",
   bodyRef,
   children,
 }: CaseValueDrawerShellProps) {
@@ -82,7 +94,10 @@ function CaseValueDrawerShell({
     >
       <SheetContent
         side="left"
-        className="flex w-[min(36rem,100vw)] max-w-none flex-col gap-0 p-0 shadow-none sm:max-w-none"
+        className={cn(
+          "flex max-w-none flex-col gap-0 p-0 shadow-none sm:max-w-none",
+          DRAWER_WIDTH_CLASS[size]
+        )}
         onPointerDownOutside={preventDismiss}
         onInteractOutside={preventDismiss}
         onFocusOutside={preventDismiss}
@@ -148,6 +163,7 @@ export function CaseValueDrawerProvider({ children }: { children: ReactNode }) {
         onClose={() => activeRef.current?.onClose()}
         title={shown?.title ?? ""}
         description={shown?.description}
+        size={shown?.size}
         bodyRef={setBodyElement}
       />
     </CaseValueDrawerContext.Provider>
@@ -163,6 +179,8 @@ export interface CaseValueDrawerProps {
   title: string
   /** Optional line under the heading. */
   description?: string
+  /** Drawer width; defaults to `default`. */
+  size?: CaseValueDrawerSize
   /**
    * The viewer or editor. It fills the drawer below the header, so lay it out
    * as a full-height column with any footer pinned and the body scrolling.
@@ -184,6 +202,7 @@ export function CaseValueDrawer({
   onOpenChange,
   title,
   description,
+  size,
   children,
 }: CaseValueDrawerProps) {
   const id = useId()
@@ -196,8 +215,8 @@ export function CaseValueDrawer({
 
   useEffect(() => {
     if (!claim || !open) return
-    claim({ id, title, description, onClose: handleClose })
-  }, [claim, open, id, title, description, handleClose])
+    claim({ id, title, description, size, onClose: handleClose })
+  }, [claim, open, id, title, description, size, handleClose])
 
   useEffect(() => {
     if (!release || !open) return
@@ -211,6 +230,7 @@ export function CaseValueDrawer({
         onClose={handleClose}
         title={title}
         description={description}
+        size={size}
       >
         {children}
       </CaseValueDrawerShell>

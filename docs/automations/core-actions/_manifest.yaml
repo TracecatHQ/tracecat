@@ -568,6 +568,11 @@ pages:
           <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
         examples:
           - cases-get-linked-rows
+      - id: core.cases.list_cases_by_row
+        info: |
+          <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+        examples:
+          - cases-list-cases-by-row
 
   - slug: memory-actions/tables
     title: Tables
