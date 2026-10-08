@@ -2590,7 +2590,7 @@ function AgentPresetSubagentRow({
           type="button"
           variant="ghost"
           size="icon"
-          className="size-6 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          className="size-6 shrink-0 border border-transparent hover:border-rose-500 hover:bg-transparent hover:text-rose-500 text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           onClick={() => onRemove(index)}
           disabled={isSaving}
           aria-label={`Remove ${presetName}`}
@@ -2904,7 +2904,7 @@ function AgentPresetSkillBindingRow({
         type="button"
         variant="ghost"
         size="icon"
-        className="size-6 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        className="size-6 shrink-0 border border-transparent hover:border-rose-500 hover:bg-transparent hover:text-rose-500 text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={() => onRemove(index)}
         disabled={isSaving}
         aria-label={`Remove ${displaySkillName}`}

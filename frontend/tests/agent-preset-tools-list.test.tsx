@@ -111,15 +111,11 @@ it("counts a namespace across registry sources and toggles Ask to Auto and back"
   ])
 })
 
-it("shows the icon-only Add tools tooltip and opens the picker", async () => {
+it("opens the picker from the Add tools button", async () => {
   const user = userEvent.setup()
   render(<TestForm />)
   const addTools = screen.getByRole("button", { name: "Add tools" })
-  expect(addTools.textContent).toBe("")
-  await user.hover(addTools)
-  expect(
-    await screen.findByRole("tooltip", {}, { timeout: 2000 })
-  ).toHaveTextContent("Add tools")
+  expect(addTools).toHaveTextContent("Add tools")
   await user.click(addTools)
   expect(screen.getByRole("dialog")).toBeInTheDocument()
 })

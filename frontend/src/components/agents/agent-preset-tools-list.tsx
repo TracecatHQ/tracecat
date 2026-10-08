@@ -22,11 +22,6 @@ import {
 import { Input } from "@/components/ui/input"
 import { Item } from "@/components/ui/item"
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
-import {
   buildToolIndex,
   getBlockedActions,
   type PresetToolFields,
@@ -36,7 +31,8 @@ import {
 } from "@/lib/agent-preset-tools"
 import { cn } from "@/lib/utils"
 
-const COUNT_BADGE = "h-5 shrink-0 px-2 text-[10px] font-normal"
+const COUNT_BADGE =
+  "h-5 min-w-14 shrink-0 justify-center px-2 text-[10px] font-normal tabular-nums"
 const APPROVAL_COLOR = "bg-yellow-500/10 text-yellow-700 dark:text-yellow-400"
 const FOCUS =
   "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
@@ -205,22 +201,17 @@ export function AgentPresetToolsList({
         >
           <Search className="size-3.5" />
         </Button>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className={cn("size-7 shadow-none", FOCUS)}
-              aria-label="Add tools"
-              disabled={isSaving || !ready}
-              onClick={() => setOpen(true)}
-            >
-              <Plus className="size-3.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Add tools</TooltipContent>
-        </Tooltip>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className={cn("h-7 gap-1.5 text-xs shadow-none", FOCUS)}
+          disabled={isSaving || !ready}
+          onClick={() => setOpen(true)}
+        >
+          <Plus className="size-3.5" />
+          Add tools
+        </Button>
       </div>
       {searchOpen && (
         <div className="flex items-center gap-2 px-2">
