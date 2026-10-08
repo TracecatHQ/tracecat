@@ -1,0 +1,28 @@
+examples/001-distributed-alerting/README.md
+  s_83bf14aae93893::t_4353696304c4c4 11,77,127
+examples/001-distributed-alerting/workflow.md
+  s_83bf14aae93893::t_7078c7290e2486 198
+  s_83bf14aae93893::t_4353696304c4c4 3,26-31,40-41,71,77,92,196-197,199-216,238-280,283
+examples/001-distributed-alerting/agent/preset.md
+  s_83bf14aae93893::t_4353696304c4c4 25
+examples/001-distributed-alerting/skills/case-output/SKILL.md
+  s_83bf14aae93893::t_4353696304c4c4 197
+examples/001-distributed-alerting/skills/slack-case-threads/SKILL.md
+  s_83bf14aae93893::t_4353696304c4c4 38,53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0ba018ee88bed2bdb3ce620c52658277eb088353",
+  "prompts": {},
+  "sessions": {
+    "s_83bf14aae93893": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "787e3dff-fab1-4f72-b752-15660565215d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
