@@ -4756,6 +4756,20 @@ async def test_skill_dependency_policy_is_shared_by_reads_and_runtime(
         AgentPresetToolPolicyPreview(skill_ids=[skill.id])
     )
     assert preview == read.tool_policy
+    assert read.tool_policy.max_tools == config.TRACECAT__AGENT_MAX_TOOLS
+    assert listed.tool_summary.tool_count == 0
+    assert listed.tool_summary.namespaces == []
+    assert listed.tool_summary.mcp_slugs == ["synthetic"]
+    for index in range(2):
+        await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(
+                update={
+                    "name": f"Policy sibling {index}",
+                    "slug": f"policy-sibling-{index}",
+                    "enable_internet_access": True,
+                }
+            )
+        )
     integration_loads = 0
     original_load = IntegrationService.list_mcp_integrations
 
@@ -4766,6 +4780,13 @@ async def test_skill_dependency_policy_is_shared_by_reads_and_runtime(
 
     with monkeypatch.context() as patch:
         patch.setattr(IntegrationService, "list_mcp_integrations", counted_load)
+        list_reads = await agent_preset_service.build_preset_list_reads(
+            await agent_preset_service.list_presets()
+        )
+        assert len(list_reads) == 3
+        assert all(item.tool_summary.mcp_slugs == ["synthetic"] for item in list_reads)
+        assert integration_loads == 1
+        integration_loads = 0
         runtime = await agent_preset_service._version_to_agent_config(version)
     assert integration_loads == 1
     pinned = await agent_preset_service._version_to_agent_config(
@@ -4860,3 +4881,60 @@ async def test_effective_skill_tool_limit_is_checked_before_execution(
         "tool_count": 2,
         "max_tools": 1,
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("max_tools", [17, 0, -1])
+async def test_tool_policy_read_reports_configured_limit(
+    agent_preset_service: AgentPresetService,
+    monkeypatch: pytest.MonkeyPatch,
+    max_tools: int,
+) -> None:
+    """Policy reads expose the configured limit and represent unlimited as null."""
+    monkeypatch.setattr(config, "TRACECAT__AGENT_MAX_TOOLS", max_tools)
+    read = await agent_preset_service.preview_tool_policy(
+        AgentPresetToolPolicyPreview()
+    )
+    assert read.max_tools == (max_tools if max_tools > 0 else None)
+
+
+@pytest.mark.anyio
+async def test_list_tool_summary_counts_filtered_skill_tools(
+    configure_minio_for_skills: None,
+    session: AsyncSession,
+    svc_role: Role,
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+) -> None:
+    """List summaries include skill tools after deduplication and namespace policy."""
+    skills = SkillService(session, role=svc_role)
+    skill = await skills.create_skill(SkillCreate(name="summary-skill"))
+    version = await skills.publish_skill(skill.id)
+    agent_preset_create_params.skills = [AgentPresetSkillBindingBase(skill_id=skill.id)]
+    preset = await agent_preset_service.create_preset(agent_preset_create_params)
+    session.add_all(
+        [
+            SkillVersionTool(
+                workspace_id=svc_role.workspace_id,
+                skill_version_id=version.id,
+                tool_id=tool_id,
+            )
+            for tool_id in (
+                "tools.synthetic.read",
+                "tools.synthetic.write",
+                "core.http_request",
+            )
+        ]
+    )
+    preset.actions = ["tools.synthetic.read", "core.cases.read"]
+    preset.namespaces = ["tools.synthetic"]
+    await session.flush()
+
+    reads = await agent_preset_service.build_preset_list_reads(
+        await agent_preset_service.list_presets()
+    )
+
+    assert len(reads) == 1
+    assert reads[0].tool_summary.tool_count == 2
+    assert reads[0].tool_summary.namespaces == ["tools.synthetic"]
+    assert reads[0].tool_summary.mcp_slugs == []

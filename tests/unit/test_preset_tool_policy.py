@@ -53,7 +53,7 @@ def test_namespace_policy_preserves_blocked_tool_provenance() -> None:
 def test_stdio_requirement_is_independent_of_source(direct: bool) -> None:
     integration_id, version_id = uuid.uuid4(), uuid.uuid4()
     integration = MCPIntegration(
-        id=integration_id, name="Synthetic", server_type="stdio"
+        id=integration_id, name="Synthetic", slug="synthetic", server_type="stdio"
     )
     version = SkillVersion(id=version_id, skill_id=uuid.uuid4(), name="triage")
     version.tools = []
@@ -77,6 +77,34 @@ def test_stdio_requirement_is_independent_of_source(direct: bool) -> None:
     assert policy.requires_internet_access
     assert len(policy.internet_sources) == 1
     assert policy.mcp_grants[0].tool_names is None
+    assert policy.mcp_slugs == ("synthetic",)
+
+
+def test_mcp_slugs_only_include_granted_available_integrations() -> None:
+    """Slug reporting is sorted, deduplicates grants, and tolerates missing IDs."""
+    alpha_id, zebra_id, unused_id, missing_id = (uuid.uuid4() for _ in range(4))
+    policy = resolve_tool_policy(
+        PresetToolInputs(
+            uuid.uuid4(),
+            [],
+            [],
+            [str(zebra_id), str(alpha_id), str(zebra_id), str(missing_id)],
+            {},
+            [],
+        ),
+        {},
+        {
+            integration_id: MCPIntegration(
+                id=integration_id, name=slug, slug=slug, server_type="stdio"
+            )
+            for integration_id, slug in (
+                (alpha_id, "alpha"),
+                (zebra_id, "zebra"),
+                (unused_id, "unused"),
+            )
+        },
+    )
+    assert policy.mcp_slugs == ("alpha", "zebra")
 
 
 @pytest.mark.parametrize(

@@ -16,6 +16,7 @@ from tracecat.identifiers import WorkspaceID
 from tracecat.tags.schemas import TagRead
 
 if TYPE_CHECKING:
+    from tracecat.agent.preset.types import EffectivePresetTools
     from tracecat.db.models import AgentPreset
 
 
@@ -179,6 +180,32 @@ class AgentPresetUpdate(BaseModel):
         return self
 
 
+class AgentPresetToolSummary(Schema):
+    """Effective registry tool count and tool sources for preset list UIs."""
+
+    tool_count: int = Field(default=0)
+    namespaces: list[str] = Field(default_factory=list)
+    mcp_slugs: list[str] = Field(default_factory=list)
+
+
+def build_agent_preset_tool_summary(
+    policy: EffectivePresetTools,
+) -> AgentPresetToolSummary:
+    """Build a tool summary from a resolved preset policy.
+
+    Args:
+        policy: Effective registry tools and MCP grants after policy filtering.
+
+    Returns:
+        Registry tool count, distinct sorted namespaces, and granted MCP slugs.
+    """
+    return AgentPresetToolSummary(
+        tool_count=len(policy.actions),
+        namespaces=sorted({action.rpartition(".")[0] for action in policy.actions}),
+        mcp_slugs=list(policy.mcp_slugs),
+    )
+
+
 class AgentPresetReadMinimal(Schema):
     """Minimal API model for reading agent presets in list endpoints."""
 
@@ -194,6 +221,7 @@ class AgentPresetReadMinimal(Schema):
     tags: list[TagRead] = Field(default_factory=list)
     current_version_id: uuid.UUID | None = None
     capabilities: list[AgentPresetCapability] = Field(default_factory=list)
+    tool_summary: AgentPresetToolSummary = Field(default_factory=AgentPresetToolSummary)
     current_version_subagent_eligibility: AgentPresetSubagentEligibility = Field(
         default_factory=AgentPresetSubagentEligibility
     )
@@ -315,6 +343,7 @@ class AgentPresetToolPolicyRead(Schema):
     """Non-secret effective policy for rendering preset configuration."""
 
     actions: list[str] = Field(default_factory=list)
+    max_tools: int | None = Field(default=None)
     requires_internet_access: bool = False
     has_approvals: bool = False
     blocked_tools: list[PresetToolSourceRead] = Field(default_factory=list)

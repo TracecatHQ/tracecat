@@ -148,6 +148,13 @@ def resolve_tool_policy(
             for integration_id, names in grants.items()
         ),
         tool_approvals=approvals,
+        mcp_slugs=tuple(
+            sorted(
+                integrations[integration_id].slug
+                for integration_id in grants
+                if integration_id in integrations
+            )
+        ),
         requires_internet_access=bool(internet_sources),
         blocked_tools=tuple(blocked),
         internet_sources=tuple(internet_sources),

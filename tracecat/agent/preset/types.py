@@ -44,6 +44,7 @@ class EffectivePresetTools:
 
     actions: tuple[str, ...]
     mcp_grants: tuple[SkillMcpGrant, ...]
+    mcp_slugs: tuple[str, ...]
     tool_approvals: dict[str, bool]
     requires_internet_access: bool
     blocked_tools: tuple[PresetToolSource, ...]

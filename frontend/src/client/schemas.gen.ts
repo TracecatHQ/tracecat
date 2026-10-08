@@ -2540,6 +2540,9 @@ export const $AgentPresetDirectoryItem = {
       type: "array",
       title: "Tags",
     },
+    tool_summary: {
+      $ref: "#/components/schemas/AgentPresetToolSummary",
+    },
     created_at: {
       type: "string",
       format: "date-time",
@@ -2897,6 +2900,9 @@ export const $AgentPresetReadMinimal = {
       type: "array",
       title: "Capabilities",
     },
+    tool_summary: {
+      $ref: "#/components/schemas/AgentPresetToolSummary",
+    },
     current_version_subagent_eligibility: {
       $ref: "#/components/schemas/AgentPresetSubagentEligibility",
     },
@@ -3140,6 +3146,17 @@ export const $AgentPresetToolPolicyRead = {
       type: "array",
       title: "Actions",
     },
+    max_tools: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Max Tools",
+    },
     requires_internet_access: {
       type: "boolean",
       title: "Requires Internet Access",
@@ -3169,6 +3186,34 @@ export const $AgentPresetToolPolicyRead = {
   title: "AgentPresetToolPolicyRead",
   description:
     "Non-secret effective policy for rendering preset configuration.",
+} as const
+
+export const $AgentPresetToolSummary = {
+  properties: {
+    tool_count: {
+      type: "integer",
+      title: "Tool Count",
+      default: 0,
+    },
+    namespaces: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Namespaces",
+    },
+    mcp_slugs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Mcp Slugs",
+    },
+  },
+  type: "object",
+  title: "AgentPresetToolSummary",
+  description:
+    "Effective registry tool count and tool sources for preset list UIs.",
 } as const
 
 export const $AgentPresetUpdate = {

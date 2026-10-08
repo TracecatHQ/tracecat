@@ -734,6 +734,7 @@ export type AgentPresetDirectoryItem = {
   model_name: string
   folder_id: string | null
   tags: Array<TagRead>
+  tool_summary?: AgentPresetToolSummary
   created_at: string
   updated_at: string
 }
@@ -795,6 +796,7 @@ export type AgentPresetReadMinimal = {
   tags?: Array<TagRead>
   current_version_id?: string | null
   capabilities?: Array<AgentPresetCapability>
+  tool_summary?: AgentPresetToolSummary
   current_version_subagent_eligibility?: AgentPresetSubagentEligibility
   created_at: string
   updated_at: string
@@ -870,10 +872,20 @@ export type AgentPresetToolPolicyPreview = {
  */
 export type AgentPresetToolPolicyRead = {
   actions?: Array<string>
+  max_tools?: number | null
   requires_internet_access?: boolean
   has_approvals?: boolean
   blocked_tools?: Array<PresetToolSourceRead>
   internet_sources?: Array<PresetToolSourceRead>
+}
+
+/**
+ * Effective registry tool count and tool sources for preset list UIs.
+ */
+export type AgentPresetToolSummary = {
+  tool_count?: number
+  namespaces?: Array<string>
+  mcp_slugs?: Array<string>
 }
 
 /**
