@@ -384,11 +384,11 @@ The intake is a second, small workflow. It is not part of this export, so build 
 
 1. It has its own webhook. Point your alert source at that URL: a SIEM rule, a cloud threat detection service such as GuardDuty through its event or notification route, or anything else that can POST one alert per request.
 2. It takes the alert id from the incoming body.
-3. It looks up that `alert_id` in `detection_events` and notes whether a row exists.
-4. It upserts one row into `detection_events`: `alert_id` and `payload`, where `payload` is the body exactly as received. A resend of the same alert updates the row and does not create a second one.
-5. When the lookup in step 3 found no row, it runs Triage alerts with `alert_ids: ["<alert_id>"]`. One alert, one run.
+3. It claims the id. It calls `core.table.insert_rows` on `detection_events` with `upsert: true` and one row that holds only `alert_id`. The result is 1 for a new id and 0 for an id already stored. This is the same mechanism as `claim_event`: a row with only the index column does nothing on a conflict. The claim is one statement, so two deliveries of the same alert at the same moment cannot both get 1.
+4. It upserts the full row into `detection_events`: `alert_id` and `payload`, where `payload` is the body exactly as received. A resend of the same alert updates the row and does not create a second one.
+5. When the claim in step 3 returned 1, it runs Triage alerts with `alert_ids: ["<alert_id>"]`. One alert, one run.
 
-Do not use the upsert's result to tell a fresh alert from a resend. It counts updated rows as well as inserted ones, so both return 1.
+Do not use the result of step 4 to tell a fresh alert from a resend. An upsert that carries `payload` counts updated rows as well as inserted ones, so both return 1.
 
 Triage alerts sends every stored alert to Socky as `Detection event <alert_id>`, so the alert path always uses `detection-event-case-lifecycle`, whatever the source.
 
@@ -402,15 +402,16 @@ trigger. <My alert source> will POST one alert per request. Here is a sample
 body: <paste a sample>.
 
 1. Take the alert id from <field> in the body.
-2. Look up that alert id in the table `detection_events`, column `alert_id`,
-   and keep whether a row was found. Create the table with a unique index on
-   `alert_id` if it does not exist.
+2. Claim the id: call core.table.insert_rows on the table `detection_events`
+   with upsert true and one row that holds only `alert_id`. Keep the result:
+   1 means the id is new, 0 means it was already stored. Create the table
+   with a unique index on `alert_id` if it does not exist.
 3. Upsert a row into `detection_events` with `alert_id` and `payload` (the
    full request body as JSON).
-4. Only if the lookup in step 2 found no row, execute the workflow "Triage
-   alerts" with trigger inputs {"alert_ids": ["<the alert id>"]}. Pass exactly
-   one id per run. Do not wait for it to finish. Do not branch on the upsert
-   result: it is 1 for an update as well as for an insert.
+4. Only if step 2 returned 1, execute the workflow "Triage alerts" with
+   trigger inputs {"alert_ids": ["<the alert id>"]}. Pass exactly one id per
+   run. Do not wait for it to finish. Do not branch on the result of step 3:
+   it is 1 for an update as well as for an insert.
 
 Send the sample body to the webhook and show me the stored row and the child
 run before you publish.

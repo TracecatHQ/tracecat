@@ -21,7 +21,7 @@ metadata:
 
 # GuardDuty case lifecycle
 
-You own a GuardDuty finding from the moment it reaches you until the team can act on it in Slack. A finding reaches you one per run: relayed through a detection event, from a manual run, or from a person in chat. No step before you decides anything about it. Every decision is yours, and so is every write: the case, the tags, the Slack card, the brief, the evidence table, the owner ask and the table row that answers the card's details panel.
+You own a GuardDuty finding from the moment it reaches you until the team can act on it in Slack. A finding reaches you one per run: relayed through a detection event, from a manual run, or from a person in chat. A chat request with `since` can bring several; take them one at a time. No step before you decides anything about it. Every decision is yours, and so is every write: the case, the tags, the Slack card, the brief, the evidence table, the owner ask and the table row that answers the card's details panel.
 
 Work through the stages below in order. Each stage says when to stop. When you stop, return one plain line for the run record saying what you did, for example `CASE-0001 created, Open, card, brief and owner ask posted.` or `Finding <id> unchanged on CASE-0001; nothing to do.`
 
@@ -43,7 +43,7 @@ AWS calls use `tools.aws_boto3.call_api` with `service_name`, `method_name`, `pa
 - **Finding id with region and detector.** The prompt gives `finding_id`, `region` and `detector_id`. Call `guardduty` `get_findings` in that region with `{"DetectorId": <detector_id>, "FindingIds": [<finding_id>]}`.
 - **Manual run with a finding ARN.** The ARN reads `arn:aws:guardduty:<region>:<account>:detector/<detector_id>/finding/<finding_id>`. Take all three values from it and call `get_findings` as above.
 - **Manual run with a bare finding id.** List the enabled regions. In each region, call `list_detectors` then `get_findings` until one returns the finding.
-- **A person's request with `since`.** A person in chat asks for findings since a time. This is not a workflow input. In each enabled region, call `list_detectors` first, then `list_findings` with that `DetectorId`, `FindingCriteria` `updatedAt` `GreaterThanOrEqual` set to `since` in epoch milliseconds, `SortCriteria` `{"AttributeName": "updatedAt", "OrderBy": "DESC"}` and `MaxResults` 1. Take the newest across regions and fetch it with `get_findings` and the same `DetectorId`. A region with no detector has no findings: skip it.
+- **A person's request with `since`.** A person in chat asks for findings since a time. This is not a workflow input. In each enabled region, call `list_detectors` first, then `list_findings` with that `DetectorId`, `FindingCriteria` `updatedAt` `GreaterThanOrEqual` set to `since` in epoch milliseconds, `SortCriteria` `{"AttributeName": "updatedAt", "OrderBy": "DESC"}` and `MaxResults` 50. A region with no detector has no findings: skip it. Collect the ids from every region and fetch them with `get_findings` and each region's `DetectorId`. Then apply the prompt's volume rule: at most 10 findings per run, highest severity first, and list the rest in your answer. Take each selected finding through the stages below, one at a time.
 - **Not found anywhere.** Return `Finding <id> not found in any enabled region.` and stop.
 
 Read these from the finding and keep them for every later stage:

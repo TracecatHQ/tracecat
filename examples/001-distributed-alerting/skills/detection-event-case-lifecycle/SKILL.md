@@ -80,7 +80,9 @@ Read these from the alert and its row and keep them for every later stage. Colum
 
 The detection name is the family. It feeds the group tag, and in hypothesis-driven-triage's `hypothesis-library.md` you choose the family whose questions are closest to what the rule detects (a policy or permission change reads as `config-change`, use of credentials as `credential-use`, a command in a cluster as `k8s-operator`); when none fits, use `generic`.
 
-The group key is `<detection name>-<account>`. With no account, use the principal's last path segment in lower case, with every character outside `a-z`, `0-9` and `-` replaced by `-`, cut to 40 characters. With neither, the group key is the detection name alone.
+A tag name holds at most 50 characters, so tags never carry a long name whole. The detection tag name is the detection name cut to its first 30 characters. Use it, not the full name, in every tag. In the `alert-<id>` tag, cut an id longer than 44 characters to its first 44.
+
+The group key is `<detection tag name>-<account>`. With no account, use the principal's last path segment in lower case, with every character outside `a-z`, `0-9` and `-` replaced by `-`, cut to 12 characters. With neither, the group key is the detection tag name alone.
 
 ## 3. Find the case
 
@@ -103,7 +105,7 @@ The group key is `<detection name>-<account>`. With no account, use the principa
    - description `Triage in progress.`
    - status `new`, severity `low`
    - `create_missing_tags` true
-   - tags `detection-event`, `source-<siem>`, `detection-<detection name>`, `group-<group key>`, `alert-<id>`, and `account-<account>` when the row gives an account
+   - tags `detection-event`, `source-<siem>`, `detection-<detection tag name>`, `group-<group key>`, `alert-<id>`, and `account-<account>` when the row gives an account
    - fields `aws_account` (only when the account is an AWS account id), `finding_count`, `finding_ids` (`[<id>]`), `finding_type`, `first_seen`, `last_seen`, `principal`, `region`, `resource`, leaving out any that is `not recorded`
    - `payload` with the same `finding_summary`
 
@@ -137,7 +139,7 @@ Load business-context if you have that skill, then hypothesis-driven-triage and 
 - **The alert's own indicator.** Look it up with the threat enrichment tools you have (domain first, else the address), and with an IP reputation tool for an address.
   - A first-seen date within a few minutes of now means the enrichment service had never seen the indicator before this lookup. Zero detections then means no prior record, not a clean verdict.
   - An alert with no domain and no public address has no external indicator. Say so rather than leaving the field blank.
-- **History.** Prior cases for the same rule (`core.cases.search_cases` with tags `["detection-<detection name>"]`, 90 days) with their outcomes, and how often the same principal did the same thing over 90 days in the SIEM. A rule that fires on the same automated principal every day is a pattern to name, with its count.
+- **History.** Prior cases for the same rule (`core.cases.search_cases` with tags `["detection-<detection tag name>"]`, 90 days) with their outcomes, and how often the same principal did the same thing over 90 days in the SIEM. A rule that fires on the same automated principal every day is a pattern to name, with its count.
 - **Shared workload role sessions, only when the actor is a shared workload role.** Some organisations run many tenants or jobs through one shared role that assumes other roles on their behalf. business-context names that role and its session naming pattern when your organisation has one. When the principal is that role or a session it assumed, query the SIEM for the role's cross-account `AssumeRole` sessions from 2 minutes before first seen to 2 minutes after last seen, grouped by tenant session prefix and role. The query below shows the logic in one SQL dialect; table, column and function names are `<adapt to your SIEM>`:
 
   ```sql
@@ -194,7 +196,7 @@ Then call `core.cases.update_case` on the case with:
   - `linked_person`: the linked person, or empty.
   - `principal`: the actor principal, else the alert's principal, else empty.
 
-Add each tag with `core.cases.add_case_tag` and `create_if_missing` true: `detection-event`, `source-<siem>`, `detection-<detection name>`, `group-<group key>`, `alert-<id>`, and `account-<account>` when there is one. Add `escalation` too when the status is Escalate. Leave the case's other tags as they are, and never remove `escalation`.
+Add each tag with `core.cases.add_case_tag` and `create_if_missing` true: `detection-event`, `source-<siem>`, `detection-<detection tag name>`, `group-<group key>`, `alert-<id>`, and `account-<account>` when there is one. Add `escalation` too when the status is Escalate. Leave the case's other tags as they are, and never remove `escalation`.
 
 When you attached rather than created, add one comment:
 
