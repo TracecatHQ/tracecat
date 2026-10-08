@@ -1,0 +1,70 @@
+frontend/src/lib/agent-tools-folding.ts
+  s_46298366954001::t_2d37484a55d011 1-159
+frontend/tests/agent-preset-combobox.test.tsx
+  s_60275f3c1bef1e::t_9ce6e7d461a929 1-87
+frontend/tests/agent-model-field.test.tsx
+  s_60275f3c1bef1e::t_9a2ac09ab47c2f 1-89,91-95
+  s_46298366954001::t_09b355c40fd08c 96-156
+  s_60275f3c1bef1e::t_2cb61c522bd4fb 90
+frontend/src/components/builder/panel/action-panel-fields.tsx
+  s_46298366954001::t_4deaced1f2a777 901-910,915-935,948,959-983,1018-1021,1032-1035
+  s_60275f3c1bef1e::t_0c6b584857cf61 6,894,913-914,938-947,949-958,984-987
+  s_60275f3c1bef1e::t_a6cec2fb17901b 1006-1010,1024-1031,1037-1041
+  s_60275f3c1bef1e::t_021d386b132ffe 818-819,824-825,837-839
+  s_60275f3c1bef1e::t_2cfe96adc48aee 23-27,98,226,345-346,483-488,500-501,505-506,632-633
+  s_60275f3c1bef1e::t_f1a81d820ff724 1080
+  s_46298366954001::t_b8c18e92abc42f 46
+  s_60275f3c1bef1e::t_8b19d44f71a6a8 1081-1082
+  s_46298366954001::t_4e427ebd577bfe 1083
+frontend/tests/agent-tools-field.test.tsx
+  s_60275f3c1bef1e::t_fcc2a70c72fdb3 9-13,192-206
+  s_60275f3c1bef1e::t_bba14bfd1d41f3 24-30,44,63-65,100-102,158-163
+  s_46298366954001::t_09b355c40fd08c 3-4,7,84-85,95,132-136,138-139,207-269
+  s_60275f3c1bef1e::t_f97b63f8e511bb 1-2,5-6,8,14-23,31-43,45-62,66-83,86-94,96-99,103-131,137,140-157,164-166,168-175,177,182-191,270
+  s_60275f3c1bef1e::t_032bcf8007627d 167,176,178-181
+frontend/src/components/builder/panel/agent-tools-field.tsx
+  s_60275f3c1bef1e::t_1282de8c9a1d05 1-2,4,6-8,12-13,16,18-21,23-31,33-34,83-84,86-90,107,134-136,147-148,150-166,168-169,172-175
+  s_60275f3c1bef1e::t_f1a81d820ff724 5,138-140,142-144
+  s_46298366954001::t_891751b9bbd456 46-68,71-72
+  s_46298366954001::t_2c106bc7c0ba7b 69-70,73,113,116,123-125,128,137,145-146
+  s_46298366954001::t_5800a32c29ae4e 3,10,14-15,17,22,32,35-45,74-82,85,91-106,108-112,114-115,117-122,126-127,129-133,141,167,170-171
+  s_60275f3c1bef1e::t_16e0ef374f2c2c 149
+  s_60275f3c1bef1e::t_3b0194bf6b9a7e 9,11
+frontend/tests/action-panel-yaml.test.ts
+  s_60275f3c1bef1e::t_153ce5b66671d3 1-3,7-13,15,52
+  s_46298366954001::t_09b355c40fd08c 4-6,14,16-51
+frontend/tests/agent-tools-folding.test.ts
+  s_46298366954001::t_09b355c40fd08c 1-198
+frontend/src/components/builder/panel/action-panel.tsx
+  s_46298366954001::t_b8c18e92abc42f 495-497,499-501,513-533,1058,1093,1140,1191-1194
+  s_60275f3c1bef1e::t_3b0194bf6b9a7e 1055-1057,1062-1073,1075,1079-1080,1084
+  s_46298366954001::t_d9a07c84e129a1 116-122,1059-1061,1094-1096,1141-1143
+  s_60275f3c1bef1e::t_153ce5b66671d3 223
+  s_60275f3c1bef1e::t_5b78574e74e259 485-494,498,502
+  s_60275f3c1bef1e::t_3c84aebf6fa16d 1087,1114,1120,1138,1190,1195
+  s_46298366954001::t_87db1a60a8edeb 503
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e136f580e96485c6e784b8752c62086ef19fc63c",
+  "prompts": {},
+  "sessions": {
+    "s_46298366954001": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8148e7d1-b082-4023-a384-0ae94ce7c897",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    },
+    "s_60275f3c1bef1e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11d42-ef20-7df2-9662-c5963beab84e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
