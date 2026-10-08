@@ -7905,6 +7905,64 @@ async def test_secret_store_mapping_preview_rejects_local_spec_for_aws_secret(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("store", ["prod", "missing"])
+async def test_secret_store_mapping_legacy_spec_keeps_reference_without_diff(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+    store: str,
+) -> None:
+    await _aws_store(session, svc_role)
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    result = await service._import_snapshot(
+        await _secret_snapshot(service, "vendor_api", store=store),
+        sync_schedules=False,
+    )
+    assert result.success is True, result.diagnostics
+    before = await _workspace_secret(session, svc_role, "vendor_api")
+    linked = (before.store_id, before.remote_reference, before.remote_key_mapping)
+    snapshot = await _secret_specs_snapshot(
+        service,
+        {
+            "version": 1,
+            "type": "secret_metadata",
+            "id": "default/vendor_api",
+            "name": "vendor_api",
+            "environment": "default",
+            "secret_type": "custom",
+            "keys": ["TOKEN"],
+            "description": "legacy export",
+        },
+    )
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.diagnostics == []
+    diffs = await service._resource_diffs_for_pull(
+        prepared.snapshot, sync_schedules=False
+    )
+    changed = [
+        line
+        for diff in diffs
+        for line in diff.diff.splitlines()
+        if line[:1] in "+-" and not line.startswith(("+++", "---"))
+    ]
+    assert changed and all(line[1:].startswith("description") for line in changed)
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is True, result.diagnostics
+
+    secret = await _workspace_secret(session, svc_role, "vendor_api")
+    assert secret.description == "legacy export"
+    assert (secret.store_id, secret.remote_reference, secret.remote_key_mapping) == (
+        linked
+    )
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    diffs = await service._resource_diffs_for_pull(
+        prepared.snapshot, sync_schedules=False
+    )
+    assert diffs == [], [(diff.source_path, diff.diff) for diff in diffs]
+
+
+@pytest.mark.anyio
 async def test_secret_store_mapping_unresolved_store_has_no_repeat_diff(
     session: AsyncSession,
     svc_role: Role,

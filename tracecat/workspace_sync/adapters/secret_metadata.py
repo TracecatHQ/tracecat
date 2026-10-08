@@ -173,6 +173,21 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         unlinked. Secrets already linked here keep that link.
         """
         requested = requested_store_mappings or {}
+        existing = await self._existing_secrets(
+            workspace_service, secret_metadata, batch_source_ids=secret_metadata
+        )
+        source_conflicts = self._source_conflicts(secret_metadata, existing)
+        # Specs exported before references were synced keep the reference
+        # import preserves, so preview and apply see the same secret.
+        secret_metadata = {
+            source_id: (
+                _kept_reference_spec(spec, secret)
+                if (secret := existing.get(source_id)) is not None
+                and _is_compatible_legacy_spec(spec, secret)
+                else spec
+            )
+            for source_id, spec in secret_metadata.items()
+        }
         by_store: dict[str, list[tuple[str, SecretMetadataResourceSpec]]] = {}
         for source_id, spec in sorted(secret_metadata.items()):
             if spec.source == SecretSource.AWS_SECRETS_MANAGER and spec.store:
@@ -218,10 +233,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 )
             )
             return CorrelatedSecretStores(secret_metadata, diagnostics, [])
-        existing = await self._existing_secrets(
-            workspace_service, secret_metadata, batch_source_ids=secret_metadata
-        )
-        diagnostics.extend(self._source_conflicts(secret_metadata, existing))
+        diagnostics.extend(source_conflicts)
         if not external:
             return CorrelatedSecretStores(secret_metadata, diagnostics, [])
 
@@ -356,15 +368,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                         "rename that secret first."
                     )
             elif is_external_reference(secret):
-                declared_keys = AwsSecretKeyMapping.model_validate(
-                    secret.remote_key_mapping or {}
-                ).output_keys()
-                spec_type = SecretType(spec.secret_type or SecretType.CUSTOM.value)
-                if (
-                    sorted(spec.keys) != sorted(declared_keys)
-                    or spec_type != secret.type
-                    or not re.fullmatch(EXPRESSION_SECRET_NAME_PATTERN, spec.name)
-                ):
+                if not _is_compatible_legacy_spec(spec, secret):
                     message = (
                         f"Secret {spec.name!r} is stored in Tracecat in this "
                         f"repository, but {secret.name!r} is AWS-backed in this "
@@ -825,6 +829,29 @@ def _external_reference_fields(secret: Secret) -> _ExternalReferenceFields:
     if secret.store is not None:
         fields["store"] = secret.store.name
     return fields
+
+
+def _is_compatible_legacy_spec(
+    spec: SecretMetadataResourceSpec, secret: Secret
+) -> bool:
+    """Whether a spec without a reference can update AWS-backed ``secret``.
+
+    Import only syncs metadata onto it, so its keys, type and name must
+    already fit the reference.
+    """
+    if spec.source == SecretSource.AWS_SECRETS_MANAGER or not is_external_reference(
+        secret
+    ):
+        return False
+    declared_keys = AwsSecretKeyMapping.model_validate(
+        secret.remote_key_mapping or {}
+    ).output_keys()
+    spec_type = SecretType(spec.secret_type or SecretType.CUSTOM.value)
+    return (
+        sorted(spec.keys) == sorted(declared_keys)
+        and spec_type == secret.type
+        and re.fullmatch(EXPRESSION_SECRET_NAME_PATTERN, spec.name) is not None
+    )
 
 
 def _kept_reference_spec(
