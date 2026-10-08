@@ -1,6 +1,6 @@
 ---
 name: guardduty-case-lifecycle
-description: Load when the prompt hands you a GuardDuty finding to triage, either a scheduled finding with its region and detector or a manual run carrying finding_id or since. Takes the finding from AWS to a triaged Tracecat case and a published Slack alert. You fetch it with boto3, map its family, dedupe it, attach it to a case or create one, and stop when a person has already decided. Otherwise you investigate, write the case, post or refresh the Work Object card, the brief, the evidence table and the owner ask, and keep the slack_work_objects row current. Load with business-context (when that skill exists), hypothesis-driven-triage, aws-cloud-incident-response-core and case-output.
+description: Load when the prompt hands you a GuardDuty finding to triage, either a finding id with its region and detector or a manual run carrying finding_id or since. Takes the finding from AWS to a triaged Tracecat case and a published Slack alert. You fetch it with boto3, map its family, dedupe it, attach it to a case or create one, and stop when a person has already decided. Otherwise you investigate, write the case, post or refresh the Work Object card, the brief, the evidence table and the owner ask, and keep the slack_work_objects row current. Load with business-context (when that skill exists), hypothesis-driven-triage, aws-cloud-incident-response-core and case-output.
 metadata:
   tools:
     - tools.aws_boto3.call_api
@@ -21,7 +21,7 @@ metadata:
 
 # GuardDuty case lifecycle
 
-You own a GuardDuty finding from the moment it reaches you until the team can act on it in Slack. The only deterministic step before you is the scheduled pull, which lists recently updated finding ids in every enabled region and starts one run of you per finding. Every decision after that is yours, and so is every write: the case, the tags, the Slack card, the brief, the evidence table, the owner ask and the table row that answers the card's details panel.
+You own a GuardDuty finding from the moment it reaches you until the team can act on it in Slack. A finding reaches you one per run: relayed through a detection event, from a manual run, or from a person in chat. No step before you decides anything about it. Every decision is yours, and so is every write: the case, the tags, the Slack card, the brief, the evidence table, the owner ask and the table row that answers the card's details panel.
 
 Work through the stages below in order. Each stage says when to stop. When you stop, return one plain line for the run record saying what you did, for example `CASE-0001 created, Open, card, brief and owner ask posted.` or `Finding <id> unchanged on CASE-0001; nothing to do.`
 
@@ -40,7 +40,7 @@ AWS calls use `tools.aws_boto3.call_api` with `service_name`, `method_name`, `pa
 
 ## 1. Fetch the finding
 
-- **Scheduled run.** The prompt gives `finding_id`, `region` and `detector_id`. Call `guardduty` `get_findings` in that region with `{"DetectorId": <detector_id>, "FindingIds": [<finding_id>]}`.
+- **Finding id with region and detector.** The prompt gives `finding_id`, `region` and `detector_id`. Call `guardduty` `get_findings` in that region with `{"DetectorId": <detector_id>, "FindingIds": [<finding_id>]}`.
 - **Manual run with a finding ARN.** The ARN reads `arn:aws:guardduty:<region>:<account>:detector/<detector_id>/finding/<finding_id>`. Take all three values from it and call `get_findings` as above.
 - **Manual run with a bare finding id.** List the enabled regions. In each region, call `list_detectors` then `get_findings` until one returns the finding.
 - **Manual run with `since`.** In each enabled region, call `list_findings` with `FindingCriteria` `updatedAt` `GreaterThanOrEqual` set to `since` in epoch milliseconds, `SortCriteria` `{"AttributeName": "updatedAt", "OrderBy": "DESC"}` and `MaxResults` 1. Take the newest across regions and fetch it.
@@ -65,7 +65,7 @@ Map the finding type to one family with the ordered rules in `families.md`. The 
 ## 3. Find the case
 
 1. **Same finding.** Call `core.cases.search_cases` with tags `["finding-<id>"]`, status `["new", "in_progress", "on_hold"]`, `start_time` 90 days ago, `order_by` `created_at`, `sort` `desc`, `limit` 1. It is a hit when the returned case carries that tag.
-2. **Nothing new (scheduled runs only).** On a hit, read the case's `last_seen` field. When it equals the finding's last seen time as an instant, the finding has not recurred. Return `Finding <id> unchanged on <short_id>; nothing to do.` and stop. A manual run always continues, because a person asked for a re-triage.
+2. **Nothing new (automated runs only).** On a hit, read the case's `last_seen` field. When it equals the finding's last seen time as an instant, the finding has not recurred. Return `Finding <id> unchanged on <short_id>; nothing to do.` and stop. A manual run always continues, because a person asked for a re-triage.
 3. **Same group.** With no finding hit, search tags `["group-<family>-<account>"]` with the same statuses, `start_time` 24 hours ago, newest first, `limit` 1. It is a hit when the case carries that tag and carries neither `owner-confirmed` nor `owner-denied`.
 4. **Attach** on either hit. Call `core.cases.update_case` on that case. Set these fields:
    - `finding_ids`: the existing list, with this id appended if absent.

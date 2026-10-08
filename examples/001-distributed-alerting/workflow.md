@@ -1,34 +1,28 @@
 # Triage alerts workflow
 
-One workflow with one webhook. Every request lands on `route`, which decides which branch runs. Slack and the alert intake both call the same URL.
+One workflow with one webhook. Every request lands on `route`, which decides which branch runs. Slack and the alert intake both call it.
 
-The workflow has 13 actions. Twelve are given below as exact code. One, `fetch_findings`, queries a specific alert source, so it is given as a contract and a prompt for your coding agent.
+The workflow is event driven. Each alert arrives on a webhook and gets one run and one agent call. The workflow has 10 actions, all given below as exact code.
 
 ## Diagram
 
 ```mermaid
 flowchart TD
-    t_alert["Alert webhook<br/>intake workflow stores the alert<br/>and passes alert_ids"]
+    t_alert["Alert webhook<br/>intake workflow stores the alert<br/>and passes its alert_id"]
     t_events["Slack Events API<br/>app_mention<br/>entity_details_requested"]
     t_click["Slack interactivity<br/>Yes or No button click"]
-    t_pull["Manual run with since<br/>or a schedule"]
 
     route["route<br/>core.transform.reshape"]
 
     t_alert --> route
     t_events --> route
     t_click --> route
-    t_pull --> route
 
     route -->|"backfill: alert_ids given"| lookup_alerts["lookup_alerts<br/>core.table.lookup per alert_id"]
     lookup_alerts --> scatter_alerts["scatter_alerts<br/>core.transform.scatter"]
     scatter_alerts --> triage_alert["triage_alert<br/>ai.preset_agent socky"]
 
-    route -->|"fetch: scheduled or since given"| fetch_findings["fetch_findings<br/>fetch new alerts from your alert source"]
-    fetch_findings -->|"at least one group"| scatter_groups["scatter_groups<br/>core.transform.scatter"]
-    scatter_groups --> triage_group["triage_group<br/>ai.preset_agent socky"]
-
-    route -->|"to_socky: any other Slack or manual payload"| claim_event["claim_event<br/>core.table.insert_rows into slack_events"]
+    route -->|"to_socky: any Slack or manual payload"| claim_event["claim_event<br/>core.table.insert_rows into slack_events"]
     claim_event -->|"row claimed, or nothing_to_claim"| handle_event["handle_event<br/>ai.preset_agent socky"]
 
     route -->|"owner_click"| ack_owner_click["ack_owner_click<br/>core.http_request to response_url"]
@@ -44,12 +38,22 @@ A button click sets two flags. `to_socky` is true for every click, and one of `o
 
 | Trigger | What arrives | Branch |
 |---|---|---|
-| Alert webhook | Your alert source posts to the intake workflow. The intake stores the alert and runs this workflow with `alert_ids`. | `backfill` |
+| Alert webhook | Your alert source posts each alert to the intake workflow. The intake stores the alert and runs this workflow with that one `alert_id`. | `backfill` |
 | Slack Events API | A JSON envelope with `type`, `event_id` and `event`. Sent for `app_mention` and `entity_details_requested`. | `to_socky` or `details` |
 | Slack interactivity | A form-encoded body with one field, `payload`, holding a JSON string. Sent when someone presses Yes or No. | `to_socky` plus `owner_click` or `non_owner_click` |
-| Manual run or schedule | `since` set, or a schedule on the workflow. | `fetch` |
+| Manual run | `alert_ids` to replay stored alerts, or `finding_id` to triage one GuardDuty finding by hand. | `backfill` or `to_socky` |
 
 Workflow settings: environment `default`, timeout 3600 seconds.
+
+## Alert path
+
+One alert, one run, one agent call.
+
+1. Your alert source sends each alert to a webhook. Anything that can POST works: a SIEM rule, a cloud threat detection service such as GuardDuty through its event or notification route, or your own tooling.
+2. The intake workflow stores the alert in `detection_events` and starts this workflow with that one `alert_id`.
+3. `lookup_alerts` reads the row, `scatter_alerts` fans out, and `triage_alert` calls Socky once.
+
+`alert_ids` is a list only so that backfills and tests can pass several ids in one run. The intake always passes one.
 
 ## Entrypoint inputs
 
@@ -59,8 +63,7 @@ Alert inputs:
 
 | Field | Type | Default | Use |
 |---|---|---|---|
-| `alert_ids` | `list[str]` | `[]` | Triage exactly these rows of `detection_events`, matched on `alert_id`. Ids with no row are ignored. Passed by the intake workflow, or by hand for backfills and tests. |
-| `since` | `str` | `''` | ISO 8601 timestamp. Fetch and triage alerts received at or after this time. |
+| `alert_ids` | `list[str]` | `[]` | Triage exactly these rows of `detection_events`, matched on `alert_id`. Ids with no row are ignored. The intake workflow passes one id per alert. Pass several by hand for backfills and tests. |
 | `finding_id` | `str` | `''` | A GuardDuty finding ID (32 hex characters) or finding ARN. No step reads it. A manual run with only this field goes to Socky through `handle_event`, and the prompt routes it to `guardduty-case-lifecycle`. |
 
 Slack Events API envelope, declared so real deliveries pass validation:
@@ -73,7 +76,7 @@ Slack Events API envelope, declared so real deliveries pass validation:
 | `team_id` | `str` | `''` | Slack workspace ID |
 | `api_app_id` | `str` | `''` | Slack app ID |
 | `event` | `dict[str, any]` | `{}` | The event. `route` reads `event.type`. |
-| `event_id` | `str` | `''` | Unique per event. `claim_event` uses it to drop Slack retries. |
+| `event_id` | `str` | `''` | Unique per event. `claim_event` uses it to drop repeat deliveries. |
 | `event_time` | `int` | `0` | Event time |
 | `event_context` | `str` | `''` | Event context |
 | `authorizations` | `list[dict[str, any]]` | `[]` | The first entry's `user_id` is the bot user. Socky uses it to ignore its own events. |
@@ -120,14 +123,13 @@ Each table needs exactly one unique index, because `upsert` uses it. Tracecat ad
 
 ### route
 
-Reads the trigger and sets seven flags. Runs first on every execution. Every other branch starts from one of these flags.
+Reads the trigger and sets six flags. Runs first on every execution. Every other branch starts from one of these flags.
 
 | Flag | True when |
 |---|---|
-| `backfill` | `alert_ids` is not empty |
+| `backfill` | `alert_ids` is not empty. This is the alert path, for one id from the intake or several passed by hand. |
 | `details` | The Slack event type is `entity_details_requested` |
-| `fetch` | The run was started by a schedule, or `since` is set |
-| `to_socky` | Not a schedule, not a details request, no `alert_ids`, no `since`. This covers mentions, button clicks, URL verification and manual runs with `finding_id`. |
+| `to_socky` | Not a details request and no `alert_ids`. This covers mentions, button clicks, URL verification and manual runs with `finding_id`. |
 | `owner_click` | The payload holds a `gd_confirm_` action and the third part of the button's `block_id` equals the clicking user's ID. A `block_id` with fewer than three parts names no owner, so any click counts. |
 | `non_owner_click` | The payload holds a `gd_confirm_` action, the `block_id` names an owner, and the clicking user is someone else |
 | `nothing_to_claim` | No `event_id` and no `gd_confirm_` action. Used by `handle_event`. |
@@ -141,8 +143,6 @@ The owner's Slack user ID gets into the `block_id` when Socky posts the ask: `gd
     value:
       backfill: ${{ True if TRIGGER.alert_ids else False }}
       details: ${{ (TRIGGER.event.type || '') == 'entity_details_requested' }}
-      fetch: ${{ ENV.workflow.trigger_type == 'scheduled' || (True if TRIGGER.since
-        else False) }}
       non_owner_click: ${{ ((False if FN.length(FN.split(FN.lookup(FN.at(FN.lookup(FN.deserialize_json(TRIGGER.payload
         || '{}'), 'actions'), 0), 'block_id'), ':')) < 3 else FN.at(FN.split(FN.lookup(FN.at(FN.lookup(FN.deserialize_json(TRIGGER.payload
         || '{}'), 'actions'), 0), 'block_id'), ':'), 2) != FN.lookup(FN.lookup(FN.deserialize_json(TRIGGER.payload
@@ -155,9 +155,8 @@ The owner's Slack user ID gets into the `block_id` when Socky posts the ask: `gd
         || '{}'), 'actions'), 0), 'block_id'), ':'), 2) == FN.lookup(FN.lookup(FN.deserialize_json(TRIGGER.payload
         || '{}'), 'user'), 'id'))) if ('gd_confirm_' in (TRIGGER.payload || ''))
         else True) }}
-      to_socky: ${{ ENV.workflow.trigger_type != 'scheduled' && (TRIGGER.event.type
-        || '') != 'entity_details_requested' && not TRIGGER.alert_ids && not TRIGGER.since
-        }}
+      to_socky: ${{ (TRIGGER.event.type || '') != 'entity_details_requested' && not
+        TRIGGER.alert_ids }}
   depends_on: []
   retry_policy:
     max_attempts: 1
@@ -186,7 +185,7 @@ Reads one `detection_events` row per id in `alert_ids`. Runs when `backfill` is 
 
 ### scatter_alerts
 
-Fans out over the rows found, one stream per alert. Runs after `lookup_alerts`. `FN.compact` removes the empty lookups.
+Fans out over the rows found, one stream per alert. Runs after `lookup_alerts`. `FN.compact` removes the empty lookups. With the single id the intake passes, this is one stream.
 
 ```yaml
 - ref: scatter_alerts
@@ -218,112 +217,6 @@ There is no gather step. Socky writes the case and the Slack thread itself, and 
       ${{ FN.serialize_json(ACTIONS.scatter_alerts.result.payload) }}'
   depends_on:
   - scatter_alerts
-  retry_policy:
-    max_attempts: 1
-    timeout: 1800
-```
-
-### fetch_findings
-
-Fetches new alerts from your alert source, already grouped. Runs when `fetch` is true: a scheduled run, or a manual run with `since`. Use it for a source you poll, such as a SIEM table of cloud threat detection findings. A source that can push alerts should use the alert webhook and the intake workflow instead.
-
-This step is specific to your alert source, so there is no code to copy. Build it to this contract.
-
-Time window:
-
-- With `since` empty, read one closed five-minute bucket that ended five minutes ago: from the last five-minute boundary minus ten minutes, to the last five-minute boundary minus five minutes. The delay gives late records time to arrive. Run the schedule every five minutes and no record is read twice or missed.
-- With `since` set, read from `since` to now.
-- Filter on the time the record was received by the source, not the time the event happened.
-
-Grouping:
-
-- Group by account, region, alert type and entity. One group becomes one case.
-- The entity is the first resource identifier present on the alert: instance ID, cluster name, database instance, function name, or the user name of an access key.
-- When no identifier is present, use `finding:<alert id>` as the entity, so unrelated alerts are not merged. Mark the group `entity_resolved: false`.
-- Order groups by highest severity first. Cap the result at 200 groups.
-
-Each group row carries these fields, all as strings:
-
-| Field | Value |
-|---|---|
-| `group_key` | `<account>\|<region>\|<alert type>\|<entity>` |
-| `account`, `region`, `finding_type`, `entity` | The grouping values |
-| `entity_resolved` | `true` or `false` |
-| `max_severity` | Highest severity in the group |
-| `finding_ids` | Unique alert ids, comma separated |
-| `finding_count` | Number of unique alert ids |
-| `first_created`, `last_updated` | Earliest created time and latest updated time in the group |
-| `window_start`, `window_end` | The window the query covered |
-
-Output shape: the next step, `scatter_groups`, reads the list of groups and a count. Either return them at the paths `scatter_groups` uses below, or change those two expressions to match what your step returns.
-
-Settings in the source workflow: `depends_on: [route]`, `run_if: ${{ ACTIONS.route.result.fetch }}`, two attempts, 120 second timeout.
-
-Prompt for your coding agent, connected to the Tracecat MCP:
-
-```text
-In the Tracecat workflow "Triage alerts", add an action with ref `fetch_findings`.
-It depends on `route` and has run_if `${{ ACTIONS.route.result.fetch }}`.
-
-It queries <my alert source> for new <alert type> alerts and returns them grouped.
-Use the existing Tracecat integration for <my alert source> if there is one,
-otherwise core.http_request with the credential stored as a Tracecat secret.
-
-Window: if `TRIGGER.since` is empty, read records received between the last
-five-minute boundary minus ten minutes and the last five-minute boundary minus
-five minutes. If `TRIGGER.since` is set, read records received from that time
-to now.
-
-Group by account, region, alert type and entity. The entity is the first
-resource identifier present on the alert (instance ID, cluster name, database
-instance, function name, access key user name). If none is present, use
-`finding:<alert id>` and set entity_resolved to false.
-
-Return one object per group with string fields: group_key, account, region,
-finding_type, entity, entity_resolved, max_severity, finding_ids (comma
-separated), finding_count, first_created, last_updated, window_start,
-window_end. Order by max_severity descending, limit 200.
-
-Then update `scatter_groups` so its `collection` and `run_if` read the group
-list and count from this action's result. Run the workflow with a `since`
-value from yesterday and show me the groups before you publish.
-```
-
-### scatter_groups
-
-Fans out over the groups, one stream per group. Runs after `fetch_findings`, and only when it returned at least one group.
-
-The two result paths below match the response of the source the original workflow queried. Change them to match your `fetch_findings`.
-
-```yaml
-- ref: scatter_groups
-  action: core.transform.scatter
-  args:
-    collection: ${{ FN.flatten(ACTIONS.fetch_findings.result.data.result.rows) }}
-  depends_on:
-  - fetch_findings
-  run_if: ${{ ACTIONS.fetch_findings.result.data.result.resultCount > 0 }}
-  retry_policy:
-    max_attempts: 1
-    timeout: 300
-```
-
-### triage_group
-
-Runs Socky once per group, with the group row as the prompt. Runs inside the scatter, after `scatter_groups`. Change the first line of the prompt if your groups are not GuardDuty findings.
-
-```yaml
-- ref: triage_group
-  action: ai.preset_agent
-  args:
-    max_requests: 120
-    max_tool_calls: 40
-    preset: socky
-    user_prompt: 'GuardDuty finding group for triage. One case per group.
-
-      ${{ ACTIONS.scatter_groups.result }}'
-  depends_on:
-  - scatter_groups
   retry_policy:
     max_attempts: 1
     timeout: 1800
@@ -482,10 +375,10 @@ Answers Slack with the stored entity, which fills the details panel. Runs after 
 
 The intake is a second, small workflow. It is not part of this export, so build it yourself. Its contract:
 
-1. It has its own webhook. Point your SIEM alert, cloud threat detection finding or other alert source at that URL.
+1. It has its own webhook. Point your alert source at that URL: a SIEM rule, a cloud threat detection service such as GuardDuty through its event or notification route, or anything else that can POST one alert per request.
 2. It takes the alert id from the incoming body.
 3. It upserts one row into `detection_events`: `alert_id` and `payload`, where `payload` is the body exactly as received. A resend of the same alert updates the row and does not create a second one.
-4. For a fresh alert, it runs Triage alerts with `alert_ids: ["<alert_id>"]`.
+4. For a fresh alert, it runs Triage alerts with `alert_ids: ["<alert_id>"]`. One alert, one run.
 
 Socky reads the alert from `payload`. The `detection-event-case-lifecycle` skill, stage 1, lists the field names it looks for. Change that table to match the alert format of your source.
 
@@ -501,7 +394,8 @@ body: <paste a sample>.
    `payload` (the full request body as JSON). Create the table with a unique
    index on `alert_id` if it does not exist.
 3. If the row is new, execute the workflow "Triage alerts" with trigger inputs
-   {"alert_ids": ["<the alert id>"]}. Do not wait for it to finish.
+   {"alert_ids": ["<the alert id>"]}. Pass exactly one id per run. Do not wait
+   for it to finish.
 
 Send the sample body to the webhook and show me the stored row and the child
 run before you publish.

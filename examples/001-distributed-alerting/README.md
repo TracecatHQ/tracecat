@@ -8,7 +8,7 @@ This folder holds everything needed to rebuild it: the workflow, the agent promp
 
 | File | What it is |
 |---|---|
-| [`workflow.md`](workflow.md) | The Triage alerts workflow: a diagram, then one section per step with the exact code or a prompt to build it |
+| [`workflow.md`](workflow.md) | The Triage alerts workflow: a diagram, then one section per step with the exact code, and the contract for the alert intake |
 | [`agent/preset.md`](agent/preset.md) | The Socky preset: settings, tools, skills and the full prompt |
 | [`skills/`](skills/) | Six skills the preset loads on demand |
 | [`slack-app-manifest.json`](slack-app-manifest.json) | The Slack app, ready to paste into "From a manifest" |
@@ -26,8 +26,8 @@ The skills:
 
 ## How it fits together
 
-1. An alert arrives on a webhook. A small intake workflow stores it in a table and starts Triage alerts with the alert id.
-2. Triage alerts runs Socky once per alert. Socky deduplicates against open cases, investigates with read-only tools, writes the case, and posts one Slack thread: a Work Object card, a short brief, an evidence table and, when the records link the activity to an employee, the Yes/No ask.
+1. Your alert source sends each alert to a webhook. A small intake workflow stores it in a table and starts Triage alerts with that one alert id. One alert, one run, one agent call.
+2. Triage alerts runs Socky on the alert. Socky deduplicates against open cases, investigates with read-only tools, writes the case, and posts one Slack thread: a Work Object card, a short brief, an evidence table and, when the records link the activity to an employee, the Yes/No ask.
 3. Slack sends mentions and button clicks to the same workflow. A click by the owner is acknowledged at once, then Socky records the answer: Yes sets the case to Benign, No sets it to Escalate. A click by anyone else gets a private refusal.
 4. When someone opens the card's details panel, the workflow answers from a table. No agent runs.
 
@@ -38,7 +38,7 @@ The workflow does the fast, deterministic parts: routing, deduplicating Slack ev
 - A Tracecat workspace with agents, cases and tables.
 - A coding agent connected to the Tracecat MCP, if you want to build the workflow from the prompts in `workflow.md`.
 - A Slack workspace where you can create and install apps.
-- An alert source that can call a webhook, or that you can query: a SIEM alert, or a cloud threat detection finding such as GuardDuty.
+- An alert source that can POST each alert to a webhook: a SIEM rule, a cloud threat detection service such as GuardDuty through its event or notification route, or your own tooling.
 - AWS access through a read-only audit role, if you triage AWS alerts. Store it as the AWS credential the `tools.aws_boto3` actions use.
 - Optional: an MCP server for your SIEM, so Socky can read the events behind an alert.
 - Optional: threat enrichment tools for IP, domain, URL and file-hash reputation.
@@ -144,13 +144,11 @@ Keep it current. A stale employee list sends the Yes/No ask to nobody.
 ### Other additions
 
 - Add a lifecycle or evidence skill per additional alert source (identity, SaaS, endpoint) as needed. Name a lifecycle skill `<source>-case-lifecycle` and the prompt routes to it by name. Sources without one use the generic path in the prompt.
-- A schedule on the workflow, if your alert source cannot push. See `fetch_findings` in `workflow.md`.
 
 ## Known gaps in the source
 
-The files are sanitised copies of a working setup, and a few parts disagree with each other. They are kept as they were.
+The skills are sanitised copies from a working setup, and a few parts disagree with the workflow. They are kept as they were.
 
-- `guardduty-case-lifecycle` describes a scheduled pull that passes one finding per run. The workflow passes one group of findings per run instead, with the prompt `GuardDuty finding group for triage. One case per group.` Socky handles it through the prompt's "any other alert from a workflow" rule.
 - `slack-case-threads` says the app subscribes only to `app_mention`. The manifest also subscribes to `entity_details_requested`, which the workflow answers before the agent is involved.
 - `slack-case-threads` quotes the acknowledgement line with a user mention. The workflow writes it without one: `Answered Yes. Socky is recording it.`
 - `hypothesis-library.md` says the workflow posts open questions. Socky posts everything itself.
