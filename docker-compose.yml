@@ -15,7 +15,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile
 
   api:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.1.0-alpha.11}
     container_name: api
     restart: unless-stopped
     networks:
@@ -123,7 +123,7 @@ services:
       start_period: 10s
 
   worker:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.1.0-alpha.11}
     restart: unless-stopped
     networks:
       - core
@@ -205,7 +205,7 @@ services:
         condition: service_healthy
 
   executor:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.1.0-alpha.11}
     restart: unless-stopped
 
     # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable
@@ -322,7 +322,7 @@ services:
         condition: service_healthy
 
   agent-worker:
-      image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
+      image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.1.0-alpha.11}
       restart: unless-stopped
       networks:
         - core
@@ -404,7 +404,7 @@ services:
           condition: service_healthy
 
   litellm:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.1.0-alpha.11}
     restart: unless-stopped
     networks:
       - core
@@ -437,7 +437,7 @@ services:
       start_period: 10s
 
   agent-executor:
-      image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
+      image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.1.0-alpha.11}
       restart: unless-stopped
 
       # Container-level fork-bomb bound: in-jail RLIMIT_NPROC is bypassable
@@ -558,7 +558,7 @@ services:
           condition: service_healthy
 
   mcp:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.1.0-alpha.11}
     restart: on-failure:3
     networks:
       - core
@@ -617,7 +617,7 @@ services:
         condition: service_healthy
 
   ui:
-    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-1.0.0}
+    image: ghcr.io/tracecathq/tracecat-ui:${TRACECAT__IMAGE_TAG:-1.1.0-alpha.11}
     container_name: ui
     restart: unless-stopped
     networks:
@@ -656,7 +656,7 @@ services:
       start_period: 180s
 
   migrations:
-    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.0.0}
+    image: ghcr.io/tracecathq/tracecat:${TRACECAT__IMAGE_TAG:-1.1.0-alpha.11}
     container_name: migrations
     restart: "no"
     networks:
