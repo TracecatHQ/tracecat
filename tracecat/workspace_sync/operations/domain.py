@@ -258,6 +258,10 @@ class DurableSyncService(WorkspaceSyncService):
                 mapping.source_mcp_integration_id: mapping.target_mcp_integration_id
                 for mapping in params.mcp_integration_mappings
             },
+            requested_secret_store_mappings={
+                mapping.source_store: mapping.target_store_id
+                for mapping in params.secret_store_mappings
+            },
         )
         return PreparedSync(
             snapshot=prepared.snapshot,
