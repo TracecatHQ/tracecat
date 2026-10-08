@@ -60,13 +60,17 @@ from tracecat.db.models import (
     WorkspaceVariable,
 )
 from tracecat.dsl.common import DSLInput
-from tracecat.exceptions import EntitlementRequired, TracecatValidationError
+from tracecat.exceptions import (
+    EntitlementRequired,
+    TracecatCredentialsError,
+    TracecatValidationError,
+)
 from tracecat.git.types import GitUrl
 from tracecat.integrations.enums import MCPAuthType
 from tracecat.registry.lock.types import RegistryLock
 from tracecat.secrets.enums import SecretSource
-from tracecat.secrets.schemas import SecretKeyValue
-from tracecat.secrets.service import SecretsService
+from tracecat.secrets.schemas import AwsSecretReferenceUpdate, SecretKeyValue
+from tracecat.secrets.service import SecretsService, build_external_secret_reference
 from tracecat.sync import PullOptions, PushStatus
 from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
@@ -7301,8 +7305,6 @@ async def test_secret_metadata_import_updates_external_reference(
 @pytest.mark.parametrize(
     ("store_kwargs", "overrides", "match"),
     [
-        ({"authorize": False}, {}, "not authorized"),
-        ({}, {"store": "missing"}, "not authorized"),
         (
             {},
             {
@@ -7327,6 +7329,113 @@ async def test_secret_metadata_import_rejects_unusable_external_reference(
 
     with pytest.raises(ValueError, match=match):
         await _import_secret_spec(session, svc_role, _aws_secret_spec(**overrides))
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("store_kwargs", "overrides"),
+    [
+        ({"authorize": False}, {}),
+        ({}, {"store": "missing"}),
+        ({}, {"store": None}),
+    ],
+)
+async def test_secret_metadata_import_leaves_reference_unlinked_without_matching_store(
+    session: AsyncSession,
+    svc_role: Role,
+    external_secret_stores_entitled: AsyncMock,
+    store_kwargs: dict[str, bool],
+    overrides: dict[str, Any],
+) -> None:
+    await _aws_store(session, svc_role, **store_kwargs)
+
+    await _import_secret_spec(session, svc_role, _aws_secret_spec(**overrides))
+
+    secret = await session.scalar(
+        select(Secret).where(
+            Secret.workspace_id == svc_role.workspace_id,
+            Secret.name == "vendor_api",
+        )
+    )
+    assert secret is not None
+    assert secret.source == SecretSource.AWS_SECRETS_MANAGER
+    assert secret.store_id is None
+    assert secret.remote_reference == _AWS_SECRET_ARN
+    assert secret.remote_key_mapping == _AWS_WHOLE_STRING_MAPPING
+    assert (
+        SecretsService(session=session, role=svc_role).decrypt_keys(
+            secret.encrypted_keys
+        )
+        == []
+    )
+    await session.refresh(secret, ["store"])
+    with pytest.raises(TracecatCredentialsError, match="missing its store"):
+        build_external_secret_reference(secret)
+
+
+@pytest.mark.anyio
+async def test_secret_metadata_unlinked_reference_can_be_linked_manually(
+    session: AsyncSession,
+    svc_role: Role,
+    external_secret_stores_entitled: AsyncMock,
+) -> None:
+    store = await _aws_store(session, svc_role)
+    await _import_secret_spec(session, svc_role, _aws_secret_spec(store="missing"))
+    secret = await session.scalar(
+        select(Secret).where(
+            Secret.workspace_id == svc_role.workspace_id,
+            Secret.name == "vendor_api",
+        )
+    )
+    assert secret is not None and secret.store_id is None
+
+    await SecretReferencesService(
+        session=session, role=svc_role
+    ).update_aws_secret_reference(secret, AwsSecretReferenceUpdate(store_id=store.id))
+    await session.refresh(secret, ["store"])
+
+    assert secret.store_id == store.id
+    assert build_external_secret_reference(secret).store_id == store.id
+
+    # A later pull that still names the missing store keeps the manual link.
+    await _import_secret_spec(
+        session,
+        svc_role,
+        _aws_secret_spec(store="missing", remote_reference="prod/other"),
+    )
+    await session.refresh(secret)
+    assert secret.store_id == store.id
+    assert secret.remote_reference == _AWS_SECRET_ARN
+
+
+@pytest.mark.anyio
+async def test_secret_metadata_projects_unlinked_reference_without_store(
+    session: AsyncSession,
+    svc_role: Role,
+) -> None:
+    secret_service = SecretsService(session=session, role=svc_role)
+    session.add(
+        Secret(
+            workspace_id=svc_role.workspace_id,
+            name="vendor_api",
+            environment="default",
+            source=SecretSource.AWS_SECRETS_MANAGER,
+            encrypted_keys=secret_service.encrypt_keys([]),
+            remote_reference=_AWS_SECRET_ARN,
+            remote_key_mapping=_AWS_WHOLE_STRING_MAPPING,
+        )
+    )
+    await session.flush()
+
+    projection = await SECRET_METADATA_RESOURCE_ADAPTER.project(
+        WorkspaceSyncService(session=session, role=svc_role)
+    )
+
+    [spec] = projection.specs.values()
+    dumped = spec.model_dump(mode="json", exclude_none=True)
+    assert "store" not in dumped
+    assert dumped["source"] == "aws_secrets_manager"
+    assert dumped["remote_reference"] == _AWS_SECRET_ARN
 
 
 @pytest.mark.anyio
@@ -7406,7 +7515,7 @@ async def test_secret_metadata_import_checks_entitlement_and_store_once_per_pull
 @pytest.mark.parametrize(
     ("overrides", "match"),
     [
-        ({"store": None}, "requires store"),
+        ({"remote_reference": None}, "requires remote_reference"),
         ({"keys": ["OTHER"]}, "output keys"),
         ({"source": None}, "require source"),
     ],

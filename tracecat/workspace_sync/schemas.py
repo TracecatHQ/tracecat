@@ -626,7 +626,7 @@ class SecretMetadataResourceSpec(BaseModel):
     store: str | None = Field(
         default=None,
         min_length=1,
-        description="Name of the organization secret store an externally backed secret reads from.",
+        description="Name of the organization secret store an externally backed secret reads from. Omitted when the secret isn't linked to a store.",
     )
     remote_reference: str | None = Field(
         default=None,
@@ -649,7 +649,7 @@ class SecretMetadataResourceSpec(BaseModel):
 
     @model_validator(mode="after")
     def validate_external_reference(self) -> SecretMetadataResourceSpec:
-        """Require a complete reference for external secrets, and none otherwise."""
+        """Require a reference and mapping for external secrets, and none otherwise."""
         reference = (self.store, self.remote_reference, self.key_mapping)
         if self.source != SecretSource.AWS_SECRETS_MANAGER:
             if any(part is not None for part in reference):
@@ -658,14 +658,9 @@ class SecretMetadataResourceSpec(BaseModel):
                     "aws_secrets_manager"
                 )
             return self
-        if (
-            self.key_mapping is None
-            or self.store is None
-            or self.remote_reference is None
-        ):
+        if self.key_mapping is None or self.remote_reference is None:
             raise ValueError(
-                "AWS-backed secret metadata requires store, remote_reference, "
-                "and key_mapping"
+                "AWS-backed secret metadata requires remote_reference and key_mapping"
             )
         if sorted(self.keys) != sorted(self.key_mapping.output_keys()):
             raise ValueError("keys must match the key_mapping output keys")

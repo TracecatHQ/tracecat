@@ -199,7 +199,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             references = SecretReferencesService(
                 session=workspace_service.session, role=workspace_service.role
             )
-        stores_by_name: dict[str, OrganizationSecretStore] = {}
+        stores_by_name: dict[str, OrganizationSecretStore | None] = {}
 
         for source_id, spec in sorted(secret_metadata.items()):
             secret = await self._secret_for_import(
@@ -296,24 +296,22 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         workspace_service: SyncMappingService,
         *,
         references: SecretReferencesService,
-        stores_by_name: dict[str, OrganizationSecretStore],
+        stores_by_name: dict[str, OrganizationSecretStore | None],
         source_id: str,
         spec: SecretMetadataResourceSpec,
         secret: Secret | None,
     ) -> Secret:
         """Create or update an AWS-backed secret from its synced reference.
 
-        The store is matched by name in the target organization and must be
-        authorized for the target workspace, as when creating a reference.
+        The store is matched by name among the stores authorized for the
+        target workspace. Without a match the secret keeps a store it is
+        already linked to, or is imported without one so it can be linked
+        manually.
         """
-        if (
-            spec.store is None
-            or spec.remote_reference is None
-            or spec.key_mapping is None
-        ):
+        if spec.remote_reference is None or spec.key_mapping is None:
             raise ValueError(
                 f"Secret metadata sync source id {source_id!r} is missing its "
-                "store, remote_reference, or key_mapping."
+                "remote_reference or key_mapping."
             )
         if secret is not None and not is_external_reference(secret):
             raise ValueError(
@@ -327,25 +325,25 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 "AWS-backed secrets must use the custom type."
             )
         _require_reference_name(source_id, spec.name)
-        store = stores_by_name.get(spec.store)
-        if store is None:
-            try:
-                store = await references.get_authorized_store_by_name(spec.store)
-            except TracecatAuthorizationError as e:
-                raise ValueError(
-                    f"Secret metadata sync source id {source_id!r} reads from "
-                    f"secret store {spec.store!r}, which does not exist or is not "
-                    "authorized for this workspace."
-                ) from e
-            stores_by_name[spec.store] = store
-        try:
-            references.validate_reference(store, spec.remote_reference)
-        except ValueError as e:
-            raise ValueError(
-                f"Secret metadata sync source id {source_id!r}: {e}"
-            ) from e
-
+        store = await _authorized_store_named(references, stores_by_name, spec.store)
         tags = dict.fromkeys(spec.tags, "") if spec.tags else None
+        if store is None and secret is not None and secret.store_id is not None:
+            # Linked to a store manually in this workspace; keep that link.
+            secret.name = spec.name
+            secret.environment = spec.environment
+            secret.tags = tags
+            secret.description = spec.description
+            workspace_service.session.add(secret)
+            await workspace_service.session.flush()
+            return secret
+        if store is not None:
+            try:
+                references.validate_reference(store, spec.remote_reference)
+            except ValueError as e:
+                raise ValueError(
+                    f"Secret metadata sync source id {source_id!r}: {e}"
+                ) from e
+
         if secret is None:
             secret = Secret(
                 workspace_id=workspace_service.workspace_id,
@@ -362,7 +360,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             secret.environment = spec.environment
             secret.tags = tags
             secret.description = spec.description
-        secret.store_id = store.id
+        secret.store_id = store.id if store is not None else None
         secret.remote_reference = spec.remote_reference
         secret.remote_key_mapping = spec.key_mapping.model_dump(mode="json")
         workspace_service.session.add(secret)
@@ -412,6 +410,22 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         )
 
 
+async def _authorized_store_named(
+    references: SecretReferencesService,
+    stores_by_name: dict[str, OrganizationSecretStore | None],
+    name: str | None,
+) -> OrganizationSecretStore | None:
+    """Return the authorized store with ``name``, or None when there is none."""
+    if name is None:
+        return None
+    if name not in stores_by_name:
+        try:
+            stores_by_name[name] = await references.get_authorized_store_by_name(name)
+        except TracecatAuthorizationError:
+            stores_by_name[name] = None
+    return stores_by_name[name]
+
+
 class _ExternalReferenceFields(TypedDict, total=False):
     source: SecretSource
     store: str
@@ -421,16 +435,18 @@ class _ExternalReferenceFields(TypedDict, total=False):
 
 def _external_reference_fields(secret: Secret) -> _ExternalReferenceFields:
     """Return the synced reference of an AWS-backed secret, never its values."""
-    if not is_external_reference(secret) or secret.store is None:
+    if not is_external_reference(secret):
         return {}
-    return {
+    fields: _ExternalReferenceFields = {
         "source": SecretSource.AWS_SECRETS_MANAGER,
-        "store": secret.store.name,
         "remote_reference": secret.remote_reference,
         "key_mapping": AwsSecretKeyMapping.model_validate(
             secret.remote_key_mapping or {}
         ),
     }
+    if secret.store is not None:
+        fields["store"] = secret.store.name
+    return fields
 
 
 def _require_reference_name(source_id: str, name: str) -> None:

@@ -67,7 +67,9 @@ Exports carry configuration, not data:
 - Variables export key names and no values.
 - Secrets export metadata only; a secret file with a `value` or `values` key fails import.
   [AWS-backed secrets](/automations/core-concepts/external-secret-stores) also export
-  their store name, secret name or ARN, and key mapping.
+  their store name, secret name or ARN, and key mapping. If the target workspace
+  has no authorized store with that name, the secret is imported without one so
+  you can pick its store in **Credentials**.
 
 ## Push and open a pull request
 
