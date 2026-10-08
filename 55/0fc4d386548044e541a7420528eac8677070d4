@@ -1,0 +1,27 @@
+frontend/src/components/agents/agent-presets-builder.tsx
+  s_bb1d406c176bda::t_fae121d60a8f1b 66,684,1152,2077,2573
+frontend/src/components/agents/agents-dashboard.test.tsx
+  s_bb1d406c176bda::t_b44cbb0921845c 1-7,9,94,155-350
+frontend/src/components/agents/agents-dashboard.tsx
+  s_bb1d406c176bda::t_9dc7389565a9cd 30,53-59,1599-1687,1741-1748,1753,1799-1800,1802-1818,1832,2236
+frontend/src/components/icons.test.tsx
+  s_bb1d406c176bda::t_18cc0748cd40af 6-7,265-315
+frontend/src/components/icons.tsx
+  s_bb1d406c176bda::t_ab77a4c0a56119 244,249,252-253,255-269,289-292,297,302-314,322-323,328-329,333,338-345,348,1102-1123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "550fc4d386548044e541a7420528eac8677070d4",
+  "prompts": {},
+  "sessions": {
+    "s_bb1d406c176bda": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84c01265-31fb-45c0-8bf6-a69fe6bc6c37",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
