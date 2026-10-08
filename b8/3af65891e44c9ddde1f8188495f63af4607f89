@@ -1,0 +1,58 @@
+frontend/src/client/types.gen.ts
+  s_9898f81f09b19c::t_f2795184437b65 18814-18817,18865-18868,18916-18919,18935-18938,18954-18957,18973-18976
+frontend/tests/agent-preset-panels.test.tsx
+  s_9898f81f09b19c::t_9d8cc0be7bf54b 560-564
+frontend/tests/agent-presets-builder.test.tsx
+  s_9898f81f09b19c::t_9d8cc0be7bf54b 17,29-39
+  s_9898f81f09b19c::t_d42180f8d21f1e 40-42
+frontend/src/components/agents/agent-tool-picker-dialog.tsx
+  s_9898f81f09b19c::t_2505273fb960ce 104,524-525,527-528
+  s_9898f81f09b19c::t_a527068f8764ab 105,526
+frontend/src/components/icons.tsx
+  s_9898f81f09b19c::t_2505273fb960ce 606-608,610-612,621,1105-1109
+frontend/src/components/icons.test.tsx
+  s_9898f81f09b19c::t_9d8cc0be7bf54b 275-281,317-320
+frontend/src/client/services.gen.ts
+  s_9898f81f09b19c::t_f2795184437b65 5789,5870,5955,5983,6015,6043
+frontend/src/components/agents/agents-dashboard.tsx
+  s_9898f81f09b19c::t_afc147adde41bd 30-37
+  s_9898f81f09b19c::t_9d8cc0be7bf54b 1608-1642,1671-1676,1684-1692,1835
+frontend/src/components/agents/agent-preset-tools-list.tsx
+  s_9898f81f09b19c::t_2505273fb960ce 55,65,105,113,376-379
+frontend/src/components/agents/agent-presets-builder.tsx
+  s_9898f81f09b19c::t_2505273fb960ce 1945,2011,2025,2297,2715
+tests/unit/test_agent_preset_router.py
+  s_9898f81f09b19c::t_2505273fb960ce 34-35,40,64-67,79-80,85,160-163
+frontend/tests/agent-tool-picker-dialog.test.tsx
+  s_9898f81f09b19c::t_9d8cc0be7bf54b 83,88,103,178,377-378,403-405,423-424,431-433
+  s_9898f81f09b19c::t_afc147adde41bd 406-422,425-430
+  s_9898f81f09b19c::t_99b78b97863563 434
+frontend/src/components/agents/agents-dashboard.test.tsx
+  s_9898f81f09b19c::t_9d8cc0be7bf54b 204,208-210,332,337-341
+  s_9898f81f09b19c::t_afc147adde41bd 11,205-207,221-227,234-236,248-250,326-328,333-336,342-344
+  s_9898f81f09b19c::t_6f29dd1263f2cf 345-346
+frontend/tests/agent-preset-tools-list.test.tsx
+  s_9898f81f09b19c::t_afc147adde41bd 421-426,429-433
+  s_9898f81f09b19c::t_9d8cc0be7bf54b 59,303,410-420,427-428,434
+  s_9898f81f09b19c::t_48429dd5a3eebb 435
+tracecat/agent/preset/router.py
+  s_9898f81f09b19c::t_43226704c51a95 30-32,35
+  s_9898f81f09b19c::t_2505273fb960ce 78,82,136-139,143-144,203,207,239-242,246-247,276,280,320,324
+  s_9898f81f09b19c::t_35f8e1d1d94d3c 79-81,140-142,204-206,243-245,277-279,321-323
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b83af65891e44c9ddde1f8188495f63af4607f89",
+  "prompts": {},
+  "sessions": {
+    "s_9898f81f09b19c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1194e-48ee-7753-b91f-584d42aef46a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
