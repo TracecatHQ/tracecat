@@ -2401,6 +2401,23 @@ export const $AgentPresetCreate = {
       ],
       title: "Mcp Integrations",
     },
+    library_skills: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            maxLength: 64,
+            minLength: 1,
+            pattern: "^[a-z0-9-]+$",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Library Skills",
+    },
     agents: {
       $ref: "#/components/schemas/AgentSubagentsConfig-Input",
     },
@@ -2703,6 +2720,20 @@ export const $AgentPresetRead = {
         },
       ],
       title: "Mcp Integrations",
+    },
+    library_skills: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Library Skills",
     },
     agents: {
       $ref: "#/components/schemas/AgentSubagentsConfig-Output",
@@ -3402,6 +3433,23 @@ export const $AgentPresetUpdate = {
       ],
       title: "Mcp Integrations",
     },
+    library_skills: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+            maxLength: 64,
+            minLength: 1,
+            pattern: "^[a-z0-9-]+$",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Library Skills",
+    },
     agents: {
       anyOf: [
         {
@@ -3875,6 +3923,20 @@ export const $AgentPresetVersionRead = {
         },
       ],
       title: "Mcp Integrations",
+    },
+    library_skills: {
+      anyOf: [
+        {
+          items: {
+            type: "string",
+          },
+          type: "array",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Library Skills",
     },
     agents: {
       $ref: "#/components/schemas/AgentSubagentsConfig-Output",
@@ -13009,6 +13071,69 @@ export const $CursorPaginatedResponse_InboxItemRead_ = {
   title: "CursorPaginatedResponse[InboxItemRead]",
 } as const
 
+export const $CursorPaginatedResponse_LibrarySkillRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/LibrarySkillRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[LibrarySkillRead]",
+} as const
+
 export const $CursorPaginatedResponse_MCPPersonalAccessTokenRead_ = {
   properties: {
     items: {
@@ -18067,6 +18192,268 @@ export const $LayoutViewport = {
   title: "LayoutViewport",
 } as const
 
+export const $LibrarySkillBatchInstall = {
+  properties: {
+    slugs: {
+      items: {
+        type: "string",
+        maxLength: 64,
+        minLength: 1,
+        pattern: "^[a-z0-9-]+$",
+      },
+      type: "array",
+      maxItems: 200,
+      minItems: 1,
+      title: "Slugs",
+    },
+  },
+  type: "object",
+  required: ["slugs"],
+  title: "LibrarySkillBatchInstall",
+  description: "Library skills to install together in one transaction.",
+} as const
+
+export const $LibrarySkillBatchUninstall = {
+  properties: {
+    slugs: {
+      items: {
+        type: "string",
+        maxLength: 64,
+        minLength: 1,
+        pattern: "^[a-z0-9-]+$",
+      },
+      type: "array",
+      maxItems: 200,
+      minItems: 1,
+      title: "Slugs",
+    },
+  },
+  type: "object",
+  required: ["slugs"],
+  title: "LibrarySkillBatchUninstall",
+  description:
+    "Library skills to uninstall together or reject without removing any.",
+} as const
+
+export const $LibrarySkillDetailRead = {
+  properties: {
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    installed: {
+      type: "boolean",
+      title: "Installed",
+    },
+    source: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/LibrarySkillSourceRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    files: {
+      items: {
+        $ref: "#/components/schemas/LibrarySkillFileRead",
+      },
+      type: "array",
+      title: "Files",
+    },
+  },
+  type: "object",
+  required: ["slug", "installed", "files"],
+  title: "LibrarySkillDetailRead",
+  description:
+    "A library skill with its bundled files, for the read-only preview.",
+} as const
+
+export const $LibrarySkillFileRead = {
+  properties: {
+    path: {
+      type: "string",
+      title: "Path",
+    },
+    size_bytes: {
+      type: "integer",
+      title: "Size Bytes",
+    },
+    content: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Content",
+    },
+  },
+  type: "object",
+  required: ["path", "size_bytes"],
+  title: "LibrarySkillFileRead",
+  description: "One file bundled with a library skill.",
+} as const
+
+export const $LibrarySkillRead = {
+  properties: {
+    slug: {
+      type: "string",
+      title: "Slug",
+    },
+    description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Description",
+    },
+    installed: {
+      type: "boolean",
+      title: "Installed",
+    },
+    source: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/LibrarySkillSourceRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+  },
+  type: "object",
+  required: ["slug", "installed"],
+  title: "LibrarySkillRead",
+  description: "A library skill and this workspace's install state.",
+} as const
+
+export const $LibrarySkillSourceRead = {
+  properties: {
+    group: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Group",
+    },
+    group_summary: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Group Summary",
+    },
+    group_description: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Group Description",
+    },
+    summary: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Summary",
+    },
+    provider: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Provider",
+    },
+    repo: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Repo",
+    },
+    commit: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Commit",
+    },
+    license: {
+      type: "string",
+      title: "License",
+    },
+    url: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Url",
+    },
+    kind: {
+      type: "string",
+      enum: ["upstream", "local"],
+      title: "Kind",
+    },
+  },
+  type: "object",
+  required: ["group", "repo", "commit", "license", "url", "kind"],
+  title: "LibrarySkillSourceRead",
+  description:
+    "Library group, maintainer, and optional upstream location of a skill.",
+} as const
+
 export const $MCPAuthType = {
   type: "string",
   enum: ["OAUTH2", "CUSTOM", "NONE"],
@@ -22946,6 +23333,13 @@ export const $PullResult = {
         },
       ],
       title: "Resources",
+    },
+    library_skill_installs: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Library Skill Installs",
     },
     catalog_mapping_requirements: {
       anyOf: [

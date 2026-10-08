@@ -1,0 +1,91 @@
+# Structural skeleton only. Replace every value, generate a fresh UUIDv4 for `id`, and
+# delete the sections that do not apply. Four-space indentation, single quotes, lowercase
+# keys, unquoted numbers.
+#
+# Title vocabulary must agree with level:
+#   informational / low  → plain          "Net.exe Execution"
+#   medium               → "Potential ..."  "Potential Payload Download Via Certutil URLCache"
+#   high                 → "Suspicious ..." "Suspicious Run Key Pointing To User Writable Location"
+#   critical             → "Malware" / "Exploit" / "Attempt" / "<Actor> Activity"
+
+# The example values below are placeholders that parse as valid YAML, so `sigma check` will
+# run on this file. Verified on sigma-cli 3.1.0 / pySigma 1.5.0:
+#   sigma check -i -x d3_fendtag assets/sigma-rule-template.yml
+#     → Found 0 errors, 0 condition errors and 0 issues.
+# The SigmaHQ-specific title-case and filename validators do NOT fire in a default run, so a
+# clean result here is expected and is not evidence that your own rule will pass. Earlier
+# versions of this comment claimed the opposite; the command above is what actually happens.
+# Note that a bare `sigma check -i` (without -x d3_fendtag) can die on the D3FEND validator's
+# own network egress and print no summary at all - read the output, do not trust the exit code.
+#
+# Verify every attack.* tag with scripts/attack_check.py. The tactic list changed in
+# ATT&CK v19 and `attack.defense-evasion` is no longer valid.
+
+title: Potential <behavior> Via <mechanism>
+id: 00000000-0000-4000-8000-000000000000   # PLACEHOLDER — generate a fresh UUIDv4
+status: experimental
+description: |
+    Detects <behavior>, <why it matters and what it indicates>.
+references:
+    - https://example.com/replace-with-the-source-report-permalink
+author: <from the org profile>
+date: 2026-01-01                   # PLACEHOLDER — replace with today's date, ISO 8601
+tags:
+    # tactic, hyphenated. Check it: collection, command-and-control, credential-access,
+    # defense-impairment, discovery, execution, exfiltration, impact, initial-access,
+    # lateral-movement, persistence, privilege-escalation, reconnaissance,
+    # resource-development, stealth
+    - attack.execution
+    - attack.t1059.003             # technique, lowercase
+    - stp.3                        # Summiting the Pyramid: how hard this is to evade
+    # - detection.threat-hunting   # add when the rule is deliberately broad
+    # - tlp.amber                  # if the org profile sets a default marking
+# related:                         # when several rules come from one report
+#     - id: <other rule id>
+#       type: similar
+logsource:
+    category: process_creation
+    product: windows
+    # service:
+    definition: <any non-default telemetry requirement, for example script block logging>
+detection:
+    # Three layers, one selection each, so the analyst can suppress one without losing the
+    # others. EVERY selection defined here must be referenced by the condition: an unused
+    # identifier is DanglingDetectionIssue at HIGH and fails `sigma check`. A layer the rule
+    # does not require belongs in the validation note or in a sibling rule, not parked here.
+    #
+    # the anchor: the narrowest condition that must be true, meaning the binary, the key,
+    # or the API call. Add OriginalFileName as an OR alternative when the anchor is a
+    # known binary, using a confirmed value from the table in references/sigma-spec.md.
+    # Stage 4c of SKILL.md decides that, and records the outcome either way.
+    selection_anchor:
+        Image|endswith: '\replace.exe'
+    # the invariant: the cmdlet, call or syntax the technique cannot function without.
+    # Merge into the anchor only when they are genuinely the same condition.
+    selection_invariant:
+        CommandLine|contains: 'replace-cmdlet-or-invariant-syntax'
+    # the discriminator: what makes it malicious rather than routine, meaning the argument
+    # pattern, the target path, or the parent. Use |windash on attacker-controlled flags,
+    # except on Splunk - write the dash variants out as an explicit contains list there.
+    # If Stage 1's default-state analysis put the no-arguments invocation in scope, these
+    # flags cannot be required: delete this block and note them, or write a sibling rule.
+    selection_discriminator:
+        CommandLine|contains: 'replace'
+    # never malicious anywhere; part of the rule's correctness
+    filter_main_example:
+        Image|startswith: 'C:\Program Files\Replace\'   # sourced: <UNSOURCED - fill in or delete this block>
+    # only benign in some environments; consumers may delete these.
+    # Every filter block carries a `# sourced:` comment naming the profile section, the
+    # analyst, a confirmed event, or a documented platform default. Those are the only four:
+    # a value the SOURCE REPORT suggested excluding is not a filter, it is a tuning question
+    # for the note. No comment means no value - delete the block and write the tuning action
+    # in the note instead.
+    filter_optional_example:
+        User|startswith: '<REPLACE-OR-DELETE: real admin prefix from the profile>'   # sourced: <UNSOURCED - fill in or delete this block>
+    condition: all of selection_* and not 1 of filter_*
+falsepositives:
+    # Whole-token match against ("none", "pentest", "penetration") fails the SigmaHQ
+    # validator, entries must start with a capital, and there is no `fields:` block here on
+    # purpose: SigmahqFieldsExistenceValidator rejects it. Triage fields go in the note.
+    - <realistic, specific benign trigger with enough detail to act on>
+level: medium

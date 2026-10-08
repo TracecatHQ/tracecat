@@ -1,6 +1,6 @@
 "use client"
 
-import { Pyramid, TagIcon } from "lucide-react"
+import { LibraryIcon, Pyramid, TagIcon } from "lucide-react"
 import Link from "next/link"
 import {
   Tooltip,
@@ -13,17 +13,20 @@ import { cn } from "@/lib/utils"
 export enum SkillsCatalogViewMode {
   Skills = "skills",
   Tags = "tags",
+  Library = "library",
 }
 
 interface SkillsCatalogViewToggleProps {
   view: SkillsCatalogViewMode
   skillsHref: string
-  tagsHref: string
+  /** Omit to hide the tags view, which requires the agent add-ons entitlement. */
+  tagsHref?: string
+  libraryHref: string
   className?: string
 }
 
 /**
- * Toggle between the skills catalog and skill tags.
+ * Toggle between the skills catalog, skill tags, and the skill library.
  *
  * @param props Toggle properties.
  * @returns Catalog navigation controls.
@@ -32,6 +35,7 @@ export function SkillsCatalogViewToggle({
   view,
   skillsHref,
   tagsHref,
+  libraryHref,
   className,
 }: SkillsCatalogViewToggleProps) {
   const toggleItems = [
@@ -42,14 +46,25 @@ export function SkillsCatalogViewToggle({
       href: skillsHref,
       ariaLabel: "Skills view",
     },
+    ...(tagsHref
+      ? [
+          {
+            mode: SkillsCatalogViewMode.Tags,
+            icon: TagIcon,
+            tooltip: "Skill tags",
+            href: tagsHref,
+            ariaLabel: "Skill tags view",
+          },
+        ]
+      : []),
     {
-      mode: SkillsCatalogViewMode.Tags,
-      icon: TagIcon,
-      tooltip: "Skill tags",
-      href: tagsHref,
-      ariaLabel: "Skill tags view",
+      mode: SkillsCatalogViewMode.Library,
+      icon: LibraryIcon,
+      tooltip: "Skill library",
+      href: libraryHref,
+      ariaLabel: "Skill library view",
     },
-  ] as const
+  ]
 
   return (
     <div

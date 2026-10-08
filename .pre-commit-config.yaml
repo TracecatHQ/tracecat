@@ -15,9 +15,11 @@ repos:
         args:
           - --unsafe
         exclude: ^deployments/helm/.*/templates/
+      # Synced skill files stay byte-identical to upstream (just skill-library check).
       - id: end-of-file-fixer
+        exclude: ^tracecat/agent/skill/library/skills/
       - id: trailing-whitespace
-        exclude: \.patch$
+        exclude: (\.patch$|^tracecat/agent/skill/library/skills/)
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.7
     hooks:
@@ -65,6 +67,13 @@ repos:
         entry: bash -c "pnpm -C frontend run typecheck"
         language: system
         files: ^frontend/
+        pass_filenames: false
+        require_serial: true
+      - id: skill-library-check
+        name: skill library check
+        entry: just skill-library check
+        language: system
+        files: ^tracecat/agent/skill/library/(skills/|sources\.toml$)
         pass_filenames: false
         require_serial: true
       - id: gen-mcp-docs

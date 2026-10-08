@@ -486,6 +486,7 @@ function PullPreviewSummary({
 }) {
   const { found: totalFound } = getPullResultTotals(result)
   const resourceDiffs = result.resource_diffs ?? []
+  const librarySkillInstalls = result.library_skill_installs ?? []
   const addedCount = resourceDiffs.filter(
     (diff) => diff.change_type === "added"
   ).length
@@ -528,6 +529,14 @@ function PullPreviewSummary({
 
       {!result.success && (
         <p className="text-sm text-muted-foreground">{result.message}</p>
+      )}
+
+      {librarySkillInstalls.length > 0 && (
+        <SyncWarning>
+          When applied, this pull will install {librarySkillInstalls.length}{" "}
+          {librarySkillInstalls.length === 1 ? "skill" : "skills"} from the
+          skills library: {librarySkillInstalls.join(", ")}.
+        </SyncWarning>
       )}
 
       {catalogMappingRequirements.length > 0 && (
@@ -886,6 +895,7 @@ function PullDiagnostics({
  */
 function PullResultSummary({ result }: { result: PullResult }) {
   const resourceCounts = workspaceSyncResourceCountEntries(result)
+  const librarySkillInstalls = result.library_skill_installs ?? []
   const { found: totalFound, imported: totalImported } =
     getPullResultTotals(result)
 
@@ -901,6 +911,12 @@ function PullResultSummary({ result }: { result: PullResult }) {
           {result.success ? "Pull completed" : "Pull failed"}
         </h5>
       </div>
+
+      {librarySkillInstalls.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          Installed from the skills library: {librarySkillInstalls.join(", ")}.
+        </p>
+      )}
 
       <div className="grid grid-cols-3 gap-4 text-sm">
         <div>

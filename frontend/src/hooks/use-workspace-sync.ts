@@ -86,6 +86,9 @@ export function useWorkflowSync(workspaceId: string) {
         })
         queryClient.invalidateQueries({ queryKey: ["agent-tags", workspaceId] })
         queryClient.invalidateQueries({ queryKey: ["skills", workspaceId] })
+        queryClient.invalidateQueries({
+          queryKey: ["skill-library", workspaceId],
+        })
         queryClient.invalidateQueries({ queryKey: ["tables", workspaceId] })
         queryClient.invalidateQueries({
           queryKey: ["case-tag-catalog", workspaceId],

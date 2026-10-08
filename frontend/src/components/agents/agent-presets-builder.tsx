@@ -49,6 +49,7 @@ import type {
   AgentPresetSubagentEligibility,
   AgentPresetUpdate,
   AnyAttachedSubagentRef,
+  LibrarySkillRead,
   MCPIntegrationRead,
   RegistryActionReadMinimal,
   SkillReadMinimal,
@@ -65,6 +66,7 @@ import { ChatSessionPane } from "@/components/chat/chat-session-pane"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { getModelProviderIconId, ProviderIcon } from "@/components/icons"
 import { CenteredSpinner } from "@/components/loading/spinner"
+import { SkillLibraryProviderIcon } from "@/components/skills/skill-library-provider-icon"
 import { SimpleEditor } from "@/components/tiptap-templates/simple/simple-editor"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -138,6 +140,7 @@ import {
   useUpdateChat,
 } from "@/hooks/use-chat"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useSkillLibrary } from "@/hooks/use-skill-library"
 import { useSkills } from "@/hooks/use-skills"
 import {
   type AgentOutputPrimitive,
@@ -158,6 +161,7 @@ import {
   useRegistryActions,
   useWorkspaceAgentModels,
 } from "@/lib/hooks"
+import { libraryProviderSlug, librarySkillPath } from "@/lib/skill-library"
 import { cn, slugify } from "@/lib/utils"
 import {
   type AgentPresetDetailActionsState,
@@ -230,6 +234,7 @@ export const agentPresetSchema = z
         })
       )
       .default([]),
+    librarySkills: z.array(z.string()).default([]),
     toolApprovals: z
       .array(
         z.object({
@@ -386,6 +391,7 @@ const DEFAULT_FORM_VALUES: AgentPresetFormValues = {
   mcpIntegrations: [],
   subagents: [],
   skills: [],
+  librarySkills: [],
   toolApprovals: [],
   retries: DEFAULT_RETRIES,
   enableThinking: true,
@@ -987,7 +993,7 @@ function getAgentPresetErrorTab(
     return "structured-output"
   }
 
-  if (errors.skills) {
+  if (errors.skills || errors.librarySkills) {
     return "skills"
   }
 
@@ -1045,6 +1051,7 @@ const AGENT_PRESET_FORM_FIELD_TO_BACKEND_FIELD: Record<
   mcpIntegrations: "mcp_integrations",
   subagents: "agents",
   skills: "skills",
+  librarySkills: "library_skills",
   toolApprovals: "tool_approvals",
   retries: "retries",
   enableThinking: "enable_thinking",
@@ -2790,7 +2797,25 @@ export function AgentPresetSkillsPanel({
 }) {
   const [isPickerOpen, setIsPickerOpen] = useState(false)
   const selectedSkills = form.watch("skills")
+  const selectedLibrarySkills = form.watch("librarySkills")
   const { skills, skillsLoading, skillsError } = useSkills(workspaceId)
+  const { librarySkills, librarySkillsIsLoading, librarySkillsError } =
+    useSkillLibrary(workspaceId)
+  const librarySkillsBySlug = useMemo(
+    () => new Map((librarySkills ?? []).map((skill) => [skill.slug, skill])),
+    [librarySkills]
+  )
+  const availableLibrarySkillsToAdd = useMemo(
+    () =>
+      (librarySkills ?? [])
+        .filter(
+          (skill) =>
+            skill.installed &&
+            !(selectedLibrarySkills ?? []).includes(skill.slug)
+        )
+        .sort((a, b) => a.slug.localeCompare(b.slug)),
+    [librarySkills, selectedLibrarySkills]
+  )
   const attachedSkillIds = useMemo(
     () => new Set((selectedSkills ?? []).map((binding) => binding.skillId)),
     [selectedSkills]
@@ -2803,7 +2828,12 @@ export function AgentPresetSkillsPanel({
     [attachedSkillIds, skills]
   )
   let addSkillDisabledReason: string | null = null
-  if (!skillsLoading && !skillsError && availableSkillsToAdd.length === 0) {
+  if (
+    !skillsLoading &&
+    !skillsError &&
+    availableSkillsToAdd.length === 0 &&
+    availableLibrarySkillsToAdd.length === 0
+  ) {
     if (!skills?.length) {
       addSkillDisabledReason = "No skills in this workspace yet"
     } else if (skills.some((skill) => !attachedSkillIds.has(skill.id))) {
@@ -2821,7 +2851,12 @@ export function AgentPresetSkillsPanel({
       variant="outline"
       className="h-7 gap-1.5 text-xs shadow-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
       onClick={() => setIsPickerOpen(true)}
-      disabled={isSaving || skillsLoading || availableSkillsToAdd.length === 0}
+      disabled={
+        isSaving ||
+        skillsLoading ||
+        (availableSkillsToAdd.length === 0 &&
+          availableLibrarySkillsToAdd.length === 0)
+      }
     >
       <Plus className="size-3.5" />
       Add skill
@@ -2833,51 +2868,104 @@ export function AgentPresetSkillsPanel({
     setIsPickerOpen(false)
   }
 
+  function setLibrarySkills(slugs: string[]) {
+    form.setValue("librarySkills", slugs, { shouldDirty: true })
+  }
+
+  function handleAddLibrarySkill(slug: string) {
+    setLibrarySkills(
+      [...new Set([...(selectedLibrarySkills ?? []), slug])].sort((a, b) =>
+        a.localeCompare(b)
+      )
+    )
+    setIsPickerOpen(false)
+  }
+
+  function handleRemoveLibrarySkill(slug: string) {
+    setLibrarySkills(
+      (selectedLibrarySkills ?? []).filter((selected) => selected !== slug)
+    )
+  }
+
+  const attachedLibrarySkills = selectedLibrarySkills ?? []
+  const attachedCount = skillFields.length + attachedLibrarySkills.length
+
   function renderSkills() {
-    if (skillsError) {
-      return (
-        <Alert variant="destructive" className="m-4 w-auto">
+    // Workspace and library requests fail and load independently.
+    const alerts = [
+      { error: skillsError, title: "Unable to load workspace skills" },
+      {
+        error: librarySkillsError,
+        title: "Unable to load the Tracecat library",
+      },
+    ].map(({ error, title }) =>
+      error ? (
+        <Alert key={title} variant="destructive" className="m-4 w-auto">
           <AlertCircle className="size-4" />
-          <AlertTitle>Unable to load skills</AlertTitle>
+          <AlertTitle>{title}</AlertTitle>
           <AlertDescription>
-            {getApiErrorDetail(skillsError) ?? "Please try again."}
+            {getApiErrorDetail(error) ?? "Please try again."}
           </AlertDescription>
         </Alert>
-      )
-    }
-    if (skillsLoading) {
+      ) : null
+    )
+    if (skillsLoading || librarySkillsIsLoading) {
       return (
-        <p className="px-4 py-3 text-muted-foreground">Loading skills...</p>
+        <>
+          {alerts}
+          <p className="px-4 py-3 text-muted-foreground">Loading skills...</p>
+        </>
       )
     }
-    if (skillFields.length === 0) {
+    if (attachedCount === 0) {
       return (
-        <p className="px-4 py-3 text-muted-foreground">
-          No skills attached yet.
-        </p>
+        <>
+          {alerts}
+          <p className="px-4 py-3 text-muted-foreground">
+            No skills attached yet.
+          </p>
+        </>
       )
     }
-    return skillFields.map((item, index) => (
-      <AgentPresetSkillBindingRow
-        key={item.id}
-        form={form}
-        workspaceId={workspaceId}
-        index={index}
-        isSaving={isSaving}
-        availableSkills={skills ?? []}
-        savedBinding={savedBindings?.find(
-          (binding) => binding.skill_id === selectedSkills[index]?.skillId
-        )}
-        onRemove={onRemoveSkillBinding}
-      />
-    ))
+    return (
+      <>
+        {alerts}
+        {skillsError
+          ? null
+          : skillFields.map((item, index) => (
+              <AgentPresetSkillBindingRow
+                key={item.id}
+                form={form}
+                workspaceId={workspaceId}
+                index={index}
+                isSaving={isSaving}
+                availableSkills={skills ?? []}
+                savedBinding={savedBindings?.find(
+                  (binding) =>
+                    binding.skill_id === selectedSkills[index]?.skillId
+                )}
+                onRemove={onRemoveSkillBinding}
+              />
+            ))}
+        {attachedLibrarySkills.map((slug) => (
+          <AgentPresetLibrarySkillRow
+            key={slug}
+            slug={slug}
+            skill={librarySkillsBySlug.get(slug)}
+            workspaceId={workspaceId}
+            isSaving={isSaving}
+            onRemove={handleRemoveLibrarySkill}
+          />
+        ))}
+      </>
+    )
   }
 
   return (
     <div className="h-full overflow-auto pb-20 text-xs">
       <div className="flex h-14 items-center gap-2 border-b border-border/50 px-4">
         <h3 className="font-medium">Skills</h3>
-        <span className="text-muted-foreground">{skillFields.length}</span>
+        <span className="text-muted-foreground">{attachedCount}</span>
         <div className="ml-auto">
           {addSkillDisabledReason ? (
             <Tooltip>
@@ -2921,8 +3009,93 @@ export function AgentPresetSkillsPanel({
               </CommandItem>
             ))}
           </CommandGroup>
+          {availableLibrarySkillsToAdd.length > 0 ? (
+            <CommandGroup heading="Tracecat library">
+              {availableLibrarySkillsToAdd.map((skill) => (
+                <CommandItem
+                  key={skill.slug}
+                  value={`library ${skill.slug} ${skill.description ?? ""}`}
+                  disabled={isSaving}
+                  onSelect={() => handleAddLibrarySkill(skill.slug)}
+                >
+                  <div className="flex min-w-0 flex-col gap-0.5">
+                    <span>{skill.slug}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {skill.description?.trim() || skill.slug}
+                    </span>
+                  </div>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          ) : null}
         </CommandList>
       </CommandDialog>
+    </div>
+  )
+}
+
+function AgentPresetLibrarySkillRow({
+  slug,
+  skill,
+  workspaceId,
+  isSaving,
+  onRemove,
+}: {
+  slug: string
+  skill?: LibrarySkillRead
+  workspaceId: string
+  isSaving: boolean
+  onRemove: (slug: string) => void
+}) {
+  const source = skill?.source ?? null
+  const group = source?.group
+  const providerSlug = libraryProviderSlug(
+    group ?? source?.provider ?? "Tracecat"
+  )
+  const description = skill?.description?.trim()
+  return (
+    <div className="group flex h-9 min-w-0 items-center gap-3 border-b border-border/50 px-4 hover:bg-muted/50">
+      <SkillLibraryProviderIcon
+        providerSlug={providerSlug}
+        className="size-4 shrink-0 p-0"
+      />
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <HoverCard>
+          <HoverCardTrigger asChild>
+            <Link
+              href={librarySkillPath(workspaceId, { slug, source })}
+              className="max-w-full truncate rounded-sm underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {slug}
+            </Link>
+          </HoverCardTrigger>
+          {description ? (
+            <HoverCardContent
+              align="start"
+              className="w-96 max-w-[calc(100vw-2rem)] space-y-1 p-3 text-xs shadow-none"
+            >
+              <p className="font-medium">{slug}</p>
+              <p className="text-muted-foreground">{description}</p>
+            </HoverCardContent>
+          ) : null}
+        </HoverCard>
+        <span className="shrink-0 text-muted-foreground">
+          {group ?? source?.provider ?? "Tracecat library"}
+        </span>
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-6 shrink-0 border border-transparent hover:border-rose-500 hover:bg-transparent hover:text-rose-500 text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+        onClick={() => onRemove(slug)}
+        disabled={isSaving}
+        aria-label={`Remove ${slug}`}
+      >
+        <Minus className="size-3.5" />
+      </Button>
     </div>
   )
 }
@@ -3500,6 +3673,7 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
           skillId: binding.skill_id,
         })
       ) ?? [],
+    librarySkills: preset.library_skills ?? [],
     retries: preset.retries ?? DEFAULT_RETRIES,
     enableThinking: preset.enable_thinking ?? true,
     enableInternetAccess: preset.enable_internet_access ?? false,
@@ -3541,6 +3715,8 @@ export function formValuesToPayload(
     skills: values.skills.map((binding) => ({
       skill_id: binding.skillId,
     })),
+    library_skills:
+      values.librarySkills.length > 0 ? values.librarySkills : null,
     tool_approvals: toToolApprovalMap(values.toolApprovals),
     retries: values.retries,
     enable_thinking: values.enableThinking,

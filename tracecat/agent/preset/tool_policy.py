@@ -16,6 +16,7 @@ from tracecat.agent.preset.types import (
     PresetToolSource,
 )
 from tracecat.agent.skill.dependencies import SkillToolDependencyService
+from tracecat.agent.skill.library.catalog import load_library
 from tracecat.agent.skill.types import SkillMcpGrant
 from tracecat.agent.tools import EXCLUDED_AGENT_ACTIONS
 from tracecat.db.models import MCPIntegration, SkillVersion
@@ -91,6 +92,14 @@ def resolve_tool_policy(
                         PresetToolSource(tool.tool_id, version.skill_id, version.name),
                     )
                 )
+
+    library = load_library()
+    for slug in inputs.library_skills:
+        if (entry := library.get(slug)) is None:
+            continue  # Runtime staging fails loudly on unknown slugs.
+        registry_sources.extend(
+            PresetToolSource(tool_id, None, slug) for tool_id in entry.declared_tools
+        )
 
     actions: dict[str, None] = {}
     skill_actions: dict[str, None] = {}

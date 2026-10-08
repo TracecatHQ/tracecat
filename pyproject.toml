@@ -155,6 +155,9 @@ artifacts = [
 [tool.ruff]
 line-length = 88
 fix = true
+# Vendored third-party skill content ships as upstream wrote it.
+extend-exclude = ["tracecat/agent/skill/library/skills"]
+force-exclude = true
 
 [tool.ruff.lint]
 select = [
@@ -215,7 +218,12 @@ typeCheckingMode = "standard"
 venvPath = "."
 venv = ".venv"
 include = ["tracecat", "packages", "alembic", "tests"]
-exclude = ["scripts/", "**/__pycache__", "**/node_modules"]
+exclude = [
+    "scripts/",
+    "**/__pycache__",
+    "**/node_modules",
+    "tracecat/agent/skill/library/skills/",
+]
 # `scripts/` stays out of the checked set, but tests/unit/test_commit_conventions.py
 # and tests/unit/test_check_pr_title.py import from it, so it has to resolve.
 extraPaths = ["scripts"]

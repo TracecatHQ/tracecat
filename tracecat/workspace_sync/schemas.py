@@ -299,6 +299,11 @@ class AgentPresetResourceSpec(BaseModel):
         exclude_if=lambda value: not value,
         description="Portable identity hints keyed by source MCP integration id.",
     )
+    library_skills: list[str] = Field(
+        default_factory=list,
+        exclude_if=lambda value: not value,
+        description="Tracecat library skill slugs; must be installed on import.",
+    )
     retries: int = Field(
         default=3,
         ge=0,

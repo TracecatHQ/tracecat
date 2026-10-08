@@ -709,6 +709,7 @@ export type AgentPresetCreate = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Input
   retries?: number
   enable_thinking?: boolean
@@ -762,6 +763,7 @@ export type AgentPresetRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Output
   retries?: number
   enable_thinking?: boolean
@@ -912,6 +914,7 @@ export type AgentPresetUpdate = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Input | null
   retries?: number | null
   enable_thinking?: boolean | null
@@ -981,6 +984,7 @@ export type AgentPresetVersionRead = {
     [key: string]: boolean
   } | null
   mcp_integrations?: Array<string> | null
+  library_skills?: Array<string> | null
   agents?: AgentSubagentsConfig_Output
   retries?: number
   enable_thinking?: boolean
@@ -3744,6 +3748,30 @@ export type CursorPaginatedResponse_InboxItemRead_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_LibrarySkillRead_ = {
+  items: Array<LibrarySkillRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_MCPPersonalAccessTokenRead_ = {
   items: Array<MCPPersonalAccessTokenRead>
   /**
@@ -5582,6 +5610,68 @@ export type LayoutViewport = {
 }
 
 /**
+ * Library skills to install together in one transaction.
+ */
+export type LibrarySkillBatchInstall = {
+  slugs: Array<string>
+}
+
+/**
+ * Library skills to uninstall together or reject without removing any.
+ */
+export type LibrarySkillBatchUninstall = {
+  slugs: Array<string>
+}
+
+/**
+ * A library skill with its bundled files, for the read-only preview.
+ */
+export type LibrarySkillDetailRead = {
+  slug: string
+  description?: string | null
+  installed: boolean
+  source?: LibrarySkillSourceRead | null
+  files: Array<LibrarySkillFileRead>
+}
+
+/**
+ * One file bundled with a library skill.
+ */
+export type LibrarySkillFileRead = {
+  path: string
+  size_bytes: number
+  content?: string | null
+}
+
+/**
+ * A library skill and this workspace's install state.
+ */
+export type LibrarySkillRead = {
+  slug: string
+  description?: string | null
+  installed: boolean
+  source?: LibrarySkillSourceRead | null
+}
+
+/**
+ * Library group, maintainer, and optional upstream location of a skill.
+ */
+export type LibrarySkillSourceRead = {
+  group: string | null
+  group_summary?: string | null
+  group_description?: string | null
+  summary?: string | null
+  provider?: string | null
+  repo: string | null
+  commit: string | null
+  license: string
+  url: string | null
+  kind: "upstream" | "local"
+}
+
+export type kind = "upstream" | "local"
+
+/**
  * Authentication type for MCP integrations.
  */
 export type MCPAuthType = "OAUTH2" | "CUSTOM" | "NONE"
@@ -6221,7 +6311,7 @@ export type MessageOrigin = {
   subkind?: "scheduled-trigger" | "peer-send-message"
 }
 
-export type kind =
+export type kind2 =
   | "human"
   | "channel"
   | "peer"
@@ -6971,6 +7061,7 @@ export type PullResult = {
   resource_diffs?: Array<PullResourceDiff> | null
   files?: Array<string> | null
   resources?: Array<SyncPreviewResource> | null
+  library_skill_installs?: Array<string>
   catalog_mapping_requirements?: Array<CatalogMappingRequirement> | null
   mcp_integration_mapping_requirements?: Array<McpIntegrationMappingRequirement> | null
   secret_store_mapping_requirements?: Array<SecretStoreMappingRequirement> | null
@@ -8666,7 +8757,7 @@ export type SkillDraftFileRead = {
   download_url?: string | null
 }
 
-export type kind2 = "inline" | "download"
+export type kind3 = "inline" | "download"
 
 /**
  * Move (rename) a draft file to a new path while preserving its blob.
@@ -10579,7 +10670,7 @@ export type WebhookStoredObjectDownloadResponse = {
   size_bytes: number
 }
 
-export type kind3 = "download_file" | "download_export"
+export type kind4 = "download_file" | "download_export"
 
 export type WebhookStoredObjectInlineResponse = {
   kind: "value"
@@ -13621,6 +13712,59 @@ export type SkillFoldersMoveFolderData = {
 }
 
 export type SkillFoldersMoveFolderResponse = SkillFolderRead
+
+export type SkillLibraryListLibrarySkillsData = {
+  cursor?: string | null
+  limit?: number
+  reverse?: boolean
+  workspaceId: string
+}
+
+export type SkillLibraryListLibrarySkillsResponse =
+  CursorPaginatedResponse_LibrarySkillRead_
+
+export type SkillLibraryBatchInstallLibrarySkillsData = {
+  requestBody: LibrarySkillBatchInstall
+  workspaceId: string
+}
+
+export type SkillLibraryBatchInstallLibrarySkillsResponse =
+  Array<LibrarySkillRead>
+
+export type SkillLibraryBatchUninstallLibrarySkillsData = {
+  requestBody: LibrarySkillBatchUninstall
+  workspaceId: string
+}
+
+export type SkillLibraryBatchUninstallLibrarySkillsResponse = void
+
+export type SkillLibraryGetLibrarySkillData = {
+  slug: string
+  workspaceId: string
+}
+
+export type SkillLibraryGetLibrarySkillResponse = LibrarySkillDetailRead
+
+export type SkillLibraryInstallLibrarySkillData = {
+  slug: string
+  workspaceId: string
+}
+
+export type SkillLibraryInstallLibrarySkillResponse = LibrarySkillRead
+
+export type SkillLibraryUninstallLibrarySkillData = {
+  slug: string
+  workspaceId: string
+}
+
+export type SkillLibraryUninstallLibrarySkillResponse = void
+
+export type SkillLibraryForkLibrarySkillData = {
+  slug: string
+  workspaceId: string
+}
+
+export type SkillLibraryForkLibrarySkillResponse = SkillRead
 
 export type SkillTagsListSkillTagsData = {
   cursor?: string | null
@@ -19622,6 +19766,149 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: SkillFolderRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-library": {
+    get: {
+      req: SkillLibraryListLibrarySkillsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_LibrarySkillRead_
+        /**
+         * Invalid cursor
+         */
+        400: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-library/batch-install": {
+    post: {
+      req: SkillLibraryBatchInstallLibrarySkillsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Array<LibrarySkillRead>
+        /**
+         * Unknown library skill
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-library/batch-uninstall": {
+    post: {
+      req: SkillLibraryBatchUninstallLibrarySkillsData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * A library skill is not installed
+         */
+        404: unknown
+        /**
+         * A preset head binds a selected skill
+         */
+        409: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-library/{slug}": {
+    get: {
+      req: SkillLibraryGetLibrarySkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: LibrarySkillDetailRead
+        /**
+         * Unknown library skill
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-library/{slug}/install": {
+    post: {
+      req: SkillLibraryInstallLibrarySkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: LibrarySkillRead
+        /**
+         * Unknown library skill
+         */
+        404: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: SkillLibraryUninstallLibrarySkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
+        /**
+         * Library skill is not installed
+         */
+        404: unknown
+        /**
+         * A preset head binds the skill
+         */
+        409: unknown
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/skill-library/{slug}/fork": {
+    post: {
+      req: SkillLibraryForkLibrarySkillData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: SkillRead
+        /**
+         * Forked skill is invalid
+         */
+        400: unknown
+        /**
+         * Unknown library skill
+         */
+        404: unknown
         /**
          * Validation Error
          */

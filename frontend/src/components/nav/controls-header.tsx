@@ -27,7 +27,13 @@ import {
 import dynamic from "next/dynamic"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { type ReactNode, useCallback, useEffect, useState } from "react"
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 import {
   type CaseStatus,
   casesAddTag,
@@ -74,6 +80,7 @@ import { CreateCustomProviderDialog } from "@/components/integrations/create-cus
 import { Spinner } from "@/components/loading/spinner"
 import { FolderPathBreadcrumb } from "@/components/nav/folder-path-breadcrumb"
 import { CreateSkillButton } from "@/components/skills/create-skill-button"
+import { SkillLibrarySkillActions } from "@/components/skills/skill-library-skill-view"
 import {
   SkillsCatalogViewMode,
   SkillsCatalogViewToggle,
@@ -88,6 +95,7 @@ import { TableSearchBadge } from "@/components/tables/table-search-badge"
 import { TableSearchProvider } from "@/components/tables/table-search-context"
 import { CreateTagDialog } from "@/components/tags/create-tag-dialog"
 import { useQueryClient } from "@/lib/query"
+import { groupLibraryProviders } from "@/lib/skill-library"
 
 const SimpleEditor = dynamic(
   () =>
@@ -158,6 +166,7 @@ import {
   useAgentTagCatalog,
 } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useSkillLibrary } from "@/hooks/use-skill-library"
 import { useSkillTagCatalog } from "@/hooks/use-skill-tags"
 import { useSkill } from "@/hooks/use-skills"
 import { useWorkspaceDetails, useWorkspaceMembers } from "@/hooks/use-workspace"
@@ -367,11 +376,15 @@ function SkillsActions() {
   const organizationEnabled = hasEntitlement("agent_addons")
   const [createTagDialogOpen, setCreateTagDialogOpen] = useState(false)
   const [folderDialogOpen, setFolderDialogOpen] = useState(false)
-  const catalogView = pathname?.includes("/skills/tags")
-    ? SkillsCatalogViewMode.Tags
-    : SkillsCatalogViewMode.Skills
+  let catalogView = SkillsCatalogViewMode.Skills
+  if (pathname?.includes("/skills/tags")) {
+    catalogView = SkillsCatalogViewMode.Tags
+  } else if (pathname?.includes("/skills/library")) {
+    catalogView = SkillsCatalogViewMode.Library
+  }
   const skillsHref = `/workspaces/${workspaceId}/skills`
   const tagsHref = `/workspaces/${workspaceId}/skills/tags`
+  const libraryHref = `/workspaces/${workspaceId}/skills/library`
   const isFoldersView =
     organizationEnabled && searchParams?.get("view") !== "list"
   const currentPath = normalizeAgentActionPath(
@@ -390,7 +403,7 @@ function SkillsActions() {
           />
         )
       }
-    } else {
+    } else if (catalogView === SkillsCatalogViewMode.Skills) {
       skillActionControls = (
         <>
           <CreateSkillButton
@@ -412,13 +425,12 @@ function SkillsActions() {
 
   return (
     <>
-      {organizationEnabled ? (
-        <SkillsCatalogViewToggle
-          view={catalogView}
-          skillsHref={skillsHref}
-          tagsHref={tagsHref}
-        />
-      ) : null}
+      <SkillsCatalogViewToggle
+        view={catalogView}
+        skillsHref={skillsHref}
+        tagsHref={organizationEnabled ? tagsHref : undefined}
+        libraryHref={libraryHref}
+      />
       <WorkspaceResourceSyncActions
         label="skills"
         branchSlug="skills"
@@ -506,6 +518,98 @@ function SkillsBreadcrumb({
             skeletonClassName="h-4 w-28"
           />
         </BreadcrumbItem>
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+}
+
+function SkillLibraryProviderBreadcrumb({
+  workspaceId,
+  providerSlug,
+  skillSlug,
+}: {
+  workspaceId: string
+  /** Omitted on the library index, where Library is the current page. */
+  providerSlug?: string
+  /** Set on a skill preview; the provider crumb then links to its page. */
+  skillSlug?: string
+}) {
+  const canRead = useScopeCheck("agent:read") === true
+  const { librarySkills } = useSkillLibrary(workspaceId, { enabled: canRead })
+  const provider = useMemo(
+    () =>
+      groupLibraryProviders(librarySkills ?? []).find((candidate) =>
+        skillSlug
+          ? candidate.skills.some((skill) => skill.slug === skillSlug)
+          : candidate.slug === providerSlug
+      ),
+    [librarySkills, providerSlug, skillSlug]
+  )
+  // A one-skill entry has no overview page to link back to.
+  const showProviderCrumb =
+    providerSlug !== undefined &&
+    (!skillSlug || (provider?.skills.length ?? 0) > 1)
+
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="relative z-10 flex items-center gap-2 text-sm flex-nowrap overflow-hidden whitespace-nowrap min-w-0 bg-transparent pr-1">
+        <BreadcrumbItem>
+          <BreadcrumbLink asChild className="font-semibold hover:no-underline">
+            <Link href={`/workspaces/${workspaceId}/skills`}>Skills</Link>
+          </BreadcrumbLink>
+        </BreadcrumbItem>
+        <BreadcrumbSeparator className="shrink-0">
+          <span className="text-muted-foreground">/</span>
+        </BreadcrumbSeparator>
+        <BreadcrumbItem className="gap-1.5">
+          {providerSlug === undefined ? (
+            <BreadcrumbPage className="font-semibold">Library</BreadcrumbPage>
+          ) : (
+            <BreadcrumbLink asChild className="text-muted-foreground">
+              <Link href={`/workspaces/${workspaceId}/skills/library`}>
+                Library
+              </Link>
+            </BreadcrumbLink>
+          )}
+          <span className="shrink-0 rounded-full border px-1.5 py-px text-[10px] font-medium leading-none text-muted-foreground">
+            Beta
+          </span>
+        </BreadcrumbItem>
+        {showProviderCrumb ? (
+          <>
+            <BreadcrumbSeparator className="shrink-0">
+              <span className="text-muted-foreground">/</span>
+            </BreadcrumbSeparator>
+            <BreadcrumbItem>
+              {skillSlug ? (
+                <BreadcrumbLink asChild className="text-muted-foreground">
+                  <Link
+                    href={`/workspaces/${workspaceId}/skills/library/${providerSlug}`}
+                  >
+                    {provider?.name ?? providerSlug}
+                  </Link>
+                </BreadcrumbLink>
+              ) : (
+                <BreadcrumbEntityPage
+                  label={provider?.name}
+                  skeletonClassName="h-4 w-20"
+                />
+              )}
+            </BreadcrumbItem>
+          </>
+        ) : null}
+        {skillSlug ? (
+          <>
+            <BreadcrumbSeparator className="shrink-0">
+              <span className="text-muted-foreground">/</span>
+            </BreadcrumbSeparator>
+            <BreadcrumbItem>
+              <BreadcrumbPage className="font-semibold">
+                {skillSlug}
+              </BreadcrumbPage>
+            </BreadcrumbItem>
+          </>
+        ) : null}
       </BreadcrumbList>
     </Breadcrumb>
   )
@@ -2177,10 +2281,45 @@ function getPageConfig(
   }
 
   if (pagePath.startsWith("/skills")) {
+    if (pagePath === "/skills/library") {
+      return {
+        title: <SkillLibraryProviderBreadcrumb workspaceId={workspaceId} />,
+        actions: <SkillsActions />,
+      }
+    }
+
     if (pagePath === "/skills/tags") {
       return {
         title: "Skills",
         actions: <SkillsActions />,
+      }
+    }
+
+    const librarySkillMatch = pagePath.match(
+      /^\/skills\/library\/([^/]+)\/([^/]+)$/
+    )
+    if (librarySkillMatch) {
+      return {
+        title: (
+          <SkillLibraryProviderBreadcrumb
+            workspaceId={workspaceId}
+            providerSlug={librarySkillMatch[1]}
+            skillSlug={librarySkillMatch[2]}
+          />
+        ),
+        actions: <SkillLibrarySkillActions slug={librarySkillMatch[2]} />,
+      }
+    }
+
+    const providerMatch = pagePath.match(/^\/skills\/library\/([^/]+)$/)
+    if (providerMatch) {
+      return {
+        title: (
+          <SkillLibraryProviderBreadcrumb
+            workspaceId={workspaceId}
+            providerSlug={providerMatch[1]}
+          />
+        ),
       }
     }
 

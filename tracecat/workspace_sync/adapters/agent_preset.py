@@ -16,6 +16,11 @@ from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.agent.catalog.types import ModelKey
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.preset.types import SkillBindingSpec
+from tracecat.agent.skill.library.catalog import load_library
+from tracecat.agent.skill.library.service import (
+    SkillLibraryService,
+    normalize_library_slugs,
+)
 from tracecat.agent.subagents import (
     AgentSubagentsConfig,
     ResolvedAgentsConfig,
@@ -225,6 +230,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
                 namespaces=sorted(execution.namespaces or []),
                 mcp_integrations=mcp_integrations,
                 mcp_integration_hints=mcp_integration_hints,
+                library_skills=normalize_library_slugs(execution.library_skills),
                 retries=execution.retries,
                 enable_thinking=execution.enable_thinking,
                 enable_internet_access=execution.enable_internet_access,
@@ -847,6 +853,39 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             return reference.preset_name
         return reference.workflow_title
 
+    async def library_skill_diagnostics(
+        self,
+        workspace_service: SyncMappingService,
+        presets: dict[str, AgentPresetResourceSpec],
+    ) -> list[PullDiagnostic]:
+        """Block pulls referencing skills absent from this deployment's catalog."""
+        requested = {slug for spec in presets.values() for slug in spec.library_skills}
+        missing = requested - load_library().keys()
+        diagnostics: list[PullDiagnostic] = []
+        for source_id, spec in sorted(presets.items()):
+            if not (
+                preset_missing := sorted(missing.intersection(spec.library_skills))
+            ):
+                continue
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=self.source_path(source_id),
+                    workflow_title=spec.name,
+                    error_type="dependency",
+                    message=(
+                        "This pull requires unavailable library skills: "
+                        f"{', '.join(preset_missing)}. Update the destination to a "
+                        "release containing these skills, or update the source "
+                        "agent to remove or replace the references."
+                    ),
+                    details={
+                        "code": "library_skill_not_found",
+                        "slugs": preset_missing,
+                    },
+                )
+            )
+        return diagnostics
+
     async def correlate_mcp_integration_refs(
         self,
         workspace_service: SyncMappingService,
@@ -1345,6 +1384,14 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             await self._replace_agent_tags(workspace_service, preset, spec.tags)
             preset_by_source_id[source_id] = preset
 
+        # Validate and lock every bound library install once, not per preset.
+        if library_slugs := sorted(
+            {slug for spec in presets.values() for slug in spec.library_skills}
+        ):
+            await SkillLibraryService(
+                workspace_service.session, role=workspace_service.role
+            ).validate_bindable(library_slugs)
+
         # Pass 2: walk presets in topological order so every subagent child has
         # already been upserted by the time its parent resolves references.
         for source_id in import_order:
@@ -1761,6 +1808,7 @@ class AgentPresetAdapter(DirectoryManifestAdapter):
             "namespaces": spec.namespaces or None,
             "tool_approvals": _tool_approvals(spec.tool_approvals),
             "mcp_integrations": spec.mcp_integrations or None,
+            "library_skills": normalize_library_slugs(spec.library_skills) or None,
             "retries": spec.retries,
             "enable_thinking": spec.enable_thinking,
             "enable_internet_access": spec.enable_internet_access,
