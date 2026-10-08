@@ -83,6 +83,7 @@ class PreparedSync(BaseModel):
     projection: WorkspaceProjection | None = Field(default=None)
     snapshot: WorkspaceRemoteSnapshot | None = Field(default=None)
     preview: WorkspaceSyncExportPreview | PullResult
+    secret_store_fingerprint: str | None = Field(default=None)
     workspace_fingerprint: str
     repository_fingerprint: str
     compare_ref: str
