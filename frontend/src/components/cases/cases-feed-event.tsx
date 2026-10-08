@@ -63,6 +63,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { User } from "@/lib/auth"
+import { caseHref } from "@/lib/cases/urls"
 import { cn, formatFileSize } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -804,7 +805,7 @@ function CaseRefLink({ caseRef }: { caseRef: CaseRef }) {
   const workspaceId = useWorkspaceId()
   return (
     <Link
-      href={`/workspaces/${workspaceId}/cases/${caseRef.id}`}
+      href={caseHref(workspaceId, caseRef.id)}
       className="font-medium hover:underline"
     >
       {caseRef.short_id}
@@ -828,6 +829,33 @@ function CaseRefList({ caseRefs }: { caseRefs: CaseRef[] }) {
   )
 }
 
+function ParentChangeDescription({ event }: { event: ParentChangedEventRead }) {
+  if (event.new && event.old) {
+    return (
+      <>
+        moved this case from <CaseRefLink caseRef={event.old} /> to{" "}
+        <CaseRefLink caseRef={event.new} />
+      </>
+    )
+  }
+  if (event.new) {
+    return (
+      <>
+        grouped this case under <CaseRefLink caseRef={event.new} />
+      </>
+    )
+  }
+  if (event.old) {
+    return (
+      <>
+        removed this case from <CaseRefLink caseRef={event.old} />
+      </>
+    )
+  }
+  return <>removed this case from its parent</>
+}
+
+/** Activity row for a case being grouped under, moved to, or removed from a parent. */
 export function ParentChangedEvent({
   event,
   actor,
@@ -839,23 +867,7 @@ export function ParentChangedEvent({
     <div className="flex items-center space-x-2 text-xs">
       <EventIcon icon={ListTreeIcon} />
       <span>
-        <EventActor user={actor} />{" "}
-        {event.new ? (
-          <>
-            {event.old ? "moved this case from " : "grouped this case under "}
-            {event.old && (
-              <>
-                <CaseRefLink caseRef={event.old} /> to{" "}
-              </>
-            )}
-            <CaseRefLink caseRef={event.new} />
-          </>
-        ) : (
-          <>
-            removed this case from{" "}
-            {event.old ? <CaseRefLink caseRef={event.old} /> : "its parent"}
-          </>
-        )}
+        <EventActor user={actor} /> <ParentChangeDescription event={event} />
       </span>
     </div>
   )

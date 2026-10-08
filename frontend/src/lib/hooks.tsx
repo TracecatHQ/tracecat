@@ -80,7 +80,9 @@ import {
   caseDropdownsUpdateDropdownDefinition,
   caseDropdownsUpdateDropdownOption,
   casesAddTag,
+  casesBatchClearParent,
   casesBatchDeleteCases,
+  casesBatchSetParent,
   casesBatchUpdateCases,
   casesCreateCase,
   casesCreateComment,
@@ -4081,6 +4083,41 @@ export function useBatchUpdateCases({ workspaceId }: { workspaceId: string }) {
     batchUpdateCasesIsPending,
     batchUpdateCasesError,
   }
+}
+
+/**
+ * Set or clear (`parentId: null`) the parent of a collection of cases in one
+ * server-side batch.
+ */
+export function useBatchChangeCaseParent({
+  workspaceId,
+}: {
+  workspaceId: string
+}) {
+  const {
+    mutateAsync: batchChangeCaseParent,
+    isPending: batchChangeCaseParentIsPending,
+  } = useMutation({
+    mutationFn: async ({
+      caseIds,
+      parentId,
+    }: {
+      caseIds: string[]
+      parentId: string | null
+    }) =>
+      parentId
+        ? await casesBatchSetParent({
+            workspaceId,
+            requestBody: { case_ids: caseIds, parent_id: parentId },
+          })
+        : await casesBatchClearParent({
+            workspaceId,
+            requestBody: { case_ids: caseIds },
+          }),
+    // Cache invalidation is the caller's responsibility, as for batch update.
+  })
+
+  return { batchChangeCaseParent, batchChangeCaseParentIsPending }
 }
 
 /** Delete a collection of cases in one server-side batch. */

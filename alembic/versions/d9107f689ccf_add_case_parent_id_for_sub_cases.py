@@ -43,10 +43,14 @@ def upgrade() -> None:
     # The concurrent index build below runs outside the migration transaction,
     # so a failed build leaves these changes committed without stamping the
     # revision. Every step is idempotent so a retry can complete the upgrade.
-    # Adding a nullable column without a default is a catalog-only change.
+    # Adding a nullable column without a default is a catalog-only change, but
+    # it still needs a brief ACCESS EXCLUSIVE lock; fail fast rather than queue
+    # every case read behind a long-running transaction. The upgrade is
+    # retry-safe.
+    op.execute("SET LOCAL lock_timeout = '10s'")
     op.execute('ALTER TABLE "case" ADD COLUMN IF NOT EXISTS parent_id UUID')
-    # NOT VALID skips the full-table scan under the ACCESS EXCLUSIVE lock; the
-    # separate VALIDATE only takes SHARE UPDATE EXCLUSIVE and allows writes.
+    # NOT VALID skips the full-table scan while the migration transaction holds
+    # ACCESS EXCLUSIVE on "case".
     _add_constraint_if_missing(
         _FK_NAME,
         'FOREIGN KEY (parent_id) REFERENCES "case" (id) ON DELETE SET NULL',
@@ -54,10 +58,12 @@ def upgrade() -> None:
     _add_constraint_if_missing(
         _CHECK_NAME, "CHECK (parent_id IS NULL OR parent_id <> id)"
     )
-    op.execute(f'ALTER TABLE "case" VALIDATE CONSTRAINT "{_FK_NAME}"')
-    op.execute(f'ALTER TABLE "case" VALIDATE CONSTRAINT "{_CHECK_NAME}"')
 
     with op.get_context().autocommit_block():
+        # Outside the migration transaction, VALIDATE only takes SHARE UPDATE
+        # EXCLUSIVE, so the full-table scans do not block case reads or writes.
+        op.execute(f'ALTER TABLE "case" VALIDATE CONSTRAINT "{_FK_NAME}"')
+        op.execute(f'ALTER TABLE "case" VALIDATE CONSTRAINT "{_CHECK_NAME}"')
         # A failed concurrent build leaves an invalid index behind; rebuild it
         # so a retry never adopts it.
         op.execute(f'DROP INDEX CONCURRENTLY IF EXISTS "{_INDEX_NAME}"')
@@ -71,8 +77,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # PostgreSQL cannot drop enum values; the added caseeventtype values are
-    # left in place and are harmless to the previous application version.
+    # PostgreSQL cannot drop enum values, so the added caseeventtype values stay.
+    # Case events already recorded with them are not removed: the previous
+    # application version raises LookupError when it loads those rows, so delete
+    # them before rolling back if any exist.
     with op.get_context().autocommit_block():
         op.execute(f'DROP INDEX CONCURRENTLY IF EXISTS "{_INDEX_NAME}"')
     # Raw SQL keeps the exact names; `op.drop_constraint` would apply the

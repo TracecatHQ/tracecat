@@ -9750,18 +9750,6 @@ export const $CaseRead = {
       type: "array",
       title: "Rows",
     },
-    parent_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Parent Id",
-    },
     parent: {
       anyOf: [
         {
@@ -9775,7 +9763,6 @@ export const $CaseRead = {
     num_sub_cases: {
       type: "integer",
       title: "Num Sub Cases",
-      default: 0,
     },
   },
   type: "object",
@@ -9792,6 +9779,7 @@ export const $CaseRead = {
     "fields",
     "payload",
     "dropdown_values",
+    "num_sub_cases",
   ],
   title: "CaseRead",
 } as const
@@ -9909,18 +9897,6 @@ export const $CaseReadMinimal = {
       title: "Num Tasks Total",
       default: 0,
     },
-    parent_id: {
-      anyOf: [
-        {
-          type: "string",
-          format: "uuid",
-        },
-        {
-          type: "null",
-        },
-      ],
-      title: "Parent Id",
-    },
     parent: {
       anyOf: [
         {
@@ -9934,7 +9910,6 @@ export const $CaseReadMinimal = {
     num_sub_cases: {
       type: "integer",
       title: "Num Sub Cases",
-      default: 0,
     },
   },
   type: "object",
@@ -9948,6 +9923,7 @@ export const $CaseReadMinimal = {
     "priority",
     "severity",
     "dropdown_values",
+    "num_sub_cases",
   ],
   title: "CaseReadMinimal",
 } as const

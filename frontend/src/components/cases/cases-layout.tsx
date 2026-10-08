@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type {
+  CaseBatchResponse,
   CaseDropdownDefinitionRead,
   CaseDurationDefinitionRead,
   CaseFieldReadMinimal,
@@ -30,21 +31,17 @@ import type {
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { useToast } from "@/components/ui/use-toast"
 import type { CaseDateFilterValue, UseCasesFilters } from "@/hooks/use-cases"
-import { useBatchDeleteCases, useBatchUpdateCases } from "@/lib/hooks"
+import { useEntitlements } from "@/hooks/use-entitlements"
+import { runChunkedCaseBatch } from "@/lib/cases/batch"
+import { invalidateCaseHierarchy } from "@/lib/cases/invalidation"
+import { caseHref } from "@/lib/cases/urls"
+import {
+  useBatchChangeCaseParent,
+  useBatchDeleteCases,
+  useBatchUpdateCases,
+} from "@/lib/hooks"
 import { useQueryClient } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
-
-// Keep aligned with the CaseBatchUpdate and CaseBatchDelete schema cap.
-const CASE_BATCH_MAX_IDS = 1000
-
-/** Split case IDs into requests that satisfy the server batch-size contract. */
-export function chunkCaseIds(caseIds: string[]): string[][] {
-  const chunks: string[][] = []
-  for (let start = 0; start < caseIds.length; start += CASE_BATCH_MAX_IDS) {
-    chunks.push(caseIds.slice(start, start + CASE_BATCH_MAX_IDS))
-  }
-  return chunks
-}
 
 interface CasesLayoutProps {
   cases: CaseReadMinimal[]
@@ -137,19 +134,23 @@ export function CasesLayout({
   const [selectedCaseIds, setSelectedCaseIds] = useState<Set<string>>(new Set())
   const [isDeleting, setIsDeleting] = useState(false)
   const [isBulkUpdating, setIsBulkUpdating] = useState(false)
+  const [isChangingParent, setIsChangingParent] = useState(false)
   const [caseToDelete, setCaseToDelete] = useState<CaseReadMinimal | null>(null)
 
   const { updateSelection, resetSelection } = useCaseSelection()
   const queryClient = useQueryClient()
   const { batchDeleteCases } = useBatchDeleteCases({ workspaceId })
   const { batchUpdateCases } = useBatchUpdateCases({ workspaceId })
+  const { batchChangeCaseParent } = useBatchChangeCaseParent({ workspaceId })
+  const { hasEntitlement } = useEntitlements()
+  const caseAddonsEnabled = hasEntitlement("case_addons")
   const { toast } = useToast()
 
   const handleSelectCase = useCallback(
     (id: string) => {
       setSelectedId(id)
       if (workspaceId) {
-        router.push(`/workspaces/${workspaceId}/cases/${id}`)
+        router.push(caseHref(workspaceId, id))
       }
     },
     [workspaceId, router]
@@ -179,134 +180,141 @@ export function CasesLayout({
     setSelectedCaseIds(new Set())
   }, [])
 
-  const handleBulkDelete = useCallback(async () => {
-    if (selectedCaseIds.size === 0) return
-
-    const caseIds = Array.from(selectedCaseIds)
-    const succeededIds = new Set<string>()
-    let failed = 0
-    try {
-      setIsDeleting(true)
-      for (const chunk of chunkCaseIds(caseIds)) {
-        const response = await batchDeleteCases({ case_ids: chunk })
-        for (const result of response.results) {
-          if (result.success) {
-            succeededIds.add(result.case_id)
-          }
-        }
-        failed += response.failed
-      }
-
-      if (failed > 0) {
-        toast({
-          variant: "destructive",
-          title: `${succeededIds.size} deleted, ${failed} failed`,
-          description: "Some selected cases could not be deleted.",
-        })
-        // Drop succeeded cases from the current selection so a retry targets
-        // the remainder without discarding selection changes made mid-flight.
-        setSelectedCaseIds(
-          (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
-        )
-      } else {
-        toast({
-          title: `${caseIds.length} case(s) deleted`,
-          description: "The selected cases have been deleted successfully.",
-        })
-        setSelectedCaseIds(new Set())
-      }
-    } catch (err) {
-      console.error("Failed to delete cases:", err)
-      toast({
-        variant: "destructive",
-        title:
-          succeededIds.size > 0
-            ? `${succeededIds.size} deleted before a request failed`
-            : "Failed to delete cases",
-        description: "Please retry to delete the remaining cases.",
-      })
-      // Keep only unprocessed/failed cases selected so a retry cannot
-      // resubmit already-deleted IDs.
-      setSelectedCaseIds(
-        (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
-      )
-    } finally {
-      // Refetch once per bulk operation, not once per chunk.
-      queryClient.invalidateQueries({ queryKey: ["cases"], exact: false })
-      setIsDeleting(false)
-    }
-  }, [batchDeleteCases, queryClient, selectedCaseIds, toast])
-
-  const handleBulkUpdate = useCallback(
-    async (
-      updates: Partial<CaseUpdate>,
-      options?: { successTitle?: string; successDescription?: string }
-    ) => {
+  /**
+   * Run a batch action on the selection. On partial failure the succeeded
+   * cases leave the selection, so a retry only targets the remainder.
+   */
+  const runSelectionBatch = useCallback(
+    async ({
+      request,
+      verb,
+      failureTitle,
+      successTitle,
+      successDescription,
+      clearOnSuccess,
+      setBusy,
+      invalidate,
+    }: {
+      request: (chunk: string[]) => Promise<CaseBatchResponse>
+      /** Past tense used in partial-failure toasts, e.g. "deleted". */
+      verb: string
+      failureTitle: string
+      successTitle: string
+      successDescription: string
+      clearOnSuccess: boolean
+      setBusy: (busy: boolean) => void
+      invalidate: () => Promise<void>
+    }) => {
       if (selectedCaseIds.size === 0) return
-
       const caseIds = Array.from(selectedCaseIds)
-      const succeededIds = new Set<string>()
-      let failed = 0
-
+      setBusy(true)
       try {
-        setIsBulkUpdating(true)
-
-        for (const chunk of chunkCaseIds(caseIds)) {
-          const response = await batchUpdateCases({
-            case_ids: chunk,
-            update: updates,
-          })
-          for (const result of response.results) {
-            if (result.success) {
-              succeededIds.add(result.case_id)
-            }
+        const result = await runChunkedCaseBatch(caseIds, request)
+        const { succeededIds } = result
+        if (result.error || result.failed > 0) {
+          if (result.error) {
+            console.error(`Failed batch case action (${verb}):`, result.error)
           }
-          failed += response.failed
-        }
-
-        if (failed > 0) {
           toast({
             variant: "destructive",
-            title: `${succeededIds.size} updated, ${failed} failed`,
-            description: "Some selected cases could not be updated.",
+            title: result.error
+              ? succeededIds.size > 0
+                ? `${succeededIds.size} ${verb} before a request failed`
+                : failureTitle
+              : `${succeededIds.size} ${verb}, ${result.failed} failed`,
+            description: result.error
+              ? "Please retry the remaining cases."
+              : (result.errors[0] ??
+                `Some selected cases could not be ${verb}.`),
           })
-          // Drop succeeded cases from the current selection so a retry targets
-          // the remainder without discarding selection changes made mid-flight.
+          // Keep selection changes made mid-flight; only drop what succeeded.
           setSelectedCaseIds(
             (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
           )
         } else {
-          toast({
-            title:
-              options?.successTitle ||
-              `Updated ${caseIds.length} case${caseIds.length > 1 ? "s" : ""}`,
-            description:
-              options?.successDescription ||
-              "The selected cases have been updated successfully.",
-          })
+          toast({ title: successTitle, description: successDescription })
+          if (clearOnSuccess) {
+            setSelectedCaseIds(new Set())
+          }
         }
-      } catch (err) {
-        console.error("Failed to update cases:", err)
-        toast({
-          variant: "destructive",
-          title:
-            succeededIds.size > 0
-              ? `${succeededIds.size} updated before a request failed`
-              : "Failed to update cases",
-          description: "Please retry to update the remaining cases.",
-        })
-        // Keep only unprocessed/failed cases selected so a retry targets
-        // just the remainder.
-        setSelectedCaseIds(
-          (prev) => new Set([...prev].filter((id) => !succeededIds.has(id)))
-        )
       } finally {
         // Refetch once per bulk operation, not once per chunk.
-        queryClient.invalidateQueries({ queryKey: ["cases"], exact: false })
-        setIsBulkUpdating(false)
+        await invalidate()
+        setBusy(false)
       }
     },
-    [batchUpdateCases, queryClient, selectedCaseIds, toast]
+    [selectedCaseIds, toast]
+  )
+
+  const invalidateCases = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: ["cases"], exact: false }),
+    [queryClient]
+  )
+
+  const handleBulkDelete = useCallback(
+    () =>
+      runSelectionBatch({
+        request: (chunk) => batchDeleteCases({ case_ids: chunk }),
+        verb: "deleted",
+        failureTitle: "Failed to delete cases",
+        successTitle: `${selectedCaseIds.size} case(s) deleted`,
+        successDescription:
+          "The selected cases have been deleted successfully.",
+        clearOnSuccess: true,
+        setBusy: setIsDeleting,
+        invalidate: invalidateCases,
+      }),
+    [batchDeleteCases, invalidateCases, runSelectionBatch, selectedCaseIds]
+  )
+
+  const handleBulkUpdate = useCallback(
+    (
+      updates: Partial<CaseUpdate>,
+      options?: { successTitle?: string; successDescription?: string }
+    ) => {
+      const count = selectedCaseIds.size
+      return runSelectionBatch({
+        request: (chunk) =>
+          batchUpdateCases({ case_ids: chunk, update: updates }),
+        verb: "updated",
+        failureTitle: "Failed to update cases",
+        successTitle:
+          options?.successTitle ||
+          `Updated ${count} case${count > 1 ? "s" : ""}`,
+        successDescription:
+          options?.successDescription ||
+          "The selected cases have been updated successfully.",
+        clearOnSuccess: false,
+        setBusy: setIsBulkUpdating,
+        invalidate: invalidateCases,
+      })
+    },
+    [batchUpdateCases, invalidateCases, runSelectionBatch, selectedCaseIds]
+  )
+
+  const handleSetParent = useCallback(
+    (parent: { id: string; short_id: string } | null) => {
+      const count = selectedCaseIds.size
+      return runSelectionBatch({
+        request: (chunk) =>
+          batchChangeCaseParent({
+            caseIds: chunk,
+            parentId: parent?.id ?? null,
+          }),
+        verb: "updated",
+        failureTitle: parent
+          ? "Failed to group cases"
+          : "Failed to remove from parent",
+        successTitle: parent
+          ? `Grouped under ${parent.short_id}`
+          : "Removed from parent",
+        successDescription: `Applied to ${count} case${count === 1 ? "" : "s"}.`,
+        clearOnSuccess: true,
+        setBusy: setIsChangingParent,
+        invalidate: () => invalidateCaseHierarchy(queryClient),
+      })
+    },
+    [batchChangeCaseParent, queryClient, runSelectionBatch, selectedCaseIds]
   )
 
   // Sync selection state with context
@@ -318,8 +326,12 @@ export function CasesLayout({
         clearSelection: handleClearSelection,
         deleteSelected: handleBulkDelete,
         bulkUpdateSelectedCases: handleBulkUpdate,
+        setParentForSelectedCases: caseAddonsEnabled
+          ? handleSetParent
+          : undefined,
         isDeleting,
         isUpdating: isBulkUpdating,
+        isChangingParent,
       })
     } else {
       resetSelection()
@@ -329,8 +341,11 @@ export function CasesLayout({
     handleClearSelection,
     handleBulkDelete,
     handleBulkUpdate,
+    handleSetParent,
+    caseAddonsEnabled,
     isDeleting,
     isBulkUpdating,
+    isChangingParent,
     resetSelection,
     updateSelection,
   ])

@@ -10,15 +10,8 @@ import {
   X,
 } from "lucide-react"
 import Link from "next/link"
-import { useMemo, useState } from "react"
-import {
-  type CaseParentRead,
-  type CaseRead,
-  type CaseReadMinimal,
-  casesBatchClearParent,
-  casesBatchSetParent,
-  casesSearchCases,
-} from "@/client"
+import { useState } from "react"
+import type { CaseParentRead, CaseRead, CaseReadMinimal } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { CaseBadge } from "@/components/cases/case-badge"
 import { PRIORITIES, STATUSES } from "@/components/cases/case-categories"
@@ -26,7 +19,6 @@ import {
   CASE_PANEL_ACTION_ROW_CLASS,
   CASE_PANEL_BOX_CLASS,
 } from "@/components/cases/case-task-fields"
-import { chunkCaseIds } from "@/components/cases/cases-layout"
 import { Spinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
 import {
@@ -45,66 +37,20 @@ import {
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
+import {
+  type CaseHierarchyFilter,
+  useCaseSearchInfinite,
+} from "@/hooks/use-case-search-infinite"
 import { useDebounce } from "@/hooks/use-debounce"
-import { type QueryClient, useInfiniteQuery, useQueryClient } from "@/lib/query"
+import { runChunkedCaseBatch } from "@/lib/cases/batch"
+import { invalidateCaseHierarchy } from "@/lib/cases/invalidation"
+import { caseHref } from "@/lib/cases/urls"
+import { useBatchChangeCaseParent } from "@/lib/hooks"
+import { useQueryClient } from "@/lib/query"
 import { cn } from "@/lib/utils"
 
 const SUB_CASES_PAGE_SIZE = 25
 const PICKER_PAGE_SIZE = 20
-
-export interface CaseParentBatchResult {
-  succeeded: number
-  failed: number
-  errors: string[]
-}
-
-/**
- * Sets or clears the parent of many cases, chunked to the server batch cap.
- * Pass `parentId: null` to return the cases to the top level.
- */
-export async function changeCasesParent({
-  workspaceId,
-  caseIds,
-  parentId,
-}: {
-  workspaceId: string
-  caseIds: string[]
-  parentId: string | null
-}): Promise<CaseParentBatchResult> {
-  const result: CaseParentBatchResult = { succeeded: 0, failed: 0, errors: [] }
-  for (const chunk of chunkCaseIds(caseIds)) {
-    const response = parentId
-      ? await casesBatchSetParent({
-          workspaceId,
-          requestBody: { case_ids: chunk, parent_id: parentId },
-        })
-      : await casesBatchClearParent({
-          workspaceId,
-          requestBody: { case_ids: chunk },
-        })
-    result.succeeded += response.succeeded
-    result.failed += response.failed
-    for (const item of response.results) {
-      if (!item.success && item.error) {
-        result.errors.push(item.error)
-      }
-    }
-  }
-  return result
-}
-
-/** Refetches every view that shows parent/sub-case relationships. */
-export async function invalidateCaseHierarchy(queryClient: QueryClient) {
-  await Promise.all([
-    queryClient.invalidateQueries({ queryKey: ["cases"] }),
-    queryClient.invalidateQueries({ queryKey: ["case"] }),
-    queryClient.invalidateQueries({ queryKey: ["case-events"] }),
-  ])
-}
-
-function caseHref(workspaceId: string, caseId: string) {
-  return `/workspaces/${workspaceId}/cases/${caseId}`
-}
 
 /** "Sub-case of CASE-0001" link shown above a sub-case's title. */
 export function CaseParentBreadcrumb({
@@ -194,58 +140,40 @@ export function CaseSubCasesPanel({
   const [removingId, setRemovingId] = useState<string | null>(null)
 
   const {
-    data,
+    items: subCases,
     isLoading,
     error,
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
-  } = useInfiniteQuery({
-    queryKey: ["cases", "sub-cases", workspaceId, caseData.id, debouncedSearch],
-    queryFn: ({ pageParam }) =>
-      casesSearchCases({
-        workspaceId,
-        parentId: caseData.id,
-        searchTerm: debouncedSearch || undefined,
-        limit: SUB_CASES_PAGE_SIZE,
-        cursor: (pageParam as string | null) ?? undefined,
-      }),
-    initialPageParam: null as string | null,
-    getNextPageParam: (lastPage) =>
-      lastPage.has_more && lastPage.next_cursor
-        ? lastPage.next_cursor
-        : undefined,
-    enabled: !caseData.parent_id,
+  } = useCaseSearchInfinite({
+    workspaceId,
+    parentId: caseData.id,
+    searchTerm: debouncedSearch,
+    pageSize: SUB_CASES_PAGE_SIZE,
+    enabled: !caseData.parent,
   })
-  const subCases = useMemo(
-    () => data?.pages.flatMap((page) => page.items) ?? [],
-    [data]
-  )
+  const { batchChangeCaseParent } = useBatchChangeCaseParent({ workspaceId })
 
   const handleRemove = async (subCase: CaseReadMinimal) => {
     setRemovingId(subCase.id)
-    try {
-      const result = await changeCasesParent({
-        workspaceId,
-        caseIds: [subCase.id],
-        parentId: null,
-      })
-      if (result.failed > 0) {
-        toast({
-          variant: "destructive",
-          title: "Failed to remove sub-case",
-          description: result.errors[0],
-        })
-      } else {
-        toast({ title: `Removed ${subCase.short_id} from this case` })
-      }
-    } catch (err) {
-      console.error("Failed to remove sub-case:", err)
+    const result = await runChunkedCaseBatch([subCase.id], (chunk) =>
+      batchChangeCaseParent({ caseIds: chunk, parentId: null })
+    )
+    if (result.error) {
+      console.error("Failed to remove sub-case:", result.error)
       toast({ variant: "destructive", title: "Failed to remove sub-case" })
-    } finally {
-      setRemovingId(null)
-      await invalidateCaseHierarchy(queryClient)
+    } else if (result.failed > 0) {
+      toast({
+        variant: "destructive",
+        title: "Failed to remove sub-case",
+        description: result.errors[0],
+      })
+    } else {
+      toast({ title: `Removed ${subCase.short_id} from this case` })
     }
+    setRemovingId(null)
+    await invalidateCaseHierarchy(queryClient)
   }
 
   if (caseData.parent) {
@@ -265,7 +193,7 @@ export function CaseSubCasesPanel({
     )
   }
 
-  const total = caseData.num_sub_cases ?? 0
+  const total = caseData.num_sub_cases
 
   return (
     <>
@@ -380,98 +308,92 @@ export function CaseSubCasesPanel({
   )
 }
 
-function useCasePickerSearch({
-  workspaceId,
-  enabled,
-  includeSubCases,
-}: {
-  workspaceId: string
-  enabled: boolean
-  includeSubCases: boolean
-}) {
-  const [search, setSearch] = useState("")
-  const [debouncedSearch] = useDebounce(search.trim(), 300)
-  const { data, isLoading, hasNextPage, isFetchingNextPage, fetchNextPage } =
-    useInfiniteQuery({
-      queryKey: [
-        "cases",
-        "picker",
-        workspaceId,
-        includeSubCases,
-        debouncedSearch,
-      ],
-      queryFn: ({ pageParam }) =>
-        casesSearchCases({
-          workspaceId,
-          searchTerm: debouncedSearch || undefined,
-          includeSubCases,
-          limit: PICKER_PAGE_SIZE,
-          cursor: (pageParam as string | null) ?? undefined,
-        }),
-      initialPageParam: null as string | null,
-      getNextPageParam: (lastPage) =>
-        lastPage.has_more && lastPage.next_cursor
-          ? lastPage.next_cursor
-          : undefined,
-      enabled,
-    })
-  const items = useMemo(
-    () => data?.pages.flatMap((page) => page.items) ?? [],
-    [data]
-  )
-  return {
-    search,
-    setSearch,
-    items,
-    isLoading,
-    hasNextPage,
-    isFetchingNextPage,
-    fetchNextPage,
-  }
+/** Outcome of a {@link CasePickerDialog} confirmation. */
+export interface CasePickerConfirmResult {
+  close: boolean
+  /** Cases already handled; they leave the selection when the dialog stays open. */
+  succeededIds?: ReadonlySet<string>
 }
 
-/** Single-select dialog for choosing a top-level parent case. */
-export function CaseParentPickerDialog({
+/**
+ * Searchable, paginated case picker. Picks one case, or several with
+ * `multiple`; `onConfirm` decides whether the dialog closes.
+ */
+export function CasePickerDialog({
   open,
   onOpenChange,
   workspaceId,
-  excludeIds,
   title,
   description,
+  hierarchy,
+  multiple = false,
+  isCandidate,
+  isDisabled,
+  confirmLabel,
   onConfirm,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   workspaceId: string
-  excludeIds: ReadonlySet<string>
   title: string
   description: string
-  onConfirm: (parent: CaseReadMinimal) => Promise<void>
+  /** Which cases the search returns. */
+  hierarchy: CaseHierarchyFilter
+  multiple?: boolean
+  isCandidate?: (item: CaseReadMinimal) => boolean
+  isDisabled?: (item: CaseReadMinimal) => boolean
+  confirmLabel: (selected: CaseReadMinimal[]) => string
+  onConfirm: (selected: CaseReadMinimal[]) => Promise<CasePickerConfirmResult>
 }) {
-  const [selected, setSelected] = useState<CaseReadMinimal | null>(null)
+  const [selected, setSelected] = useState<Map<string, CaseReadMinimal>>(
+    new Map()
+  )
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const { items, ...picker } = useCasePickerSearch({
+  const [search, setSearch] = useState("")
+  const [debouncedSearch] = useDebounce(search.trim(), 300)
+  const picker = useCaseSearchInfinite({
     workspaceId,
+    searchTerm: debouncedSearch,
+    hierarchy,
+    pageSize: PICKER_PAGE_SIZE,
     enabled: open,
-    // Parents must be top-level cases.
-    includeSubCases: false,
   })
-  const candidates = items.filter((item) => !excludeIds.has(item.id))
+  const candidates = isCandidate
+    ? picker.items.filter(isCandidate)
+    : picker.items
+  const selectedItems = [...selected.values()]
 
   const handleOpenChange = (next: boolean) => {
     if (!next) {
-      setSelected(null)
-      picker.setSearch("")
+      setSelected(new Map())
+      setSearch("")
     }
     onOpenChange(next)
   }
 
+  const toggle = (item: CaseReadMinimal) => {
+    setSelected((prev) => {
+      const next = new Map(multiple ? prev : [])
+      if (prev.has(item.id)) {
+        next.delete(item.id)
+      } else {
+        next.set(item.id, item)
+      }
+      return next
+    })
+  }
+
   const handleConfirm = async () => {
-    if (!selected) return
     setIsSubmitting(true)
     try {
-      await onConfirm(selected)
-      handleOpenChange(false)
+      const { close, succeededIds } = await onConfirm(selectedItems)
+      if (close) {
+        handleOpenChange(false)
+      } else if (succeededIds) {
+        setSelected(
+          (prev) => new Map([...prev].filter(([id]) => !succeededIds.has(id)))
+        )
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -485,23 +407,28 @@ export function CaseParentPickerDialog({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <CasePickerList
-          search={picker.search}
-          onSearchChange={picker.setSearch}
+          search={search}
+          onSearchChange={setSearch}
           isLoading={picker.isLoading}
           candidates={candidates}
           hasNextPage={picker.hasNextPage}
           isFetchingNextPage={picker.isFetchingNextPage}
           onLoadMore={() => picker.fetchNextPage()}
-          isSelected={(item) => selected?.id === item.id}
-          onToggle={(item) => setSelected(item)}
+          isSelected={(item) => selected.has(item.id)}
+          isDisabled={isDisabled}
+          onToggle={toggle}
+          multiple={multiple}
         />
         <DialogFooter>
           <Button variant="outline" onClick={() => handleOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleConfirm} disabled={!selected || isSubmitting}>
+          <Button
+            onClick={handleConfirm}
+            disabled={selected.size === 0 || isSubmitting}
+          >
             {isSubmitting && <Spinner className="mr-2 size-3" />}
-            {selected ? `Group under ${selected.short_id}` : "Select a case"}
+            {confirmLabel(selectedItems)}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -522,106 +449,53 @@ function AddSubCasesDialog({
 }) {
   const queryClient = useQueryClient()
   const { toast } = useToast()
-  const [selected, setSelected] = useState<Map<string, CaseReadMinimal>>(
-    new Map()
-  )
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const { items, ...picker } = useCasePickerSearch({
-    workspaceId,
-    enabled: open,
-    // Sub-cases of other parents can be moved here.
-    includeSubCases: true,
-  })
-  const candidates = items.filter(
-    (item) => item.id !== parent.id && item.parent_id !== parent.id
-  )
+  const { batchChangeCaseParent } = useBatchChangeCaseParent({ workspaceId })
 
-  const handleOpenChange = (next: boolean) => {
-    if (!next) {
-      setSelected(new Map())
-      picker.setSearch("")
-    }
-    onOpenChange(next)
-  }
-
-  const toggle = (item: CaseReadMinimal) => {
-    setSelected((prev) => {
-      const next = new Map(prev)
-      if (next.has(item.id)) {
-        next.delete(item.id)
-      } else {
-        next.set(item.id, item)
-      }
-      return next
-    })
-  }
-
-  const handleConfirm = async () => {
-    setIsSubmitting(true)
-    try {
-      const result = await changeCasesParent({
-        workspaceId,
-        caseIds: [...selected.keys()],
-        parentId: parent.id,
-      })
-      if (result.failed > 0) {
-        toast({
-          variant: "destructive",
-          title: `${result.succeeded} added, ${result.failed} failed`,
-          description: result.errors[0],
-        })
-      } else {
-        toast({
-          title: `Added ${result.succeeded} sub-case${result.succeeded === 1 ? "" : "s"}`,
-        })
-        handleOpenChange(false)
-      }
-    } catch (err) {
-      console.error("Failed to add sub-cases:", err)
+  const handleConfirm = async (
+    selected: CaseReadMinimal[]
+  ): Promise<CasePickerConfirmResult> => {
+    const result = await runChunkedCaseBatch(
+      selected.map((item) => item.id),
+      (chunk) => batchChangeCaseParent({ caseIds: chunk, parentId: parent.id })
+    )
+    await invalidateCaseHierarchy(queryClient)
+    const added = result.succeededIds.size
+    if (result.error) {
+      console.error("Failed to add sub-cases:", result.error)
       toast({ variant: "destructive", title: "Failed to add sub-cases" })
-    } finally {
-      setIsSubmitting(false)
-      await invalidateCaseHierarchy(queryClient)
+      return { close: false, succeededIds: result.succeededIds }
     }
+    if (result.failed > 0) {
+      toast({
+        variant: "destructive",
+        title: `${added} added, ${result.failed} failed`,
+        description: result.errors[0],
+      })
+      return { close: false, succeededIds: result.succeededIds }
+    }
+    toast({ title: `Added ${added} sub-case${added === 1 ? "" : "s"}` })
+    return { close: true }
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader className="text-left">
-          <DialogTitle>Add sub-cases to {parent.short_id}</DialogTitle>
-          <DialogDescription>
-            Selected cases are hidden from the cases list by default and listed
-            under this case. Cases with their own sub-cases can't be added.
-          </DialogDescription>
-        </DialogHeader>
-        <CasePickerList
-          search={picker.search}
-          onSearchChange={picker.setSearch}
-          isLoading={picker.isLoading}
-          candidates={candidates}
-          hasNextPage={picker.hasNextPage}
-          isFetchingNextPage={picker.isFetchingNextPage}
-          onLoadMore={() => picker.fetchNextPage()}
-          isSelected={(item) => selected.has(item.id)}
-          isDisabled={(item) => (item.num_sub_cases ?? 0) > 0}
-          onToggle={toggle}
-          multiple
-        />
-        <DialogFooter>
-          <Button variant="outline" onClick={() => handleOpenChange(false)}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleConfirm}
-            disabled={selected.size === 0 || isSubmitting}
-          >
-            {isSubmitting && <Spinner className="mr-2 size-3" />}
-            Add{selected.size > 0 ? ` ${selected.size}` : ""}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <CasePickerDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      workspaceId={workspaceId}
+      title={`Add sub-cases to ${parent.short_id}`}
+      description="Selected cases are hidden from the cases list by default and listed under this case. Cases with their own sub-cases can't be added."
+      // Sub-cases of other parents can be moved here.
+      hierarchy="all"
+      multiple
+      isCandidate={(item) =>
+        item.id !== parent.id && item.parent?.id !== parent.id
+      }
+      isDisabled={(item) => item.num_sub_cases > 0}
+      confirmLabel={(items) =>
+        items.length > 0 ? `Add ${items.length}` : "Add"
+      }
+      onConfirm={handleConfirm}
+    />
   )
 }
 
@@ -697,7 +571,7 @@ function CasePickerList({
                   ↳ {item.parent.short_id}
                 </span>
               )}
-              {(item.num_sub_cases ?? 0) > 0 && (
+              {item.num_sub_cases > 0 && (
                 <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
                   <ListTree className="size-3" />
                   {item.num_sub_cases}

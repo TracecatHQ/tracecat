@@ -28,10 +28,16 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
 )
+from tracecat.cases.event_schemas import (
+    AssigneeChangedEventRead,
+    CaseEventRead,
+    CaseEventsWithUsers,
+    TaskAssigneeChangedEventRead,
+)
 from tracecat.cases.filters import parse_assignee_filter
+from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
-    AssigneeChangedEventRead,
     CaseBatchClearParent,
     CaseBatchDelete,
     CaseBatchResponse,
@@ -42,13 +48,11 @@ from tracecat.cases.schemas import (
     CaseCommentThreadRead,
     CaseCommentUpdate,
     CaseCreate,
-    CaseEventRead,
-    CaseEventsWithUsers,
     CaseFieldCreate,
     CaseFieldRead,
     CaseFieldReadMinimal,
     CaseFieldUpdate,
-    CaseParentRead,
+    CaseHierarchyFilter,
     CaseRead,
     CaseReadMinimal,
     CaseSearchAggregateRead,
@@ -56,7 +60,6 @@ from tracecat.cases.schemas import (
     CaseTaskRead,
     CaseTaskUpdate,
     CaseUpdate,
-    TaskAssigneeChangedEventRead,
 )
 from tracecat.cases.service import (
     CaseCommentsService,
@@ -148,7 +151,8 @@ async def _build_case_read(
         )
         rows = hydrated.get(case.id, [])
 
-    parent_id, parent, num_sub_cases = await _read_case_hierarchy(service, case)
+    hierarchies = await CaseHierarchyService(session, role).get_hierarchy([case])
+    hierarchy = hierarchies.get(case.id, TOP_LEVEL)
 
     return CaseRead(
         id=case.id,
@@ -168,25 +172,9 @@ async def _build_case_read(
         tags=tag_reads,
         dropdown_values=dropdown_reads,
         rows=rows,
-        parent_id=parent_id,
-        parent=parent,
-        num_sub_cases=num_sub_cases,
+        parent=hierarchy.parent,
+        num_sub_cases=hierarchy.num_sub_cases,
     )
-
-
-async def _read_case_hierarchy(
-    service: CasesService, case: Case
-) -> tuple[uuid.UUID | None, CaseParentRead | None, int]:
-    """Return the parent ID, parent summary, and direct sub-case count for a case.
-
-    Sub-cases require ``case_addons``; without it every case reads as top-level.
-    """
-    if not await service.has_entitlement(Entitlement.CASE_ADDONS):
-        return None, None, 0
-    counts = await service.get_sub_case_counts([case.id])
-    parents = await service.get_parent_reads([case.parent_id])
-    parent = parents.get(case.parent_id) if case.parent_id else None
-    return case.parent_id, parent, counts.get(case.id, 0)
 
 
 async def _read_case_field(
@@ -291,9 +279,9 @@ async def list_cases(
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
     include_payload: bool = Query(False, description="Include case payload"),
-    include_sub_cases: bool = Query(
-        False,
-        description="Include sub-cases. By default only top-level cases are returned.",
+    hierarchy: CaseHierarchyFilter = Query(
+        "all",
+        description="Return every case, or only top-level cases without a parent.",
     ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """List cases with default filtering and sorting options."""
@@ -308,7 +296,7 @@ async def list_cases(
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
-            include_sub_cases=include_sub_cases,
+            hierarchy=hierarchy,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for list cases: {e}")
@@ -438,9 +426,9 @@ async def search_cases(
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
     include_payload: bool = Query(False, description="Include case payload"),
-    include_sub_cases: bool = Query(
-        False,
-        description="Include sub-cases. By default only top-level cases are returned.",
+    hierarchy: CaseHierarchyFilter = Query(
+        "all",
+        description="Return every case, or only top-level cases without a parent.",
     ),
     parent_id: uuid.UUID | None = Query(
         None, description="Return only the sub-cases of this parent case"
@@ -483,7 +471,7 @@ async def search_cases(
             include_durations=include_durations,
             include_payload=include_payload,
             parent_id=parent_id,
-            include_sub_cases=include_sub_cases,
+            hierarchy=hierarchy,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for search cases: {e}")
@@ -585,9 +573,9 @@ async def search_case_aggregates(
     assignee_id: list[str] | None = Query(
         None, description="Filter by assignee ID or 'unassigned'"
     ),
-    include_sub_cases: bool = Query(
-        False,
-        description="Include sub-cases. By default only top-level cases are returned.",
+    hierarchy: CaseHierarchyFilter = Query(
+        "all",
+        description="Return every case, or only top-level cases without a parent.",
     ),
     parent_id: uuid.UUID | None = Query(
         None, description="Return only the sub-cases of this parent case"
@@ -618,7 +606,7 @@ async def search_case_aggregates(
             updated_after=updated_after,
             updated_before=updated_before,
             parent_id=parent_id,
-            include_sub_cases=include_sub_cases,
+            hierarchy=hierarchy,
         )
     except ValueError as e:
         logger.warning(f"Invalid request for case aggregate counts: {e}")

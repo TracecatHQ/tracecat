@@ -1,6 +1,6 @@
 import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any, Literal
 from typing import cast as typing_cast
@@ -49,11 +49,37 @@ from tracecat.cases.enums import (
     CaseVersionField,
     MentionTargetType,
 )
+from tracecat.cases.event_schemas import (
+    AssigneeChangedEvent,
+    CaseEventVariant,
+    ClosedEvent,
+    CommentCreatedEvent,
+    CommentDeletedEvent,
+    CommentReplyCreatedEvent,
+    CommentReplyDeletedEvent,
+    CommentReplyUpdatedEvent,
+    CommentUpdatedEvent,
+    CreatedEvent,
+    FieldDiff,
+    FieldsChangedEvent,
+    PayloadChangedEvent,
+    PriorityChangedEvent,
+    ReopenedEvent,
+    SeverityChangedEvent,
+    StatusChangedEvent,
+    TaskAssigneeChangedEvent,
+    TaskCreatedEvent,
+    TaskDeletedEvent,
+    TaskPriorityChangedEvent,
+    TaskStatusChangedEvent,
+    TaskWorkflowChangedEvent,
+    UpdatedEvent,
+)
 from tracecat.cases.events import CaseEventsService
+from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
 from tracecat.cases.mentions import MentionToken, parse_mentions
 from tracecat.cases.query import CaseFieldResolver, referenced_dropdown_refs
 from tracecat.cases.schemas import (
-    AssigneeChangedEvent,
     CaseAggregateRequest,
     CaseAggregateResponse,
     CaseBatchItemResult,
@@ -68,42 +94,15 @@ from tracecat.cases.schemas import (
     CaseCommentWorkflowRead,
     CaseCommentWorkflowStatus,
     CaseCreate,
-    CaseEventVariant,
     CaseFieldCreate,
     CaseFieldUpdate,
-    CaseParentRead,
+    CaseHierarchyFilter,
     CaseReadMinimal,
-    CaseRef,
     CaseSearchAggregateRead,
     CaseStatusGroupCounts,
     CaseTaskCreate,
     CaseTaskUpdate,
     CaseUpdate,
-    ClosedEvent,
-    CommentCreatedEvent,
-    CommentDeletedEvent,
-    CommentReplyCreatedEvent,
-    CommentReplyDeletedEvent,
-    CommentReplyUpdatedEvent,
-    CommentUpdatedEvent,
-    CreatedEvent,
-    FieldDiff,
-    FieldsChangedEvent,
-    ParentChangedEvent,
-    PayloadChangedEvent,
-    PriorityChangedEvent,
-    ReopenedEvent,
-    SeverityChangedEvent,
-    StatusChangedEvent,
-    SubCasesAddedEvent,
-    SubCasesRemovedEvent,
-    TaskAssigneeChangedEvent,
-    TaskCreatedEvent,
-    TaskDeletedEvent,
-    TaskPriorityChangedEvent,
-    TaskStatusChangedEvent,
-    TaskWorkflowChangedEvent,
-    UpdatedEvent,
     _normalize_case_field_read_type,
 )
 from tracecat.cases.tags.schemas import CaseTagRead
@@ -214,10 +213,6 @@ CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
 SHORT_ID_PATTERN = re.compile(r"^(?:CASE-)?(\d{1,10})$", re.IGNORECASE)
 
 
-def _case_ref(case: Case) -> CaseRef:
-    return CaseRef(id=case.id, short_id=case.short_id)
-
-
 def parse_case_short_id(value: str) -> int | None:
     """Return the case number for a short ID like ``CASE-0042`` or ``42``."""
     if match := SHORT_ID_PATTERN.match(value.strip()):
@@ -249,6 +244,7 @@ class CasesService(BaseWorkspaceService):
         self.tables = TablesService(session=self.session, role=self.role)
         self.fields = CaseFieldsService(session=self.session, role=self.role)
         self.events = CaseEventsService(session=self.session, role=self.role)
+        self.hierarchy = CaseHierarchyService(session=self.session, role=self.role)
         self.versions = CaseVersionsService(session=self.session, role=self.role)
         self.attachments = CaseAttachmentService(session=self.session, role=self.role)
         self.tags = CaseTagsService(session=self.session, role=self.role)
@@ -388,69 +384,11 @@ class CasesService(BaseWorkspaceService):
 
         return counts
 
-    async def get_sub_case_counts(
-        self, case_ids: Sequence[uuid.UUID]
-    ) -> dict[uuid.UUID, int]:
-        """Count direct sub-cases for each case ID in one grouped query."""
-        if not case_ids:
-            return {}
-        stmt = (
-            select(Case.parent_id, func.count())
-            .where(
-                Case.workspace_id == self.workspace_id,
-                Case.parent_id.in_(case_ids),
-            )
-            .group_by(Case.parent_id)
-        )
-        rows = (await self.session.execute(stmt)).tuples().all()
-        return {
-            parent_id: int(count) for parent_id, count in rows if parent_id is not None
-        }
-
-    @staticmethod
-    def _resolve_sub_case_filters(
-        *,
-        sub_cases_enabled: bool,
-        parent_id: uuid.UUID | None,
-        include_sub_cases: bool,
-    ) -> tuple[uuid.UUID | None, bool]:
-        """Apply the sub-case entitlement to search filters.
-
-        Without ``case_addons`` the case list stays flat: existing sub-cases
-        are not hidden, and filtering by parent is rejected.
-        """
-        if sub_cases_enabled:
-            return parent_id, include_sub_cases
-        if parent_id is not None:
-            raise EntitlementRequired(Entitlement.CASE_ADDONS.value)
-        return None, True
-
-    async def get_parent_reads(
-        self, parent_ids: Sequence[uuid.UUID | None]
-    ) -> dict[uuid.UUID, CaseParentRead]:
-        """Load parent case summaries for a set of parent IDs in one query."""
-        unique_ids = {parent_id for parent_id in parent_ids if parent_id is not None}
-        if not unique_ids:
-            return {}
-        stmt = select(Case.id, Case.case_number, Case.summary).where(
-            Case.workspace_id == self.workspace_id,
-            Case.id.in_(unique_ids),
-        )
-        rows = (await self.session.execute(stmt)).tuples().all()
-        return {
-            case_id: CaseParentRead(
-                id=case_id,
-                short_id=f"CASE-{case_number:04d}",
-                summary=summary,
-            )
-            for case_id, case_number, summary in rows
-        }
-
     def _build_search_filters(
         self,
         *,
         parent_id: uuid.UUID | None = None,
-        include_sub_cases: bool = True,
+        top_level_only: bool = False,
         search_term: str | None = None,
         short_id: str | None = None,
         status: CaseStatus | Sequence[CaseStatus] | None = None,
@@ -471,7 +409,7 @@ class CasesService(BaseWorkspaceService):
 
         if parent_id is not None:
             filters.append(Case.parent_id == parent_id)
-        elif not include_sub_cases:
+        elif top_level_only:
             filters.append(Case.parent_id.is_(None))
 
         if search_term:
@@ -613,7 +551,7 @@ class CasesService(BaseWorkspaceService):
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
         parent_id: uuid.UUID | None = None,
-        include_sub_cases: bool = True,
+        hierarchy: CaseHierarchyFilter = "all",
         include_durations: bool = False,
         include_payload: bool = False,
         linked_row: tuple[uuid.UUID, uuid.UUID] | None = None,
@@ -625,10 +563,8 @@ class CasesService(BaseWorkspaceService):
         linked to that table row.
         """
         include_case_addons = await self.has_entitlement(Entitlement.CASE_ADDONS)
-        parent_id, include_sub_cases = self._resolve_sub_case_filters(
-            sub_cases_enabled=include_case_addons,
-            parent_id=parent_id,
-            include_sub_cases=include_sub_cases,
+        parent_id, top_level_only = await self.hierarchy.resolve_filters(
+            parent_id=parent_id, hierarchy=hierarchy
         )
         filters = self._build_search_filters(
             linked_row=linked_row,
@@ -649,7 +585,7 @@ class CasesService(BaseWorkspaceService):
             updated_before=updated_before,
             updated_after=updated_after,
             parent_id=parent_id,
-            include_sub_cases=include_sub_cases,
+            top_level_only=top_level_only,
         )
 
         # Base query - eagerly load tags, assignee, and dropdown values.
@@ -745,13 +681,7 @@ class CasesService(BaseWorkspaceService):
 
         # Fetch task counts and sub-case relationships for response hydration.
         task_counts = await self.get_task_counts([case.id for case in cases])
-        sub_case_counts: dict[uuid.UUID, int] = {}
-        parents: dict[uuid.UUID, CaseParentRead] = {}
-        if include_case_addons:
-            sub_case_counts = await self.get_sub_case_counts(
-                [case.id for case in cases]
-            )
-            parents = await self.get_parent_reads([case.parent_id for case in cases])
+        hierarchies = await self.hierarchy.get_hierarchy(cases)
 
         # Convert to CaseReadMinimal objects with tags and dropdown values
         case_items = []
@@ -808,9 +738,8 @@ class CasesService(BaseWorkspaceService):
                     payload=case.payload if include_payload else None,
                     num_tasks_completed=task_counts[case.id]["completed"],
                     num_tasks_total=task_counts[case.id]["total"],
-                    parent_id=case.parent_id if include_case_addons else None,
-                    parent=parents.get(case.parent_id) if case.parent_id else None,
-                    num_sub_cases=sub_case_counts.get(case.id, 0),
+                    parent=hierarchies.get(case.id, TOP_LEVEL).parent,
+                    num_sub_cases=hierarchies.get(case.id, TOP_LEVEL).num_sub_cases,
                 )
             )
 
@@ -839,13 +768,11 @@ class CasesService(BaseWorkspaceService):
         updated_before: datetime | None = None,
         updated_after: datetime | None = None,
         parent_id: uuid.UUID | None = None,
-        include_sub_cases: bool = True,
+        hierarchy: CaseHierarchyFilter = "all",
     ) -> CaseSearchAggregateRead:
         """Return global totals for the current case search filter set."""
-        parent_id, include_sub_cases = self._resolve_sub_case_filters(
-            sub_cases_enabled=await self.has_entitlement(Entitlement.CASE_ADDONS),
-            parent_id=parent_id,
-            include_sub_cases=include_sub_cases,
+        parent_id, top_level_only = await self.hierarchy.resolve_filters(
+            parent_id=parent_id, hierarchy=hierarchy
         )
         filters = self._build_search_filters(
             search_term=search_term,
@@ -861,7 +788,7 @@ class CasesService(BaseWorkspaceService):
             updated_before=updated_before,
             updated_after=updated_after,
             parent_id=parent_id,
-            include_sub_cases=include_sub_cases,
+            top_level_only=top_level_only,
         )
 
         aggregate_stmt = select(
@@ -931,7 +858,7 @@ class CasesService(BaseWorkspaceService):
         sort: Literal["asc", "desc"] | None = None,
         include_durations: bool = False,
         include_payload: bool = False,
-        include_sub_cases: bool = True,
+        hierarchy: CaseHierarchyFilter = "all",
     ) -> CursorPaginatedResponse[CaseReadMinimal]:
         """List cases with a simplified default search query."""
         return await self.search_cases(
@@ -940,7 +867,7 @@ class CasesService(BaseWorkspaceService):
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
-            include_sub_cases=include_sub_cases,
+            hierarchy=hierarchy,
         )
 
     async def get_case(
@@ -1024,10 +951,8 @@ class CasesService(BaseWorkspaceService):
             # ShareRowExclusiveLock on the referenced `case` table.
             await self.fields._ensure_schema_ready()
 
-            if params.parent_id is not None:
-                await self.require_entitlement(Entitlement.CASE_ADDONS)
             parent = (
-                await self._lock_parent_for_new_sub_case(params.parent_id)
+                await self.hierarchy.lock_parent_for_new_sub_case(params.parent_id)
                 if params.parent_id is not None
                 else None
             )
@@ -1087,19 +1012,7 @@ class CasesService(BaseWorkspaceService):
             await self._assign_next_case_number(case)
 
             if parent is not None:
-                wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
-                await self.events.create_event(
-                    case=case,
-                    event=ParentChangedEvent(
-                        old=None, new=_case_ref(parent), wf_exec_id=wf_exec_id
-                    ),
-                )
-                await self.events.create_event(
-                    case=parent,
-                    event=SubCasesAddedEvent(
-                        sub_cases=[_case_ref(case)], wf_exec_id=wf_exec_id
-                    ),
-                )
+                await self.hierarchy.record_parent_events([(case, None)], parent)
 
             await self.agent_session_interactions.record_from_context(
                 case_id=case.id,
@@ -1490,33 +1403,46 @@ class CasesService(BaseWorkspaceService):
         result = await self.session.execute(statement)
         return {case.id: case for case in result.scalars().all()}
 
-    @require_scope("case:update")
-    async def batch_update_cases(
-        self, case_ids: list[uuid.UUID], params: CaseUpdate
+    async def _run_case_batch(
+        self,
+        *,
+        action: Literal["update", "delete"],
+        case_ids: list[uuid.UUID],
+        process: Callable[
+            [list[uuid.UUID], dict[uuid.UUID, Case]],
+            Awaitable[list[CaseBatchItemResult]],
+        ],
+        audit_extra: dict[str, Any] | None = None,
+        extra_lock_ids: Sequence[uuid.UUID] = (),
+        key_share: bool = False,
+        load_dropdown_values: bool = False,
     ) -> CaseBatchResponse:
-        """Update multiple cases atomically with isolated per-case failures."""
+        """Run a batch case operation with shared auditing, locking, and commit.
+
+        The cases and any ``extra_lock_ids`` are locked together in ID order so
+        concurrent batches serialize without deadlocking. ``process`` runs with
+        after-commit work deferred, so case triggers fire only once the whole
+        batch commits.
+        """
         case_ids = list(dict.fromkeys(case_ids))
         audit_data: dict[str, Any] = {
             "is_batch": True,
+            **(audit_extra or {}),
             "case_ids": [str(case_id) for case_id in case_ids],
             "case_count": len(case_ids),
         }
         await self._audit_batch_event(
-            action="update",
-            status=AuditEventStatus.ATTEMPT,
-            data=audit_data,
+            action=action, status=AuditEventStatus.ATTEMPT, data=audit_data
         )
-
         try:
             await self.session.execute(
                 sa.text(f"SET LOCAL lock_timeout = '{CASE_BATCH_LOCK_TIMEOUT}'")
             )
             try:
-                cases_by_id = await self._lock_cases(
-                    case_ids,
-                    load_dropdown_values=params.status
-                    in (CaseStatus.CLOSED, CaseStatus.RESOLVED),
-                    key_share=True,
+                locked = await self._lock_cases(
+                    [*case_ids, *extra_lock_ids],
+                    load_dropdown_values=load_dropdown_values,
+                    key_share=key_share,
                 )
             except DBAPIError as exc:
                 if (
@@ -1524,74 +1450,18 @@ class CasesService(BaseWorkspaceService):
                     == CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE
                 ):
                     raise TracecatConflictError(
-                        "Timed out waiting to lock cases for batch update"
+                        f"Timed out waiting to lock cases for batch {action}"
                     ) from exc
                 raise
-            results: list[CaseBatchItemResult] = []
             queue = AfterCommitQueue.of(self.session)
             with queue.checkpointed():
                 with queue.deferred():
-                    for case_id in case_ids:
-                        if (case := cases_by_id.get(case_id)) is None:
-                            results.append(
-                                CaseBatchItemResult(
-                                    case_id=case_id,
-                                    success=False,
-                                    error="Case not found",
-                                )
-                            )
-                            continue
-
-                        try:
-                            with queue.checkpointed():
-                                async with self.session.begin_nested():
-                                    await self._apply_case_update(case, params)
-                                    await self.agent_session_interactions.record_from_context(
-                                        case_id=case.id,
-                                        operation=CaseAgentSessionInteractionOperation.UPDATE,
-                                    )
-                        except TracecatNotFoundError as exc:
-                            results.append(
-                                CaseBatchItemResult(
-                                    case_id=case_id,
-                                    success=False,
-                                    error=str(exc),
-                                )
-                            )
-                        except TracecatValidationError as exc:
-                            results.append(
-                                CaseBatchItemResult(
-                                    case_id=case_id,
-                                    success=False,
-                                    error=str(exc),
-                                )
-                            )
-                        except ValueError as exc:
-                            results.append(
-                                CaseBatchItemResult(
-                                    case_id=case_id,
-                                    success=False,
-                                    error=str(exc),
-                                )
-                            )
-                        except DBAPIError:
-                            results.append(
-                                CaseBatchItemResult(
-                                    case_id=case_id,
-                                    success=False,
-                                    error="Database operation failed",
-                                )
-                            )
-                        else:
-                            results.append(
-                                CaseBatchItemResult(case_id=case_id, success=True)
-                            )
-
+                    results = await process(case_ids, locked)
                 await self.session.commit()
         except Exception:
             await self.session.rollback()
             await self._audit_batch_event(
-                action="update",
+                action=action,
                 status=AuditEventStatus.FAILURE,
                 data={
                     **audit_data,
@@ -1603,12 +1473,10 @@ class CasesService(BaseWorkspaceService):
 
         succeeded = sum(result.success for result in results)
         response = CaseBatchResponse(
-            results=results,
-            succeeded=succeeded,
-            failed=len(results) - succeeded,
+            results=results, succeeded=succeeded, failed=len(results) - succeeded
         )
         await self._audit_batch_event(
-            action="update",
+            action=action,
             status=AuditEventStatus.SUCCESS
             if response.succeeded
             else AuditEventStatus.FAILURE,
@@ -1620,209 +1488,97 @@ class CasesService(BaseWorkspaceService):
         )
         return response
 
-    async def _lock_parent_for_new_sub_case(self, parent_id: uuid.UUID) -> Case:
-        """Share-lock a prospective parent so it cannot become a sub-case concurrently.
-
-        FOR SHARE lets concurrent creates under the same parent proceed while
-        conflicting with the FOR NO KEY UPDATE taken by parent reassignment.
-        """
-        parent = await self.session.scalar(
-            select(Case)
-            .options(raiseload("*"))
-            .where(Case.workspace_id == self.workspace_id, Case.id == parent_id)
-            .with_for_update(read=True)
-        )
-        if parent is None:
-            raise TracecatNotFoundError(f"Parent case {parent_id} not found")
-        if parent.parent_id is not None:
-            raise TracecatValidationError(
-                f"{parent.short_id} is a sub-case and cannot have sub-cases"
-            )
-        return parent
-
-    async def _lock_cases_for_parent_change(
-        self, case_ids: list[uuid.UUID]
-    ) -> dict[uuid.UUID, Case]:
-        await self.session.execute(
-            sa.text(f"SET LOCAL lock_timeout = '{CASE_BATCH_LOCK_TIMEOUT}'")
-        )
-        try:
-            return await self._lock_cases(case_ids, key_share=True)
-        except DBAPIError as exc:
-            if (
-                getattr(exc.orig, "sqlstate", None)
-                == CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE
-            ):
-                raise TracecatConflictError(
-                    "Timed out waiting to lock cases for parent change"
-                ) from exc
-            raise
-
-    async def _load_cases_by_id(
-        self, case_ids: set[uuid.UUID]
-    ) -> dict[uuid.UUID, Case]:
-        if not case_ids:
-            return {}
-        result = await self.session.execute(
-            select(Case)
-            .options(raiseload("*"))
-            .where(Case.workspace_id == self.workspace_id, Case.id.in_(case_ids))
-        )
-        return {case.id: case for case in result.scalars().all()}
-
-    async def _apply_parent_changes(
+    async def _apply_to_each_case(
         self,
-        changed: list[Case],
-        new_parent: Case | None,
-    ) -> None:
-        """Reassign parents and record child- and parent-side activity events.
+        case_ids: list[uuid.UUID],
+        locked: dict[uuid.UUID, Case],
+        apply: Callable[[Case], Awaitable[None]],
+    ) -> list[CaseBatchItemResult]:
+        """Apply ``apply`` to each locked case in its own savepoint.
 
-        Each child gets its own ``parent_changed`` event; each affected parent
-        gets one aggregated ``sub_cases_added``/``sub_cases_removed`` event per
-        batch so a large grouping does not flood the parent's activity feed or
-        case triggers.
+        A failing case rolls back only its own changes and after-commit work.
         """
-        if not changed:
-            return
-        run_ctx = ctx_run.get()
-        wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
-        old_parents = await self._load_cases_by_id(
-            {case.parent_id for case in changed if case.parent_id is not None}
-        )
-        removed_by_parent: dict[uuid.UUID, list[CaseRef]] = {}
-        for case in changed:
-            old_parent = old_parents.get(case.parent_id) if case.parent_id else None
-            if old_parent is not None:
-                removed_by_parent.setdefault(old_parent.id, []).append(_case_ref(case))
-            case.parent_id = new_parent.id if new_parent is not None else None
-            await self.events.create_event(
-                case=case,
-                event=ParentChangedEvent(
-                    old=_case_ref(old_parent) if old_parent is not None else None,
-                    new=_case_ref(new_parent) if new_parent is not None else None,
-                    wf_exec_id=wf_exec_id,
-                ),
+        queue = AfterCommitQueue.of(self.session)
+        results: list[CaseBatchItemResult] = []
+        for case_id in case_ids:
+            if (case := locked.get(case_id)) is None:
+                results.append(
+                    CaseBatchItemResult(
+                        case_id=case_id, success=False, error="Case not found"
+                    )
+                )
+                continue
+            error: str | None = None
+            try:
+                with queue.checkpointed():
+                    async with self.session.begin_nested():
+                        await apply(case)
+            except (TracecatNotFoundError, TracecatValidationError, ValueError) as exc:
+                error = str(exc)
+            except DBAPIError:
+                error = "Database operation failed"
+            results.append(
+                CaseBatchItemResult(case_id=case_id, success=error is None, error=error)
             )
+        return results
+
+    @require_scope("case:update")
+    async def batch_update_cases(
+        self, case_ids: list[uuid.UUID], params: CaseUpdate
+    ) -> CaseBatchResponse:
+        """Update multiple cases atomically with isolated per-case failures."""
+
+        async def apply(case: Case) -> None:
+            await self._apply_case_update(case, params)
             await self.agent_session_interactions.record_from_context(
                 case_id=case.id,
                 operation=CaseAgentSessionInteractionOperation.UPDATE,
             )
-        for old_parent_id, refs in removed_by_parent.items():
-            await self.events.create_event(
-                case=old_parents[old_parent_id],
-                event=SubCasesRemovedEvent(sub_cases=refs, wf_exec_id=wf_exec_id),
-            )
-        if new_parent is not None:
-            await self.events.create_event(
-                case=new_parent,
-                event=SubCasesAddedEvent(
-                    sub_cases=[_case_ref(case) for case in changed],
-                    wf_exec_id=wf_exec_id,
-                ),
-            )
 
-    async def _run_parent_batch(
-        self,
-        *,
-        operation: Literal["set_parent", "clear_parent"],
-        case_ids: list[uuid.UUID],
-        parent_id: uuid.UUID | None,
+        async def process(
+            ids: list[uuid.UUID], locked: dict[uuid.UUID, Case]
+        ) -> list[CaseBatchItemResult]:
+            return await self._apply_to_each_case(ids, locked, apply)
+
+        return await self._run_case_batch(
+            action="update",
+            case_ids=case_ids,
+            process=process,
+            key_share=True,
+            load_dropdown_values=params.status
+            in (CaseStatus.CLOSED, CaseStatus.RESOLVED),
+        )
+
+    async def _change_parent(
+        self, case_ids: list[uuid.UUID], parent_id: uuid.UUID | None
     ) -> CaseBatchResponse:
-        case_ids = list(dict.fromkeys(case_ids))
-        audit_data: dict[str, Any] = {
-            "is_batch": True,
-            "operation": operation,
-            "case_ids": [str(case_id) for case_id in case_ids],
-            "case_count": len(case_ids),
+        async def process(
+            ids: list[uuid.UUID], locked: dict[uuid.UUID, Case]
+        ) -> list[CaseBatchItemResult]:
+            results, changed, parent = await self.hierarchy.plan_parent_changes(
+                ids, locked, parent_id
+            )
+            await self.hierarchy.apply_parent_changes(changed, parent)
+            for case in changed:
+                await self.agent_session_interactions.record_from_context(
+                    case_id=case.id,
+                    operation=CaseAgentSessionInteractionOperation.UPDATE,
+                )
+            return results
+
+        audit_extra: dict[str, Any] = {
+            "operation": "set_parent" if parent_id is not None else "clear_parent"
         }
         if parent_id is not None:
-            audit_data["parent_id"] = str(parent_id)
-        await self._audit_batch_event(
+            audit_extra["parent_id"] = str(parent_id)
+        return await self._run_case_batch(
             action="update",
-            status=AuditEventStatus.ATTEMPT,
-            data=audit_data,
+            case_ids=case_ids,
+            process=process,
+            audit_extra=audit_extra,
+            extra_lock_ids=[parent_id] if parent_id is not None else (),
+            key_share=True,
         )
-
-        def failure(case_id: uuid.UUID, error: str) -> CaseBatchItemResult:
-            return CaseBatchItemResult(case_id=case_id, success=False, error=error)
-
-        try:
-            # The parent and children are locked together in ID order so that
-            # concurrent reassignments serialize without deadlocking, and the
-            # single-level invariant is checked against committed state.
-            lock_ids = [*case_ids, parent_id] if parent_id is not None else case_ids
-            locked = await self._lock_cases_for_parent_change(lock_ids)
-            parent: Case | None = None
-            if parent_id is not None:
-                parent = locked.get(parent_id)
-                if parent is None:
-                    raise TracecatNotFoundError(f"Parent case {parent_id} not found")
-                if parent.parent_id is not None:
-                    raise TracecatValidationError(
-                        f"{parent.short_id} is a sub-case and cannot have sub-cases"
-                    )
-                nested_counts = await self.get_sub_case_counts(
-                    [case_id for case_id in case_ids if case_id in locked]
-                )
-            else:
-                nested_counts = {}
-
-            results: list[CaseBatchItemResult] = []
-            changed: list[Case] = []
-            for case_id in case_ids:
-                case = locked.get(case_id)
-                if case_id == parent_id:
-                    results.append(failure(case_id, "A case cannot be its own parent"))
-                elif case is None:
-                    results.append(failure(case_id, "Case not found"))
-                elif nested_counts.get(case_id):
-                    results.append(
-                        failure(
-                            case_id,
-                            f"{case.short_id} has sub-cases and cannot become a sub-case",
-                        )
-                    )
-                else:
-                    if case.parent_id != parent_id:
-                        changed.append(case)
-                    results.append(CaseBatchItemResult(case_id=case_id, success=True))
-
-            queue = AfterCommitQueue.of(self.session)
-            with queue.checkpointed():
-                with queue.deferred():
-                    await self._apply_parent_changes(changed, parent)
-                await self.session.commit()
-        except Exception:
-            await self.session.rollback()
-            await self._audit_batch_event(
-                action="update",
-                status=AuditEventStatus.FAILURE,
-                data={
-                    **audit_data,
-                    "succeeded_count": 0,
-                    "failed_count": len(case_ids),
-                },
-            )
-            raise
-
-        succeeded = sum(result.success for result in results)
-        response = CaseBatchResponse(
-            results=results,
-            succeeded=succeeded,
-            failed=len(results) - succeeded,
-        )
-        await self._audit_batch_event(
-            action="update",
-            status=AuditEventStatus.SUCCESS
-            if response.succeeded
-            else AuditEventStatus.FAILURE,
-            data={
-                **audit_data,
-                "succeeded_count": response.succeeded,
-                "failed_count": response.failed,
-            },
-        )
-        return response
 
     @require_scope("case:update")
     @requires_entitlement(Entitlement.CASE_ADDONS)
@@ -1840,148 +1596,45 @@ class CasesService(BaseWorkspaceService):
             TracecatValidationError: If the parent case is itself a sub-case.
             TracecatConflictError: If the cases cannot be locked in time.
         """
-        return await self._run_parent_batch(
-            operation="set_parent", case_ids=case_ids, parent_id=parent_id
-        )
+        return await self._change_parent(case_ids, parent_id)
 
     @require_scope("case:update")
     @requires_entitlement(Entitlement.CASE_ADDONS)
     async def batch_clear_parent(self, case_ids: list[uuid.UUID]) -> CaseBatchResponse:
         """Remove cases from their parent case, returning them to the top level."""
-        return await self._run_parent_batch(
-            operation="clear_parent", case_ids=case_ids, parent_id=None
-        )
+        return await self._change_parent(case_ids, None)
 
     @require_scope("case:delete")
     async def batch_delete_cases(self, case_ids: list[uuid.UUID]) -> CaseBatchResponse:
         """Delete multiple cases atomically with isolated per-case failures."""
-        case_ids = list(dict.fromkeys(case_ids))
-        audit_data: dict[str, Any] = {
-            "is_batch": True,
-            "case_ids": [str(case_id) for case_id in case_ids],
-            "case_count": len(case_ids),
-        }
-        await self._audit_batch_event(
-            action="delete",
-            status=AuditEventStatus.ATTEMPT,
-            data=audit_data,
-        )
 
-        try:
+        async def apply(case: Case) -> None:
+            # Rely on database ON DELETE CASCADE instead of ORM cascades, which
+            # lazy-load every child collection per case. Reply comments must be
+            # unlinked first: the (case_id, parent_id) self-FK is ON DELETE
+            # RESTRICT, so a cascading case delete is order-sensitive with threads.
             await self.session.execute(
-                sa.text(f"SET LOCAL lock_timeout = '{CASE_BATCH_LOCK_TIMEOUT}'")
+                sa.update(CaseComment)
+                .where(
+                    CaseComment.case_id == case.id,
+                    CaseComment.parent_id.is_not(None),
+                )
+                .values(parent_id=None)
             )
-            try:
-                cases_by_id = await self._lock_cases(case_ids)
-            except DBAPIError as exc:
-                if (
-                    getattr(exc.orig, "sqlstate", None)
-                    == CASE_BATCH_LOCK_NOT_AVAILABLE_SQLSTATE
-                ):
-                    raise TracecatConflictError(
-                        "Timed out waiting to lock cases for batch delete"
-                    ) from exc
-                raise
-            results: list[CaseBatchItemResult] = []
-            queue = AfterCommitQueue.of(self.session)
-            with queue.checkpointed():
-                with queue.deferred():
-                    for case_id in case_ids:
-                        if (case := cases_by_id.get(case_id)) is None:
-                            results.append(
-                                CaseBatchItemResult(
-                                    case_id=case_id,
-                                    success=False,
-                                    error="Case not found",
-                                )
-                            )
-                            continue
-
-                        try:
-                            with queue.checkpointed():
-                                async with self.session.begin_nested():
-                                    # Rely on database ON DELETE CASCADE instead
-                                    # of ORM cascades, which lazy-load every
-                                    # child collection per case. Reply comments
-                                    # must be unlinked first: the
-                                    # (case_id, parent_id) self-FK is
-                                    # ON DELETE RESTRICT, so a cascading case
-                                    # delete is order-sensitive with threads.
-                                    await self.session.execute(
-                                        sa.update(CaseComment)
-                                        .where(
-                                            CaseComment.case_id == case.id,
-                                            CaseComment.parent_id.is_not(None),
-                                        )
-                                        .values(parent_id=None)
-                                    )
-                                    await self.session.execute(
-                                        sa.delete(Case).where(
-                                            Case.id == case.id,
-                                            Case.workspace_id == self.workspace_id,
-                                        )
-                                    )
-                        except TracecatValidationError as exc:
-                            results.append(
-                                CaseBatchItemResult(
-                                    case_id=case_id,
-                                    success=False,
-                                    error=str(exc),
-                                )
-                            )
-                        except ValueError as exc:
-                            results.append(
-                                CaseBatchItemResult(
-                                    case_id=case_id,
-                                    success=False,
-                                    error=str(exc),
-                                )
-                            )
-                        except DBAPIError:
-                            results.append(
-                                CaseBatchItemResult(
-                                    case_id=case_id,
-                                    success=False,
-                                    error="Database operation failed",
-                                )
-                            )
-                        else:
-                            results.append(
-                                CaseBatchItemResult(case_id=case_id, success=True)
-                            )
-
-                await self.session.commit()
-        except Exception:
-            await self.session.rollback()
-            await self._audit_batch_event(
-                action="delete",
-                status=AuditEventStatus.FAILURE,
-                data={
-                    **audit_data,
-                    "succeeded_count": 0,
-                    "failed_count": len(case_ids),
-                },
+            await self.session.execute(
+                sa.delete(Case).where(
+                    Case.id == case.id, Case.workspace_id == self.workspace_id
+                )
             )
-            raise
 
-        succeeded = sum(result.success for result in results)
-        response = CaseBatchResponse(
-            results=results,
-            succeeded=succeeded,
-            failed=len(results) - succeeded,
+        async def process(
+            ids: list[uuid.UUID], locked: dict[uuid.UUID, Case]
+        ) -> list[CaseBatchItemResult]:
+            return await self._apply_to_each_case(ids, locked, apply)
+
+        return await self._run_case_batch(
+            action="delete", case_ids=case_ids, process=process
         )
-        await self._audit_batch_event(
-            action="delete",
-            status=AuditEventStatus.SUCCESS
-            if response.succeeded
-            else AuditEventStatus.FAILURE,
-            data={
-                **audit_data,
-                "succeeded_count": response.succeeded,
-                "failed_count": response.failed,
-            },
-        )
-        return response
 
     @require_scope("case:delete")
     @audit_log(resource_type="case", action="delete")

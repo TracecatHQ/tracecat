@@ -43,6 +43,7 @@ function renderCaseItem() {
         caseData={{
           id: "case-1",
           short_id: "CASE-0001",
+          num_sub_cases: 0,
           created_at: "2026-04-13T00:00:00Z",
           updated_at: "2026-04-13T00:01:30Z",
           summary: "Database alert",

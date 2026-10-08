@@ -14,6 +14,7 @@ import {
 import type { ComponentType } from "react"
 import { tableSearchKey } from "@/hooks/use-table-search"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
+import { caseHref } from "@/lib/cases/urls"
 import type { QueryClient } from "@/lib/query"
 import type { WorkspaceChatArtifact } from "@/types/workspace-chat-artifacts"
 
@@ -43,8 +44,7 @@ export const ARTIFACT_REGISTRY = {
     label: "Cases",
     singularLabel: "Case",
     icon: LayersIcon,
-    href: (artifact, workspaceId) =>
-      `/workspaces/${workspaceId}/cases/${artifact.id}`,
+    href: (artifact, workspaceId) => caseHref(workspaceId, artifact.id),
     invalidateQueries: (queryClient, workspaceId, artifact) => {
       invalidateCaseActivityQueries(queryClient, artifact.id, workspaceId)
       queryClient.invalidateQueries({

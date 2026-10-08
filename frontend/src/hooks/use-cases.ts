@@ -22,6 +22,7 @@ import type {
   FilterMode,
   SortDirection,
 } from "@/components/filters/filter-multi-select"
+import type { CaseHierarchyFilter } from "@/hooks/use-case-search-infinite"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useInfiniteQuery, useQuery } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -897,7 +898,10 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         updatedBefore: updatedBounds.end
           ? toEndOfDay(updatedBounds.end).toISOString()
           : undefined,
-        includeSubCases,
+        // Searching also matches sub-cases, so they are never unreachable.
+        hierarchy: (includeSubCases || searchQuery.trim()
+          ? "all"
+          : "top_level") as CaseHierarchyFilter,
       },
       hasImpossibleEnumFilter:
         resolvedStatus.matchesNone ||

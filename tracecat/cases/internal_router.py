@@ -28,11 +28,21 @@ from tracecat.cases.dropdowns.service import CaseDropdownValuesService
 from tracecat.cases.durations.schemas import CaseDurationMetric
 from tracecat.cases.durations.service import CaseDurationService
 from tracecat.cases.enums import CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.event_schemas import (
+    AssigneeChangedEventRead,
+    CaseEventRead,
+    CaseEventsWithUsers,
+    TaskAssigneeChangedEventRead,
+)
 from tracecat.cases.filters import parse_assignee_filter
+from tracecat.cases.hierarchy import (
+    TOP_LEVEL,
+    CaseHierarchy,
+    CaseHierarchyService,
+)
 from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
-    AssigneeChangedEventRead,
     CaseAggregateRequest,
     CaseAggregateResponse,
     CaseCommentCreate,
@@ -40,8 +50,6 @@ from tracecat.cases.schemas import (
     CaseCommentThreadRead,
     CaseCommentUpdate,
     CaseCreate,
-    CaseEventRead,
-    CaseEventsWithUsers,
     CaseFieldRead,
     CaseFieldReadMinimal,
     CaseRead,
@@ -52,7 +60,6 @@ from tracecat.cases.schemas import (
     CaseUpdate,
     InternalCaseCommentData,
     InternalCaseData,
-    TaskAssigneeChangedEventRead,
 )
 from tracecat.cases.service import (
     CaseCommentsService,
@@ -105,19 +112,15 @@ async def _list_case_dropdown_values(
     return await dropdown_service.list_values_for_case(case_id)
 
 
-async def _read_case_parent_id(
+async def _read_case_hierarchy(
     *,
     session: AsyncDBSession,
     role: ExecutorWorkspaceRole,
     case: Case,
-) -> uuid.UUID | None:
-    """Return the case's parent ID, or None without the sub-case entitlement."""
-    if case.parent_id is None:
-        return None
-    service = CasesService(session, role)
-    if not await service.has_entitlement(Entitlement.CASE_ADDONS):
-        return None
-    return case.parent_id
+) -> CaseHierarchy:
+    """Return the case's parent summary and sub-case count."""
+    hierarchies = await CaseHierarchyService(session, role).get_hierarchy([case])
+    return hierarchies.get(case.id, TOP_LEVEL)
 
 
 async def _list_case_rows(
@@ -482,7 +485,9 @@ async def get_case(
         tags=tag_reads,
         dropdown_values=dropdown_reads,
         rows=rows,
-        parent_id=await _read_case_parent_id(session=session, role=role, case=case),
+        **(
+            await _read_case_hierarchy(session=session, role=role, case=case)
+        ).read_fields(),
     )
 
 
@@ -540,6 +545,9 @@ async def create_case(
         payload=case.payload,
         tags=tag_reads,
         dropdown_values=dropdown_reads,
+        **(
+            await _read_case_hierarchy(session=session, role=role, case=case)
+        ).read_fields(),
     )
 
 
@@ -619,9 +627,9 @@ async def update_case(
         tags=tag_reads,
         dropdown_values=dropdown_reads,
         rows=rows,
-        parent_id=await _read_case_parent_id(
-            session=session, role=role, case=updated_case
-        ),
+        **(
+            await _read_case_hierarchy(session=session, role=role, case=updated_case)
+        ).read_fields(),
     )
 
 

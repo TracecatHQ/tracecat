@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracecat.audit.service import AuditService
 from tracecat.auth.types import Role
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.hierarchy import CaseHierarchyService
 from tracecat.cases.schemas import CaseCreate
 from tracecat.cases.service import CasesService
 from tracecat.db.models import Case, CaseEvent
@@ -46,6 +47,9 @@ def stub_case_side_effects() -> Iterator[None]:
         ),
         patch.object(AuditService, "create_event", new_callable=AsyncMock),
         patch.object(CasesService, "has_entitlement", new=AsyncMock(return_value=True)),
+        patch.object(
+            CaseHierarchyService, "has_entitlement", new=AsyncMock(return_value=True)
+        ),
     ):
         yield
 
@@ -105,7 +109,7 @@ async def test_set_parent_groups_and_filters_cases(
         second.id,
         standalone.id,
     }
-    assert await _search_ids(cases_service, include_sub_cases=False) == {
+    assert await _search_ids(cases_service, hierarchy="top_level") == {
         parent.id,
         standalone.id,
     }
@@ -117,7 +121,7 @@ async def test_set_parent_groups_and_filters_cases(
         cases_service, parent_id=parent.id, search_term="Alert 2"
     ) == {second.id}
 
-    listed = await cases_service.list_cases(limit=100, include_sub_cases=False)
+    listed = await cases_service.list_cases(limit=100, hierarchy="top_level")
     items = {item.id: item for item in listed.items}
     assert items[parent.id].num_sub_cases == 2
     assert items[standalone.id].num_sub_cases == 0
@@ -126,12 +130,13 @@ async def test_set_parent_groups_and_filters_cases(
         CursorPaginationParams(limit=100), parent_id=parent.id
     )
     for item in children.items:
-        assert item.parent_id == parent.id
+        assert item.parent is not None
+        assert item.parent.id == parent.id
         assert item.parent is not None
         assert item.parent.short_id == parent.short_id
         assert item.parent.summary == "Parent"
 
-    aggregates = await cases_service.get_search_case_aggregates(include_sub_cases=False)
+    aggregates = await cases_service.get_search_case_aggregates(hierarchy="top_level")
     assert aggregates.total == 2
     child_aggregates = await cases_service.get_search_case_aggregates(
         parent_id=parent.id
@@ -256,7 +261,7 @@ async def test_clear_parent(cases_service: CasesService, session: AsyncSession) 
 
     assert response.succeeded == 2
     assert await _search_ids(cases_service, parent_id=parent.id) == set()
-    assert child.id in await _search_ids(cases_service, include_sub_cases=False)
+    assert child.id in await _search_ids(cases_service, hierarchy="top_level")
     child_events = await _events(session, child.id, CaseEventType.PARENT_CHANGED)
     assert child_events[-1].data["new"] is None
     assert len(await _events(session, top_level.id, CaseEventType.PARENT_CHANGED)) == 0
@@ -299,7 +304,7 @@ async def test_deleting_parent_unlinks_sub_cases(
     remaining = await cases_service.get_case(child_id)
     assert remaining is not None
     assert remaining.parent_id is None
-    assert child_id in await _search_ids(cases_service, include_sub_cases=False)
+    assert child_id in await _search_ids(cases_service, hierarchy="top_level")
 
 
 @pytest.mark.anyio
@@ -338,8 +343,13 @@ async def test_sub_cases_require_case_addons(cases_service: CasesService) -> Non
     child_id = (await _create(cases_service, "Child")).id
     await cases_service.batch_set_parent([child_id], parent_id)
 
-    with patch.object(
-        CasesService, "has_entitlement", new=AsyncMock(return_value=False)
+    with (
+        patch.object(
+            CasesService, "has_entitlement", new=AsyncMock(return_value=False)
+        ),
+        patch.object(
+            CaseHierarchyService, "has_entitlement", new=AsyncMock(return_value=False)
+        ),
     ):
         with pytest.raises(EntitlementRequired):
             await cases_service.batch_set_parent([child_id], parent_id)
@@ -355,15 +365,15 @@ async def test_sub_cases_require_case_addons(cases_service: CasesService) -> Non
         # Without the entitlement the list is flat: nothing is hidden and no
         # hierarchy metadata is returned.
         response = await cases_service.search_cases(
-            CursorPaginationParams(limit=100), include_sub_cases=False
+            CursorPaginationParams(limit=100), hierarchy="top_level"
         )
         items = {item.id: item for item in response.items}
         assert {parent_id, child_id} <= items.keys()
-        assert items[child_id].parent_id is None
+        assert items[child_id].parent is None
         assert items[child_id].parent is None
         assert items[parent_id].num_sub_cases == 0
         aggregate = await cases_service.get_search_case_aggregates(
-            include_sub_cases=False
+            hierarchy="top_level"
         )
         assert aggregate.total == len(items)
 

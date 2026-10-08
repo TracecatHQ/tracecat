@@ -74,6 +74,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { User } from "@/lib/auth"
 import { formatCaseFieldDisplayLabel } from "@/lib/case-field-display"
+import { caseHref } from "@/lib/cases/urls"
 import { useQueryClient } from "@/lib/query"
 import { durationToHumanReadable, formatISODurationCompact } from "@/lib/time"
 import { cn } from "@/lib/utils"
@@ -565,7 +566,7 @@ export function CaseItem({
                     ↳ {caseData.parent.short_id}
                   </span>
                 )}
-                {(caseData.num_sub_cases ?? 0) > 0 && (
+                {caseData.num_sub_cases > 0 && (
                   <span
                     className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground"
                     title={`${caseData.num_sub_cases} sub-case${caseData.num_sub_cases === 1 ? "" : "s"}`}
@@ -659,7 +660,7 @@ export function CaseItem({
       <ContextMenuContent className="w-48">
         <ContextMenuItem asChild className="text-xs">
           <Link
-            href={`/workspaces/${workspaceId}/cases/${caseData.id}`}
+            href={caseHref(workspaceId, caseData.id)}
             target="_blank"
             rel="noopener noreferrer"
           >

@@ -59,11 +59,7 @@ import { CreateCaseDialog } from "@/components/cases/case-create-dialog"
 import { CaseDurationMetrics } from "@/components/cases/case-duration-metrics"
 import { UNASSIGNED } from "@/components/cases/case-panel-selectors"
 import { useCaseSelection } from "@/components/cases/case-selection-context"
-import {
-  CaseParentPickerDialog,
-  changeCasesParent,
-  invalidateCaseHierarchy,
-} from "@/components/cases/case-sub-cases"
+import { CasePickerDialog } from "@/components/cases/case-sub-cases"
 import { CaseVersionHistory } from "@/components/cases/case-version-history"
 import {
   CasesViewMode,
@@ -827,6 +823,8 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
     bulkUpdateSelectedCases,
     isDeleting,
     isUpdating,
+    setParentForSelectedCases,
+    isChangingParent,
   } = useCaseSelection()
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const [selectedTagIds, setSelectedTagIds] = useState<Set<string>>(new Set())
@@ -838,7 +836,6 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
   const [appendText, setAppendText] = useState("")
   const [isAppending, setIsAppending] = useState(false)
   const [parentPickerOpen, setParentPickerOpen] = useState(false)
-  const [isChangingParent, setIsChangingParent] = useState(false)
   const workspaceId = useWorkspaceId()
   const queryClient = useQueryClient()
   const { hasEntitlement } = useEntitlements()
@@ -1032,8 +1029,9 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
     isApplyingTags ||
     isAddingComments ||
     isAppending ||
-    isChangingParent
+    Boolean(isChangingParent)
   const canUpdate = Boolean(bulkUpdateSelectedCases) && !isBusy
+  const canChangeParent = Boolean(setParentForSelectedCases) && !isBusy
   const pluralisedCases = `${selectedCount} case${selectedCount === 1 ? "" : "s"}`
   const canApplyTags = !isBusy && caseTags && caseTags.length > 0
 
@@ -1042,47 +1040,6 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
       return
     }
     clearSelection?.()
-  }
-
-  const handleChangeParent = async (
-    parent: { id: string; short_id: string } | null
-  ) => {
-    setIsChangingParent(true)
-    try {
-      const result = await changeCasesParent({
-        workspaceId,
-        caseIds: selectedCaseIds,
-        parentId: parent?.id ?? null,
-      })
-      const verb = parent
-        ? `Grouped under ${parent.short_id}`
-        : "Removed from parent"
-      if (result.failed > 0) {
-        toast({
-          variant: "destructive",
-          title: `${result.succeeded} updated, ${result.failed} failed`,
-          description: result.errors[0],
-        })
-      } else {
-        toast({
-          title: verb,
-          description: `Applied to ${pluralisedCases}.`,
-        })
-        clearSelection?.()
-      }
-    } catch (error) {
-      console.error("Failed to change parent case:", error)
-      toast({
-        variant: "destructive",
-        title: parent
-          ? "Failed to group cases"
-          : "Failed to remove from parent",
-        description: "Please try again.",
-      })
-    } finally {
-      setIsChangingParent(false)
-      await invalidateCaseHierarchy(queryClient)
-    }
   }
 
   const handleDelete = async () => {
@@ -1500,7 +1457,7 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                  disabled={!canUpdate}
+                  disabled={!canChangeParent}
                   onSelect={(event) => {
                     event.preventDefault()
                     setParentPickerOpen(true)
@@ -1515,9 +1472,9 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
                   </span>
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  disabled={!canUpdate}
+                  disabled={!canChangeParent}
                   onSelect={async () => {
-                    await handleChangeParent(null)
+                    await setParentForSelectedCases?.(null)
                   }}
                 >
                   <span className="flex items-center gap-2">
@@ -1577,15 +1534,21 @@ function CasesSelectionActionsBar({ enabled = true }: { enabled?: boolean }) {
           </DropdownMenuContent>
         </DropdownMenu>
       </ButtonGroup>
-      <CaseParentPickerDialog
-        open={caseAddonsEnabled && parentPickerOpen}
+      <CasePickerDialog
+        open={Boolean(setParentForSelectedCases) && parentPickerOpen}
         onOpenChange={setParentPickerOpen}
         workspaceId={workspaceId}
-        excludeIds={new Set(selectedCaseIds)}
         title="Group under parent case"
         description={`Make ${pluralisedCases} sub-cases of a top-level case. Sub-cases are hidden from the cases list by default and listed on the parent case.`}
-        onConfirm={async (parent) => {
-          await handleChangeParent(parent)
+        // Parents must be top-level cases.
+        hierarchy="top_level"
+        isCandidate={(item) => !selectedCaseIds.includes(item.id)}
+        confirmLabel={([parent]) =>
+          parent ? `Group under ${parent.short_id}` : "Select a case"
+        }
+        onConfirm={async ([parent]) => {
+          await setParentForSelectedCases?.(parent)
+          return { close: true }
         }}
       />
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>

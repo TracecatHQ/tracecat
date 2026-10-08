@@ -12142,9 +12142,7 @@ def test_prompt_expressions_respect_prompt_action_result_shapes() -> None:
 def test_mcp_instruction_text_stays_within_context_budget() -> None:
     # The rendered skill-transfer warning is longer than its placeholder and is
     # required guidance for clients that cannot read local skill directories.
-    # The case trigger event list is rendered from the live `CaseEventType`
-    # enum, so the ceiling includes headroom for the sub-case event types.
-    assert len(mcp_server._MCP_INSTRUCTIONS_RENDERED) <= 10100, (
+    assert len(mcp_server._MCP_INSTRUCTIONS_RENDERED) <= 10000, (
         "MCP instructions exceeded the prompt budget. Always-on instructions "
         "carry only rules that fail hard when violated; move long-form guidance "
         "into the `tracecat://platform/authoring-guide` resource or a tool "

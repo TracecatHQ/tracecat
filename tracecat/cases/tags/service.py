@@ -39,7 +39,10 @@ class CaseTagsService(BaseWorkspaceService):
         tag: CaseTag,
         event_type: CaseEventType,
     ) -> None:
-        from tracecat.cases.schemas import TagAddedEvent, TagRemovedEvent
+        from tracecat.cases.event_schemas import (
+            TagAddedEvent,
+            TagRemovedEvent,
+        )
         from tracecat.cases.service import CaseEventsService
 
         match event_type:

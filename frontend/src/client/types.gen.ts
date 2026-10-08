@@ -2706,9 +2706,8 @@ export type CaseRead = {
   tags?: Array<CaseTagRead>
   dropdown_values: Array<CaseDropdownValueRead>
   rows?: Array<CaseTableRowRead>
-  parent_id?: string | null
   parent?: CaseParentRead | null
-  num_sub_cases?: number
+  num_sub_cases: number
 }
 
 export type CaseReadMinimal = {
@@ -2733,9 +2732,8 @@ export type CaseReadMinimal = {
   } | null
   num_tasks_completed?: number
   num_tasks_total?: number
-  parent_id?: string | null
   parent?: CaseParentRead | null
-  num_sub_cases?: number
+  num_sub_cases: number
 }
 
 /**
@@ -14779,6 +14777,10 @@ export type CasesListCasesData = {
    */
   fieldIds?: Array<string> | null
   /**
+   * Return every case, or only top-level cases without a parent.
+   */
+  hierarchy?: "all" | "top_level"
+  /**
    * Include case duration values
    */
   includeDurations?: boolean
@@ -14790,10 +14792,6 @@ export type CasesListCasesData = {
    * Include linked table rows
    */
   includeRows?: boolean
-  /**
-   * Include sub-cases. By default only top-level cases are returned.
-   */
-  includeSubCases?: boolean
   /**
    * Maximum items per page
    */
@@ -14851,6 +14849,10 @@ export type CasesSearchCasesData = {
    */
   fieldIds?: Array<string> | null
   /**
+   * Return every case, or only top-level cases without a parent.
+   */
+  hierarchy?: "all" | "top_level"
+  /**
    * Include case duration values
    */
   includeDurations?: boolean
@@ -14862,10 +14864,6 @@ export type CasesSearchCasesData = {
    * Include linked table rows
    */
   includeRows?: boolean
-  /**
-   * Include sub-cases. By default only top-level cases are returned.
-   */
-  includeSubCases?: boolean
   /**
    * Maximum items per page
    */
@@ -14948,9 +14946,9 @@ export type CasesSearchCaseAggregatesData = {
    */
   endTime?: string | null
   /**
-   * Include sub-cases. By default only top-level cases are returned.
+   * Return every case, or only top-level cases without a parent.
    */
-  includeSubCases?: boolean
+  hierarchy?: "all" | "top_level"
   /**
    * Return only the sub-cases of this parent case
    */

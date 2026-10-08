@@ -10,6 +10,7 @@ from tracecat.auth.types import Role
 from tracecat.cases import dependencies as case_dependencies
 from tracecat.cases import internal_router as internal_cases_router
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
+from tracecat.cases.hierarchy import CaseHierarchyService
 from tracecat.cases.rows.schemas import CaseTableRowRead
 from tracecat.cases.schemas import (
     CaseCommentRead,
@@ -23,6 +24,15 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.pagination import CursorPaginatedResponse
+
+
+@pytest.fixture(autouse=True)
+def stub_case_hierarchy():
+    """Routes hydrate hierarchy with real queries; the session here is mocked."""
+    with patch.object(
+        CaseHierarchyService, "get_hierarchy", new=AsyncMock(return_value={})
+    ):
+        yield
 
 
 @pytest.fixture

@@ -21,6 +21,7 @@ from tracecat.cases.enums import (
     CaseStatus,
     CaseVersionField,
 )
+from tracecat.cases.hierarchy import CaseHierarchyService
 from tracecat.cases.schemas import (
     CaseBatchItemResult,
     CaseBatchResponse,
@@ -52,9 +53,9 @@ from tracecat.pagination import CursorPaginatedResponse
 def stub_case_hierarchy():
     """Case services are mocked wholesale, so stub the sub-case lookups."""
     with patch.object(
-        cases_router,
-        "_read_case_hierarchy",
-        new=AsyncMock(return_value=(None, None, 0)),
+        CaseHierarchyService,
+        "get_hierarchy",
+        new=AsyncMock(return_value={}),
     ) as mock_hierarchy:
         yield mock_hierarchy
 
@@ -156,6 +157,7 @@ async def test_list_cases_success(
             dropdown_values=[],
             num_tasks_completed=0,
             num_tasks_total=0,
+            num_sub_cases=0,
         )
 
         mock_response = CursorPaginatedResponse(
@@ -220,6 +222,7 @@ async def test_list_cases_with_filters(
             dropdown_values=[],
             num_tasks_completed=0,
             num_tasks_total=0,
+            num_sub_cases=0,
         )
 
         mock_response = CursorPaginatedResponse(
@@ -1475,6 +1478,7 @@ async def test_search_cases_success(
             dropdown_values=[],
             num_tasks_completed=0,
             num_tasks_total=0,
+            num_sub_cases=0,
         )
         mock_svc.search_cases.return_value = CursorPaginatedResponse(
             items=[mock_case_read],
@@ -1531,6 +1535,7 @@ async def test_search_cases_hydrates_requested_fields_and_durations(
             dropdown_values=[],
             num_tasks_completed=0,
             num_tasks_total=0,
+            num_sub_cases=0,
         )
         mock_svc.search_cases.return_value = CursorPaginatedResponse(
             items=[mock_case_read],
@@ -1589,6 +1594,7 @@ async def test_search_cases_forwards_include_payload(
             payload={"alert_id": "abc-123"},
             num_tasks_completed=0,
             num_tasks_total=0,
+            num_sub_cases=0,
         )
         mock_svc.search_cases.return_value = CursorPaginatedResponse(
             items=[mock_case_read],
@@ -1747,6 +1753,7 @@ async def test_search_cases_forwards_date_filters(
             dropdown_values=[],
             num_tasks_completed=0,
             num_tasks_total=0,
+            num_sub_cases=0,
         )
         mock_svc.search_cases.return_value = CursorPaginatedResponse(
             items=[mock_case_read],
