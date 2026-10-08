@@ -37,6 +37,8 @@ export interface ToolEntry {
   preparedTitle: Fuzzysort.Prepared
   preparedKey: Fuzzysort.Prepared
   integration?: MCPIntegrationRead
+  /** Grants every tool in its group, standing in for the per-tool entries. */
+  grantsGroup?: boolean
 }
 
 /** A display group; its entry order follows the registry response. */

@@ -11,7 +11,6 @@ import { useListMcpIntegrations, useRegistryActions } from "@/lib/hooks"
 import {
   buildSkillToolIndex,
   MAX_SKILL_TOOLS,
-  normalizeSkillMcpGrants,
   readSkillFrontmatterTools,
   updateSkillFrontmatterTools,
 } from "@/lib/skill-tools"
@@ -80,8 +79,7 @@ export function SkillToolsPanel({
     (next: ToolSelectionValue) => {
       if (!editable) return
       const current = toolsState.tools
-      // A whole-server MCP grant replaces that server's per-tool grants.
-      const tools = normalizeSkillMcpGrants(current, next.actions)
+      const tools = next.actions
       if (
         tools.length === current.length &&
         tools.every((tool, i) => tool === current[i])

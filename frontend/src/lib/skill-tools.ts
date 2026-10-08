@@ -270,47 +270,6 @@ export function updateSkillFrontmatterTools(
   throw new Error("Frontmatter must be a YAML mapping.")
 }
 
-/** Return the server slug of an MCP tool ID, or null for a registry ID. */
-function mcpServerSlug(tool: string): string | null {
-  const [namespace, slug] = tool.split(".")
-  return namespace === "mcp" && slug ? slug : null
-}
-
-/**
- * Drop per-tool MCP grants made redundant by a whole-server grant.
- *
- * Only servers whose selection differs between `previous` and `next` are
- * touched, so a stored list holding both forms stays as written until the
- * user edits that server.
- */
-export function normalizeSkillMcpGrants(
-  previous: string[],
-  next: string[]
-): string[] {
-  function serverSelection(tools: string[], slug: string): string {
-    return tools
-      .filter((tool) => mcpServerSlug(tool) === slug)
-      .sort()
-      .join(",")
-  }
-  const redundant = new Set<string>()
-  for (const tool of next) {
-    const slug = mcpServerSlug(tool)
-    if (
-      slug !== null &&
-      tool === `mcp.${slug}` &&
-      serverSelection(previous, slug) !== serverSelection(next, slug)
-    ) {
-      redundant.add(slug)
-    }
-  }
-  if (redundant.size === 0) return next
-  return next.filter((tool) => {
-    const slug = mcpServerSlug(tool)
-    return slug === null || !redundant.has(slug) || tool === `mcp.${slug}`
-  })
-}
-
 function mappingIndent(mapping: YAMLMap): string {
   const token = mapping.srcToken
   return " ".repeat(token && "indent" in token ? token.indent : 0)
@@ -379,11 +338,14 @@ export function buildSkillToolIndex(
         preparedKey: fuzzysort.prepare(key),
       }
     }
-    const wholeServer = entry(
-      `mcp.${integration.slug}`,
-      "All tools",
-      integration.description || `Allow every tool from ${integration.name}.`
-    )
+    const wholeServer: ToolEntry = {
+      ...entry(
+        `mcp.${integration.slug}`,
+        "All tools",
+        integration.description || `Allow every tool from ${integration.name}.`
+      ),
+      grantsGroup: true,
+    }
     entries.push(wholeServer)
     groupTitles.set(
       getToolGroupId(wholeServer),

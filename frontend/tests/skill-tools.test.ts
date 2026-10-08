@@ -3,7 +3,6 @@ import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
 import {
   buildSkillToolIndex,
   MAX_SKILL_TOOLS,
-  normalizeSkillMcpGrants,
   readSkillFrontmatterTools,
   updateSkillFrontmatterTools,
 } from "@/lib/skill-tools"
@@ -170,6 +169,12 @@ describe("skill tool index", () => {
       namespace: "slack",
       section: "mcp",
     })
+    // Only the whole-server entry stands in for its group.
+    expect(
+      index.entries
+        .filter((entry) => entry.grantsGroup)
+        .map((entry) => entry.id)
+    ).toEqual(["mcp.slack"])
     expect(index.byKey.get("mcp.slack.post_message")).toMatchObject({
       title: "post_message",
       description: "Post a message.",
@@ -384,39 +389,6 @@ it("distinguishes unknown catalogs from loaded empty catalogs", () => {
   const source = "metadata: {tools: [core.cases.get_case, mcp.slack]}"
   expect(readSkillFrontmatterTools(source).valid).toBe(true)
   expect(readSkillFrontmatterTools(source, [], []).valid).toBe(false)
-})
-
-describe("normalizeSkillMcpGrants", () => {
-  it("drops per-tool grants of a server whose whole-server grant was added", () => {
-    expect(
-      normalizeSkillMcpGrants(
-        ["mcp.slack.read", "core.cases.get_case"],
-        ["mcp.slack.read", "core.cases.get_case", "mcp.slack", "mcp.slack.post"]
-      )
-    ).toEqual(["core.cases.get_case", "mcp.slack"])
-  })
-
-  it("drops a tool selected while the whole-server grant is present", () => {
-    expect(
-      normalizeSkillMcpGrants(["mcp.slack"], ["mcp.slack", "mcp.slack.read"])
-    ).toEqual(["mcp.slack"])
-  })
-
-  it("returns the same list when no edited server has a whole-server grant", () => {
-    const stored = ["mcp.slack.read", "mcp.slack", "mcp.jira.get"]
-    expect(normalizeSkillMcpGrants(stored, stored)).toBe(stored)
-    const next = [...stored, "mcp.jira.list", "core.cases.get_case"]
-    expect(normalizeSkillMcpGrants(stored, next)).toBe(next)
-  })
-
-  it("does not confuse servers whose slugs share a prefix", () => {
-    expect(
-      normalizeSkillMcpGrants(
-        ["mcp.slack-2.read"],
-        ["mcp.slack-2.read", "mcp.slack"]
-      )
-    ).toEqual(["mcp.slack-2.read", "mcp.slack"])
-  })
 })
 
 it("reports a registry action agents cannot call as unavailable", () => {

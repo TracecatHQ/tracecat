@@ -116,22 +116,42 @@ describe("SkillToolsPanel", () => {
 metadata:
   tools:
     - core.cases.get_case
-    - mcp.synthetic
     - mcp.synthetic.read`}
       />
     )
-    expect(headerCount()).toBe("3")
+    expect(headerCount()).toBe("2")
     const cases = screen.getByRole("button", { name: /Cases core\.cases/ })
     expect(within(cases).getByText("1 of 2")).toBeInTheDocument()
     const synthetic = screen.getByRole("button", {
       name: /Synthetic synthetic/,
     })
-    expect(within(synthetic).getByText("2 of 3")).toBeInTheDocument()
+    // The whole-server entry is not one of the server's tools.
+    expect(within(synthetic).getByText("1 of 2")).toBeInTheDocument()
     await user.click(synthetic)
-    expect(screen.getByText("All tools")).toBeInTheDocument()
     expect(screen.getByTitle("mcp.synthetic.read")).toBeInTheDocument()
+    expect(screen.queryByText("All tools")).not.toBeInTheDocument()
     expect(screen.queryByText("Auto")).not.toBeInTheDocument()
     expect(screen.queryByText("Unavailable")).not.toBeInTheDocument()
+  })
+
+  it("counts a server's tools without its whole-server entry in the picker", async () => {
+    const user = userEvent.setup()
+    render(<Panel initial="name: triage" />)
+    await user.click(screen.getByRole("button", { name: "Add tools" }))
+    const rail = await screen.findByRole("button", { name: /^Synthetic/ })
+    expect(within(rail).getByText("2")).toBeInTheDocument()
+    await user.click(rail)
+    expect(screen.getByText("0 of 2 selected")).toBeInTheDocument()
+    await user.click(
+      screen.getByRole("option", { name: /mcp\.synthetic\.read/ })
+    )
+    expect(within(rail).getByText("1/2")).toBeInTheDocument()
+    expect(screen.getByText("1 of 2 selected")).toBeInTheDocument()
+    expect(
+      screen.getByRole("checkbox", { name: "Select all in Synthetic" })
+    ).toHaveAttribute("aria-checked", "mixed")
+    await user.click(screen.getByRole("button", { name: "Done" }))
+    expect(tools()).toEqual(["mcp.synthetic.read"])
   })
 
   it("adds and removes a tool, leaving the rest of the frontmatter byte-identical", async () => {
@@ -168,33 +188,125 @@ metadata:
 
     await user.click(screen.getByRole("button", { name: "Add tools" }))
     await user.click(await screen.findByRole("option", { name: /All tools/ }))
+    expect(screen.getByText("1 of 64 tools")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Done" }))
     expect(tools()).toEqual(["mcp.synthetic"])
 
-    // The whole-server grant wins over a tool picked afterwards.
+    // The server's tools are covered, so they cannot be ticked on top.
     onChange.mockClear()
     await user.click(screen.getByRole("button", { name: "Add tools" }))
-    await user.click(
-      await screen.findByRole("option", { name: /mcp\.synthetic\.write/ })
-    )
+    const write = await screen.findByRole("option", {
+      name: /mcp\.synthetic\.write/,
+    })
+    expect(write).toHaveAttribute("aria-selected", "true")
+    expect(write).toHaveAttribute("aria-disabled", "true")
+    await user.click(write)
+    expect(screen.getByText("1 of 64 tools")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Done" }))
     expect(tools()).toEqual(["mcp.synthetic"])
     expect(onChange).not.toHaveBeenCalled()
+
+    // Clearing the whole-server grant makes the tools selectable again.
+    await user.click(screen.getByRole("button", { name: "Add tools" }))
+    await user.click(await screen.findByRole("option", { name: /All tools/ }))
+    await user.click(
+      screen.getByRole("option", { name: /mcp\.synthetic\.write/ })
+    )
+    await user.click(screen.getByRole("button", { name: "Done" }))
+    expect(tools()).toEqual(["mcp.synthetic.write"])
   })
 
   it("stores only the whole-server grant when a server's group is selected", async () => {
     const user = userEvent.setup()
-    render(<Panel initial="name: triage" />)
+    render(<Panel initial="metadata: {tools: [mcp.synthetic.read]}" />)
+    await user.click(screen.getByRole("button", { name: "Add tools" }))
+    const rail = await screen.findByRole("button", { name: /^Synthetic/ })
+    await user.click(rail)
+    const selectAll = screen.getByRole("checkbox", {
+      name: "Select all in Synthetic",
+    })
+    await user.click(selectAll)
+    expect(selectAll).toHaveAttribute("aria-checked", "true")
+    expect(within(rail).getByText("All tools")).toBeInTheDocument()
+    expect(screen.queryByText(/of 2 selected/)).not.toBeInTheDocument()
+    expect(screen.getByText("1 of 64 tools")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Done" }))
+    expect(tools()).toEqual(["mcp.synthetic"])
+
+    const synthetic = screen.getByRole("button", {
+      name: /Synthetic synthetic/,
+    })
+    expect(within(synthetic).getByText("All tools")).toBeInTheDocument()
+    await user.click(synthetic)
+    expect(screen.getByTitle("mcp.synthetic")).toBeInTheDocument()
+
+    // The checkbox clears the grant again.
     await user.click(screen.getByRole("button", { name: "Add tools" }))
     await user.click(await screen.findByRole("button", { name: /^Synthetic/ }))
     await user.click(
       screen.getByRole("checkbox", { name: "Select all in Synthetic" })
     )
+    expect(screen.getByText("0 of 2 selected")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Done" }))
-    expect(tools()).toEqual(["mcp.synthetic"])
+    expect(tools()).toEqual([])
   })
 
-  it("loads stored whole-server and per-tool grants together until that server is edited", async () => {
+  it("allows a whole-server grant for a server with more tools than the limit", async () => {
+    mockMcpIntegrations = [
+      mcpIntegration({
+        name: "Big",
+        slug: "big",
+        tools: Array.from({ length: 70 }, (_, i) => ({
+          name: `tool_${i}`,
+          enabled: true,
+          status: "available" as const,
+        })),
+      }),
+    ]
+    const user = userEvent.setup()
+    render(<Panel initial="name: triage" />)
+    await user.click(screen.getByRole("button", { name: "Add tools" }))
+    await user.click(await screen.findByRole("button", { name: /^Big/ }))
+    expect(screen.getByText("0 of 70 selected")).toBeInTheDocument()
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select all in Big" })
+    )
+    expect(screen.getByText("1 of 64 tools")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Done" }))
+    expect(tools()).toEqual(["mcp.big"])
+  })
+
+  it("grants a stdio server whole from its group checkbox", async () => {
+    mockMcpIntegrations = [
+      mcpIntegration({
+        name: "Synthetic",
+        slug: "synthetic",
+        server_type: "stdio",
+        server_uri: null,
+        stdio_command: "synthetic",
+      }),
+    ]
+    const user = userEvent.setup()
+    render(<Panel initial="name: triage" />)
+    await user.click(screen.getByRole("button", { name: "Add tools" }))
+    await user.click(await screen.findByRole("button", { name: /^Synthetic/ }))
+    expect(screen.queryByText(/of 0/)).not.toBeInTheDocument()
+    const selectAll = screen.getByRole("checkbox", {
+      name: "Select all in Synthetic",
+    })
+    expect(selectAll).toBeEnabled()
+    await user.click(selectAll)
+    expect(selectAll).toHaveAttribute("aria-checked", "true")
+    await user.click(screen.getByRole("button", { name: "Done" }))
+    expect(tools()).toEqual(["mcp.synthetic"])
+    expect(
+      within(
+        screen.getByRole("button", { name: /Synthetic synthetic/ })
+      ).getByText("All tools")
+    ).toBeInTheDocument()
+  })
+
+  it("shows stored whole-server and per-tool grants together as all tools", async () => {
     const user = userEvent.setup()
     render(
       <Panel initial="metadata: {tools: [mcp.synthetic.read, mcp.synthetic, core.cases.get_case]}" />
@@ -202,19 +314,31 @@ metadata:
     expect(screen.queryByText(/tool IDs/)).not.toBeInTheDocument()
     expect(headerCount()).toBe("3")
     expect(screen.getByRole("button", { name: "Add tools" })).toBeEnabled()
+    const synthetic = screen.getByRole("button", {
+      name: /Synthetic synthetic/,
+    })
+    expect(within(synthetic).getByText("All tools")).toBeInTheDocument()
+    await user.click(synthetic)
+    expect(screen.getByTitle("mcp.synthetic")).toBeInTheDocument()
+    expect(screen.queryByTitle("mcp.synthetic.read")).not.toBeInTheDocument()
     // An edit elsewhere leaves the server's grants as written.
     await user.click(screen.getByRole("button", { name: /Cases core\.cases/ }))
     await user.click(
       screen.getByRole("button", { name: "Remove core.cases.get_case" })
     )
     expect(tools()).toEqual(["mcp.synthetic.read", "mcp.synthetic"])
-    // Editing the server normalises it.
+    // The picker shows the server as granted whole.
     await user.click(screen.getByRole("button", { name: "Add tools" }))
+    await user.click(await screen.findByRole("button", { name: /^Synthetic/ }))
+    expect(
+      screen.getByRole("checkbox", { name: "Select all in Synthetic" })
+    ).toHaveAttribute("aria-checked", "true")
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    // Removing the single row removes both stored forms.
     await user.click(
-      await screen.findByRole("option", { name: /mcp\.synthetic\.write/ })
+      screen.getByRole("button", { name: "Remove mcp.synthetic" })
     )
-    await user.click(screen.getByRole("button", { name: "Done" }))
-    expect(tools()).toEqual(["mcp.synthetic"])
+    expect(tools()).toEqual([])
   })
 
   it("opens the upgrade dialog for a locked registry action", async () => {

@@ -354,7 +354,11 @@ export const ToolSelectionList = memo(function ToolSelectionList({
             const allowed = group.entries.filter((entry) =>
               selected.has(entry.key)
             )
-            const visible = allowed.filter((entry) =>
+            // A selected whole-group grant stands in for the per-tool rows.
+            const grant = group.entries.find((entry) => entry.grantsGroup)
+            const granted = grant !== undefined && selected.has(grant.key)
+            const total = group.entries.length - (grant ? 1 : 0)
+            const visible = (granted ? [grant] : allowed).filter((entry) =>
               matches(entry.title, entry.key, group.title)
             )
             if (!visible.length) return null
@@ -410,7 +414,9 @@ export const ToolSelectionList = memo(function ToolSelectionList({
                             COUNT_BADGE
                           )}
                         >
-                          {allowed.length} of {group.entries.length}
+                          {granted
+                            ? "All tools"
+                            : `${allowed.length} of ${total}`}
                         </span>
                       </span>
                     </button>
@@ -460,7 +466,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
                               )
                           : undefined
                       }
-                      onRemove={() => remove([entry.key])}
+                      onRemove={() => remove(granted ? keys : [entry.key])}
                     />
                   ))}
               </div>

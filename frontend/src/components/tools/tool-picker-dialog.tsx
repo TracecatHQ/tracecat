@@ -21,6 +21,7 @@ import { Kbd } from "@/components/ui/kbd"
 import {
   applyToolSelection,
   getBlockedActions,
+  getToolGroupId,
   removeTools,
   searchTools,
   type ToolEntry,
@@ -67,6 +68,17 @@ type RailRow =
       entry?: ToolEntry
       total: number
     }
+
+/** Toggle a whole-group grant, which replaces the group's per-tool selections. */
+function toggleGrant(
+  selection: Record<ToolEntry["target"], Set<string>>,
+  grant: ToolEntry,
+  group: ToolGroup
+) {
+  const wasSelected = selection[grant.target].has(grant.key)
+  for (const entry of group.entries) selection[entry.target].delete(entry.key)
+  if (!wasSelected) selection[grant.target].add(grant.key)
+}
 
 /** Lazily mount a virtualized catalog with local, cancelable selection. */
 export function ToolPickerDialog({ open, ...props }: ToolPickerDialogProps) {
@@ -157,6 +169,19 @@ function PickerBody({
       ),
     [index, selection]
   )
+  // Groups whose whole-group grant is selected; their other rows are covered.
+  const grantedGroups = useMemo(
+    () =>
+      new Set(
+        index.entries
+          .filter((entry) => entry.grantsGroup && selectedIds.has(entry.id))
+          .map(getToolGroupId)
+      ),
+    [index, selectedIds]
+  )
+  function isCovered(entry: ToolEntry) {
+    return !entry.grantsGroup && grantedGroups.has(getToolGroupId(entry))
+  }
   const selectedGroup = index.groups.find((group) => group.id === source)
   const integrationGroup =
     !deferredQuery.trim() && isIntegrationGroup(selectedGroup)
@@ -210,8 +235,8 @@ function PickerBody({
     (i: number) => (rows[i].kind === "header" ? 44 : 40),
     [rows]
   )
-  const navigationRef = useRef({ source, selectedIds, rows })
-  navigationRef.current = { source, selectedIds, rows }
+  const navigationRef = useRef({ source, selectedIds, grantedGroups, rows })
+  navigationRef.current = { source, selectedIds, grantedGroups, rows }
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => listRef.current,
@@ -230,6 +255,9 @@ function PickerBody({
       const entry = index.byKey.get(id)
       if (!entry || disabled) return
       const navigation = navigationRef.current
+      const groupId = getToolGroupId(entry)
+      // The whole-group grant already covers this tool.
+      if (!entry.grantsGroup && navigation.grantedGroups.has(groupId)) return
       // A locked grant can always be dropped; only adding one is gated.
       if (entry.locked && !navigation.selectedIds.has(id)) {
         onLockedSelect?.(entry)
@@ -245,6 +273,15 @@ function PickerBody({
         setActiveId(id)
       }
       setSelection((current) => {
+        const group = index.groups.find((group) => group.id === groupId)
+        if (entry.grantsGroup && group) {
+          const next = {
+            actions: new Set(current.actions),
+            mcpIntegrations: new Set(current.mcpIntegrations),
+          }
+          toggleGrant(next, entry, group)
+          return next
+        }
         const next = new Set(current[entry.target])
         if (next.has(entry.key)) next.delete(entry.key)
         else next.add(entry.key)
@@ -260,6 +297,11 @@ function PickerBody({
       const next = {
         actions: new Set(current.actions),
         mcpIntegrations: new Set(current.mcpIntegrations),
+      }
+      const grant = group.entries.find((entry) => entry.grantsGroup)
+      if (grant) {
+        toggleGrant(next, grant, group)
+        return next
       }
       const selectable = group.entries.filter((entry) => !entry.locked)
       const allSelected = selectable.every((entry) =>
@@ -387,9 +429,12 @@ function PickerBody({
       if (!mcpEnabled && group.section === "mcp") continue
       const selected = group.entries.filter((entry) =>
         selectedIds.has(entry.id)
-      ).length
-      counts.set(group.id, selected)
-      total += selected
+      )
+      counts.set(
+        group.id,
+        selected.filter((entry) => !entry.grantsGroup).length
+      )
+      total += selected.length
     }
     counts.set("selected", total)
     return counts
@@ -425,7 +470,7 @@ function PickerBody({
           id: group.id,
           title: group.title,
           entry: group.entries[0],
-          total: group.entries.length,
+          total: group.entries.filter((entry) => !entry.grantsGroup).length,
         })
     }
     return result
@@ -497,6 +542,7 @@ function PickerBody({
                   <SourceRow
                     row={row}
                     selected={railCounts.get(row.id) ?? 0}
+                    granted={grantedGroups.has(row.id)}
                     active={source === row.id}
                     onChoose={chooseSource}
                   />
@@ -563,6 +609,7 @@ function PickerBody({
                           Boolean(deferredQuery.trim()) || source === "selected"
                         }
                         selected={selectedIds.has(row.entry.id)}
+                        covered={isCovered(row.entry)}
                         active={virtualRow.index === effectiveActiveIndex}
                         onToggle={onToggle}
                         disabled={disabled}
@@ -634,11 +681,13 @@ function PickerBody({
 const SourceRow = memo(function SourceRow({
   row,
   selected,
+  granted,
   active,
   onChoose,
 }: {
   row: RailRow
   selected: number
+  granted: boolean
   active: boolean
   onChoose: (id: string) => void
 }) {
@@ -650,8 +699,11 @@ const SourceRow = memo(function SourceRow({
     )
   let count = row.total.toLocaleString()
   if (row.id === "selected") count = selected.toLocaleString()
+  else if (granted) count = "All tools"
   else if (row.entry && selected)
     count = `${selected.toLocaleString()}/${row.total.toLocaleString()}`
+  // A group offering only its whole-group grant has no tools to count.
+  else if (row.entry && row.total === 0) count = ""
   return (
     <button
       type="button"
@@ -667,7 +719,7 @@ const SourceRow = memo(function SourceRow({
       <span
         className={cn(
           "shrink-0 font-mono text-[11px]",
-          selected ? "text-foreground" : "text-muted-foreground"
+          selected || granted ? "text-foreground" : "text-muted-foreground"
         )}
       >
         {count}
@@ -707,11 +759,19 @@ function GroupHeader({
   onToggle: () => void
   disabled?: boolean
 }) {
-  const selectable = group.entries.filter((entry) => !entry.locked)
+  const grant = group.entries.find((entry) => entry.grantsGroup)
+  const granted = grant !== undefined && selected.has(grant.id)
+  const selectable = group.entries.filter(
+    (entry) => !entry.locked && entry !== grant
+  )
   const count = selectable.filter((entry) => selected.has(entry.id)).length
   let checked: boolean | "indeterminate" = false
-  if (count === selectable.length && selectable.length > 0) checked = true
+  if (granted || (count === selectable.length && selectable.length > 0))
+    checked = true
   else if (count > 0) checked = "indeterminate"
+  let summary = `${count} of ${selectable.length} selected`
+  if (granted) summary = "All tools"
+  else if (grant && selectable.length === 0) summary = ""
   return (
     <div className="flex h-11 shrink-0 items-center gap-3 border-b px-4 text-xs">
       <span className="relative flex shrink-0">
@@ -720,7 +780,7 @@ function GroupHeader({
           aria-label={`Select all in ${group.title}`}
           checked={checked}
           onCheckedChange={onToggle}
-          disabled={disabled || selectable.length === 0}
+          disabled={disabled || (selectable.length === 0 && !grant)}
         />
         {checked === "indeterminate" && (
           <Minus
@@ -734,9 +794,7 @@ function GroupHeader({
       <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
         {group.namespace}
       </span>
-      <span className="shrink-0 text-muted-foreground">
-        {count} of {selectable.length} selected
-      </span>
+      <span className="shrink-0 text-muted-foreground">{summary}</span>
     </div>
   )
 }
@@ -746,6 +804,7 @@ const ToolOption = memo(function ToolOption({
   entry,
   showIcon,
   selected,
+  covered,
   active,
   onToggle,
   disabled,
@@ -754,6 +813,8 @@ const ToolOption = memo(function ToolOption({
   entry: ToolEntry
   showIcon: boolean
   selected: boolean
+  /** Granted through the group's whole-group entry, so not toggleable. */
+  covered: boolean
   active: boolean
   onToggle: (id: string) => void
   disabled?: boolean
@@ -762,16 +823,21 @@ const ToolOption = memo(function ToolOption({
     <div
       id={id}
       role="option"
-      aria-selected={selected}
-      aria-disabled={disabled || (entry.locked && !selected)}
+      aria-selected={selected || covered}
+      aria-disabled={disabled || covered || (entry.locked && !selected)}
       data-selected={active}
       onClick={() => onToggle(entry.id)}
       className={cn(
         "group flex h-10 cursor-pointer items-center gap-3 px-4 text-xs hover:bg-muted/50",
-        active && "bg-muted/50"
+        active && "bg-muted/50",
+        covered && "cursor-default"
       )}
     >
-      <CheckIndicator checked={selected} className="opacity-100" />
+      <CheckIndicator
+        checked={selected || covered}
+        disabled={covered}
+        className={covered ? undefined : "opacity-100"}
+      />
       {entry.locked && (
         <LockKeyhole
           aria-label="Locked"
