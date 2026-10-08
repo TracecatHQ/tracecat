@@ -28,6 +28,10 @@ import {
 } from "@/components/cases/case-related-cases-drawer"
 import { TASK_ICON_TRIGGER_CLASS } from "@/components/cases/case-task-fields"
 import { Spinner } from "@/components/loading/spinner"
+import {
+  LockedFeatureChip,
+  LockedFeatureModal,
+} from "@/components/locked-feature-modal"
 import { AgGridPagination } from "@/components/tables/ag-grid-pagination"
 import {
   TABLE_PANEL_TITLES,
@@ -123,8 +127,11 @@ export interface CaseLinkedTableProps {
   canAddRow: boolean
   /** Whether the viewer holds `table:update`; gates editing cells. */
   canEditCells: boolean
-  /** Whether the org has `case_addons`; gates *View related cases*. */
-  canViewRelatedCases: boolean
+  /**
+   * Whether the org has `case_addons`, `undefined` while entitlements load.
+   * Without it, *View related cases* opens the Enterprise-only dialog.
+   */
+  canViewRelatedCases: boolean | undefined
   onLinkRows: () => void
   /**
    * Opens a row's related cases. The expanded dialog hands this up to the
@@ -181,6 +188,7 @@ export function CaseLinkedTable({
   const isExpanded = variant === "expanded"
   const [menuRow, setMenuRow] = useState<TableRowRead | null>(null)
   const [editRow, setEditRow] = useState<TableRowRead | null>(null)
+  const [lockedDialogOpen, setLockedDialogOpen] = useState(false)
   const [relatedTarget, setRelatedTarget] = useState<RelatedCasesTarget | null>(
     null
   )
@@ -338,6 +346,12 @@ export function CaseLinkedTable({
   }
 
   function viewRelatedCases(row: TableRowRead) {
+    // An entitled org must not glimpse the upsell while entitlements load.
+    if (canViewRelatedCases === undefined) return
+    if (!canViewRelatedCases) {
+      setLockedDialogOpen(true)
+      return
+    }
     const target: RelatedCasesTarget = {
       tableId,
       tableName,
@@ -386,8 +400,6 @@ export function CaseLinkedTable({
     return rows.find((row) => row.id === rowId) ?? null
   }
 
-  const hasRowMenu = canViewRelatedCases || canEditCells || canUpdate
-
   function handleGridPointerDown(event: PointerEvent<HTMLDivElement>) {
     if (event.button === 2 || event.ctrlKey) {
       setMenuRow(rowAtEvent(event.target))
@@ -395,7 +407,7 @@ export function CaseLinkedTable({
   }
 
   function handleGridContextMenu(event: MouseEvent<HTMLDivElement>) {
-    const row = hasRowMenu ? rowAtEvent(event.target) : null
+    const row = rowAtEvent(event.target)
     if (!row) {
       // Stops the menu opening empty; Radix skips a prevented event.
       event.preventDefault()
@@ -437,79 +449,89 @@ export function CaseLinkedTable({
     )
   } else {
     gridContent = (
-      // Non-modal: a modal menu closing alongside the expanded dialog can
-      // leave `pointer-events: none` stuck on the body.
-      <ContextMenu modal={false}>
-        <ContextMenuTrigger
-          asChild
-          disabled={menuRow === null}
-          onContextMenu={handleGridContextMenu}
-        >
-          <div
-            className={cn(isExpanded && "h-full")}
-            onPointerDownCapture={handleGridPointerDown}
+      <>
+        {/* Non-modal: a modal menu closing alongside the expanded dialog can
+            leave `pointer-events: none` stuck on the body. */}
+        <ContextMenu modal={false}>
+          <ContextMenuTrigger
+            asChild
+            disabled={menuRow === null}
+            onContextMenu={handleGridContextMenu}
           >
-            <TableRowsGrid
-              columns={columns}
-              rows={rows}
-              tableId={tableId}
-              isLoading={rowsIsLoading}
-              isPlaceholderData={rowsArePlaceholder}
-              selectable={canUpdate}
-              selectedRowIds={selectedRowIds}
-              onSelectedRowIdsChange={(ids) => setSelectedRowIds(new Set(ids))}
-              autoHeight={!isExpanded}
-              rowClassRules={UNAVAILABLE_ROW_CLASS_RULES}
-              widthScope="case-rows"
-              cellPanel
-              onCellValueChange={
-                canEditCells ? handleCellValueChange : undefined
-              }
-              isRowEditable={isAvailableRow}
-              sizeColumnsToContent
-              rowQuery={rowQuery}
-            />
-          </div>
-        </ContextMenuTrigger>
-        {menuRow && (
-          <ContextMenuContent className="w-48">
-            {canViewRelatedCases && (
+            <div
+              className={cn(isExpanded && "h-full")}
+              onPointerDownCapture={handleGridPointerDown}
+            >
+              <TableRowsGrid
+                columns={columns}
+                rows={rows}
+                tableId={tableId}
+                isLoading={rowsIsLoading}
+                isPlaceholderData={rowsArePlaceholder}
+                selectable={canUpdate}
+                selectedRowIds={selectedRowIds}
+                onSelectedRowIdsChange={(ids) =>
+                  setSelectedRowIds(new Set(ids))
+                }
+                autoHeight={!isExpanded}
+                rowClassRules={UNAVAILABLE_ROW_CLASS_RULES}
+                widthScope="case-rows"
+                cellPanel
+                onCellValueChange={
+                  canEditCells ? handleCellValueChange : undefined
+                }
+                isRowEditable={isAvailableRow}
+                sizeColumnsToContent
+                rowQuery={rowQuery}
+              />
+            </div>
+          </ContextMenuTrigger>
+          {menuRow && (
+            <ContextMenuContent className="w-48">
               <ContextMenuItem
                 className="text-xs"
                 onSelect={() => viewRelatedCases(menuRow)}
               >
                 <Layers className="mr-2 size-3.5" />
                 View related cases
-              </ContextMenuItem>
-            )}
-            {canEditCells && (
-              <ContextMenuItem
-                className="text-xs"
-                disabled={!isAvailableRow(menuRow)}
-                onSelect={() => setEditRow(menuRow)}
-              >
-                <Pencil className="mr-2 size-3.5" />
-                Edit row
-              </ContextMenuItem>
-            )}
-            {canUpdate && (
-              <>
-                {(canViewRelatedCases || canEditCells) && (
-                  <ContextMenuSeparator />
+                {canViewRelatedCases === false && (
+                  <LockedFeatureChip className="ml-auto" />
                 )}
+              </ContextMenuItem>
+              {canEditCells && (
                 <ContextMenuItem
-                  className="text-xs text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
-                  disabled={unlinkCaseRowsIsPending}
-                  onSelect={() => handleUnlinkRow(menuRow)}
+                  className="text-xs"
+                  disabled={!isAvailableRow(menuRow)}
+                  onSelect={() => setEditRow(menuRow)}
                 >
-                  <Unlink2 className="mr-2 size-3.5" />
-                  Unlink row
+                  <Pencil className="mr-2 size-3.5" />
+                  Edit row
                 </ContextMenuItem>
-              </>
-            )}
-          </ContextMenuContent>
-        )}
-      </ContextMenu>
+              )}
+              {canUpdate && (
+                <>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem
+                    className="text-xs text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+                    disabled={unlinkCaseRowsIsPending}
+                    onSelect={() => handleUnlinkRow(menuRow)}
+                  >
+                    <Unlink2 className="mr-2 size-3.5" />
+                    Unlink row
+                  </ContextMenuItem>
+                </>
+              )}
+            </ContextMenuContent>
+          )}
+        </ContextMenu>
+        <LockedFeatureModal
+          open={lockedDialogOpen}
+          onOpenChange={setLockedDialogOpen}
+          title="Enterprise only"
+          description="Related cases are only available on enterprise plans."
+          bullets={[]}
+        />
+      </>
     )
   }
 

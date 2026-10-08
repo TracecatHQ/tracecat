@@ -64,8 +64,10 @@ export function CaseLinkedRowsSection({
     useScopeCheck("case:update", ["table:create"], { all: true }) === true
   // Cell edits go through the table's own row update.
   const canEditCells = useScopeCheck("table:update") === true
-  const { hasEntitlement } = useEntitlements()
-  const canViewRelatedCases = hasEntitlement("case_addons")
+  const { hasEntitlement, hasEntitlementData } = useEntitlements()
+  const canViewRelatedCases = hasEntitlementData
+    ? hasEntitlement("case_addons")
+    : undefined
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
   const [linkDialogTableId, setLinkDialogTableId] = useState<string>()
 

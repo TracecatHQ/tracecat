@@ -44,7 +44,10 @@ jest.mock("@/components/auth/scope-guard", () => ({
 }))
 
 jest.mock("@/hooks/use-entitlements", () => ({
-  useEntitlements: () => ({ hasEntitlement: () => true }),
+  useEntitlements: () => ({
+    hasEntitlement: () => true,
+    hasEntitlementData: true,
+  }),
 }))
 
 /** Every `rows` prop the mocked grid received, per table, in render order. */
