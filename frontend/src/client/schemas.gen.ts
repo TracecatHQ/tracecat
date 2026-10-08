@@ -26949,6 +26949,51 @@ export const $ScopeCreate = {
   description: "Create schema for a custom scope.",
 } as const
 
+export const $ScopeDeniedErrorDetail = {
+  properties: {
+    code: {
+      type: "string",
+      const: "insufficient_scope",
+      title: "Code",
+    },
+    message: {
+      type: "string",
+      title: "Message",
+    },
+    required_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Required Scopes",
+    },
+    missing_scopes: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Missing Scopes",
+    },
+  },
+  type: "object",
+  required: ["code", "message", "required_scopes", "missing_scopes"],
+  title: "ScopeDeniedErrorDetail",
+  description: "Structured explanation of an authorization scope denial.",
+} as const
+
+export const $ScopeDeniedResponse = {
+  properties: {
+    error: {
+      $ref: "#/components/schemas/ScopeDeniedErrorDetail",
+    },
+  },
+  type: "object",
+  required: ["error"],
+  title: "ScopeDeniedResponse",
+  description:
+    "HTTP 403 response emitted by the scope-denial exception handler.",
+} as const
+
 export const $ScopeList = {
   properties: {
     items: {

@@ -10,7 +10,9 @@ import pytest
 from fastapi import FastAPI
 
 from tests.unit.test_durable_workspace_sync import push_inputs
+from tracecat.api.app import scope_denied_exception_handler
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
+from tracecat.auth.schemas import ScopeDeniedResponse
 from tracecat.db.engine import get_async_session
 from tracecat.exceptions import ScopeDeniedError
 from tracecat.pagination import PageParams
@@ -162,16 +164,42 @@ async def test_legacy_sync_scope_rejects_push_before_persistence_but_allows_pull
 ):
     role = svc_role.model_copy(update={"scopes": frozenset({"workflow:sync"})})
     service = SyncOperationService(session, role)
-    with pytest.raises(ScopeDeniedError):
-        await router.create_sync_operation(
-            role=role, session=session, params=push_inputs()
+    app = FastAPI()
+    app.include_router(router.router)
+    app.add_exception_handler(ScopeDeniedError, scope_denied_exception_handler)
+    app.dependency_overrides[get_async_session] = lambda: session
+    role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
+    app.dependency_overrides[role_dependency] = lambda: role
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/workflows/sync/operations", json=push_inputs().model_dump(mode="json")
         )
-    assert (await service.list(PageParams())).items == []
-    inputs = SyncOperationCreate.model_validate(
-        {"id": str(uuid.uuid4()), "direction": "pull", "pull": {"commit_sha": "a" * 40}}
-    )
-    result = await router.create_sync_operation(
-        role=role, session=session, params=inputs
-    )
-    assert result.status == "queued"
+        assert response.status_code == 403
+        denial = ScopeDeniedResponse.model_validate(response.json())
+        assert denial.error.code == "insufficient_scope"
+        assert denial.error.required_scopes == ["workspace_sync:sync"]
+        assert denial.error.missing_scopes == ["workspace_sync:sync"]
+        assert (await service.list(PageParams())).items == []
+        inputs = SyncOperationCreate.model_validate(
+            {
+                "id": str(uuid.uuid4()),
+                "direction": "pull",
+                "pull": {"commit_sha": "a" * 40},
+            }
+        )
+        response = await client.post(
+            "/workflows/sync/operations", json=inputs.model_dump(mode="json")
+        )
+        assert response.status_code == 202
+        assert response.json()["status"] == "queued"
     assert len((await service.list(PageParams())).items) == 1
+    schema = app.openapi()
+    forbidden = schema["paths"]["/workflows/sync/operations"]["post"]["responses"][
+        "403"
+    ]
+    assert forbidden["content"]["application/json"]["schema"]["anyOf"] == [
+        {"$ref": "#/components/schemas/ScopeDeniedResponse"},
+        {"$ref": "#/components/schemas/SyncOperationError"},
+    ]

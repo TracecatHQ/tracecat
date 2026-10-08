@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path, Query
 
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
+from tracecat.auth.schemas import ScopeDeniedResponse
 from tracecat.authz.controls import check_scopes, require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError
@@ -24,7 +25,10 @@ from tracecat.workspace_sync.operations.types import SyncOperationConflictError
 router = APIRouter(
     prefix="/workflows/sync/operations",
     tags=["workflows"],
-    responses={404: {"model": SyncOperationError}},
+    responses={
+        403: {"model": ScopeDeniedResponse | SyncOperationError},
+        404: {"model": SyncOperationError},
+    },
 )
 
 

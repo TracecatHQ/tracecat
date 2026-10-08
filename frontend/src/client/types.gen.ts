@@ -8186,6 +8186,23 @@ export type ScopeCreate = {
 }
 
 /**
+ * Structured explanation of an authorization scope denial.
+ */
+export type ScopeDeniedErrorDetail = {
+  code: "insufficient_scope"
+  message: string
+  required_scopes: Array<string>
+  missing_scopes: Array<string>
+}
+
+/**
+ * HTTP 403 response emitted by the scope-denial exception handler.
+ */
+export type ScopeDeniedResponse = {
+  error: ScopeDeniedErrorDetail
+}
+
+/**
  * Response schema for listing scopes.
  */
 export type ScopeList = {
@@ -17894,6 +17911,10 @@ export type $OpenApiTs = {
          */
         400: SyncOperationError
         /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
          * Not Found
          */
         404: SyncOperationError
@@ -17919,6 +17940,10 @@ export type $OpenApiTs = {
          */
         400: SyncOperationError
         /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
          * Not Found
          */
         404: SyncOperationError
@@ -17938,6 +17963,10 @@ export type $OpenApiTs = {
          */
         200: SyncOperationRead
         /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
          * Not Found
          */
         404: SyncOperationError
@@ -17956,6 +17985,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         202: SyncOperationRead
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
         /**
          * Not Found
          */
@@ -17979,6 +18012,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         202: SyncOperationRead
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
         /**
          * Not Found
          */
@@ -18007,6 +18044,10 @@ export type $OpenApiTs = {
          */
         400: SyncOperationError
         /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
          * Not Found
          */
         404: SyncOperationError
@@ -18029,6 +18070,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: PullResourceDiff
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
         /**
          * Not Found
          */
