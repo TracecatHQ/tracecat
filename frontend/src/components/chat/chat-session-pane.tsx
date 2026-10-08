@@ -323,6 +323,19 @@ export function ChatSessionPane({
   resume = true,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
+  const resumeOnMountRef = useRef({
+    chatId: chat?.id,
+    enabled: !pendingMessage,
+  })
+  // A new or forked session sends its pending prompt on mount. Keep reconnect
+  // disabled for that session after the parent clears the pending prompt, so
+  // the SDK cannot start a reconnect while the first send is still streaming.
+  if (resumeOnMountRef.current.chatId !== chat?.id) {
+    resumeOnMountRef.current = {
+      chatId: chat?.id,
+      enabled: !pendingMessage,
+    }
+  }
   const promptInputContainerRef = useRef<HTMLDivElement>(null)
   const promptTextareaFocusedRef = useRef(false)
   const shouldRestoreInputFocusRef = useRef(false)
@@ -413,7 +426,7 @@ export function ChatSessionPane({
     messages: uiMessages,
     modelInfo,
     onData,
-    resume,
+    resume: resume && resumeOnMountRef.current.enabled,
   })
   const subagentStreamContext = useMemo(
     () =>
