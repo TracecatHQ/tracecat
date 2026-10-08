@@ -602,6 +602,29 @@ async def test_row_errors_have_structured_client_responses(
 
 
 @pytest.mark.anyio
+async def test_empty_row_update_is_client_error(
+    action_gateway_client: TestClient,
+    test_admin_role: Role,
+    mock_table: Table,
+) -> None:
+    error = TableRowError(
+        "empty_update", "Row update must include at least one column."
+    )
+    with patch.object(internal_tables_router, "TablesService") as service_type:
+        service = AsyncMock()
+        service.get_table_by_name.return_value = mock_table
+        service.update_row.side_effect = error
+        service_type.return_value = service
+        response = action_gateway_client.patch(
+            f"/internal/tables/test_table/rows/{uuid.uuid4()}",
+            params={"workspace_id": str(test_admin_role.workspace_id)},
+            json={"data": {}},
+        )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.json() == {"detail": error.detail}
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("batch", [False, True])
 async def test_unrecognized_row_database_errors_remain_server_errors(
     action_gateway_client: TestClient,
