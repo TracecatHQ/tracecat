@@ -11,13 +11,13 @@ import {
   Loader2,
   type LucideIcon,
   MessageCircle,
+  Minus,
   MousePointerClickIcon,
   Plus,
   Pyramid,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
-  Trash2,
   Webhook,
 } from "lucide-react"
 import Link from "next/link"
@@ -2089,7 +2089,7 @@ function AgentPresetConfigurationPanel({
 
   return (
     <ScrollArea className="h-full [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full">
-      <div className="flex min-w-0 w-full flex-col gap-4 px-4 py-3 pb-20 text-xs">
+      <div className="flex min-w-0 w-full flex-col gap-4 px-4 pt-3.5 pb-20 text-xs">
         <section className="min-w-0 w-full space-y-4">
           <div className="grid min-w-0 grid-cols-1 gap-4">
             <FormField
@@ -2385,7 +2385,7 @@ export function AgentPresetSubagentsPanel({
   }
 
   return (
-    <div className="h-full overflow-auto pb-20 text-xs">
+    <div className="h-full overflow-auto pt-2 pb-20 text-xs">
       <div className="flex h-11 items-center gap-2 border-b border-border/50 px-4">
         <h3 className="font-medium">Subagents</h3>
         <span className="text-muted-foreground">{subagentFields.length}</span>
@@ -2456,34 +2456,40 @@ export function AgentPresetSubagentsPanel({
               )
               const capabilities = getOrderedAgentPresetCapabilities(preset)
               return (
-                <CommandItem
-                  key={preset.id}
-                  value={preset.id}
-                  keywords={[preset.name, preset.slug]}
-                  disabled={isSaving}
-                  onSelect={() => handleAddSubagent(preset)}
-                  className="flex min-w-0 flex-col items-stretch gap-0.5"
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <MousePointerClickIcon className="!size-4 shrink-0 text-primary" />
-                    <span className="min-w-0 truncate">{preset.name}</span>
-                    <span className="truncate font-mono text-xs text-muted-foreground">
-                      {preset.slug}
-                    </span>
-                    <AgentPresetCapabilityIcons capabilities={capabilities} />
-                    {eligibilityMessage ? (
-                      <AlertCircle
-                        className="!size-3.5 shrink-0 text-destructive"
-                        aria-label="Cannot attach this preset"
-                      />
-                    ) : null}
-                  </span>
+                <HoverCard key={preset.id} openDelay={300}>
+                  <HoverCardTrigger asChild>
+                    <CommandItem
+                      value={preset.id}
+                      keywords={[preset.name, preset.slug]}
+                      disabled={isSaving}
+                      aria-description={eligibilityMessage ?? undefined}
+                      onSelect={() => handleAddSubagent(preset)}
+                      className="flex min-w-0 items-center gap-2"
+                    >
+                      <MousePointerClickIcon className="!size-4 shrink-0 text-primary" />
+                      <span className="min-w-0 truncate">{preset.name}</span>
+                      <span className="truncate font-mono text-xs text-muted-foreground">
+                        {preset.slug}
+                      </span>
+                      <span className="ml-auto flex shrink-0 items-center gap-2">
+                        <AgentPresetCapabilityIcons
+                          capabilities={capabilities}
+                        />
+                        {eligibilityMessage ? (
+                          <AlertCircle
+                            className="!size-3.5 shrink-0 text-destructive"
+                            aria-label="Cannot attach this preset"
+                          />
+                        ) : null}
+                      </span>
+                    </CommandItem>
+                  </HoverCardTrigger>
                   {eligibilityMessage ? (
-                    <span className="text-xs text-muted-foreground">
+                    <HoverCardContent className="w-64 p-3 text-xs shadow-none">
                       {eligibilityMessage}
-                    </span>
+                    </HoverCardContent>
                   ) : null}
-                </CommandItem>
+                </HoverCard>
               )
             })}
           </CommandGroup>
@@ -2532,7 +2538,7 @@ function AgentPresetSubagentRow({
 
   return (
     <div className="border-b border-border/50">
-      <div className="flex min-w-0 items-center gap-2 pr-3 hover:bg-muted/50">
+      <div className="group flex min-w-0 items-center gap-2 pr-3 hover:bg-muted/50">
         <button
           type="button"
           className="flex min-w-0 flex-1 items-center gap-2 px-4 py-2.5 text-left disabled:cursor-default disabled:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
@@ -2584,16 +2590,16 @@ function AgentPresetSubagentRow({
           type="button"
           variant="ghost"
           size="icon"
-          className="size-6 shrink-0 text-muted-foreground focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          className="size-6 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           onClick={() => onRemove(index)}
           disabled={isSaving}
           aria-label={`Remove ${presetName}`}
         >
-          <Trash2 className="size-3.5" />
+          <Minus className="size-3.5" />
         </Button>
       </div>
       {expanded ? (
-        <div id={bodyId} className="space-y-3 px-4 pb-4">
+        <div id={bodyId} className="space-y-3 px-4 pt-3 pb-4">
           {eligibilityIssue ? (
             <Alert variant="destructive" className="text-xs">
               <AlertCircle className="size-4" />
@@ -2780,7 +2786,7 @@ export function AgentPresetSkillsPanel({
   }
 
   return (
-    <div className="h-full overflow-auto pb-20 text-xs">
+    <div className="h-full overflow-auto pt-2 pb-20 text-xs">
       <div className="flex h-11 items-center gap-2 border-b border-border/50 px-4">
         <h3 className="font-medium">Skills</h3>
         <span className="text-muted-foreground">{skillFields.length}</span>
@@ -2903,7 +2909,7 @@ function AgentPresetSkillBindingRow({
         disabled={isSaving}
         aria-label={`Remove ${displaySkillName}`}
       >
-        <Trash2 className="size-3.5" />
+        <Minus className="size-3.5" />
       </Button>
       {savedBinding?.skill_version != null ? (
         <Tooltip>
@@ -2936,7 +2942,7 @@ export function AgentPresetStructuredOutputPanel({
   const { type, isList } = parseAgentOutputType(outputTypeDataType)
 
   return (
-    <div className="h-full overflow-auto px-4 py-2 pb-20 text-xs">
+    <div className="h-full overflow-auto px-4 pt-2 pb-20 text-xs">
       <FormField
         control={form.control}
         name="outputTypeKind"

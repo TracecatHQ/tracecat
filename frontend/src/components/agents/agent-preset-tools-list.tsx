@@ -1,13 +1,6 @@
 "use client"
 
-import {
-  ChevronDown,
-  ChevronRight,
-  MoreHorizontal,
-  Plus,
-  Search,
-  X,
-} from "lucide-react"
+import { ChevronDown, ChevronRight, Plus, Search, X } from "lucide-react"
 import { useMemo, useState } from "react"
 import { useFormContext, useWatch } from "react-hook-form"
 import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
@@ -16,13 +9,23 @@ import { getIcon, getMcpProviderIconId, ProviderIcon } from "@/components/icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import { Item } from "@/components/ui/item"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import {
   buildToolIndex,
   getBlockedActions,
@@ -202,19 +205,25 @@ export function AgentPresetToolsList({
         >
           <Search className="size-3.5" />
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={isSaving || !ready}
-          onClick={() => setOpen(true)}
-        >
-          <Plus className="mr-1 size-3.5" />
-          Add tools
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className={cn("size-7 shadow-none", FOCUS)}
+              aria-label="Add tools"
+              disabled={isSaving || !ready}
+              onClick={() => setOpen(true)}
+            >
+              <Plus className="size-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Add tools</TooltipContent>
+        </Tooltip>
       </div>
       {searchOpen && (
-        <div className="flex items-center gap-2 border-b px-2 focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring">
+        <div className="flex items-center gap-2 px-2">
           <Search className="size-4 text-muted-foreground" />
           <Input
             autoFocus
@@ -277,78 +286,74 @@ export function AgentPresetToolsList({
             const isExpanded = expanded.has(group.id) || Boolean(search)
             return (
               <div key={group.id}>
-                <div className="group flex h-10 min-w-0 items-center gap-1 hover:bg-muted/50">
-                  <button
-                    type="button"
-                    aria-expanded={isExpanded}
-                    onClick={() =>
-                      setExpanded((current) => {
-                        const next = new Set(current)
-                        if (next.has(group.id)) next.delete(group.id)
-                        else next.add(group.id)
-                        return next
-                      })
-                    }
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-2 text-left outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-                  >
-                    {isExpanded ? (
-                      <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
-                    )}
-                    {getIcon(group.entries[0].key, {
-                      className: "size-6 shrink-0 rounded border",
-                    })}
-                    <span className="min-w-0 shrink-[1] truncate text-xs font-medium">
-                      {group.title}
-                    </span>
-                    <span className="min-w-0 shrink-[100] truncate font-mono text-[10px] text-muted-foreground">
-                      {group.namespace}
-                    </span>
-                  </button>
-                  <div className="flex shrink-0 items-center gap-1">
-                    {approvalCount > 0 && (
-                      <Badge
-                        variant="secondary"
-                        className={cn(COUNT_BADGE, APPROVAL_COLOR)}
-                      >
-                        {approvalCount} need approval
-                      </Badge>
-                    )}
-                    <Badge variant="secondary" className={COUNT_BADGE}>
-                      {allowed.length} of {group.entries.length}
-                    </Badge>
-                  </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        disabled={isSaving}
-                        aria-label={`Manage ${group.title}`}
-                        className={cn("size-6 shrink-0", REVEAL, FOCUS)}
-                      >
-                        <MoreHorizontal className="size-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="shadow-none">
-                      <DropdownMenuItem
-                        onSelect={() => groupApproval(keys, true)}
-                      >
-                        Require approval for all
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onSelect={() => groupApproval(keys, false)}
-                      >
-                        Run all automatically
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => remove(keys)}>
-                        Remove all
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
+                <ContextMenu>
+                  <ContextMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-expanded={isExpanded}
+                      onClick={() =>
+                        setExpanded((current) => {
+                          const next = new Set(current)
+                          if (next.has(group.id)) next.delete(group.id)
+                          else next.add(group.id)
+                          return next
+                        })
+                      }
+                      className="flex h-10 w-full min-w-0 items-center gap-2 rounded px-1 py-2 text-left outline-none hover:bg-muted/50 data-[state=open]:bg-muted/70 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                    >
+                      {isExpanded ? (
+                        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+                      )}
+                      {getIcon(group.entries[0].key, {
+                        className: "size-6 shrink-0 rounded border",
+                      })}
+                      <span className="min-w-0 shrink-[1] truncate text-xs font-medium">
+                        {group.title}
+                      </span>
+                      <span className="min-w-0 shrink-[100] truncate font-mono text-[10px] text-muted-foreground">
+                        {group.namespace}
+                      </span>
+                      <div className="ml-auto flex shrink-0 items-center gap-1">
+                        {approvalCount > 0 && (
+                          <Badge
+                            variant="secondary"
+                            className={cn(COUNT_BADGE, APPROVAL_COLOR)}
+                          >
+                            {approvalCount} need approval
+                          </Badge>
+                        )}
+                        <Badge variant="secondary" className={COUNT_BADGE}>
+                          {allowed.length} of {group.entries.length}
+                        </Badge>
+                      </div>
+                    </button>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-52 shadow-none">
+                    <ContextMenuItem
+                      className="text-xs"
+                      disabled={isSaving}
+                      onSelect={() => groupApproval(keys, true)}
+                    >
+                      Require approval for all
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      className="text-xs"
+                      disabled={isSaving}
+                      onSelect={() => groupApproval(keys, false)}
+                    >
+                      Run all automatically
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      className="text-xs text-rose-500 focus:text-rose-600"
+                      disabled={isSaving}
+                      onSelect={() => remove(keys)}
+                    >
+                      Remove all
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
                 {isExpanded &&
                   visible.map((entry) => (
                     <ActionRow
@@ -393,6 +398,11 @@ export function AgentPresetToolsList({
                 <span className="min-w-0 flex-1 truncate text-xs">
                   {integration?.name ?? id}
                 </span>
+                <RemoveButton
+                  label={integration?.name ?? id}
+                  disabled={isSaving}
+                  onClick={() => removeIntegration(id)}
+                />
                 <Badge variant="outline" className={COUNT_BADGE}>
                   MCP
                 </Badge>
@@ -407,11 +417,6 @@ export function AgentPresetToolsList({
                 <span className="shrink-0 text-[10px] text-muted-foreground">
                   All tools
                 </span>
-                <RemoveButton
-                  label={integration?.name ?? id}
-                  disabled={isSaving}
-                  onClick={() => removeIntegration(id)}
-                />
               </Item>
             )
           })}
@@ -506,26 +511,35 @@ function ActionRow({
       >
         {tool}
       </span>
-      {onApproval && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          aria-label={`Require approval for ${tool}`}
-          aria-pressed={ask}
-          disabled={disabled}
-          onClick={onApproval}
-          className={cn(
-            "h-6 shrink-0 px-2 text-[10px]",
-            FOCUS,
-            ask && APPROVAL_COLOR
-          )}
-        >
-          {ask ? "Ask" : "Auto"}
-        </Button>
-      )}
       {onRemove && (
         <RemoveButton label={tool} disabled={disabled} onClick={onRemove} />
+      )}
+      {onApproval && (
+        <HoverCard openDelay={300}>
+          <HoverCardTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={`Require approval for ${tool}`}
+              aria-pressed={ask}
+              disabled={disabled}
+              onClick={onApproval}
+              className={cn(
+                "h-6 shrink-0 px-2 text-[10px]",
+                FOCUS,
+                ask && APPROVAL_COLOR
+              )}
+            >
+              {ask ? "Ask" : "Auto"}
+            </Button>
+          </HoverCardTrigger>
+          <HoverCardContent className="w-64 p-3 text-xs">
+            {ask
+              ? "This tool call needs human-in-the-loop approval. Click to run it automatically."
+              : "Click to require human-in-the-loop approval for this tool call."}
+          </HoverCardContent>
+        </HoverCard>
       )}
     </Item>
   )

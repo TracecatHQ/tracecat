@@ -235,7 +235,9 @@ it("shows a saved skill version and removes the binding", async () => {
   expect(screen.getByText("v3")).toBeInTheDocument()
   expect(screen.queryByText(skill.description ?? "")).not.toBeInTheDocument()
   await user.hover(screen.getByRole("button", { name: skill.name }))
-  expect(await screen.findByText(skill.description ?? "")).toBeInTheDocument()
+  expect(
+    await screen.findByText(skill.description ?? "", {}, { timeout: 2000 })
+  ).toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: `Remove ${skill.name}` }))
   expect(values().skills).toEqual([])
   expect(screen.queryByText("v3")).not.toBeInTheDocument()
@@ -268,7 +270,9 @@ it("explains the disabled skill picker in a tooltip", async () => {
     )
   ).not.toBeInTheDocument()
   await user.tab()
-  expect(await screen.findByRole("tooltip")).toHaveTextContent(
+  expect(
+    await screen.findByRole("tooltip", {}, { timeout: 2000 })
+  ).toHaveTextContent(
     "All workspace skills are already attached to this preset."
   )
 })
@@ -326,6 +330,12 @@ it("keeps ineligible presets inspectable and expanded with their alert", async (
       presets={[
         {
           ...preset,
+          id: "eligible-preset",
+          name: "Eligible agent",
+          slug: "eligible-agent",
+        },
+        {
+          ...preset,
           current_version_subagent_eligibility: {
             eligible: false,
             message: "This preset has attached subagents.",
@@ -339,9 +349,18 @@ it("keeps ineligible presets inspectable and expanded with their alert", async (
   expect(
     within(option).getByLabelText("Cannot attach this preset")
   ).toBeInTheDocument()
+  const reason = "This preset has attached subagents."
+  expect(option).toHaveAttribute("aria-description", reason)
+  expect(screen.queryByText(reason)).not.toBeInTheDocument()
+  for (const row of screen.getAllByRole("option")) {
+    expect(row).not.toHaveClass("flex-col")
+    expect(row).toHaveClass("items-center")
+  }
+  await user.hover(option)
   expect(
-    within(option).getByText("This preset has attached subagents.")
+    await screen.findByText(reason, {}, { timeout: 2000 })
   ).toBeInTheDocument()
+  expect(within(option).queryByText(reason)).not.toBeInTheDocument()
   await user.click(option)
   expect(screen.getByText("Cannot attach this preset")).toBeInTheDocument()
   expect(
@@ -576,7 +595,9 @@ it.each([
     if (!bindings.length)
       expect(screen.getByText("No skills attached yet.")).toBeInTheDocument()
     await user.tab()
-    expect(await screen.findByRole("tooltip")).toHaveTextContent(reason)
+    expect(
+      await screen.findByRole("tooltip", {}, { timeout: 2000 })
+    ).toHaveTextContent(reason)
     expect(document.activeElement).toHaveClass(
       "focus-visible:ring-inset",
       "focus-visible:ring-ring"

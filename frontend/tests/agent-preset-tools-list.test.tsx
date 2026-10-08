@@ -1,9 +1,10 @@
-import { render, screen, within } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
 import { useForm } from "react-hook-form"
 import { AgentPresetToolsList } from "@/components/agents/agent-preset-tools-list"
 import { Form } from "@/components/ui/form"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import type { PresetToolFields } from "@/lib/agent-preset-tools"
 import { mcpIntegration, registryTool } from "./fixtures/agent-preset-tools"
 
@@ -47,32 +48,38 @@ function TestForm({
     form.setValue(name, value, options)
   }
   return (
-    <Form {...form} setValue={setValue}>
-      {show && (
-        <AgentPresetToolsList
-          registryActions={actions}
-          mcpIntegrations={[
-            mcpIntegration({
-              tools: [
-                { name: "enabled", requires_approval: true },
-                { name: "disabled", enabled: false, requires_approval: true },
-                { name: "missing", status: "missing", requires_approval: true },
-              ],
-            }),
-            mcpIntegration({
-              id: "stdio",
-              name: "Stdio",
-              server_type: "stdio",
-              tools: [{ name: "tool", requires_approval: true }],
-            }),
-          ]}
-          isSaving={isSaving}
-          {...listProps}
-        />
-      )}
-      <output data-testid="dirty">{String(form.formState.isDirty)}</output>
-      <output data-testid="values">{JSON.stringify(form.watch())}</output>
-    </Form>
+    <TooltipProvider>
+      <Form {...form} setValue={setValue}>
+        {show && (
+          <AgentPresetToolsList
+            registryActions={actions}
+            mcpIntegrations={[
+              mcpIntegration({
+                tools: [
+                  { name: "enabled", requires_approval: true },
+                  { name: "disabled", enabled: false, requires_approval: true },
+                  {
+                    name: "missing",
+                    status: "missing",
+                    requires_approval: true,
+                  },
+                ],
+              }),
+              mcpIntegration({
+                id: "stdio",
+                name: "Stdio",
+                server_type: "stdio",
+                tools: [{ name: "tool", requires_approval: true }],
+              }),
+            ]}
+            isSaving={isSaving}
+            {...listProps}
+          />
+        )}
+        <output data-testid="dirty">{String(form.formState.isDirty)}</output>
+        <output data-testid="values">{JSON.stringify(form.watch())}</output>
+      </Form>
+    </TooltipProvider>
   )
 }
 
@@ -104,6 +111,46 @@ it("counts a namespace across registry sources and toggles Ask to Auto and back"
   ])
 })
 
+it("shows the icon-only Add tools tooltip and opens the picker", async () => {
+  const user = userEvent.setup()
+  render(<TestForm />)
+  const addTools = screen.getByRole("button", { name: "Add tools" })
+  expect(addTools.textContent).toBe("")
+  await user.hover(addTools)
+  expect(
+    await screen.findByRole("tooltip", {}, { timeout: 2000 })
+  ).toHaveTextContent("Add tools")
+  await user.click(addTools)
+  expect(screen.getByRole("dialog")).toBeInTheDocument()
+})
+
+it("explains both approval modes on hover and still toggles", async () => {
+  const user = userEvent.setup()
+  render(<TestForm />)
+  await user.click(
+    screen.getByRole("button", { name: /Test tools tools.test/ })
+  )
+  const toggle = screen.getByRole("button", {
+    name: "Require approval for tools.test.second",
+  })
+  const autoMessage =
+    "Click to require human-in-the-loop approval for this tool call."
+  const askMessage =
+    "This tool call needs human-in-the-loop approval. Click to run it automatically."
+  expect(screen.queryByText(autoMessage)).not.toBeInTheDocument()
+  await user.hover(toggle)
+  expect(
+    await screen.findByText(autoMessage, {}, { timeout: 2000 })
+  ).toBeInTheDocument()
+  await user.click(toggle)
+  expect(toggle).toHaveAttribute("aria-pressed", "true")
+  expect(
+    await screen.findByText(askMessage, {}, { timeout: 2000 })
+  ).toBeInTheDocument()
+  await user.click(toggle)
+  expect(toggle).toHaveAttribute("aria-pressed", "false")
+})
+
 it("removes all tools in a namespace and their active rules, retaining false entries", async () => {
   const user = userEvent.setup()
   render(
@@ -117,7 +164,9 @@ it("removes all tools in a namespace and their active rules, retaining false ent
       }}
     />
   )
-  await user.click(screen.getByRole("button", { name: "Manage Test tools" }))
+  fireEvent.contextMenu(
+    screen.getByRole("button", { name: /Test tools tools.test/ })
+  )
   await user.click(screen.getByRole("menuitem", { name: "Remove all" }))
   expect(values().actions).toEqual([])
   expect(values().toolApprovals).toEqual([
@@ -128,13 +177,17 @@ it("removes all tools in a namespace and their active rules, retaining false ent
 it("applies group approvals without changing stored action order", async () => {
   const user = userEvent.setup()
   render(<TestForm />)
-  await user.click(screen.getByRole("button", { name: "Manage Test tools" }))
+  fireEvent.contextMenu(
+    screen.getByRole("button", { name: /Test tools tools.test/ })
+  )
   await user.click(
     screen.getByRole("menuitem", { name: "Require approval for all" })
   )
   expect(screen.getByText("2 need approval")).toBeInTheDocument()
   expect(values().actions).toEqual(defaults.actions)
-  await user.click(screen.getByRole("button", { name: "Manage Test tools" }))
+  fireEvent.contextMenu(
+    screen.getByRole("button", { name: /Test tools tools.test/ })
+  )
   await user.click(
     screen.getByRole("menuitem", { name: "Run all automatically" })
   )
@@ -231,6 +284,13 @@ it("filters in place and disables edits during save", async () => {
   const user = userEvent.setup()
   render(<TestForm isSaving />)
   expect(screen.getByRole("button", { name: "Add tools" })).toBeDisabled()
+  fireEvent.contextMenu(
+    screen.getByRole("button", { name: /Test tools tools.test/ })
+  )
+  for (const item of screen.getAllByRole("menuitem")) {
+    expect(item).toHaveAttribute("data-disabled")
+  }
+  await user.keyboard("{Escape}")
   await user.click(screen.getByRole("button", { name: "Search allowed tools" }))
   await user.type(
     screen.getByRole("textbox", { name: "Filter allowed tools" }),
@@ -355,7 +415,9 @@ it("keeps no-op bulk Auto clean and restores cleanliness after Ask then Auto", a
       values={{ ...defaults, toolApprovals: original }}
     />
   )
-  await user.click(screen.getByRole("button", { name: "Manage Test tools" }))
+  fireEvent.contextMenu(
+    screen.getByRole("button", { name: /Test tools tools.test/ })
+  )
   await user.click(
     screen.getByRole("menuitem", { name: "Run all automatically" })
   )
