@@ -192,9 +192,31 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             )
             for name in sorted(set(requested) - set(by_store))
         ]
-        if not by_store or not await workspace_service.has_entitlement(
+        external = [
+            source_id
+            for source_id, spec in sorted(secret_metadata.items())
+            if spec.source == SecretSource.AWS_SECRETS_MANAGER
+        ]
+        if external and not await workspace_service.has_entitlement(
             Entitlement.EXTERNAL_SECRET_STORES
         ):
+            diagnostics.append(
+                PullDiagnostic(
+                    workflow_path=self.source_path(external[0]),
+                    workflow_title=None,
+                    error_type="dependency",
+                    message=(
+                        "AWS-backed secrets require the "
+                        f"{Entitlement.EXTERNAL_SECRET_STORES.value!r} entitlement."
+                    ),
+                    details={
+                        "code": "entitlement_required",
+                        "entitlement": Entitlement.EXTERNAL_SECRET_STORES.value,
+                    },
+                )
+            )
+            return CorrelatedSecretStores(secret_metadata, diagnostics, [])
+        if not by_store:
             return CorrelatedSecretStores(secret_metadata, diagnostics, [])
 
         stores = await SecretReferencesService(
@@ -257,6 +279,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                         )
                     )
                 continue
+            incompatible: list[tuple[str, SecretMetadataResourceSpec]] = []
             for source_id, spec in specs:
                 if spec.remote_reference is not None:
                     try:
@@ -279,11 +302,25 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                                 },
                             )
                         )
+                        incompatible.append((source_id, spec))
                         continue
                 if spec.store != store.name:
                     correlated[source_id] = spec.model_copy(
                         update={"store": store.name}
                     )
+            if target_id is not None and incompatible:
+                requirements.append(
+                    self._store_requirement(
+                        name,
+                        "invalid_selection",
+                        candidates,
+                        incompatible,
+                        message=(
+                            f"Store {store.name!r} can't read every secret that "
+                            f"uses {name!r}. Choose another store."
+                        ),
+                    )
+                )
         return CorrelatedSecretStores(correlated, diagnostics, requirements)
 
     def _store_requirement(
@@ -292,12 +329,14 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
         reason: SecretStoreMappingRequirementReason,
         candidates: list[SecretStoreMappingCandidate],
         specs: list[tuple[str, SecretMetadataResourceSpec]],
+        *,
+        message: str | None = None,
     ) -> SecretStoreMappingRequirement:
-        if reason == "invalid_selection":
+        if message is None and reason == "invalid_selection":
             message = (
                 f"The store chosen for {name!r} isn't authorized for this workspace."
             )
-        else:
+        elif message is None:
             message = f"No store named {name!r} is authorized for this workspace."
         return SecretStoreMappingRequirement(
             source_store=name,

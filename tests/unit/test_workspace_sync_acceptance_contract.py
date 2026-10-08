@@ -74,6 +74,7 @@ from tracecat.secrets.service import SecretsService, build_external_secret_refer
 from tracecat.sync import PullOptions, PushStatus
 from tracecat.tables.schemas import TableUpdate
 from tracecat.tables.service import BaseTablesService
+from tracecat.tiers.enums import Entitlement
 from tracecat.workspace_sync.adapters import (
     AGENT_PRESET_RESOURCE_ADAPTER,
     RESOURCE_ADAPTERS_BY_TYPE,
@@ -7591,6 +7592,50 @@ async def test_secret_store_mapping_rejects_unusable_choice(
     )
 
     assert code in [d.details["code"] for d in prepared.diagnostics]
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_keeps_picker_for_incompatible_choice(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    west = await _aws_store(session, svc_role, name="west", region="us-west-2")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+
+    prepared = await service._prepare_snapshot_for_import(
+        snapshot, requested_secret_store_mappings={"missing": west.id}
+    )
+
+    [requirement] = prepared.secret_store_mapping_requirements
+    assert requirement.source_store == "missing"
+    assert requirement.reason == "invalid_selection"
+    assert "'west'" in requirement.message
+    assert [c.store_id for c in requirement.candidates] == [west.id]
+    assert [a.secret_name for a in requirement.affected_secrets] == ["vendor_api"]
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_preview_requires_external_secret_stores_entitlement(
+    session: AsyncSession,
+    svc_role: Role,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def has_entitlement(_self: object, entitlement: Entitlement) -> bool:
+        return entitlement != Entitlement.EXTERNAL_SECRET_STORES
+
+    monkeypatch.setattr(WorkspaceSyncService, "has_entitlement", has_entitlement)
+    await _aws_store(session, svc_role, name="missing")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+
+    assert [d.details["code"] for d in prepared.diagnostics] == ["entitlement_required"]
+    assert prepared.diagnostics[0].details["entitlement"] == (
+        Entitlement.EXTERNAL_SECRET_STORES.value
+    )
 
 
 @pytest.mark.anyio
