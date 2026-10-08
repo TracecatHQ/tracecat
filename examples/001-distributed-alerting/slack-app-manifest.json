@@ -1,22 +1,16 @@
 {
   "display_information": {
     "name": "Socky",
-    "description": "Security alert triage bot",
-    "background_color": "#000000"
+    "description": "Security alert triage bot"
   },
   "features": {
     "bot_user": {
-      "display_name": "socky",
-      "always_online": false
+      "display_name": "socky"
     },
     "rich_previews": {
       "is_active": true,
       "entity_types": [
-        "slack#/entities/incident",
-        "slack#/entities/content_item",
-        "slack#/entities/file",
-        "slack#/entities/task",
-        "slack#/entities/item"
+        "slack#/entities/incident"
       ]
     }
   },
@@ -24,49 +18,13 @@
     "scopes": {
       "bot": [
         "app_mentions:read",
-        "bookmarks:read",
-        "bookmarks:write",
-        "canvases:read",
-        "canvases:write",
         "channels:history",
-        "channels:join",
-        "channels:read",
         "chat:write",
-        "chat:write.public",
-        "emoji:read",
-        "groups:history",
-        "groups:read",
-        "im:history",
-        "im:read",
-        "im:write",
-        "incoming-webhook",
-        "links:read",
         "links:write",
-        "mpim:read",
-        "reactions:read",
         "reactions:write",
         "users:read",
         "users:read.email"
       ]
-    },
-    "pkce_enabled": false
-  },
-  "settings": {
-    "event_subscriptions": {
-      "request_url": "https://<your-tracecat-host>/api/webhooks/<workflow-id>/<webhook-secret>?echo=true",
-      "bot_events": [
-        "app_mention",
-        "entity_details_requested"
-      ]
-    },
-    "interactivity": {
-      "is_enabled": true,
-      "request_url": "https://<your-tracecat-host>/api/webhooks/<workflow-id>/<webhook-secret>"
-    },
-    "org_deploy_enabled": false,
-    "socket_mode_enabled": false,
-    "token_rotation_enabled": false,
-    "app_level_token_rotation_enabled": false,
-    "is_mcp_enabled": false
+    }
   }
 }

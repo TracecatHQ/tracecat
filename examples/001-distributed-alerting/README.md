@@ -51,23 +51,58 @@ Case custom fields the skills write: `finding_ids`, `finding_count`, `finding_ty
 2. Create the case custom fields above.
 3. Add the six skills from `skills/`. Keep each skill's file names. Replace the placeholders listed below first.
 4. Create the agent preset from `agent/preset.md` with the slug `socky`. Grant the tools, bind the skills, attach your SIEM MCP if you have one.
-5. Build the Triage alerts workflow from `workflow.md`. Add a webhook trigger and publish it.
-6. Create the Slack app (next section) and store its token.
-7. Build the alert intake workflow from the contract at the end of `workflow.md`, and point your alert source at its webhook.
-8. Test: run Triage alerts by hand with `alert_ids` set to one stored alert. Check the case, the Slack thread, the details panel, and both buttons.
+5. Create the Slack app from `slack-app-manifest.json`, install it, store its token and invite it to the triage channel (next section, part 1).
+6. Build the Triage alerts workflow from `workflow.md`. Add a webhook trigger and publish it.
+7. Add the workflow's webhook URL to the Slack app (next section, part 2).
+8. Build the alert intake workflow from the contract at the end of `workflow.md`, and point your alert source at its webhook.
+9. Test: run Triage alerts by hand with `alert_ids` set to one stored alert. Check the case, the Slack thread, the details panel, and both buttons.
 
 ## Slack app setup
 
-Build and publish the workflow first. The Slack app needs the workflow's webhook URL, and Slack checks that URL when you save the app.
+The setup has two parts. The app comes first, because the workflow and the agent need its token. The request URLs come second, because they need the published workflow.
+
+### Part 1: before you build the workflow
+
+1. Go to https://api.slack.com/apps, choose "Create New App", then "From a manifest". Pick your workspace and paste `slack-app-manifest.json`. The manifest has no request URLs yet.
+2. Install the app to the workspace.
+3. Copy the Bot User OAuth Token from "OAuth & Permissions". In Tracecat, create a secret named `slack` with the key `SLACK_BOT_TOKEN` and that token as the value. The `tools.slack` and `tools.slack_sdk` actions read this secret.
+4. Invite the app to the triage channel: `/invite @socky`. The app can only post in channels it has joined.
+
+### Part 2: after the workflow is published
 
 1. In Tracecat, open the Triage alerts workflow, open the webhook trigger and copy the webhook URL. It looks like `https://<your-tracecat-host>/api/webhooks/<workflow-id>/<webhook-secret>`.
-2. Go to https://api.slack.com/apps, choose "Create New App", then "From a manifest". Pick your workspace and paste `slack-app-manifest.json`.
-3. Replace both request URLs in the manifest with your webhook URL:
-   - `settings.event_subscriptions.request_url`: the webhook URL followed by `?echo=true`
-   - `settings.interactivity.request_url`: the webhook URL as it is
-4. Create the app and install it to the workspace. The `incoming-webhook` scope makes Slack ask for a channel during install. Pick the triage channel.
-5. Copy the Bot User OAuth Token from "OAuth & Permissions". In Tracecat, create a secret named `slack` with the key `SLACK_BOT_TOKEN` and that token as the value. The `tools.slack` and `tools.slack_sdk` actions read this secret.
-6. Invite the app to the triage channel: `/invite @socky`.
+2. In the Slack app settings, open "App Manifest" and add this `settings` block at the top level, with your webhook URL in both places:
+
+   ```json
+   "settings": {
+     "event_subscriptions": {
+       "request_url": "https://<your-tracecat-host>/api/webhooks/<workflow-id>/<webhook-secret>?echo=true",
+       "bot_events": [
+         "app_mention",
+         "entity_details_requested"
+       ]
+     },
+     "interactivity": {
+       "is_enabled": true,
+       "request_url": "https://<your-tracecat-host>/api/webhooks/<workflow-id>/<webhook-secret>"
+     }
+   }
+   ```
+
+3. Save. Adding these events adds no scopes, so you do not reinstall the app.
+
+### Scopes
+
+| Scope | Why |
+|---|---|
+| `app_mentions:read` | Receiving the `app_mention` event |
+| `channels:history` | Reading the thread and the channel (`conversations.replies`, `conversations.history`) |
+| `chat:write` | Posting and updating the card, brief, evidence table, ask and replies, the ephemeral denial, and the optional direct message |
+| `links:write` | The `chat.unfurl` fallback the delivery skills use when `chat.update` rejects the card's metadata |
+| `reactions:write` | The acknowledgement reactions |
+| `users:read.email`, with `users:read` | Finding the owner by email |
+
+Add `groups:history` if the triage channel is private.
 
 ### The Event Subscriptions URL must end in `?echo=true`
 
@@ -83,7 +118,7 @@ The interactivity URL does not need it. Slack does not verify that URL.
 
 The Slack card at the top of each case thread is a Work Object: a structured card with fields, buttons and a details panel, not a plain message.
 
-Two parts of the manifest turn this on:
+Two parts of the app manifest turn this on:
 
 - `features.rich_previews.entity_types` lists the entity types the app may post. The card uses `slack#/entities/incident`.
 - The `entity_details_requested` bot event. Slack sends it when someone opens the details panel of a card.
