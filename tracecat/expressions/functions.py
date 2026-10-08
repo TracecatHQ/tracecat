@@ -1042,7 +1042,18 @@ def deserialize_yaml(x: str) -> Any:
     return yaml.safe_load(x)
 
 
+def get_interaction() -> None:
+    """Keep historical registry templates executable without interaction context.
+
+    Published Slack templates call this helper even for ordinary messages.
+    Legacy interactions are removed; never recover their state or callbacks.
+    """
+    return None
+
+
 _FUNCTION_MAPPING = {
+    # Compatibility for immutable registry templates published before removal.
+    "get_interaction": get_interaction,
     # IO
     "parse_csv": parse_csv,
     # String transforms
