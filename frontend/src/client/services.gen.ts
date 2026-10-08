@@ -5786,6 +5786,7 @@ export const agentPresetsCreateAgentPreset = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Invalid agent preset configuration",
       422: "Validation Error",
     },
   })
@@ -5866,6 +5867,7 @@ export const agentPresetsUpdateAgentPreset = (
     body: data.requestBody,
     mediaType: "application/json",
     errors: {
+      400: "Invalid agent preset configuration",
       422: "Validation Error",
     },
   })
@@ -5950,6 +5952,7 @@ export const agentPresetsListAgentPresetVersions = (
       reverse: data.reverse,
     },
     errors: {
+      400: "Invalid agent preset configuration",
       422: "Validation Error",
     },
   })
@@ -5977,6 +5980,7 @@ export const agentPresetsGetAgentPresetVersion = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      400: "Invalid agent preset configuration",
       422: "Validation Error",
     },
   })
@@ -6008,6 +6012,7 @@ export const agentPresetsCompareAgentPresetVersions = (
       compare_to: data.compareTo,
     },
     errors: {
+      400: "Invalid agent preset configuration",
       422: "Validation Error",
     },
   })
@@ -6035,6 +6040,7 @@ export const agentPresetsRestoreAgentPresetVersion = (
       workspace_id: data.workspaceId,
     },
     errors: {
+      400: "Invalid agent preset configuration",
       422: "Validation Error",
     },
   })

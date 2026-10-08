@@ -603,27 +603,13 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
         <Table {...rest} />
       </div>
     ),
-    "core.sql": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-teal-500/10 text-teal-600 dark:text-teal-400",
-          className
-        )}
-      >
-        <DatabaseIcon {...rest} />
-      </div>
+    "core.sql": createColoredLucideRenderer(
+      DatabaseIcon,
+      "bg-teal-500/10 text-teal-600 dark:text-teal-400"
     ),
-    "core.duckdb": ({ className, ...rest }) => (
-      <div
-        className={cn(
-          basicIconsCommon,
-          "bg-teal-500/10 text-teal-600 dark:text-teal-400",
-          className
-        )}
-      >
-        <DatabaseIcon {...rest} />
-      </div>
+    "core.duckdb": createColoredLucideRenderer(
+      DatabaseIcon,
+      "bg-teal-500/10 text-teal-600 dark:text-teal-400"
     ),
     tools: createIconRenderer((props: IconProps) => <BlocksIcon {...props} />),
     "tools.datadog": createIconRenderer(DatadogIcon),
@@ -632,7 +618,7 @@ export const UDFIcons: Record<string, (props: CustomIconProps) => JSX.Element> =
       iconClassName: "h-auto w-full",
     }),
     // Sublime namespace
-    "tools.sublime": createIconRenderer(SublimeIcon, {
+    "tools.sublime": createIconRenderer(EmailrepIcon, {
       iconClassName: "h-auto w-full",
     }),
     // URLScan namespace
@@ -1116,6 +1102,11 @@ export function getModelProviderIconId(provider: string): string {
       return "mistral"
     case "openai":
       return "openai"
+    case "litellm":
+    case "ollama":
+    case "openrouter":
+    case "vllm":
+      return provider
     default:
       return "custom"
   }

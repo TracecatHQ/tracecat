@@ -18812,6 +18812,10 @@ export type $OpenApiTs = {
          */
         201: AgentPresetRead
         /**
+         * Invalid agent preset configuration
+         */
+        400: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -18858,6 +18862,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentPresetRead
+        /**
+         * Invalid agent preset configuration
+         */
+        400: unknown
         /**
          * Validation Error
          */
@@ -18906,6 +18914,10 @@ export type $OpenApiTs = {
          */
         200: CursorPaginatedResponse_AgentPresetVersionReadMinimal_
         /**
+         * Invalid agent preset configuration
+         */
+        400: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -18920,6 +18932,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentPresetVersionRead
+        /**
+         * Invalid agent preset configuration
+         */
+        400: unknown
         /**
          * Validation Error
          */
@@ -18936,6 +18952,10 @@ export type $OpenApiTs = {
          */
         200: AgentPresetVersionDiff
         /**
+         * Invalid agent preset configuration
+         */
+        400: unknown
+        /**
          * Validation Error
          */
         422: HTTPValidationError
@@ -18950,6 +18970,10 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: AgentPresetRead
+        /**
+         * Invalid agent preset configuration
+         */
+        400: unknown
         /**
          * Validation Error
          */

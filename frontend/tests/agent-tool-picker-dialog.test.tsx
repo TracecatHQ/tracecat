@@ -80,10 +80,12 @@ afterAll(() => {
 function TestForm({
   values = defaults,
   catalog = index,
+  maxTools = 128,
   onWrite = jest.fn(),
 }: {
   values?: PresetToolFields
   catalog?: ToolIndex
+  maxTools?: number | null
   onWrite?: jest.Mock
 }) {
   const form = useForm<PresetToolFields>({ defaultValues: values })
@@ -98,7 +100,7 @@ function TestForm({
         index={catalog}
         open={open}
         onOpenChange={setOpen}
-        maxTools={128}
+        maxTools={maxTools}
       />
       <button type="button" onClick={() => setOpen(true)}>
         Open
@@ -173,7 +175,7 @@ it("handles arrows, Enter, paging and Space in the list without eating query spa
   )
   await user.type(search, " ")
   expect(search).toHaveValue(" ")
-  expect(screen.getByText("1 selected")).toBeInTheDocument()
+  expect(screen.getByText("1 of 128 tools")).toBeInTheDocument()
   const list = screen.getByRole("listbox")
   list.focus()
   fireEvent.keyDown(list, { key: "Home" })
@@ -372,8 +374,8 @@ it("counts indexed Selected rows but retains unknown selections in the footer", 
       }}
     />
   )
-  expect(screen.getByText(/3 selected/)).toHaveTextContent(
-    "3 selected of 128 tools"
+  expect(screen.getByText(/2 of 128 tools/)).toHaveTextContent(
+    "2 of 128 tools · 1 MCP integration"
   )
   await user.click(screen.getByRole("button", { name: "Selected 1" }))
   expect(screen.getAllByRole("option")).toHaveLength(1)
@@ -397,4 +399,36 @@ it("deselects a whole MCP integration on Done", async () => {
     shouldDirty: true,
   })
   expect(values().mcpIntegrations).toEqual([])
+})
+
+it.each([
+  { actions: ["first"], mcp: [], expected: "1 tool selected" },
+  {
+    actions: ["first", "second"],
+    mcp: ["one", "two"],
+    expected: "2 tools selected · 2 MCP integrations",
+  },
+])(
+  "formats the footer without a limit: $expected",
+  ({ actions, mcp, expected }) => {
+    render(
+      <TestForm
+        maxTools={null}
+        values={{ ...defaults, actions, mcpIntegrations: mcp }}
+      />
+    )
+    expect(screen.getByText(expected)).toBeInTheDocument()
+  }
+)
+
+it("allows Done when the registry selection exceeds the limit", async () => {
+  render(
+    <TestForm
+      maxTools={1}
+      values={{ ...defaults, actions: ["first", "second"] }}
+    />
+  )
+  expect(screen.getByText("2 of 1 tools")).toBeInTheDocument()
+  await userEvent.click(screen.getByRole("button", { name: "Done" }))
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
 })

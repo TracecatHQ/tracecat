@@ -1942,6 +1942,7 @@ function AgentPresetRightPanel({
             <AgentPresetConfigurationPanel
               maxTools={preset?.tool_policy?.max_tools}
               effectiveActions={preset?.tool_policy?.actions}
+              savedActions={preset?.actions}
               form={form}
               isSaving={isSaving}
               registryActions={registryActions}
@@ -2007,6 +2008,7 @@ function AgentPresetConfigurationPanel({
   hasStdioMcp,
   maxTools,
   effectiveActions,
+  savedActions,
 }: {
   form: UseFormReturn<AgentPresetFormValues>
   isSaving: boolean
@@ -2020,6 +2022,7 @@ function AgentPresetConfigurationPanel({
   hasStdioMcp: boolean
   maxTools?: number | null
   effectiveActions?: string[] | null
+  savedActions?: string[] | null
 }) {
   const catalogId = form.watch("catalog_id")
   const sourceId = form.watch("source_id")
@@ -2291,6 +2294,7 @@ function AgentPresetConfigurationPanel({
           isSaving={isSaving}
           maxTools={maxTools}
           effectiveActions={effectiveActions}
+          savedActions={savedActions}
         />
       </div>
     </ScrollArea>
@@ -2708,7 +2712,7 @@ export function AgentPresetSkillsPanel({
   if (!skillsLoading && !skillsError && availableSkillsToAdd.length === 0) {
     if (!skills?.length) {
       addSkillDisabledReason = "No skills in this workspace yet"
-    } else if (!skills.some((skill) => skill.current_version_id)) {
+    } else if (skills.some((skill) => !attachedSkillIds.has(skill.id))) {
       addSkillDisabledReason =
         "Only skills with published versions can be attached."
     } else {

@@ -272,6 +272,13 @@ describe("icon source identities", () => {
     expect(getIconSource(key)).toBe(getIconSource("tools.slack"))
   })
 
+  it.each([
+    ["core.sql", "core.duckdb"],
+    ["tools.emailrep", "tools.sublime"],
+  ])("shares the icon source for %s and %s", (first, second) => {
+    expect(getIconSource(first)).toBe(getIconSource(second))
+  })
+
   it("distinguishes unrelated icons", () => {
     expect(getIconSource("tools.slack")).not.toBe(getIconSource("tools.jira"))
   })
@@ -307,6 +314,10 @@ describe("model provider icons", () => {
     ["vertex_ai", "google"],
     ["mistral", "mistral"],
     ["openai", "openai"],
+    ["litellm", "litellm"],
+    ["ollama", "ollama"],
+    ["openrouter", "openrouter"],
+    ["vllm", "vllm"],
     ["unknown", "custom"],
     ["", "custom"],
   ])("maps %s to %s", (provider, iconId) => {

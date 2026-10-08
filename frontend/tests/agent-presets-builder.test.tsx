@@ -14,6 +14,7 @@ describe("getAgentPresetErrorMessage", () => {
       body: {
         detail: {
           code: "agent_tool_limit_exceeded",
+          message: "Invalid preset configuration",
           tool_count: 140,
           max_tools: 128,
         },
@@ -22,6 +23,20 @@ describe("getAgentPresetErrorMessage", () => {
 
     expect(getAgentPresetErrorMessage(error, "Save failed.")).toBe(
       "This agent has 140 tools; the limit is 128."
+    )
+  })
+
+  it("shows the message from a structured validation detail", () => {
+    const error = Object.assign(new Error("Bad request"), {
+      body: {
+        detail: {
+          code: "skill_not_published",
+          message: "Only published skills can be attached.",
+        },
+      },
+    })
+    expect(getAgentPresetErrorMessage(error, "Save failed.")).toBe(
+      "Only published skills can be attached."
     )
   })
 

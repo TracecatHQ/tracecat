@@ -101,7 +101,8 @@ function PickerBody({
   const railRef = useRef<HTMLElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const listId = useId()
-  const count = selection.actions.size + selection.mcp.size
+  const count = selection.actions.size
+  const toolLabel = count === 1 ? "tool" : "tools"
   const selectedIds = useMemo(
     () =>
       new Set([
@@ -520,10 +521,11 @@ function PickerBody({
       </div>
       <div className="flex h-14 shrink-0 items-center gap-2 border-t px-4 text-xs">
         <span>
-          {count} selected
-          {maxTools != null && (
-            <span className="text-muted-foreground"> of {maxTools} tools</span>
-          )}
+          {maxTools != null
+            ? `${count} of ${maxTools} tools`
+            : `${count} ${toolLabel} selected`}
+          {selection.mcp.size > 0 &&
+            ` · ${selection.mcp.size} MCP ${selection.mcp.size === 1 ? "integration" : "integrations"}`}
         </span>
         <div className="ml-auto hidden items-center gap-2 text-muted-foreground sm:flex">
           <Kbd>↑↓</Kbd> Navigate <Kbd>Enter</Kbd> Select

@@ -31,11 +31,13 @@ from tracecat.exceptions import TracecatValidationError
     [
         {"code": "skill_not_found", "missing_skill_ids": ["synthetic-skill"]},
         {"code": "skill_not_published", "skill_id": "synthetic-skill"},
+        {"code": "duplicate_skill_names", "message": "Explicit validation message"},
+        "String validation detail",
         None,
     ],
 )
 async def test_preview_preserves_validation_details(
-    detail: dict[str, str | list[str]] | None,
+    detail: dict[str, str | list[str]] | str | None,
 ) -> None:
     role = Role(
         type="service",
@@ -59,9 +61,10 @@ async def test_preview_preserves_validation_details(
             session=AsyncMock(spec=AsyncSession),
         )
     assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == (
-        detail if detail is not None else "Invalid skill selection"
-    )
+    expected = detail if detail is not None else "Invalid skill selection"
+    if isinstance(detail, dict) and "message" not in detail:
+        expected = {**detail, "message": "Invalid skill selection"}
+    assert exc_info.value.detail == expected
 
 
 @pytest.mark.anyio
@@ -73,11 +76,13 @@ async def test_preview_preserves_validation_details(
     "detail",
     [
         {"code": "agent_tool_limit_exceeded", "tool_count": 140, "max_tools": 128},
+        {"code": "duplicate_skill_names", "message": "Explicit validation message"},
+        "String validation detail",
         None,
     ],
 )
 async def test_preset_routes_preserve_validation_details(
-    operation: str, detail: dict[str, str | int] | None
+    operation: str, detail: dict[str, str | int] | str | None
 ) -> None:
     role = Role(
         type="service",
@@ -152,6 +157,7 @@ async def test_preset_routes_preserve_validation_details(
                     session=session,
                 )
     assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == (
-        detail if detail is not None else "Invalid preset configuration"
-    )
+    expected = detail if detail is not None else "Invalid preset configuration"
+    if isinstance(detail, dict) and "message" not in detail:
+        expected = {**detail, "message": "Invalid preset configuration"}
+    assert exc_info.value.detail == expected

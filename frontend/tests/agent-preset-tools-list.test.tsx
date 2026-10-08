@@ -56,6 +56,7 @@ function TestForm({
               tools: [
                 { name: "enabled", requires_approval: true },
                 { name: "disabled", enabled: false, requires_approval: true },
+                { name: "missing", status: "missing", requires_approval: true },
               ],
             }),
             mcpIntegration({
@@ -299,6 +300,7 @@ it("shows skill-contributed policy tools once with approval controls and no remo
   render(
     <TestForm
       listProps={{
+        savedActions: defaults.actions,
         effectiveActions: [
           "tools.test.first",
           "tools.test.third",
@@ -404,4 +406,30 @@ it("hides filtered group headings and shows one no-match line", async () => {
   ])
     expect(screen.queryByText(label)).not.toBeInTheDocument()
   expect(screen.getAllByText("No matching tools")).toHaveLength(1)
+})
+
+it("does not turn removed saved actions into skill tools or retain their approvals", async () => {
+  const user = userEvent.setup()
+  render(
+    <TestForm
+      listProps={{
+        effectiveActions: defaults.actions,
+        savedActions: defaults.actions,
+      }}
+    />
+  )
+  await user.click(
+    screen.getByRole("button", { name: /Test tools tools.test/ })
+  )
+  await user.click(
+    screen.getByRole("button", { name: "Remove tools.test.first" })
+  )
+  expect(values().actions).toEqual(["tools.test.second"])
+  expect(screen.queryByText("From skills")).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole("button", {
+      name: "Require approval for tools.test.first",
+    })
+  ).not.toBeInTheDocument()
+  expect(values().toolApprovals).toEqual([])
 })

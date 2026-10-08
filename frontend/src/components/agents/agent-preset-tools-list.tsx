@@ -52,6 +52,7 @@ export function AgentPresetToolsList({
   mcpLoading = false,
   toolsLoadError = false,
   effectiveActions,
+  savedActions,
 }: {
   registryActions?: RegistryActionReadMinimal[]
   mcpIntegrations?: MCPIntegrationRead[]
@@ -61,6 +62,7 @@ export function AgentPresetToolsList({
   mcpLoading?: boolean
   toolsLoadError?: boolean
   effectiveActions?: string[] | null
+  savedActions?: string[] | null
 }) {
   const { control, getValues, setValue } = useFormContext<PresetToolFields>()
   const actions = useWatch({ control, name: "actions" })
@@ -100,6 +102,7 @@ export function AgentPresetToolsList({
   const [query, setQuery] = useState("")
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const selected = new Set(actions)
+  const saved = new Set(savedActions)
   const approvals = new Set(
     rules.filter((rule) => rule.allow).map((rule) => rule.tool)
   )
@@ -107,7 +110,7 @@ export function AgentPresetToolsList({
   const loading = registryLoading || mcpLoading
   const ready = !loading && !toolsLoadError
   const skillKeys = new Set(
-    effectiveActions?.filter((key) => !selected.has(key))
+    effectiveActions?.filter((key) => !saved.has(key) && !selected.has(key))
   )
   const unavailable = ready
     ? actions.filter((key) => !index.byKey.has(key))
@@ -370,7 +373,10 @@ export function AgentPresetToolsList({
             const approvalCount =
               integration?.server_type !== "stdio"
                 ? (integration?.tools?.filter(
-                    (tool) => tool.enabled !== false && tool.requires_approval
+                    (tool) =>
+                      tool.enabled !== false &&
+                      tool.status !== "missing" &&
+                      tool.requires_approval
                   ).length ?? 0)
                 : 0
             return (

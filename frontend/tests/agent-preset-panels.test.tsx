@@ -557,6 +557,11 @@ it.each([
   {
     skills: [skill, { ...skill, id: "draft", current_version_id: null }],
     bindings: [{ skillId: skill.id }],
+    reason: "Only skills with published versions can be attached.",
+  },
+  {
+    skills: [skill],
+    bindings: [{ skillId: skill.id }],
     reason: "All workspace skills are already attached to this preset.",
   },
 ])(

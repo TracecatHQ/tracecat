@@ -27,9 +27,12 @@ router = APIRouter(prefix="/agent/presets", tags=["agent-presets"])
 
 
 def _validation_error(exc: TracecatValidationError) -> HTTPException:
+    detail = exc.detail if exc.detail is not None else str(exc)
+    if isinstance(detail, dict) and "message" not in detail:
+        detail = {**detail, "message": str(exc)}
     return HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
-        detail=exc.detail if exc.detail is not None else str(exc),
+        detail=detail,
     )
 
 
@@ -72,6 +75,11 @@ async def preview_tool_policy(
     "",
     response_model=AgentPresetRead,
     status_code=status.HTTP_201_CREATED,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Invalid agent preset configuration"
+        },
+    },
 )
 @require_scope("agent:create")
 async def create_agent_preset(
@@ -125,7 +133,15 @@ async def get_agent_preset_by_slug(
     return await service.build_preset_read(preset)
 
 
-@router.patch("/{preset_id}", response_model=AgentPresetRead)
+@router.patch(
+    "/{preset_id}",
+    response_model=AgentPresetRead,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Invalid agent preset configuration"
+        },
+    },
+)
 @require_scope("agent:update")
 async def update_agent_preset(
     *,
@@ -184,6 +200,11 @@ async def delete_agent_preset(
 @router.get(
     "/{preset_id}/versions",
     response_model=CursorPaginatedResponse[AgentPresetVersionReadMinimal],
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Invalid agent preset configuration"
+        },
+    },
 )
 @require_scope("agent:read")
 async def list_agent_preset_versions(
@@ -215,7 +236,15 @@ async def list_agent_preset_versions(
         raise _validation_error(exc) from exc
 
 
-@router.get("/{preset_id}/versions/{version_id}", response_model=AgentPresetVersionRead)
+@router.get(
+    "/{preset_id}/versions/{version_id}",
+    response_model=AgentPresetVersionRead,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Invalid agent preset configuration"
+        },
+    },
+)
 @require_scope("agent:read")
 async def get_agent_preset_version(
     *,
@@ -244,6 +273,11 @@ async def get_agent_preset_version(
 @router.get(
     "/{preset_id}/versions/{version_id}/compare",
     response_model=AgentPresetVersionDiff,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Invalid agent preset configuration"
+        },
+    },
 )
 @require_scope("agent:read")
 async def compare_agent_preset_versions(
@@ -283,6 +317,11 @@ async def compare_agent_preset_versions(
 @router.post(
     "/{preset_id}/versions/{version_id}/restore",
     response_model=AgentPresetRead,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {
+            "description": "Invalid agent preset configuration"
+        },
+    },
 )
 @require_scope("agent:update")
 async def restore_agent_preset_version(

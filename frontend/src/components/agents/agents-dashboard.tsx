@@ -27,7 +27,14 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { memo, useCallback, useEffect, useMemo, useState } from "react"
+import {
+  memo,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react"
 import type {
   AgentFolderDirectoryItem,
   AgentPresetDirectoryItem,
@@ -1598,6 +1605,41 @@ function AgentPresetContextActions({
 
 const TOOL_SOURCE_TILE_CAP = 8
 
+function ToolSourceTiles({
+  groups,
+  renderIcon,
+}: {
+  groups: string[][]
+  renderIcon: (name: string) => ReactNode
+}) {
+  return (
+    <>
+      {groups.slice(0, TOOL_SOURCE_TILE_CAP).map((names) => (
+        <Tooltip key={names[0]}>
+          <TooltipTrigger asChild>
+            <span role="img" aria-label={names.join(", ")}>
+              {renderIcon(names[0])}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{names.join(", ")}</TooltipContent>
+        </Tooltip>
+      ))}
+      {groups.length > TOOL_SOURCE_TILE_CAP && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="shrink-0 text-[11px] text-muted-foreground">
+              +{groups.length - TOOL_SOURCE_TILE_CAP}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {groups.slice(TOOL_SOURCE_TILE_CAP).flat().join(", ")}
+          </TooltipContent>
+        </Tooltip>
+      )}
+    </>
+  )
+}
+
 const AgentToolSources = memo(function AgentToolSources({
   summary,
 }: {
@@ -1620,33 +1662,18 @@ const AgentToolSources = memo(function AgentToolSources({
     sources.set(source, names)
   }
   const namespaces = [...sources.values()]
-  const hiddenNames = namespaces.slice(TOOL_SOURCE_TILE_CAP).flat().join(", ")
 
   return (
     <div
       data-testid="tool-sources"
       className="flex min-w-0 items-center gap-1 overflow-hidden"
     >
-      {namespaces.slice(0, TOOL_SOURCE_TILE_CAP).map((names) => (
-        <Tooltip key={names[0]}>
-          <TooltipTrigger asChild>
-            <span role="img" aria-label={names.join(", ")}>
-              {getIcon(names[0], { className: "size-5 rounded border" })}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>{names.join(", ")}</TooltipContent>
-        </Tooltip>
-      ))}
-      {namespaces.length > TOOL_SOURCE_TILE_CAP ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="text-[11px] text-muted-foreground">
-              +{namespaces.length - TOOL_SOURCE_TILE_CAP}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>{hiddenNames}</TooltipContent>
-        </Tooltip>
-      ) : null}
+      <ToolSourceTiles
+        groups={namespaces}
+        renderIcon={(namespace) =>
+          getIcon(namespace, { className: "size-5 rounded border" })
+        }
+      />
       {mcpSlugs.length > 0 ? (
         <>
           <span
@@ -1654,19 +1681,15 @@ const AgentToolSources = memo(function AgentToolSources({
             aria-orientation="vertical"
             className="mx-1 h-3.5 w-px bg-border"
           />
-          {mcpSlugs.map((slug) => (
-            <Tooltip key={slug}>
-              <TooltipTrigger asChild>
-                <span role="img" aria-label={slug}>
-                  <ProviderIcon
-                    providerId={getMcpProviderIconId(slug)}
-                    className="size-5 rounded border"
-                  />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{slug}</TooltipContent>
-            </Tooltip>
-          ))}
+          <ToolSourceTiles
+            groups={mcpSlugs.map((slug) => [slug])}
+            renderIcon={(slug) => (
+              <ProviderIcon
+                providerId={getMcpProviderIconId(slug)}
+                className="size-5 rounded border"
+              />
+            )}
+          />
         </>
       ) : null}
       {toolCount > 0 ? (
@@ -1809,7 +1832,7 @@ function AgentCatalogRow({
                           providerId={getModelProviderIconId(
                             item.model_provider
                           )}
-                          className="size-3 rounded-none bg-transparent p-0"
+                          className="size-3 rounded-none bg-transparent p-0 [&>svg]:size-full [&>svg]:rounded-none [&>svg]:bg-transparent"
                         />
                         {item.model_name}
                       </Badge>

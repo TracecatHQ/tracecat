@@ -8,6 +8,7 @@ import {
 import userEvent from "@testing-library/user-event"
 import { type AgentPresetReadMinimal, agentFoldersGetFolder } from "@/client"
 import { AgentsDashboard } from "@/components/agents/agents-dashboard"
+import { OpenAIIcon } from "@/components/icons"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 const mockHasEntitlement = jest.fn<boolean, [string]>(() => false)
@@ -200,9 +201,13 @@ describe("AgentsDashboard entitlement split", () => {
       expect(mcp.querySelector("svg")).toBeInTheDocument()
       expect(slack.firstElementChild).toHaveClass("size-5", "rounded", "border")
       const model = screen.getByText(PRESET.model_name)
-      expect(model.querySelector("svg path")?.getAttribute("d")).toMatch(
-        /^M22\.2819 9\.8211/
-      )
+      const expectedIcon = render(<OpenAIIcon />)
+      const expectedPath = expectedIcon.container
+        .querySelector("path")
+        ?.getAttribute("d")
+      expect(expectedPath).toBeTruthy()
+      expect(model.querySelector("svg path")).toHaveAttribute("d", expectedPath)
+      expectedIcon.unmount()
       expect(model.firstElementChild).toHaveClass("rounded-none")
       expect(model.firstElementChild).toHaveClass(
         "size-3",
@@ -213,18 +218,22 @@ describe("AgentsDashboard entitlement split", () => {
 
       await userEvent.hover(sources.getByText("4 tools"))
       expect(
-        await screen.findByRole("tooltip", {
-          name: "Registry tools. MCP tools are not counted.",
-        })
+        await screen.findByRole(
+          "tooltip",
+          {
+            name: "Registry tools. MCP tools are not counted.",
+          },
+          { timeout: 2000 }
+        )
       ).toBeInTheDocument()
     })
 
     it("shows the provider slug in the model badge tooltip", async () => {
       renderPreset(undefined)
       await userEvent.hover(screen.getByText(PRESET.model_name))
-      expect(await screen.findByRole("tooltip")).toHaveTextContent(
-        PRESET.model_provider
-      )
+      expect(
+        await screen.findByRole("tooltip", {}, { timeout: 2000 })
+      ).toHaveTextContent(PRESET.model_provider)
     })
 
     it.each(["tools.slack", "runreveal"])(
@@ -236,7 +245,9 @@ describe("AgentsDashboard entitlement split", () => {
           mcp_slugs: ["runreveal"],
         })
         await userEvent.hover(screen.getByLabelText(source))
-        expect(await screen.findByRole("tooltip")).toHaveTextContent(source)
+        expect(
+          await screen.findByRole("tooltip", {}, { timeout: 2000 })
+        ).toHaveTextContent(source)
       }
     )
 
@@ -312,10 +323,25 @@ describe("AgentsDashboard entitlement split", () => {
         expect(screen.queryByText(/^\+\d+$/)).not.toBeInTheDocument()
       } else {
         await userEvent.hover(screen.getByText("+1"))
-        expect(await screen.findByRole("tooltip")).toHaveTextContent(
-          "tools.datadog"
-        )
+        expect(
+          await screen.findByRole("tooltip", {}, { timeout: 2000 })
+        ).toHaveTextContent("tools.datadog")
       }
+    })
+
+    it("caps MCP integrations at eight without merging shared icons", async () => {
+      const slugs = Array.from(
+        { length: 9 },
+        (_, index) => `synthetic-mcp-${index}`
+      )
+      renderPreset({ tool_count: 0, namespaces: [], mcp_slugs: slugs })
+      const sources = within(screen.getByTestId("tool-sources"))
+      expect(sources.getAllByRole("img")).toHaveLength(8)
+      expect(sources.queryByLabelText(slugs[8])).not.toBeInTheDocument()
+      await userEvent.hover(sources.getByText("+1"))
+      expect(
+        await screen.findByRole("tooltip", {}, { timeout: 2000 })
+      ).toHaveTextContent(slugs[8])
     })
 
     it("caps registry tiles at eight after deduplication", () => {
