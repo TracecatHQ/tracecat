@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Kbd } from "@/components/ui/kbd"
 import {
   applyToolSelection,
+  getBlockedActions,
   type PresetToolFields,
   removeTools,
   searchTools,
@@ -107,7 +108,12 @@ function PickerBody({
   const skillCount = [...new Set(skillActions)].filter(
     (key) => !selection.actions.has(key)
   ).length
-  const totalCount = count + skillCount
+  // The backend limit applies after the namespace filter drops blocked actions.
+  const blockedCount = getBlockedActions(
+    [...selection.actions],
+    getValues("namespaces")
+  ).length
+  const totalCount = count - blockedCount + skillCount
   const overLimit = maxTools != null && totalCount > maxTools
   const toolLabel = count === 1 ? "tool" : "tools"
   const selectedIds = useMemo(

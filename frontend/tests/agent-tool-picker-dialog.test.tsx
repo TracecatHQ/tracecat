@@ -435,6 +435,21 @@ it("keeps divs out of buttons in tool option rows and the source rail", () => {
   }
 })
 
+it("leaves actions blocked by the namespace filter out of the limit", () => {
+  render(
+    <TestForm
+      maxTools={1}
+      values={{
+        ...defaults,
+        actions: ["tools.alpha.first", "tools.beta.third"],
+        namespaces: ["tools.alpha"],
+      }}
+    />
+  )
+  expect(screen.getByText("1 of 1 tools")).not.toHaveClass("text-rose-500")
+  expect(screen.getByRole("button", { name: "Done" })).toBeEnabled()
+})
+
 it.each([
   {
     skillActions: ["tools.alpha.first", "tools.beta.third"],
