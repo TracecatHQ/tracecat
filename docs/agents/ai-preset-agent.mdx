@@ -33,18 +33,12 @@ Click `Publish version` in the top right to save a change in any tab.
 
 ## Add tools
 
-1. In the `Tools` tab, click `Add tools`.
-2. Search by name, or pick a source on the left: `All tools`, `Selected`, an MCP server, or a registry namespace.
-3. Check each tool the agent needs. With a namespace selected on the left, the checkbox in the list header selects every tool in it. An MCP server is one checkbox for the whole server.
-4. Click `Done`, then `Publish version`.
+In the `Tools` tab, click `Add tools` and check the tools the agent needs.
+An MCP server is one checkbox for the whole server.
 
-![Add tools dialog](/img/agents/agent-preset-tool-picker.png)
-
-The footer counts the selected tools against the limit, such as `16 of 128 tools`.
+The dialog counts the selected tools against the limit, such as `16 of 128 tools`.
 Registry actions from the preset and its skills count toward the limit. MCP tools do not.
-`Done` is disabled while the selection is over the limit, and Tracecat rejects a save over the limit with a message such as `This agent has 160 tools; the limit is 128.`
-
-To remove a tool, hover its row and click the remove button, or right-click a group and choose `Remove all`.
+Tracecat rejects a save over the limit with a message such as `This agent has 160 tools; the limit is 128.`
 
 Each tool has an `Auto` or `Ask` toggle. See [Human-in-the-loop](/agents/human-in-the-loop#set-approvals-on-a-preset) to require approval before a tool runs.
 
@@ -59,8 +53,6 @@ A preset can delegate work to other presets in the workspace.
    - `Max turns`: The most turns the subagent can take. Leave it empty for no limit.
 3. Click `Publish version`.
 
-![Subagents tab](/img/agents/agent-preset-subagents.png)
-
 Each row shows the subagent's name, model, and alias. Click the name to open that preset.
 
 A preset with its own subagents cannot be attached.
@@ -74,8 +66,6 @@ In the `Output` tab, choose a `Format`:
 - `Text`: The agent returns plain text. This is the default.
 - `Structured`: The agent returns one typed value. Choose a `Type` of `String`, `Integer`, `Float`, or `Boolean`, and turn on `List of values` to return a list.
 - `JSON schema`: The agent returns JSON that matches the schema you enter.
-
-![Output tab](/img/agents/agent-preset-output.png)
 
 Keep `Text` unless a downstream step needs structured output.
 
