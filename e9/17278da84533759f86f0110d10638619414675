@@ -1,0 +1,32 @@
+frontend/src/lib/skill-tools.ts
+  s_46298366954001::t_83814bb59ce985 341-348
+frontend/src/components/skills/skill-tools-panel.tsx
+  s_46298366954001::t_83814bb59ce985 82
+frontend/src/components/tools/tool-picker-dialog.tsx
+  s_46298366954001::t_83814bb59ce985 24,72-82,172-184,238-239,258-260,276-284,301-305,432-437,473,545,612,684,690,702,705-706,722,762-766,769-770,772-774,783,807,816-817,826-827,832-833,836-840
+  s_46298366954001::t_f5e440a4215dab 797
+frontend/tests/skill-tools-panel.test.tsx
+  s_46298366954001::t_f5e440a4215dab 122,128-129,132,137-156,191,195,198-204,208-216,221-243,249-299,302-306,309,317-323,330,332-337,339,341
+frontend/src/components/tools/tool-selection-list.tsx
+  s_46298366954001::t_83814bb59ce985 357-361,417-419,469
+frontend/src/lib/agent-preset-tools.ts
+  s_46298366954001::t_83814bb59ce985 40-41
+frontend/tests/skill-tools.test.ts
+  s_46298366954001::t_f5e440a4215dab 172-177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e917278da84533759f86f0110d10638619414675",
+  "prompts": {},
+  "sessions": {
+    "s_46298366954001": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8148e7d1-b082-4023-a384-0ae94ce7c897",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
