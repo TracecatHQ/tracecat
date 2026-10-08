@@ -2089,7 +2089,7 @@ function AgentPresetConfigurationPanel({
 
   return (
     <ScrollArea className="h-full [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full">
-      <div className="flex min-w-0 w-full flex-col gap-4 px-4 pt-3.5 pb-20 text-xs">
+      <div className="flex min-w-0 w-full flex-col gap-4 px-4 pt-4 pb-20 text-xs">
         <section className="min-w-0 w-full space-y-4">
           <div className="grid min-w-0 grid-cols-1 gap-4">
             <FormField
@@ -2285,6 +2285,7 @@ function AgentPresetConfigurationPanel({
             )}
           />
         </section>
+        <Separator />
         <AgentPresetToolsList
           registryActions={registryActions}
           registryLoading={registryLoading}
@@ -2385,8 +2386,8 @@ export function AgentPresetSubagentsPanel({
   }
 
   return (
-    <div className="h-full overflow-auto pt-2 pb-20 text-xs">
-      <div className="flex h-11 items-center gap-2 border-b border-border/50 px-4">
+    <div className="h-full overflow-auto pb-20 text-xs">
+      <div className="flex h-14 items-center gap-2 border-b border-border/50 px-4">
         <h3 className="font-medium">Subagents</h3>
         <span className="text-muted-foreground">{subagentFields.length}</span>
         <div className="ml-auto">
@@ -2819,8 +2820,8 @@ export function AgentPresetSkillsPanel({
   }
 
   return (
-    <div className="h-full overflow-auto pt-2 pb-20 text-xs">
-      <div className="flex h-11 items-center gap-2 border-b border-border/50 px-4">
+    <div className="h-full overflow-auto pb-20 text-xs">
+      <div className="flex h-14 items-center gap-2 border-b border-border/50 px-4">
         <h3 className="font-medium">Skills</h3>
         <span className="text-muted-foreground">{skillFields.length}</span>
         <div className="ml-auto">
