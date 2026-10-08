@@ -238,6 +238,8 @@ That count is reliable only because the row holds nothing but the index column. 
 
 The key is the Slack `event_id` for an event. For the owner's button click it is `gd_confirm:<case id>`, built from the button value, so only the first answer on a case is recorded. For a click by anyone else, and for payloads with nothing to claim, the row list is empty and the result is 0. Whether the click is the owner's comes from `route`'s `owner_click` flag.
 
+A claim is not released when a later step fails. The webhook answers Slack with 200 as soon as the run starts, before `handle_event` runs, so Slack does not resend an event because a step failed. Slack only resends a delivery that got no timely 200. Recovery is by hand: see `handle_event`.
+
 ```yaml
 - ref: claim_event
   action: core.table.insert_rows
@@ -259,6 +261,8 @@ The key is the Slack `event_id` for an event. For the owner's button click it is
 ### handle_event
 
 Hands the whole trigger to Socky as JSON. Runs when a row was claimed or when there was nothing to claim. It waits for both `claim_event` and `ack_owner_click`, so on a button answer the pending line is always written before Socky replaces it. `join_strategy: any` lets it run for a mention or a manual run, where `ack_owner_click` is skipped. Socky reads the payload and loads `slack-case-threads` for a mention or a button answer, or a lifecycle skill for a manual run.
+
+If this step fails or times out, the run shows as failed and the event stays claimed. For an owner click, the message stays at `Socky is recording it.` and the case is unchanged. To recover, delete that event's row from `slack_events` (the Slack `event_id`, or `gd_confirm:<case id>`), then run the workflow by hand with the failed run's trigger input. Watch for failed runs of this workflow: an unrecorded No is an unrecorded denial.
 
 ```yaml
 - ref: handle_event

@@ -185,8 +185,9 @@ Keep it current. A stale employee list sends the Yes/No ask to nobody.
 
 ## Known gaps in the source
 
-The skills are sanitised copies from a working setup. A few parts still disagree with the workflow and are kept as they were.
+The skills are sanitised copies from a working setup. A few parts still disagree with the workflow and are kept as they were. One limit of the workflow is listed here too.
 
 - `slack-case-threads` says the app subscribes only to `app_mention`. The manifest also subscribes to `entity_details_requested`, which the workflow answers before the agent is involved.
+- A failed `handle_event` is not retried. The run shows as failed and the Slack event stays claimed; for an owner click the message stays at `Socky is recording it.` Recover by deleting the event's row from `slack_events` and re-running the workflow by hand with the same trigger input. `workflow.md` has the details.
 - `hypothesis-library.md` says the workflow posts open questions. Socky posts everything itself.
 - The skills were written for GuardDuty first. `detection-event-case-lifecycle` stage 7 lists the substitutions for other alerts.

@@ -82,15 +82,17 @@ The detection name is the family. It feeds the group tag, and in hypothesis-driv
 
 A tag name holds at most 50 characters, so tags never carry a long name whole. The detection tag name is the detection name cut to its first 30 characters. Use it, not the full name, in every tag. In the `alert-<id>` tag, cut an id longer than 44 characters to its first 44.
 
+A cut tag can match a different alert, rule or principal that shares the prefix. So a tag never decides identity alone: stage 3 confirms each hit against the full value stored in the case's fields. `finding_ids` always holds full, uncut alert ids, and `finding_type` the full detection name.
+
 The group key is `<detection tag name>-<account>`. With no account, use the principal's last path segment in lower case, with every character outside `a-z`, `0-9` and `-` replaced by `-`, cut to 12 characters. With neither, the group key is the detection tag name alone.
 
 ## 3. Find the case
 
-1. **Same alert.** Call `core.cases.search_cases` with tags `["alert-<id>"]`, no `status` filter, `start_time` 90 days ago, `order_by` `created_at`, `sort` `desc`, `limit` 1. It is a hit when the returned case carries that tag. When the hit is a `resolved` or `closed` case, a person has finished with this alert: return `Alert <id> is on <short_id>, which is <status>; nothing to do.` and stop.
+1. **Same alert.** Call `core.cases.search_cases` with tags `["alert-<id>"]`, no `status` filter, `start_time` 90 days ago, `order_by` `created_at`, `sort` `desc`, `limit` 10. It is a hit only when a returned case carries that tag and its `finding_ids` field contains this alert's full id. A case that matches on the tag alone belongs to another alert with the same first 44 characters: ignore it and go on to the group search. When the hit is a `resolved` or `closed` case, a person has finished with this alert: return `Alert <id> is on <short_id>, which is <status>; nothing to do.` and stop.
 2. **Already published.** An alert does not change after it is raised. On a same-alert hit, call `core.table.lookup` on `slack_work_objects` with column `external_ref_id` and the case id. With a row, call `tools.slack.list_replies` on the row's `channel` and `message_ts`. When the thread holds the brief (the bot's reply whose text starts `*Verdict:*`), the alert is triaged and published. Return `Alert <id> already published on <short_id>; nothing to do.` and stop. With no row, or with a card that has no brief under it, an earlier run did not finish: continue on that case. `slack-delivery.md` then posts only what is missing.
-3. **Same group.** With no alert hit, search tags `["group-<group key>"]` with status `["new", "in_progress", "on_hold"]`, `start_time` 24 hours ago, newest first, `limit` 1. It is a hit when the case carries that tag and carries neither `owner-confirmed` nor `owner-denied`.
+3. **Same group.** With no alert hit, search tags `["group-<group key>"]` with status `["new", "in_progress", "on_hold"]`, `start_time` 24 hours ago, newest first, `limit` 1. It is a hit when the case carries that tag, carries neither `owner-confirmed` nor `owner-denied`, and is the same group in full: its `finding_type` equals the full detection name and, when the group key was built from the principal, the last path segment of its `principal` field equals this alert's, compared in full. Otherwise it is another group with the same prefix: treat it as no hit and create a case.
 4. **Attach** on either hit. Call `core.cases.update_case` on that case. Pass the custom fields under `fields` and the summary under `payload`. In `fields`:
-   - `finding_ids`: the existing list, with this alert id appended if absent. The field is labelled Finding IDs; for a detection event it holds alert ids.
+   - `finding_ids`: the existing list, with this alert's full id appended if absent. The field is labelled Finding IDs; for a detection event it holds alert ids.
    - `first_seen`: keep the existing value; set it only when empty.
    - `last_seen`: the later of the existing value and this alert's last seen.
    - `finding_count`: when the alert id is new to the case, the existing count plus this alert's count. When the id is already on the case, leave it.
@@ -106,7 +108,7 @@ The group key is `<detection tag name>-<account>`. With no account, use the prin
    - status `new`, severity `low`
    - `create_missing_tags` true
    - tags `detection-event`, `source-<siem>`, `detection-<detection tag name>`, `group-<group key>`, `alert-<id>`, and `account-<account>` when the row gives an account
-   - fields `aws_account` (only when the account is an AWS account id), `finding_count`, `finding_ids` (`[<id>]`), `finding_type`, `first_seen`, `last_seen`, `principal`, `region`, `resource`, leaving out any that is `not recorded`
+   - fields `aws_account` (only when the account is an AWS account id), `finding_count`, `finding_ids` (`[<full id>]`), `finding_type` (the full detection name), `first_seen`, `last_seen`, `principal`, `region`, `resource`, leaving out any that is `not recorded`
    - `payload` with the same `finding_summary`
 
 Keep the case id, its short id (`CASE-0001`), its URL, and whether you created it or attached to it.
@@ -139,7 +141,7 @@ Load business-context if you have that skill, then hypothesis-driven-triage and 
 - **The alert's own indicator.** Look it up with the threat enrichment tools you have (domain first, else the address), and with an IP reputation tool for an address.
   - A first-seen date within a few minutes of now means the enrichment service had never seen the indicator before this lookup. Zero detections then means no prior record, not a clean verdict.
   - An alert with no domain and no public address has no external indicator. Say so rather than leaving the field blank.
-- **History.** Prior cases for the same rule (`core.cases.search_cases` with tags `["detection-<detection tag name>"]`, 90 days) with their outcomes, and how often the same principal did the same thing over 90 days in the SIEM. A rule that fires on the same automated principal every day is a pattern to name, with its count.
+- **History.** Prior cases for the same rule (`core.cases.search_cases` with tags `["detection-<detection tag name>"]`, 90 days; count only cases whose `finding_type` equals the full detection name) with their outcomes, and how often the same principal did the same thing over 90 days in the SIEM. A rule that fires on the same automated principal every day is a pattern to name, with its count.
 - **Shared workload role sessions, only when the actor is a shared workload role.** Some organisations run many tenants or jobs through one shared role that assumes other roles on their behalf. business-context names that role and its session naming pattern when your organisation has one. When the principal is that role or a session it assumed, query the SIEM for the role's cross-account `AssumeRole` sessions from 2 minutes before first seen to 2 minutes after last seen, grouped by tenant session prefix and role. The query below shows the logic in one SQL dialect; table, column and function names are `<adapt to your SIEM>`:
 
   ```sql
