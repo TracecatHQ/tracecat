@@ -51,8 +51,7 @@ export function AgentPresetToolsList({
   registryLoading = false,
   mcpLoading = false,
   toolsLoadError = false,
-  effectiveActions,
-  savedActions,
+  skillActions,
 }: {
   registryActions?: RegistryActionReadMinimal[]
   mcpIntegrations?: MCPIntegrationRead[]
@@ -61,8 +60,7 @@ export function AgentPresetToolsList({
   registryLoading?: boolean
   mcpLoading?: boolean
   toolsLoadError?: boolean
-  effectiveActions?: string[] | null
-  savedActions?: string[] | null
+  skillActions?: string[] | null
 }) {
   const { control, getValues, setValue } = useFormContext<PresetToolFields>()
   const actions = useWatch({ control, name: "actions" })
@@ -102,7 +100,6 @@ export function AgentPresetToolsList({
   const [query, setQuery] = useState("")
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const selected = new Set(actions)
-  const saved = new Set(savedActions)
   const defaultAskKeys = new Set(
     index.entries.filter((entry) => entry.defaultAsk).map((entry) => entry.key)
   )
@@ -112,7 +109,6 @@ export function AgentPresetToolsList({
   const blocked = getBlockedActions(actions, namespaces)
   const loading = registryLoading || mcpLoading
   const ready = !loading && !toolsLoadError
-  const skillActions = effectiveActions?.filter((key) => !saved.has(key))
   const skillKeys = new Set(skillActions?.filter((key) => !selected.has(key)))
   const unavailable = ready
     ? actions.filter((key) => !index.byKey.has(key))
@@ -168,7 +164,12 @@ export function AgentPresetToolsList({
 
   function remove(keys: string[]) {
     const current = getValues()
-    const next = removeTools(current, new Set(keys), defaultAskKeys)
+    const next = removeTools(
+      current,
+      new Set(keys),
+      defaultAskKeys,
+      new Set(skillActions)
+    )
     if (next.actions !== current.actions)
       setValue("actions", next.actions, { shouldDirty: true })
     writeRules(next.toolApprovals)
@@ -488,7 +489,7 @@ export function AgentPresetToolsList({
         open={open && ready}
         onOpenChange={setOpen}
         maxTools={maxTools}
-        skillActions={skillActions}
+        skillActions={skillActions ?? undefined}
         disabled={isSaving}
       />
     </section>

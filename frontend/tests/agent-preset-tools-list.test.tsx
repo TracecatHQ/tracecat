@@ -350,12 +350,7 @@ it("shows skill-contributed policy tools once with approval controls and no remo
   render(
     <TestForm
       listProps={{
-        savedActions: defaults.actions,
-        effectiveActions: [
-          "tools.test.first",
-          "tools.test.third",
-          "skill.unknown",
-        ],
+        skillActions: ["tools.test.first", "tools.test.third", "skill.unknown"],
       }}
       values={{
         ...defaults,
@@ -433,7 +428,7 @@ it("hides filtered group headings and shows one no-match line", async () => {
   const user = userEvent.setup()
   render(
     <TestForm
-      listProps={{ effectiveActions: ["skill.tool"] }}
+      listProps={{ skillActions: ["skill.tool"] }}
       values={{
         ...defaults,
         actions: [...defaults.actions, "missing.tool"],
@@ -465,8 +460,7 @@ it("does not turn removed saved actions into skill tools or retain their approva
   render(
     <TestForm
       listProps={{
-        effectiveActions: defaults.actions,
-        savedActions: defaults.actions,
+        skillActions: [],
       }}
     />
   )
@@ -525,7 +519,7 @@ it("uses action defaults for skill tools and bulk approval changes", async () =>
           ...action,
           requires_approval: true,
         })),
-        effectiveActions: [actions[0].action],
+        skillActions: [actions[0].action],
       }}
     />
   )
@@ -557,3 +551,31 @@ it("uses action defaults for skill tools and bulk approval changes", async () =>
     { tool: actions[0].action, allow: false },
   ])
 })
+
+it.each(["tool", "group"])(
+  "reveals overlapping skill grants and keeps approvals after removing the %s",
+  async (target) => {
+    const user = userEvent.setup()
+    render(<TestForm listProps={{ skillActions: [actions[0].action] }} />)
+    expect(screen.queryByText("From skills")).not.toBeInTheDocument()
+    const group = screen.getByRole("button", { name: /Test tools tools.test/ })
+    if (target === "group") {
+      fireEvent.contextMenu(group)
+      await user.click(screen.getByRole("menuitem", { name: "Remove all" }))
+    } else {
+      await user.click(group)
+      await user.click(
+        screen.getByRole("button", { name: "Remove tools.test.first" })
+      )
+    }
+    const skillGroup = screen.getByText("From skills")
+      .parentElement as HTMLElement
+    expect(
+      within(skillGroup).getByRole("button", {
+        name: "Require approval for tools.test.first",
+      })
+    ).toHaveAttribute("aria-pressed", "true")
+    expect(values().actions).not.toContain(actions[0].action)
+    expect(values().toolApprovals).toEqual(defaults.toolApprovals)
+  }
+)

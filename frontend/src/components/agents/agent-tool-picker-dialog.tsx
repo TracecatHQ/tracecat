@@ -301,7 +301,8 @@ function PickerBody({
         index.entries
           .filter((entry) => entry.defaultAsk)
           .map((entry) => entry.key)
-      )
+      ),
+      new Set(skillActions)
     )
     if (actions !== current.actions)
       setValue("actions", actions, { shouldDirty: true })

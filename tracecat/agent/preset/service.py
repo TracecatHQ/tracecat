@@ -287,6 +287,7 @@ class AgentPresetService(BaseWorkspaceService):
     def _tool_policy_read(policy: EffectivePresetTools) -> AgentPresetToolPolicyRead:
         return AgentPresetToolPolicyRead(
             actions=list(policy.actions),
+            skill_actions=list(policy.skill_actions),
             max_tools=config.TRACECAT__AGENT_MAX_TOOLS
             if config.TRACECAT__AGENT_MAX_TOOLS > 0
             else None,

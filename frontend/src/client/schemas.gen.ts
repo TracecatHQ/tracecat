@@ -3146,6 +3146,14 @@ export const $AgentPresetToolPolicyRead = {
       type: "array",
       title: "Actions",
     },
+    skill_actions: {
+      items: {
+        type: "string",
+      },
+      type: "array",
+      title: "Skill Actions",
+      description: "Effective registry actions granted by attached skills.",
+    },
     max_tools: {
       anyOf: [
         {

@@ -93,6 +93,7 @@ def resolve_tool_policy(
                 )
 
     actions: dict[str, None] = {}
+    skill_actions: dict[str, None] = {}
     blocked: list[PresetToolSource] = []
     for source in registry_sources:
         if inputs.namespaces and not any(
@@ -101,6 +102,8 @@ def resolve_tool_policy(
             blocked.append(source)
         elif source.tool_id not in EXCLUDED_AGENT_ACTIONS:
             actions[source.tool_id] = None
+            if source.skill_id is not None:
+                skill_actions[source.tool_id] = None
 
     grants: dict[uuid.UUID, set[str] | None] = {}
     internet_sources: list[PresetToolSource] = []
@@ -141,6 +144,7 @@ def resolve_tool_policy(
 
     return EffectivePresetTools(
         actions=tuple(actions),
+        skill_actions=tuple(skill_actions),
         mcp_grants=tuple(
             SkillMcpGrant(
                 integration_id, frozenset(names) if names is not None else None

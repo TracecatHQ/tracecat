@@ -369,6 +369,10 @@ class AgentPresetToolPolicyRead(Schema):
     """Non-secret effective policy for rendering preset configuration."""
 
     actions: list[str] = Field(default_factory=list)
+    skill_actions: list[str] = Field(
+        default_factory=list,
+        description="Effective registry actions granted by attached skills.",
+    )
     max_tools: int | None = Field(default=None)
     requires_internet_access: bool = False
     has_approvals: bool = False

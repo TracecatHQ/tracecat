@@ -43,10 +43,54 @@ def test_namespace_policy_preserves_blocked_tool_provenance() -> None:
         {},
     )
     assert policy.actions == ("core.cases.read",)
+    assert policy.skill_actions == ()
     assert [(source.tool_id, source.skill_id) for source in policy.blocked_tools] == [
         ("tools.example.read", None),
         ("tools.example.read", skill_id),
     ]
+
+
+def test_skill_actions_preserve_overlapping_grants_and_first_seen_order() -> None:
+    version_ids = [uuid.uuid4(), uuid.uuid4()]
+    versions = {}
+    for version_id, tools in zip(
+        version_ids,
+        [
+            ["tools.example.shared", "tools.example.second", "core.script.run_python"],
+            ["tools.example.second", "tools.example.shared", "tools.example.third"],
+        ],
+        strict=True,
+    ):
+        version = SkillVersion(id=version_id, skill_id=uuid.uuid4(), name="triage")
+        version.tools = [SkillVersionTool(tool_id=tool) for tool in tools]
+        version.mcp_tools = []
+        versions[version_id] = version
+    policy = resolve_tool_policy(
+        PresetToolInputs(
+            uuid.uuid4(),
+            ["tools.example.direct", "tools.example.shared"],
+            [],
+            [],
+            {},
+            version_ids,
+        ),
+        versions,
+        {},
+    )
+    assert policy.actions == (
+        "tools.example.direct",
+        "tools.example.shared",
+        "tools.example.second",
+        "tools.example.third",
+    )
+    assert policy.skill_actions == (
+        "tools.example.shared",
+        "tools.example.second",
+        "tools.example.third",
+    )
+    assert AgentPresetService._tool_policy_read(policy).skill_actions == list(
+        policy.skill_actions
+    )
 
 
 @pytest.mark.parametrize("direct", [False, True])
@@ -265,6 +309,7 @@ async def test_preview_loads_direct_mcp_metadata_once(
     preview = await service.preview_tool_policy(
         AgentPresetToolPolicyPreview(mcp_integrations=[str(integration_id)])
     )
+    assert preview.skill_actions == []
     assert preview.internet_sources[0].tool_id == f"mcp.{integration_id}"
     load.assert_awaited_once()
 

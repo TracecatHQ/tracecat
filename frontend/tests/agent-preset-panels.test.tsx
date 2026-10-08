@@ -683,8 +683,7 @@ function ConfigurationTestForm({
           savedSkillIds={savedSkillIds}
           savedNamespaces={savedNamespaces}
           maxTools={savedSkillIds === undefined ? undefined : 128}
-          effectiveActions={["tools.test.authored", "tools.test.saved"]}
-          savedActions={["tools.test.authored"]}
+          savedSkillActions={["tools.test.authored", "tools.test.saved"]}
           form={form}
           isSaving={false}
           registryActions={[
@@ -756,7 +755,10 @@ it("previews changed skills and removes the group without a request when all ski
   const preview = jest
     .mocked(agentPresetsPreviewToolPolicy)
     .mockClear()
-    .mockResolvedValue({ actions: ["tools.test.preview"] })
+    .mockResolvedValue({
+      actions: ["tools.test.preview"],
+      skill_actions: ["tools.test.preview"],
+    })
   renderConfiguration({ savedSkillIds: ["saved-skill"] })
   expect(preview).not.toHaveBeenCalled()
   await user.click(screen.getByRole("button", { name: "Change skills" }))
@@ -803,7 +805,10 @@ it("hides saved skill tools during the first preview and hides previous tools af
   expect(preview).toHaveBeenCalledTimes(1)
   expect(screen.queryByText("From skills")).not.toBeInTheDocument()
   await act(async () => {
-    resolvePreview({ actions: ["tools.test.preview"] })
+    resolvePreview({
+      actions: ["tools.test.preview"],
+      skill_actions: ["tools.test.preview"],
+    })
     await pending
   })
   expect(await screen.findByText("tools.test.preview")).toBeInTheDocument()
@@ -821,6 +826,7 @@ it("previews cleared namespace filters even when skills are unchanged", async ()
     .mockClear()
     .mockResolvedValue({
       actions: ["tools.test.authored", "tools.test.preview"],
+      skill_actions: ["tools.test.authored", "tools.test.preview"],
     })
   renderConfiguration({ savedSkillIds: ["saved-skill"] })
   expect(preview).not.toHaveBeenCalled()
@@ -855,7 +861,10 @@ it("hides previous preview tools while changed skills are pending", async () => 
   const preview = jest
     .mocked(agentPresetsPreviewToolPolicy)
     .mockClear()
-    .mockResolvedValueOnce({ actions: ["tools.test.preview"] })
+    .mockResolvedValueOnce({
+      actions: ["tools.test.preview"],
+      skill_actions: ["tools.test.preview"],
+    })
     .mockReturnValueOnce(pending)
   renderConfiguration({ skillIds: ["first-skill"] })
   expect(await screen.findByText("tools.test.preview")).toBeInTheDocument()
@@ -864,7 +873,10 @@ it("hides previous preview tools while changed skills are pending", async () => 
   expect(screen.queryByText("From skills")).not.toBeInTheDocument()
   expect(screen.queryByText("tools.test.preview")).not.toBeInTheDocument()
   await act(async () => {
-    resolvePreview({ actions: ["tools.test.saved"] })
+    resolvePreview({
+      actions: ["tools.test.saved"],
+      skill_actions: ["tools.test.saved"],
+    })
     await pending
   })
   expect(await screen.findByText("tools.test.saved")).toBeInTheDocument()
@@ -876,7 +888,7 @@ it("previews a new preset without skills once and uses its tool limit", async ()
   const preview = jest
     .mocked(agentPresetsPreviewToolPolicy)
     .mockClear()
-    .mockResolvedValue({ actions: [], max_tools: 7 })
+    .mockResolvedValue({ actions: [], skill_actions: [], max_tools: 7 })
   renderConfiguration({})
   await user.click(screen.getByRole("button", { name: "Add tools" }))
   expect(
@@ -895,7 +907,11 @@ it("previews skills on a new preset and uses the preview tool limit", async () =
   const preview = jest
     .mocked(agentPresetsPreviewToolPolicy)
     .mockClear()
-    .mockResolvedValue({ actions: ["tools.test.preview"], max_tools: 7 })
+    .mockResolvedValue({
+      actions: ["tools.test.preview"],
+      skill_actions: ["tools.test.preview"],
+      max_tools: 7,
+    })
   renderConfiguration({ skillIds: ["new-skill"] })
   expect(await screen.findByText("tools.test.preview")).toBeInTheDocument()
   expect(preview).toHaveBeenCalledTimes(1)

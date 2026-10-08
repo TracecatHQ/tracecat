@@ -872,6 +872,10 @@ export type AgentPresetToolPolicyPreview = {
  */
 export type AgentPresetToolPolicyRead = {
   actions?: Array<string>
+  /**
+   * Effective registry actions granted by attached skills.
+   */
+  skill_actions?: Array<string>
   max_tools?: number | null
   requires_internet_access?: boolean
   has_approvals?: boolean

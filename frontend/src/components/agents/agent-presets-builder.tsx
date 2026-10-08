@@ -1952,8 +1952,7 @@ function AgentPresetRightPanel({
                   : undefined
               }
               maxTools={preset?.tool_policy?.max_tools}
-              effectiveActions={preset?.tool_policy?.actions}
-              savedActions={preset?.actions}
+              savedSkillActions={preset?.tool_policy?.skill_actions}
               savedNamespaces={preset?.namespaces}
               form={form}
               isSaving={isSaving}
@@ -2023,8 +2022,7 @@ export function AgentPresetConfigurationPanel({
   mcpIntegrations,
   hasStdioMcp,
   maxTools,
-  effectiveActions,
-  savedActions,
+  savedSkillActions,
 }: {
   workspaceId: string
   savedSkillIds?: string[]
@@ -2040,8 +2038,7 @@ export function AgentPresetConfigurationPanel({
   mcpIntegrations: MCPIntegrationRead[]
   hasStdioMcp: boolean
   maxTools?: number | null
-  effectiveActions?: string[] | null
-  savedActions?: string[] | null
+  savedSkillActions?: string[] | null
 }) {
   const skills = useWatch({ control: form.control, name: "skills" })
   const namespaces = useWatch({ control: form.control, name: "namespaces" })
@@ -2079,10 +2076,10 @@ export function AgentPresetConfigurationPanel({
       },
       { enabled: previewEnabled }
     )
-  let skillActions = effectiveActions
+  let skillActions = savedSkillActions
   if (policyChanged) {
     skillActions =
-      previewEnabled && !previewFailed ? preview?.actions : undefined
+      previewEnabled && !previewFailed ? preview?.skill_actions : undefined
   }
   const catalogId = form.watch("catalog_id")
   const sourceId = form.watch("source_id")
@@ -2359,8 +2356,7 @@ export function AgentPresetConfigurationPanel({
             maxTools ??
             (savedSkillIds === undefined ? preview?.max_tools : undefined)
           }
-          effectiveActions={skillActions}
-          savedActions={policyChanged ? undefined : savedActions}
+          skillActions={skillActions}
         />
       </div>
     </ScrollArea>

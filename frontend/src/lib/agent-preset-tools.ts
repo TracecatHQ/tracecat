@@ -180,16 +180,19 @@ export function setToolApproval(
   return rules.map((rule, i) => (i === index ? { ...rule, allow: ask } : rule))
 }
 
-/** Remove tools and their approval rules, retaining false rules that restate an auto default. */
+/** Remove tools, keeping rules for retained grants or false rules that restate an auto default. */
 export function removeTools(
   fields: Pick<PresetToolFields, "actions" | "toolApprovals">,
   removed: ReadonlySet<string>,
-  defaultAskKeys: ReadonlySet<string> = new Set()
+  defaultAskKeys: ReadonlySet<string> = new Set(),
+  retainedKeys: ReadonlySet<string> = new Set()
 ): Pick<PresetToolFields, "actions" | "toolApprovals"> {
   const actions = fields.actions.filter((key) => !removed.has(key))
   const rules = fields.toolApprovals.filter(
     (rule) =>
-      !removed.has(rule.tool) || (!rule.allow && !defaultAskKeys.has(rule.tool))
+      !removed.has(rule.tool) ||
+      retainedKeys.has(rule.tool) ||
+      (!rule.allow && !defaultAskKeys.has(rule.tool))
   )
   return {
     actions:

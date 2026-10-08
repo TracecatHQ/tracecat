@@ -526,3 +526,31 @@ it("removes an Auto override when deselecting a default-ask action", async () =>
   await user.click(screen.getByRole("button", { name: "Done" }))
   expect(values().toolApprovals).toEqual([])
 })
+
+it("keeps the limit count and approval when deselecting a skill-granted action", async () => {
+  const user = userEvent.setup()
+  const rule = { tool: actions[0].action, allow: true }
+  render(
+    <TestForm
+      maxTools={1}
+      skillActions={[actions[0].action]}
+      values={{
+        ...defaults,
+        actions: [actions[0].action],
+        toolApprovals: [rule],
+      }}
+    />
+  )
+  expect(screen.getByText("1 of 1 tools")).toBeInTheDocument()
+  await user.click(screen.getByRole("option", { name: /tools.alpha.first/ }))
+  expect(screen.getByText("1 of 1 tools (1 from skills)")).toBeInTheDocument()
+  await user.click(screen.getByRole("option", { name: /tools.alpha.second/ }))
+  expect(
+    screen.getByText("2 of 1 tools (1 from skills) · remove 1 to continue")
+  ).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Done" })).toBeDisabled()
+  await user.click(screen.getByRole("option", { name: /tools.alpha.second/ }))
+  await user.click(screen.getByRole("button", { name: "Done" }))
+  expect(values().actions).toEqual([])
+  expect(values().toolApprovals).toEqual([rule])
+})

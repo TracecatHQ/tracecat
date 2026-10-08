@@ -500,6 +500,7 @@ def test_build_agent_preset_tool_summary(
     """Summaries count registry actions and report distinct sorted namespaces."""
     policy = EffectivePresetTools(
         actions=actions,
+        skill_actions=(),
         mcp_grants=(),
         mcp_slugs=(),
         tool_approvals={},

@@ -190,3 +190,26 @@ it("removes a removed tool's rules, retaining false rules on default-auto tools"
   expect(unchanged.actions).toBe(fields.actions)
   expect(unchanged.toolApprovals).toBe(fields.toolApprovals)
 })
+
+it("keeps approval rules for removed tools still granted by another source", () => {
+  const fields = {
+    actions: ["retained", "removed"],
+    toolApprovals: [
+      { tool: "retained", allow: true },
+      { tool: "retained", allow: false },
+      { tool: "removed", allow: true },
+      { tool: "removed", allow: false },
+    ],
+  }
+  expect(
+    removeTools(
+      fields,
+      new Set(fields.actions),
+      new Set(fields.actions),
+      new Set(["retained"])
+    )
+  ).toEqual({
+    actions: [],
+    toolApprovals: fields.toolApprovals.slice(0, 2),
+  })
+})
