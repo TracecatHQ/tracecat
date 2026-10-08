@@ -166,9 +166,10 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
     ) -> CorrelatedSecretStores:
         """Point AWS-backed specs at authorized stores before preview or import.
 
-        A store name matching an authorized store resolves as is. A chosen store
-        replaces the name for every secret that uses it. Names left unmatched are
-        returned as requirements without blocking; those secrets import unlinked.
+        A store name matching a usable authorized store resolves as is. A chosen
+        store replaces the name for every secret that uses it. Names left
+        unmatched are returned as requirements without blocking; those secrets
+        import unlinked. Secrets already linked here keep that link.
         """
         requested = requested_store_mappings or {}
         by_store: dict[str, list[tuple[str, SecretMetadataResourceSpec]]] = {}
@@ -192,17 +193,17 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
             )
             for name in sorted(set(requested) - set(by_store))
         ]
-        external = [
-            source_id
+        external = {
+            source_id: spec
             for source_id, spec in sorted(secret_metadata.items())
             if spec.source == SecretSource.AWS_SECRETS_MANAGER
-        ]
+        }
         if external and not await workspace_service.has_entitlement(
             Entitlement.EXTERNAL_SECRET_STORES
         ):
             diagnostics.append(
                 PullDiagnostic(
-                    workflow_path=self.source_path(external[0]),
+                    workflow_path=self.source_path(next(iter(external))),
                     workflow_title=None,
                     error_type="dependency",
                     message=(
@@ -216,12 +217,16 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 )
             )
             return CorrelatedSecretStores(secret_metadata, diagnostics, [])
-        if not by_store:
+        if not external:
             return CorrelatedSecretStores(secret_metadata, diagnostics, [])
 
-        stores = await SecretReferencesService(
-            session=workspace_service.session, role=workspace_service.role
-        ).list_all_authorized_stores()
+        stores = [
+            store
+            for store in await SecretReferencesService(
+                session=workspace_service.session, role=workspace_service.role
+            ).list_all_authorized_stores()
+            if _is_usable_store(store)
+        ]
         stores_by_name = {store.name: store for store in stores}
         stores_by_id = {store.id: store for store in stores}
         candidates = [
@@ -231,19 +236,17 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 region=(store.config or {}).get("region"),
             )
             for store in stores
-            if store.enabled
         ]
-        existing = await self._existing_secrets(
-            workspace_service,
-            {
-                source_id: spec
-                for specs in by_store.values()
-                for source_id, spec in specs
-            },
-        )
+        existing = await self._existing_secrets(workspace_service, external)
 
         correlated = dict(secret_metadata)
         requirements: list[SecretStoreMappingRequirement] = []
+        for source_id, spec in external.items():
+            secret = existing.get(source_id)
+            if not spec.store and secret is not None and _is_linked(secret):
+                correlated[source_id] = self._kept_linked_reference(
+                    source_id, spec, secret, stores_by_id, diagnostics
+                )
         for name, specs in sorted(by_store.items()):
             target_id = requested.get(name)
             store = (
@@ -260,22 +263,12 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                 affected: list[tuple[str, SecretMetadataResourceSpec]] = []
                 for source_id, spec in specs:
                     secret = existing.get(source_id)
-                    if (
-                        secret is None
-                        or not is_external_reference(secret)
-                        or secret.store is None
-                    ):
+                    if secret is None or not _is_linked(secret):
                         affected.append((source_id, spec))
                     elif reason == "unresolved":
-                        kept = _kept_reference_spec(spec, secret)
-                        correlated[source_id] = kept
-                        linked_store = stores_by_id.get(secret.store.id)
-                        if linked_store is not None and (
-                            diagnostic := self._reference_diagnostic(
-                                source_id, kept, linked_store
-                            )
-                        ):
-                            diagnostics.append(diagnostic)
+                        correlated[source_id] = self._kept_linked_reference(
+                            source_id, spec, secret, stores_by_id, diagnostics
+                        )
                 if not affected and reason == "unresolved":
                     continue
                 requirement = self._store_requirement(
@@ -306,7 +299,7 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                     correlated[source_id] = spec.model_copy(
                         update={"store": store.name}
                     )
-            if target_id is not None and incompatible:
+            if incompatible:
                 requirements.append(
                     self._store_requirement(
                         name,
@@ -316,10 +309,30 @@ class SecretMetadataAdapter(EnvironmentScopedManifestAdapter):
                         message=(
                             f"Store {store.name!r} can't read every secret that "
                             f"uses {name!r}. Choose another store."
+                            if store.name != name
+                            else f"Store {name!r} can't read every secret that "
+                            "uses it. Choose another store."
                         ),
                     )
                 )
         return CorrelatedSecretStores(correlated, diagnostics, requirements)
+
+    def _kept_linked_reference(
+        self,
+        source_id: str,
+        spec: SecretMetadataResourceSpec,
+        secret: Secret,
+        stores_by_id: Mapping[uuid.UUID, OrganizationSecretStore],
+        diagnostics: list[PullDiagnostic],
+    ) -> SecretMetadataResourceSpec:
+        """Return the reference import keeps for ``secret``, checking it."""
+        kept = _kept_reference_spec(spec, secret)
+        linked_store = stores_by_id.get(secret.store_id) if secret.store_id else None
+        if linked_store is not None and (
+            diagnostic := self._reference_diagnostic(source_id, kept, linked_store)
+        ):
+            diagnostics.append(diagnostic)
+        return kept
 
     def _store_requirement(
         self,
@@ -694,15 +707,28 @@ async def _authorized_store_named(
     stores_by_name: dict[str, OrganizationSecretStore | None],
     name: str | None,
 ) -> OrganizationSecretStore | None:
-    """Return the authorized store with ``name``, or None when there is none."""
+    """Return the usable authorized store with ``name``, or None."""
     if name is None:
         return None
     if name not in stores_by_name:
         try:
-            stores_by_name[name] = await references.get_authorized_store_by_name(name)
+            store = await references.get_authorized_store_by_name(name)
         except TracecatAuthorizationError:
-            stores_by_name[name] = None
+            store = None
+        stores_by_name[name] = (
+            store if store is not None and _is_usable_store(store) else None
+        )
     return stores_by_name[name]
+
+
+def _is_usable_store(store: OrganizationSecretStore) -> bool:
+    """Whether workflows can resolve references through ``store``."""
+    return store.enabled and bool((store.config or {}).get("role_arn"))
+
+
+def _is_linked(secret: Secret) -> bool:
+    """Whether ``secret`` is an AWS reference linked to a store here."""
+    return is_external_reference(secret) and secret.store_id is not None
 
 
 class _ExternalReferenceFields(TypedDict, total=False):

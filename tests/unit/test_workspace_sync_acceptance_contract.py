@@ -7122,6 +7122,8 @@ async def _aws_store(
     authorize: bool = True,
     name: str = "prod",
     region: str = "us-east-1",
+    enabled: bool = True,
+    role_arn: str | None = "arn:aws:iam::123456789012:role/reader",
 ) -> OrganizationSecretStore:
     assert role.organization_id is not None
     assert role.workspace_id is not None
@@ -7131,11 +7133,12 @@ async def _aws_store(
         provider="aws_secrets_manager",
         config={
             "provider": "aws_secrets_manager",
-            "role_arn": "arn:aws:iam::123456789012:role/reader",
+            "role_arn": role_arn,
             "region": region,
             "external_id": "external-id",
         },
         all_workspaces=all_workspaces,
+        enabled=enabled,
     )
     session.add(store)
     await session.flush()
@@ -7728,6 +7731,98 @@ async def test_secret_store_mapping_preview_matches_apply_for_manual_link(
     await session.refresh(secret)
     assert secret.store_id == west.id
     assert secret.remote_reference == _AWS_WEST_SECRET_ARN
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_offers_picker_when_matching_store_cannot_read(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    east = await _aws_store(session, svc_role, name="east")
+    same_name = await _aws_store(session, svc_role, name="missing", region="us-west-2")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+
+    assert [d.details["code"] for d in prepared.diagnostics] == [
+        "secret_store_reference_invalid"
+    ]
+    [requirement] = prepared.secret_store_mapping_requirements
+    assert requirement.source_store == "missing"
+    assert requirement.reason == "invalid_selection"
+    assert [c.store_id for c in requirement.candidates] == [east.id, same_name.id]
+    result = await service._import_snapshot(
+        snapshot,
+        sync_schedules=False,
+        requested_secret_store_mappings={"missing": east.id},
+    )
+    assert result.success is True, result.diagnostics
+    assert (await _workspace_secret(session, svc_role, "vendor_api")).store_id == (
+        east.id
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "store_kwargs",
+    [{"enabled": False}, {"enabled": False, "role_arn": None}],
+    ids=["disabled", "setup_incomplete"],
+)
+async def test_secret_store_mapping_skips_unusable_matching_store(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+    store_kwargs: dict[str, Any],
+) -> None:
+    east = await _aws_store(session, svc_role, name="east")
+    await _aws_store(session, svc_role, name="missing", **store_kwargs)
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_snapshot(service, "vendor_api")
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+
+    assert prepared.diagnostics == []
+    [requirement] = prepared.secret_store_mapping_requirements
+    assert requirement.reason == "unresolved"
+    assert [c.store_id for c in requirement.candidates] == [east.id]
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is True, result.diagnostics
+    assert (await _workspace_secret(session, svc_role, "vendor_api")).store_id is None
+
+
+@pytest.mark.anyio
+async def test_secret_store_mapping_preview_keeps_manual_link_for_storeless_spec(
+    session: AsyncSession,
+    svc_role: Role,
+    store_mapping_entitled: None,
+) -> None:
+    east = await _aws_store(session, svc_role, name="east")
+    service = WorkspaceSyncService(session=session, role=svc_role)
+    snapshot = await _secret_specs_snapshot(
+        service, _aws_secret_spec(store=None, secret_type="custom")
+    )
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+    assert result.success is True, result.diagnostics
+    secret = await _workspace_secret(session, svc_role, "vendor_api")
+    assert secret.store_id is None
+    await SecretReferencesService(
+        session=session, role=svc_role
+    ).update_aws_secret_reference(secret, AwsSecretReferenceUpdate(store_id=east.id))
+
+    prepared = await service._prepare_snapshot_for_import(snapshot)
+    assert prepared.diagnostics == []
+    assert prepared.secret_store_mapping_requirements == []
+    diffs = await service._resource_diffs_for_pull(
+        prepared.snapshot, sync_schedules=False
+    )
+    assert diffs == [], [(diff.source_path, diff.diff) for diff in diffs]
+    result = await service._import_snapshot(snapshot, sync_schedules=False)
+
+    assert result.success is True, result.diagnostics
+    await session.refresh(secret)
+    assert secret.store_id == east.id
 
 
 @pytest.mark.anyio
