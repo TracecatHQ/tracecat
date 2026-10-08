@@ -1,0 +1,41 @@
+examples/001-distributed-alerting/README.md
+  s_83bf14aae93893::t_f07d943f409eb6 3,20-21,23,29-30,41,43,46-63,68,70,74,77-89,173-175,214-215,225-227
+  s_83bf14aae93893::t_08ccb54fed9492 216,228
+examples/001-distributed-alerting/workflow.md
+  s_83bf14aae93893::t_54728e66fbe667 11,44,55-58,106-108,212,223-224,392-397,399,401,403-405,414-416,419-423,425
+  s_83bf14aae93893::t_8280ee03106f4c 432
+examples/001-distributed-alerting/skills/detection-event-case-lifecycle/slack-delivery.md
+  s_83bf14aae93893::t_29177dbfbdc10a 8,33,43,51-54,59-60,68,102,121,130
+examples/001-distributed-alerting/skills/slack-case-threads/SKILL.md
+  s_83bf14aae93893::t_f370f148957bfc 3,53
+examples/001-distributed-alerting/skills/case-output/SKILL.md
+  s_83bf14aae93893::t_7b423ed87d6ebe 3
+examples/001-distributed-alerting/skills/aws-cloud-incident-response-core/SKILL.md
+  s_83bf14aae93893::t_7b423ed87d6ebe 3
+examples/001-distributed-alerting/agent/preset.md
+  s_83bf14aae93893::t_8280ee03106f4c 19,32-33,50-51,61,65,69,71,74-75,94,96-97,107,115,119,121,145-146,173
+  s_83bf14aae93893::t_f07d943f409eb6 110
+examples/001-distributed-alerting/skills/detection-event-case-lifecycle/SKILL.md
+  s_83bf14aae93893::t_23c2a8d9ed847b 279
+  s_83bf14aae93893::t_dd1634f51ed902 3,24,35,38,42,44-48,50-101,103-111,113,115,119-121,123-126,130,135-141,144-147,150,158-159,162-163,177,183-193,195-196,199-204,211-213,232,249-252,254-258,273,287
+  s_83bf14aae93893::t_f370f148957bfc 194,248
+  s_83bf14aae93893::t_dac2b9dfc9bc88 280
+examples/001-distributed-alerting/skills/hypothesis-driven-triage/SKILL.md
+  s_83bf14aae93893::t_7b423ed87d6ebe 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "63aa896808dcb5a639f9dac57758bf75bae1bc86",
+  "prompts": {},
+  "sessions": {
+    "s_83bf14aae93893": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "787e3dff-fab1-4f72-b752-15660565215d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
