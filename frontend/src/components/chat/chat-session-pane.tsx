@@ -143,6 +143,22 @@ function messageHasVisibleParts(message: UIMessage): boolean {
 }
 
 /**
+ * Whether a message is a request the server can run as a turn: a user prompt
+ * with text, or an approval submission. Reloaded history can also hold
+ * user-role tool results, which are neither.
+ */
+function isTurnRequest({ role, parts }: UIMessage): boolean {
+  return (
+    role === "user" &&
+    parts.some(
+      (part) =>
+        (part.type === "text" && part.text.length > 0) ||
+        part.type === "data-continue"
+    )
+  )
+}
+
+/**
  * Raised to abandon a submit that sent no message.
  *
  * `submitPrompt` runs its cleanup after any submit that resolves, clearing
@@ -905,6 +921,31 @@ export function ChatSessionPane({
     [messages]
   )
 
+  // Response actions go on the latest message on screen when it is the
+  // assistant's. That need not be the transcript's last message: a
+  // continuation whose results render in the cards that opened them shows
+  // nothing of its own.
+  const latestResponseIndex = useMemo(() => {
+    for (let index = transformedMessages.length - 1; index >= 0; index--) {
+      const { role, parts } = transformedMessages[index]
+      if (parts.some(isShownPart)) {
+        return role === "assistant" ? index : -1
+      }
+    }
+    return -1
+  }, [transformedMessages])
+
+  // Retry resends the request that started the latest turn, whichever message
+  // shows the action: the user's prompt, or the approval submission whose
+  // continuation failed. Regenerating from a later record would submit the
+  // record before it instead, and reloaded history splits one turn into
+  // several assistant records, some with only tool calls, followed by system
+  // records such as a compaction boundary.
+  const retryMessageId = useMemo(
+    () => messages.findLast(isTurnRequest)?.id,
+    [messages]
+  )
+
   // Messages whose turn the user stopped, plus the tool calls those
   // interrupts aborted. The live stream appends the data-cancelled part to
   // the assistant message itself, while reloaded history renders the
@@ -1316,7 +1357,7 @@ export function ChatSessionPane({
               {optimisticMessageText ? (
                 <OptimisticPendingMessage text={optimisticMessageText} />
               ) : null}
-              {transformedMessages.map(({ id, role, parts }) => {
+              {transformedMessages.map(({ id, role, parts }, index) => {
                 const visibleParts = parts?.filter(
                   (part) => part.type !== ARTIFACT_DATA_PART_TYPE
                 )
@@ -1324,8 +1365,9 @@ export function ChatSessionPane({
                   return null
                 }
 
-                // Track whether this message is the latest entry so we can keep its actions visible.
                 const isLastMessage = id === messages[messages.length - 1].id
+                // Keep the latest response's actions visible.
+                const isLatestResponse = index === latestResponseIndex
                 const sourceUrlParts = visibleParts.filter(
                   (part) => part.type === "source-url"
                 )
@@ -1370,15 +1412,17 @@ export function ChatSessionPane({
                             "mt-4",
                             // Apply a smooth transition so the actions fade in and out gracefully.
                             "transition-opacity duration-200 ease-out",
-                            // Hide actions by default for non-last messages and reveal them when the message group is hovered.
-                            !isLastMessage &&
+                            // Hide actions by default for earlier messages and reveal them when the message group is hovered.
+                            !isLatestResponse &&
                               "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
                           )}
                         >
-                          {isLastMessage && (
+                          {isLatestResponse && (
                             <Action
                               size="sm"
-                              onClick={() => regenerate()}
+                              onClick={() =>
+                                regenerate({ messageId: retryMessageId })
+                              }
                               label="Retry"
                               tooltip="Retry"
                             >
@@ -1645,6 +1689,22 @@ function PromptModelIndicator({ modelInfo }: { modelInfo: ModelInfo }) {
 }
 
 const EMPTY_INTERRUPTED_TOOL_CALL_IDS: ReadonlySet<string> = new Set()
+
+/**
+ * Whether the conversation shows anything for a part. Data parts other than
+ * the cancelled marker and approval cards, such as an approval submission,
+ * render nothing.
+ */
+function isShownPart(part: UIMessage["parts"][number]): boolean {
+  if (part.type === "step-start") {
+    return false
+  }
+  return (
+    !part.type.startsWith("data-") ||
+    part.type === CANCELLED_DATA_PART_TYPE ||
+    part.type === "data-approval-request"
+  )
+}
 
 export function MessagePart({
   part,
