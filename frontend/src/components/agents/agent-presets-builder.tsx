@@ -2535,13 +2535,25 @@ function AgentPresetSubagentRow({
   const expanded = isExpanded || forcedOpen
   const presetSlug = preset?.slug ?? subagent.preset
   const presetName = preset?.name ?? `${subagent.preset} unavailable`
+  const alias = subagent.name.trim() || presetSlug
+
+  function handleOpenAgent() {
+    if (preset) {
+      window.open(
+        `/workspaces/${preset.workspace_id}/agents/${preset.id}`,
+        "_blank",
+        "noopener,noreferrer"
+      )
+    }
+  }
 
   return (
     <div className="border-b border-border/50">
-      <div className="group flex min-w-0 items-center gap-2 pr-3 hover:bg-muted/50">
+      <div className="group flex min-w-0 items-center gap-2 pl-4 pr-3 hover:bg-muted/50">
         <button
           type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 px-4 py-2.5 text-left disabled:cursor-default disabled:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          className="flex shrink-0 items-center gap-2 rounded-sm py-2.5 disabled:cursor-default disabled:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          aria-label={`${presetName} ${alias}`}
           aria-expanded={expanded}
           aria-controls={expanded ? bodyId : undefined}
           aria-disabled={forcedOpen}
@@ -2555,9 +2567,42 @@ function AgentPresetSubagentRow({
             )}
           />
           <MousePointerClickIcon className="size-4 shrink-0 text-primary" />
-          <span className="truncate font-medium">{presetName}</span>
+        </button>
+        {preset ? (
+          <button
+            type="button"
+            className="min-w-0 shrink truncate rounded-sm text-left font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+            onClick={handleOpenAgent}
+          >
+            {presetName}
+          </button>
+        ) : (
+          <span className="min-w-0 shrink truncate font-medium text-muted-foreground">
+            {presetName}
+          </span>
+        )}
+        {preset?.model_name ? (
+          <Badge
+            variant="secondary"
+            className="h-5 shrink-0 gap-1 px-2 text-[10px] font-normal"
+          >
+            <ProviderIcon
+              providerId={getModelProviderIconId(preset.model_provider)}
+              className="size-3 shrink-0 rounded-none bg-transparent p-0"
+            />
+            {preset.model_name}
+          </Badge>
+        ) : null}
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-hidden="true"
+          className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-left disabled:cursor-default"
+          disabled={forcedOpen}
+          onClick={() => setIsExpanded(!expanded)}
+        >
           <span className="truncate font-mono text-[10px] text-muted-foreground">
-            {subagent.name.trim() || presetSlug}
+            {alias}
           </span>
           <span className="min-w-0 flex-1 truncate text-muted-foreground">
             {subagent.description}
@@ -2573,18 +2618,6 @@ function AgentPresetSubagentRow({
               </FormItem>
             )}
           />
-        ) : null}
-        {preset?.model_name ? (
-          <Badge
-            variant="secondary"
-            className="h-5 shrink-0 gap-1 px-2 text-[10px] font-normal"
-          >
-            <ProviderIcon
-              providerId={getModelProviderIconId(preset.model_provider)}
-              className="size-3 shrink-0 rounded-none bg-transparent p-0"
-            />
-            {preset.model_name}
-          </Badge>
         ) : null}
         <Button
           type="button"

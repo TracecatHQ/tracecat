@@ -214,7 +214,7 @@ export function AgentPresetToolsList({
         </Button>
       </div>
       {searchOpen && (
-        <div className="flex items-center gap-2 px-2">
+        <div className="flex items-center gap-2">
           <Search className="size-4 text-muted-foreground" />
           <Input
             autoFocus
