@@ -1,0 +1,41 @@
+frontend/src/client/schemas.gen.ts
+  s_bb1d406c176bda::t_c88ea937f49904 2543-2545,2903-2905,3149-3159,3191-3218
+frontend/src/client/types.gen.ts
+  s_bb1d406c176bda::t_cf23759ac0e88f 737,799,875,882-890
+tests/unit/test_agent_folders_service.py
+  s_bb1d406c176bda::t_f745336fa9f328 11-14,19,21,28-29,527-579
+tests/unit/test_agent_preset_schemas.py
+  s_bb1d406c176bda::t_0fc75a29fe68eb 24,28,31,262,485-512
+tests/unit/test_agent_preset_service.py
+  s_bb1d406c176bda::t_2fe3e3ecc58e7d 4759-4772,4783-4789,4884-4940
+tests/unit/test_preset_tool_policy.py
+  s_bb1d406c176bda::t_3dda264ff19e11 56,80-107
+tracecat/agent/folders/schemas.py
+  s_bb1d406c176bda::t_4acefefe496673 9,58
+tracecat/agent/folders/service.py
+  s_bb1d406c176bda::t_c1b649ba8246c0 21-22,595-597,609
+tracecat/agent/preset/schemas.py
+  s_bb1d406c176bda::t_ae1bf5ba1d9400 19,183-208,224,346
+tracecat/agent/preset/service.py
+  s_bb1d406c176bda::t_0d9aec5c35637e 49,290-292,421-423
+tracecat/agent/preset/tool_policy.py
+  s_bb1d406c176bda::t_367524b22c5d28 151-157
+tracecat/agent/preset/types.py
+  s_bb1d406c176bda::t_f8014854f6c54d 47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "26fd152d5d63288cfc3ea0b4b5acbe478c04c065",
+  "prompts": {},
+  "sessions": {
+    "s_bb1d406c176bda": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "84c01265-31fb-45c0-8bf6-a69fe6bc6c37",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
