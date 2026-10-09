@@ -19,12 +19,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
 import pytest
+from claude_agent_sdk import Transport
 
 from tracecat.agent.common.protocol import RuntimeEventEnvelope, RuntimeInitPayload
 from tracecat.agent.common.socket_io import SocketStreamWriter, read_message
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
 from tracecat.agent.common.types import SandboxAgentConfig
 from tracecat.agent.runtime.claude_code.runtime import ClaudeAgentRuntime
+from tracecat.agent.runtime.claude_code.transport import SandboxedCLITransport
 
 
 def make_init_payload() -> RuntimeInitPayload:
@@ -129,7 +131,8 @@ class TestRuntimeSocketCommunication:
                     ),
                 ):
                     runtime = ClaudeAgentRuntime(
-                        socket_writer, transport_factory=lambda _: MagicMock()
+                        socket_writer,
+                        transport_factory=lambda _: MagicMock(spec=Transport),
                     )
                     payload = make_init_payload()
                     await runtime.run(payload)
@@ -257,7 +260,8 @@ class TestRuntimeSocketCommunication:
                     ),
                 ):
                     runtime = ClaudeAgentRuntime(
-                        socket_writer, transport_factory=lambda _: MagicMock()
+                        socket_writer,
+                        transport_factory=lambda _: MagicMock(spec=Transport),
                     )
                     payload = make_init_payload()
                     await runtime.run(payload)
@@ -276,11 +280,13 @@ class TestRuntimeSocketCommunication:
                 await server.wait_closed()
 
     @pytest.mark.anyio
+    @pytest.mark.parametrize("initialization_failed", [False, True])
     async def test_runtime_sends_error_on_exception(
         self,
         mock_claude_sdk_client: MagicMock,
+        initialization_failed: bool,
     ) -> None:
-        """Test that runtime sends error event on SDK exception."""
+        """Diagnostics reach socket consumers before the terminal error stops reads."""
         with tempfile.TemporaryDirectory() as tmpdir:
             socket_path = Path(tmpdir) / "test.sock"
 
@@ -288,9 +294,17 @@ class TestRuntimeSocketCommunication:
             runtime_done = asyncio.Event()
 
             # Make SDK raise an error
-            mock_claude_sdk_client.query = AsyncMock(
-                side_effect=ValueError("SDK connection failed")
+            failing_call = (
+                mock_claude_sdk_client.connect
+                if initialization_failed
+                else mock_claude_sdk_client.query
             )
+            failing_call.side_effect = ValueError("SDK connection failed")
+            transport = MagicMock(spec=SandboxedCLITransport)
+            transport.exit_code = None
+            transport.initialization_diagnostics.return_value = {
+                "stderr_tail": ["ECONNREFUSED [stderr content withheld]"]
+            }
 
             async def handle_client(
                 reader: asyncio.StreamReader,
@@ -304,7 +318,7 @@ class TestRuntimeSocketCommunication:
                             break
                         envelope = RuntimeEventEnvelope.from_dict(orjson.loads(payload))
                         received_events.append(envelope)
-                        if envelope.type == "done":
+                        if envelope.type == "error":
                             runtime_done.set()
                             break
                 finally:
@@ -316,6 +330,7 @@ class TestRuntimeSocketCommunication:
                 path=str(socket_path),
             )
 
+            socket_writer: SocketStreamWriter | None = None
             try:
                 _, writer = await asyncio.open_unix_connection(str(socket_path))
                 socket_writer = SocketStreamWriter(writer)
@@ -328,23 +343,40 @@ class TestRuntimeSocketCommunication:
                     pytest.raises(ValueError, match="SDK connection failed"),
                 ):
                     runtime = ClaudeAgentRuntime(
-                        socket_writer, transport_factory=lambda _: MagicMock()
+                        socket_writer,
+                        transport_factory=lambda _: transport,
                     )
                     payload = make_init_payload()
                     await runtime.run(payload)
 
                 await asyncio.wait_for(runtime_done.wait(), timeout=5.0)
 
-                # Should have error and done events
-                event_types = [e.type for e in received_events]
-                assert "error" in event_types
-                assert "done" in event_types
+                assert received_events[-1].type == "error"
+                diagnostic_message = (
+                    "Claude SDK initialization failed"
+                    if initialization_failed
+                    else "Runtime error"
+                )
+                diagnostic = next(
+                    event
+                    for event in received_events[:-1]
+                    if event.type == "log" and event.log_message == diagnostic_message
+                )
+                assert diagnostic.log_extra is not None
+                assert diagnostic.log_extra["error_type"] == "ValueError"
+                if initialization_failed:
+                    assert diagnostic.log_extra["phase"] == "initialize"
+                    assert diagnostic.log_extra["stderr_tail"] == [
+                        "ECONNREFUSED [stderr content withheld]"
+                    ]
 
                 # Verify error message
                 error_event = next(e for e in received_events if e.type == "error")
                 assert "SDK connection failed" in (error_event.error or "")
 
             finally:
+                if socket_writer is not None:
+                    await socket_writer.close()
                 server.close()
                 await server.wait_closed()
 

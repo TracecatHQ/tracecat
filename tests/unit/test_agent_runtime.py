@@ -16,7 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import orjson
 import pytest
-from claude_agent_sdk import CLIConnectionError
+from claude_agent_sdk import ClaudeAgentOptions, CLIConnectionError, Transport
+from claude_agent_sdk._internal.query import Query
 from claude_agent_sdk.types import (
     AssistantMessage,
     HookContext,
@@ -344,7 +345,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(sample_init_payload)
 
@@ -392,7 +394,8 @@ class TestClaudeAgentRuntimeRun:
             patch("tracecat.agent.runtime.claude_code.runtime.StreamEvent", MagicMock),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(sample_init_payload)
 
@@ -430,7 +433,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(sample_init_payload)
 
@@ -455,7 +459,7 @@ class TestClaudeAgentRuntimeRun:
         }
         runtime = ClaudeAgentRuntime(
             mock_socket_writer,
-            transport_factory=lambda _: MagicMock(),
+            transport_factory=lambda _: MagicMock(spec=Transport),
             session_home_dir=tmp_path / "claude-home",
             cwd=tmp_path / "claude-project",
             cwd_setup_path=tmp_path / "claude-project",
@@ -521,7 +525,7 @@ class TestClaudeAgentRuntimeRun:
         }
         runtime = ClaudeAgentRuntime(
             mock_socket_writer,
-            transport_factory=lambda _: MagicMock(),
+            transport_factory=lambda _: MagicMock(spec=Transport),
             session_home_dir=tmp_path / "claude-home",
             cwd=tmp_path / "claude-project",
             cwd_setup_path=tmp_path / "claude-project",
@@ -644,7 +648,7 @@ class TestClaudeAgentRuntimeRun:
 
         runtime = ClaudeAgentRuntime(
             mock_socket_writer,
-            transport_factory=lambda _: MagicMock(),
+            transport_factory=lambda _: MagicMock(spec=Transport),
             session_home_dir=tmp_path / "claude-home",
             cwd=tmp_path / "claude-project",
             cwd_setup_path=tmp_path / "claude-project",
@@ -712,7 +716,7 @@ class TestClaudeAgentRuntimeRun:
         )
         runtime = ClaudeAgentRuntime(
             mock_socket_writer,
-            transport_factory=lambda _options: MagicMock(),
+            transport_factory=lambda _options: MagicMock(spec=Transport),
             session_home_dir=tmp_path / "claude-home",
             cwd=tmp_path / "claude-project",
             cwd_setup_path=tmp_path / "claude-project",
@@ -839,7 +843,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(sample_init_payload)
 
@@ -879,7 +884,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(sample_init_payload)
 
@@ -903,7 +909,8 @@ class TestClaudeAgentRuntimeRun:
             pytest.raises(ValueError, match="Test error"),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(sample_init_payload)
 
@@ -937,7 +944,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(resumed_payload)
 
@@ -1003,7 +1011,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(payload)
 
@@ -1077,7 +1086,8 @@ class TestClaudeAgentRuntimeRun:
             side_effect=_mock_client_ctor,
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(payload)
 
@@ -1146,7 +1156,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(payload)
 
@@ -1223,7 +1234,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(payload)
 
@@ -1265,7 +1277,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(sample_init_payload)
 
@@ -1292,7 +1305,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(sample_init_payload)
 
@@ -1330,7 +1344,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(payload)
 
@@ -1366,7 +1381,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(custom_payload)
 
@@ -1438,7 +1454,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(sample_init_payload)
 
@@ -1539,7 +1556,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(payload)
 
@@ -1735,7 +1753,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(payload)
 
@@ -1820,7 +1839,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(payload)
 
@@ -1997,7 +2017,8 @@ class TestClaudeAgentRuntimeRun:
             ),
         ):
             runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
+                mock_socket_writer,
+                transport_factory=lambda _: MagicMock(spec=Transport),
             )
             await runtime.run(approval_payload)
 
@@ -2070,7 +2091,7 @@ class TestClaudeAgentRuntimeRun:
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer,
-                transport_factory=lambda _options: MagicMock(),
+                transport_factory=lambda _options: MagicMock(spec=Transport),
                 session_home_dir=tmp_path / "claude-home",
                 cwd=tmp_path / "claude-project",
                 cwd_setup_path=tmp_path / "claude-project",
@@ -2167,7 +2188,7 @@ class TestClaudeAgentRuntimeRun:
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer,
-                transport_factory=lambda _options: MagicMock(),
+                transport_factory=lambda _options: MagicMock(spec=Transport),
                 session_home_dir=tmp_path / "claude-home",
                 cwd=tmp_path / "claude-project",
                 cwd_setup_path=tmp_path / "claude-project",
@@ -2228,7 +2249,7 @@ class TestClaudeAgentRuntimeRun:
         runtime_cwd = tmp_path / "claude-project"
         runtime = ClaudeAgentRuntime(
             mock_socket_writer,
-            transport_factory=lambda _options: MagicMock(),
+            transport_factory=lambda _options: MagicMock(spec=Transport),
             session_home_dir=session_home_dir,
             cwd=runtime_cwd,
             cwd_setup_path=runtime_cwd,
@@ -2318,7 +2339,7 @@ class TestClaudeAgentRuntimeRun:
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer,
-                transport_factory=lambda _options: MagicMock(),
+                transport_factory=lambda _options: MagicMock(spec=Transport),
                 session_home_dir=session_home_dir,
                 cwd=runtime_cwd,
                 cwd_setup_path=runtime_cwd,
@@ -2359,7 +2380,7 @@ class TestClaudeAgentRuntimeRun:
         ):
             runtime = ClaudeAgentRuntime(
                 mock_socket_writer,
-                transport_factory=lambda _options: MagicMock(),
+                transport_factory=lambda _options: MagicMock(spec=Transport),
                 session_home_dir=session_home_dir,
                 cwd=runtime_cwd,
                 cwd_setup_path=runtime_cwd,
@@ -2630,7 +2651,7 @@ class TestClaudeAgentRuntimePreToolUseHook:
             mcp_auth_token="synthetic-child-token",
         )
         runtime = ClaudeAgentRuntime(
-            mock_socket_writer, transport_factory=lambda _: MagicMock()
+            mock_socket_writer, transport_factory=lambda _: MagicMock(spec=Transport)
         )
         root_config = sample_init_payload.config.model_copy(deep=True)
         if root_collision:
@@ -4060,6 +4081,243 @@ async def test_run_keeps_original_error_when_sandbox_process_did_not_exit(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("sink_failure", [False, True])
+async def test_initialization_failure_preserves_error_and_diagnostics_before_cleanup(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    sink_failure: bool,
+) -> None:
+    original = Exception("Control request timeout: initialize")
+    original.__cause__ = TimeoutError()
+    transport = MagicMock(spec=SandboxedCLITransport)
+    transport.exit_code = None
+    transport.initialization_diagnostics.return_value = {
+        "stderr_tail": ["ECONNREFUSED [stderr content withheld]"]
+    }
+    forwarded = asyncio.Event()
+    order: list[str] = []
+    callback = None
+
+    def factory(options: Any) -> Any:
+        nonlocal callback
+        callback = options.stderr
+        return transport
+
+    async def send_log(_level: str, message: str, **extra: object) -> None:
+        if extra.get("source") == "claude_stderr":
+            assert message == "ECONNREFUSED [stderr content withheld]"
+            forwarded.set()
+        if message == "Claude SDK initialization failed":
+            order.append("diagnostics")
+            assert extra["phase"] == "initialize"
+            assert extra["cause_type"] == "TimeoutError"
+            assert extra["stderr_tail"] == ["ECONNREFUSED [stderr content withheld]"]
+            assert isinstance(extra["elapsed_ms"], float)
+            if sink_failure:
+                raise RuntimeError("synthetic log sink failure")
+
+    async def connect() -> None:
+        assert callback is not None
+        callback("ECONNREFUSED [stderr content withheld]")
+        # Delivery must be running before __aenter__ returns or raises.
+        async with asyncio.timeout(1):
+            await forwarded.wait()
+        raise original
+
+    async def send_error(*_args: Any, **kwargs: Any) -> None:
+        assert kwargs["cause"] is original
+        assert "ECONNREFUSED" in "\n".join(original.__notes__)
+        order.append("terminal")
+        if sink_failure:
+            raise RuntimeError("synthetic error sink failure")
+
+    async def disconnect() -> None:
+        order.append("disconnect")
+        if sink_failure:
+            raise RuntimeError("synthetic disconnect failure")
+
+    mock_socket_writer.send_log = AsyncMock(side_effect=send_log)
+    mock_socket_writer.send_error = AsyncMock(side_effect=send_error)
+    if sink_failure:
+        mock_socket_writer.send_done.side_effect = RuntimeError(
+            "synthetic done failure"
+        )
+    mock_claude_sdk_client.connect.side_effect = connect
+    mock_claude_sdk_client.disconnect.side_effect = disconnect
+    with patch.object(
+        runtime_module, "ClaudeSDKClient", return_value=mock_claude_sdk_client
+    ):
+        runtime = ClaudeAgentRuntime(mock_socket_writer, transport_factory=factory)
+        with pytest.raises(Exception) as excinfo:
+            await runtime.run(sample_init_payload)
+    assert excinfo.value is original
+    assert isinstance(excinfo.value.__cause__, TimeoutError)
+    assert "ECONNREFUSED" in "\n".join(excinfo.value.__notes__)
+    assert "synthetic-secret" not in "\n".join(excinfo.value.__notes__)
+    assert order == ["diagnostics", "terminal", "disconnect"]
+    transport.close.assert_awaited_once()
+    mock_claude_sdk_client.query.assert_not_awaited()
+    assert runtime.client is None
+    assert "synthetic-secret" not in str(mock_socket_writer.send_log.call_args_list)
+    if sink_failure:
+        mock_socket_writer.send_done.assert_not_awaited()
+    else:
+        mock_socket_writer.send_done.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_initialization_cancellation_disconnects_and_closes_transport(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+) -> None:
+    initializing = asyncio.Event()
+    transport = MagicMock()
+    transport.close = AsyncMock()
+
+    async def connect() -> None:
+        initializing.set()
+        await asyncio.Event().wait()
+
+    mock_claude_sdk_client.connect.side_effect = connect
+    with patch.object(
+        runtime_module, "ClaudeSDKClient", return_value=mock_claude_sdk_client
+    ):
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: transport
+        )
+        task = asyncio.create_task(runtime.run(sample_init_payload))
+        await initializing.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    mock_claude_sdk_client.disconnect.assert_awaited_once()
+    transport.close.assert_awaited_once()
+    mock_socket_writer.send_done.assert_not_awaited()
+    assert runtime.client is None
+
+
+@pytest.mark.anyio
+async def test_initialization_failure_bounds_disconnect_and_fallback_close(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(runtime_module, "_CLIENT_CLEANUP_TIMEOUT_SECONDS", 0.01)
+    original = ValueError("synthetic initialization failure")
+    mock_claude_sdk_client.connect.side_effect = original
+
+    async def blocked() -> None:
+        await asyncio.Event().wait()
+
+    mock_claude_sdk_client.disconnect.side_effect = blocked
+    transport = MagicMock()
+    transport.close = AsyncMock(side_effect=blocked)
+    with patch.object(
+        runtime_module, "ClaudeSDKClient", return_value=mock_claude_sdk_client
+    ):
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: transport
+        )
+        async with asyncio.timeout(1):
+            with pytest.raises(ValueError) as excinfo:
+                await runtime.run(sample_init_payload)
+    assert excinfo.value is original
+    mock_socket_writer.send_error.assert_awaited_once()
+    transport.close.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_real_sdk_initialization_timeout_closes_reader_and_keeps_cause(
+    mock_socket_writer: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exercise the pinned SDK's real initialize request and disconnect lifecycle."""
+    reader_stopped = asyncio.Event()
+    closed = asyncio.Event()
+    initialize = Query.initialize
+
+    async def short_initialize(query: Query) -> dict[str, Any] | None:
+        query._initialize_timeout = 0.01
+        return await initialize(query)
+
+    monkeypatch.setattr(Query, "initialize", short_initialize)
+
+    class SilentTransport(Transport):
+        def __init__(self, options: ClaudeAgentOptions) -> None:
+            self.options = options
+
+        async def connect(self) -> None:
+            assert self.options.stderr is not None
+            self.options.stderr("ETIMEDOUT [stderr content withheld]")
+
+        async def write(self, data: str) -> None:
+            pass
+
+        async def close(self) -> None:
+            closed.set()
+
+        async def end_input(self) -> None:
+            pass
+
+        def is_ready(self) -> bool:
+            return not closed.is_set()
+
+        async def read_messages(self):
+            try:
+                await asyncio.Event().wait()
+                yield {}
+            finally:
+                reader_stopped.set()
+
+    runtime = ClaudeAgentRuntime(mock_socket_writer, transport_factory=SilentTransport)
+    async with asyncio.timeout(1):
+        with pytest.raises(Exception) as excinfo:
+            await runtime.run(sample_init_payload)
+    assert str(excinfo.value) == "Control request timeout: initialize"
+    assert isinstance(excinfo.value.__cause__, TimeoutError)
+    assert reader_stopped.is_set()
+    assert closed.is_set()
+    assert runtime.client is None
+    terminal = mock_socket_writer.send_error.await_args
+    assert terminal is not None
+    assert terminal.kwargs["cause"] is excinfo.value
+    logs = mock_socket_writer.send_log.call_args_list
+    assert any(call.kwargs.get("source") == "claude_stderr" for call in logs)
+    assert "synthetic-secret" not in str(logs)
+
+
+@pytest.mark.anyio
+async def test_runtime_does_not_apply_diagnostic_deadline_to_terminal_delivery(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+) -> None:
+    original = ValueError("synthetic runtime failure")
+    mock_claude_sdk_client.query.side_effect = original
+    delivered = asyncio.Event()
+
+    async def slow_send_error(*_args: Any, **_kwargs: Any) -> None:
+        await asyncio.sleep(0.3)
+        delivered.set()
+
+    mock_socket_writer.send_error.side_effect = slow_send_error
+    with patch.object(
+        runtime_module, "ClaudeSDKClient", return_value=mock_claude_sdk_client
+    ):
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock(spec=Transport)
+        )
+        with pytest.raises(ValueError) as excinfo:
+            await runtime.run(sample_init_payload)
+    assert delivered.is_set()
+    assert excinfo.value is original
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("interrupt_in_flight", [False, True])
 @pytest.mark.parametrize("runtime_failed", [False, True])
 @pytest.mark.parametrize(
@@ -4101,7 +4359,7 @@ async def test_interrupt_racing_sdk_teardown_preserves_turn_outcome(
     mock_claude_sdk_client.disconnect.side_effect = disconnect
     mock_claude_sdk_client.interrupt.side_effect = interrupt
     runtime = ClaudeAgentRuntime(
-        mock_socket_writer, transport_factory=lambda _: MagicMock()
+        mock_socket_writer, transport_factory=lambda _: MagicMock(spec=Transport)
     )
     with patch.object(
         runtime_module, "ClaudeSDKClient", return_value=mock_claude_sdk_client
@@ -4156,3 +4414,46 @@ async def test_interrupt_preserves_live_connection_error(
 
     with pytest.raises(connection_error, match="synthetic live failure"):
         await runtime.interrupt(reason="user_cancel")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("initialization_failed", [False, True])
+async def test_blocked_diagnostic_sink_does_not_prevent_terminal_error(
+    mock_socket_writer: MagicMock,
+    mock_claude_sdk_client: MagicMock,
+    sample_init_payload: RuntimeInitPayload,
+    monkeypatch: pytest.MonkeyPatch,
+    initialization_failed: bool,
+) -> None:
+    monkeypatch.setattr(runtime_module, "DIAGNOSTIC_TIMEOUT_SECONDS", 0.01)
+    original = ValueError("synthetic runtime failure")
+    failing_call = (
+        mock_claude_sdk_client.connect
+        if initialization_failed
+        else mock_claude_sdk_client.query
+    )
+    failing_call.side_effect = original
+    log_cancelled = asyncio.Event()
+
+    async def send_log(_level: str, message: str, **_extra: object) -> None:
+        if message in {"Claude SDK initialization failed", "Runtime error"}:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                log_cancelled.set()
+
+    mock_socket_writer.send_log.side_effect = send_log
+    with patch.object(
+        runtime_module, "ClaudeSDKClient", return_value=mock_claude_sdk_client
+    ):
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer, transport_factory=lambda _: MagicMock(spec=Transport)
+        )
+        async with asyncio.timeout(1):
+            with pytest.raises(ValueError) as excinfo:
+                await runtime.run(sample_init_payload)
+
+    assert excinfo.value is original
+    assert log_cancelled.is_set()
+    mock_socket_writer.send_error.assert_awaited_once()
+    mock_claude_sdk_client.disconnect.assert_awaited_once()
