@@ -564,6 +564,37 @@ class Workspace(OrganizationModel):
     )
 
 
+class WorkspaceSyncOperation(WorkspaceModel):
+    """Durable Git sync state; large prepared artifacts live in object storage."""
+
+    __tablename__ = "workspace_sync_operation"
+    __table_args__ = (
+        Index(
+            "ix_workspace_sync_operation_workspace_created",
+            "workspace_id",
+            "actor_id",
+            "created_at",
+            "id",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, unique=True, index=True)
+    actor_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    direction: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(32))
+    stage: Mapped[str] = mapped_column(String(32))
+    # Pydantic contracts validate these JSON documents at every read/write boundary.
+    inputs: Mapped[dict[str, JsonValue]] = mapped_column(JSONB)
+    actor: Mapped[dict[str, JsonValue]] = mapped_column(JSONB)
+    summary: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB)
+    result: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB)
+    artifact_key: Mapped[str | None] = mapped_column(Text)
+    commit_sha: Mapped[str | None] = mapped_column(String(64))
+    error: Mapped[str | None] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True))
+    attempt: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class WorkspaceSyncResourceMapping(WorkspaceModel):
     """Maps portable sync source identities to workspace-local resource UUIDs."""
 
