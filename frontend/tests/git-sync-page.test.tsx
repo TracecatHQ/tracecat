@@ -887,6 +887,59 @@ describe("GitSyncView connected", () => {
     ).toBeInTheDocument()
   })
 
+  it("clears the push preview after a pull", async () => {
+    const user = userEvent.setup()
+    const preview: PullResult = {
+      success: true,
+      commit_sha: LATEST_SHA,
+      workflows_found: 1,
+      workflows_imported: 0,
+      diagnostics: [],
+      message: "Dry run completed - 1 resource change(s) detected",
+      resource_diffs: [
+        {
+          resource_type: "workflow",
+          source_id: "phishing-triage",
+          source_path: "workflows/phishing-triage/definition.yml",
+          change_type: "modified",
+          title: "Phishing triage",
+          diff: "@@ -1 +1 @@\n-old\n+new",
+        },
+      ],
+    }
+    mockPullWorkflows
+      .mockResolvedValueOnce(preview)
+      .mockResolvedValueOnce({ ...preview, message: "Imported" })
+    renderWithTooltips(
+      <GitSyncView
+        workspace={setup({ preview: PUSH_PREVIEW })}
+        canSync
+        canManageConnection
+      />
+    )
+
+    await user.click(screen.getByRole("button", { name: "Preview" }))
+    expect(await screen.findByText("Included in this push")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    const pullPanel = screen.getByRole("tabpanel", { name: "Pull" })
+    await user.click(within(pullPanel).getByRole("button", { name: "Preview" }))
+    const bar = screen.getByRole("group", { name: "Pull actions" })
+    await user.click(
+      await within(bar).findByRole("button", {
+        name: "Pull 1 into Workspace 1",
+      })
+    )
+    await waitFor(() => expect(mockPullWorkflows).toHaveBeenCalledTimes(2))
+
+    await user.click(screen.getByRole("tab", { name: "Push" }))
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Included in this push")
+      ).not.toBeInTheDocument()
+    )
+  })
+
   it("sends leave unlinked as a null store", async () => {
     const user = userEvent.setup()
     const preview: PullResult = {
