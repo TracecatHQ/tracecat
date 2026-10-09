@@ -1,7 +1,7 @@
 """Add case parent_id for sub-cases.
 
 Revision ID: d9107f689ccf
-Revises: d45011587673
+Revises: e379e38b8495
 Create Date: 2026-10-07 20:30:00.000000
 """
 
@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "d9107f689ccf"
-down_revision: str | None = "d45011587673"
+down_revision: str | None = "e379e38b8495"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
