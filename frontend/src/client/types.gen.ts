@@ -15121,7 +15121,7 @@ export type CasesSearchCasesData = {
    */
   reverse?: boolean
   /**
-   * Text to search for in case summary, description, or short ID
+   * Text to search for in case summary, description, short ID, or case UUID
    */
   searchTerm?: string | null
   /**
@@ -15187,7 +15187,7 @@ export type CasesSearchCaseAggregatesData = {
    */
   priority?: Array<CasePriority> | null
   /**
-   * Text to search for in case summary, description, or short ID
+   * Text to search for in case summary, description, short ID, or case UUID
    */
   searchTerm?: string | null
   /**

@@ -11108,7 +11108,7 @@ export const casesCreateCase = (
  * @param data.limit Maximum items per page
  * @param data.cursor Cursor for pagination
  * @param data.reverse Reverse pagination direction
- * @param data.searchTerm Text to search for in case summary, description, or short ID
+ * @param data.searchTerm Text to search for in case summary, description, short ID, or case UUID
  * @param data.shortId Search by exact case short ID (e.g. 42 or CASE-0042)
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
@@ -11176,7 +11176,7 @@ export const casesSearchCases = (
  * Return global case totals and per-stage counts for the current filters.
  * @param data The data for the request.
  * @param data.workspaceId
- * @param data.searchTerm Text to search for in case summary, description, or short ID
+ * @param data.searchTerm Text to search for in case summary, description, short ID, or case UUID
  * @param data.status Filter by case status
  * @param data.priority Filter by case priority
  * @param data.severity Filter by case severity
