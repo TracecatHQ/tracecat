@@ -40,3 +40,12 @@
 - id: defanged_url_with_escaped_dots_and_protocol
   text: "C2 at hxxps://c2\\.botnet\\.net/beacon?id=1 and hxxp://drop\\.example\\.org"
   expected: ["https://c2.botnet.net/beacon?id=1", "http://drop.example.org"]
+- id: defanged_url_protocol_substitution_with_brackets
+  text: "Payload at hxxps[:]//evil[.]example[.]com/stage2 and beacon to hxxp(:)//c2[.]botnet[.]net"
+  expected: ["https://evil.example.com/stage2", "http://c2.botnet.net"]
+- id: defanged_url_protocol_substitution_with_slash_brackets
+  text: "Dropper at hxxp:[/][/]drop[.]example[.]org/a.exe and hxxps:(/)(/)exfil[.]example[.]net"
+  expected: ["http://drop.example.org/a.exe", "https://exfil.example.net"]
+- id: defanged_url_protocol_colon_slashes_in_brackets
+  text: "Phish at hxxps[://]login[.]example[.]com/reset and http[://]bad[.]example[.]org"
+  expected: ["https://login.example.com/reset", "http://bad.example.org"]
