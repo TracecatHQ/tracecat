@@ -147,6 +147,48 @@ it("shows the placeholder, not the unavailable state, until options load", () =>
   )
 })
 
+it.each(["Loading models...", "Failed to load models"])(
+  "keeps a saved value visible beside '%s' when options are missing",
+  (unverifiedLabel) => {
+    const onChange = jest.fn()
+    render(
+      <AgentModelCombobox
+        options={[]}
+        value={{
+          catalogId: "catalog-one",
+          modelName: "model-one",
+          modelProvider: "openai",
+        }}
+        onChange={onChange}
+        loaded={false}
+        unverifiedLabel={unverifiedLabel}
+        placeholder="Select a model"
+        unavailableLabel="Unavailable in this workspace"
+      />
+    )
+    const trigger = screen.getByRole("combobox")
+    expect(trigger).toHaveTextContent(`openai / model-one${unverifiedLabel}`)
+    expect(trigger).not.toHaveTextContent("Select a model")
+    expect(trigger).not.toHaveTextContent("Unavailable in this workspace")
+    expect(trigger).not.toHaveTextContent("Legacy")
+    expect(onChange).not.toHaveBeenCalled()
+  }
+)
+
+it("ignores the unverified label once options have loaded", () => {
+  render(
+    <AgentModelCombobox
+      options={options}
+      value={{ modelName: "removed", modelProvider: "openai" }}
+      onChange={jest.fn()}
+      unverifiedLabel="Failed to load models"
+    />
+  )
+  expect(screen.getByRole("combobox")).toHaveTextContent(
+    "openai / removedLegacy"
+  )
+})
+
 it("titles the trigger and option names so truncated text stays readable", async () => {
   const user = userEvent.setup()
   render(

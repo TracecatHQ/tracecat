@@ -62,6 +62,12 @@ export interface AgentModelComboboxProps
   onChange: (option: EnabledModelOption) => void
   /** False while options load, so a saved value is not shown as unavailable. */
   loaded?: boolean
+  /**
+   * Why the options are missing, such as loading or a failed request. When set
+   * and `loaded` is false, a saved value stays in the trigger with this text
+   * beside it instead of giving way to the placeholder.
+   */
+  unverifiedLabel?: string
   /** Match a value without a catalog id by name and provider in any source. */
   matchAnySource?: boolean
   placeholder?: string
@@ -223,6 +229,7 @@ export const AgentModelCombobox = forwardRef<
     value,
     onChange,
     loaded = true,
+    unverifiedLabel,
     matchAnySource = false,
     disabled = false,
     placeholder = "Select a model",
@@ -244,14 +251,18 @@ export const AgentModelCombobox = forwardRef<
         detail={selected.sourceName}
       />
     )
-  } else if (loaded && value.modelProvider && value.modelName) {
-    label = (
-      <ModelLabel
-        iconId={getModelProviderIconId(value.modelProvider)}
-        name={`${value.modelProvider} / ${value.modelName}`}
-        detail={unavailableLabel}
-      />
-    )
+  } else if (value.modelProvider && value.modelName) {
+    // Without options the saved value cannot be called unavailable.
+    const detail = loaded ? unavailableLabel : unverifiedLabel
+    if (detail) {
+      label = (
+        <ModelLabel
+          iconId={getModelProviderIconId(value.modelProvider)}
+          name={`${value.modelProvider} / ${value.modelName}`}
+          detail={detail}
+        />
+      )
+    }
   }
 
   return (

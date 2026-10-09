@@ -1020,10 +1020,13 @@ function AgentModelSelect({
     })
   }
 
-  let placeholder = "Select a model"
+  // Shown alone without a saved model, and beside one the catalog cannot check.
+  let catalogStatus: string | undefined
+  if (modelsLoading) catalogStatus = "Loading models..."
+  else if (modelsError) catalogStatus = "Failed to load models"
+
+  let placeholder = catalogStatus ?? "Select a model"
   if (!workspaceId) placeholder = "Select a workspace to load models"
-  else if (modelsLoading) placeholder = "Loading models..."
-  else if (modelsError) placeholder = "Failed to load models"
 
   return (
     <AgentModelCombobox
@@ -1036,6 +1039,7 @@ function AgentModelSelect({
       onChange={handleChange}
       // Until the catalog arrives a saved model cannot be called unavailable.
       loaded={models !== undefined}
+      unverifiedLabel={catalogStatus}
       // Models saved before catalog ids existed carry only name and provider.
       matchAnySource
       disabled={!workspaceId}

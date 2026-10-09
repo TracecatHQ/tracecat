@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useForm } from "react-hook-form"
+import { ApiError } from "@/client"
 import { PolymorphicField } from "@/components/builder/panel/action-panel-fields"
 import { Form } from "@/components/ui/form"
 import { useWorkspaceAgentModels } from "@/lib/hooks"
@@ -135,7 +136,7 @@ it("matches a saved model without a catalog id against a custom source", () => {
   )
 })
 
-it("does not flash the unavailable state while models load", () => {
+it("keeps the saved model visible, not unavailable, while models load", () => {
   jest.mocked(useWorkspaceAgentModels).mockReturnValue({
     models: undefined,
     providers: undefined,
@@ -146,11 +147,81 @@ it("does not flash the unavailable state while models load", () => {
     modelsLoading: true,
     modelsError: null,
   })
-  render(
-    <TestField value={{ model_name: "model-one", model_provider: "openai" }} />
+  const value = { model_name: "model-one", model_provider: "openai" }
+  render(<TestField value={value} />)
+  expect(screen.getByRole("combobox")).toHaveTextContent(
+    "openai / model-oneLoading models..."
   )
-  expect(screen.getByRole("combobox")).toHaveTextContent("Loading models...")
   expect(
     screen.queryByText("Unavailable in this workspace")
   ).not.toBeInTheDocument()
+  expect(JSON.parse(screen.getByTestId("value").textContent ?? "{}")).toEqual(
+    value
+  )
+})
+
+it("keeps the saved model visible when the catalog fails to load", () => {
+  const error = new ApiError(
+    { method: "GET", url: "/agent/models" },
+    {
+      url: "/agent/models",
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      body: null,
+    },
+    "Internal Server Error"
+  )
+  jest.mocked(useWorkspaceAgentModels).mockReturnValue({
+    models: undefined,
+    providers: undefined,
+    catalogLoading: false,
+    catalogError: error,
+    providersLoading: false,
+    providersError: null,
+    modelsLoading: false,
+    modelsError: error,
+  })
+  const value = {
+    catalog_id: "catalog-one",
+    model_name: "model-one",
+    model_provider: "openai",
+  }
+  render(<TestField value={value} />)
+  expect(screen.getByRole("combobox")).toHaveTextContent(
+    "openai / model-oneFailed to load models"
+  )
+  expect(
+    screen.queryByText("Unavailable in this workspace")
+  ).not.toBeInTheDocument()
+  expect(JSON.parse(screen.getByTestId("value").textContent ?? "{}")).toEqual(
+    value
+  )
+})
+
+it("shows only the load failure when no model is saved", () => {
+  jest.mocked(useWorkspaceAgentModels).mockReturnValue({
+    models: undefined,
+    providers: undefined,
+    catalogLoading: false,
+    catalogError: null,
+    providersLoading: false,
+    providersError: null,
+    modelsLoading: false,
+    modelsError: new ApiError(
+      { method: "GET", url: "/agent/models" },
+      {
+        url: "/agent/models",
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+        body: null,
+      },
+      "Internal Server Error"
+    ),
+  })
+  render(<TestField value={{}} />)
+  expect(screen.getByRole("combobox")).toHaveTextContent(
+    /^Failed to load models$/
+  )
 })
