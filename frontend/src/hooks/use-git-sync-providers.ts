@@ -124,8 +124,11 @@ export function useGitSyncProviders(options?: {
   if (queries.some((query) => query.isLoading)) {
     return { kind: "loading" }
   }
-  // Errored statuses read as undefined, so working providers stay listed.
-  const providers = getConfiguredGitProviders({
+  if (queries.every((query) => query.isError)) {
+    return { kind: "unknown" }
+  }
+  // An errored query can still hold stale data; the failed list covers it.
+  const configured = getConfiguredGitProviders({
     github: github.isError ? undefined : github.data,
     gitlab: gitlab.isError ? undefined : gitlab.data,
     bitbucket: bitbucket.isError ? undefined : bitbucket.data,
@@ -133,9 +136,27 @@ export function useGitSyncProviders(options?: {
       ? undefined
       : bitbucketDataCenter.data,
   })
-  // With nothing confirmed and a failure, "none set up" may be false.
-  if (providers.length === 0 && queries.some((query) => query.isError)) {
-    return { kind: "unknown" }
-  }
+  // A failed check can't rule a provider out, so keep it selectable without a
+  // host; the connect form then asks for its full repository URL.
+  const failed: ConfiguredGitProvider[] = (
+    [
+      ["github", github],
+      ["gitlab", gitlab],
+      ["bitbucket", bitbucket],
+      ["bitbucket_data_center", bitbucketDataCenter],
+    ] as const
+  )
+    .filter(([, query]) => query.isError)
+    .map(([id]) => ({ id }))
+  const providers = PROVIDER_ORDER.flatMap((id) =>
+    [...configured, ...failed].filter((provider) => provider.id === id)
+  )
   return { kind: "known", providers }
 }
+
+const PROVIDER_ORDER: VcsProvider[] = [
+  "github",
+  "gitlab",
+  "bitbucket",
+  "bitbucket_data_center",
+]

@@ -7,9 +7,11 @@ import { useGitSyncProviders } from "@/hooks/use-git-sync-providers"
 
 type QueryState = { data?: unknown; isLoading: boolean; isError: boolean }
 let mockQueries: Record<string, QueryState> = {}
+let mockCanReadOrgSettings: boolean | undefined = true
 
 jest.mock("@/components/auth/scope-guard", () => ({
-  useScopeCheck: () => true,
+  useScopeCheck: (scope: string) =>
+    scope === "org:settings:read" ? mockCanReadOrgSettings : false,
 }))
 
 jest.mock("@/lib/query", () => ({
@@ -23,37 +25,55 @@ const ok = (data: unknown): QueryState => ({
   isError: false,
 })
 const failed: QueryState = { isLoading: false, isError: true }
+const loading: QueryState = { isLoading: true, isError: false }
+const none = ok({ exists: false })
+
+function allNone(): Record<string, QueryState> {
+  return {
+    "github-app-credentials-status": none,
+    "gitlab-token-credentials-status": none,
+    "bitbucket-token-credentials-status": none,
+    "bitbucket-data-center-token-credentials-status": none,
+  }
+}
 
 beforeEach(() => {
-  mockQueries = {}
+  mockQueries = allNone()
+  mockCanReadOrgSettings = true
 })
 
 describe("useGitSyncProviders", () => {
-  it("keeps working providers when another status check fails", () => {
+  it("keeps a provider whose check failed selectable, without a host", () => {
     mockQueries = {
-      "github-app-credentials-status": failed,
+      ...allNone(),
+      // Stale data on an errored query must not count as confirmed.
+      "github-app-credentials-status": {
+        ...failed,
+        data: { exists: true },
+      },
       "gitlab-token-credentials-status": ok({
         exists: true,
         base_url: "https://gitlab.example.com",
       }),
-      "bitbucket-token-credentials-status": ok({ exists: false }),
-      "bitbucket-data-center-token-credentials-status": ok({ exists: false }),
     }
 
     const { result } = renderHook(() => useGitSyncProviders())
 
     expect(result.current).toEqual({
       kind: "known",
-      providers: [{ id: "gitlab", host: "gitlab.example.com" }],
+      providers: [
+        { id: "github" },
+        { id: "gitlab", host: "gitlab.example.com" },
+      ],
     })
   })
 
-  it("reports unknown when a check fails and none is confirmed", () => {
+  it("reports unknown when every check fails", () => {
     mockQueries = {
       "github-app-credentials-status": failed,
-      "gitlab-token-credentials-status": ok({ exists: false }),
-      "bitbucket-token-credentials-status": ok({ exists: false }),
-      "bitbucket-data-center-token-credentials-status": ok({ exists: false }),
+      "gitlab-token-credentials-status": failed,
+      "bitbucket-token-credentials-status": failed,
+      "bitbucket-data-center-token-credentials-status": failed,
     }
 
     const { result } = renderHook(() => useGitSyncProviders())
@@ -62,15 +82,33 @@ describe("useGitSyncProviders", () => {
   })
 
   it("reports none set up only when every check succeeded", () => {
-    mockQueries = {
-      "github-app-credentials-status": ok({ exists: false }),
-      "gitlab-token-credentials-status": ok({ exists: false }),
-      "bitbucket-token-credentials-status": ok({ exists: false }),
-      "bitbucket-data-center-token-credentials-status": ok({ exists: false }),
-    }
-
     const { result } = renderHook(() => useGitSyncProviders())
 
     expect(result.current).toEqual({ kind: "known", providers: [] })
+  })
+
+  it("reports unknown without org settings access", () => {
+    mockCanReadOrgSettings = false
+
+    const { result } = renderHook(() => useGitSyncProviders())
+
+    expect(result.current).toEqual({ kind: "unknown" })
+  })
+
+  it("reports loading while access is unresolved, disabled, or a check runs", () => {
+    mockCanReadOrgSettings = undefined
+    expect(renderHook(() => useGitSyncProviders()).result.current).toEqual({
+      kind: "loading",
+    })
+
+    mockCanReadOrgSettings = true
+    expect(
+      renderHook(() => useGitSyncProviders({ enabled: false })).result.current
+    ).toEqual({ kind: "loading" })
+
+    mockQueries = { ...allNone(), "gitlab-token-credentials-status": loading }
+    expect(renderHook(() => useGitSyncProviders()).result.current).toEqual({
+      kind: "loading",
+    })
   })
 })

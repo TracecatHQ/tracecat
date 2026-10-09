@@ -45,6 +45,7 @@ import {
   useWorkspaceSyncExportPreview,
 } from "@/hooks/use-workspace-sync"
 import { getApiErrorDetail } from "@/lib/errors"
+import { useQueryClient } from "@/lib/query"
 
 interface GitSyncPushTabProps {
   workspaceId: string
@@ -71,6 +72,7 @@ export function GitSyncPushTab({
 }: GitSyncPushTabProps) {
   const { exportWorkspace, exportWorkspaceIsPending } =
     useWorkspaceSyncExport(workspaceId)
+  const queryClient = useQueryClient()
 
   const [message, setMessage] = useState("Export workspace config")
   const [mode, setMode] = useState<WorkspaceSyncPushMode>("pull-request")
@@ -137,6 +139,16 @@ export function GitSyncPushTab({
         include_schedules: false,
       })
       writeLastPushBranch(workspaceId, targetBranch)
+      // The push changed the remote: drop the old preview and refetch the
+      // branches and commits so a new branch is listed and can be restored.
+      setPreviewedAt(null)
+      for (const key of [
+        "workflow-sync-branches",
+        "repository_commits",
+        "workspace-sync-export-preview",
+      ]) {
+        void queryClient.invalidateQueries({ queryKey: [key, workspaceId] })
+      }
       const prUrl = result.commit.pr_url
       toast({
         title: prUrl

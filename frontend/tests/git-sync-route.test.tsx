@@ -23,14 +23,35 @@ jest.mock("@/hooks/use-workspace", () => ({
   }),
 }))
 
+let mockScopes: Record<string, boolean | undefined> = {}
+
 jest.mock("@/components/auth/scope-guard", () => ({
-  useScopeCheck: () => true,
+  useScopeCheck: (scope: string) => mockScopes[scope],
+}))
+
+jest.mock("@/components/loading/spinner", () => ({
+  CenteredSpinner: () => <div>Loading</div>,
 }))
 
 jest.mock("@/components/workspace-sync/git-sync-view", () => ({
   GitSyncHeader: () => <header>Git Sync</header>,
-  GitSyncView: () => <div>Git Sync view</div>,
+  GitSyncView: ({
+    canSync,
+    canManageConnection,
+  }: {
+    canSync: boolean
+    canManageConnection: boolean
+  }) => (
+    <div>
+      Git Sync view sync={String(canSync)} manage=
+      {String(canManageConnection)}
+    </div>
+  ),
 }))
+
+beforeEach(() => {
+  mockScopes = { "workspace_sync:sync": true, "workspace:update": true }
+})
 
 describe("WorkspaceGitSyncPage", () => {
   it("asks to reload when the plan can't be checked, not to upgrade", () => {
@@ -68,6 +89,50 @@ describe("WorkspaceGitSyncPage", () => {
 
     render(<WorkspaceGitSyncPage />)
 
-    expect(screen.getByText("Git Sync view")).toBeInTheDocument()
+    expect(screen.getByText(/Git Sync view/)).toHaveTextContent(
+      "sync=true manage=true"
+    )
+  })
+
+  describe("permissions", () => {
+    beforeEach(() => {
+      mockEntitlements = {
+        hasEntitlement: () => true,
+        hasEntitlementData: true,
+        isLoading: false,
+      }
+    })
+
+    it("waits while a permission check is unresolved", () => {
+      mockScopes = {
+        "workspace_sync:sync": undefined,
+        "workspace:update": true,
+      }
+
+      render(<WorkspaceGitSyncPage />)
+
+      expect(screen.getByText("Loading")).toBeInTheDocument()
+    })
+
+    it("refuses viewers who can neither sync nor manage the connection", () => {
+      mockScopes = { "workspace_sync:sync": false, "workspace:update": false }
+
+      render(<WorkspaceGitSyncPage />)
+
+      expect(
+        screen.getByText("You don't have permission to sync this workspace.")
+      ).toBeInTheDocument()
+      expect(screen.queryByText(/Git Sync view/)).not.toBeInTheDocument()
+    })
+
+    it("lets connection admins in without sync access", () => {
+      mockScopes = { "workspace_sync:sync": false, "workspace:update": true }
+
+      render(<WorkspaceGitSyncPage />)
+
+      expect(screen.getByText(/Git Sync view/)).toHaveTextContent(
+        "sync=false manage=true"
+      )
+    })
   })
 })
