@@ -17,8 +17,18 @@ You can also sign up manually via [https://platform.tracecat.com](https://platfo
 
 ## Self-host
 
-Docker Compose is the fastest way to self-host.
-Follow the full [Docker Compose guide](/self-hosting/docker-compose) or the quickstart below.
+Choose a deployment method:
+
+- [Docker Compose](/self-hosting/docker-compose): Run every service on a single host. This is the fastest way to self-host.
+- [AWS ECS Fargate](/self-hosting/aws-fargate): Deploy to your own AWS account with Terraform.
+- [Kubernetes](/self-hosting/kubernetes): Install the Helm chart on EKS, GKE, or any conformant cluster.
+- [Air-gapped deployment](/self-hosting/air-gapped): Run on Kubernetes with no runtime internet access.
+
+See [Architecture](/self-hosting/architecture) for how the services fit together.
+
+### Docker Compose quickstart
+
+Follow the full [Docker Compose guide](/self-hosting/docker-compose) or run the commands below.
 
 ```bash
 # Setup environment variables and secrets
@@ -39,3 +49,10 @@ docker compose up -d
 ### First login
 
 <FirstSuperadmin />
+
+## Next steps
+
+- See [Environment variables](/self-hosting/environment-variables) to configure your deployment.
+- See [TLS and certificates](/self-hosting/tls) to serve Tracecat over HTTPS.
+- See [User management](/manage-platform/users) to invite your team.
+- See [SAML SSO](/authentication/saml) or [OIDC](/authentication/oidc) to sign in through your identity provider.

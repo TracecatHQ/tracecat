@@ -14,7 +14,7 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Documentation",
+        "tab": "Automations",
         "groups": [
           {
             "group": "Overview",
@@ -96,7 +96,7 @@
         ]
       },
       {
-        "tab": "Case Management",
+        "tab": "Cases",
         "groups": [
           {
             "group": "Case management",
@@ -325,7 +325,7 @@
         ]
       },
       {
-        "tab": "Self-hosting",
+        "tab": "Platform",
         "groups": [
           {
             "group": "Self-hosting",
@@ -343,12 +343,7 @@
               "self-hosting/environment-variables",
               "self-hosting/security"
             ]
-          }
-        ]
-      },
-      {
-        "tab": "Admin",
-        "groups": [
+          },
           {
             "group": "Manage platform",
             "icon": "settings",
@@ -370,12 +365,7 @@
               "authentication/oidc",
               "authentication/scim"
             ]
-          }
-        ]
-      },
-      {
-        "tab": "Security",
-        "groups": [
+          },
           {
             "group": "Security",
             "icon": "shield-check",
