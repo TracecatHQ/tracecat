@@ -6,6 +6,7 @@ Terraform stack for Tracecat on AWS ECS Fargate (`>1.0.0-beta.xx`).
 
 - `api`
 - `worker`
+- `background-worker` (durable platform tasks, including Git sync)
 - `executor`
 - `agent-executor`
 - `ui`
@@ -87,7 +88,7 @@ The Temporal RDS database does not need pgvector.
 
 - API task startup includes an internal migrations init container.
 - API container starts only if migrations succeed (`dependsOn: SUCCESS`).
-- `worker`, `executor`, and `agent-executor` are ordered after API in Terraform, so service updates do not proceed past API if migrations fail.
+- `worker`, `background-worker`, `executor`, and `agent-executor` are ordered after API in Terraform, so service updates do not proceed past API if migrations fail.
 
 By default, the migrations init container uses the same backend image repository
 and tag as the application. Set these optional variables to decouple it:
@@ -110,3 +111,23 @@ the current Alembic database revision while rolling back the app images.
 - `s3_workflow_bucket_name`
 - `s3_agent_bucket_name`
 - `nat_gateway_eips` (outbound allowlisting IPs; public identifiers, not secrets)
+
+
+## Durable background tasks
+
+The `background-worker` service runs `tracecat.background.worker` on a dedicated,
+generic Temporal queue. `background_queue` defaults to `shared-background-queue`
+and is passed to both the API and worker. Temporal creates the queue on demand;
+no server provisioning is required. Default sizing is one task, 1024 CPU units,
+2048 MiB, and four concurrent activities. Use `background_worker_desired_count`,
+`background_worker_cpu`, `background_worker_memory`, and
+`background_worker_max_concurrent_activities` to tune it independently.
+
+Deploy an app image containing the worker together with the additive
+`workspace_sync_operation` migration. The worker shares the existing API task
+role, database, and workflow artifact bucket, and uses the worker-specific
+`worker_secrets` set. API-only authentication, OAuth, SAML, and SMTP secrets are
+not passed to the worker. Preserve artifacts for at
+least the 24-hour preview confirmation window. API acceptance is durable even
+while the worker is unavailable; operations remain queued until it returns.
+Roll back application images without removing the operation table or artifacts.

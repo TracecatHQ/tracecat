@@ -723,3 +723,14 @@ def test_sandbox_memory_limits_must_be_positive(
                 importlib.reload(tracecat_config)
     finally:
         importlib.reload(tracecat_config)
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "1.5"])
+def test_background_activity_capacity_rejects_invalid_values(monkeypatch, value):
+    try:
+        with monkeypatch.context() as env:
+            env.setenv("TRACECAT__BACKGROUND_MAX_CONCURRENT_ACTIVITIES", value)
+            with pytest.raises(ValueError):
+                importlib.reload(tracecat_config)
+    finally:
+        importlib.reload(tracecat_config)

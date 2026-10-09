@@ -1027,3 +1027,33 @@ variable "sentry_dsn" {
   default     = null
   sensitive   = true
 }
+
+variable "background_queue" {
+  type    = string
+  default = "shared-background-queue"
+}
+
+variable "background_worker_cpu" {
+  type    = number
+  default = 1024
+}
+
+variable "background_worker_memory" {
+  type    = number
+  default = 2048
+}
+
+variable "background_worker_desired_count" {
+  type    = number
+  default = 1
+}
+
+variable "background_worker_max_concurrent_activities" {
+  type    = number
+  default = 4
+
+  validation {
+    condition     = var.background_worker_max_concurrent_activities > 0 && floor(var.background_worker_max_concurrent_activities) == var.background_worker_max_concurrent_activities
+    error_message = "background_worker_max_concurrent_activities must be a positive integer."
+  }
+}
