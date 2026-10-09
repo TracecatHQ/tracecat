@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react"
 import { useFormContext, useWatch } from "react-hook-form"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { YamlStyledEditor } from "@/components/editor/codemirror/yaml-editor"
 import { ExpressionInput } from "@/components/editor/expression-input"
 import { LockedFeatureModal } from "@/components/locked-feature-modal"
@@ -83,10 +84,18 @@ function OwnedToolsField({
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useBuilderRegistryActions({ includeLocked: true })
   const mcpEnabled = mcpField !== null
+  // The list endpoint needs `integration:read`; without it the request 403s,
+  // so skip it and keep registry tools editable. Undefined while scopes load.
+  const canReadIntegrations = useScopeCheck("integration:read")
+  const mcpReadable = mcpEnabled && canReadIntegrations === true
   const { mcpIntegrations, mcpIntegrationsIsLoading, mcpIntegrationsError } =
     useListMcpIntegrations(workspaceId ?? "", undefined, {
-      enabled: mcpEnabled,
+      enabled: mcpReadable,
     })
+  const mcpLoading =
+    mcpEnabled &&
+    (canReadIntegrations === undefined ||
+      (mcpReadable && mcpIntegrationsIsLoading))
   const [lockedFeatureOpen, setLockedFeatureOpen] = useState(false)
   const openLockedFeature = useCallback(() => setLockedFeatureOpen(true), [])
 
@@ -160,9 +169,9 @@ function OwnedToolsField({
         registryActions={registryActions}
         mcpIntegrations={mcpIntegrations}
         registryLoading={registryActionsIsLoading}
-        mcpLoading={mcpEnabled && mcpIntegrationsIsLoading}
+        mcpLoading={mcpLoading}
         toolsLoadError={Boolean(
-          registryActionsError || (mcpEnabled && mcpIntegrationsError)
+          registryActionsError || (mcpReadable && mcpIntegrationsError)
         )}
         approvalsEnabled={approvalsField !== null}
         mcpEnabled={mcpEnabled}

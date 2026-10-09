@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { type UseFormReturn, useForm } from "react-hook-form"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { AgentToolsField } from "@/components/builder/panel/agent-tools-field"
 import { Form } from "@/components/ui/form"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -19,6 +20,9 @@ jest.mock("@/lib/hooks", () => ({
 }))
 jest.mock("@/providers/workspace-id", () => ({
   useWorkspaceId: () => "workspace-test",
+}))
+jest.mock("@/components/auth/scope-guard", () => ({
+  useScopeCheck: jest.fn(),
 }))
 jest.mock("@/components/editor/expression-input", () => ({
   ExpressionInput: ({
@@ -69,6 +73,7 @@ beforeAll(() => {
 })
 
 beforeEach(() => {
+  jest.mocked(useScopeCheck).mockReturnValue(true)
   jest.mocked(useBuilderRegistryActions).mockReturnValue({
     registryActions: [action],
     registryActionsIsLoading: false,
@@ -137,6 +142,44 @@ it("writes agent tools, MCP integrations and approval overrides, then clears emp
   await user.click(screen.getByRole("button", { name: "Remove Test MCP" }))
   expect(currentForm.getValues("inputs.mcp_integrations")).toBeUndefined()
   expect(currentForm.getValues("inputs.actions")).toEqual([action.action])
+})
+
+it("keeps registry tools editable without integration read access", async () => {
+  jest.mocked(useScopeCheck).mockReturnValue(false)
+  // The request is skipped; a stale 403 from another surface must not block.
+  jest.mocked(useListMcpIntegrations).mockReturnValue({
+    mcpIntegrations: undefined,
+    mcpIntegrationsIsLoading: false,
+    mcpIntegrationsError: new Error("Forbidden") as never,
+  })
+  const user = userEvent.setup()
+  render(<TestField inputs={{ mcp_integrations: [integration.id] }} />)
+  expect(useListMcpIntegrations).toHaveBeenLastCalledWith(
+    "workspace-test",
+    undefined,
+    { enabled: false }
+  )
+  expect(
+    screen.queryByText("Tools could not be loaded.")
+  ).not.toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Add tools" }))
+  await user.click(await screen.findByRole("option", { name: /first/ }))
+  await user.click(screen.getByRole("button", { name: "Done" }))
+  expect(values()).toEqual({
+    actions: [action.action],
+    mcp_integrations: [integration.id],
+  })
+})
+
+it("waits for scopes before requesting MCP integrations", () => {
+  jest.mocked(useScopeCheck).mockReturnValue(undefined)
+  render(<TestField />)
+  expect(useListMcpIntegrations).toHaveBeenLastCalledWith(
+    "workspace-test",
+    undefined,
+    { enabled: false }
+  )
+  expect(screen.getByText("Loading tools...")).toBeInTheDocument()
 })
 
 it("limits preset-agent schemas to registry actions", async () => {
