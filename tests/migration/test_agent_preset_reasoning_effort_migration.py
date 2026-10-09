@@ -135,7 +135,9 @@ def test_reasoning_effort_stays_in_sync_with_legacy_writes() -> None:
                 connection.execute(
                     text(
                         "SELECT count(*) FROM pg_proc "
-                        "WHERE proname = 'sync_agent_preset_reasoning_effort'"
+                        "WHERE proname = 'sync_agent_preset_reasoning_effort' "
+                        # A migrated app database has its own copy in public.
+                        "AND pronamespace = current_schema()::regnamespace"
                     )
                 ).scalar_one()
                 == 0
