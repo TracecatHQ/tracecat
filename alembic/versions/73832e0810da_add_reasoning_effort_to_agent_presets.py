@@ -1,7 +1,7 @@
 """add reasoning_effort to agent presets
 
 Revision ID: 73832e0810da
-Revises: d45011587673
+Revises: e379e38b8495
 Create Date: 2026-09-28 12:00:00.000000
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "73832e0810da"
-down_revision: str | None = "d45011587673"
+down_revision: str | None = "e379e38b8495"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
