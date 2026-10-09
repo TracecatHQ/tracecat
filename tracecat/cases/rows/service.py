@@ -15,10 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from tracecat.auth.types import Role
-from tracecat.cases.event_schemas import (
-    TableRowLinkedEvent,
-    TableRowUnlinkedEvent,
-)
 from tracecat.cases.rows.schemas import (
     CaseLinkedTableRead,
     CaseTableRowBatchLinkResponse,
@@ -28,6 +24,8 @@ from tracecat.cases.rows.schemas import (
 )
 from tracecat.cases.schemas import (
     CaseReadMinimal,
+    TableRowLinkedEvent,
+    TableRowUnlinkedEvent,
 )
 from tracecat.cases.service import CaseEventsService, CasesService
 from tracecat.db.models import Case, CaseTableRow, Table

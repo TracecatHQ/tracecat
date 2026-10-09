@@ -2477,19 +2477,6 @@ class Case(WorkspaceModel):
             initially="DEFERRED",
         ),
         Index("ix_case_cursor_pagination", "workspace_id", "created_at", "id"),
-        # Leads with parent_id so it also serves the ON DELETE SET NULL lookup
-        # when a parent case is deleted.
-        Index(
-            "ix_case_parent_id",
-            "parent_id",
-            "created_at",
-            "id",
-            postgresql_where=text("parent_id IS NOT NULL"),
-        ),
-        CheckConstraint(
-            "parent_id IS NULL OR parent_id <> id",
-            name="parent_not_self",
-        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -2530,14 +2517,6 @@ class Case(WorkspaceModel):
         ForeignKey("user.id", ondelete="SET NULL"),
         nullable=True,
         doc="The ID of the user who is assigned to the case.",
-    )
-    parent_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID,
-        # use_alter: the referenced unique index on case.id is created after
-        # CREATE TABLE, so the self-referential FK must be added afterwards.
-        ForeignKey("case.id", ondelete="SET NULL", use_alter=True),
-        nullable=True,
-        doc="Parent case ID when this case is grouped as a sub-case.",
     )
     comments: Mapped[list[CaseComment]] = relationship(
         "CaseComment",

@@ -11,8 +11,9 @@ from tracecat.auth.types import Role
 from tracecat.authz.scopes import ADMIN_SCOPES, SERVICE_PRINCIPAL_SCOPES
 from tracecat.cases.durations import CaseDurationAnchorSelection
 from tracecat.cases.enums import CaseEventType, CasePriority, CaseSeverity, CaseStatus
-from tracecat.cases.event_schemas import (
+from tracecat.cases.schemas import (
     AssigneeChangedEvent,
+    CaseCreate,
     ClosedEvent,
     CommentCreatedEvent,
     CommentReplyDeletedEvent,
@@ -24,9 +25,6 @@ from tracecat.cases.event_schemas import (
     SeverityChangedEvent,
     StatusChangedEvent,
     UpdatedEvent,
-)
-from tracecat.cases.schemas import (
-    CaseCreate,
 )
 from tracecat.cases.service import CaseEventsService, CasesService
 from tracecat.db.models import CaseDurationDefinition, CaseEvent

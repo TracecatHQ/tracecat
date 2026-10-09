@@ -170,24 +170,6 @@ export const CASE_EVENT_SUGGESTIONS: Suggestion[] = [
     value: "dropdown_value_changed",
     group: "Dropdowns",
   },
-  {
-    id: "parent_changed",
-    label: "Parent case changed",
-    value: "parent_changed",
-    group: "Sub-cases",
-  },
-  {
-    id: "sub_cases_added",
-    label: "Sub-cases added",
-    value: "sub_cases_added",
-    group: "Sub-cases",
-  },
-  {
-    id: "sub_cases_removed",
-    label: "Sub-cases removed",
-    value: "sub_cases_removed",
-    group: "Sub-cases",
-  },
 ]
 
 const CASE_EVENT_LABELS = new Map<string, string>(

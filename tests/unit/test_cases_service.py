@@ -1174,9 +1174,7 @@ class TestCasesService:
                 key_share=True,
             )
         else:
-            mock_lock_cases.assert_awaited_once_with(
-                case_ids, load_dropdown_values=False, key_share=False
-            )
+            mock_lock_cases.assert_awaited_once_with(case_ids)
         _assert_batch_audit_calls(
             mock_audit,
             action=action,

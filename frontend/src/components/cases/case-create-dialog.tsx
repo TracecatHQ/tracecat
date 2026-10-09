@@ -37,7 +37,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { caseHref } from "@/lib/cases/urls"
 import { useCreateCase } from "@/lib/hooks"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -96,7 +95,7 @@ export function CreateCaseDialog({
       // Note: The response type is unknown, so we need to cast it
       const caseResponse = response as CaseRead | undefined
       if (caseResponse?.id) {
-        router.push(caseHref(workspaceId, caseResponse.id))
+        router.push(`/workspaces/${workspaceId}/cases/${caseResponse.id}`)
       }
     } catch (error) {
       if (error instanceof ApiError) {

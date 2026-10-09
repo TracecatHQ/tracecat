@@ -34,7 +34,6 @@ import {
   formatCaseFieldDisplayLabel,
   isCustomFieldValueEmpty,
 } from "@/lib/case-field-display"
-import { caseHref } from "@/lib/cases/urls"
 import {
   useCaseDropdownDefinitions,
   useCaseTagCatalog,
@@ -61,6 +60,10 @@ export interface CaseRelatedCasesDrawerProps {
 }
 
 const BADGE_CLASS = "h-5 shrink-0 px-1.5 py-0 text-[10px]"
+
+function caseHref(workspaceId: string, caseId: string): string {
+  return `/workspaces/${workspaceId}/cases/${caseId}`
+}
 
 function openCaseInNewTab(workspaceId: string, caseId: string): void {
   window.open(caseHref(workspaceId, caseId), "_blank", "noopener,noreferrer")

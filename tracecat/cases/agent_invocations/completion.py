@@ -9,10 +9,8 @@ from sqlalchemy import select
 from tracecat.cases.agent_invocations.output import render_agent_output_as_comment
 from tracecat.cases.agent_invocations.service import CaseCommentAgentInvocationService
 from tracecat.cases.enums import CaseCommentAgentInvocationStatus, MentionTargetType
-from tracecat.cases.event_schemas import (
-    CommentReplyCreatedEvent,
-)
 from tracecat.cases.events import CaseEventsService
+from tracecat.cases.schemas import CommentReplyCreatedEvent
 from tracecat.db.models import (
     Case,
     CaseComment,

@@ -22,7 +22,6 @@ from tracecat.auth.schemas import UserRead
 from tracecat.authz.controls import has_scope
 from tracecat.cases.dropdowns.schemas import CaseDropdownValueRead
 from tracecat.cases.dropdowns.service import CaseDropdownValuesService
-from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
     CaseFieldRead,
@@ -99,10 +98,6 @@ class CaseArtifactHydrator:
                 case_ids=[case.id],
                 include_row_data=True,
             )
-            hierarchies = await CaseHierarchyService(session, ctx.role).get_hierarchy(
-                [case]
-            )
-            hierarchy = hierarchies.get(case.id, TOP_LEVEL)
             hydrated = CaseRead(
                 id=case.id,
                 short_id=case.short_id,
@@ -124,7 +119,6 @@ class CaseArtifactHydrator:
                 ],
                 dropdown_values=dropdown_values,
                 rows=rows_by_case.get(case.id, []),
-                **hierarchy.read_fields(),
             )
 
         return MountedArtifactContent(

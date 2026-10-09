@@ -21,7 +21,6 @@ from tracecat.cases.enums import (
     CaseStatus,
     CaseVersionField,
 )
-from tracecat.cases.hierarchy import CaseHierarchyService
 from tracecat.cases.schemas import (
     CaseBatchItemResult,
     CaseBatchResponse,
@@ -47,17 +46,6 @@ from tracecat.exceptions import (
     TracecatValidationError,
 )
 from tracecat.pagination import CursorPaginatedResponse
-
-
-@pytest.fixture(autouse=True)
-def stub_case_hierarchy():
-    """Case services are mocked wholesale, so stub the sub-case lookups."""
-    with patch.object(
-        CaseHierarchyService,
-        "get_hierarchy",
-        new=AsyncMock(return_value={}),
-    ) as mock_hierarchy:
-        yield mock_hierarchy
 
 
 @pytest.fixture
@@ -157,7 +145,6 @@ async def test_list_cases_success(
             dropdown_values=[],
             num_tasks_completed=0,
             num_tasks_total=0,
-            num_sub_cases=0,
         )
 
         mock_response = CursorPaginatedResponse(
@@ -222,7 +209,6 @@ async def test_list_cases_with_filters(
             dropdown_values=[],
             num_tasks_completed=0,
             num_tasks_total=0,
-            num_sub_cases=0,
         )
 
         mock_response = CursorPaginatedResponse(
@@ -1107,16 +1093,6 @@ async def test_batch_delete_cases_success(
             {"case_ids": [str(uuid.uuid4())]},
             "batch_delete_cases",
         ),
-        (
-            "/cases/batch-set-parent",
-            {"case_ids": [str(uuid.uuid4())], "parent_id": str(uuid.uuid4())},
-            "batch_set_parent",
-        ),
-        (
-            "/cases/batch-clear-parent",
-            {"case_ids": [str(uuid.uuid4())]},
-            "batch_clear_parent",
-        ),
     ],
 )
 async def test_batch_case_lock_conflict_returns_409(
@@ -1150,11 +1126,6 @@ async def test_batch_case_lock_conflict_returns_409(
     [
         ("/cases/batch-update", {"case_ids": [], "update": {"summary": "x"}}),
         ("/cases/batch-delete", {"case_ids": []}),
-        (
-            "/cases/batch-set-parent",
-            {"case_ids": [], "parent_id": str(uuid.uuid4())},
-        ),
-        ("/cases/batch-clear-parent", {"case_ids": []}),
     ],
 )
 async def test_batch_case_routes_reject_empty_case_ids(
@@ -1478,7 +1449,6 @@ async def test_search_cases_success(
             dropdown_values=[],
             num_tasks_completed=0,
             num_tasks_total=0,
-            num_sub_cases=0,
         )
         mock_svc.search_cases.return_value = CursorPaginatedResponse(
             items=[mock_case_read],
@@ -1535,7 +1505,6 @@ async def test_search_cases_hydrates_requested_fields_and_durations(
             dropdown_values=[],
             num_tasks_completed=0,
             num_tasks_total=0,
-            num_sub_cases=0,
         )
         mock_svc.search_cases.return_value = CursorPaginatedResponse(
             items=[mock_case_read],
@@ -1594,7 +1563,6 @@ async def test_search_cases_forwards_include_payload(
             payload={"alert_id": "abc-123"},
             num_tasks_completed=0,
             num_tasks_total=0,
-            num_sub_cases=0,
         )
         mock_svc.search_cases.return_value = CursorPaginatedResponse(
             items=[mock_case_read],
@@ -1753,7 +1721,6 @@ async def test_search_cases_forwards_date_filters(
             dropdown_values=[],
             num_tasks_completed=0,
             num_tasks_total=0,
-            num_sub_cases=0,
         )
         mock_svc.search_cases.return_value = CursorPaginatedResponse(
             items=[mock_case_read],
@@ -1990,29 +1957,3 @@ async def test_update_comment_reparenting_returns_bad_request(
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["detail"] == "Changing a comment parent is not supported"
-
-
-@pytest.mark.anyio
-async def test_search_cases_rejects_parent_id_with_top_level(
-    client: TestClient,
-    test_admin_role: Role,
-) -> None:
-    """Contradictory hierarchy filters are a client error, not a 500."""
-    with patch.object(cases_router, "CasesService") as MockService:
-        mock_svc = AsyncMock()
-        mock_svc.search_cases.side_effect = TracecatValidationError(
-            "parent_id cannot be combined with hierarchy=top_level"
-        )
-        MockService.return_value = mock_svc
-
-        response = client.get(
-            "/cases/search",
-            params={
-                "workspace_id": str(test_admin_role.workspace_id),
-                "parent_id": str(uuid.uuid4()),
-                "hierarchy": "top_level",
-            },
-        )
-
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert "cannot be combined" in response.json()["detail"]
