@@ -30,6 +30,7 @@ const mockUseVercelChatResult = {
   sendMessage: jest.fn(),
   status: "ready" as ChatStatus,
 }
+const mockUseVercelChatOptions = jest.fn()
 
 jest.mock("@/components/chat/chat-empty-hero", () => ({
   ChatEmptyHero: ({ children }: { children: ReactNode }) => (
@@ -90,7 +91,8 @@ jest.mock("@/hooks/use-chat", () => ({
     cancelChatTurn: jest.fn(),
     isCancellingChatTurn: false,
   }),
-  useVercelChat: () => {
+  useVercelChat: (options: { chatId?: string; resume?: boolean }) => {
+    mockUseVercelChatOptions(options)
     const { useState } = jest.requireActual<typeof import("react")>("react")
     const [adoptedMessages, setMessages] = useState<UIMessage[] | null>(null)
     return {
@@ -164,14 +166,125 @@ function renderChatSessionPane(
   }
 }
 
+function createChatSession(
+  id: string
+): NonNullable<Parameters<typeof ChatSessionPane>[0]["chat"]> {
+  return {
+    id,
+    workspace_id: "workspace-1",
+    title: "Synthetic chat",
+    created_by: "user-1",
+    entity_type: "agent_preset",
+    entity_id: "preset-1",
+    channel_context: null,
+    tools: [],
+    mcp_integrations: [],
+    agent_preset_id: "preset-1",
+    agent_preset_version_id: null,
+    harness_type: "pi",
+    created_at: "2026-09-25T00:00:00Z",
+    updated_at: "2026-09-25T00:00:00Z",
+    messages: [],
+  }
+}
+
 describe("ChatSessionPane optimistic first send", () => {
   beforeEach(() => {
     mockUseVercelChatResult.clearError.mockClear()
     mockUseVercelChatResult.regenerate.mockClear()
-    mockUseVercelChatResult.sendMessage.mockClear()
+    mockUseVercelChatResult.sendMessage.mockReset()
+    mockUseVercelChatOptions.mockClear()
     mockUseVercelChatResult.lastError = null
     mockUseVercelChatResult.messages = []
     mockUseVercelChatResult.status = "ready"
+  })
+
+  it("does not resume a new session while its first prompt is in flight", async () => {
+    const chat = createChatSession("new-session")
+    const onPendingMessageSent = jest.fn()
+    mockUseVercelChatResult.sendMessage.mockImplementationOnce(
+      () => new Promise<void>(() => undefined)
+    )
+    const { rerenderChatSessionPane } = renderChatSessionPane({
+      chat,
+      pendingMessage: "First prompt",
+      onPendingMessageSent,
+    })
+
+    await waitFor(() =>
+      expect(mockUseVercelChatResult.sendMessage).toHaveBeenCalledWith({
+        text: "First prompt",
+      })
+    )
+    expect(onPendingMessageSent).toHaveBeenCalledTimes(1)
+    expect(mockUseVercelChatOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chatId: "new-session", resume: false })
+    )
+
+    rerenderChatSessionPane({ chat, onPendingMessageSent })
+
+    expect(mockUseVercelChatOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chatId: "new-session", resume: false })
+    )
+    expect(mockUseVercelChatResult.sendMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it("resets reconnect eligibility when switching between existing and forked sessions", () => {
+    const existingChat = createChatSession("existing-session")
+    const forkedChat = createChatSession("forked-session")
+    const { rerenderChatSessionPane } = renderChatSessionPane({
+      chat: existingChat,
+    })
+    expect(mockUseVercelChatOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chatId: "existing-session", resume: true })
+    )
+
+    rerenderChatSessionPane({
+      chat: forkedChat,
+      pendingMessage: "Forked prompt",
+    })
+    expect(mockUseVercelChatOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chatId: "forked-session", resume: false })
+    )
+
+    rerenderChatSessionPane({ chat: forkedChat })
+    expect(mockUseVercelChatOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chatId: "forked-session", resume: false })
+    )
+
+    rerenderChatSessionPane({ chat: existingChat })
+    expect(mockUseVercelChatOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chatId: "existing-session", resume: true })
+    )
+  })
+
+  it("keeps reconnect disabled for terminal sessions", () => {
+    renderChatSessionPane({
+      chat: createChatSession("terminal-session"),
+      resume: false,
+    })
+    expect(mockUseVercelChatOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chatId: "terminal-session", resume: false })
+    )
+    expect(mockUseVercelChatResult.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it("honors reconnect becoming enabled for the same existing session", () => {
+    const chat = createChatSession("approval-session")
+    const { rerenderChatSessionPane } = renderChatSessionPane({
+      chat,
+      resume: false,
+    })
+    expect(mockUseVercelChatOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chatId: "approval-session", resume: false })
+    )
+
+    rerenderChatSessionPane({ chat, resume: true })
+
+    expect(mockUseVercelChatOptions).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chatId: "approval-session", resume: true })
+    )
+    expect(mockUseVercelChatResult.sendMessage).not.toHaveBeenCalled()
   })
 
   it("adopts persisted child history and disables direct messages", async () => {
