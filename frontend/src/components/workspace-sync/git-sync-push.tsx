@@ -100,8 +100,13 @@ export function GitSyncPushTab({
     defaultBranch: baseBranch,
     isCreatingBranch,
   })
-  // Direct pushes to the default branch are off, so both modes are blocked.
-  const isBlocked = outcome.targetIsDefault
+  // Direct pushes to the sync base or repository default are off.
+  const blockedBranch = getBlockedPushBranch({
+    targetBranch,
+    baseBranch,
+    branches: repoBranches,
+  })
+  const isBlocked = blockedBranch !== undefined
   const reviewRequest = getReviewRequestLabel(provider)
   const reviewRequestShort = getReviewRequestAbbreviation(provider)
   const visiblePreview = previewedAt ? preview : undefined
@@ -182,7 +187,7 @@ export function GitSyncPushTab({
       <div className="flex flex-1 flex-col">
         {isBlocked && (
           <GitSyncNotice tone="warning">
-            Pushing to {baseBranch} directly is off. Pick or create another
+            Pushing to {blockedBranch} directly is off. Pick or create another
             branch.
           </GitSyncNotice>
         )}
@@ -365,6 +370,27 @@ function PushButtonIcon({
     return <GitPullRequestIcon className="size-4" />
   }
   return <ArrowUpIcon className="size-4" />
+}
+
+function getBlockedPushBranch({
+  targetBranch,
+  baseBranch,
+  branches,
+}: {
+  targetBranch: string
+  baseBranch: string | undefined
+  branches: GitBranchInfo[] | undefined
+}): string | undefined {
+  if (!targetBranch) {
+    return undefined
+  }
+  if (targetBranch === baseBranch) {
+    return baseBranch
+  }
+  const isRepositoryDefault = branches?.some(
+    (candidate) => candidate.is_default && candidate.name === targetBranch
+  )
+  return isRepositoryDefault ? targetBranch : undefined
 }
 
 function getPushButtonLabel({

@@ -4,6 +4,7 @@ import {
   type GitRemoteTarget,
   getAppRepositoryGitUrl,
   getBaseUrlHost,
+  getBaseUrlPath,
   parseGitRemote,
 } from "@/lib/git-remote"
 
@@ -132,6 +133,28 @@ describe("parseGitRemote", () => {
     )
   })
 
+  it("keeps www. on a self-hosted host", () => {
+    expectGitUrl(
+      "https://www.gitlab.example.com/group/project",
+      { ...gitlab, host: "www.gitlab.example.com" },
+      "git+ssh://git@www.gitlab.example.com/group/project.git"
+    )
+  })
+
+  it("drops a GitLab base path from browser URLs only", () => {
+    const target = { ...gitlab, basePath: "/gitlab" }
+    expectGitUrl(
+      "https://gitlab.example.com/gitlab/group/project/-/tree/main",
+      target,
+      "git+ssh://git@gitlab.example.com/group/project.git"
+    )
+    expectGitUrl(
+      "git@gitlab.example.com:gitlab/project.git",
+      target,
+      "git+ssh://git@gitlab.example.com/gitlab/project.git"
+    )
+  })
+
   it("keeps a GitLab SSH port", () => {
     expectGitUrl(
       "ssh://git@gitlab.example.com:2222/group/project.git",
@@ -245,6 +268,11 @@ describe("git remote helpers", () => {
       "gitlab.example.com"
     )
     expect(getBaseUrlHost("not a url")).toBeUndefined()
+  })
+
+  it("reads base paths from provider base URLs", () => {
+    expect(getBaseUrlPath("https://gitlab.example.com/gitlab/")).toBe("/gitlab")
+    expect(getBaseUrlPath("https://gitlab.example.com")).toBeUndefined()
   })
 
   it("pins a non-main default branch for app repositories", () => {

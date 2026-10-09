@@ -208,6 +208,7 @@ function GitSyncConnectedView({
             commits={commits}
             commitsIsLoading={commitsIsLoading}
             commitsError={commitsError}
+            isActive={direction === "pull" && !showConnection}
           />
         </TabsContent>
       </div>

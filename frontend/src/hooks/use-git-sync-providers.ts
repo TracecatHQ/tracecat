@@ -12,7 +12,7 @@ import {
   vcsGetGitlabTokenCredentialsStatus,
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
-import { getBaseUrlHost } from "@/lib/git-remote"
+import { getBaseUrlHost, getBaseUrlPath } from "@/lib/git-remote"
 import { useQuery } from "@/lib/query"
 
 /** A Git provider the organization has usable credentials for. */
@@ -20,6 +20,8 @@ export interface ConfiguredGitProvider {
   id: VcsProvider
   /** Web host from the provider setup; undefined for GitHub. */
   host?: string
+  /** Web path a self-hosted GitLab is served under, e.g. `/gitlab`. */
+  basePath?: string
 }
 
 /**
@@ -56,6 +58,7 @@ export function getConfiguredGitProviders(
     providers.push({
       id: "gitlab",
       host: getBaseUrlHost(statuses.gitlab.base_url),
+      basePath: getBaseUrlPath(statuses.gitlab.base_url),
     })
   }
   if (statuses.bitbucket && isUsable(statuses.bitbucket)) {

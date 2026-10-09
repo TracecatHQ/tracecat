@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import type { ReactElement } from "react"
 import type {
@@ -473,6 +473,37 @@ describe("GitSyncView connected", () => {
     ).toBeDisabled()
   })
 
+  it("blocks pushing to the repository default when another branch is pinned", async () => {
+    const user = userEvent.setup()
+    renderWithTooltips(
+      <GitSyncView
+        workspace={setup({
+          gitRepoUrl: `${REPO_URL}@release`,
+          branches: [
+            { name: "main", is_default: true },
+            { name: "release", is_default: false },
+            { name: "feature", is_default: false },
+          ],
+        })}
+        canSync
+        canManageConnection
+      />
+    )
+
+    await user.click(screen.getByRole("button", { name: /^Branch/ }))
+    await user.click(screen.getByRole("option", { name: /main/ }))
+
+    expect(
+      screen.getByText(
+        "Pushing to main directly is off. Pick or create another branch."
+      )
+    ).toBeInTheDocument()
+    const bar = screen.getByRole("group", { name: "Push actions" })
+    expect(
+      within(bar).getByRole("button", { name: "Pick another branch" })
+    ).toBeDisabled()
+  })
+
   it("pushes only, without a pull request, from the button menu", async () => {
     const user = userEvent.setup()
     mockExportWorkspace.mockResolvedValue({
@@ -514,6 +545,52 @@ describe("GitSyncView connected", () => {
         expect.objectContaining({ branch: "release", create_pr: false })
       )
     )
+  })
+
+  it("waits to open the matches dialog until Pull is on screen", async () => {
+    const user = userEvent.setup()
+    let resolvePreview: (result: PullResult) => void = () => {}
+    mockPullWorkflows.mockReturnValueOnce(
+      new Promise<PullResult>((resolve) => {
+        resolvePreview = resolve
+      })
+    )
+    renderWithTooltips(
+      <GitSyncView workspace={setup()} canSync canManageConnection />
+    )
+
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    await user.click(screen.getByRole("button", { name: "Preview" }))
+    await user.click(screen.getByRole("tab", { name: "Push" }))
+    await act(async () => {
+      resolvePreview({
+        success: false,
+        commit_sha: LATEST_SHA,
+        workflows_found: 0,
+        workflows_imported: 0,
+        diagnostics: [],
+        message: "Import failed: 1 validation error(s) found",
+        resource_diffs: [],
+        catalog_mapping_requirements: [
+          {
+            source_catalog_id: "11111111-1111-1111-1111-111111111111",
+            model_provider: "custom-model-provider",
+            model_name: "shared-model",
+            reason: "ambiguous",
+            message: "Choose the target model before applying this pull.",
+            candidates: [],
+            affected_presets: [],
+            affected_workflows: [],
+          },
+        ],
+      })
+    })
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    expect(
+      await screen.findByRole("dialog", { name: "Match 1 reference to pull" })
+    ).toBeInTheDocument()
   })
 
   it("gates the pull on a re-previewed model mapping", async () => {
