@@ -139,8 +139,13 @@ export function readSkillFrontmatterTools(
     }
   }
   // An absent catalog means availability is unknown, not that it is empty.
+  // Locked actions are in the catalogue but cannot be called.
   const registryIds = registryActions
-    ? new Set(registryActions.map((action) => action.action))
+    ? new Set(
+        registryActions
+          .filter((action) => !action.availability?.locked)
+          .map((action) => action.action)
+      )
     : undefined
   const integrationsBySlug = mcpIntegrations
     ? new Map(

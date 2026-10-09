@@ -191,6 +191,23 @@ it("shows and preserves an unknown saved action on no-op Done", async () => {
   expect(screen.getByTestId("dirty")).toHaveTextContent("false")
 })
 
+it("does not offer an action agents cannot call", async () => {
+  jest.mocked(useBuilderRegistryActions).mockReturnValue({
+    registryActions: [action, registryTool("core.script.run_python")],
+    registryActionsIsLoading: false,
+    registryActionsError: null,
+    getRegistryAction: jest.fn(),
+  })
+  const user = userEvent.setup()
+  render(<TestField inputs={{ actions: ["core.script.run_python"] }} />)
+  expect(screen.getByText("Unavailable")).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Add tools" }))
+  expect(await screen.findByRole("option", { name: /first/ })).toBeVisible()
+  expect(
+    screen.queryByRole("option", { name: /run python/ })
+  ).not.toBeInTheDocument()
+})
+
 it("mounts fewer than 40 action options for a 1,500-entry catalog", async () => {
   jest.mocked(useBuilderRegistryActions).mockReturnValue({
     registryActions: largeToolCatalog(),

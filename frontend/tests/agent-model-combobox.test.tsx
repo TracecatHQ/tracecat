@@ -184,6 +184,49 @@ it("matches a custom-source model by name and provider only when asked", () => {
   )
 })
 
+it("does not match a stale catalog id by name in any source", () => {
+  render(
+    <AgentModelCombobox
+      options={options}
+      value={{
+        catalogId: "catalog-removed",
+        modelName: "model-one",
+        modelProvider: "openai",
+      }}
+      onChange={jest.fn()}
+      matchAnySource
+      unavailableLabel="Unavailable in this workspace"
+    />
+  )
+  expect(screen.getByRole("combobox")).toHaveTextContent(
+    "openai / model-oneUnavailable in this workspace"
+  )
+})
+
+it("keeps rows that share a source, provider and name distinct", async () => {
+  const user = userEvent.setup()
+  const onChange = jest.fn()
+  const organizationRow: EnabledModelOption = {
+    ...options[0],
+    catalogId: "catalog-organization",
+    sourceType: "organization",
+  }
+  render(
+    <AgentModelCombobox
+      options={[options[0], organizationRow]}
+      value={{ catalogId: "catalog-organization" }}
+      onChange={onChange}
+    />
+  )
+  await user.click(screen.getByRole("combobox"))
+  const rows = screen.getAllByRole("option", { name: /Model one/ })
+  expect(rows).toHaveLength(2)
+  expect(rows[0]).toHaveAttribute("data-selected", "false")
+  expect(rows[1]).toHaveAttribute("data-selected", "true")
+  await user.click(rows[0])
+  expect(onChange).toHaveBeenCalledWith(options[0])
+})
+
 it("highlights the selected model when the list is reopened", async () => {
   const user = userEvent.setup()
   render(

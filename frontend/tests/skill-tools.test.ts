@@ -391,6 +391,16 @@ it("distinguishes unknown catalogs from loaded empty catalogs", () => {
   expect(readSkillFrontmatterTools(source, [], []).valid).toBe(false)
 })
 
+it("reports a locked registry action as unavailable", () => {
+  const frontmatter = `metadata: {tools: [${registryAction.action}]}`
+  const locked = { ...registryAction, availability: { locked: true } }
+  expect(readSkillFrontmatterTools(frontmatter, [], [locked])).toMatchObject({
+    valid: false,
+    canRemove: true,
+    tools: [registryAction.action],
+  })
+})
+
 it("reports a registry action agents cannot call as unavailable", () => {
   const frontmatter = "metadata: {tools: [core.script.run_python]}"
   const runPython = {

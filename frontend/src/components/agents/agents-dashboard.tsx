@@ -2322,8 +2322,11 @@ export function AgentsDashboard() {
   const hasMcpSources = visibleItems.some(
     (item) => item.type === "preset" && item.tool_summary?.mcp_slugs?.length
   )
+  // The list endpoint needs `integration:read`; without it the request 403s
+  // and the slugs stay uncounted.
+  const canReadIntegrations = useScopeCheck("integration:read") === true
   const { mcpIntegrations } = useListMcpIntegrations(workspaceId, undefined, {
-    enabled: hasMcpSources,
+    enabled: hasMcpSources && canReadIntegrations,
   })
   const mcpBySlug = useMemo(
     () =>

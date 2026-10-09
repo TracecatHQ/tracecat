@@ -282,12 +282,23 @@ describe("AgentsDashboard entitlement split", () => {
       )
     })
 
-    it("loads MCP integrations once, and only when a preset uses one", () => {
-      renderPreset({
+    it("loads MCP integrations only when a preset uses one", () => {
+      const { unmount } = renderPreset({
         tool_count: 1,
         namespaces: ["tools.slack"],
         mcp_slugs: [],
       })
+      expect(lastOptions(mockUseListMcpIntegrations)?.enabled).toBe(false)
+      unmount()
+      renderPreset({ tool_count: 1, namespaces: [], mcp_slugs: ["remote"] })
+      expect(lastOptions(mockUseListMcpIntegrations)?.enabled).toBe(true)
+    })
+
+    it("does not load MCP integrations without the integration read scope", () => {
+      mockUseScopeCheck.mockImplementation(
+        (scope) => scope !== "integration:read"
+      )
+      renderPreset({ tool_count: 1, namespaces: [], mcp_slugs: ["remote"] })
       expect(lastOptions(mockUseListMcpIntegrations)?.enabled).toBe(false)
     })
 

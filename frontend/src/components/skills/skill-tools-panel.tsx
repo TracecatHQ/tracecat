@@ -35,8 +35,9 @@ export function SkillToolsPanel({
   frontmatter,
   onChange,
 }: SkillToolsPanelProps) {
+  // Locked actions are listed so choosing one opens the upgrade dialog.
   const { registryActions, registryActionsIsLoading, registryActionsError } =
-    useRegistryActions()
+    useRegistryActions({ includeLocked: true })
   const { mcpIntegrations, mcpIntegrationsIsLoading, mcpIntegrationsError } =
     useListMcpIntegrations(workspaceId)
   const loadError = Boolean(registryActionsError || mcpIntegrationsError)

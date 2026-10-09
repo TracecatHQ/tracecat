@@ -143,7 +143,8 @@ function normalizeOptional(value: string | null | undefined) {
 /**
  * Match stored model fields by catalog id first, then compatible legacy fields.
  * With `matchAnySource`, a selection without a catalog id matches the first
- * option with the same name and provider, whatever its source.
+ * option with the same name and provider, whatever its source, and a catalog
+ * id that matches nothing is unavailable rather than matched by name.
  */
 export function findEnabledModelOption(
   options: EnabledModelOption[],
@@ -157,7 +158,10 @@ export function findEnabledModelOption(
     if (match) return match
   }
   if (!selection.modelProvider || !selection.modelName) return null
-  if (matchAnySource && !selection.catalogId) {
+  if (matchAnySource) {
+    // The caller stores no source fields, so the catalog id is the only exact
+    // identity: a stale one must not resolve to another row.
+    if (selection.catalogId) return null
     return (
       options.find(
         (option) =>
@@ -335,6 +339,7 @@ export const AgentModelCombobox = forwardRef<
   )
 })
 
+// Platform and organization rows can share a provider and model name.
 function modelOptionKey(option: EnabledModelOption): string {
-  return `${option.sourceId ?? "platform"}::${option.modelProvider}::${option.modelName}`
+  return option.catalogId
 }

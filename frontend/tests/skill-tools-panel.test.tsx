@@ -38,11 +38,17 @@ let mockError: Error | null = null
 
 jest.mock("@/lib/hooks", () => ({
   ...jest.requireActual("@/lib/hooks"),
-  useRegistryActions: () => ({
-    registryActions: mockLoading || mockError ? undefined : mockRegistryActions,
-    registryActionsIsLoading: mockLoading,
-    registryActionsError: mockError,
-  }),
+  useRegistryActions: (options?: { includeLocked?: boolean }) => {
+    // As the API does: locked actions are listed only when asked for.
+    const actions = mockRegistryActions.filter(
+      (action) => options?.includeLocked || !action.availability?.locked
+    )
+    return {
+      registryActions: mockLoading || mockError ? undefined : actions,
+      registryActionsIsLoading: mockLoading,
+      registryActionsError: mockError,
+    }
+  },
   useListMcpIntegrations: () => ({
     mcpIntegrations: mockLoading || mockError ? undefined : mockMcpIntegrations,
     mcpIntegrationsIsLoading: mockLoading,

@@ -166,7 +166,6 @@ function OwnedToolsField({
         )}
         approvalsEnabled={approvalsField !== null}
         mcpEnabled={mcpEnabled}
-        filterAgentTools={false}
         hideTitle
         onLockedSelect={openLockedFeature}
       />
