@@ -1218,8 +1218,12 @@ async def test_execute_registry_action_refuses_deferred_action(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "deferred_name", ["mcp__Jira__deleteIssue", "mcp.Jira.deleteIssue"]
+)
 async def test_execute_user_mcp_refuses_deferred_tool(
     monkeypatch: pytest.MonkeyPatch,
+    deferred_name: str,
 ) -> None:
     monkeypatch.setattr(
         trusted_server,
@@ -1227,7 +1231,7 @@ async def test_execute_user_mcp_refuses_deferred_tool(
         lambda _: pytest.fail("deferred tools must not reach the user MCP server"),
     )
     claims = _build_claims(
-        deferred_actions=["mcp__Jira__deleteIssue"],
+        deferred_actions=[deferred_name],
         user_mcp_servers=[
             UserMCPServerClaim(
                 name="Jira",

@@ -209,15 +209,16 @@ def test_mcp_token_rejects_action_both_allowed_and_deferred(monkeypatch) -> None
 
 
 @pytest.mark.parametrize(
-    "deferred_name",
+    ("allowed_name", "deferred_name"),
     [
-        "core__http_request",
-        "mcp__tracecat-registry__core__http_request",
-        "mcp.tracecat_registry.core.http_request",
+        ("core.http_request", "core__http_request"),
+        ("core.http_request", "mcp__tracecat-registry__core__http_request"),
+        ("core.http_request", "mcp.tracecat_registry.core.http_request"),
+        ("mcp__Jira__deleteIssue", "mcp.Jira.deleteIssue"),
     ],
 )
 def test_mcp_token_rejects_overlap_in_another_spelling(
-    monkeypatch, deferred_name: str
+    monkeypatch, allowed_name: str, deferred_name: str
 ) -> None:
     workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
 
@@ -225,7 +226,7 @@ def test_mcp_token_rejects_overlap_in_another_spelling(
         mint_mcp_token(
             workspace_id=workspace_id,
             organization_id=organization_id,
-            allowed_actions=["core.http_request"],
+            allowed_actions=[allowed_name],
             deferred_actions=[deferred_name],
             session_id=session_id,
             registry_lock=_registry_lock(),
@@ -243,6 +244,7 @@ def test_mcp_token_canonicalizes_deferred_actions(monkeypatch) -> None:
             "mcp__tracecat-registry__core__http_request",
             "core.http_request",
             "mcp__tracecat-registry__mcp__Jira__deleteIssue",
+            "mcp.Jira.deleteIssue",
         ],
         session_id=session_id,
         registry_lock=_registry_lock(),

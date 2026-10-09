@@ -210,21 +210,24 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
 def canonical_mcp_tool_name(tool_name: str) -> str:
     """Return the name the trusted MCP server authorizes a tool call under.
 
-    Follows the server's call routing: drop a registry server prefix, keep
-    user MCP tools as ``mcp__{server}__{tool}``, and turn registry and
-    internal tools into dotted action names. Every spelling of one tool
-    therefore maps to the same name.
+    Drops a registry server prefix, maps user MCP tools in either separator
+    to ``mcp__{server}__{tool}``, and turns registry and internal tools into
+    dotted action names. Every spelling of one tool therefore maps to the
+    same name.
 
-    Example: mcp__tracecat-registry__core__http_request -> core.http_request
+    Examples:
+    - mcp__tracecat-registry__core__http_request -> core.http_request
+    - mcp.Jira.deleteIssue -> mcp__Jira__deleteIssue
     """
     routed = strip_tracecat_registry_server_prefix(tool_name)
-    parts = routed.split("__", 2)
-    if (
-        len(parts) == 3
-        and parts[0] == "mcp"
-        and not is_tracecat_registry_server_name(parts[1])
-    ):
-        return routed
+    for separator in ("__", "."):
+        parts = routed.split(separator, 2)
+        if (
+            len(parts) == 3
+            and parts[0] == "mcp"
+            and not is_tracecat_registry_server_name(parts[1])
+        ):
+            return f"mcp__{parts[1]}__{parts[2]}"
     return normalize_mcp_tool_name(mcp_tool_name_to_action_name(routed))
 
 

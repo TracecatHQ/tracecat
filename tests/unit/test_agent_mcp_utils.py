@@ -46,6 +46,8 @@ def test_normalize_mcp_tool_name_legacy_registry_user_mcp_prefix() -> None:
         ("internal__builder__update_preset", "internal.builder.update_preset"),
         ("mcp__Jira__deleteIssue", "mcp__Jira__deleteIssue"),
         ("mcp__tracecat-registry__mcp__Jira__deleteIssue", "mcp__Jira__deleteIssue"),
+        ("mcp.Jira.deleteIssue", "mcp__Jira__deleteIssue"),
+        ("mcp.tracecat-registry.mcp.Jira.deleteIssue", "mcp__Jira__deleteIssue"),
     ],
 )
 def test_canonical_mcp_tool_name_matches_execution_names(
