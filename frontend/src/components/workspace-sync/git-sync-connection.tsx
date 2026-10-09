@@ -510,6 +510,7 @@ function getRemoteTarget(
     host: candidate.host,
     hostIsKnown: orgConfigured && Boolean(candidate.host),
     orgConfigured,
+    basePath: candidate.basePath,
   }
 }
 
@@ -1214,10 +1215,10 @@ function BranchSelect({
   const configuredRef = getWorkspaceSyncConfiguredRef(gitRepoUrl)
   const defaultBranch = getWorkspaceSyncDefaultBranch(branches)
   const otherBranches = (branches ?? []).filter((branch) => !branch.is_default)
-  // Keep a pinned branch selectable even if it no longer exists remotely.
+  // Keep a pinned branch selectable even if it no longer exists remotely, and
+  // list a pinned default apart from "follow the default" so it can be cleared.
   if (
     configuredRef &&
-    configuredRef !== defaultBranch &&
     !otherBranches.some((branch) => branch.name === configuredRef)
   ) {
     otherBranches.unshift({ name: configuredRef, is_default: false })
@@ -1251,11 +1252,7 @@ function BranchSelect({
 
   return (
     <Select
-      value={
-        configuredRef && configuredRef !== defaultBranch
-          ? configuredRef
-          : DEFAULT_BRANCH_VALUE
-      }
+      value={configuredRef ?? DEFAULT_BRANCH_VALUE}
       onValueChange={(value) => void handleChange(value)}
       disabled={isUpdating}
     >
@@ -1279,6 +1276,12 @@ function BranchSelect({
             className="font-mono"
           >
             {branch.name}
+            {branch.name === configuredRef &&
+              configuredRef === defaultBranch && (
+                <span className="ml-2 font-sans text-xs text-muted-foreground">
+                  pinned
+                </span>
+              )}
           </SelectItem>
         ))}
       </SelectContent>

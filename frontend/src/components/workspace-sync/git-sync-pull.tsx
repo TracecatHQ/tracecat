@@ -76,6 +76,8 @@ interface GitSyncPullTabProps {
   commits: GitCommitInfo[] | undefined
   commitsIsLoading: boolean
   commitsError: Error | null
+  /** False while Push or the connection settings cover this tab. */
+  isActive: boolean
 }
 
 /**
@@ -90,6 +92,7 @@ export function GitSyncPullTab({
   commits,
   commitsIsLoading,
   commitsError,
+  isActive,
 }: GitSyncPullTabProps) {
   const { pullWorkflows, pullWorkflowsIsPending } = useWorkflowSync(workspaceId)
 
@@ -361,6 +364,7 @@ export function GitSyncPullTab({
             storeMappings={storeMappings}
             onSaveMatches={handleSaveMatches}
             disabled={pullWorkflowsIsPending}
+            isActive={isActive}
           />
         ) : pullResult && !isPreviewing ? (
           <PullResultSummary
@@ -529,6 +533,7 @@ function PullPreview({
   onSaveMatches,
   disabled,
   summary,
+  isActive,
 }: {
   workspaceId: string
   workspaceName: string
@@ -542,6 +547,7 @@ function PullPreview({
   onSaveMatches: (matches: MatchDrafts) => void
   disabled: boolean
   summary: string
+  isActive: boolean
 }) {
   // Secret stores are optional, so they never count toward a blocked pull.
   const matchCount =
@@ -681,7 +687,8 @@ function PullPreview({
       )}
       {matchCount + storeMappingRequirements.length > 0 && (
         <MatchesDialog
-          open={matchesOpen}
+          // A preview can land after the user switched away; wait for them.
+          open={matchesOpen && isActive}
           onOpenChange={setMatchesOpen}
           workspaceName={workspaceName}
           catalogMappingRequirements={catalogMappingRequirements}

@@ -627,6 +627,32 @@ describe("GitSyncConnectionPanel connected repository", () => {
     )
   })
 
+  it("shows a pin on the default branch as pinned and lets it be cleared", async () => {
+    const user = userEvent.setup()
+    render(
+      <GitSyncConnectionPanel
+        workspace={setup({
+          gitRepoUrl: `${url}@develop`,
+          gitProvider: "github",
+          branches: [
+            { name: "develop", is_default: true },
+            { name: "release", is_default: false },
+          ],
+        })}
+      />
+    )
+
+    const branchSelect = screen.getByRole("combobox", { name: "Branch" })
+    expect(branchSelect).toHaveTextContent("developpinned")
+    await user.click(branchSelect)
+    await user.click(screen.getByRole("option", { name: "develop default" }))
+    await waitFor(() =>
+      expect(mockUpdateWorkspace).toHaveBeenCalledWith({
+        settings: { git_repo_url: url },
+      })
+    )
+  })
+
   it("shows who made the latest commit and when, with the message on hover", () => {
     const workspace = setup({ gitRepoUrl: url, gitProvider: "github" })
     jest.mocked(useRepositoryCommits).mockReturnValue({

@@ -24,6 +24,8 @@ export interface GitRemoteTarget {
   hostIsKnown: boolean
   /** True when the host comes from the organization's provider setup. */
   orgConfigured: boolean
+  /** Web path a self-hosted GitLab is served under, e.g. `/gitlab`. */
+  basePath?: string
 }
 
 /** A repository reference resolved to the git+ssh URL the workspace stores. */
@@ -103,7 +105,7 @@ function toRawRemote(
     return {
       user: "git",
       host: normalizeHost(url.hostname),
-      segments: webPathSegments(url.pathname, target.provider),
+      segments: webPathSegments(url.pathname, target),
     }
   }
   if (value.includes("://") || /\s/.test(value)) {
@@ -122,13 +124,13 @@ function toRawRemote(
     return {
       user: "git",
       host: normalizeHost(first.split(":")[0]),
-      segments: webPathSegments(segments.slice(1).join("/"), target.provider),
+      segments: webPathSegments(segments.slice(1).join("/"), target),
     }
   }
   return {
     user: "git",
     host: target.host,
-    segments: webPathSegments(value, target.provider),
+    segments: webPathSegments(value, { ...target, basePath: undefined }),
   }
 }
 
@@ -155,12 +157,14 @@ function splitSshPath({
 }
 
 /** Repository path segments from a web URL path, without UI suffixes. */
-function webPathSegments(pathname: string, provider: VcsProvider): string[] {
+function webPathSegments(pathname: string, target: GitRemoteTarget): string[] {
   const segments = pathname.split("/").filter(Boolean)
-  switch (provider) {
+  switch (target.provider) {
     case "gitlab": {
-      const uiIndex = segments.indexOf("-")
-      const repoSegments = uiIndex >= 0 ? segments.slice(0, uiIndex) : segments
+      // Browser URLs include the instance's base path; SSH paths do not.
+      const repoPath = stripPathPrefix(segments, target.basePath)
+      const uiIndex = repoPath.indexOf("-")
+      const repoSegments = uiIndex >= 0 ? repoPath.slice(0, uiIndex) : repoPath
       return stripLastGitSuffix(repoSegments)
     }
     case "bitbucket_data_center": {
@@ -268,8 +272,24 @@ function hostMatchesTarget(host: string, target: GitRemoteTarget): boolean {
   return target.provider === "gitlab" && host.endsWith(`.${target.host}`)
 }
 
+/** Public hosts that also answer on `www.`; self-hosted names stay as set up. */
+const WWW_ALIAS_HOSTS = new Set(["github.com", "gitlab.com", "bitbucket.org"])
+
 function normalizeHost(host: string): string {
-  return host.toLowerCase().replace(/^www\./, "")
+  const lower = host.toLowerCase()
+  const bare = lower.replace(/^www\./, "")
+  return WWW_ALIAS_HOSTS.has(bare) ? bare : lower
+}
+
+function stripPathPrefix(segments: string[], prefix: string | undefined) {
+  const prefixSegments = prefix?.split("/").filter(Boolean) ?? []
+  if (
+    prefixSegments.length === 0 ||
+    !prefixSegments.every((segment, index) => segments[index] === segment)
+  ) {
+    return segments
+  }
+  return segments.slice(prefixSegments.length)
 }
 
 function stripGitSuffix(path: string): string {
@@ -304,6 +324,19 @@ export function getBaseUrlHost(baseUrl: string | null | undefined) {
   }
   try {
     return normalizeHost(new URL(baseUrl).hostname)
+  } catch {
+    return undefined
+  }
+}
+
+/** Path of a provider base URL, e.g. `/gitlab`; undefined at the root. */
+export function getBaseUrlPath(baseUrl: string | null | undefined) {
+  if (!baseUrl) {
+    return undefined
+  }
+  try {
+    const path = new URL(baseUrl).pathname.replace(/\/+$/, "")
+    return path || undefined
   } catch {
     return undefined
   }
