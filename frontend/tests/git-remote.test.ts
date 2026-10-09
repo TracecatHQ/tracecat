@@ -141,6 +141,19 @@ describe("parseGitRemote", () => {
     )
   })
 
+  it("reads www. before the GitLab host as that host", () => {
+    for (const input of [
+      "www.gitlab.example.com/group/project",
+      "https://www.gitlab.example.com/group/project",
+    ]) {
+      expectGitUrl(
+        input,
+        gitlab,
+        "git+ssh://git@gitlab.example.com/group/project.git"
+      )
+    }
+  })
+
   it("drops a GitLab base path from browser URLs only", () => {
     const target = { ...gitlab, basePath: "/gitlab" }
     expectGitUrl(

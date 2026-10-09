@@ -104,7 +104,7 @@ function toRawRemote(
     }
     return {
       user: "git",
-      host: normalizeHost(url.hostname),
+      host: resolveHost(url.hostname, target),
       segments: webPathSegments(url.pathname, target),
     }
   }
@@ -118,12 +118,12 @@ function toRawRemote(
   const dottedFirstIsGroup = target.provider === "gitlab" && target.hostIsKnown
   const firstIsHost =
     first !== undefined &&
-    (normalizeHost(first) === target.host ||
+    (resolveHost(first, target) === target.host ||
       (segments.length >= 3 && !dottedFirstIsGroup && /[.:]/.test(first)))
   if (firstIsHost) {
     return {
       user: "git",
-      host: normalizeHost(first.split(":")[0]),
+      host: resolveHost(first.split(":")[0], target),
       segments: webPathSegments(segments.slice(1).join("/"), target),
     }
   }
@@ -279,6 +279,15 @@ function normalizeHost(host: string): string {
   const lower = host.toLowerCase()
   const bare = lower.replace(/^www\./, "")
   return WWW_ALIAS_HOSTS.has(bare) ? bare : lower
+}
+
+/** A `www.` alias of the target host is the target host. */
+function resolveHost(host: string, target: GitRemoteTarget): string {
+  const normalized = normalizeHost(host)
+  if (target.host && normalized === `www.${target.host}`) {
+    return target.host
+  }
+  return normalized
 }
 
 function stripPathPrefix(segments: string[], prefix: string | undefined) {

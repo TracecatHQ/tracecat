@@ -72,7 +72,7 @@ export default function WorkspaceGitSyncPage() {
         <div className="flex flex-1 items-center justify-center">
           <EntitlementRequiredEmptyState
             title="Upgrade required"
-            description="Git Sync is unavailable on your current plan."
+            description="Git sync is unavailable on your current plan."
           >
             <Button
               variant="link"

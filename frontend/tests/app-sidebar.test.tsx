@@ -223,35 +223,35 @@ describe("AppSidebar", () => {
     expect(screen.getAllByText("Locked")).toHaveLength(1)
   })
 
-  it("keeps Git Sync visible with a lock when the plan lacks it", () => {
+  it("keeps Git sync visible with a lock when the plan lacks it", () => {
     mockScopes = { "workspace:update": true }
 
     render(<AppSidebar />)
 
-    expect(screen.getByRole("link", { name: "Git Sync" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Git sync" })).toHaveAttribute(
       "href",
       "/workspaces/workspace-1/git-sync"
     )
     expect(screen.getByText("Requires upgrade")).toBeInTheDocument()
   })
 
-  it("shows Git Sync without a lock when the plan includes it", () => {
+  it("shows Git sync without a lock when the plan includes it", () => {
     mockScopes = { "workspace_sync:sync": true }
     mockEntitlements = { git_sync: true }
 
     render(<AppSidebar />)
 
-    expect(screen.getByRole("link", { name: "Git Sync" })).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Git sync" })).toBeInTheDocument()
     expect(screen.queryByText("Requires upgrade")).not.toBeInTheDocument()
   })
 
-  it("hides Git Sync without sync or connection access", () => {
+  it("hides Git sync without sync or connection access", () => {
     mockScopes = { "workspace:read": true }
 
     render(<AppSidebar />)
 
     expect(
-      screen.queryByRole("link", { name: "Git Sync" })
+      screen.queryByRole("link", { name: "Git sync" })
     ).not.toBeInTheDocument()
     expect(screen.queryByText("Requires upgrade")).not.toBeInTheDocument()
   })

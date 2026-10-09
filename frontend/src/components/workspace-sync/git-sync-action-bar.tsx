@@ -3,7 +3,7 @@
 import type { ReactNode } from "react"
 
 /**
- * Sticky controls footer for the Git Sync page: the target, the inputs, and
+ * Sticky controls footer for the Git sync page: the target, the inputs, and
  * the action sit together in one full-width row.
  */
 export function GitSyncActionBar({

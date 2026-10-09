@@ -74,22 +74,22 @@ export function getWorkspaceSyncBaseBranch(
   )
 }
 
-function lastPushBranchStorageKey(workspaceId: string): string {
-  return `tracecat:git-sync:last-push-branch:${workspaceId}`
+function lastPushBranchStorageKey(scope: string): string {
+  return `tracecat:git-sync:last-push-branch:${scope}`
 }
 
-function readLastPushBranch(workspaceId: string): string | null {
+function readLastPushBranch(scope: string): string | null {
   try {
-    return window.localStorage.getItem(lastPushBranchStorageKey(workspaceId))
+    return window.localStorage.getItem(lastPushBranchStorageKey(scope))
   } catch {
     return null
   }
 }
 
-/** Remembers, in this browser, the branch a workspace last pushed to. */
-export function writeLastPushBranch(workspaceId: string, branch: string): void {
+/** Remembers, in this browser, the branch last pushed to within a scope. */
+export function writeLastPushBranch(scope: string, branch: string): void {
   try {
-    window.localStorage.setItem(lastPushBranchStorageKey(workspaceId), branch)
+    window.localStorage.setItem(lastPushBranchStorageKey(scope), branch)
   } catch {
     // Blocked storage only loses the convenience.
   }
@@ -98,8 +98,8 @@ export function writeLastPushBranch(workspaceId: string, branch: string): void {
 interface UseWorkspaceSyncBranchTargetOptions {
   branches: GitBranchInfo[] | undefined
   newBranchPrefix: string
-  /** Starts on this workspace's last pushed branch while it still exists. */
-  rememberForWorkspaceId?: string
+  /** Starts on this scope's last pushed branch while it still exists. */
+  rememberScope?: string
 }
 
 /**
@@ -108,7 +108,7 @@ interface UseWorkspaceSyncBranchTargetOptions {
 export function useWorkspaceSyncBranchTarget({
   branches,
   newBranchPrefix,
-  rememberForWorkspaceId,
+  rememberScope,
 }: UseWorkspaceSyncBranchTargetOptions) {
   const [branch, setBranch] = useState(() =>
     buildRandomSyncBranchName(newBranchPrefix)
@@ -120,16 +120,16 @@ export function useWorkspaceSyncBranchTarget({
   const defaultBranch = getWorkspaceSyncDefaultBranch(branches)
 
   useEffect(() => {
-    if (settledRef.current || !rememberForWorkspaceId || !branches) {
+    if (settledRef.current || !rememberScope || !branches) {
       return
     }
     settledRef.current = true
-    const last = readLastPushBranch(rememberForWorkspaceId)
+    const last = readLastPushBranch(rememberScope)
     if (last && branches.some((candidate) => candidate.name === last)) {
       setIsCreatingBranch(false)
       setBranch(last)
     }
-  }, [branches, rememberForWorkspaceId])
+  }, [branches, rememberScope])
 
   const selectBranch = useCallback(
     (value: string) => {

@@ -7,7 +7,7 @@ import {
   GitPullRequestIcon,
   Loader2Icon,
 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { GitBranchInfo, PullResourceDiff, VcsProvider } from "@/client"
 import { Button } from "@/components/ui/button"
 import {
@@ -81,11 +81,13 @@ export function GitSyncPushTab({
   const [mode, setMode] = useState<WorkspaceSyncPushMode>("pull-request")
   const [previewedAt, setPreviewedAt] = useState<Date | null>(null)
 
+  // Scoped to the repository so a reconnect never restores another repo's branch.
+  const rememberScope = `${workspaceId}:${persistedGitUrl}`
   const { branch, isCreatingBranch, selectBranch, createBranch, hasBranches } =
     useWorkspaceSyncBranchTarget({
       branches: repoBranches,
       newBranchPrefix: "sync/workspace",
-      rememberForWorkspaceId: workspaceId,
+      rememberScope,
     })
 
   const targetBranch = branch.trim()
@@ -126,15 +128,26 @@ export function GitSyncPushTab({
     targetBranch === "" ||
     message.trim() === ""
 
-  useEffect(() => {
+  // Bumped on every reset, so a preview that started earlier is dropped.
+  const previewGenerationRef = useRef(0)
+  function resetPreview() {
+    previewGenerationRef.current += 1
     setPreviewedAt(null)
+  }
+
+  useEffect(() => {
+    resetPreview()
   }, [compareRef, persistedGitUrl, provider, pullCount])
 
   async function handlePreview() {
     if (!compareRef) {
       return
     }
+    const generation = previewGenerationRef.current
     const result = await refetchPreview()
+    if (generation !== previewGenerationRef.current) {
+      return
+    }
     setPreviewedAt(result.error ? null : new Date())
   }
 
@@ -146,10 +159,14 @@ export function GitSyncPushTab({
         create_pr: outcome.createPr,
         include_schedules: false,
       })
-      writeLastPushBranch(workspaceId, targetBranch)
+      writeLastPushBranch(rememberScope, targetBranch)
+      // The new branch now exists, so later previews compare against it.
+      if (isCreatingBranch) {
+        selectBranch(targetBranch)
+      }
       // The push changed the remote: drop the old preview and refetch the
       // branches and commits so a new branch is listed and can be restored.
-      setPreviewedAt(null)
+      resetPreview()
       for (const key of [
         "workflow-sync-branches",
         "repository_commits",
