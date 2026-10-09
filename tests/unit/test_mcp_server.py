@@ -9370,6 +9370,21 @@ async def test_run_agent_preset_uses_session_stream_cursor(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("tool_name", ["create_agent_preset", "update_agent_preset"])
+async def test_agent_preset_tools_expose_use_in_chat_only_on_request(
+    tool_name: str,
+) -> None:
+    tool = next(
+        tool for tool in await mcp_server.mcp.list_tools() if tool.name == tool_name
+    )
+
+    use_in_chat = tool.parameters["properties"]["use_in_chat"]
+    assert "use_in_chat" not in tool.parameters.get("required", [])
+    assert use_in_chat["default"] is None
+    assert "explicitly asks" in use_in_chat["description"]
+
+
+@pytest.mark.anyio
 async def test_run_agent_preset_does_not_expose_preset_version() -> None:
     tool = next(
         tool
@@ -9801,10 +9816,12 @@ async def test_create_agent_preset_uses_default_model_and_passes_optional_fields
         retries=5,
         enable_thinking=False,
         enable_internet_access=True,
+        use_in_chat=True,
     )
 
     payload = _payload(result)
     params = created["params"]
+    assert params.use_in_chat is True
     assert params.model_name == "gpt-4o-mini"
     assert params.model_provider == "openai"
     assert params.catalog_id == catalog_id
@@ -9974,10 +9991,12 @@ async def test_update_agent_preset_updates_existing_preset(
         retries=5,
         enable_thinking=False,
         enable_internet_access=True,
+        use_in_chat=True,
     )
 
     payload = _payload(result)
     params = updated["params"]
+    assert params.use_in_chat is True
     assert params.instructions == "Updated prompt"
     assert params.actions == ["tools.bravo"]
     assert params.mcp_integrations == [integration_id]
@@ -10121,6 +10140,7 @@ async def test_update_agent_preset_omitting_output_type_leaves_unset(
 
     params = captured["params"]
     assert "output_type" not in params.model_fields_set
+    assert "use_in_chat" not in params.model_fields_set
 
 
 @pytest.mark.anyio
