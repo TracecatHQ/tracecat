@@ -482,7 +482,9 @@ class CaseDropdownValuesService(BaseWorkspaceService):
         run_ctx = ctx_run.get()
         wf_exec_id = run_ctx.wf_exec_id if run_ctx else None
 
-        from tracecat.cases.schemas import DropdownValueChangedEvent
+        from tracecat.cases.event_schemas import (
+            DropdownValueChangedEvent,
+        )
         from tracecat.cases.service import CaseEventsService
 
         event = DropdownValueChangedEvent(

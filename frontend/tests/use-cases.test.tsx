@@ -71,6 +71,7 @@ function createCase(index: number): CaseReadMinimal {
     dropdown_values: [],
     num_tasks_completed: 0,
     num_tasks_total: 0,
+    num_sub_cases: 0,
   }
 }
 

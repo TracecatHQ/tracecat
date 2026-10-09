@@ -242,6 +242,41 @@ describe("CasePanelView entitlement-locked tabs", () => {
     expect(mockReplace).not.toHaveBeenCalled()
   })
 
+  it("locks the Sub-cases tab without case_addons", () => {
+    mockEntitlements([])
+    renderView()
+
+    fireEvent.click(screen.getByRole("tab", { name: "Sub-cases" }))
+
+    expect(
+      screen.getByText("Sub-cases are only available on enterprise plans.")
+    ).toBeInTheDocument()
+    expect(mockReplace).not.toHaveBeenCalled()
+    expect(screen.getByTestId("panel-content")).toHaveTextContent("description")
+  })
+
+  it("resolves a ?tab=sub-cases deep link to the default panel without case_addons", () => {
+    mockEntitlements([])
+    searchParamsValue = new URLSearchParams("tab=sub-cases")
+    renderView()
+
+    expect(screen.getByTestId("panel-content")).toHaveTextContent("description")
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  })
+
+  it("switches to the Sub-cases panel with case_addons", () => {
+    mockEntitlements(["case_addons"])
+    renderView()
+
+    fireEvent.click(screen.getByRole("tab", { name: "Sub-cases" }))
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    expect(mockReplace).toHaveBeenCalledWith(
+      "/workspaces/ws-1/cases/case-1?tab=sub-cases",
+      { scroll: false }
+    )
+  })
+
   it("switches to the Tasks panel with case_addons", () => {
     mockEntitlements(["case_addons"])
     renderView()

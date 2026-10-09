@@ -3,6 +3,7 @@ import {
   AlignLeft,
   Braces,
   ListChecks,
+  ListTree,
   type LucideIcon,
   Paperclip,
   Table2,
@@ -19,6 +20,7 @@ export const CASE_PANEL_KEYS = [
   "rows",
   "payload",
   "activity",
+  "sub-cases",
 ] as const
 
 /** One key from {@link CASE_PANEL_KEYS}. */
@@ -54,6 +56,7 @@ export const CASE_PANELS: readonly CasePanelDefinition[] = [
   { key: "rows", label: "Tables", icon: Table2, shortcut: 4 },
   { key: "payload", label: "Payload", icon: Braces, shortcut: 5 },
   { key: "activity", label: "Activity", icon: Activity, shortcut: 6 },
+  { key: "sub-cases", label: "Sub-cases", icon: ListTree, shortcut: 7 },
 ]
 
 /**

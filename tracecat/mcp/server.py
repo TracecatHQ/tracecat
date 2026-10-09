@@ -127,14 +127,17 @@ from tracecat.cases.enums import (
     CaseStatus,
     CaseTaskStatus,
 )
-from tracecat.cases.schemas import (
+from tracecat.cases.event_schemas import (
     AssigneeChangedEventRead,
+    CaseEventRead,
+    TaskAssigneeChangedEventRead,
+)
+from tracecat.cases.schemas import (
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentThreadRead,
     CaseCommentUpdate,
     CaseCreate,
-    CaseEventRead,
     CaseFieldCreate,
     CaseFieldRead,
     CaseFieldReadMinimal,
@@ -143,7 +146,6 @@ from tracecat.cases.schemas import (
     CaseTaskCreate,
     CaseTaskUpdate,
     CaseUpdate,
-    TaskAssigneeChangedEventRead,
 )
 from tracecat.cases.service import (
     CaseCommentsService,
@@ -2292,9 +2294,6 @@ def _build_csv_export_payload(
 auth = create_mcp_auth()
 
 _CASE_EVENT_TYPE_VALUES = [event_type.value for event_type in CaseEventType]
-_CASE_EVENT_TYPE_VALUES_JSON = json.dumps(
-    _CASE_EVENT_TYPE_VALUES, separators=(",", ":")
-)
 _CASE_EVENT_TYPE_VALUES_CSV = ", ".join(_CASE_EVENT_TYPE_VALUES)
 
 # Named placeholders substituted into the prompt literals below. The prompt
@@ -2306,7 +2305,6 @@ _PROMPT_PLACEHOLDERS: dict[str, str] = {
     "{_TEMPLATE_FILE_WARNING}": _TEMPLATE_FILE_WARNING,
     "{_CSV_FILE_WARNING}": _CSV_FILE_WARNING,
     "{_SKILL_FILE_WARNING}": _SKILL_FILE_WARNING,
-    "{_CASE_EVENT_TYPE_VALUES_JSON}": _CASE_EVENT_TYPE_VALUES_JSON,
     "{_CASE_EVENT_TYPE_VALUES_CSV}": _CASE_EVENT_TYPE_VALUES_CSV,
 }
 
@@ -2475,8 +2473,8 @@ docstring carries the full RFC 6902 patch rules.
 Tool docstrings are the source of truth for every other argument shape.
 - Webhook status: `"online"` or `"offline"`; methods are uppercase HTTP verbs; \
 allowlisted CIDRs are CIDR strings.
-- Case trigger status: `"online"` or `"offline"`; event type values: \
-`{_CASE_EVENT_TYPE_VALUES_JSON}`.
+- Case trigger status: `"online"` or `"offline"`; valid event types are \
+listed on `update_case_trigger`.
 - Keep table names, column names, and case field names under 63 characters.
 
 Read the `tracecat://platform/dsl-reference` resource for the full DSL specification.

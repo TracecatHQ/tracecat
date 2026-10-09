@@ -22,6 +22,7 @@ import type {
   FilterMode,
   SortDirection,
 } from "@/components/filters/filter-multi-select"
+import type { CaseHierarchyFilter } from "@/hooks/use-case-search-infinite"
 import { retryHandler, type TracecatApiError } from "@/lib/errors"
 import { useInfiniteQuery, useQuery } from "@/lib/query"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -100,6 +101,7 @@ export interface UseCasesFilters {
   dropdownFilters: Record<string, DropdownFilterState>
   updatedAfter: CaseDateFilterValue
   createdAfter: CaseDateFilterValue
+  includeSubCases: boolean
 }
 
 export interface UseCasesOptions {
@@ -136,6 +138,7 @@ export interface UseCasesResult {
   setDropdownSortDirection: (ref: string, direction: SortDirection) => void
   setUpdatedAfter: (value: CaseDateFilterValue) => void
   setCreatedAfter: (value: CaseDateFilterValue) => void
+  setIncludeSubCases: (value: boolean) => void
   totalFilteredCaseEstimate: number | null
   stageCounts: CaseSearchAggregateRead["status_groups"] | null
   isCountsLoading: boolean
@@ -243,6 +246,7 @@ const DEFAULT_CASES_FILTERS: UseCasesFilters = {
   dropdownFilters: {},
   updatedAfter: DEFAULT_DATE_FILTER,
   createdAfter: DEFAULT_CREATED_FILTER,
+  includeSubCases: false,
 }
 
 function getCasesFilterStorageKey(workspaceId: string): string {
@@ -337,6 +341,10 @@ function loadPersistedCasesFilterState(
         parsed.createdAfter,
         defaults.createdAfter
       ),
+      includeSubCases:
+        typeof parsed.includeSubCases === "boolean"
+          ? parsed.includeSubCases
+          : defaults.includeSubCases,
       hydratedWorkspaceId: workspaceId,
     }
   } catch (error) {
@@ -686,6 +694,9 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
   const [createdAfter, setCreatedAfter] = useState<CaseDateFilterValue>(
     initialFilterState.createdAfter
   )
+  const [includeSubCases, setIncludeSubCases] = useState<boolean>(
+    initialFilterState.includeSubCases
+  )
   const [hydratedWorkspaceId, setHydratedWorkspaceId] = useState<
     string | undefined
   >(initialFilterState.hydratedWorkspaceId)
@@ -727,6 +738,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setDropdownFilters(nextFilterState.dropdownFilters)
     setUpdatedAfter(nextFilterState.updatedAfter)
     setCreatedAfter(nextFilterState.createdAfter)
+    setIncludeSubCases(nextFilterState.includeSubCases)
     setHydratedWorkspaceId(nextFilterState.hydratedWorkspaceId)
   }, [hydratedWorkspaceId, workspaceId])
 
@@ -757,6 +769,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         dropdownFilters,
         updatedAfter,
         createdAfter,
+        includeSubCases,
       })
     )
   }, [
@@ -780,6 +793,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     dropdownFilters,
     updatedAfter,
     createdAfter,
+    includeSubCases,
     hasHydratedFilters,
   ])
 
@@ -884,6 +898,10 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
         updatedBefore: updatedBounds.end
           ? toEndOfDay(updatedBounds.end).toISOString()
           : undefined,
+        // Searching also matches sub-cases, so they are never unreachable.
+        hierarchy: (includeSubCases || searchQuery.trim()
+          ? "all"
+          : "top_level") as CaseHierarchyFilter,
       },
       hasImpossibleEnumFilter:
         resolvedStatus.matchesNone ||
@@ -905,6 +923,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     dropdownFilters,
     updatedAfter,
     createdAfter,
+    includeSubCases,
   ])
 
   const serverSortParams = useMemo(() => {
@@ -1114,6 +1133,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
       dropdownFilters,
       updatedAfter,
       createdAfter,
+      includeSubCases,
     },
     setSearchQuery,
     setSortBy,
@@ -1136,6 +1156,7 @@ export function useCases(options: UseCasesOptions = {}): UseCasesResult {
     setDropdownSortDirection,
     setUpdatedAfter,
     setCreatedAfter,
+    setIncludeSubCases,
     totalFilteredCaseEstimate,
     stageCounts: hasImpossibleEnumFilter
       ? EMPTY_STAGE_COUNTS

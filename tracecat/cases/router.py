@@ -28,24 +28,31 @@ from tracecat.cases.enums import (
     CaseSeverity,
     CaseStatus,
 )
+from tracecat.cases.event_schemas import (
+    AssigneeChangedEventRead,
+    CaseEventRead,
+    CaseEventsWithUsers,
+    TaskAssigneeChangedEventRead,
+)
 from tracecat.cases.filters import parse_assignee_filter
+from tracecat.cases.hierarchy import TOP_LEVEL, CaseHierarchyService
 from tracecat.cases.rows.service import CaseTableRowsService
 from tracecat.cases.schemas import (
-    AssigneeChangedEventRead,
+    CaseBatchClearParent,
     CaseBatchDelete,
     CaseBatchResponse,
+    CaseBatchSetParent,
     CaseBatchUpdate,
     CaseCommentCreate,
     CaseCommentRead,
     CaseCommentThreadRead,
     CaseCommentUpdate,
     CaseCreate,
-    CaseEventRead,
-    CaseEventsWithUsers,
     CaseFieldCreate,
     CaseFieldRead,
     CaseFieldReadMinimal,
     CaseFieldUpdate,
+    CaseHierarchyFilter,
     CaseRead,
     CaseReadMinimal,
     CaseSearchAggregateRead,
@@ -53,7 +60,6 @@ from tracecat.cases.schemas import (
     CaseTaskRead,
     CaseTaskUpdate,
     CaseUpdate,
-    TaskAssigneeChangedEventRead,
 )
 from tracecat.cases.service import (
     CaseCommentsService,
@@ -66,6 +72,7 @@ from tracecat.cases.tags.service import CaseTagsService
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Case
 from tracecat.exceptions import (
+    EntitlementRequired,
     TracecatAuthorizationError,
     TracecatConflictError,
     TracecatNotFoundError,
@@ -144,6 +151,9 @@ async def _build_case_read(
         )
         rows = hydrated.get(case.id, [])
 
+    hierarchies = await CaseHierarchyService(session, role).get_hierarchy([case])
+    hierarchy = hierarchies.get(case.id, TOP_LEVEL)
+
     return CaseRead(
         id=case.id,
         short_id=case.short_id,
@@ -162,6 +172,8 @@ async def _build_case_read(
         tags=tag_reads,
         dropdown_values=dropdown_reads,
         rows=rows,
+        parent=hierarchy.parent,
+        num_sub_cases=hierarchy.num_sub_cases,
     )
 
 
@@ -267,6 +279,10 @@ async def list_cases(
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
     include_payload: bool = Query(False, description="Include case payload"),
+    hierarchy: CaseHierarchyFilter = Query(
+        "all",
+        description="Return every case, or only top-level cases without a parent.",
+    ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """List cases with default filtering and sorting options."""
     service = CasesService(session, role)
@@ -280,14 +296,15 @@ async def list_cases(
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
+            hierarchy=hierarchy,
         )
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         logger.warning(f"Invalid request for list cases: {e}")
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except HTTPException:
+    except (HTTPException, EntitlementRequired):
         raise
     except Exception as e:
         logger.error(f"Failed to list cases: {e}")
@@ -409,6 +426,13 @@ async def search_cases(
     ),
     include_durations: bool = Query(False, description="Include case duration values"),
     include_payload: bool = Query(False, description="Include case payload"),
+    hierarchy: CaseHierarchyFilter = Query(
+        "all",
+        description="Return every case, or only top-level cases without a parent.",
+    ),
+    parent_id: uuid.UUID | None = Query(
+        None, description="Return only the sub-cases of this parent case"
+    ),
 ) -> CursorPaginatedResponse[CaseReadMinimal]:
     """Search cases with cursor-based pagination, filtering, and sorting."""
     service = CasesService(session, role)
@@ -446,14 +470,16 @@ async def search_cases(
             sort=sort,
             include_durations=include_durations,
             include_payload=include_payload,
+            parent_id=parent_id,
+            hierarchy=hierarchy,
         )
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         logger.warning(f"Invalid request for search cases: {e}")
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except HTTPException:
+    except (HTTPException, EntitlementRequired):
         raise
     except Exception as e:
         logger.error(f"Failed to search cases: {e}")
@@ -547,6 +573,13 @@ async def search_case_aggregates(
     assignee_id: list[str] | None = Query(
         None, description="Filter by assignee ID or 'unassigned'"
     ),
+    hierarchy: CaseHierarchyFilter = Query(
+        "all",
+        description="Return every case, or only top-level cases without a parent.",
+    ),
+    parent_id: uuid.UUID | None = Query(
+        None, description="Return only the sub-cases of this parent case"
+    ),
 ) -> CaseSearchAggregateRead:
     """Return global case totals and per-stage counts for the current filters."""
     service = CasesService(session, role)
@@ -572,14 +605,16 @@ async def search_case_aggregates(
             end_time=end_time,
             updated_after=updated_after,
             updated_before=updated_before,
+            parent_id=parent_id,
+            hierarchy=hierarchy,
         )
-    except ValueError as e:
+    except (ValueError, TracecatValidationError) as e:
         logger.warning(f"Invalid request for case aggregate counts: {e}")
         raise HTTPException(
             status_code=HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
-    except HTTPException:
+    except (HTTPException, EntitlementRequired):
         raise
     except Exception as e:
         logger.error(f"Failed to fetch case aggregate counts: {e}")
@@ -620,6 +655,44 @@ async def batch_delete_cases(
     service = CasesService(session, role)
     try:
         return await service.batch_delete_cases(params.case_ids)
+    except TracecatConflictError as exc:
+        raise HTTPException(
+            status_code=HTTP_409_CONFLICT,
+            detail=exc.detail or str(exc),
+        ) from exc
+
+
+@cases_router.post("/batch-set-parent")
+@require_scope("case:update")
+async def batch_set_parent(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    params: CaseBatchSetParent,
+) -> CaseBatchResponse:
+    """Group cases as sub-cases of a parent case with per-case results."""
+    service = CasesService(session, role)
+    try:
+        return await service.batch_set_parent(params.case_ids, params.parent_id)
+    except TracecatConflictError as exc:
+        raise HTTPException(
+            status_code=HTTP_409_CONFLICT,
+            detail=exc.detail or str(exc),
+        ) from exc
+
+
+@cases_router.post("/batch-clear-parent")
+@require_scope("case:update")
+async def batch_clear_parent(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    params: CaseBatchClearParent,
+) -> CaseBatchResponse:
+    """Remove cases from their parent case with per-case results."""
+    service = CasesService(session, role)
+    try:
+        return await service.batch_clear_parent(params.case_ids)
     except TracecatConflictError as exc:
         raise HTTPException(
             status_code=HTTP_409_CONFLICT,

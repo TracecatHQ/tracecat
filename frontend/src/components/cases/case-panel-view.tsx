@@ -32,6 +32,7 @@ import {
   DEFAULT_CASE_PANEL,
   parseCasePanelKey,
 } from "@/components/cases/case-panels"
+import { CaseParentBreadcrumb } from "@/components/cases/case-sub-cases"
 import { CaseTagPicker } from "@/components/cases/case-tag-picker"
 import { getCaseTaskProgress } from "@/components/cases/case-task-status"
 import { CaseValueDrawerProvider } from "@/components/cases/case-value-drawer"
@@ -160,7 +161,7 @@ export function CasePanelView({
     parseCasePanelKey(searchParams?.get("tab")) ?? DEFAULT_CASE_PANEL
   const requestedPanel = embedded ? embeddedPanel : routePanel
   const lockedPanelKeys = useMemo<readonly CasePanelKey[]>(
-    () => (caseAddonsEnabled ? [] : ["tasks"]),
+    () => (caseAddonsEnabled ? [] : ["tasks", "sub-cases"]),
     [caseAddonsEnabled]
   )
   const activePanel = lockedPanelKeys.includes(requestedPanel)
@@ -168,6 +169,7 @@ export function CasePanelView({
     : requestedPanel
   const panelIdPrefix = useId()
   const [lockedFeatureDialogOpen, setLockedFeatureDialogOpen] = useState(false)
+  const [lockedPanel, setLockedPanel] = useState<CasePanelKey | null>(null)
 
   // The ring's query lives in the view, not the Tasks panel: the switcher
   // must show progress while the panel is unmounted. React Query dedupes on
@@ -213,6 +215,7 @@ export function CasePanelView({
         // `hasEntitlement` reports false while entitlements load, and an
         // entitled org must not glimpse an upsell for a feature it has.
         if (!entitlementsIsLoading) {
+          setLockedPanel(panel)
           setLockedFeatureDialogOpen(true)
         }
         return
@@ -667,6 +670,12 @@ export function CasePanelView({
                   from the description editor's sticky toolbar padding — see
                   `cases/editor.css`. */}
                 <div className="flex flex-col">
+                  {caseAddonsEnabled && caseData.parent && (
+                    <CaseParentBreadcrumb
+                      parent={caseData.parent}
+                      workspaceId={workspaceId}
+                    />
+                  )}
                   <div className="flex items-start gap-2 py-1.5 first:pt-0 last:pb-0">
                     <div className="min-w-0 flex-1">
                       <CasePanelSummary
@@ -784,7 +793,11 @@ export function CasePanelView({
         open={lockedFeatureDialogOpen}
         onOpenChange={setLockedFeatureDialogOpen}
         title="Enterprise only"
-        description="Case tasks are only available on enterprise plans."
+        description={
+          lockedPanel === "sub-cases"
+            ? "Sub-cases are only available on enterprise plans."
+            : "Case tasks are only available on enterprise plans."
+        }
         bullets={[]}
       />
       {closureDialog && (

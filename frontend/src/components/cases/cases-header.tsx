@@ -12,6 +12,7 @@ import {
   CircleSlashIcon,
   ClockIcon,
   ListIcon,
+  ListTreeIcon,
   SearchIcon,
   ShieldAlertIcon,
   SignalHighIcon,
@@ -386,6 +387,8 @@ interface CasesHeaderProps {
   onUpdatedAfterChange: (value: CaseDateFilterValue) => void
   createdAfter: CaseDateFilterValue
   onCreatedAfterChange: (value: CaseDateFilterValue) => void
+  includeSubCases?: boolean
+  onIncludeSubCasesChange?: (value: boolean) => void
   members?: WorkspaceMember[]
   tags?: CaseTagRead[]
   dropdownDefinitions?: CaseDropdownDefinitionRead[]
@@ -442,6 +445,8 @@ export function CasesHeader({
   onUpdatedAfterChange,
   createdAfter,
   onCreatedAfterChange,
+  includeSubCases = false,
+  onIncludeSubCasesChange,
   members,
   tags,
   dropdownDefinitions,
@@ -549,7 +554,8 @@ export function CasesHeader({
     tagFilter.length > 0 ||
     hasDropdownFilters ||
     isDateFilterActive(updatedAfter) ||
-    (isDateFilterActive(createdAfter) && !hasDefaultCreatedAfter)
+    (isDateFilterActive(createdAfter) && !hasDefaultCreatedAfter) ||
+    (includeSubCases && onIncludeSubCasesChange !== undefined)
 
   const handleReset = () => {
     onSearchChange("")
@@ -582,6 +588,7 @@ export function CasesHeader({
       type: "preset",
       value: DEFAULT_CREATED_PRESET,
     })
+    onIncludeSubCasesChange?.(false)
   }
 
   return (
@@ -812,6 +819,24 @@ export function CasesHeader({
           value={createdAfter}
           onChange={onCreatedAfterChange}
         />
+
+        {onIncludeSubCasesChange && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={includeSubCases}
+            onClick={() => onIncludeSubCasesChange(!includeSubCases)}
+            className={cn(
+              "flex h-6 items-center gap-1.5 rounded-md border border-dashed px-2 text-xs transition-colors",
+              includeSubCases
+                ? "border-solid bg-muted text-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+            )}
+          >
+            <ListTreeIcon className="size-3.5" />
+            {includeSubCases ? "Showing sub-cases" : "Show sub-cases"}
+          </button>
+        )}
 
         <CaseSortSelect value={sortBy} onChange={onSortByChange} />
 
