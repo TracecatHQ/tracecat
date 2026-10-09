@@ -2346,7 +2346,7 @@ function AgentPresetSubagentRow({
       <div className="group relative flex min-w-0 items-center gap-2 pl-4 pr-3 hover:bg-muted/50">
         <button
           type="button"
-          className="after:absolute after:inset-0 after:content-[''] flex shrink-0 items-center gap-2 rounded-sm py-2.5 disabled:cursor-default disabled:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          className="after:absolute after:inset-0 after:content-[''] flex shrink-0 items-center gap-2 rounded-sm py-3.5 disabled:cursor-default disabled:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           aria-label={`${presetName} ${alias}`}
           aria-expanded={expanded}
           aria-controls={expanded ? bodyId : undefined}
@@ -2695,7 +2695,7 @@ function AgentPresetSkillBindingRow({
   }
 
   return (
-    <div className="group flex h-9 min-w-0 items-center gap-3 border-b border-border/50 px-4 hover:bg-muted/50">
+    <div className="group flex h-11 min-w-0 items-center gap-3 border-b border-border/50 px-4 hover:bg-muted/50">
       <Pyramid className="size-4 shrink-0 text-primary" />
       <div className="min-w-0 flex-1">
         <HoverCard>

@@ -404,7 +404,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
                         })
                       }
                       className={cn(
-                        "flex h-10 w-full min-w-0 items-center gap-2 py-2 text-left outline-none hover:bg-muted/50 data-[state=open]:bg-muted/70",
+                        "flex h-11 w-full min-w-0 items-center gap-2 py-2 text-left outline-none hover:bg-muted/50 data-[state=open]:bg-muted/70",
                         TOOL_LIST_INSET,
                         FOCUS
                       )}
@@ -512,7 +512,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
               <Item
                 key={id}
                 className={cn(
-                  "group h-10 flex-nowrap gap-2 rounded-none border-0 py-0 hover:bg-muted/50",
+                  "group h-11 flex-nowrap gap-2 rounded-none border-0 py-0 hover:bg-muted/50",
                   TOOL_LIST_INSET
                 )}
               >
@@ -658,7 +658,7 @@ export function ToolSelectionRow({
   return (
     <Item
       className={cn(
-        "group h-[34px] flex-nowrap gap-2 rounded-none border-0 py-0 hover:bg-muted/50",
+        "group h-[38px] flex-nowrap gap-2 rounded-none border-0 py-0 hover:bg-muted/50",
         NESTED_INSET
       )}
     >
