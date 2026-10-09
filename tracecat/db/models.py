@@ -576,14 +576,6 @@ class WorkspaceSyncOperation(WorkspaceModel):
             "created_at",
             "id",
         ),
-        Index(
-            "ix_workspace_sync_operation_pending_dispatch",
-            "next_dispatch_at",
-            "id",
-            postgresql_where=text(
-                "dispatched IS FALSE AND status IN ('queued', 'running', 'applying')"
-            ),
-        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID, unique=True, index=True)
@@ -594,13 +586,6 @@ class WorkspaceSyncOperation(WorkspaceModel):
     # Pydantic contracts validate these JSON documents at every read/write boundary.
     inputs: Mapped[dict[str, JsonValue]] = mapped_column(JSONB)
     actor: Mapped[dict[str, JsonValue]] = mapped_column(JSONB)
-    dispatched: Mapped[bool] = mapped_column(Boolean, default=False)
-    dispatch_attempts: Mapped[int] = mapped_column(
-        Integer, default=0, server_default="0"
-    )
-    next_dispatch_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default=func.now()
-    )
     summary: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB)
     result: Mapped[dict[str, JsonValue] | None] = mapped_column(JSONB)
     artifact_key: Mapped[str | None] = mapped_column(Text)

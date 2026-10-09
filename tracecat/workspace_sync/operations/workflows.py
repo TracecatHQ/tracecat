@@ -40,9 +40,15 @@ class WorkspaceSyncWorkflow:
                     reason = "authorization"
                 elif exc.cause.non_retryable:
                     reason = "validation"
-            await workflow.execute_activity(
+            reconcile_pending = await workflow.execute_activity(
                 "workspace_sync_fail",
                 SyncFailure(ref, reason),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_interval=timedelta(minutes=1)),
+                result_type=bool,
             )
+            if not reconcile_pending:
+                return
+            await workflow.sleep(timedelta(minutes=5))
+            # Keep prolonged reconciliation outages from growing history forever.
+            workflow.continue_as_new(ref)

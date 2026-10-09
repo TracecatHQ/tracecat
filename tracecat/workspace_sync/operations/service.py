@@ -30,6 +30,7 @@ from tracecat.workspace_sync.operations.types import (
     SyncDirection,
     SyncOperationConflictError,
     SyncOperationRef,
+    SyncOperationStartError,
     SyncStage,
     SyncStatus,
 )
@@ -96,7 +97,6 @@ class SyncOperationService(BaseWorkspaceService):
                 actor=self.role.model_dump(mode="json"),
                 expires_at=datetime.now(UTC) + timedelta(hours=24),
                 attempt=0,
-                dispatched=False,
             )
             .on_conflict_do_nothing(index_elements=["id"])
         )
@@ -108,7 +108,7 @@ class SyncOperationService(BaseWorkspaceService):
         await self.session.commit()
         return operation
 
-    async def dispatch(self, operation: WorkspaceSyncOperation) -> None:
+    async def start_workflow(self, operation: WorkspaceSyncOperation) -> None:
         """Starting the same workflow ID repairs a lost start response safely."""
         if operation.status not in {"queued", "running", "applying"}:
             return
@@ -116,8 +116,8 @@ class SyncOperationService(BaseWorkspaceService):
         ref = SyncOperationRef(
             operation.id, Role.model_validate(operation.actor), phase, operation.attempt
         )
-        client = await get_temporal_client()
         try:
+            client = await get_temporal_client()
             await client.start_workflow(
                 WorkspaceSyncWorkflow.run,
                 ref,
@@ -126,8 +126,15 @@ class SyncOperationService(BaseWorkspaceService):
                 id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
                 rpc_timeout=timedelta(seconds=5),
             )
+            return
         except WorkflowAlreadyStartedError:
+            return
+        except Exception:
             pass
+        # Raise outside the handler so provider details are not attached.
+        raise SyncOperationStartError(
+            "Unable to confirm Git sync startup. Retry the same operation."
+        )
 
     async def apply(self, operation_id: uuid.UUID) -> WorkspaceSyncOperation:
         operation = await self.get(operation_id, lock=True)
@@ -137,9 +144,6 @@ class SyncOperationService(BaseWorkspaceService):
         if operation.status != "ready" or operation.expires_at <= datetime.now(UTC):
             raise SyncOperationConflictError("A fresh successful preview is required")
         operation.status = "applying"
-        operation.dispatched = False
-        operation.next_dispatch_at = datetime.now(UTC)
-        operation.dispatch_attempts = 0
         operation.stage = "applying"
         await self.session.commit()
         return operation
@@ -160,9 +164,6 @@ class SyncOperationService(BaseWorkspaceService):
                 "Resolve the failure and start a fresh preview"
             )
         operation.attempt += 1
-        operation.dispatched = False
-        operation.next_dispatch_at = datetime.now(UTC)
-        operation.dispatch_attempts = 0
         operation.status = "applying" if operation.stage == "applying" else "queued"
         operation.error = None
         await self.session.commit()

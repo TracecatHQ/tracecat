@@ -272,8 +272,8 @@ async def workspace_sync_apply(ref: SyncOperationRef) -> None:
 
 @activity.defn
 @safe_activity
-async def workspace_sync_fail(failure: SyncFailure) -> None:
-    """Record a safe failure without exposing provider responses or resource data."""
+async def workspace_sync_fail(failure: SyncFailure) -> bool:
+    """Record a safe failure; keep committed reconciliation in its workflow."""
     ref = failure.ref
     async with SyncOperationService.with_session(ref.role) as service:
         await pg_advisory_xact_lock(
@@ -284,23 +284,18 @@ async def workspace_sync_fail(failure: SyncFailure) -> None:
         except TracecatNotFoundError:
             # Deleting a workspace also deletes its operations. There is no
             # remaining receipt to update and no reason to retry indefinitely.
-            return
+            return False
         if operation.status == "completed" or operation.attempt != ref.attempt:
-            return
+            return False
         if ref.phase == "apply" and operation.result is not None:
-            # Committed external effects belong to the system, even if the
-            # initiating actor can no longer retry. A new fenced attempt lets
-            # the outbox resume receipt reconciliation after prolonged outages.
+            # The existing workflow retries committed effects without repeating
+            # resource writes or requiring the initiating user to retain access.
             operation.status = "applying"
-            operation.attempt += 1
-            operation.dispatched = False
-            operation.dispatch_attempts = 0
-            operation.next_dispatch_at = datetime.now(UTC) + timedelta(minutes=5)
             operation.error = (
                 "Sync changes committed; retrying pending reconciliation automatically."
             )
             await service.session.commit()
-            return
+            return True
         operation.status = "failed"
         operation.summary = {
             **(operation.summary or {}),
@@ -313,3 +308,4 @@ async def workspace_sync_fail(failure: SyncFailure) -> None:
             "transient": "Sync failed at this stage. Retry to resume the operation.",
         }[failure.reason]
         await service.session.commit()
+    return False

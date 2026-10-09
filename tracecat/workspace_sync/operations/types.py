@@ -39,6 +39,10 @@ class SyncOperationConflictError(Exception):
     """The operation is incompatible with the requested transition."""
 
 
+class SyncOperationStartError(Exception):
+    """Temporal could not confirm that the operation started."""
+
+
 @dataclass(frozen=True, slots=True)
 class SyncFailure:
     ref: SyncOperationRef
