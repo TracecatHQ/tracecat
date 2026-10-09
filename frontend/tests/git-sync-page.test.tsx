@@ -613,6 +613,7 @@ describe("GitSyncView connected", () => {
           },
         ],
         mcp_integration_mappings: [],
+        secret_store_mappings: [],
       })
     )
     expect(
@@ -624,5 +625,180 @@ describe("GitSyncView connected", () => {
     expect(
       within(bar).getByRole("button", { name: "Preview again" })
     ).toBeInTheDocument()
+  })
+  it("treats secret store matches as optional and sends the choice", async () => {
+    const user = userEvent.setup()
+    const unmatchedStore = {
+      source_store: "source-production",
+      reason: "unresolved" as const,
+      message: "No store with this name is authorized for this workspace.",
+      candidates: [
+        {
+          store_id: "store-target",
+          name: "target-production",
+          region: "us-east-1",
+        },
+      ],
+      affected_secrets: [
+        { secret_name: "vendor_api", environment: "default", path: "a" },
+        { secret_name: "vendor_app", environment: "default", path: "b" },
+      ],
+    }
+    const preview: PullResult = {
+      success: true,
+      commit_sha: LATEST_SHA,
+      workflows_found: 1,
+      workflows_imported: 0,
+      diagnostics: [],
+      message: "Dry run completed",
+      resource_diffs: [
+        {
+          resource_type: "workflow",
+          source_id: "phishing-triage",
+          source_path: "workflows/phishing-triage/definition.yml",
+          change_type: "modified",
+          title: "Phishing triage",
+          diff: "@@ -1 +1 @@\n-old\n+new",
+        },
+      ],
+      secret_store_mapping_requirements: [unmatchedStore],
+      library_skill_installs: ["triage-notes"],
+    }
+    mockPullWorkflows
+      .mockResolvedValueOnce(preview)
+      .mockResolvedValueOnce({
+        ...preview,
+        secret_store_mapping_requirements: [],
+      })
+      .mockResolvedValueOnce({
+        ...preview,
+        resource_counts: { workflow: { found: 1, imported: 1 } },
+      })
+    renderWithTooltips(
+      <GitSyncView workspace={setup()} canSync canManageConnection />
+    )
+
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    const bar = screen.getByRole("group", { name: "Pull actions" })
+    await user.click(screen.getByRole("button", { name: "Preview" }))
+
+    // Optional: no dialog, no block, and pulling is already allowed.
+    expect(
+      await screen.findByText(
+        "Secret stores: 0 of 1 linked. Unlinked secrets import without a store and can be linked later in Credentials."
+      )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Pulling installs 1 skill from the skills library: triage-notes."
+      )
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    const pullButton = within(bar).getByRole("button", {
+      name: "Pull 1 into Workspace 1",
+    })
+    expect(pullButton).toBeEnabled()
+
+    await user.click(screen.getByRole("button", { name: "Choose stores" }))
+    const dialog = await screen.findByRole("dialog", {
+      name: "Matches for this pull",
+    })
+    expect(within(dialog).getByText("Optional")).toBeInTheDocument()
+    expect(
+      within(dialog).getByText("Used by vendor_api, vendor_app")
+    ).toBeInTheDocument()
+    await user.click(
+      within(dialog).getByLabelText("Target store for source-production")
+    )
+    await user.click(
+      screen.getByRole("option", { name: "target-production (us-east-1)" })
+    )
+    await user.click(
+      within(dialog).getByRole("button", { name: "Save and preview again" })
+    )
+    const mapping = [
+      { source_store: "source-production", target_store_id: "store-target" },
+    ]
+    await waitFor(() =>
+      expect(mockPullWorkflows).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          dry_run: true,
+          secret_store_mappings: mapping,
+        })
+      )
+    )
+    // The match is kept on screen even though the new preview stops listing it.
+    expect(
+      await screen.findByText(/Secret stores: 1 of 1 linked/)
+    ).toBeInTheDocument()
+
+    await user.click(
+      within(bar).getByRole("button", { name: "Pull 1 into Workspace 1" })
+    )
+    await waitFor(() =>
+      expect(mockPullWorkflows).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({ secret_store_mappings: mapping })
+      )
+    )
+    expect(
+      await screen.findByText(
+        "Installed from the skills library: triage-notes."
+      )
+    ).toBeInTheDocument()
+  })
+
+  it("sends leave unlinked as a null store", async () => {
+    const user = userEvent.setup()
+    const preview: PullResult = {
+      success: true,
+      commit_sha: LATEST_SHA,
+      workflows_found: 0,
+      workflows_imported: 0,
+      diagnostics: [],
+      message: "Dry run completed",
+      resource_diffs: [],
+      secret_store_mapping_requirements: [
+        {
+          source_store: "source-production",
+          reason: "unresolved",
+          message: "No store with this name is authorized for this workspace.",
+          candidates: [],
+          affected_secrets: [
+            { secret_name: "vendor_api", environment: "default", path: "a" },
+          ],
+        },
+      ],
+    }
+    mockPullWorkflows.mockResolvedValue(preview)
+    renderWithTooltips(
+      <GitSyncView workspace={setup()} canSync canManageConnection />
+    )
+
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    await user.click(screen.getByRole("button", { name: "Preview" }))
+    await user.click(
+      await screen.findByRole("button", { name: "Choose stores" })
+    )
+    const dialog = await screen.findByRole("dialog")
+    await user.click(
+      within(dialog).getByLabelText("Target store for source-production")
+    )
+    await user.click(screen.getByRole("option", { name: "Leave unlinked" }))
+    await user.click(
+      within(dialog).getByRole("button", { name: "Save and preview again" })
+    )
+
+    await waitFor(() =>
+      expect(mockPullWorkflows).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          dry_run: true,
+          secret_store_mappings: [
+            { source_store: "source-production", target_store_id: null },
+          ],
+        })
+      )
+    )
   })
 })

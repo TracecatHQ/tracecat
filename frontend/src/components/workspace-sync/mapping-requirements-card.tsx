@@ -7,6 +7,8 @@ import type {
   CatalogMappingSelection,
   McpIntegrationMappingRequirement,
   McpIntegrationMappingSelection,
+  SecretStoreMappingRequirement,
+  SecretStoreMappingSelection,
 } from "@/client"
 import {
   Select,
@@ -30,7 +32,12 @@ interface MappingRequirementItem {
   candidates: { value: string; label: string }[]
   /** Human-readable list of preset versions and workflow actions rewritten by this choice. */
   affects: string
+  /** An optional choice: no selection is a valid answer, not a blocker. */
+  optional?: boolean
 }
+
+/** Secret store choice that imports a store name's secrets without a store. */
+export const LEAVE_UNLINKED = "__leave_unlinked__"
 
 /**
  * Pull-time mapping requirements (model catalogs, MCP integrations) as rows:
@@ -53,6 +60,13 @@ function MappingRequirementRows({
     <div className="divide-y">
       {items.map((item) => {
         const isMatched = Boolean(selections[item.key])
+        let status = isMatched ? "Matched" : "Needs a match"
+        if (item.optional) {
+          status =
+            isMatched && selections[item.key] !== LEAVE_UNLINKED
+              ? "Linked"
+              : "Unlinked"
+        }
         return (
           <div key={item.key} className="space-y-2 py-3.5">
             <div className="flex min-w-0 items-baseline gap-2">
@@ -63,12 +77,12 @@ function MappingRequirementRows({
               <span
                 className={cn(
                   "ml-auto shrink-0 text-[11px]",
-                  isMatched
+                  isMatched || item.optional
                     ? "text-muted-foreground"
                     : "text-amber-700 dark:text-amber-500"
                 )}
               >
-                {isMatched ? "Matched" : "Needs a match"}
+                {status}
               </span>
             </div>
             <Select
@@ -261,6 +275,73 @@ export function McpIntegrationMappingRequirements({
       disabled={disabled}
     />
   )
+}
+
+/**
+ * Rows for AWS-backed secrets whose store name has no authorized match here.
+ * Each is optional: unchosen names import their secrets without a store.
+ */
+export function SecretStoreMappingRequirements({
+  requirements,
+  selections,
+  onChange,
+  disabled,
+}: {
+  requirements: SecretStoreMappingRequirement[]
+  selections: Record<string, string>
+  onChange: (sourceStore: string, targetStoreId: string) => void
+  disabled: boolean
+}) {
+  const items = useMemo(
+    () =>
+      requirements.map(
+        (requirement): MappingRequirementItem => ({
+          key: requirement.source_store,
+          title: requirement.source_store,
+          subtitle: "Secret store",
+          ariaLabel: `Target store for ${requirement.source_store}`,
+          candidates: [
+            ...requirement.candidates.map((candidate) => ({
+              value: candidate.store_id,
+              label: candidate.region
+                ? `${candidate.name} (${candidate.region})`
+                : candidate.name,
+            })),
+            { value: LEAVE_UNLINKED, label: "Leave unlinked" },
+          ],
+          affects: requirement.affected_secrets
+            .map((secret) => secret.secret_name)
+            .join(", "),
+          optional: true,
+        })
+      ),
+    [requirements]
+  )
+
+  return (
+    <MappingRequirementRows
+      placeholder="Leave unlinked"
+      items={items}
+      selections={selections}
+      onChange={onChange}
+      disabled={disabled}
+    />
+  )
+}
+
+/**
+ * Sorted secret store selections for a pull request body; "Leave unlinked"
+ * is sent as a null target.
+ */
+export function secretStoreMappingSelections(
+  mappings: Record<string, string>
+): SecretStoreMappingSelection[] {
+  return Object.entries(mappings)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([sourceStore, targetStoreId]) => ({
+      source_store: sourceStore,
+      target_store_id: targetStoreId === LEAVE_UNLINKED ? null : targetStoreId,
+    }))
 }
 
 /**
