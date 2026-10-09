@@ -74,6 +74,10 @@ class SentryTag(StrEnum):
     ROOT_CAUSE_TYPE = "tracecat.error.root_cause_type"
 
 
+# Marks explicit handled-API captures so the executor gateway keeps them; it is
+# not in any allowlist, so sanitization always strips it.
+_API_CAPTURE_MARKER_TAG = "tracecat.api_capture"
+
 _WORKER_ALLOWED_TAGS = frozenset(
     {
         SentryTag.LLM_ROUTE.value,
@@ -406,6 +410,7 @@ def capture_api_exception(
     try:
         with sentry_sdk.new_scope() as scope:
             scope.set_tag(SentryTag.ALERT_PRIORITY.value, priority)
+            scope.set_tag(_API_CAPTURE_MARKER_TAG, "true")
             scope.set_level(level)
             sentry_sdk.capture_exception(error)
     except Exception as reporting_error:
@@ -702,7 +707,10 @@ def _sanitize_executor_event(event: Event, hint: Hint) -> Event | None:
     """Accept native gateway exceptions and the typed auth-capacity failure."""
     values = event.get("exception", {}).get("values", [])
     exc_info = hint.get("exc_info")
-    if exc_info is not None and isinstance(exc_info[1], AuthPoolExhaustedError):
+    tags = event.get("tags") or {}
+    if (
+        exc_info is not None and isinstance(exc_info[1], AuthPoolExhaustedError)
+    ) or tags.get(_API_CAPTURE_MARKER_TAG) == "true":
         return _sanitize_api_event(
             event,
             hint,
