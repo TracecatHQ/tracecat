@@ -8867,6 +8867,7 @@ async def update_agent_preset(
 
     `reasoning_effort` is one of `off`, `low`, `medium`, `high`, or `max`. Set
     `clear_reasoning_effort=true` to use the model's default reasoning level.
+    Pass one of the two, not both. Omitting both leaves the level unchanged.
     """
 
     try:
