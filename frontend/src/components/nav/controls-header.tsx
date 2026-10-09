@@ -239,6 +239,7 @@ function WorkflowsBreadcrumb({
 }
 
 function TablesActions() {
+  const canCreateTables = useScopeCheck("table:create") === true
   const [activeDialog, setActiveDialog] = useState<"create" | "import" | null>(
     null
   )
@@ -250,50 +251,54 @@ function TablesActions() {
         branchSlug="tables"
         resources={["table"]}
       />
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="h-7 bg-background">
-            <Plus className="mr-1 h-3.5 w-3.5" />
-            New table
-            <ChevronDown className="ml-1 h-3.5 w-3.5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          align="end"
-          className="
+      {canCreateTables && (
+        <>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 bg-background">
+                <Plus className="mr-1 h-3.5 w-3.5" />
+                New table
+                <ChevronDown className="ml-1 h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="
             [&_[data-radix-collection-item]]:flex
             [&_[data-radix-collection-item]]:items-center
             [&_[data-radix-collection-item]]:gap-2
           "
-        >
-          <DropdownMenuItem onSelect={() => setActiveDialog("create")}>
-            <Plus className="size-4 text-foreground/80" />
-            <div className="flex flex-col text-xs">
-              <span>Create table</span>
-              <span className="text-xs text-muted-foreground">
-                Define columns manually
-              </span>
-            </div>
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setActiveDialog("import")}>
-            <FileUpIcon className="size-4 text-foreground/80" />
-            <div className="flex flex-col text-xs">
-              <span>Import from CSV</span>
-              <span className="text-xs text-muted-foreground">
-                Infer columns and data from a CSV file
-              </span>
-            </div>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <CreateTableDialog
-        open={activeDialog === "create"}
-        onOpenChange={(open) => setActiveDialog(open ? "create" : null)}
-      />
-      <TableImportTableDialog
-        open={activeDialog === "import"}
-        onOpenChange={(open) => setActiveDialog(open ? "import" : null)}
-      />
+            >
+              <DropdownMenuItem onSelect={() => setActiveDialog("create")}>
+                <Plus className="size-4 text-foreground/80" />
+                <div className="flex flex-col text-xs">
+                  <span>Create table</span>
+                  <span className="text-xs text-muted-foreground">
+                    Define columns manually
+                  </span>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setActiveDialog("import")}>
+                <FileUpIcon className="size-4 text-foreground/80" />
+                <div className="flex flex-col text-xs">
+                  <span>Import from CSV</span>
+                  <span className="text-xs text-muted-foreground">
+                    Infer columns and data from a CSV file
+                  </span>
+                </div>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <CreateTableDialog
+            open={activeDialog === "create"}
+            onOpenChange={(open) => setActiveDialog(open ? "create" : null)}
+          />
+          <TableImportTableDialog
+            open={activeDialog === "import"}
+            onOpenChange={(open) => setActiveDialog(open ? "import" : null)}
+          />
+        </>
+      )}
     </>
   )
 }
