@@ -108,7 +108,9 @@ async def load_prepared(key: str) -> PreparedSync:
     return prepared
 
 
-async def read_diff_page(key: str, cursor: str | None) -> SyncDiffPage:
+async def read_diff_page(
+    key: str, cursor: str | None, *, diff_count: int | None = None
+) -> SyncDiffPage:
     """Load one immutable page without reading the large prepared snapshot."""
     offset = 0
     if cursor:
@@ -117,6 +119,8 @@ async def read_diff_page(key: str, cursor: str | None) -> SyncDiffPage:
         offset = int(base64.b64decode(cursor, altchars=b"-_", validate=True))
         if offset < 0 or offset % _PAGE_SIZE:
             raise ValueError("Invalid cursor")
+    if diff_count is not None and offset > 0 and offset >= diff_count:
+        raise ValueError("Cursor is past the last diff")
     return SyncDiffPage.model_validate_json(await _download(f"{key}.page-{offset}"))
 
 

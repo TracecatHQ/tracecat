@@ -6673,6 +6673,18 @@ export type Page_SecretStoreRead_ = {
   prev_cursor?: string | null
 }
 
+export type Page_SyncOperationRead_ = {
+  items: Array<SyncOperationRead>
+  /**
+   * Next-page cursor
+   */
+  next_cursor?: string | null
+  /**
+   * Previous-page cursor
+   */
+  prev_cursor?: string | null
+}
+
 export type Page_WorkspaceSecretStoreRead_ = {
   items: Array<WorkspaceSecretStoreRead>
   /**
@@ -8174,6 +8186,23 @@ export type ScopeCreate = {
 }
 
 /**
+ * Structured explanation of an authorization scope denial.
+ */
+export type ScopeDeniedErrorDetail = {
+  code: "insufficient_scope"
+  message: string
+  required_scopes: Array<string>
+  missing_scopes: Array<string>
+}
+
+/**
+ * HTTP 403 response emitted by the scope-denial exception handler.
+ */
+export type ScopeDeniedResponse = {
+  error: ScopeDeniedErrorDetail
+}
+
+/**
  * Response schema for listing scopes.
  */
 export type ScopeList = {
@@ -9164,11 +9193,77 @@ export type StringListFieldChange = {
   removed?: Array<string>
 }
 
+/**
+ * A stable page of diff metadata; file text is fetched separately.
+ */
+export type SyncDiffPage = {
+  items: Array<PullResourceDiff>
+  next_cursor?: string | null
+}
+
+export type SyncDirection = "push" | "pull"
+
+/**
+ * Start a preview; reuse the client-generated ID after a lost response.
+ */
+export type SyncOperationCreate_Input = {
+  id: string
+  direction: SyncDirection
+  push?: WorkspaceSyncExportRequest_Input | null
+  pull?: WorkflowSyncPullRequest | null
+  compare_ref?: string | null
+}
+
+/**
+ * Start a preview; reuse the client-generated ID after a lost response.
+ */
+export type SyncOperationCreate_Output = {
+  id: string
+  direction: SyncDirection
+  push?: WorkspaceSyncExportRequest_Output | null
+  pull?: WorkflowSyncPullRequest | null
+  compare_ref?: string | null
+}
+
+/**
+ * Expected operation conflict and diff lookup failures.
+ */
+export type SyncOperationError = {
+  detail: string
+}
+
+/**
+ * Small polling response, independent of the number of synced files.
+ */
+export type SyncOperationRead = {
+  id: string
+  direction: SyncDirection
+  status: SyncStatus
+  stage: SyncStage
+  created_at: string
+  expires_at: string
+  commit_sha?: string | null
+  error?: string | null
+  preview?: WorkspaceSyncExportPreview | PullResult | null
+  result?: SyncPushResult | PullResult | null
+  diff_count?: number
+  can_retry?: boolean
+  data_applied?: boolean
+  inputs: SyncOperationCreate_Output
+}
+
 export type SyncPreviewResource = {
   resource_type: string
   source_id: string
   name: string
   path: string
+}
+
+/**
+ * Compact durable push receipt; file details stay in paginated artifacts.
+ */
+export type SyncPushResult = {
+  commit: CommitInfo
 }
 
 /**
@@ -9188,6 +9283,22 @@ export type SyncResourceType =
   | "case_duration"
   | "variable"
   | "secret_metadata"
+
+export type SyncStage =
+  | "fetching"
+  | "preparing"
+  | "awaiting_confirmation"
+  | "applying"
+  | "finished"
+
+export type SyncStatus =
+  | "queued"
+  | "running"
+  | "ready"
+  | "applying"
+  | "completed"
+  | "failed"
+  | "expired"
 
 export type SyntaxToken = {
   type: string
@@ -11696,7 +11807,37 @@ export type WorkspaceSyncExportPreviewRequest = {
 /**
  * Request to commit selected workspace resources to a Git branch.
  */
-export type WorkspaceSyncExportRequest = {
+export type WorkspaceSyncExportRequest_Input = {
+  /**
+   * Commit message for the export.
+   */
+  message: string
+  /**
+   * Target branch to commit to.
+   */
+  branch: string
+  /**
+   * Whether to open a pull request for the commit.
+   */
+  create_pr?: boolean
+  /**
+   * Base branch for the pull request, if created.
+   */
+  pr_base_branch?: string | null
+  /**
+   * Specific resources to export, or ``None`` to export all.
+   */
+  resources?: Array<ResourceRef> | null
+  /**
+   * Whether to include workflow schedules in the export.
+   */
+  include_schedules?: boolean
+}
+
+/**
+ * Request to commit selected workspace resources to a Git branch.
+ */
+export type WorkspaceSyncExportRequest_Output = {
   /**
    * Commit message for the export.
    */
@@ -12631,7 +12772,7 @@ export type WorkflowsListWorkflowBranchesData = {
 export type WorkflowsListWorkflowBranchesResponse = Array<GitBranchInfo>
 
 export type WorkflowsExportWorkspaceSyncData = {
-  requestBody: WorkspaceSyncExportRequest
+  requestBody: WorkspaceSyncExportRequest_Input
   workspaceId: string
 }
 
@@ -12651,6 +12792,58 @@ export type WorkflowsPullWorkflowsData = {
 }
 
 export type WorkflowsPullWorkflowsResponse = PullResult
+
+export type WorkflowsCreateSyncOperationData = {
+  requestBody: SyncOperationCreate_Input
+  workspaceId: string
+}
+
+export type WorkflowsCreateSyncOperationResponse = SyncOperationRead
+
+export type WorkflowsListSyncOperationsData = {
+  cursor?: string | null
+  limit?: number
+  workspaceId: string
+}
+
+export type WorkflowsListSyncOperationsResponse = Page_SyncOperationRead_
+
+export type WorkflowsGetSyncOperationData = {
+  operationId: string
+  workspaceId: string
+}
+
+export type WorkflowsGetSyncOperationResponse = SyncOperationRead
+
+export type WorkflowsApplySyncOperationData = {
+  operationId: string
+  workspaceId: string
+}
+
+export type WorkflowsApplySyncOperationResponse = SyncOperationRead
+
+export type WorkflowsRetrySyncOperationData = {
+  operationId: string
+  workspaceId: string
+}
+
+export type WorkflowsRetrySyncOperationResponse = SyncOperationRead
+
+export type WorkflowsListSyncDiffsData = {
+  cursor?: string | null
+  operationId: string
+  workspaceId: string
+}
+
+export type WorkflowsListSyncDiffsResponse = SyncDiffPage
+
+export type WorkflowsGetSyncDiffData = {
+  index: number
+  operationId: string
+  workspaceId: string
+}
+
+export type WorkflowsGetSyncDiffResponse = PullResourceDiff
 
 export type SecretsCreateAwsSecretReferenceData = {
   requestBody: AwsSecretReferenceCreate
@@ -17698,6 +17891,209 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: PullResult
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations": {
+    post: {
+      req: WorkflowsCreateSyncOperationData
+      res: {
+        /**
+         * Successful Response
+         */
+        202: SyncOperationRead
+        /**
+         * Bad Request
+         */
+        400: SyncOperationError
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Conflict
+         */
+        409: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
+      }
+    }
+    get: {
+      req: WorkflowsListSyncOperationsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: Page_SyncOperationRead_
+        /**
+         * Bad Request
+         */
+        400: SyncOperationError
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}": {
+    get: {
+      req: WorkflowsGetSyncOperationData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SyncOperationRead
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/apply": {
+    post: {
+      req: WorkflowsApplySyncOperationData
+      res: {
+        /**
+         * Successful Response
+         */
+        202: SyncOperationRead
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Conflict
+         */
+        409: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/retry": {
+    post: {
+      req: WorkflowsRetrySyncOperationData
+      res: {
+        /**
+         * Successful Response
+         */
+        202: SyncOperationRead
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Conflict
+         */
+        409: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/diffs": {
+    get: {
+      req: WorkflowsListSyncDiffsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: SyncDiffPage
+        /**
+         * Bad Request
+         */
+        400: SyncOperationError
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Gone
+         */
+        410: SyncOperationError
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/workflows/sync/operations/{operation_id}/diffs/{index}": {
+    get: {
+      req: WorkflowsGetSyncDiffData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: PullResourceDiff
+        /**
+         * Forbidden
+         */
+        403: ScopeDeniedResponse | SyncOperationError
+        /**
+         * Not Found
+         */
+        404: SyncOperationError
+        /**
+         * Gone
+         */
+        410: SyncOperationError
         /**
          * Validation Error
          */
