@@ -19,9 +19,9 @@ import { AlertTriangle, Check } from "lucide-react"
 import { useTheme } from "next-themes"
 import React, { useCallback, useMemo, useRef, useState } from "react"
 import { type Control, type FieldValues, useController } from "react-hook-form"
-import YAML from "yaml"
 import type { ActionRead } from "@/client"
 import { cn } from "@/lib/utils"
+import { parseYaml, stringifyYaml } from "@/lib/yaml"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -75,7 +75,7 @@ export const YamlStyledEditor = React.forwardRef<
     () =>
       stripNewline(
         field.value
-          ? YAML.stringify(field.value, {
+          ? stringifyYaml(field.value, {
               lineWidth: 0, // Disable line wrapping
               minContentWidth: 0, // Allow content to extend beyond default width
             })
@@ -126,7 +126,7 @@ export const YamlStyledEditor = React.forwardRef<
   // Using refs to make this function stable and avoid extension recreation
   const commitToForm = useCallback(() => {
     try {
-      const obj = YAML.parse(bufferRef.current)
+      const obj = parseYaml(bufferRef.current)
       fieldRef.current.onChange(obj) // Push valid object to RHF
       setValidationErrors([])
       setHasErrors(false)
@@ -157,7 +157,7 @@ export const YamlStyledEditor = React.forwardRef<
   // Debounced validation for visual feedback to reduce re-renders during typing
   const validateYaml = useCallback((text: string) => {
     try {
-      YAML.parse(text)
+      parseYaml(text)
       setValidationErrors([])
       return true
     } catch (err) {
@@ -224,7 +224,7 @@ export const YamlStyledEditor = React.forwardRef<
           try {
             const content = view.state.doc.toString()
             if (content.trim()) {
-              YAML.parse(content)
+              parseYaml(content)
             }
             setHasErrors(false)
           } catch (_error) {
@@ -412,7 +412,7 @@ function customYamlLinter(view: EditorView): Diagnostic[] {
   }
 
   try {
-    YAML.parse(content)
+    parseYaml(content)
   } catch (error) {
     if (!(error instanceof Error)) {
       return []
@@ -761,7 +761,7 @@ export function YamlViewOnlyEditor({
     return stripNewline(
       typeof value === "string"
         ? value
-        : YAML.stringify(value, {
+        : stringifyYaml(value, {
             lineWidth: 0, // Disable line wrapping
             minContentWidth: 0, // Allow content to extend beyond default width
           })

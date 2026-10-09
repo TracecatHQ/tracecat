@@ -29,7 +29,6 @@ import React, {
   useState,
 } from "react"
 import { FormProvider, useForm, useFormContext } from "react-hook-form"
-import YAML from "yaml"
 import {
   type ActionRead,
   actionsCreateAction,
@@ -76,6 +75,7 @@ import {
 } from "@/lib/hooks"
 import { cn, slugifyActionRef } from "@/lib/utils"
 import { CHILD_WORKFLOW_ACTION_TYPE } from "@/lib/workflow"
+import { parseYaml } from "@/lib/yaml"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 
@@ -280,11 +280,10 @@ export default React.memo(function ActionNode({
 
   const actionInputsObj = useMemo(() => {
     try {
-      // Use YAML.parse with strict schema to catch duplicate keys
+      // Parse strictly to catch duplicate keys
       setError(null)
       return action?.inputs
-        ? YAML.parse(action.inputs, {
-            schema: "core",
+        ? parseYaml(action.inputs, {
             strict: true,
             uniqueKeys: true,
           })
