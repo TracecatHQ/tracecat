@@ -1,10 +1,7 @@
 ---
-title: "Linked tables"
+title: "Linked rows"
 description: "Link table rows to a case to keep structured evidence such as indicators, assets, and detections with the investigation."
-icon: "lock"
 ---
-
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
 Link table rows to a case to connect it to structured data.
 Use them when a case needs more than free-form notes, such as indicators, assets, or external detections.
@@ -28,7 +25,10 @@ Each linked table renders as its own grid in the case's Tables tab, 20 rows at a
 
 ![Link rows dialog](/img/cases/link-rows-dialog.png)
 
-To link more rows from a table that is already linked, click `Add rows` on that table's grid. To unlink rows, tick them in the grid and click `Unlink`.
+To link more rows from a table that is already linked, click `Link rows` in that table's header.
+Click `Add row` to create a new row in the table and link it to the case.
+Right-click a row to edit it, unlink it, or [view related cases](/automations/cases/correlations).
+To unlink several rows at once, tick them in the grid and click `Unlink`.
 
 A case can link up to 250 rows from each table and rows from up to 10 tables. Each link or unlink request takes at most 100 row IDs.
 
@@ -47,5 +47,6 @@ When you create a table for case-linked evidence, use the same `columns` JSON sc
 
 ## Related pages
 
+- See [Correlations](/automations/cases/correlations) to find other cases that link the same row.
 - See [Case management](/automations/cases) for an overview of case features.
 - See [Linked rows](/automations/core-actions/case-actions/linked-rows) to link table rows to a case from a workflow.

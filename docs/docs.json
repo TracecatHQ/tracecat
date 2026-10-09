@@ -119,9 +119,10 @@
             "group": "Resolve cases",
             "icon": "circle-check-big",
             "pages": [
+              "automations/cases/linked-rows",
               "automations/cases/tasks",
               "automations/cases/agent-mentions",
-              "automations/cases/linked-tables",
+              "automations/cases/correlations",
               "automations/cases/workflow-triggers"
             ]
           }
@@ -587,6 +588,10 @@
     {
       "source": "/tools/wiz",
       "destination": "/automations/integrations/mcp-integrations"
+    },
+    {
+      "source": "/automations/cases/linked-tables",
+      "destination": "/automations/cases/linked-rows"
     }
   ],
   "logo": {
