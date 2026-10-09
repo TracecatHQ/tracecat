@@ -51,9 +51,10 @@ export interface ToolPickerDialogProps {
 }
 
 // Catalogue rows share one grid: a leading column exactly as wide as the
-// checkbox, which the namespace icon tile matches, so every box in the column
-// shares its left edge, right edge and centre, and titles line up.
-const LEAD = "mr-2 flex w-4 shrink-0 items-center"
+// checkbox. Namespace logos are 2px wider and centred, so they overhang the
+// column by 1px on each side: every box shares one centre line and titles
+// line up.
+const LEAD = "mr-2 flex w-4 shrink-0 items-center justify-center"
 
 type PickerRow =
   | {
@@ -740,13 +741,14 @@ export function ToolIcon({
   small = false,
 }: {
   entry: ToolEntry
-  /** Render the tile at the checkbox's size and radius, to share its column. */
+  /** Render the bare logo, without a tile, to share the checkbox column. */
   small?: boolean
 }) {
-  const className = cn(
-    "shrink-0 border",
-    small ? "size-4 rounded-sm p-px" : "size-6 rounded"
-  )
+  // Bare logos carry padding in their own artwork, so they are drawn slightly
+  // larger than the 16px checkbox to match its optical weight.
+  const className = small
+    ? "size-[18px] shrink-0 rounded-none bg-transparent p-0 [&>*]:size-full"
+    : "size-6 shrink-0 rounded border"
   if (entry.integration)
     return (
       <ProviderIcon
