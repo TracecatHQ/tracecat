@@ -1,0 +1,65 @@
+---
+title: "Workflow triggers"
+description: "Run workflows from cases automatically on case events, from case tasks, or with a / command in a comment."
+icon: "lock"
+---
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
+
+Cases can start workflows in three ways.
+Pick the one that matches who decides when the workflow runs.
+
+| Trigger | Who starts it | Use it for |
+| --- | --- | --- |
+| Case trigger | Tracecat, when a selected case event happens | Enrichment, routing, and notifications that should always run |
+| Task workflow | An analyst, from a case task | Response steps that need a human decision, such as resetting credentials |
+| `/` command | An analyst, from a case comment or reply | Ad hoc lookups and actions during an investigation |
+
+## Run workflows on case events
+
+Open a workflow, select the trigger, and open the `Case triggers` tab.
+Select one or more case events, optionally add a tag allowlist, and turn the trigger on.
+Publish the workflow before you turn on its case trigger.
+
+![Case trigger](/img/triggers/case-triggers.png)
+
+| Event family | Events |
+| --- | --- |
+| Case | `case_created`, `case_updated`, `case_closed`, `case_reopened`, `case_viewed` |
+| Properties | `status_changed`, `priority_changed`, `severity_changed`, `assignee_changed`, `payload_changed` |
+| Fields and dropdowns | `fields_changed`, `dropdown_value_changed` |
+| Tags | `tag_added`, `tag_removed` |
+| Tasks | `task_created`, `task_deleted`, `task_status_changed`, `task_priority_changed`, `task_assignee_changed`, `task_workflow_changed` |
+| Comments | `comment_created`, `comment_updated`, `comment_deleted`, `comment_reply_created`, `comment_reply_updated`, `comment_reply_deleted` |
+| Attachments | `attachment_created`, `attachment_deleted` |
+| Linked rows | `table_row_linked`, `table_row_unlinked` |
+
+The tag allowlist limits runs to cases that currently have at least one matching tag, such as `phishing`.
+An empty allowlist runs the workflow for every case.
+
+Tracecat ignores case events caused by workflows, so a workflow that updates a case does not trigger itself or other case-triggered workflows.
+See [Case triggers](/automations/triggers/case-triggers) for the trigger payload.
+
+## Run workflows from tasks
+
+Set a workflow on a case task, then start it from the task row.
+Tracecat asks for the workflow's Input schema values or passes generated case inputs.
+
+![Task trigger](/img/triggers/task-trigger.png)
+
+See [Case tasks](/automations/cases/tasks) to set up tasks and [Task triggers](/automations/triggers/task-triggers) for the trigger payload.
+
+## Run workflows from comments
+
+Type `/` in a case comment or reply, select a published workflow, and submit the comment.
+Tracecat removes the `/` command from the saved comment and runs the workflow with the case and comment context.
+
+![Comment trigger](/img/triggers/comment-triggers.png)
+
+See [Comment triggers](/automations/triggers/comment-triggers) for required roles and the trigger payload.
+
+## Related pages
+
+- See [Agent mentions](/automations/cases/agent-mentions) to have a preset agent investigate a case instead of running a fixed workflow.
+- See [Case triggers](/automations/triggers/case-triggers) for the full case trigger payload.
+- See [Cases](/automations/core-actions/case-actions/cases) for the case actions your triggered workflows can call.

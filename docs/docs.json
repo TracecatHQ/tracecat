@@ -102,12 +102,28 @@
             "group": "Case management",
             "icon": "ticket-check",
             "pages": [
-              "automations/cases",
+              "automations/cases"
+            ]
+          },
+          {
+            "group": "Build cases",
+            "icon": "blocks",
+            "pages": [
               "automations/cases/custom-fields",
-              "automations/cases/agent-mentions",
+              "automations/cases/dropdowns",
+              "automations/cases/closure-requirements",
+              "automations/cases/durations"
+            ]
+          },
+          {
+            "group": "Resolve cases",
+            "icon": "circle-check-big",
+            "pages": [
+              "automations/cases/linked-rows",
               "automations/cases/tasks",
-              "automations/cases/durations",
-              "automations/cases/linked-tables"
+              "automations/cases/agent-mentions",
+              "automations/cases/correlations",
+              "automations/cases/workflow-triggers"
             ]
           }
         ]
@@ -572,6 +588,10 @@
     {
       "source": "/tools/wiz",
       "destination": "/automations/integrations/mcp-integrations"
+    },
+    {
+      "source": "/automations/cases/linked-tables",
+      "destination": "/automations/cases/linked-rows"
     }
   ],
   "logo": {
