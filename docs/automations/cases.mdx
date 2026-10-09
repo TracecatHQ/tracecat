@@ -64,35 +64,6 @@ Your workflows can create or update a case, attach evidence, add comments, and m
 - Store evidence as attachments instead of passing large blobs between actions
 - Link structured rows, tasks, and durations to keep investigation context organized
 
-## Trigger agents
-
-### Mention a preset agent
-
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
-
-Type `@` in a comment to have a preset agent investigate the case and reply in the thread. See [Agent mentions](/automations/cases/agent-mentions) to configure access and follow the run.
-
-An agent can also call a workflow as a tool. When you need fixed order, deterministic branching, or guaranteed steps, run the workflow from a [workflow trigger](/automations/cases/workflow-triggers) instead.
-
-### Use the in-case copilot
-
-<Badge icon="github" color="gray" size="lg" shape="pill">Open source</Badge>
-
-Use the copilot inside a case to summarize activity and draft next steps. It draws from the case timeline, linked evidence, and workflow output.
-
-![Case copilot](/img/cases/case-copilot.png)
-
-### Correlate across cases
-
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
-
-Enterprise extends the copilot beyond a single case. Use it to correlate related cases, compare investigation history, and surface patterns across incidents.
-
-- Correlate repeated alerts across multiple cases
-- Spot shared indicators, assets, or actors
-- Find similar investigations before you start a new one
-- Build broader investigation context across your case queue
-
 ## Tags
 
 Tags help you group and find related cases.
@@ -150,3 +121,32 @@ For example:
         Triage --> Containment
       ```
 ````
+
+## Trigger agents
+
+### Mention a preset agent
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
+
+Type `@` in a comment to have a preset agent investigate the case and reply in the thread. See [Agent mentions](/automations/cases/agent-mentions) to configure access and follow the run.
+
+An agent can also call a workflow as a tool. When you need fixed order, deterministic branching, or guaranteed steps, run the workflow from a [workflow trigger](/automations/cases/workflow-triggers) instead.
+
+### Use the in-case copilot
+
+<Badge icon="github" color="gray" size="lg" shape="pill">Open source</Badge>
+
+Use the copilot inside a case to summarize activity and draft next steps. It draws from the case timeline, linked evidence, and workflow output.
+
+![Case copilot](/img/cases/case-copilot.png)
+
+### Correlate across cases
+
+<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
+
+Enterprise extends the copilot beyond a single case. Use it to correlate related cases, compare investigation history, and surface patterns across incidents.
+
+- Correlate repeated alerts across multiple cases
+- Spot shared indicators, assets, or actors
+- Find similar investigations before you start a new one
+- Build broader investigation context across your case queue
