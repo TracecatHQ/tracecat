@@ -3165,7 +3165,7 @@ async def test_sync_import_rolls_back_preparation_failure(
         commit_sha="a" * 40, files={}, spec=WorkspaceSpec()
     )
     workspace_sync_service._prepare_snapshot_for_import = AsyncMock(
-        return_value=PreparedSnapshot(snapshot, [], [], [], [])
+        return_value=PreparedSnapshot(snapshot, [], [], [], [], [])
     )
     workspace_sync_service.import_prepared_snapshot = AsyncMock(
         side_effect=RuntimeError("Synthetic preparation failure")
