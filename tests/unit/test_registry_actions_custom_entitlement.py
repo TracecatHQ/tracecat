@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 from tests.database import TEST_DB_CONFIG
+from tracecat.agent.preset.tool_policy import PresetToolPolicyService
 from tracecat.auth.types import Role
 from tracecat.db.models import (
     PlatformRegistryIndex,
@@ -583,3 +584,132 @@ async def test_classify_missing_actions_follows_lookup_precedence(
     assert found == {}
     assert missing.platform == frozenset()
     assert missing.entitlement_denied == frozenset({action})
+
+
+async def _approval_defaults_both_ways(
+    session: AsyncSession,
+    role: Role,
+    names: list[str],
+    *,
+    custom_enabled: bool,
+) -> tuple[set[str], set[str]]:
+    """Registry defaults as compilation sees them, then as preset policy does."""
+    with (
+        patch.object(
+            RegistryActionsService,
+            "has_entitlement",
+            new=AsyncMock(return_value=custom_enabled),
+        ),
+        patch.object(
+            RegistryActionsService,
+            "_get_enabled_entitlements",
+            new=AsyncMock(return_value=set()),
+        ),
+    ):
+        compiled = {
+            name
+            for name, result in (
+                await RegistryActionsService(session, role=role).get_actions_from_index(
+                    names
+                )
+            ).items()
+            if result.index_entry.options.get("requires_approval") is True
+        }
+        # Approval options need no manifests.
+        with patch.object(
+            RegistryActionsService,
+            "_load_action_manifests",
+            new=AsyncMock(side_effect=AssertionError("manifest loaded")),
+        ):
+            policy = await PresetToolPolicyService(
+                session, role=role
+            ).registry_approval_defaults(names)
+    return compiled, policy
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("custom_enabled", "org_options", "platform_options", "expected"),
+    [
+        # The org row takes precedence over the platform row.
+        (True, {"requires_approval": True}, {}, {"acme.shared.action"}),
+        (True, {}, {"requires_approval": True}, set()),
+        # Without the custom registry, the platform row is selected.
+        (False, {"requires_approval": True}, {}, set()),
+        (False, {}, {"requires_approval": True}, {"acme.shared.action"}),
+        # A selected row with a missing entitlement is dropped, with no fallback.
+        (
+            True,
+            {"requires_approval": True, "required_entitlements": ["agent_addons"]},
+            {"requires_approval": True},
+            set(),
+        ),
+    ],
+)
+async def test_policy_approval_defaults_follow_compile_lookup_precedence(
+    svc_role: Role,
+    session: AsyncSession,
+    custom_enabled: bool,
+    org_options: dict[str, object],
+    platform_options: dict[str, object],
+    expected: set[str],
+) -> None:
+    action = "acme.shared.action"
+    await _seed_platform_registry(
+        session,
+        origin=DEFAULT_REGISTRY_ORIGIN,
+        version="platform-1.0",
+        action_names=[action],
+        options={"include_in_schema": True, **platform_options},
+    )
+    await _seed_org_registry(
+        session,
+        role=svc_role,
+        origin="git+ssh://git@github.com/acme/custom-registry.git",
+        version="org-1.0",
+        action_names=[action],
+    )
+    await session.execute(
+        update(RegistryIndex).values(options={"include_in_schema": True, **org_options})
+    )
+    await session.commit()
+
+    compiled, policy = await _approval_defaults_both_ways(
+        session,
+        svc_role,
+        [action, "acme.shared.missing"],
+        custom_enabled=custom_enabled,
+    )
+
+    assert compiled == policy == expected
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("current_requires_approval", [False, True])
+async def test_policy_approval_defaults_follow_compile_version_selection(
+    svc_role: Role,
+    session: AsyncSession,
+    current_requires_approval: bool,
+) -> None:
+    action = "acme.versioned.action"
+    for version, requires_approval in (
+        ("platform-1.0", not current_requires_approval),
+        ("platform-2.0", current_requires_approval),
+    ):
+        # Reusing the origin promotes each seeded version to current.
+        await _seed_platform_registry(
+            session,
+            origin=DEFAULT_REGISTRY_ORIGIN,
+            version=version,
+            action_names=[action],
+            options={
+                "include_in_schema": False,
+                "requires_approval": requires_approval,
+            },
+        )
+
+    compiled, policy = await _approval_defaults_both_ways(
+        session, svc_role, [action], custom_enabled=True
+    )
+
+    assert compiled == policy == ({action} if current_requires_approval else set())

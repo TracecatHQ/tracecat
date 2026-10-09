@@ -51,7 +51,6 @@ from tracecat.agent.preset.schemas import (
 )
 from tracecat.agent.preset.tool_policy import (
     PresetToolPolicyService,
-    resolve_tool_policy,
 )
 from tracecat.agent.preset.types import (
     EffectivePresetTools,
@@ -409,7 +408,7 @@ class AgentPresetService(BaseWorkspaceService):
         self._select_mcp_integrations(
             inputs.mcp_integrations, list(metadata.integrations.values())
         )
-        policy = resolve_tool_policy(inputs, metadata.versions, metadata.integrations)
+        policy = await self.tool_policy.resolve(inputs, metadata)
         self._validate_effective_tool_count(policy)
         return self._tool_policy_read(policy)
 
@@ -2431,7 +2430,7 @@ class AgentPresetService(BaseWorkspaceService):
             metadata=metadata,
         )
         await self.library.validate_declared_tools(version.library_skills or [])
-        policy = resolve_tool_policy(inputs, metadata.versions, metadata.integrations)
+        policy = await self.tool_policy.resolve(inputs, metadata)
         self._validate_effective_tool_count(policy)
         mcp_servers = self._resolve_tool_mcp_grants(
             policy.mcp_grants, metadata.integrations

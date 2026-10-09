@@ -27,6 +27,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_http_headers
 from fastmcp.tools.base import Tool, ToolResult
 from fastmcp.utilities.versions import VersionSpec
+from mcp.types import CallToolRequest, CallToolResult, ServerResult, TextContent
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 from temporalio.exceptions import is_cancelled_exception
@@ -52,13 +53,13 @@ from tracecat.agent.mcp.metadata import (
 )
 from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import (
-    LEGACY_REGISTRY_MCP_SERVER_NAME,
-    REGISTRY_MCP_SERVER_NAME,
     action_name_to_mcp_tool_name,
+    canonical_mcp_tool_name,
     fetch_tool_definitions,
     fetch_tool_definitions_for_lock,
     mcp_tool_name_to_action_name,
     normalize_mcp_tool_name,
+    strip_tracecat_registry_server_prefix,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim, verify_mcp_token
@@ -129,6 +130,25 @@ class TokenScopedFastMCP(FastMCP[None]):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._tool_cache: OrderedDict[str, list[Tool]] = OrderedDict()
+        handlers = self._mcp_server.request_handlers
+        call_tool = handlers[CallToolRequest]
+
+        async def refuse_deferred_then_call(req: CallToolRequest) -> ServerResult:
+            # On a tool cache miss the SDK's call handler runs tools/list
+            # first, which builds the token's catalog: that resolves user MCP
+            # credentials and runs remote discovery. Refuse before it.
+            try:
+                _refuse_deferred_call(req.params.name)
+            except ToolError as e:
+                return ServerResult(
+                    CallToolResult(
+                        content=[TextContent(type="text", text=str(e))],
+                        isError=True,
+                    )
+                )
+            return await call_tool(req)
+
+        handlers[CallToolRequest] = refuse_deferred_then_call
 
     async def _tools_from_request(self) -> list[Tool]:
         authorization = _authorization_header_from_request()
@@ -303,10 +323,26 @@ def _authorization_header_from_request() -> str | None:
     return headers.get("authorization")
 
 
+def _refuse_deferred_call(tool_name: str) -> None:
+    """Refuse a deferred or ambiguously named call using only the request's token."""
+    claims = _claims_from_authorization_header(_authorization_header_from_request())
+    try:
+        action_name = canonical_mcp_tool_name(tool_name)
+    except ValueError as e:
+        # Listed names never use the ambiguous dotted user MCP spelling.
+        raise ToolError(str(e)) from e
+    _refuse_deferred_action(action_name, claims)
+
+
+def _listed_action_names(claims: MCPTokenClaims) -> list[str]:
+    """Actions the token may discover: executable ones, then deferred ones."""
+    return list(dict.fromkeys([*claims.allowed_actions, *claims.deferred_actions]))
+
+
 def _registry_action_names(claims: MCPTokenClaims) -> list[str]:
     return [
         name
-        for name in claims.allowed_actions
+        for name in _listed_action_names(claims)
         if not name.startswith("internal.")
         and UserMCPClient.parse_user_mcp_tool_name(name) is None
     ]
@@ -314,36 +350,16 @@ def _registry_action_names(claims: MCPTokenClaims) -> list[str]:
 
 def _internal_tool_names(claims: MCPTokenClaims) -> list[str]:
     names: list[str] = []
-    for name in claims.allowed_internal_tools:
+    for name in [*claims.allowed_internal_tools, *claims.deferred_actions]:
         if name.startswith("internal.") and name not in names:
             names.append(name)
     return names
 
 
-def _is_tracecat_registry_server_name(server_name: str) -> bool:
-    return (
-        server_name in {REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME}
-        or server_name.startswith(f"{REGISTRY_MCP_SERVER_NAME}-")
-        or server_name.startswith(f"{LEGACY_REGISTRY_MCP_SERVER_NAME}_")
-    )
-
-
-def _strip_tracecat_registry_server_prefix(tool_name: str) -> str:
-    if tool_name.startswith("mcp__"):
-        parts = tool_name.split("__", 2)
-        if len(parts) == 3 and _is_tracecat_registry_server_name(parts[1]):
-            return parts[2]
-    if tool_name.startswith("mcp."):
-        parts = tool_name.split(".", 2)
-        if len(parts) == 3 and _is_tracecat_registry_server_name(parts[1]):
-            return parts[2]
-    return tool_name
-
-
 def _user_mcp_tool_names(claims: MCPTokenClaims) -> set[str]:
     return {
         name
-        for name in claims.allowed_actions
+        for name in _listed_action_names(claims)
         if UserMCPClient.parse_user_mcp_tool_name(name) is not None
     }
 
@@ -612,7 +628,7 @@ async def _build_token_scoped_tools(claims: MCPTokenClaims) -> _TokenScopedToolB
     unavailable_user_mcp_tool_names = expected_user_mcp_tool_names - set(
         user_mcp_definitions
     )
-    for tool_name in claims.allowed_actions:
+    for tool_name in _listed_action_names(claims):
         if definition := user_mcp_definitions.get(tool_name):
             tools.append(
                 _build_scoped_tool(
@@ -654,6 +670,18 @@ async def _build_token_scoped_tools(claims: MCPTokenClaims) -> _TokenScopedToolB
     )
 
 
+def _refuse_deferred_action(action_name: str, claims: MCPTokenClaims) -> None:
+    """Reject a deferred action: only its minting service may execute it."""
+    if action_name not in claims.deferred_actions:
+        return
+    logger.warning(
+        "Deferred MCP action called with a discovery-only token",
+        action_name=action_name,
+        workspace_id=str(claims.workspace_id),
+    )
+    raise ToolError(f"Tool '{action_name}' requires approval")
+
+
 async def _execute_registry_action(
     action_name: str,
     args: dict[str, Any],
@@ -663,6 +691,7 @@ async def _execute_registry_action(
 ) -> str:
     """Execute one authorized registry action and return JSON text."""
     normalized_action_name = normalize_mcp_tool_name(action_name)
+    _refuse_deferred_action(normalized_action_name, claims)
     if normalized_action_name not in claims.allowed_actions:
         logger.warning(
             "Registry action not authorized",
@@ -737,6 +766,7 @@ async def _execute_user_mcp(
 ) -> str:
     """Execute one authorized user MCP tool and return JSON text."""
     scoped_tool_name = f"mcp__{server_name}__{tool_name}"
+    _refuse_deferred_action(scoped_tool_name, claims)
     if scoped_tool_name not in claims.allowed_actions:
         logger.warning(
             "User MCP tool not authorized",
@@ -798,6 +828,7 @@ async def _execute_internal(
     claims: MCPTokenClaims,
 ) -> str:
     """Execute one authorized internal tool and return JSON text."""
+    _refuse_deferred_action(tool_name, claims)
     _set_role_context(claims)
     if tool_name not in claims.allowed_internal_tools:
         logger.warning(
@@ -842,7 +873,7 @@ async def call_token_scoped_tool(
 ) -> str:
     """Route one token-scoped concrete MCP tool call."""
     forwarded_args = dict(args)
-    routed_tool_name = _strip_tracecat_registry_server_prefix(tool_name)
+    routed_tool_name = strip_tracecat_registry_server_prefix(tool_name)
     if parsed := UserMCPClient.parse_user_mcp_tool_name(routed_tool_name):
         server_name, original_tool_name = parsed
         return await _execute_user_mcp(

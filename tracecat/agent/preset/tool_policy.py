@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 from tracecat.agent.mcp.utils import (
     MCP_TOOL_NAME_RE,
@@ -17,10 +18,11 @@ from tracecat.agent.preset.types import (
 )
 from tracecat.agent.skill.dependencies import SkillToolDependencyService
 from tracecat.agent.skill.library.catalog import load_library
-from tracecat.agent.skill.types import SkillMcpGrant
+from tracecat.agent.skill.types import SkillMcpGrant, SkillToolMetadata
 from tracecat.agent.tools import EXCLUDED_AGENT_ACTIONS
 from tracecat.db.models import MCPIntegration, SkillVersion
 from tracecat.integrations.schemas import MCPToolSummary
+from tracecat.registry.actions.service import RegistryActionsService
 from tracecat.service import BaseWorkspaceService
 
 
@@ -46,12 +48,59 @@ class PresetToolPolicyService(BaseWorkspaceService):
                 mid for item in inputs for mid in item.mcp_integrations
             ],
         )
-        return {
+        policies = {
             item.key: resolve_tool_policy(
                 item, metadata.versions, metadata.integrations
             )
             for item in inputs
         }
+        defaults = await self.registry_approval_defaults(
+            action for policy in policies.values() for action in policy.actions
+        )
+        return {
+            key: apply_registry_approval_defaults(policy, defaults)
+            for key, policy in policies.items()
+        }
+
+    async def resolve(
+        self, inputs: PresetToolInputs, metadata: SkillToolMetadata
+    ) -> EffectivePresetTools:
+        """Resolve one preset's policy from already loaded metadata."""
+        policy = resolve_tool_policy(inputs, metadata.versions, metadata.integrations)
+        defaults = await self.registry_approval_defaults(policy.actions)
+        return apply_registry_approval_defaults(policy, defaults)
+
+    async def registry_approval_defaults(self, actions: Iterable[str]) -> set[str]:
+        """Return the actions whose registry entry requires approval by default.
+
+        Runtime compilation applies the same defaults, so eligibility and
+        attachment checks must see them too.
+        """
+        names = set(actions)
+        if not names:
+            # An empty key filter would list every action.
+            return set()
+        # Selects the same index rows as compilation's get_actions_from_index
+        # without loading manifests, which approval options do not need.
+        entries = await RegistryActionsService(
+            self.session, role=self.role
+        ).list_actions_from_index(include_keys=names, include_marked=True)
+        return {
+            f"{entry.namespace}.{entry.name}"
+            for entry, _origin in entries
+            if entry.options.get("requires_approval") is True
+        }
+
+
+def apply_registry_approval_defaults(
+    policy: EffectivePresetTools, defaults: set[str]
+) -> EffectivePresetTools:
+    """Require approval for registry defaults unless a rule says otherwise."""
+    approvals = dict(policy.tool_approvals)
+    for action in policy.actions:
+        if action in defaults:
+            approvals.setdefault(action, True)
+    return dataclasses.replace(policy, tool_approvals=approvals)
 
 
 def resolve_tool_policy(

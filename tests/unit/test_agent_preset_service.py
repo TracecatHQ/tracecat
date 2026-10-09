@@ -43,6 +43,7 @@ from tracecat.agent.subagents import (
     AttachedSubagentRef,
     ResolvedAgentsConfig,
     ResolvedAttachedSubagentRef,
+    has_manual_tool_approvals,
 )
 from tracecat.agent.types import AgentConfig
 from tracecat.auth.types import Role
@@ -4938,3 +4939,106 @@ async def test_list_tool_summary_counts_filtered_skill_tools(
     assert reads[0].tool_summary.tool_count == 2
     assert reads[0].tool_summary.namespaces == ["tools.synthetic"]
     assert reads[0].tool_summary.mcp_slugs == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("source", ["direct", "skill"])
+@pytest.mark.parametrize("waived", [False, True])
+@pytest.mark.parametrize("backend_runs_approvals", [False, True])
+async def test_registry_default_approval_is_shared_by_eligibility_and_attachment(
+    source: str,
+    waived: bool,
+    backend_runs_approvals: bool,
+    configure_minio_for_skills: None,
+    session: AsyncSession,
+    registry_actions: list[RegistryAction],
+    agent_preset_service: AgentPresetService,
+    agent_preset_create_params: AgentPresetCreate,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A registry default counts as a manual approval unless a rule waives it.
+
+    Runtime compilation applies registry defaults, so subagent eligibility,
+    attachment validation, and runtime config must agree with it. The gated
+    child is then eligible only where a backend runs subagent approvals.
+    """
+    monkeypatch.setattr(
+        "tracecat.agent.preset.service.subagent_approvals_available",
+        lambda: backend_runs_approvals,
+    )
+    action = "tools.test.another_action"
+    entry = (
+        await session.execute(
+            select(RegistryIndex).where(
+                RegistryIndex.namespace == "tools.test",
+                RegistryIndex.name == "another_action",
+            )
+        )
+    ).scalar_one()
+    entry.options = {**(entry.options or {}), "requires_approval": True}
+    await session.commit()
+
+    params = agent_preset_create_params.model_copy(
+        update={
+            "name": "Default Child",
+            "slug": "default-child",
+            "tool_approvals": {action: False} if waived else None,
+        }
+    )
+    if source == "direct":
+        params = params.model_copy(update={"actions": [action]})
+    else:
+        skills = SkillService(session, role=agent_preset_service.role)
+        skill = await skills.create_skill(SkillCreate(name="registry-skill"))
+        draft = await skills.get_draft(skill.id)
+        assert draft is not None
+        await skills.patch_draft(
+            skill_id=skill.id,
+            params=SkillDraftPatch(
+                base_revision=draft.draft_revision,
+                operations=[
+                    SkillDraftUpsertTextFileOp(
+                        path="SKILL.md",
+                        content=(
+                            "---\nname: registry-skill\nmetadata:\n  tools:\n"
+                            f"    - {action}\n---\nUse the tool.\n"
+                        ),
+                    )
+                ],
+            ),
+        )
+        await skills.publish_skill(skill.id)
+        params = params.model_copy(
+            update={"skills": [AgentPresetSkillBindingBase(skill_id=skill.id)]}
+        )
+    child = await agent_preset_service.create_preset(params)
+
+    listed = next(
+        read
+        for read in await agent_preset_service.build_preset_list_reads(
+            await agent_preset_service.list_presets()
+        )
+        if read.id == child.id
+    )
+    version = await agent_preset_service.get_current_version_for_preset(child)
+    runtime = await agent_preset_service._version_to_agent_config(version)
+    parent = agent_preset_create_params.model_copy(
+        update={
+            "name": "Default Parent",
+            "slug": "default-parent",
+            "agents": AgentSubagentsConfig.model_validate(
+                {"subagents": [{"preset": child.slug}]}
+            ),
+        }
+    )
+    if waived:
+        assert not has_manual_tool_approvals(runtime.tool_approvals)
+    else:
+        assert runtime.tool_approvals == {action: True}
+    if waived or backend_runs_approvals:
+        assert listed.current_version_subagent_eligibility.eligible
+        await agent_preset_service.create_preset(parent)
+    else:
+        assert listed.current_version_subagent_eligibility.reasons == ["tool_approvals"]
+        with pytest.raises(TracecatValidationError, match="uses manual approvals"):
+            await agent_preset_service.create_preset(parent)
