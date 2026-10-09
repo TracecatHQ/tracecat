@@ -23,6 +23,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetSkillBindingRead,
     AgentPresetToolSummary,
     AgentPresetUpdate,
+    AgentPresetVersionRead,
     AgentPresetVersionReadMinimal,
     build_agent_preset_read_minimal,
     build_agent_preset_tool_summary,
@@ -244,33 +245,57 @@ def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> No
     assert payload.reasoning_effort is None
 
 
+_PRESET_READ_FIELDS: dict[str, object] = {
+    "id": "522b4d28-ae2b-4705-bb53-c3aa9071fe16",
+    "workspace_id": "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2",
+    "name": "Triage preset",
+    "slug": "triage-preset",
+    "model_name": "gpt-5-mini",
+    "model_provider": "openai",
+    "created_at": "2026-03-09T00:00:00Z",
+    "updated_at": "2026-03-09T00:00:00Z",
+}
+_PRESET_VERSION_READ_FIELDS: dict[str, object] = {
+    "id": "0f6d6a43-3f1c-4a59-9a7e-5b0c2f1f8e21",
+    "preset_id": "522b4d28-ae2b-4705-bb53-c3aa9071fe16",
+    "workspace_id": "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2",
+    "version": 2,
+    "model_name": "gpt-5-mini",
+    "model_provider": "openai",
+    "restore_skills": [],
+    "created_at": "2026-03-09T00:00:00Z",
+    "updated_at": "2026-03-09T00:00:00Z",
+}
+
+
+@pytest.mark.parametrize(
+    ("schema_cls", "fields"),
+    [
+        (AgentPresetRead, _PRESET_READ_FIELDS),
+        (AgentPresetVersionRead, _PRESET_VERSION_READ_FIELDS),
+    ],
+    ids=["preset", "version"],
+)
 @pytest.mark.parametrize(
     ("reasoning_effort", "enable_thinking"),
     [("off", False), (None, True), ("high", True)],
 )
-def test_agent_preset_read_keeps_legacy_thinking_flag(
-    reasoning_effort: str | None, enable_thinking: bool
+def test_agent_preset_reads_keep_legacy_thinking_flag(
+    schema_cls: type[AgentPresetRead] | type[AgentPresetVersionRead],
+    fields: dict[str, object],
+    reasoning_effort: str | None,
+    enable_thinking: bool,
 ) -> None:
     """Browsers on a bundle from before reasoning levels read ``enable_thinking``
-    and send it back on save, so responses keep it. It stays out of the OpenAPI
-    schema, and so out of the generated client."""
-    payload = AgentPresetRead.model_validate(
-        {
-            "id": "522b4d28-ae2b-4705-bb53-c3aa9071fe16",
-            "workspace_id": "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2",
-            "name": "Triage preset",
-            "slug": "triage-preset",
-            "model_name": "gpt-5-mini",
-            "model_provider": "openai",
-            "reasoning_effort": reasoning_effort,
-            "created_at": "2026-03-09T00:00:00Z",
-            "updated_at": "2026-03-09T00:00:00Z",
-        }
+    from presets and their versions, and send it back on save, so responses keep
+    it. It stays out of the OpenAPI schema, and so out of the generated client."""
+    payload = schema_cls.model_validate(
+        {**fields, "reasoning_effort": reasoning_effort}
     )
 
     assert payload.model_dump(mode="json")["enable_thinking"] is enable_thinking
     for mode in ("validation", "serialization"):
-        properties = AgentPresetRead.model_json_schema(mode=mode)["properties"]
+        properties = schema_cls.model_json_schema(mode=mode)["properties"]
         assert "enable_thinking" not in properties
 
 

@@ -414,7 +414,22 @@ class AgentPresetToolPolicyPreview(Schema):
     tool_approvals: dict[str, bool] = Field(default_factory=dict)
 
 
-class AgentPresetRead(AgentPresetExecutionConfig):
+class AgentPresetExecutionRead(AgentPresetExecutionConfig):
+    """Execution fields shared by preset and preset version responses."""
+
+    @computed_field
+    @property
+    def enable_thinking(self) -> SkipJsonSchema[bool]:
+        """Deprecated: whether ``reasoning_effort`` is not ``"off"``.
+
+        Browsers still running a bundle from before reasoning levels read this
+        flag on presets and their versions, and re-send it on save. Drop it
+        with the ``enable_thinking`` column.
+        """
+        return self.reasoning_effort != "off"
+
+
+class AgentPresetRead(AgentPresetExecutionRead):
     """API model for reading agent presets."""
 
     tool_policy: AgentPresetToolPolicyRead = Field(
@@ -433,16 +448,6 @@ class AgentPresetRead(AgentPresetExecutionConfig):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
-    @computed_field
-    @property
-    def enable_thinking(self) -> SkipJsonSchema[bool]:
-        """Deprecated: whether ``reasoning_effort`` is not ``"off"``.
-
-        Browsers still running a bundle from before reasoning levels read and
-        re-send this flag. Drop it with the ``enable_thinking`` column.
-        """
-        return self.reasoning_effort != "off"
 
     def to_agent_config(self) -> AgentConfig:
         """Convert the preset into an executable agent configuration."""
@@ -492,7 +497,7 @@ class AgentPresetVersionReadMinimal(Schema):
     model_config = ConfigDict(from_attributes=True)
 
 
-class AgentPresetVersionRead(AgentPresetExecutionConfig):
+class AgentPresetVersionRead(AgentPresetExecutionRead):
     """Full response model for an immutable preset version."""
 
     tool_policy: AgentPresetToolPolicyRead = Field(
