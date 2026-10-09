@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
+from typing import Literal
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -21,13 +22,14 @@ from tracecat.exceptions import (
     ScopeDeniedError,
     TracecatNotFoundError,
 )
+from tracecat.git.plumbing import validate_path
 from tracecat.git.types import GitUrl
 from tracecat.secrets.schemas import SecretKeyValue
 from tracecat.secrets.service import SecretsService
 from tracecat.sync import PushStatus
 from tracecat.tiers.enums import Entitlement
 from tracecat.vcs.bitbucket.app import BitbucketError, BitbucketTokenService
-from tracecat.vcs.bitbucket.git import BitbucketGit, repository_path, validate_path
+from tracecat.vcs.bitbucket.git import BitbucketGit, repository_path
 from tracecat.vcs.bitbucket.types import BitbucketBranch
 from tracecat.workspace_sync.enums import VcsProvider
 from tracecat.workspace_sync.service import WorkspaceSyncService
@@ -79,8 +81,14 @@ class LocalGit(BitbucketGit):
             GIT_CONFIG_VALUE_5="always",
         )
 
-    async def fetch(self, remote: str, ref: str) -> str:
-        return await super().fetch(str(self.remote), ref)
+    async def fetch(
+        self,
+        remote: str,
+        ref: str,
+        *,
+        ref_kind: Literal["branch", "commit"] | None = None,
+    ) -> str:
+        return await super().fetch(str(self.remote), ref, ref_kind=ref_kind)
 
     async def push(self, remote: str, sha: str, branch: str) -> None:
         await super().push(str(self.remote), sha, branch)
@@ -307,7 +315,7 @@ async def test_pagination_checks_origin_before_sending_credentials():
 )
 def test_unsafe_paths_rejected(path: str):
     with pytest.raises(BitbucketError):
-        validate_path(path)
+        validate_path(path, BitbucketError)
 
 
 @pytest.mark.anyio

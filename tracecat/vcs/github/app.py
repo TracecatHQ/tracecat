@@ -486,7 +486,9 @@ class GitHubAppService(BaseOrgService):
 
     @requires_entitlement(Entitlement.GIT_SYNC)
     @require_scope("workflow:sync", "workspace_sync:sync", require_all=False)
-    async def get_github_client_for_repo(self, repo_url: GitUrl) -> Github:
+    async def get_github_client_for_repo(
+        self, repo_url: GitUrl, *, release_read_session: bool = False
+    ) -> Github:
         """Get authenticated PyGithub client for a specific repository.
 
         Args:
@@ -511,6 +513,11 @@ class GitHubAppService(BaseOrgService):
 
         if credentials is None:
             raise GitHubAppError("Failed to retrieve GitHub App credentials")
+
+        # The durable preview fetch uses a dedicated read-only session. Release
+        # its credential lookup transaction before calling the remote provider.
+        if release_read_session:
+            await self.session.commit()
 
         # Normalize private key format to handle common formatting issues
         raw_private_key = credentials.private_key.get_secret_value()

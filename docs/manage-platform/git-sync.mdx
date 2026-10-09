@@ -23,7 +23,7 @@ Use Git sync to export workspace configuration to a repository you own as a pull
   <Step title="Connect your provider">
     For GitHub, click `Connect`, then create a GitHub App through the manifest flow or enter the ID and private key of an existing GitHub App. Install it on the repositories you want to sync.
 
-    For GitLab, click `Connect`, then enter your base URL and a project or group access token with the `api` scope.
+    For GitLab, click `Connect`, then enter your base URL and a project or group access token with both `api` and `write_repository` scopes. Before upgrading an existing GitLab connection to durable Git sync, replace an `api`-only project or group token with one that has both scopes. The worker uses Git-over-HTTPS to push the reviewed commit and the API to manage merge requests. Personal access tokens with `api` already include Git write access; see [GitLab access token scopes](https://docs.gitlab.com/security/tokens/access_token_scopes/).
 
     For Bitbucket, click `Connect` (or `Manage` for an existing connection) to choose Cloud or Data Center.
 
