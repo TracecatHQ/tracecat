@@ -223,7 +223,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         visible: canViewActions === true,
       },
       {
-        title: "Git Sync",
+        title: "Git sync",
         url: `${basePath}/git-sync`,
         icon: GitBranchIcon,
         isActive: pathname?.startsWith(`${basePath}/git-sync`),

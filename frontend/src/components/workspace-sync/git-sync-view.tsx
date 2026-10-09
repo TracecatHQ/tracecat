@@ -246,7 +246,7 @@ export function GitSyncHeader({
             <span className="text-muted-foreground/60">/</span>
           </>
         )}
-        <h1 className="font-medium">Git Sync</h1>
+        <h1 className="font-medium">Git sync</h1>
       </div>
       {children}
     </header>

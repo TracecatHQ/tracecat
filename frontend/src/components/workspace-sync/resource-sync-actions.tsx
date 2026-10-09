@@ -309,7 +309,7 @@ export function WorkspaceResourceSyncActions({
                 href={`/workspaces/${workspaceId}/git-sync`}
                 onClick={() => setOpen(false)}
               >
-                Open Git Sync
+                Open Git sync
                 <ArrowUpRightIcon className="size-3.5" />
               </Link>
             </Button>
@@ -468,7 +468,7 @@ interface DescribePushOptions {
  */
 function describePush({ gitRepoUrl, label }: DescribePushOptions): string {
   if (!gitRepoUrl) {
-    return "Connect a Git repository on the Git Sync page first."
+    return "Connect a Git repository on the Git sync page first."
   }
   return `Commit all ${label} in this workspace to the selected Git branch.`
 }

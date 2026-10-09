@@ -369,6 +369,71 @@ describe("GitSyncView connected", () => {
     )
   })
 
+  it("compares later previews against a branch it just created", async () => {
+    const user = userEvent.setup()
+    mockExportWorkspace.mockResolvedValue({
+      commit: {
+        status: "committed",
+        sha: "a".repeat(40),
+        ref: "sync/workspace-test",
+        base_ref: "main",
+        pr_url: null,
+        message: "Export workspace config",
+      },
+      files: ["tracecat.json"],
+    })
+    renderWithTooltips(
+      <GitSyncView workspace={setup()} canSync canManageConnection />
+    )
+    expect(useWorkspaceSyncExportPreview).toHaveBeenLastCalledWith(
+      "workspace-1",
+      expect.objectContaining({ compareRef: "main" })
+    )
+
+    await user.click(screen.getByRole("button", { name: "Push and open PR" }))
+    await waitFor(() => expect(mockExportWorkspace).toHaveBeenCalled())
+    const { branch } = mockExportWorkspace.mock.calls[0][0]
+
+    await waitFor(() =>
+      expect(useWorkspaceSyncExportPreview).toHaveBeenLastCalledWith(
+        "workspace-1",
+        expect.objectContaining({ compareRef: branch })
+      )
+    )
+  })
+
+  it("drops a push preview that started before a reset", async () => {
+    const user = userEvent.setup()
+    let resolvePreview: (value: { error: null }) => void = () => {}
+    renderWithTooltips(
+      <GitSyncView
+        workspace={setup({
+          preview: PUSH_PREVIEW,
+          branches: [
+            { name: "main", is_default: true },
+            { name: "release", is_default: false },
+          ],
+        })}
+        canSync
+        canManageConnection
+      />
+    )
+    mockRefetchExportPreview.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolvePreview = resolve
+      })
+    )
+
+    await user.click(screen.getByRole("button", { name: "Preview" }))
+    await user.click(screen.getByRole("button", { name: /^Branch/ }))
+    await user.click(screen.getByRole("option", { name: /release/ }))
+    await act(async () => {
+      resolvePreview({ error: null })
+    })
+
+    expect(screen.queryByText("Included in this push")).not.toBeInTheDocument()
+  })
+
   it("creates a named branch from the picker", async () => {
     const user = userEvent.setup()
     renderWithTooltips(
