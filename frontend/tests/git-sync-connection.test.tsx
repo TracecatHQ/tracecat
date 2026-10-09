@@ -297,6 +297,25 @@ describe("GitSyncConnectionPanel remote line", () => {
     )
   })
 
+  it("waits for the app's repository list before connecting", async () => {
+    const user = userEvent.setup()
+    render(
+      <GitSyncConnectionPanel
+        workspace={setup({
+          repositoryHook: {
+            repositories: undefined,
+            repositoriesIsLoading: true,
+          },
+        })}
+      />
+    )
+
+    await user.type(repositoryInput(), "TracecatHQ/elsewhere{Enter}")
+
+    expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled()
+    expect(mockUpdateWorkspace).not.toHaveBeenCalled()
+  })
+
   it("shows skeleton rows while the list loads", () => {
     render(
       <GitSyncConnectionPanel

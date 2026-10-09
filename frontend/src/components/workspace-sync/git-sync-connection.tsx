@@ -268,7 +268,7 @@ function GitSyncConnect({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setHasAttempted(true)
-    if (resolution.kind !== "ok" || !provider) {
+    if (resolution.kind !== "ok" || !provider || repository.isCheckingAccess) {
       return
     }
     try {
@@ -315,7 +315,10 @@ function GitSyncConnect({
             type="submit"
             className="h-9 shrink-0 px-4"
             disabled={
-              isUpdating || !provider || repository.parsed.kind === "empty"
+              isUpdating ||
+              !provider ||
+              repository.isCheckingAccess ||
+              repository.parsed.kind === "empty"
             }
           >
             {isUpdating ? "Connecting..." : "Connect"}
@@ -374,6 +377,8 @@ function useRepositoryInput({
   const repositoriesLoaded = Boolean(repositories) && !repositoriesError
   const repositoriesHasError =
     Boolean(repositoriesError) && !repositories?.length
+  // Saving waits for the app's list; a failed list still allows a pasted URL.
+  const isCheckingAccess = provider === "github" && repositoriesIsLoading
 
   if (!provider) {
     return {
@@ -383,6 +388,7 @@ function useRepositoryInput({
       appRepositories,
       repositoriesIsLoading,
       repositoriesHasError,
+      isCheckingAccess,
     }
   }
   const candidate = candidates.find((entry) => entry.id === provider) ?? {
@@ -407,6 +413,7 @@ function useRepositoryInput({
     appRepositories,
     repositoriesIsLoading,
     repositoriesHasError,
+    isCheckingAccess,
   }
 }
 
@@ -949,7 +956,7 @@ function RepositoryEditor({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setHasAttempted(true)
-    if (resolution.kind !== "ok") {
+    if (resolution.kind !== "ok" || repository.isCheckingAccess) {
       return
     }
     if (isUnchanged) {
@@ -996,7 +1003,11 @@ function RepositoryEditor({
         <Button
           type="submit"
           size="sm"
-          disabled={isUpdating || repository.parsed.kind === "empty"}
+          disabled={
+            isUpdating ||
+            repository.isCheckingAccess ||
+            repository.parsed.kind === "empty"
+          }
         >
           {isUpdating ? "Saving..." : "Save"}
         </Button>
@@ -1180,7 +1191,8 @@ function getProviderSource(
   return `${label} · ${host}`
 }
 
-const DEFAULT_BRANCH_VALUE = "__default_branch__"
+// Git branch names can't contain spaces, so this never collides with one.
+const DEFAULT_BRANCH_VALUE = "repository default"
 
 /**
  * Branch this workspace syncs with: the repository default, or a pinned

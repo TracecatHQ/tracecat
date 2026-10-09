@@ -1,5 +1,6 @@
 import { GithubIcon, GitlabIcon } from "lucide-react"
 import type { SVGProps } from "react"
+import type { VcsProvider } from "@/client"
 import { GitHubIcon } from "@/components/icons"
 import { cn } from "@/lib/utils"
 
@@ -22,11 +23,7 @@ export function GitLabIcon(props: SVGProps<SVGSVGElement>) {
 }
 
 /** Organization-level Git providers with stored credentials. */
-export type VcsProviderId =
-  | "github"
-  | "gitlab"
-  | "bitbucket"
-  | "bitbucket_data_center"
+export type VcsProviderId = VcsProvider
 
 /** Provider logo in its brand color. */
 export function VcsProviderLogo({

@@ -59,7 +59,11 @@ function MappingRequirementRows({
   return (
     <div className="divide-y">
       {items.map((item) => {
-        const isMatched = Boolean(selections[item.key])
+        // A target the backend rejected is no longer a candidate, so it is
+        // not a match even though it is still selected.
+        const isMatched = item.candidates.some(
+          (candidate) => candidate.value === selections[item.key]
+        )
         let status = isMatched ? "Matched" : "Needs a match"
         if (item.optional) {
           status =
@@ -174,7 +178,7 @@ export function CatalogMappingRequirements({
           key: requirement.source_catalog_id,
           title: requirement.model_name,
           subtitle: `Model · ${requirement.model_provider}`,
-          ariaLabel: `Target model for ${requirement.model_name}`,
+          ariaLabel: `Target model for ${requirement.model_name} (${requirement.model_provider})`,
           candidates,
           affects: mappingAffectsSummary(requirement),
         }
@@ -326,6 +330,28 @@ export function SecretStoreMappingRequirements({
       onChange={onChange}
       disabled={disabled}
     />
+  )
+}
+
+/** True when the catalog selection is one of the requirement's candidates. */
+export function isCatalogRequirementMatched(
+  requirement: CatalogMappingRequirement,
+  selections: Record<string, string>
+): boolean {
+  const selected = selections[requirement.source_catalog_id]
+  return requirement.candidates.some(
+    (candidate) => candidate.catalog_id === selected
+  )
+}
+
+/** True when the MCP selection is one of the requirement's candidates. */
+export function isMcpRequirementMatched(
+  requirement: McpIntegrationMappingRequirement,
+  selections: Record<string, string>
+): boolean {
+  const selected = selections[requirement.source_mcp_integration_id]
+  return requirement.candidates.some(
+    (candidate) => candidate.mcp_integration_id === selected
   )
 }
 

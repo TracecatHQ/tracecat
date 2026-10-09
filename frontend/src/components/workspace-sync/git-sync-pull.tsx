@@ -53,7 +53,8 @@ import { GitSyncCommitPicker } from "@/components/workspace-sync/git-sync-commit
 import {
   CatalogMappingRequirements,
   catalogMappingSelections,
-  LEAVE_UNLINKED,
+  isCatalogRequirementMatched,
+  isMcpRequirementMatched,
   McpIntegrationMappingRequirements,
   mcpIntegrationMappingSelections,
   SecretStoreMappingRequirements,
@@ -279,7 +280,13 @@ export function GitSyncPullTab({
         secret_store_mappings: selectedStoreMappings,
       })
       if (result.success) {
-        setPullResult(result)
+        // The apply result only counts resources; names come from the preview.
+        setPullResult({
+          ...result,
+          resources:
+            result.resources ??
+            (pullPreview ? getPreviewResources(pullPreview) : undefined),
+        })
         setPulledAt(new Date())
         setPullPreview(null)
         setPullPreviewOptions(null)
@@ -463,6 +470,19 @@ function OverwriteSchedules({
   )
 }
 
+/** Resources a preview lists, or ones derived from its diffs when it has none. */
+function getPreviewResources(result: PullResult) {
+  return (
+    result.resources ??
+    (result.resource_diffs ?? []).map((diff) => ({
+      resource_type: diff.resource_type,
+      source_id: diff.source_id,
+      name: diff.title ?? diff.source_id,
+      path: diff.source_path,
+    }))
+  )
+}
+
 function getPullPreviewSummary(
   diffs: PullResourceDiff[],
   shortSha: string | undefined,
@@ -528,26 +548,22 @@ function PullPreview({
     catalogMappingRequirements.length + mcpMappingRequirements.length
   const unmatchedCount =
     catalogMappingRequirements.filter(
-      (requirement) => !catalogMappings[requirement.source_catalog_id]
+      (requirement) =>
+        !isCatalogRequirementMatched(requirement, catalogMappings)
     ).length +
     mcpMappingRequirements.filter(
-      (requirement) => !mcpMappings[requirement.source_mcp_integration_id]
+      (requirement) => !isMcpRequirementMatched(requirement, mcpMappings)
     ).length
   const [matchesOpen, setMatchesOpen] = useState(unmatchedCount > 0)
-  const linkedStoreCount = storeMappingRequirements.filter((requirement) => {
-    const target = storeMappings[requirement.source_store]
-    return Boolean(target) && target !== LEAVE_UNLINKED
-  }).length
+  const linkedStoreCount = storeMappingRequirements.filter((requirement) =>
+    requirement.candidates.some(
+      (candidate) =>
+        candidate.store_id === storeMappings[requirement.source_store]
+    )
+  ).length
   const librarySkillInstalls = result.library_skill_installs ?? []
   const resourceDiffs = result.resource_diffs ?? []
-  const resources =
-    result.resources ??
-    resourceDiffs.map((diff) => ({
-      resource_type: diff.resource_type,
-      source_id: diff.source_id,
-      name: diff.title ?? diff.source_id,
-      path: diff.source_path,
-    }))
+  const resources = getPreviewResources(result)
   const matchedNames = [
     ...catalogMappingRequirements.map((requirement) => requirement.model_name),
     ...mcpMappingRequirements.map(
@@ -727,11 +743,11 @@ function MatchesDialog({
   const total =
     catalogMappingRequirements.length + mcpMappingRequirements.length
   const matched =
-    catalogMappingRequirements.filter(
-      (requirement) => catalogDraft[requirement.source_catalog_id]
+    catalogMappingRequirements.filter((requirement) =>
+      isCatalogRequirementMatched(requirement, catalogDraft)
     ).length +
-    mcpMappingRequirements.filter(
-      (requirement) => mcpDraft[requirement.source_mcp_integration_id]
+    mcpMappingRequirements.filter((requirement) =>
+      isMcpRequirementMatched(requirement, mcpDraft)
     ).length
   const remaining = total - matched
 

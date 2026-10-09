@@ -106,9 +106,11 @@ export function GitSyncPushTab({
   const changeCount = countChangedResources(
     visiblePreview?.resource_diffs ?? []
   )
+  // Without the base branch, a push to the default branch can't be blocked.
   const pushDisabled =
     exportWorkspaceIsPending ||
     branchesIsLoading ||
+    !baseBranch ||
     (!hasBranches && !isCreatingBranch) ||
     isBlocked ||
     targetBranch === "" ||

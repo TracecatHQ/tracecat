@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/popover"
 import { Skeleton } from "@/components/ui/skeleton"
 import { buildRandomSyncBranchName } from "@/components/workspace-sync/push-target-policy"
+import { getGitBranchNameError } from "@/lib/git"
 import { cn } from "@/lib/utils"
 
 const NEW_BRANCH_PREFIX = "sync/workspace"
@@ -61,7 +62,8 @@ export function GitSyncBranchPicker({
   const [newName, setNewName] = useState(branch)
   const isDefault = !isCreatingBranch && branch === baseBranch
   const trimmedNewName = newName.trim()
-  const canCreate = trimmedNewName !== "" && !/\s/.test(trimmedNewName)
+  const nameError = getGitBranchNameError(trimmedNewName)
+  const canCreate = trimmedNewName !== "" && nameError === null
 
   function handleOpenChange(next: boolean) {
     if (next) {
@@ -95,7 +97,7 @@ export function GitSyncBranchPicker({
         <PopoverTrigger asChild>
           <button
             type="button"
-            aria-label="Branch"
+            aria-label={branch ? `Branch: ${branch}` : "Branch"}
             disabled={disabled}
             className="flex h-8 w-full min-w-0 items-center gap-2 rounded-md border bg-background px-2.5 text-left hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -124,6 +126,10 @@ export function GitSyncBranchPicker({
               <Input
                 id="git-sync-new-branch"
                 value={newName}
+                aria-invalid={nameError !== null}
+                aria-describedby={
+                  nameError ? "git-sync-new-branch-error" : undefined
+                }
                 onChange={(event) => setNewName(event.target.value)}
                 className="h-8 font-mono text-xs"
               />
@@ -137,6 +143,14 @@ export function GitSyncBranchPicker({
                 Create
               </Button>
             </div>
+            {nameError && (
+              <p
+                id="git-sync-new-branch-error"
+                className="px-1 text-[11px] text-destructive"
+              >
+                {nameError}
+              </p>
+            )}
           </form>
           <div className="-mx-2 my-2 h-px bg-border" />
           <span className="px-1 text-[11px] font-medium text-muted-foreground">

@@ -139,7 +139,7 @@ describe("SettingsModal workspace navigation", () => {
     expect(screen.getByRole("button", { name: "Files" })).toBeInTheDocument()
     // Git sync lives on its own workspace page, not in settings.
     expect(
-      screen.queryByRole("button", { name: "Git Sync" })
+      screen.queryByRole("button", { name: /git sync/i })
     ).not.toBeInTheDocument()
   })
 
@@ -161,7 +161,7 @@ describe("SettingsModal workspace navigation", () => {
       screen.queryByRole("button", { name: "Files" })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "Git Sync" })
+      screen.queryByRole("button", { name: /git sync/i })
     ).not.toBeInTheDocument()
     expect(screen.getByText("Profile content")).toBeInTheDocument()
   })
@@ -185,7 +185,7 @@ describe("SettingsModal workspace navigation", () => {
       screen.queryByRole("button", { name: "Files" })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "Git Sync" })
+      screen.queryByRole("button", { name: /git sync/i })
     ).not.toBeInTheDocument()
     expect(screen.getByText("Profile content")).toBeInTheDocument()
   })
