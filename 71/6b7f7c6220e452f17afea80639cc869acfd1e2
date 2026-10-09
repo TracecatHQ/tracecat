@@ -1,0 +1,25 @@
+frontend/tests/skill-tools-panel.test.tsx
+  s_46298366954001::t_9b032d499f2aca 38-50,65-79,104-106,576-647
+  s_46298366954001::t_5b7f0422ea036e 648
+frontend/src/components/skills/skill-tools-panel.tsx
+  s_46298366954001::t_9b032d499f2aca 4,42-56,88-99,138
+frontend/src/components/tools/tool-selection-list.tsx
+  s_46298366954001::t_9b032d499f2aca 90-94,121,216,218,231-233,252,612-627
+  s_46298366954001::t_bb025b078718da 628-631
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "716b7f7c6220e452f17afea80639cc869acfd1e2",
+  "prompts": {},
+  "sessions": {
+    "s_46298366954001": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8148e7d1-b082-4023-a384-0ae94ce7c897",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
