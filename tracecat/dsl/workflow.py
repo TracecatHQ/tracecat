@@ -114,6 +114,7 @@ with workflow.unsafe.imports_passed_through():
         TracecatExpressionError,
         TracecatNotFoundError,
     )
+    from tracecat.expressions.common import ExprContext
     from tracecat.expressions.eval import is_template_only
     from tracecat.identifiers.workflow import (
         WorkflowExecutionID,
@@ -164,7 +165,7 @@ with workflow.unsafe.imports_passed_through():
         release_workflow_permit_activity,
     )
     from tracecat.tiers.schemas import EffectiveLimits
-    from tracecat.validation.schemas import ValidationDetailListTA
+    from tracecat.validation.schemas import ValidationDetail, ValidationDetailListTA
     from tracecat.workflow.executions.enums import (
         ExecutionType,
         TemporalSearchAttr,
@@ -561,9 +562,17 @@ class DSLWorkflow:
                         )
                         [val_detail] = details
                         validated = ValidationDetailListTA.validate_python(val_detail)
+                        message = format_input_schema_validation_error(validated)
+                        error_info = self._trigger_validation_error_info(
+                            message, validated
+                        )
                         raise ApplicationError(
-                            format_input_schema_validation_error(validated),
-                            details,
+                            message,
+                            {
+                                error_info.ref: ActionErrorInfoAdapter.dump_python(
+                                    error_info
+                                )
+                            },
                             non_retryable=True,
                             type=ValidationError.__name__,
                         ) from cause
@@ -801,6 +810,28 @@ class DSLWorkflow:
             if retry_until_result:
                 break
         return result
+
+    @staticmethod
+    def _trigger_validation_error_info(
+        message: str, details: list[ValidationDetail]
+    ) -> ActionErrorInfo:
+        """Build an action-compatible error envelope for trigger validation."""
+        children = [
+            ActionErrorInfo(
+                ref=".".join(str(part) for part in detail.loc or ("<root>",)),
+                message=detail.msg,
+                type=detail.type,
+                expr_context=ExprContext.TRIGGER,
+            )
+            for detail in details
+        ]
+        return ActionErrorInfo(
+            ref="<root>",
+            message=message,
+            type=ValidationError.__name__,
+            expr_context=ExprContext.TRIGGER,
+            children=children,
+        )
 
     @staticmethod
     def _unwrap_temporal_failure_cause(
