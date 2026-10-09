@@ -55,6 +55,8 @@ interface GitSyncPushTabProps {
   baseBranch: string | undefined
   branchesIsLoading: boolean
   branchesError: unknown
+  /** Changes when a pull lands, since the preview no longer matches. */
+  pullCount: number
 }
 
 /**
@@ -69,6 +71,7 @@ export function GitSyncPushTab({
   baseBranch,
   branchesIsLoading,
   branchesError,
+  pullCount,
 }: GitSyncPushTabProps) {
   const { exportWorkspace, exportWorkspaceIsPending } =
     useWorkspaceSyncExport(workspaceId)
@@ -125,7 +128,7 @@ export function GitSyncPushTab({
 
   useEffect(() => {
     setPreviewedAt(null)
-  }, [compareRef, persistedGitUrl, provider])
+  }, [compareRef, persistedGitUrl, provider, pullCount])
 
   async function handlePreview() {
     if (!compareRef) {

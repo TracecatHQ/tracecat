@@ -87,6 +87,7 @@ function GitSyncConnectedView({
   const queryClient = useQueryClient()
   const [direction, setDirection] = useState<SyncDirection>("push")
   const [showConnection, setShowConnection] = useState(false)
+  const [pullCount, setPullCount] = useState(0)
 
   const { branches, branchesIsLoading, branchesError } = useRepositoryBranches(
     workspaceId,
@@ -191,6 +192,7 @@ function GitSyncConnectedView({
             baseBranch={baseBranch}
             branchesIsLoading={branchesIsLoading}
             branchesError={branchesError}
+            pullCount={pullCount}
           />
         </TabsContent>
         <TabsContent
@@ -209,6 +211,7 @@ function GitSyncConnectedView({
             commitsIsLoading={commitsIsLoading}
             commitsError={commitsError}
             isActive={direction === "pull" && !showConnection}
+            onPulled={() => setPullCount((count) => count + 1)}
           />
         </TabsContent>
       </div>

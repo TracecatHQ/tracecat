@@ -78,6 +78,7 @@ interface GitSyncPullTabProps {
   commitsError: Error | null
   /** False while Push or the connection settings cover this tab. */
   isActive: boolean
+  onPulled: () => void
 }
 
 /**
@@ -93,6 +94,7 @@ export function GitSyncPullTab({
   commitsIsLoading,
   commitsError,
   isActive,
+  onPulled,
 }: GitSyncPullTabProps) {
   const { pullWorkflows, pullWorkflowsIsPending } = useWorkflowSync(workspaceId)
 
@@ -291,6 +293,7 @@ export function GitSyncPullTab({
             (pullPreview ? getPreviewResources(pullPreview) : undefined),
         })
         setPulledAt(new Date())
+        onPulled()
         setPullPreview(null)
         setPullPreviewOptions(null)
         setCatalogMappings({})
