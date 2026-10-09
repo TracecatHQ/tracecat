@@ -29,8 +29,8 @@
 <table>
   <tr>
     <td width="50%" valign="top">
-      <img src="img/readme/agents.gif" alt="An agent preset in Tracecat with its tools and skills, then a chat where the agent investigates a case by calling tools" width="100%"/>
-      <p align="center"><b>Agents and skills</b> — build custom agents with prompts, tools, MCP, and skills</p>
+      <img src="img/readme/agents.gif" alt="Building an agent preset in Tracecat: adding VirusTotal tools with an approval gate, reviewing subagents, attaching a skill, and publishing a new version" width="100%"/>
+      <p align="center"><b>Agents and skills</b> — build custom agents with prompts, tools, MCP, subagents, and skills</p>
     </td>
     <td width="50%" valign="top">
       <img src="img/readme/cases.gif" alt="The Tracecat case list, then a case with an agent-written verdict, timeline, IoCs, and evidence" width="100%"/>
