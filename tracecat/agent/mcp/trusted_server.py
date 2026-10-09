@@ -52,13 +52,12 @@ from tracecat.agent.mcp.metadata import (
 )
 from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import (
-    LEGACY_REGISTRY_MCP_SERVER_NAME,
-    REGISTRY_MCP_SERVER_NAME,
     action_name_to_mcp_tool_name,
     fetch_tool_definitions,
     fetch_tool_definitions_for_lock,
     mcp_tool_name_to_action_name,
     normalize_mcp_tool_name,
+    strip_tracecat_registry_server_prefix,
 )
 from tracecat.agent.preset.service import AgentPresetService
 from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim, verify_mcp_token
@@ -323,26 +322,6 @@ def _internal_tool_names(claims: MCPTokenClaims) -> list[str]:
         if name.startswith("internal.") and name not in names:
             names.append(name)
     return names
-
-
-def _is_tracecat_registry_server_name(server_name: str) -> bool:
-    return (
-        server_name in {REGISTRY_MCP_SERVER_NAME, LEGACY_REGISTRY_MCP_SERVER_NAME}
-        or server_name.startswith(f"{REGISTRY_MCP_SERVER_NAME}-")
-        or server_name.startswith(f"{LEGACY_REGISTRY_MCP_SERVER_NAME}_")
-    )
-
-
-def _strip_tracecat_registry_server_prefix(tool_name: str) -> str:
-    if tool_name.startswith("mcp__"):
-        parts = tool_name.split("__", 2)
-        if len(parts) == 3 and _is_tracecat_registry_server_name(parts[1]):
-            return parts[2]
-    if tool_name.startswith("mcp."):
-        parts = tool_name.split(".", 2)
-        if len(parts) == 3 and _is_tracecat_registry_server_name(parts[1]):
-            return parts[2]
-    return tool_name
 
 
 def _user_mcp_tool_names(claims: MCPTokenClaims) -> set[str]:
@@ -862,7 +841,7 @@ async def call_token_scoped_tool(
 ) -> str:
     """Route one token-scoped concrete MCP tool call."""
     forwarded_args = dict(args)
-    routed_tool_name = _strip_tracecat_registry_server_prefix(tool_name)
+    routed_tool_name = strip_tracecat_registry_server_prefix(tool_name)
     if parsed := UserMCPClient.parse_user_mcp_tool_name(routed_tool_name):
         server_name, original_tool_name = parsed
         return await _execute_user_mcp(

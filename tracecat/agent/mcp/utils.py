@@ -43,6 +43,22 @@ def is_tracecat_registry_server_name(server_name: str) -> bool:
     )
 
 
+def strip_tracecat_registry_server_prefix(tool_name: str) -> str:
+    """Drop a leading built-in registry server segment from a tool name.
+
+    Example: mcp__tracecat-registry__core__http_request -> core__http_request
+    """
+    if tool_name.startswith("mcp__"):
+        parts = tool_name.split("__", 2)
+        if len(parts) == 3 and is_tracecat_registry_server_name(parts[1]):
+            return parts[2]
+    if tool_name.startswith("mcp."):
+        parts = tool_name.split(".", 2)
+        if len(parts) == 3 and is_tracecat_registry_server_name(parts[1]):
+            return parts[2]
+    return tool_name
+
+
 # Lone surrogates cannot cross JSON serialization.
 _SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
 
@@ -189,6 +205,27 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
 
     # Other tool names returned as-is
     return mcp_tool_name
+
+
+def canonical_mcp_tool_name(tool_name: str) -> str:
+    """Return the name the trusted MCP server authorizes a tool call under.
+
+    Follows the server's call routing: drop a registry server prefix, keep
+    user MCP tools as ``mcp__{server}__{tool}``, and turn registry and
+    internal tools into dotted action names. Every spelling of one tool
+    therefore maps to the same name.
+
+    Example: mcp__tracecat-registry__core__http_request -> core.http_request
+    """
+    routed = strip_tracecat_registry_server_prefix(tool_name)
+    parts = routed.split("__", 2)
+    if (
+        len(parts) == 3
+        and parts[0] == "mcp"
+        and not is_tracecat_registry_server_name(parts[1])
+    ):
+        return routed
+    return normalize_mcp_tool_name(mcp_tool_name_to_action_name(routed))
 
 
 async def fetch_tool_definitions(

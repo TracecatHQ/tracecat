@@ -13,7 +13,12 @@ from tracecat.agent.mcp import trusted_server
 from tracecat.agent.mcp.metadata import PROXY_TOOL_CALL_ID_KEY, PROXY_TOOL_METADATA_KEY
 from tracecat.agent.mcp.user_client import UserMCPClient, UserMCPDiscoveryResult
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim, mint_mcp_token
+from tracecat.agent.tokens import (
+    MCPTokenClaims,
+    UserMCPServerClaim,
+    mint_mcp_token,
+    verify_mcp_token,
+)
 from tracecat.auth.secrets import get_service_key
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.registry.lock.types import RegistryLock
@@ -1371,3 +1376,66 @@ async def test_token_scoped_mcp_refuses_deferred_internal_tool_also_allowed(
     with pytest.raises(ToolError, match="requires approval"):
         await mcp.call_tool("internal__builder__update_preset", {})
     handler.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_token_scoped_mcp_refuses_deferred_action_in_another_spelling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deferred name matches every spelling of the tool it names."""
+    monkeypatch.setattr("tracecat.config.TRACECAT__SERVICE_KEY", "test-service-key")
+    token = mint_mcp_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        allowed_actions=["core.http_request"],
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={"core.http_request": "tracecat_registry"},
+        ),
+    )
+    # Minting rejects this overlap, so sign the claims directly.
+    payload = jwt.decode(token, options={"verify_signature": False})
+    payload["deferred_actions"] = ["mcp__tracecat-registry__core__http_request"]
+    token = jwt.encode(payload, get_service_key(), algorithm="HS256")
+
+    async def fake_fetch_tool_definitions_for_lock(
+        action_names: list[str],
+        registry_lock: RegistryLock,
+        organization_id: uuid.UUID,
+    ) -> dict[str, MCPToolDefinition]:
+        del registry_lock, organization_id
+        return {
+            name: MCPToolDefinition(
+                name=name,
+                description=name,
+                parameters_json_schema={"type": "object"},
+            )
+            for name in action_names
+        }
+
+    execute_action = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(
+        trusted_server,
+        "fetch_tool_definitions_for_lock",
+        fake_fetch_tool_definitions_for_lock,
+    )
+    monkeypatch.setattr(trusted_server, "execute_action", execute_action)
+    monkeypatch.setattr(
+        trusted_server,
+        "get_http_headers",
+        lambda include: {"authorization": f"Bearer {token}"},
+    )
+    mcp = trusted_server.TokenScopedFastMCP("test")
+
+    assert [tool.name for tool in await mcp.list_tools()] == ["core__http_request"]
+    with pytest.raises(ToolError, match="requires approval"):
+        await mcp.call_tool("core__http_request", {})
+    # Approved-call execution routes unlisted spellings straight to the executor.
+    with pytest.raises(ToolError, match="requires approval"):
+        await trusted_server.call_token_scoped_tool(
+            "mcp__tracecat-registry__core__http_request",
+            {},
+            verify_mcp_token(token),
+        )
+    execute_action.assert_not_awaited()

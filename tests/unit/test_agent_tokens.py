@@ -208,6 +208,50 @@ def test_mcp_token_rejects_action_both_allowed_and_deferred(monkeypatch) -> None
         )
 
 
+@pytest.mark.parametrize(
+    "deferred_name",
+    [
+        "core__http_request",
+        "mcp__tracecat-registry__core__http_request",
+        "mcp.tracecat_registry.core.http_request",
+    ],
+)
+def test_mcp_token_rejects_overlap_in_another_spelling(
+    monkeypatch, deferred_name: str
+) -> None:
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+
+    with pytest.raises(ValueError, match="both allowed and deferred"):
+        mint_mcp_token(
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            allowed_actions=["core.http_request"],
+            deferred_actions=[deferred_name],
+            session_id=session_id,
+            registry_lock=_registry_lock(),
+        )
+
+
+def test_mcp_token_canonicalizes_deferred_actions(monkeypatch) -> None:
+    """Deferred names decode in the form execution checks calls under."""
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+    token = mint_mcp_token(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        allowed_actions=[],
+        deferred_actions=[
+            "mcp__tracecat-registry__core__http_request",
+            "core.http_request",
+            "mcp__tracecat-registry__mcp__Jira__deleteIssue",
+        ],
+        session_id=session_id,
+        registry_lock=_registry_lock(),
+    )
+
+    claims = verify_mcp_token(token)
+    assert claims.deferred_actions == ["core.http_request", "mcp__Jira__deleteIssue"]
+
+
 def test_agent_otel_token_round_trips(monkeypatch) -> None:
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
 

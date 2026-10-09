@@ -21,9 +21,10 @@ from typing import Any, Literal
 
 import jwt
 from jwt import PyJWTError
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from tracecat import config
+from tracecat.agent.mcp.utils import canonical_mcp_tool_name
 from tracecat.auth.secrets import get_service_key
 from tracecat.identifiers import OrganizationID, UserID, WorkspaceID
 from tracecat.registry.lock.types import RegistryLock
@@ -121,6 +122,7 @@ class MCPTokenClaims(BaseModel):
     The holder can see and propose these tools, but the trusted server refuses
     to run them. The minting service executes approved calls itself with a
     separate token, so approval is enforced even if the holder is compromised.
+    Names are stored in canonical form so every spelling of a tool is refused.
     """
     user_mcp_servers: list[UserMCPServerClaim] = Field(default_factory=list)
     """User-defined MCP server configurations for proxying tool calls."""
@@ -136,6 +138,13 @@ class MCPTokenClaims(BaseModel):
     Optional for tokens minted before registry locks were embedded in MCP claims.
     New tokens should always include this claim.
     """
+
+    @field_validator("deferred_actions")
+    @classmethod
+    def _canonicalize_deferred_actions(cls, names: list[str]) -> list[str]:
+        # Execution checks a call under its canonical name, so a deferred name
+        # in any other spelling would never match and the deny would not hold.
+        return list(dict.fromkeys(canonical_mcp_tool_name(name) for name in names))
 
 
 def mint_mcp_token(
@@ -184,11 +193,14 @@ def mint_mcp_token(
 
     Raises:
         ValueError: If a tool is both deferred and allowed (as an action or
-            internal tool)
+            internal tool), in any spelling of its name
     """
     deferred_actions = deferred_actions or []
-    executable = {*allowed_actions, *(allowed_internal_tools or [])}
-    if executable & set(deferred_actions):
+    executable = {
+        canonical_mcp_tool_name(name)
+        for name in [*allowed_actions, *(allowed_internal_tools or [])]
+    }
+    if executable & {canonical_mcp_tool_name(name) for name in deferred_actions}:
         raise ValueError("An MCP tool cannot be both allowed and deferred")
     now = datetime.now(UTC)
     ttl = ttl_seconds or config.TRACECAT__AGENT_SANDBOX_TIMEOUT + 60
