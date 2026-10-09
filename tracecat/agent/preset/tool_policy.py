@@ -58,10 +58,18 @@ def resolve_tool_policy(
     inputs: PresetToolInputs,
     versions: Mapping[uuid.UUID, SkillVersion],
     integrations: Mapping[uuid.UUID, MCPIntegration],
+    *,
+    derived_actions: Sequence[str] = (),
+    derived_mcp_grants: Sequence[SkillMcpGrant] = (),
 ) -> EffectivePresetTools:
     """Combine declarations, then derive policy once regardless of origin."""
-    registry_sources = [PresetToolSource(tool_id=tool) for tool in inputs.actions]
-    mcp_sources: list[tuple[SkillMcpGrant, PresetToolSource]] = []
+    registry_sources = [
+        PresetToolSource(tool_id=tool) for tool in (*inputs.actions, *derived_actions)
+    ]
+    mcp_sources: list[tuple[SkillMcpGrant, PresetToolSource]] = [
+        (grant, PresetToolSource(tool_id=f"mcp.{grant.mcp_integration_id}"))
+        for grant in derived_mcp_grants
+    ]
     for raw_id in inputs.mcp_integrations:
         try:
             integration_id = uuid.UUID(raw_id)

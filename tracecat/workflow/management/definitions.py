@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from pydantic import ValidationError
 from sqlalchemy import case, select
 from sqlalchemy.orm import selectinload
@@ -38,6 +40,16 @@ from tracecat.workflow.management.schemas import (
 
 class WorkflowDefinitionsService(BaseWorkspaceService):
     service_name = "workflow_definitions"
+
+    async def get_definition_by_id(
+        self, definition_id: uuid.UUID
+    ) -> WorkflowDefinition | None:
+        """Read an exact published definition in this workspace, without mutation."""
+        statement = select(WorkflowDefinition).where(
+            WorkflowDefinition.workspace_id == self.workspace_id,
+            WorkflowDefinition.id == definition_id,
+        )
+        return (await self.session.execute(statement)).scalar_one_or_none()
 
     async def get_definition_by_workflow_id(
         self,
