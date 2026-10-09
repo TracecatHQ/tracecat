@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock
 
 import jwt
 import pytest
+from fastmcp import Client
+from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.exceptions import ToolError
+from fastmcp.utilities.tests import run_server_async
 from pydantic import ValidationError
 from temporalio.exceptions import CancelledError as TemporalCancelledError
 
@@ -1299,10 +1302,15 @@ async def test_token_scoped_mcp_rejects_signed_dotted_user_mcp_deferred_name(
 
 
 @pytest.mark.anyio
-async def test_token_scoped_mcp_refuses_cold_deferred_user_mcp_call(
+async def test_token_scoped_mcp_refuses_cold_deferred_user_mcp_call_over_http(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A call refuses a deferred tool before building the catalog."""
+    """A cold tools/call over HTTP refuses a deferred tool before the catalog build.
+
+    The MCP SDK's call handler runs tools/list on a tool cache miss, so the
+    refusal must come before that handler: no user MCP credentials are
+    resolved and no remote discovery runs.
+    """
     monkeypatch.setattr("tracecat.config.TRACECAT__SERVICE_KEY", "test-service-key")
     token = mint_mcp_token(
         workspace_id=uuid.uuid4(),
@@ -1315,23 +1323,45 @@ async def test_token_scoped_mcp_refuses_cold_deferred_user_mcp_call(
         ],
         registry_lock=RegistryLock(origins={}, actions={}),
     )
-    resolve_config = AsyncMock()
-    discover = AsyncMock()
+    config: MCPHttpServerConfig = {
+        "type": "http",
+        "name": "example",
+        "url": "https://mcp.example.test/mcp",
+    }
+    resolve_config = AsyncMock(return_value=config)
+    discover = AsyncMock(
+        return_value={
+            "mcp__example__a__b": MCPToolDefinition(
+                name="mcp__example__a__b",
+                description="a__b",
+                parameters_json_schema={"type": "object"},
+            )
+        }
+    )
+    monkeypatch.setattr(
+        trusted_server, "fetch_tool_definitions_for_lock", AsyncMock(return_value={})
+    )
     monkeypatch.setattr(trusted_server, "_resolve_user_mcp_config", resolve_config)
     monkeypatch.setattr(trusted_server, "_get_cached_user_mcp_discovery", discover)
-    monkeypatch.setattr(
-        trusted_server,
-        "get_http_headers",
-        lambda include: {"authorization": f"Bearer {token}"},
-    )
-    mcp = trusted_server.TokenScopedFastMCP("test")
 
-    with pytest.raises(
-        ToolError, match="^Tool 'mcp__example__a__b' requires approval$"
-    ):
-        await mcp.call_tool("mcp__example__a__b", {})
-    resolve_config.assert_not_awaited()
-    discover.assert_not_awaited()
+    async with run_server_async(trusted_server.TokenScopedFastMCP("test")) as url:
+        transport = StreamableHttpTransport(
+            url, headers={"Authorization": f"Bearer {token}"}
+        )
+        async with Client(transport) as client:
+            with pytest.raises(
+                ToolError, match="^Tool 'mcp__example__a__b' requires approval$"
+            ):
+                await client.call_tool("mcp__example__a__b", {})
+            resolve_config.assert_not_awaited()
+            discover.assert_not_awaited()
+
+            # The same token's listing does reach both, so the mocks are live.
+            assert [tool.name for tool in await client.list_tools()] == [
+                "mcp__example__a__b"
+            ]
+            resolve_config.assert_awaited_once()
+            discover.assert_awaited_once()
 
 
 @pytest.mark.anyio

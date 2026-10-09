@@ -27,6 +27,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_http_headers
 from fastmcp.tools.base import Tool, ToolResult
 from fastmcp.utilities.versions import VersionSpec
+from mcp.types import CallToolRequest, CallToolResult, ServerResult, TextContent
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 from temporalio.exceptions import is_cancelled_exception
@@ -129,13 +130,31 @@ class TokenScopedFastMCP(FastMCP[None]):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._tool_cache: OrderedDict[str, list[Tool]] = OrderedDict()
+        handlers = self._mcp_server.request_handlers
+        call_tool = handlers[CallToolRequest]
+
+        async def refuse_deferred_then_call(req: CallToolRequest) -> ServerResult:
+            # On a tool cache miss the SDK's call handler runs tools/list
+            # first, which builds the token's catalog: that resolves user MCP
+            # credentials and runs remote discovery. Refuse before it.
+            try:
+                _refuse_deferred_call(req.params.name)
+            except ToolError as e:
+                return ServerResult(
+                    CallToolResult(
+                        content=[TextContent(type="text", text=str(e))],
+                        isError=True,
+                    )
+                )
+            return await call_tool(req)
+
+        handlers[CallToolRequest] = refuse_deferred_then_call
 
     async def _tools_from_request(self) -> list[Tool]:
-        return await self._tools_for(*_request_claims())
-
-    async def _tools_for(
-        self, authorization: str, claims: MCPTokenClaims
-    ) -> list[Tool]:
+        authorization = _authorization_header_from_request()
+        if authorization is None:
+            raise ToolError("Authentication failed")
+        claims = _claims_from_authorization_header(authorization)
         if authorization in self._tool_cache:
             self._tool_cache.move_to_end(authorization)
             return self._tool_cache[authorization]
@@ -160,16 +179,7 @@ class TokenScopedFastMCP(FastMCP[None]):
         version: VersionSpec | None = None,
     ) -> Tool | None:
         del version
-        authorization, claims = _request_claims()
-        try:
-            action_name = canonical_mcp_tool_name(name)
-        except ValueError:
-            # Listed tool names never use the dotted user MCP spelling.
-            return None
-        # Refuse before the catalog build, which resolves user MCP
-        # credentials and runs remote discovery.
-        _refuse_deferred_action(action_name, claims)
-        tools = await self._tools_for(authorization, claims)
+        tools = await self._tools_from_request()
         return next((tool for tool in tools if tool.name == name), None)
 
 
@@ -313,12 +323,15 @@ def _authorization_header_from_request() -> str | None:
     return headers.get("authorization")
 
 
-def _request_claims() -> tuple[str, MCPTokenClaims]:
-    """Return the request's authorization header and its verified claims."""
-    authorization = _authorization_header_from_request()
-    if authorization is None:
-        raise ToolError("Authentication failed")
-    return authorization, _claims_from_authorization_header(authorization)
+def _refuse_deferred_call(tool_name: str) -> None:
+    """Refuse a call to a deferred tool using only the request's token."""
+    claims = _claims_from_authorization_header(_authorization_header_from_request())
+    try:
+        action_name = canonical_mcp_tool_name(tool_name)
+    except ValueError:
+        # Deferred names never use the ambiguous dotted user MCP spelling.
+        return
+    _refuse_deferred_action(action_name, claims)
 
 
 def _listed_action_names(claims: MCPTokenClaims) -> list[str]:
