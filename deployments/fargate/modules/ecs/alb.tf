@@ -104,7 +104,8 @@ resource "aws_wafv2_web_acl" "this" {
           }
         }
 
-        # Override rules that commonly cause false positives with file uploads
+        # Alert payloads legitimately contain HTML and file paths. Keep these
+        # body signatures count-only so they remain visible without blocking.
         rule_action_override {
           name = "CrossSiteScripting_BODY"
           action_to_use {
@@ -274,92 +275,6 @@ resource "aws_wafv2_web_acl" "this" {
     visibility_config {
       cloudwatch_metrics_enabled = true
       metric_name                = "BlockMissingUserAgentExceptMcpPublic"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  # Custom rule to block XSS threats except for attachment uploads
-  rule {
-    name     = "BlockXSSExceptAttachments"
-    priority = 6
-
-    action {
-      block {}
-    }
-
-    statement {
-      and_statement {
-        statement {
-          label_match_statement {
-            scope = "LABEL"
-            key   = "awswaf:managed:aws:core-rule-set:CrossSiteScripting_Body"
-          }
-        }
-        statement {
-          not_statement {
-            statement {
-              regex_pattern_set_reference_statement {
-                arn = aws_wafv2_regex_pattern_set.attachments_endpoint[0].arn
-                field_to_match {
-                  uri_path {}
-                }
-                text_transformation {
-                  priority = 0
-                  type     = "NONE"
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "BlockXSSExceptAttachments"
-      sampled_requests_enabled   = true
-    }
-  }
-
-  # Custom rule to block LFI threats except for attachment uploads
-  rule {
-    name     = "BlockLFIExceptAttachments"
-    priority = 7
-
-    action {
-      block {}
-    }
-
-    statement {
-      and_statement {
-        statement {
-          label_match_statement {
-            scope = "LABEL"
-            key   = "awswaf:managed:aws:core-rule-set:GenericLFI_Body"
-          }
-        }
-        statement {
-          not_statement {
-            statement {
-              regex_pattern_set_reference_statement {
-                arn = aws_wafv2_regex_pattern_set.attachments_endpoint[0].arn
-                field_to_match {
-                  uri_path {}
-                }
-                text_transformation {
-                  priority = 0
-                  type     = "NONE"
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "BlockLFIExceptAttachments"
       sampled_requests_enabled   = true
     }
   }
