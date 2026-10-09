@@ -3,7 +3,6 @@
 import hashlib
 import uuid
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -37,7 +36,6 @@ from tracecat.workspace_sync.enums import SyncResourceType
 from tracecat.workspace_sync.importer import WorkspaceResourceImportService
 from tracecat.workspace_sync.operations import (
     activities,
-    dispatch,
     reconciliation,
     storage,
 )
@@ -392,30 +390,17 @@ async def test_committed_import_resumes_schedule_reconciliation_after_failure(
         assert (await service.get(ref.operation_id)).status == "applying"
     # Temporal invokes the failure activity once its bounded retries exhaust.
     failure = SyncFailure(ref, "transient")
-    await env.run(activities.workspace_sync_fail, failure)
-    await env.run(activities.workspace_sync_fail, failure)  # Lost acknowledgement.
-    client = AsyncMock()
-    monkeypatch.setattr(
-        "tracecat.workspace_sync.operations.service.get_temporal_client",
-        AsyncMock(return_value=client),
-    )
-    await dispatch.dispatch_pending_operations()
-    client.start_workflow.assert_not_awaited()  # Honor reconciliation backoff.
+    assert await env.run(activities.workspace_sync_fail, failure)
+    assert await env.run(
+        activities.workspace_sync_fail, failure
+    )  # Lost acknowledgement.
     async with SyncOperationService.with_session(svc_role) as service:
         queued = await service.get(ref.operation_id)
         assert queued.status == "applying"
-        assert queued.attempt == 1
-        assert not queued.dispatched
+        assert queued.attempt == 0
         assert queued.result is not None
-        assert queued.next_dispatch_at > datetime.now(UTC)
-        queued.next_dispatch_at = datetime.now(UTC) - timedelta(seconds=1)
-        await service.session.commit()
-    await dispatch.dispatch_pending_operations()
-    client.start_workflow.assert_awaited_once()
-    resumed_ref = client.start_workflow.await_args.args[1]
-    assert resumed_ref.attempt == 1
-    with pytest.raises(ApplicationError):
-        await env.run(activities.workspace_sync_apply, ref)  # Old attempt fenced.
+    # The existing Temporal workflow resumes its same fenced apply phase.
+    resumed_ref = ref
     await env.run(activities.workspace_sync_apply, resumed_ref)
     await env.run(activities.workspace_sync_fail, SyncFailure(resumed_ref, "transient"))
     async with SyncOperationService.with_session(svc_role) as service:
@@ -434,7 +419,6 @@ async def test_uncommitted_authorization_failure_is_not_requeued(svc_role):
         operation = await service.create(push_inputs())
         operation.status = "applying"
         operation.stage = "applying"
-        operation.dispatched = True
         await service.session.commit()
         ref = SyncOperationRef(operation.id, svc_role, "apply")
     await ActivityEnvironment().run(
@@ -444,7 +428,6 @@ async def test_uncommitted_authorization_failure_is_not_requeued(svc_role):
         failed = await service.get(ref.operation_id)
         assert failed.status == "failed"
         assert failed.attempt == 0
-        assert failed.dispatched
         assert failed.result is None
         assert failed.summary is not None
         assert failed.summary["retryable"] is False

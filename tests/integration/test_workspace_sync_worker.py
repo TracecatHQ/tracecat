@@ -21,7 +21,6 @@ from tracecat.workspace_sync.operations.activities import (
     workspace_sync_fail,
     workspace_sync_prepare,
 )
-from tracecat.workspace_sync.operations.dispatch import dispatch_pending_operations
 from tracecat.workspace_sync.operations.schemas import SyncOperationCreate
 from tracecat.workspace_sync.operations.service import SyncOperationService
 from tracecat.workspace_sync.operations.types import SyncOperationRef
@@ -89,13 +88,11 @@ async def test_sync_workflow_continues_on_replacement_worker() -> None:
 
 @pytest.mark.temporal
 @pytest.mark.anyio
-async def test_outbox_delivers_accepted_operation_and_persists_revoked_access(
-    svc_role: Role, monkeypatch
-):
+async def test_direct_start_persists_revoked_access(svc_role: Role, monkeypatch):
     # The fixture intentionally has no User row, representing an actor removed
     # after the API accepted the operation. No Git service is required.
 
-    queue = f"test-background-outbox-{uuid.uuid4()}"
+    queue = f"test-background-direct-{uuid.uuid4()}"
     monkeypatch.setattr(config, "TRACECAT__BACKGROUND_QUEUE", queue)
     async with SyncOperationService.with_session(svc_role) as service:
         operation = await service.create(
@@ -109,13 +106,12 @@ async def test_outbox_delivers_accepted_operation_and_persists_revoked_access(
         )
         operation_id = operation.id
         assert operation.status == "queued"
-    # Dispatch is deliberately separated from API acceptance, including a repeat.
-    await dispatch_pending_operations()
+    # API mutations start the workflow directly. Repeating a lost start response
+    # targets the same workflow ID even before a worker is polling the queue.
     async with SyncOperationService.with_session(svc_role) as service:
         operation = await service.get(operation_id)
-        operation.dispatched = False  # Simulate a lost acknowledgement.
-        await service.session.commit()
-    await dispatch_pending_operations()
+        await service.start_workflow(operation)
+        await service.start_workflow(operation)
     client = await get_temporal_client()
     async with Worker(
         client,

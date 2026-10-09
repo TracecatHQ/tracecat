@@ -34,16 +34,6 @@ def upgrade() -> None:
         sa.Column("stage", sa.String(length=32), nullable=False),
         sa.Column("inputs", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("actor", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("dispatched", sa.Boolean(), nullable=False),
-        sa.Column(
-            "dispatch_attempts", sa.Integer(), server_default="0", nullable=False
-        ),
-        sa.Column(
-            "next_dispatch_at",
-            sa.TIMESTAMP(timezone=True),
-            server_default=sa.text("now()"),
-            nullable=False,
-        ),
         sa.Column("summary", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("result", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
         sa.Column("artifact_key", sa.Text(), nullable=True),
@@ -86,14 +76,6 @@ def upgrade() -> None:
         "workspace_sync_operation",
         ["workspace_id", "actor_id", "created_at", "id"],
         unique=False,
-    )
-    op.create_index(
-        "ix_workspace_sync_operation_pending_dispatch",
-        "workspace_sync_operation",
-        ["next_dispatch_at", "id"],
-        postgresql_where=sa.text(
-            "dispatched IS FALSE AND status IN ('queued', 'running', 'applying')"
-        ),
     )
     op.execute(enable_workspace_table_rls("workspace_sync_operation"))
 

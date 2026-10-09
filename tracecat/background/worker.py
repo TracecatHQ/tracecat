@@ -23,7 +23,6 @@ from tracecat.workspace_sync.operations.activities import (
     workspace_sync_fail,
     workspace_sync_prepare,
 )
-from tracecat.workspace_sync.operations.dispatch import run_dispatcher
 from tracecat.workspace_sync.operations.workflows import WorkspaceSyncWorkflow
 
 
@@ -51,10 +50,7 @@ async def main(shutdown_event: asyncio.Event | None = None) -> None:
             graceful_shutdown_timeout=timedelta(seconds=30),
         ):
             logger.info("Background worker started")
-            async with asyncio.TaskGroup() as tasks:
-                dispatcher = tasks.create_task(run_dispatcher(shutdown_event))
-                await shutdown_event.wait()
-                dispatcher.cancel()
+            await shutdown_event.wait()
 
 
 if __name__ == "__main__":
