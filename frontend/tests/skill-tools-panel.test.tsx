@@ -35,6 +35,19 @@ let mockRegistryActions: RegistryActionReadMinimal[] = []
 let mockMcpIntegrations: MCPIntegrationRead[] = []
 let mockLoading = false
 let mockError: Error | null = null
+// `useScopeCheck("integration:read")`: undefined while scopes load.
+let mockCanReadIntegrations: boolean | undefined = true
+let mockMcpQueryOptions: { enabled?: boolean } | undefined
+let mockMcpQueryResult: {
+  mcpIntegrations: MCPIntegrationRead[] | undefined
+  mcpIntegrationsIsLoading: boolean
+  mcpIntegrationsError: Error | null
+} | null = null
+
+jest.mock("@/components/auth/scope-guard", () => ({
+  ...jest.requireActual("@/components/auth/scope-guard"),
+  useScopeCheck: () => mockCanReadIntegrations,
+}))
 
 jest.mock("@/lib/hooks", () => ({
   ...jest.requireActual("@/lib/hooks"),
@@ -49,11 +62,21 @@ jest.mock("@/lib/hooks", () => ({
       registryActionsError: mockError,
     }
   },
-  useListMcpIntegrations: () => ({
-    mcpIntegrations: mockLoading || mockError ? undefined : mockMcpIntegrations,
-    mcpIntegrationsIsLoading: mockLoading,
-    mcpIntegrationsError: mockError,
-  }),
+  useListMcpIntegrations: (
+    _workspaceId: string,
+    _filters?: unknown,
+    options?: { enabled?: boolean }
+  ) => {
+    mockMcpQueryOptions = options
+    return (
+      mockMcpQueryResult ?? {
+        mcpIntegrations:
+          mockLoading || mockError ? undefined : mockMcpIntegrations,
+        mcpIntegrationsIsLoading: mockLoading,
+        mcpIntegrationsError: mockError,
+      }
+    )
+  },
 }))
 
 beforeAll(() => {
@@ -78,6 +101,9 @@ beforeEach(() => {
   mockMcpIntegrations = [httpIntegration]
   mockLoading = false
   mockError = null
+  mockCanReadIntegrations = true
+  mockMcpQueryOptions = undefined
+  mockMcpQueryResult = null
 })
 
 const onChange = jest.fn()
@@ -545,6 +571,79 @@ metadata:
     expect(screen.getByTitle("core.cases.removed")).toBeInTheDocument()
     await user.click(screen.getByRole("button", { name: "Remove mcp.deleted" }))
     expect(tools()).toEqual(["core.cases.removed"])
+  })
+
+  it("requests MCP integrations with integration read access", () => {
+    render(<Panel initial="metadata: {tools: [mcp.synthetic.read]}" />)
+    expect(mockMcpQueryOptions).toEqual({ enabled: true })
+    expect(
+      screen.getByRole("button", { name: /Synthetic synthetic/ })
+    ).toBeInTheDocument()
+    expect(screen.queryByText("MCP tools")).not.toBeInTheDocument()
+  })
+
+  it("keeps registry tools editable and MCP IDs intact without integration read access", async () => {
+    mockCanReadIntegrations = false
+    // The request is skipped; a stale 403 or a disabled query's pending flag
+    // from another surface must not block.
+    mockMcpQueryResult = {
+      mcpIntegrations: undefined,
+      mcpIntegrationsIsLoading: true,
+      mcpIntegrationsError: new Error("Forbidden"),
+    }
+    const user = userEvent.setup()
+    const before = "# keep\nname: triage\nmetadata:\n  owner: team\n  tools: "
+    const after = "\nlicense: 0123\n"
+    render(
+      <Panel
+        initial={`${before}["mcp.synthetic.read","core.cases.get_case","mcp.other"]${after}`}
+      />
+    )
+    expect(mockMcpQueryOptions).toEqual({ enabled: false })
+    expect(
+      screen.queryByText("Tools could not be loaded.")
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("Loading tools...")).not.toBeInTheDocument()
+    expect(screen.queryByText(/Unavailable/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Invalid tool IDs/)).not.toBeInTheDocument()
+    // Declared MCP IDs are listed by ID under a neutral heading.
+    const heading = screen.getByRole("heading", { name: "MCP tools" })
+    const section = within(heading.parentElement as HTMLElement)
+    expect(section.getByTitle("mcp.synthetic.read")).toBeInTheDocument()
+    expect(section.getByTitle("mcp.other")).toBeInTheDocument()
+    expect(headerCount()).toBe("1")
+
+    await user.click(screen.getByRole("button", { name: "Add tools" }))
+    expect(screen.queryByRole("button", { name: /^Synthetic/ })).toBeNull()
+    await user.click(await screen.findByRole("option", { name: /List cases/ }))
+    await user.click(screen.getByRole("button", { name: "Done" }))
+    expect(currentFrontmatter).toBe(
+      `${before}["mcp.synthetic.read","core.cases.get_case","mcp.other","core.cases.list_cases"]${after}`
+    )
+    await user.click(screen.getByRole("button", { name: /Cases core\.cases/ }))
+    await user.click(
+      screen.getByRole("button", { name: "Remove core.cases.get_case" })
+    )
+    expect(currentFrontmatter).toBe(
+      `${before}["mcp.synthetic.read","mcp.other","core.cases.list_cases"]${after}`
+    )
+    expect(screen.getByRole("button", { name: "Add tools" })).toBeEnabled()
+    // A declared MCP ID can still be removed on purpose.
+    await user.click(screen.getByRole("button", { name: "Remove mcp.other" }))
+    expect(currentFrontmatter).toBe(
+      `${before}["mcp.synthetic.read","core.cases.list_cases"]${after}`
+    )
+  })
+
+  it("waits for scopes before requesting MCP integrations", () => {
+    mockCanReadIntegrations = undefined
+    render(
+      <Panel initial="metadata: {tools: [core.cases.get_case, mcp.synthetic]}" />
+    )
+    expect(mockMcpQueryOptions).toEqual({ enabled: false })
+    expect(screen.getByText("Loading tools...")).toBeInTheDocument()
+    expect(screen.queryByText("MCP tools")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Add tools" })).toBeDisabled()
   })
 
   it.each(["loading", "error"])(

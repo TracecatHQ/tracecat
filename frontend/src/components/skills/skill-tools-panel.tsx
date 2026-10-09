@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useMemo, useRef, useState } from "react"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import {
   TOOL_LIST_BLEED,
@@ -38,8 +39,21 @@ export function SkillToolsPanel({
   // Locked actions are listed so choosing one opens the upgrade dialog.
   const { registryActions, registryActionsIsLoading, registryActionsError } =
     useRegistryActions({ includeLocked: true })
-  const { mcpIntegrations, mcpIntegrationsIsLoading, mcpIntegrationsError } =
-    useListMcpIntegrations(workspaceId)
+  // The list endpoint needs `integration:read`; without it the request 403s,
+  // so skip it and keep registry tools editable. Undefined while scopes load.
+  const canReadIntegrations = useScopeCheck("integration:read")
+  const mcpReadable = canReadIntegrations === true
+  const mcpQuery = useListMcpIntegrations(workspaceId, undefined, {
+    enabled: mcpReadable,
+  })
+  // A skipped query's cached data and error belong to other surfaces.
+  const mcpIntegrations = mcpReadable ? mcpQuery.mcpIntegrations : undefined
+  const mcpIntegrationsError = mcpReadable
+    ? mcpQuery.mcpIntegrationsError
+    : null
+  const mcpIntegrationsIsLoading =
+    canReadIntegrations === undefined ||
+    (mcpReadable && mcpQuery.mcpIntegrationsIsLoading)
   const loadError = Boolean(registryActionsError || mcpIntegrationsError)
   // Keyed on the frontmatter string, so typing in the body does not re-parse.
   const toolsState = useMemo(
@@ -70,6 +84,18 @@ export function SkillToolsPanel({
   const value = useMemo<ToolSelectionValue>(
     () => ({ actions: toolsState.tools, mcpIntegrations: EMPTY_KEYS }),
     [toolsState]
+  )
+  // Without the scope the MCP catalogue is unknown, not empty: declared MCP
+  // IDs are kept and listed by ID instead of being called unavailable.
+  const unknownGroup = useMemo(
+    () =>
+      canReadIntegrations === false
+        ? {
+            title: "MCP tools",
+            keys: toolsState.tools.filter((tool) => tool.startsWith("mcp.")),
+          }
+        : undefined,
+    [canReadIntegrations, toolsState]
   )
   const [lockedFeatureOpen, setLockedFeatureOpen] = useState(false)
   const openLockedFeature = useCallback(() => setLockedFeatureOpen(true), [])
@@ -109,6 +135,7 @@ export function SkillToolsPanel({
           value={value}
           onChange={write}
           index={index}
+          unknownGroup={unknownGroup}
           maxTools={MAX_SKILL_TOOLS}
           registryLoading={registryActionsIsLoading}
           mcpLoading={mcpIntegrationsIsLoading}

@@ -87,6 +87,11 @@ export interface ToolSelectionListProps {
   hideTitle?: boolean
   /** Called instead of selecting when a locked entry is chosen in the picker. */
   onLockedSelect?: (entry: ToolEntry) => void
+  /**
+   * Selected keys whose catalogue could not be read. They are listed by ID
+   * under `title` and stay removable, instead of showing as "Unavailable".
+   */
+  unknownGroup?: { title: string; keys: string[] }
 }
 
 /**
@@ -113,6 +118,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
   filterAgentTools = true,
   hideTitle = false,
   onLockedSelect,
+  unknownGroup,
 }: ToolSelectionListProps) {
   const actions = value.actions
   const integrations = mcpEnabled ? value.mcpIntegrations : EMPTY_KEYS
@@ -207,8 +213,9 @@ export const ToolSelectionList = memo(function ToolSelectionList({
     actions.filter((key) => index.byKey.has(key)).length +
     (hideTitle ? integrations.length : 0)
   const skillKeys = new Set(skillActions?.filter((key) => !selected.has(key)))
+  const unknownKeys = new Set(unknownGroup?.keys)
   const unavailable = ready
-    ? actions.filter((key) => !index.byKey.has(key))
+    ? actions.filter((key) => !index.byKey.has(key) && !unknownKeys.has(key))
     : []
   const otherRules = rules.filter(
     (rule) =>
@@ -221,6 +228,9 @@ export const ToolSelectionList = memo(function ToolSelectionList({
   }
 
   const visibleUnavailable = unavailable.filter((key) => matches(key))
+  const visibleUnknown = actions.filter(
+    (key) => unknownKeys.has(key) && !index.byKey.has(key) && matches(key)
+  )
   const visibleOtherRules = otherRules.filter((rule) => matches(rule.tool))
   const visibleSkillKeys = [...skillKeys].filter((key) =>
     matches(key, index.byKey.get(key)?.title ?? "")
@@ -239,6 +249,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
     hasVisibleRegistry ||
     visibleIntegrations.length > 0 ||
     visibleUnavailable.length > 0 ||
+    visibleUnknown.length > 0 ||
     visibleOtherRules.length > 0 ||
     visibleSkillKeys.length > 0
   const blockedNotice = `${blocked.length} listed ${blocked.length === 1 ? "tool" : "tools"} blocked by the stored namespace filter`
@@ -594,6 +605,26 @@ export const ToolSelectionList = memo(function ToolSelectionList({
                       ? () => changeApproval(key, !asksForApproval(key))
                       : undefined
                   }
+                />
+              ))}
+            </div>
+          )}
+          {visibleUnknown.length > 0 && (
+            <div>
+              <h4
+                className={cn(
+                  "py-3 text-xs text-muted-foreground",
+                  TOOL_LIST_INSET
+                )}
+              >
+                {unknownGroup?.title}
+              </h4>
+              {visibleUnknown.map((key) => (
+                <ToolSelectionRow
+                  key={key}
+                  tool={key}
+                  disabled={isSaving}
+                  onRemove={() => remove([key])}
                 />
               ))}
             </div>
