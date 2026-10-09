@@ -3,11 +3,6 @@
 const nextConfig = {
   reactStrictMode: true, // Default to true; overridden in development
   output: "standalone", // Ensure standalone output for production
-  typescript: {
-    // lint-frontend.yml and test-frontend.yml already run `pnpm typecheck`,
-    // so skip the duplicate type-check pass in `next build`.
-    ignoreBuildErrors: true,
-  },
   experimental: {
     optimizePackageImports: ["lucide-react"],
     serverActions: {
