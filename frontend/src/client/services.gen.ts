@@ -3725,6 +3725,7 @@ export const workflowsCreateSyncOperation = (
       404: "Not Found",
       409: "Conflict",
       422: "Validation Error",
+      503: "Service Unavailable",
     },
   })
 }
@@ -3763,7 +3764,7 @@ export const workflowsListSyncOperations = (
 
 /**
  * Get Sync Operation
- * Poll durable progress and repair a lost Temporal dispatch response.
+ * Poll durable progress without starting or mutating the operation.
  * @param data The data for the request.
  * @param data.operationId
  * @param data.workspaceId
@@ -3812,6 +3813,7 @@ export const workflowsApplySyncOperation = (
       404: "Not Found",
       409: "Conflict",
       422: "Validation Error",
+      503: "Service Unavailable",
     },
   })
 }
@@ -3840,6 +3842,7 @@ export const workflowsRetrySyncOperation = (
       404: "Not Found",
       409: "Conflict",
       422: "Validation Error",
+      503: "Service Unavailable",
     },
   })
 }

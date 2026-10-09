@@ -1,8 +1,7 @@
-"""Regression tests for locking, dispatch fairness, and partial sync recovery."""
+"""Regression tests for locking and partial sync recovery."""
 
 import asyncio
 import uuid
-from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,14 +11,13 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from tests.unit.test_durable_workspace_sync import push_inputs
-from tracecat.db.models import WorkspaceSyncOperation
 from tracecat.dsl.common import DSLEntrypoint, DSLInput
 from tracecat.dsl.schemas import ActionStatement
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import PageParams
 from tracecat.workflow.store.import_service import WorkflowImportService
 from tracecat.workflow.store.schemas import RemoteWorkflowDefinition
-from tracecat.workspace_sync.operations import activities, dispatch, router
+from tracecat.workspace_sync.operations import activities, router
 from tracecat.workspace_sync.operations.service import SyncOperationService
 from tracecat.workspace_sync.operations.types import SyncOperationRef
 from tracecat.workspace_sync.types import SyncCommitConflictError
@@ -94,45 +92,6 @@ async def test_history_filters_unreadable_operations_before_pagination(
     page = await SyncOperationService(session, limited).list(PageParams(limit=1))
     assert [item.id for item in page.items] == [visible.id]
     assert page.next_cursor is None
-
-
-@pytest.mark.anyio
-async def test_poison_dispatch_batch_does_not_starve_next_operation(
-    svc_role, monkeypatch
-):
-    now = datetime.now(UTC)
-    ids = [uuid.uuid4() for _ in range(101)]
-    async with SyncOperationService.with_session(svc_role) as service:
-        session = service.session
-        for index, operation_id in enumerate(ids):
-            inputs = push_inputs().model_copy(update={"id": operation_id})
-            session.add(
-                WorkspaceSyncOperation(
-                    id=operation_id,
-                    workspace_id=svc_role.workspace_id,
-                    actor_id=svc_role.actor_id,
-                    direction="push",
-                    status="queued",
-                    stage="fetching",
-                    inputs=inputs.model_dump(mode="json"),
-                    actor={} if index < 100 else svc_role.model_dump(mode="json"),
-                    expires_at=now + timedelta(hours=24),
-                    next_dispatch_at=now
-                    - timedelta(hours=2)
-                    + timedelta(seconds=index),
-                )
-            )
-        await session.commit()
-    start = AsyncMock()
-    monkeypatch.setattr(SyncOperationService, "dispatch", start)
-    await dispatch.dispatch_pending_operations()
-    start.assert_not_awaited()
-    await dispatch.dispatch_pending_operations()
-    assert any(call.args[0].id == ids[-1] for call in start.await_args_list)
-    async with SyncOperationService.with_session(svc_role) as service:
-        first = await service.get(ids[0])
-        assert first is not None and first.dispatch_attempts == 1
-        assert first.next_dispatch_at > now
 
 
 @pytest.mark.anyio
