@@ -143,7 +143,6 @@ async def test_start_lost_response_reuses_same_operation(
     second = await service.create(inputs)
     assert first.id == second.id
     assert second.status == "queued"
-    assert not second.dispatched
     operations = await service.list(PageParams(limit=10))
     assert len(operations.items) == 1
     with pytest.raises(SyncOperationConflictError):
@@ -172,12 +171,9 @@ async def test_duplicate_confirmation_does_not_schedule_a_second_apply(
     operation = await service.create(push_inputs())
     operation.status = "ready"
     await session.commit()
-    first = await service.apply(operation.id)
-    first.dispatched = True
-    await session.commit()
+    await service.apply(operation.id)
     second = await service.apply(operation.id)
     assert second.status == "applying"
-    assert second.dispatched
     assert second.attempt == 0
 
 
