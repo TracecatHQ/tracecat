@@ -305,7 +305,6 @@ def agent_preset_create_params() -> AgentPresetCreate:
         tool_approvals=None,
         mcp_integrations=None,
         retries=3,
-        enable_thinking=True,
     )
 
 
@@ -424,6 +423,7 @@ class TestAgentPresetService:
         assert (
             created_preset.model_provider == agent_preset_create_params.model_provider
         )
+        assert created_preset.reasoning_effort is None
         assert created_preset.enable_thinking is True
         assert created_preset.workspace_id == agent_preset_service.workspace_id
 
@@ -1017,20 +1017,23 @@ class TestAgentPresetService:
         )
         assert [version.version for version in versions.items] == [1]
 
-    async def test_update_preset_enable_thinking_creates_new_version(
+    async def test_update_preset_reasoning_effort_creates_new_version(
         self,
         agent_preset_service: AgentPresetService,
         agent_preset_create_params: AgentPresetCreate,
     ) -> None:
+        """Reasoning effort is versioned, and the deprecated enable_thinking
+        column mirrors it so a rolled-back app keeps the user's choice."""
         created_preset = await agent_preset_service.create_preset(
             agent_preset_create_params
         )
 
         updated_preset = await agent_preset_service.update_preset(
             created_preset,
-            AgentPresetUpdate(enable_thinking=False),
+            AgentPresetUpdate(reasoning_effort="off"),
         )
 
+        assert updated_preset.reasoning_effort == "off"
         assert updated_preset.enable_thinking is False
         versions = await agent_preset_service.list_versions(
             created_preset.id,
@@ -1039,11 +1042,91 @@ class TestAgentPresetService:
         assert [version.version for version in versions.items] == [2, 1]
         latest_version = await agent_preset_service.get_version(versions.items[0].id)
         assert latest_version is not None
+        assert latest_version.reasoning_effort == "off"
         assert latest_version.enable_thinking is False
         preset_read = await agent_preset_service.build_preset_read(updated_preset)
         version_read = await agent_preset_service.build_version_read(latest_version)
-        assert preset_read.enable_thinking is False
-        assert version_read.enable_thinking is False
+        assert preset_read.reasoning_effort == "off"
+        assert version_read.reasoning_effort == "off"
+
+        reset_preset = await agent_preset_service.update_preset(
+            updated_preset,
+            AgentPresetUpdate(reasoning_effort=None),
+        )
+
+        assert reset_preset.reasoning_effort is None
+        assert reset_preset.enable_thinking is True
+
+    @pytest.mark.parametrize(
+        ("initial", "update", "expected"),
+        [
+            ("high", {"enable_thinking": False}, "off"),
+            ("off", {"enable_thinking": True}, None),
+            ("high", {"enable_thinking": True}, "high"),
+            (None, {"enable_thinking": True}, None),
+            ("high", {"enable_thinking": "0"}, "off"),
+            ("off", {"enable_thinking": "true"}, None),
+            ("high", {"enable_thinking": False, "reasoning_effort": None}, None),
+        ],
+    )
+    async def test_update_preset_resolves_legacy_enable_thinking(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        initial: str | None,
+        update: dict[str, object],
+        expected: str | None,
+    ) -> None:
+        """An older client's flag turns reasoning off, or clears "off" without
+        discarding another level; an explicit reasoning_effort, even null, wins."""
+        created_preset = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(update={"reasoning_effort": initial})
+        )
+
+        updated_preset = await agent_preset_service.update_preset(
+            created_preset, AgentPresetUpdate.model_validate(update)
+        )
+
+        assert updated_preset.reasoning_effort == expected
+        assert updated_preset.enable_thinking is (expected != "off")
+
+    @pytest.mark.parametrize(
+        ("loaded", "concurrent", "expected"),
+        [("off", "high", "high"), ("high", "off", None)],
+    )
+    async def test_legacy_enable_thinking_resolves_against_locked_row(
+        self,
+        agent_preset_service: AgentPresetService,
+        agent_preset_create_params: AgentPresetCreate,
+        loaded: str,
+        concurrent: str,
+        expected: str | None,
+    ) -> None:
+        """A legacy "on" flag is resolved against the row as of the update's
+        lock, not the caller's earlier read. Otherwise a level committed in
+        between is overwritten, or a concurrent "off" is never cleared."""
+        preset = await agent_preset_service.create_preset(
+            agent_preset_create_params.model_copy(update={"reasoning_effort": loaded})
+        )
+        # Stand in for a concurrent writer: change the row behind the session's
+        # identity map, leaving the caller's loaded preset stale.
+        await agent_preset_service.session.execute(
+            sa.update(AgentPreset)
+            .where(AgentPreset.id == preset.id)
+            .values(
+                reasoning_effort=concurrent,
+                enable_thinking=concurrent != "off",
+            )
+            .execution_options(synchronize_session=False)
+        )
+        assert preset.reasoning_effort == loaded
+
+        updated_preset = await agent_preset_service.update_preset(
+            preset, AgentPresetUpdate.model_validate({"enable_thinking": True})
+        )
+
+        assert updated_preset.reasoning_effort == expected
+        assert updated_preset.enable_thinking is True
 
     @pytest.mark.parametrize("enabled", [None, False])
     async def test_publishing_existing_head_normalizes_enabled(

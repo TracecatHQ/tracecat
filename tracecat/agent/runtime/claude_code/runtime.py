@@ -45,6 +45,7 @@ from claude_agent_sdk.types import (
     StreamEvent,
     SyncHookJSONOutput,
     SystemMessage,
+    ThinkingConfig,
     ToolResultBlock,
     ToolUseBlock,
     UserMessage,
@@ -76,6 +77,7 @@ from tracecat.agent.common.types import (
     MCPServerToolSummary,
     MCPStdioServerConfig,
     MCPToolDefinition,
+    ReasoningEffort,
     requires_sandbox_internet_access,
 )
 from tracecat.agent.error_policy import (
@@ -230,6 +232,47 @@ class _StdioMCPServerSpec:
     blocked_approval_tools: set[str]
 
 
+def _reasoning_options(
+    reasoning_effort: ReasoningEffort | None,
+) -> tuple[ThinkingConfig | None, Literal["low", "medium", "high", "max"] | None]:
+    """Map a reasoning effort to Claude SDK ``thinking`` and ``effort`` options.
+
+    ``None`` leaves both unset so the CLI applies the model default. ``"off"``
+    also sends the lowest effort: the CLI omits disabled thinking for models
+    that cannot turn it off (e.g. Claude Opus 5.5, Fable 5), and those then run
+    at low effort instead of the CLI's default.
+    """
+    if reasoning_effort is None:
+        return None, None
+    if reasoning_effort == "off":
+        return {"type": "disabled"}, "low"
+    return (
+        {"type": "enabled", "budget_tokens": REASONING_BUDGET_TOKENS[reasoning_effort]},
+        reasoning_effort,
+    )
+
+
+def _subagent_effort(
+    reasoning_effort: ReasoningEffort | None,
+    *,
+    root_reasoning_effort: ReasoningEffort | None,
+) -> Literal["low", "medium", "high", "max"] | None:
+    """Map a subagent's reasoning effort to its ``AgentDefinition`` effort.
+
+    Subagents share the root session's thinking setting, so ``None`` inherits
+    the root's level and ``"off"`` runs at the lowest effort. When the root
+    disables thinking, ``"max"`` caps at ``"high"`` because some models (e.g.
+    Claude Opus 5) reject disabled thinking above ``"high"``.
+    """
+    if reasoning_effort is None:
+        return None
+    if reasoning_effort == "off":
+        return "low"
+    if root_reasoning_effort == "off" and reasoning_effort == "max":
+        return "high"
+    return reasoning_effort
+
+
 def _configure_claude_sdk_process_env() -> None:
     """Prime process-level SDK env before ClaudeSDKClient.connect().
 
@@ -322,6 +365,16 @@ TRUSTED_MCP_BRIDGE_URL = f"http://127.0.0.1:{TRACECAT__AGENT_MCP_BRIDGE_PORT}/mc
 # larger tool responses do not truncate during agent execution.
 CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES = 5 * 1024 * 1024
 CUSTOM_MODEL_PROVIDER_AUTO_COMPACT_WINDOW = "128000"
+
+# Thinking budgets for Claude models without adaptive thinking, which ignore
+# `effort`. Adaptive-capable and non-Claude models use `effort` instead; the CLI
+# clamps budgets to the model's max output tokens.
+REASONING_BUDGET_TOKENS: dict[ReasoningEffort, int] = {
+    "low": 4_000,
+    "medium": 10_000,
+    "high": 20_000,
+    "max": 32_000,
+}
 
 # Cap on how many times the CLI may re-invoke the model to satisfy a Stop hook
 # (e.g. structured-output schema validation). Without a cap the CLI can death-loop
@@ -1488,6 +1541,10 @@ class ClaudeAgentRuntime:
                     for slug in subagent.config.library_skills or []
                 ]
                 or None,
+                effort=_subagent_effort(
+                    subagent.config.reasoning_effort,
+                    root_reasoning_effort=payload.config.reasoning_effort,
+                ),
             )
 
         return definitions
@@ -1649,15 +1706,13 @@ class ClaudeAgentRuntime:
             system_prompt_length=len(system_prompt),
             system_prompt_fragment_count=len(self._system_prompt_fragments),
         )
+        thinking, effort = _reasoning_options(payload.config.reasoning_effort)
         return ClaudeAgentOptions(
             include_partial_messages=True,
             resume=resume_session_id,
             fork_session=fork_session,
-            thinking=(
-                {"type": "enabled", "budget_tokens": 1024}
-                if payload.config.enable_thinking
-                else {"type": "disabled"}
-            ),
+            thinking=thinking,
+            effort=effort,
             setting_sources=["user"],
             env=self._sdk_env(payload),
             model=get_litellm_route_model(

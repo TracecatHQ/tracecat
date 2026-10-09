@@ -23,6 +23,7 @@ from tracecat.agent.preset.schemas import (
     AgentPresetSkillBindingRead,
     AgentPresetToolSummary,
     AgentPresetUpdate,
+    AgentPresetVersionRead,
     AgentPresetVersionReadMinimal,
     build_agent_preset_read_minimal,
     build_agent_preset_tool_summary,
@@ -82,7 +83,7 @@ def test_agent_preset_create_trims_required_fields() -> None:
         tool_approvals=None,
         mcp_integrations=None,
         retries=3,
-        enable_thinking=True,
+        reasoning_effort="high",
     )
 
     assert payload.name == "Triage preset"
@@ -231,7 +232,7 @@ def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> No
             "tool_approvals": None,
             "mcp_integrations": None,
             "retries": 3,
-            "enable_thinking": True,
+            "reasoning_effort": None,
             "enable_internet_access": False,
             "current_version_id": None,
             "created_at": "2026-03-09T00:00:00Z",
@@ -241,7 +242,61 @@ def test_agent_preset_read_schema_accepts_legacy_whitespace_model_fields() -> No
 
     assert payload.model_name == "   "
     assert payload.model_provider == "   "
-    assert payload.enable_thinking is True
+    assert payload.reasoning_effort is None
+
+
+_PRESET_READ_FIELDS: dict[str, object] = {
+    "id": "522b4d28-ae2b-4705-bb53-c3aa9071fe16",
+    "workspace_id": "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2",
+    "name": "Triage preset",
+    "slug": "triage-preset",
+    "model_name": "gpt-5-mini",
+    "model_provider": "openai",
+    "created_at": "2026-03-09T00:00:00Z",
+    "updated_at": "2026-03-09T00:00:00Z",
+}
+_PRESET_VERSION_READ_FIELDS: dict[str, object] = {
+    "id": "0f6d6a43-3f1c-4a59-9a7e-5b0c2f1f8e21",
+    "preset_id": "522b4d28-ae2b-4705-bb53-c3aa9071fe16",
+    "workspace_id": "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2",
+    "version": 2,
+    "model_name": "gpt-5-mini",
+    "model_provider": "openai",
+    "restore_skills": [],
+    "created_at": "2026-03-09T00:00:00Z",
+    "updated_at": "2026-03-09T00:00:00Z",
+}
+
+
+@pytest.mark.parametrize(
+    ("schema_cls", "fields"),
+    [
+        (AgentPresetRead, _PRESET_READ_FIELDS),
+        (AgentPresetVersionRead, _PRESET_VERSION_READ_FIELDS),
+    ],
+    ids=["preset", "version"],
+)
+@pytest.mark.parametrize(
+    ("reasoning_effort", "enable_thinking"),
+    [("off", False), (None, True), ("high", True)],
+)
+def test_agent_preset_reads_keep_legacy_thinking_flag(
+    schema_cls: type[AgentPresetRead] | type[AgentPresetVersionRead],
+    fields: dict[str, object],
+    reasoning_effort: str | None,
+    enable_thinking: bool,
+) -> None:
+    """Browsers on a bundle from before reasoning levels read ``enable_thinking``
+    from presets and their versions, and send it back on save, so responses keep
+    it. It stays out of the OpenAPI schema, and so out of the generated client."""
+    payload = schema_cls.model_validate(
+        {**fields, "reasoning_effort": reasoning_effort}
+    )
+
+    assert payload.model_dump(mode="json")["enable_thinking"] is enable_thinking
+    for mode in ("validation", "serialization"):
+        properties = schema_cls.model_json_schema(mode=mode)["properties"]
+        assert "enable_thinking" not in properties
 
 
 def test_agent_preset_read_minimal_exposes_capabilities() -> None:
@@ -468,9 +523,7 @@ def test_agent_preset_version_read_schema_accepts_legacy_whitespace_model_fields
     assert str(payload.workspace_id) == "6b2bb4d8-8461-486d-b4ca-e10a5a19d2f2"
 
 
-@pytest.mark.parametrize(
-    "field_name", ["retries", "enable_thinking", "enable_internet_access"]
-)
+@pytest.mark.parametrize("field_name", ["retries", "enable_internet_access"])
 def test_agent_preset_update_rejects_null_for_non_nullable_fields(
     field_name: str,
 ) -> None:
@@ -511,3 +564,70 @@ def test_build_agent_preset_tool_summary(
     assert build_agent_preset_tool_summary(policy) == AgentPresetToolSummary(
         tool_count=len(actions), namespaces=namespaces
     )
+
+
+@pytest.mark.parametrize("schema_cls", [AgentPresetCreate, PresetCreateRequest])
+@pytest.mark.parametrize(
+    ("legacy", "expected"),
+    [
+        ({"enable_thinking": False}, "off"),
+        ({"enable_thinking": True}, None),
+        ({"enable_thinking": "false"}, "off"),
+        ({"enable_thinking": 0}, "off"),
+        ({"enable_thinking": "true"}, None),
+        ({"enable_thinking": False, "reasoning_effort": None}, None),
+        ({"enable_thinking": False, "reasoning_effort": "high"}, "high"),
+    ],
+)
+def test_preset_create_schemas_read_legacy_enable_thinking(
+    schema_cls: type[AgentPresetCreate] | type[PresetCreateRequest],
+    legacy: dict[str, object],
+    expected: str | None,
+) -> None:
+    """Create requests from older clients keep their thinking choice, parsed
+    as the bool field did, and an explicit reasoning_effort, even null, wins."""
+    payload = schema_cls.model_validate(
+        {
+            "name": "Triage preset",
+            "model_name": "gpt-5-mini",
+            "model_provider": "openai",
+            **legacy,
+        }
+    )
+
+    assert payload.reasoning_effort == expected
+    assert "reasoning_effort" in payload.model_fields_set
+
+
+@pytest.mark.parametrize("flag", [False, "false", "0", 0])
+def test_preset_update_schemas_pass_legacy_enable_thinking_to_service(
+    flag: object,
+) -> None:
+    """The internal route forwards the deprecated flag for the service to
+    resolve, and neither the dump nor the public schema exposes it."""
+    request = PresetUpdateRequest.model_validate({"enable_thinking": flag})
+    update = AgentPresetUpdate(**request.model_dump(exclude_unset=True))
+
+    assert update.enable_thinking is False
+    assert update.model_dump(exclude_unset=True) == {}
+    assert "enable_thinking" not in AgentPresetUpdate.model_json_schema()["properties"]
+
+
+@pytest.mark.parametrize(
+    "schema_cls",
+    [AgentPresetCreate, PresetCreateRequest, AgentPresetUpdate, PresetUpdateRequest],
+)
+def test_preset_schemas_reject_unparseable_legacy_enable_thinking(
+    schema_cls: type[BaseModel],
+) -> None:
+    payload = {
+        "name": "Triage preset",
+        "model_name": "gpt-5-mini",
+        "model_provider": "openai",
+        "enable_thinking": "maybe",
+    }
+
+    with pytest.raises(ValidationError) as exc_info:
+        schema_cls.model_validate(payload)
+
+    assert [error["loc"] for error in exc_info.value.errors()] == [("enable_thinking",)]

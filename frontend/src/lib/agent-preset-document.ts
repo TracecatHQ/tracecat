@@ -5,7 +5,9 @@ import type {
   AgentPresetVersionRead,
   AnyAttachedSubagentRef,
   OutputType,
+  ReasoningEffort,
 } from "@/client"
+import { readAgentPresetReasoningEffort } from "@/lib/agent-presets"
 
 /**
  * Renders an agent preset as two virtual files, `instructions.md` and
@@ -113,8 +115,8 @@ export interface AgentPresetDocumentInput {
   librarySkills: string[]
   /** Retry budget. */
   retries: number
-  /** Whether extended thinking is enabled. */
-  enableThinking: boolean
+  /** Reasoning level; null uses the model default. */
+  reasoningEffort: ReasoningEffort | null
   /** Whether internet access is enabled. */
   enableInternetAccess: boolean
 }
@@ -283,7 +285,7 @@ function agentPresetExecutionFieldsToDocumentInput(
     // `form.getValues()` returns raw input and `retries` is a `z.coerce.number()`
     // field, so mid-edit it can still be the string "3".
     retries: Number(fields.retries ?? DEFAULT_RETRIES),
-    enableThinking: fields.enable_thinking ?? false,
+    reasoningEffort: readAgentPresetReasoningEffort(fields),
     enableInternetAccess: fields.enable_internet_access ?? false,
   }
 }
@@ -410,7 +412,7 @@ export function buildAgentPresetVirtualFiles(input: AgentPresetDocumentInput): {
     library_skills: input.librarySkills,
     runtime: {
       retries: input.retries,
-      enable_thinking: input.enableThinking,
+      reasoning_effort: input.reasoningEffort,
       enable_internet_access: input.enableInternetAccess,
     },
   }

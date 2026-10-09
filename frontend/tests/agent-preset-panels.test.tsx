@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event"
 import { useEffect } from "react"
 import { useFieldArray, useForm } from "react-hook-form"
 import {
+  type AgentPresetRead,
   type AgentPresetReadMinimal,
   type AgentPresetToolPolicyRead,
   agentPresetsPreviewToolPolicy,
@@ -18,10 +19,15 @@ import {
   AgentPresetSubagentsPanel,
   agentPresetSchema,
   formValuesToPayload,
+  presetToFormValues,
 } from "@/components/agents/agent-presets-builder"
 import { Form } from "@/components/ui/form"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useSkills } from "@/hooks/use-skills"
+import {
+  type AgentPresetReasoningFields,
+  buildAgentPresetUpdatePayload,
+} from "@/lib/agent-presets"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 import { registryTool } from "./fixtures/agent-preset-tools"
 
@@ -960,4 +966,43 @@ it("uses one accessible subagent toggle and keeps the name and removal independe
   await user.click(screen.getByRole("button", { name: "Remove Example agent" }))
   expect(values().subagents).toEqual([])
   open.mockRestore()
+})
+
+/**
+ * During a rollout, an API pod from before reasoning levels returns presets
+ * with only the legacy flag. Editing such a preset must not turn thinking back
+ * on or reset its level.
+ */
+describe("editing a preset read from an API pod that predates reasoning levels", () => {
+  const legacyPreset = (
+    enableThinking: boolean
+  ): AgentPresetRead & AgentPresetReasoningFields => ({
+    id: "preset-1",
+    workspace_id: "ws-1",
+    name: "Triage agent",
+    slug: "triage-agent",
+    model_name: "gpt-4o-mini",
+    model_provider: "openai",
+    enable_thinking: enableThinking,
+    created_at: "2026-03-13T12:00:00Z",
+    updated_at: "2026-03-13T12:00:00Z",
+  })
+
+  it("shows the legacy off choice as off", () => {
+    expect(presetToFormValues(legacyPreset(false)).reasoningEffort).toBe("off")
+  })
+
+  it.each([false, true])(
+    "leaves the stored level alone on an unrelated save (enable_thinking: %p)",
+    (enableThinking) => {
+      const values = presetToFormValues(legacyPreset(enableThinking))
+      const update = buildAgentPresetUpdatePayload(
+        formValuesToPayload({ ...values, name: "Renamed agent" }),
+        { skillsChanged: false, reasoningEffortChanged: false }
+      )
+
+      expect(update.name).toBe("Renamed agent")
+      expect(update).not.toHaveProperty("reasoning_effort")
+    }
+  )
 })

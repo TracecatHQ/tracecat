@@ -2728,7 +2728,7 @@ class AgentSessionService(BaseWorkspaceService):
                             model_provider=preset_config.model_provider,
                             catalog_id=preset_config.catalog_id,
                             actions=[],  # No tools for forked sessions
-                            enable_thinking=preset_config.enable_thinking,
+                            reasoning_effort=preset_config.reasoning_effort,
                         )
                 else:
                     # No preset - use org default model with fork context

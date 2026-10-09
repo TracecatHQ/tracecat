@@ -67,6 +67,7 @@ from tracecat.agent.authoring_context import (
     WorkflowAuthoringContextResponse as SharedWorkflowAuthoringContextResponse,
 )
 from tracecat.agent.common.stream_types import StreamEventType, UnifiedStreamEvent
+from tracecat.agent.common.types import ReasoningEffort
 from tracecat.agent.folders.service import AgentFolderService
 from tracecat.agent.preset.schemas import (
     AgentPresetCreate,
@@ -8728,7 +8729,7 @@ async def create_agent_preset(
     tool_approvals: dict[str, bool] | None = None,
     mcp_integration_ids: list[str] | None = None,
     retries: int | None = None,
-    enable_thinking: bool | None = None,
+    reasoning_effort: ReasoningEffort | None = None,
     enable_internet_access: bool | None = None,
     skills: list[AgentPresetSkillBindingBase] | None = None,
     subagents: list[AttachedSubagentRef] | None = None,
@@ -8749,6 +8750,9 @@ async def create_agent_preset(
     user explicitly asks to pin a specific version. A child preset cannot have
     its own subagents, and its tools can require manual approval only when an
     enabled agent backend supports subagent approvals.
+
+    `reasoning_effort` is one of `off`, `low`, `medium`, `high`, or `max`. Omit
+    it to use the model's default reasoning level.
     """
 
     try:
@@ -8779,7 +8783,7 @@ async def create_agent_preset(
             "tool_approvals": tool_approvals,
             "mcp_integrations": mcp_integration_ids,
             "retries": retries,
-            "enable_thinking": enable_thinking,
+            "reasoning_effort": reasoning_effort,
             "enable_internet_access": enable_internet_access,
             "skills": skills,
             "agents": (
@@ -8829,7 +8833,8 @@ async def update_agent_preset(
     tool_approvals: dict[str, bool] | None = None,
     mcp_integration_ids: list[str] | None = None,
     retries: int | None = None,
-    enable_thinking: bool | None = None,
+    reasoning_effort: ReasoningEffort | None = None,
+    clear_reasoning_effort: bool = False,
     enable_internet_access: bool | None = None,
     skills: list[AgentPresetSkillBindingBase] | None = None,
     subagents: list[AttachedSubagentRef] | None = None,
@@ -8859,6 +8864,10 @@ async def update_agent_preset(
 
     Set `clear_output_type=true` to remove an existing `output_type` (agent
     returns plain text). Omitting `output_type` leaves it unchanged.
+
+    `reasoning_effort` is one of `off`, `low`, `medium`, `high`, or `max`. Set
+    `clear_reasoning_effort=true` to use the model's default reasoning level.
+    Pass one of the two, not both. Omitting both leaves the level unchanged.
     """
 
     try:
@@ -8876,7 +8885,7 @@ async def update_agent_preset(
             "tool_approvals": tool_approvals,
             "mcp_integrations": mcp_integration_ids,
             "retries": retries,
-            "enable_thinking": enable_thinking,
+            "reasoning_effort": reasoning_effort,
             "enable_internet_access": enable_internet_access,
             "skills": skills,
             "agents": (
@@ -8896,6 +8905,12 @@ async def update_agent_preset(
             raise ToolError("Pass either output_type or clear_output_type, not both")
         if clear_output_type:
             update_data["output_type"] = None
+        if clear_reasoning_effort and reasoning_effort is not None:
+            raise ToolError(
+                "Pass either reasoning_effort or clear_reasoning_effort, not both"
+            )
+        if clear_reasoning_effort:
+            update_data["reasoning_effort"] = None
         if model_name is not None or model_provider is not None:
             (
                 resolved_model_name,

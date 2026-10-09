@@ -245,3 +245,32 @@ async def test_update_preset_serializes_authoring_fields(
             "skills": [{"skill_id": "11111111-1111-1111-1111-111111111111"}],
         },
     )
+
+
+@pytest.mark.anyio
+async def test_update_preset_forwards_deprecated_enable_thinking(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    """The API resolves the legacy flag against the preset's current level."""
+    await agents_client.update_preset("case-triage", enable_thinking=True)
+
+    mock_tracecat_client.patch.assert_awaited_once_with(
+        "/agent/presets/by-slug/case-triage",
+        json={"enable_thinking": True},
+    )
+
+
+@pytest.mark.anyio
+async def test_create_preset_forwards_deprecated_enable_thinking(
+    agents_client: AgentsClient,
+    mock_tracecat_client: MagicMock,
+) -> None:
+    """Callers written before reasoning levels keep working; the API maps the
+    flag to a level."""
+    await agents_client.create_preset(name="Case triage", enable_thinking=False)
+
+    mock_tracecat_client.post.assert_awaited_once_with(
+        "/agent/presets",
+        json={"name": "Case triage", "enable_thinking": False},
+    )

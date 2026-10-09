@@ -139,7 +139,7 @@ class AgentPresetService(BaseWorkspaceService):
         "library_skills",
         "agents",
         "retries",
-        "enable_thinking",
+        "reasoning_effort",
         "enable_internet_access",
     }
 
@@ -469,7 +469,7 @@ class AgentPresetService(BaseWorkspaceService):
             library_skills=preset.library_skills,
             agents=agents,
             retries=preset.retries,
-            enable_thinking=preset.enable_thinking,
+            reasoning_effort=preset.reasoning_effort,
             enable_internet_access=preset.enable_internet_access
             or policy.requires_internet_access,
             tool_policy=self._tool_policy_read(policy),
@@ -505,7 +505,7 @@ class AgentPresetService(BaseWorkspaceService):
             library_skills=version.library_skills,
             agents=agents,
             retries=version.retries,
-            enable_thinking=version.enable_thinking,
+            reasoning_effort=version.reasoning_effort,
             enable_internet_access=version.enable_internet_access
             or policy.requires_internet_access,
             tool_policy=self._tool_policy_read(policy),
@@ -578,7 +578,7 @@ class AgentPresetService(BaseWorkspaceService):
             mcp_integrations=params.mcp_integrations,
             library_skills=library_skills,
             agents=AgentSubagentsConfig().model_dump(mode="json"),
-            enable_thinking=params.enable_thinking,
+            reasoning_effort=params.reasoning_effort,
             enable_internet_access=params.enable_internet_access,
             retries=params.retries,
         )
@@ -660,6 +660,14 @@ class AgentPresetService(BaseWorkspaceService):
         current_specs, publish_specs = await self._lock_update_skill_bindings(
             preset, params
         )
+        if "reasoning_effort" not in set_fields and params.enable_thinking is not None:
+            # Older clients send only the flag: off disables reasoning, and on
+            # clears "off" without discarding another level. Read the level
+            # after the locked refresh so a concurrent update isn't overwritten.
+            if not params.enable_thinking:
+                set_fields["reasoning_effort"] = "off"
+            elif preset.reasoning_effort == "off":
+                set_fields["reasoning_effort"] = None
 
         # Handle name first as it may be needed for slug fallback
         if "name" in set_fields:
@@ -2329,7 +2337,7 @@ class AgentPresetService(BaseWorkspaceService):
             "base_url",
             "output_type",
             "retries",
-            "enable_thinking",
+            "reasoning_effort",
             "enable_internet_access",
             "agents",
         ):
@@ -2487,7 +2495,7 @@ class AgentPresetService(BaseWorkspaceService):
             agents=agents,
             retries=version.retries,
             model_settings=model_settings,
-            enable_thinking=version.enable_thinking,
+            reasoning_effort=version.reasoning_effort,
             enable_internet_access=version.enable_internet_access
             or policy.requires_internet_access,
             resolved_skills=resolved_skills,
@@ -2646,7 +2654,7 @@ class AgentPresetService(BaseWorkspaceService):
             library_skills=preset.library_skills,
             agents=preset.agents,
             retries=preset.retries,
-            enable_thinking=preset.enable_thinking,
+            reasoning_effort=preset.reasoning_effort,
             enable_internet_access=preset.enable_internet_access,
         )
         self.session.add(version)
@@ -2679,5 +2687,5 @@ class AgentPresetService(BaseWorkspaceService):
         preset.library_skills = version.library_skills
         preset.agents = agents
         preset.retries = version.retries
-        preset.enable_thinking = version.enable_thinking
+        preset.reasoning_effort = version.reasoning_effort
         preset.enable_internet_access = version.enable_internet_access

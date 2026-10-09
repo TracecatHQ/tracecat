@@ -1273,43 +1273,29 @@ class TestClaudeAgentRuntimeRun:
         assert captured_options[0].max_buffer_size == CLAUDE_SDK_MAX_BUFFER_SIZE_BYTES
 
     @pytest.mark.anyio
-    async def test_enable_thinking_uses_fixed_budget_thinking(
+    @pytest.mark.parametrize(
+        ("reasoning_effort", "expected_thinking", "expected_effort"),
+        [
+            (None, None, None),
+            ("off", {"type": "disabled"}, "low"),
+            ("low", {"type": "enabled", "budget_tokens": 4_000}, "low"),
+            ("medium", {"type": "enabled", "budget_tokens": 10_000}, "medium"),
+            ("high", {"type": "enabled", "budget_tokens": 20_000}, "high"),
+            ("max", {"type": "enabled", "budget_tokens": 32_000}, "max"),
+        ],
+    )
+    async def test_reasoning_effort_maps_to_sdk_thinking_and_effort(
         self,
         mock_socket_writer: MagicMock,
         mock_claude_sdk_client: MagicMock,
         sample_init_payload: RuntimeInitPayload,
+        reasoning_effort: str | None,
+        expected_thinking: dict[str, Any] | None,
+        expected_effort: str | None,
     ) -> None:
-        captured_options: list[Any] = []
-
-        def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
-            captured_options.append(kwargs["options"])
-            return mock_claude_sdk_client
-
-        with (
-            patch(
-                "tracecat.agent.runtime.claude_code.runtime.ClaudeSDKClient",
-                side_effect=_mock_client_ctor,
-            ),
-        ):
-            runtime = ClaudeAgentRuntime(
-                mock_socket_writer, transport_factory=lambda _: MagicMock()
-            )
-            await runtime.run(sample_init_payload)
-
-        assert captured_options
-        assert captured_options[0].effort is None
-        assert captured_options[0].thinking == {
-            "type": "enabled",
-            "budget_tokens": 1024,
-        }
-
-    @pytest.mark.anyio
-    async def test_disable_thinking_uses_disabled_thinking_config(
-        self,
-        mock_socket_writer: MagicMock,
-        mock_claude_sdk_client: MagicMock,
-        sample_init_payload: RuntimeInitPayload,
-    ) -> None:
+        """None leaves the CLI on the model default; levels set both effort
+        (adaptive and non-Claude models) and a budget (older Claude models).
+        Off adds the lowest effort for models that cannot disable thinking."""
         captured_options: list[Any] = []
 
         def _mock_client_ctor(*_args: Any, **kwargs: Any) -> MagicMock:
@@ -1319,7 +1305,7 @@ class TestClaudeAgentRuntimeRun:
         payload = replace(
             sample_init_payload,
             config=sample_init_payload.config.model_copy(
-                update={"enable_thinking": False}
+                update={"reasoning_effort": reasoning_effort}
             ),
         )
 
@@ -1335,8 +1321,8 @@ class TestClaudeAgentRuntimeRun:
             await runtime.run(payload)
 
         assert captured_options
-        assert captured_options[0].effort is None
-        assert captured_options[0].thinking == {"type": "disabled"}
+        assert captured_options[0].thinking == expected_thinking
+        assert captured_options[0].effort == expected_effort
 
     @pytest.mark.anyio
     async def test_sets_auto_compact_window_for_custom_model_provider(
@@ -1886,6 +1872,56 @@ class TestClaudeAgentRuntimeRun:
 
         assert definitions is not None
         assert definitions["analyst"].model == expected
+
+    @pytest.mark.parametrize(
+        ("root_effort", "child_effort", "expected"),
+        [
+            # Default inherits the root's level through the shared session.
+            ("max", None, None),
+            ("max", "low", "low"),
+            (None, "high", "high"),
+            # Subagents share the root's thinking setting, so off runs at low.
+            ("high", "off", "low"),
+            # Root off disables thinking for children; cap max at high.
+            ("off", "max", "high"),
+            ("off", "medium", "medium"),
+        ],
+    )
+    def test_subagent_definitions_carry_child_reasoning_effort(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+        root_effort: str | None,
+        child_effort: str | None,
+        expected: str | None,
+    ) -> None:
+        """A child preset's level reaches its definition independently of the
+        root's, with off and default defined against the shared session."""
+        child = SandboxSubagentConfig(
+            alias="analyst",
+            description="Use for enrichment analysis.",
+            prompt="Analyze enrichment data.",
+            config=sample_init_payload.config.model_copy(
+                update={"reasoning_effort": child_effort}
+            ),
+            mcp_auth_token="child-mcp-token",
+        )
+        payload = replace(
+            sample_init_payload,
+            config=sample_init_payload.config.model_copy(
+                update={"reasoning_effort": root_effort}
+            ),
+            subagents=[child],
+        )
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+        )
+
+        definitions = runtime._build_agent_definitions(payload=payload)
+
+        assert definitions is not None
+        assert definitions["analyst"].effort == expected
 
     def test_subagent_definitions_prefer_scoped_model_route(
         self,

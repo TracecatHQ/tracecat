@@ -45,6 +45,19 @@ A pause for a tool approval does not count toward the timeout, and the resumed r
 
 See [Actions](/automations/actions#timeout) for the clamp rule and the `retry_policy` shape, and [Environment variables](/self-hosting/environment-variables) for the ceiling.
 
+## Reasoning levels
+
+`reasoning_effort` accepts `off`, `low`, `medium`, `high`, or `max`. Leave it empty to use the model's default. Where a model or provider lacks a level, Tracecat falls back:
+
+- `off` runs at `low` on Claude models that always think: Claude Opus 5.5, Claude Sonnet 5.5, and Claude Fable 5 and 5.1.
+- `off` uses the model's default on non-Anthropic providers.
+- `max` becomes `xhigh` on OpenAI and `high` on other non-Anthropic providers.
+- An empty value sends `high` to non-Anthropic providers.
+- Amazon Bedrock, Ollama, Mistral, and some Azure AI models use the model's default for every level.
+- Non-Anthropic providers with `passthrough: true` use their endpoint's default level.
+
+Subagent presets set their own reasoning level, but share the root preset's thinking setting. An empty level uses the root preset's level, and `off` runs at `low`. When the root preset is `off`, subagents also run without thinking, and `max` runs at `high`.
+
 ## Reference
 
 ### `ai.agent`
@@ -73,7 +86,7 @@ Default: `null`.
 
 <ParamField path="enable_thinking" type="boolean">
 
-Whether to enable high thinking for agent runs.
+Deprecated. Use `reasoning_effort` instead. `false` is the same as `reasoning_effort: off`.
 
 Default: `true`.
 
@@ -146,6 +159,14 @@ Default: `null`.
 <ParamField path="output_type" type="string | object | null">
 
 Output type for agent responses. Select from a list of supported types or provide a JSONSchema.
+
+Default: `null`.
+
+</ParamField>
+
+<ParamField path="reasoning_effort" type="string | null">
+
+Reasoning level for agent runs: `off`, `low`, `medium`, `high`, or `max`. Leave empty to use the model's default.
 
 Default: `null`.
 

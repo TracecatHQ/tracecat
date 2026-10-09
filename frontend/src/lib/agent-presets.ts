@@ -2,6 +2,7 @@ import type {
   AgentPresetCreate,
   AgentPresetRead,
   AgentPresetUpdate,
+  ReasoningEffort,
 } from "@/client"
 import { getApiErrorDetail } from "@/lib/errors"
 import { slugify } from "@/lib/utils"
@@ -57,9 +58,37 @@ export const AGENT_PRESET_PUBLISHING_FIELDS: ReadonlySet<string> = new Set([
   "library_skills",
   "agents",
   "retries",
-  "enable_thinking",
+  "reasoning_effort",
   "enable_internet_access",
 ])
+
+/**
+ * Reasoning fields on a preset or preset version response.
+ *
+ * API pods from before reasoning levels omit `reasoning_effort` and return
+ * only the deprecated `enable_thinking`, which the generated types leave out.
+ */
+export type AgentPresetReasoningFields = {
+  reasoning_effort?: ReasoningEffort | null
+  enable_thinking?: boolean
+}
+
+/**
+ * Reads a preset's reasoning level, falling back to the legacy flag.
+ *
+ * A `reasoning_effort` key wins, even when null. Without one, the response
+ * came from an API pod that predates reasoning levels, so
+ * `enable_thinking: false` means `"off"` and anything else the model default.
+ * Drop the fallback with the `enable_thinking` column.
+ */
+export function readAgentPresetReasoningEffort(
+  fields: AgentPresetReasoningFields
+): ReasoningEffort | null {
+  if (fields.reasoning_effort !== undefined) {
+    return fields.reasoning_effort
+  }
+  return fields.enable_thinking === false ? "off" : null
+}
 
 export function buildSkillCommandItemValue({
   id,
@@ -129,18 +158,26 @@ export function buildDuplicateAgentPresetPayload(
     library_skills: preset.library_skills ?? null,
     agents: preset.agents,
     retries: preset.retries,
-    enable_thinking: preset.enable_thinking,
+    reasoning_effort: readAgentPresetReasoningEffort(preset),
     enable_internet_access: preset.enable_internet_access,
   }
 }
 
 export function buildAgentPresetUpdatePayload(
   payload: AgentPresetCreate,
-  { skillsChanged }: { skillsChanged: boolean }
+  {
+    skillsChanged,
+    reasoningEffortChanged,
+  }: { skillsChanged: boolean; reasoningEffortChanged: boolean }
 ): AgentPresetUpdate {
   const updatePayload: AgentPresetUpdate = { ...payload }
   if (!skillsChanged) {
     delete updatePayload.skills
+  }
+  // An untouched level may have been read from an API pod that predates
+  // reasoning levels. Omitting it keeps the stored level.
+  if (!reasoningEffortChanged) {
+    delete updatePayload.reasoning_effort
   }
   return updatePayload
 }

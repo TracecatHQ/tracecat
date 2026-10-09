@@ -7,8 +7,19 @@ import re
 import uuid
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 
+from tracecat.agent.common.types import (
+    ReasoningEffort,
+    migrate_legacy_enable_thinking,
+)
 from tracecat.cases.durations.schemas import CaseDurationAnchorSelection
 from tracecat.cases.enums import CaseEventType
 from tracecat.dsl.common import DSLInput
@@ -309,14 +320,35 @@ class AgentPresetResourceSpec(BaseModel):
         ge=0,
         description="Maximum agent run retries.",
     )
-    enable_thinking: bool = Field(
-        default=True,
-        description="Whether extended thinking is enabled.",
+    reasoning_effort: ReasoningEffort | None = Field(
+        default=None,
+        description="Reasoning level, or ``None`` to use the model default.",
     )
     enable_internet_access: bool = Field(
         default=False,
         description="Whether the agent may access the internet.",
     )
+
+    @computed_field(
+        description=(
+            "Deprecated: whether reasoning_effort is not off. Servers from "
+            "before reasoning levels read only this flag."
+        )
+    )
+    @property
+    def enable_thinking(self) -> bool:
+        """Export the legacy flag so older servers keep an ``off`` choice.
+
+        Imports prefer ``reasoning_effort``. Drop with the ``enable_thinking``
+        column.
+        """
+        return self.reasoning_effort != "off"
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_enable_thinking(cls, data: Any) -> Any:
+        """Read ``enable_thinking`` from specs exported before reasoning levels."""
+        return migrate_legacy_enable_thinking(data)
 
     @model_validator(mode="after")
     def validate_mcp_integration_hints(self) -> AgentPresetResourceSpec:

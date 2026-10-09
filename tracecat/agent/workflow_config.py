@@ -170,7 +170,7 @@ def agent_config_to_payload(config: AgentConfig) -> AgentConfigPayload:
         ),
         agents=config.agents,
         retries=config.retries,
-        enable_thinking=config.enable_thinking,
+        reasoning_effort=config.reasoning_effort,
         enable_internet_access=config.enable_internet_access,
         resolved_skills=(
             [_resolved_skill_to_payload(skill) for skill in config.resolved_skills]
@@ -203,7 +203,7 @@ def agent_config_from_payload(payload: AgentConfigPayload) -> AgentConfig:
         ),
         agents=payload.agents,
         retries=payload.retries,
-        enable_thinking=payload.enable_thinking,
+        reasoning_effort=payload.reasoning_effort,
         enable_internet_access=payload.enable_internet_access,
         resolved_skills=(
             [_resolved_skill_from_payload(skill) for skill in payload.resolved_skills]
