@@ -302,6 +302,29 @@ describe("AgentsDashboard entitlement split", () => {
       expect(lastOptions(mockUseListMcpIntegrations)?.enabled).toBe(false)
     })
 
+    it("ignores cached MCP integrations without the integration read scope", () => {
+      mockUseScopeCheck.mockImplementation(
+        (scope) => scope !== "integration:read"
+      )
+      // A disabled query still returns data cached while the scope was held.
+      mockUseListMcpIntegrations.mockReturnValue({
+        mcpIntegrations: [
+          {
+            slug: "remote",
+            server_type: "http",
+            tools: [{ name: "a" }, { name: "b" }],
+          },
+        ],
+      })
+      renderPreset({
+        tool_count: 3,
+        namespaces: ["tools.slack"],
+        mcp_slugs: ["remote"],
+      })
+      const sources = within(screen.getByTestId("tool-sources"))
+      expect(sources.getByText("3 tools + 1 MCP")).toBeInTheDocument()
+    })
+
     it("shows the provider slug in the model badge tooltip", async () => {
       renderPreset(undefined)
       await userEvent.hover(screen.getByText(PRESET.model_name))

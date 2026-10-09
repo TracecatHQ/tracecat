@@ -167,7 +167,8 @@ function OwnedToolsField({
         value={value}
         onChange={write}
         registryActions={registryActions}
-        mcpIntegrations={mcpIntegrations}
+        // A skipped query still returns data cached before the scope was lost.
+        mcpIntegrations={mcpReadable ? mcpIntegrations : undefined}
         registryLoading={registryActionsIsLoading}
         mcpLoading={mcpLoading}
         toolsLoadError={Boolean(

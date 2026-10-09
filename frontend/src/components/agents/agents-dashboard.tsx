@@ -2325,9 +2325,13 @@ export function AgentsDashboard() {
   // The list endpoint needs `integration:read`; without it the request 403s
   // and the slugs stay uncounted.
   const canReadIntegrations = useScopeCheck("integration:read") === true
-  const { mcpIntegrations } = useListMcpIntegrations(workspaceId, undefined, {
+  const mcpQuery = useListMcpIntegrations(workspaceId, undefined, {
     enabled: hasMcpSources && canReadIntegrations,
   })
+  // A skipped query still returns data cached before the scope was lost.
+  const mcpIntegrations = canReadIntegrations
+    ? mcpQuery.mcpIntegrations
+    : undefined
   const mcpBySlug = useMemo(
     () =>
       mcpIntegrations

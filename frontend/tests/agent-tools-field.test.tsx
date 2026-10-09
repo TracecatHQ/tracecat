@@ -171,6 +171,19 @@ it("keeps registry tools editable without integration read access", async () => 
   })
 })
 
+it("ignores cached MCP integrations without integration read access", async () => {
+  // The default mock returns the catalogue, as a disabled query does from cache.
+  jest.mocked(useScopeCheck).mockReturnValue(false)
+  const user = userEvent.setup()
+  render(<TestField inputs={{ mcp_integrations: [integration.id] }} />)
+  expect(screen.queryByText("Test MCP")).not.toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Add tools" }))
+  expect(await screen.findByRole("option", { name: /first/ })).toBeVisible()
+  expect(
+    screen.queryByRole("option", { name: /Test MCP/ })
+  ).not.toBeInTheDocument()
+})
+
 it("waits for scopes before requesting MCP integrations", () => {
   jest.mocked(useScopeCheck).mockReturnValue(undefined)
   render(<TestField />)
