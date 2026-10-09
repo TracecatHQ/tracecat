@@ -35,8 +35,9 @@ You can use them to keep status, evidence, comments, and follow-up work together
     Add todo items with attachable workflows.
   </Card>
   <Card
-    title="Linked rows"
+    title="Linked tables"
     icon="between-horizontal-end"
+    href="/automations/cases/linked-tables"
   >
     <Badge icon="lock" color="blue" size="lg" shape="pill">EE</Badge>
     Link structured data to cases.
@@ -60,7 +61,7 @@ Your workflows can create or update a case, attach evidence, add comments, and m
 - Store evidence as attachments instead of passing large blobs between actions
 - Link structured rows, tasks, and metrics to keep investigation context organized
 
-## How to trigger workflows from cases
+## Trigger workflows
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
 
@@ -70,7 +71,7 @@ Your workflows can create or update a case, attach evidence, add comments, and m
 
 An agent can also call a workflow as a tool. When you need fixed order, deterministic branching, or guaranteed steps, use `/` or start the workflow from a task instead of asking an agent to run it.
 
-## How to chat with agents from cases
+## Trigger agents
 
 ### Mention a preset agent
 
@@ -109,40 +110,22 @@ You can also set tags from workflows with `core.cases.create_case` and `core.cas
 
 ## Custom fields
 
-Custom fields let you store case-specific data that does not fit into the default case properties.
-You can use them for values such as ticket IDs, affected systems, request metadata, or triage notes.
-
-![Case custom field](/img/cases/case-custom-field.png)
-
-Use custom fields when you need flexible structured data on a case.
-Your workflows can read and update them through the `fields` input on case actions.
-
-Case custom fields use the same storage type family as tables: `TEXT`, `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, `SELECT`, and `MULTI_SELECT`.
-In the case field picker, raw `JSONB` is currently surfaced through the case-only `URL` kind, and the picker also exposes `Long text`, which is layered on top of `TEXT`.
+Custom fields store case-specific data that does not fit into the default case properties, such as ticket IDs, affected systems, or triage notes.
+See [Custom fields and dropdowns](/automations/cases/custom-fields) for field types and how workflows read and update them.
 
 ## Dropdowns
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
 
-Dropdowns add custom top-level case filters alongside built-in filters such as status, priority, and severity.
-You can use them to add workspace-specific classifications such as queue, business unit, incident type, or escalation path.
-
-![Case dropdown](/img/cases/case-dropdown.png)
-
-Unlike free-form fields, dropdowns give you a fixed set of options.
-This makes them useful when you want consistent filtering, routing, and reporting across your case queue.
+Dropdowns add custom top-level case filters with a fixed set of options, such as queue, business unit, or incident type.
+See [Custom fields and dropdowns](/automations/cases/custom-fields#dropdowns) to set them up.
 
 ## Durations
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
 
-Durations track elapsed time between case events.
-You can use them to measure intervals such as time to triage, time to assign, or time to resolution.
-
-![Case duration](/img/cases/case-duration.png)
-
-Durations help you understand how cases move through your process.
-They are useful when you want operational reporting or workflow triggers based on how long a case has been in a given state.
+Durations track elapsed time between case events, such as time to triage or time to resolution.
+See [Case durations](/automations/cases/durations) for details.
 
 ## Tasks
 
@@ -150,48 +133,12 @@ They are useful when you want operational reporting or workflow triggers based o
 
 See [Case tasks](/automations/cases/tasks) to assign follow-up work, track completion, and start workflows from a task.
 
-## Linked rows
+## Linked tables
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
 
-Linked rows connect a case to structured data in tables.
-Use them when a case needs more than free-form notes, such as indicators, assets, or external detections.
-
-![Linked rows](/img/cases/linked-rows.png)
-
-Each linked table renders as its own grid in the case's Tables tab, 20 rows at a time; page with the arrows in the table header. To link rows from the case page:
-
-<Steps>
-  <Step title="Open the Tables tab">
-    Open the case and select the Tables tab.
-  </Step>
-  <Step title="Pick a table and rows">
-    Click `Link table`, choose a table, and tick the rows to link.
-    Your selection is kept while you page through the table or switch to another table, so you can pick rows from several tables at once.
-  </Step>
-  <Step title="Add the rows">
-    Click `Add rows`. Tracecat skips rows that are already linked to the case.
-  </Step>
-</Steps>
-
-![Link rows dialog](/img/cases/link-rows-dialog.png)
-
-To link more rows from a table that is already linked, click `Add rows` on that table's grid. To unlink rows, tick them in the grid and click `Unlink`.
-
-A case can link up to 250 rows from each table and rows from up to 10 tables. Each link or unlink request takes at most 100 row IDs.
-
-For example, you can link:
-- Related SIEM alerts
-- Indicators of compromise (IoCs)
-- Affected assets such as hosts, users, or devices
-- Threat intelligence matches
-- Evidence artifacts such as domains, IPs, or hashes
-
-Linked rows are especially useful when workflows enrich a case over time.
-You can insert new rows as evidence arrives or link existing rows that are already part of another workflow or lookup table.
-
-Linked rows use regular tables.
-When you create a table for case-linked evidence, use the same `columns` JSON schema documented in [Tables](/automations/tables) and [Table actions](/automations/core-actions/memory-actions/tables).
+Link table rows to a case to attach structured evidence such as indicators, assets, or external detections.
+See [Linked tables](/automations/cases/linked-tables) to link and unlink rows and for per-case limits.
 
 ## Case actions
 
