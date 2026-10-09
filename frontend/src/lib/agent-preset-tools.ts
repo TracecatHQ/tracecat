@@ -5,26 +5,40 @@ import { isAgentToolSelectable } from "@/lib/agent-tools"
 
 const SEARCH_KEYS = ["preparedTitle", "preparedKey"]
 
-/** Form fields edited by the preset tools controls. */
-export interface PresetToolFields {
+/** Controlled value shared by the tools list and picker. */
+export interface ToolSelectionValue {
   actions: string[]
   mcpIntegrations: string[]
-  namespaces: string[]
-  toolApprovals: Array<{ tool: string; allow: boolean }>
+  /** Stored namespace filter; omit when the surface has none. */
+  namespaces?: string[]
+  /** Approval overrides; omit when the surface has no approvals. */
+  toolApprovals?: Array<{ tool: string; allow: boolean }>
 }
 
-/** A searchable registry action or whole MCP integration. */
+/** Preset form fields: the selection value with every field present. */
+export type PresetToolFields = Required<ToolSelectionValue>
+
+/**
+ * A selectable tool: a registry action, a whole MCP integration, or one MCP tool.
+ *
+ * `id` is unique in the index. Entries written to `actions` use their key as id.
+ */
 export interface ToolEntry {
   id: string
   key: string
+  /** Value field that stores `key` when the entry is selected. */
+  target: "actions" | "mcpIntegrations"
   title: string
   description: string
   defaultAsk: boolean
+  locked: boolean
   namespace: string
   section: "mcp" | "tracecat" | "custom"
   preparedTitle: Fuzzysort.Prepared
   preparedKey: Fuzzysort.Prepared
   integration?: MCPIntegrationRead
+  /** Grants every tool in its group, standing in for the per-tool entries. */
+  grantsGroup?: boolean
 }
 
 /** A display group; its entry order follows the registry response. */
@@ -43,42 +57,74 @@ export interface ToolIndex {
   byKey: Map<string, ToolEntry>
 }
 
-/** Index selectable actions once, preserving source order independently of display order. */
-export function buildToolIndex(
-  actions: RegistryActionReadMinimal[] = [],
-  integrations: MCPIntegrationRead[] = []
+/** Build the group id shared by every entry in a section and namespace. */
+export function getToolGroupId(
+  entry: Pick<ToolEntry, "section" | "namespace">
+): string {
+  return `${entry.section}:${entry.namespace}`
+}
+
+/** Group prebuilt entries into an index; `groupTitles` is keyed by group id. */
+export function createToolIndex(
+  entries: ToolEntry[],
+  groupTitles: ReadonlyMap<string, string> = new Map()
 ): ToolIndex {
-  const entries: ToolEntry[] = []
   const groups = new Map<string, ToolGroup>()
   const byKey = new Map<string, ToolEntry>()
-  function add(entry: ToolEntry, displayGroup?: string | null) {
-    entries.push(entry)
+  for (const entry of entries) {
     byKey.set(entry.id, entry)
-    const id = `${entry.section}:${entry.namespace}`
+    const id = getToolGroupId(entry)
     let group = groups.get(id)
     if (!group) {
+      const words = entry.namespace.replace(/[._-]/g, " ")
       group = {
         id,
         namespace: entry.namespace,
-        title: "",
+        title:
+          groupTitles.get(id) ?? words.charAt(0).toUpperCase() + words.slice(1),
         section: entry.section,
         entries: [],
       }
       groups.set(id, group)
     }
-    if (!group.title && displayGroup) group.title = displayGroup
     group.entries.push(entry)
   }
+  const sectionOrder = { mcp: 0, tracecat: 1, custom: 2 }
+  const displayGroups = [...groups.values()].sort(
+    (a, b) =>
+      sectionOrder[a.section] - sectionOrder[b.section] ||
+      a.title.localeCompare(b.title) ||
+      a.id.localeCompare(b.id)
+  )
+  return { entries, groups: displayGroups, byKey }
+}
+
+/** Index selectable actions once, preserving source order independently of display order. */
+export function buildToolIndex(
+  actions: RegistryActionReadMinimal[] = [],
+  integrations: MCPIntegrationRead[] = [],
+  options: { filterAgentTools?: boolean } = {}
+): ToolIndex {
+  const entries: ToolEntry[] = []
+  const groupTitles = new Map<string, string>()
+  function add(entry: ToolEntry, displayGroup?: string | null) {
+    entries.push(entry)
+    const id = getToolGroupId(entry)
+    if (displayGroup && !groupTitles.has(id)) groupTitles.set(id, displayGroup)
+  }
+  const filterAgentTools = options.filterAgentTools ?? true
   for (const action of actions) {
-    if (!isAgentToolSelectable(action.action)) continue
+    if (filterAgentTools && !isAgentToolSelectable(action.action)) continue
     const title = action.default_title || action.name
     add(
       {
         id: action.action,
         key: action.action,
+        target: "actions",
         title,
         description: action.description,
         defaultAsk: action.requires_approval ?? false,
+        locked: action.availability?.locked ?? false,
         namespace: action.namespace,
         section: isCustomRegistryOrigin(action.origin) ? "custom" : "tracecat",
         preparedTitle: fuzzysort.prepare(title),
@@ -92,9 +138,11 @@ export function buildToolIndex(
       {
         id: `mcp:${integration.id}`,
         key: integration.id,
+        target: "mcpIntegrations",
         title: integration.name,
         description: integration.description ?? "",
         defaultAsk: false,
+        locked: false,
         namespace: integration.slug,
         section: "mcp",
         integration,
@@ -104,21 +152,7 @@ export function buildToolIndex(
       integration.name
     )
   }
-  const sectionOrder = { mcp: 0, tracecat: 1, custom: 2 }
-  const displayGroups = [...groups.values()]
-  for (const group of displayGroups) {
-    if (!group.title) {
-      const words = group.namespace.replace(/[._-]/g, " ")
-      group.title = words.charAt(0).toUpperCase() + words.slice(1)
-    }
-  }
-  displayGroups.sort(
-    (a, b) =>
-      sectionOrder[a.section] - sectionOrder[b.section] ||
-      a.title.localeCompare(b.title) ||
-      a.id.localeCompare(b.id)
-  )
-  return { entries, groups: displayGroups, byKey }
+  return createToolIndex(entries, groupTitles)
 }
 
 /** Search prepared titles and keys without mounting the catalog. */

@@ -3,6 +3,7 @@
 import fuzzysort from "fuzzysort"
 import {
   BracesIcon,
+  CheckIcon,
   ChevronDownIcon,
   CodeIcon,
   InfoIcon,
@@ -19,6 +20,11 @@ import {
   useFormContext,
 } from "react-hook-form"
 import type { ActionType, RegistryActionReadMinimal } from "@/client/types.gen"
+import {
+  AgentModelCombobox,
+  buildEnabledModelOptions,
+} from "@/components/agents/agent-model-combobox"
+import { AgentToolsField } from "@/components/builder/panel/agent-tools-field"
 import { CodeEditor } from "@/components/editor/codemirror/code-editor"
 import { YamlStyledEditor } from "@/components/editor/codemirror/yaml-editor"
 import { ExpressionInput } from "@/components/editor/expression-input"
@@ -37,6 +43,7 @@ import { Button } from "@/components/ui/button"
 import {
   Command,
   CommandEmpty,
+  CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
@@ -72,7 +79,6 @@ import {
   useWorkspaceAgentModels,
 } from "@/lib/hooks"
 import { getType } from "@/lib/jsonschema"
-import { registryActionToSuggestion } from "@/lib/registry"
 import {
   type ExpressionComponent,
   getTracecatComponents,
@@ -89,6 +95,7 @@ export interface FormComponentProps {
   fieldDefn: TracecatJsonSchema
   description?: string
   className?: string
+  actionProperties?: Record<string, unknown>
 }
 
 export function formatInlineCode(text: string) {
@@ -216,6 +223,7 @@ export function PolymorphicField({
   label,
   fieldName,
   fieldDefn,
+  actionProperties,
 }: FormComponentProps) {
   const methods = useFormContext()
   const { description } = fieldDefn
@@ -334,6 +342,8 @@ export function PolymorphicField({
                   field={field}
                   onChange={field.onChange}
                   component={component}
+                  fieldName={fieldName}
+                  actionProperties={actionProperties}
                 />
               </FormItem>
             )}
@@ -470,7 +480,12 @@ export function PolymorphicField({
               value={field.value}
               onChange={field.onChange}
             >
-              <ComponentContent component={componentToRender} field={field} />
+              <ComponentContent
+                component={componentToRender}
+                field={field}
+                fieldName={fieldName}
+                actionProperties={actionProperties}
+              />
             </PolyField>
           </FormControl>
         </FormItem>
@@ -482,9 +497,13 @@ export function PolymorphicField({
 function ComponentContent({
   component,
   field,
+  fieldName,
+  actionProperties,
 }: {
   component: TracecatEditorComponent
   field: ControllerRenderProps<FieldValues>
+  fieldName: string
+  actionProperties?: Record<string, unknown>
 }) {
   switch (component.component_id) {
     case "text":
@@ -610,6 +629,8 @@ function ComponentContent({
           field={field}
           onChange={field.onChange}
           component={component}
+          fieldName={fieldName}
+          actionProperties={actionProperties}
         />
       )
     case "mcp-integration":
@@ -790,58 +811,18 @@ function SingleActionTypeField({
   )
 }
 
-function MultipleActionTypeField({
-  field,
-  onChange,
-}: {
-  field: ControllerRenderProps<FieldValues>
-  onChange: (value: string[]) => void
-}) {
-  const [lockedFeatureOpen, setLockedFeatureOpen] = useState(false)
-  const { registryActions } = useBuilderRegistryActions({ includeLocked: true })
-
-  // Map actions to suggestions format for MultiTagCommandInput
-  const suggestions = useMemo(() => {
-    return (
-      registryActions
-        ?.map((action) => ({
-          ...registryActionToSuggestion(action),
-          label: action.default_title || action.action,
-          icon: getIcon(action.action, {
-            className: "size-6 p-[3px] border-[0.5px]",
-          }),
-          locked: action.availability?.locked ?? false,
-          onSelect: () => setLockedFeatureOpen(true),
-        }))
-        .sort((a, b) => a.value.localeCompare(b.value)) || []
-    )
-  }, [registryActions])
-
-  return (
-    <>
-      <LockedFeatureModal
-        open={lockedFeatureOpen}
-        onOpenChange={setLockedFeatureOpen}
-      />
-      <MultiTagCommandInput
-        value={field.value}
-        onChange={onChange}
-        suggestions={suggestions}
-        searchKeys={["value", "label", "description", "group"]}
-        placeholder="Start typing to search actions..."
-      />
-    </>
-  )
-}
-
 export function ActionTypeField({
   field,
   onChange,
   component,
+  fieldName,
+  actionProperties,
 }: {
   field: ControllerRenderProps<FieldValues>
   onChange: (value: string | string[]) => void
   component?: ActionType
+  fieldName: string
+  actionProperties?: Record<string, unknown>
 }) {
   const isMultiple = component?.multiple === true
   const searchKeys = [
@@ -853,9 +834,9 @@ export function ActionTypeField({
 
   if (isMultiple) {
     return (
-      <MultipleActionTypeField
-        field={field}
-        onChange={onChange as (value: string[]) => void}
+      <AgentToolsField
+        fieldName={fieldName}
+        properties={actionProperties ?? {}}
       />
     )
   }
@@ -910,108 +891,112 @@ function AgentPresetSelect({
 }: {
   field: ControllerRenderProps<FieldValues>
 }) {
+  const [open, setOpen] = useState(false)
   const workspaceId = useWorkspaceId()
   const { presets, presetsIsLoading, presetsError } = useAgentPresets(
     workspaceId,
     { enabled: Boolean(workspaceId) }
   )
 
-  const handleChange = (value: string) => {
-    field.onChange(value)
+  let placeholder = "Select an agent preset"
+  let emptyText = "No agent presets found."
+  if (!workspaceId) {
+    placeholder = "Select a workspace to load agent presets"
+  } else if (presetsIsLoading) {
+    placeholder = "Loading agent presets..."
+    emptyText = placeholder
+  } else if (presetsError) {
+    placeholder = "Failed to load agent presets"
+    emptyText = placeholder
   }
 
-  const placeholder = !workspaceId
-    ? "Select a workspace to load agent presets"
-    : presetsIsLoading
-      ? "Loading agent presets..."
-      : presetsError
-        ? "Failed to load agent presets"
-        : "Select an agent preset"
+  const value = typeof field.value === "string" ? field.value : ""
+  const selected = presets?.find((preset) => preset.slug === value)
+  // A saved slug without a matching preset is shown as-is, never blanked.
+  let label = <span className="text-muted-foreground">{placeholder}</span>
+  if (selected) {
+    label = (
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate">{selected.name}</span>
+        <span className="truncate font-mono text-xs text-muted-foreground">
+          {selected.slug}
+        </span>
+      </span>
+    )
+  } else if (value) {
+    label = (
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate font-mono text-xs">{value}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          Not found
+        </span>
+      </span>
+    )
+  }
 
   return (
-    <Select
-      value={typeof field.value === "string" ? field.value : undefined}
-      onValueChange={handleChange}
-      disabled={!workspaceId}
-    >
-      <SelectTrigger>
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent>
-        {presetsIsLoading && (
-          <SelectItem value="__loading" disabled>
-            Loading agent presets...
-          </SelectItem>
-        )}
-        {presetsError && (
-          <SelectItem value="__error" disabled>
-            Failed to load agent presets
-          </SelectItem>
-        )}
-        {!presetsIsLoading &&
-          !presetsError &&
-          workspaceId &&
-          (presets?.length ?? 0) === 0 && (
-            <SelectItem value="__empty" disabled>
-              No agent presets found
-            </SelectItem>
-          )}
-        {presets?.map((preset) => (
-          <SelectItem key={preset.slug} value={preset.slug}>
-            {preset.name} ({preset.slug})
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={!workspaceId}
+          className="h-9 w-full justify-between px-3 font-normal shadow-none"
+        >
+          {label}
+          <ChevronDownIcon className="ml-2 size-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[max(var(--radix-popover-trigger-width),24rem)] p-0"
+      >
+        <Command
+          // Start on the selected preset so reopening scrolls to it.
+          defaultValue={
+            selected ? `${selected.name} ${selected.slug}` : undefined
+          }
+        >
+          <CommandInput placeholder="Search agent presets..." />
+          <CommandList>
+            <CommandEmpty>{emptyText}</CommandEmpty>
+            <CommandGroup>
+              {presets?.map((preset) => (
+                <CommandItem
+                  key={preset.slug}
+                  value={`${preset.name} ${preset.slug}`}
+                  onSelect={() => {
+                    field.onChange(preset.slug)
+                    setOpen(false)
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  <span className="min-w-0 truncate">{preset.name}</span>
+                  <span className="truncate font-mono text-xs text-muted-foreground">
+                    {preset.slug}
+                  </span>
+                  <CheckIcon
+                    className={cn(
+                      "ml-auto size-4 shrink-0",
+                      value === preset.slug ? "opacity-100" : "opacity-0"
+                    )}
+                  />
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   )
-}
-
-type AgentModelOption = {
-  optionValue: string
-  catalogId: string
-  modelName: string
-  modelProvider: string
-  sourceName: string
-  iconId: string
 }
 
 type ModelSelectionValue = {
   model_name?: string | null
   model_provider?: string | null
   catalog_id?: string | null
-}
-
-function getModelSelectionKey(selection: {
-  catalog_id?: string | null
-  source_id?: string | null
-  model_provider?: string | null
-  model_name?: string | null
-}): string {
-  if (selection.catalog_id) {
-    return selection.catalog_id
-  }
-  return `${selection.source_id ?? "platform"}::${selection.model_provider ?? ""}::${selection.model_name ?? ""}`
-}
-
-function getModelProviderIconId(modelProvider: string): string {
-  switch (modelProvider) {
-    case "anthropic":
-      return "anthropic"
-    case "azure_ai":
-    case "azure_openai":
-      return "microsoft"
-    case "bedrock":
-      return "amazon-bedrock"
-    case "gemini":
-    case "vertex_ai":
-      return "google"
-    case "mistral":
-      return "mistral"
-    case "openai":
-      return "openai"
-    default:
-      return "custom"
-  }
 }
 
 function AgentModelSelect({
@@ -1023,96 +1008,11 @@ function AgentModelSelect({
   const { models, providers, modelsLoading, modelsError } =
     useWorkspaceAgentModels(workspaceId)
   const selection = (field.value ?? {}) as ModelSelectionValue
-  const catalogIdValue =
-    typeof selection.catalog_id === "string" ? selection.catalog_id : ""
-  const modelNameValue =
-    typeof selection.model_name === "string" ? selection.model_name : ""
-  const modelProviderValue =
-    typeof selection.model_provider === "string" ? selection.model_provider : ""
-  const options = useMemo<AgentModelOption[]>(() => {
-    const providersById = new Map(
-      (providers ?? []).map((provider) => [provider.id, provider])
-    )
-
-    return (models ?? [])
-      .map((model) => {
-        const provider = model.custom_provider_id
-          ? (providersById.get(model.custom_provider_id) ?? null)
-          : null
-        const sourceName = provider
-          ? provider.display_name
-          : model.organization_id
-            ? "Organization"
-            : "Platform"
-
-        return {
-          optionValue: getModelSelectionKey({
-            catalog_id: model.id,
-            source_id: model.custom_provider_id,
-            model_provider: model.model_provider,
-            model_name: model.model_name,
-          }),
-          catalogId: model.id,
-          modelName: model.model_name,
-          modelProvider: model.model_provider,
-          sourceName,
-          iconId: getModelProviderIconId(model.model_provider),
-        }
-      })
-      .sort((left, right) => {
-        const sourceComparison = left.sourceName.localeCompare(right.sourceName)
-        if (sourceComparison !== 0) {
-          return sourceComparison
-        }
-        return left.modelName.localeCompare(right.modelName)
-      })
-  }, [models, providers])
-  const selectedModel = useMemo(() => {
-    if (catalogIdValue.length > 0) {
-      return (
-        options.find((option) => option.catalogId === catalogIdValue) ?? null
-      )
-    }
-    if (modelNameValue.length === 0 || modelProviderValue.length === 0) {
-      return null
-    }
-    return (
-      options.find(
-        (option) =>
-          option.modelName === modelNameValue &&
-          option.modelProvider === modelProviderValue
-      ) ?? null
-    )
-  }, [catalogIdValue, modelNameValue, modelProviderValue, options])
-  const unavailableSelection = useMemo(() => {
-    if (
-      selectedModel ||
-      modelNameValue.length === 0 ||
-      modelProviderValue.length === 0
-    ) {
-      return null
-    }
-
-    return {
-      optionValue: getModelSelectionKey({
-        catalog_id: catalogIdValue,
-        model_provider: modelProviderValue,
-        model_name: modelNameValue,
-      }),
-      modelName: modelNameValue,
-      modelProvider: modelProviderValue,
-      iconId: getModelProviderIconId(modelProviderValue),
-    }
-  }, [catalogIdValue, modelNameValue, modelProviderValue, selectedModel])
-
-  const handleChange = (value: string) => {
-    const selectedOption = options.find(
-      (option) => option.optionValue === value
-    )
-    if (!selectedOption) {
-      return
-    }
-
+  const options = useMemo(
+    () => buildEnabledModelOptions(models, providers),
+    [models, providers]
+  )
+  function handleChange(selectedOption: (typeof options)[number]) {
     field.onChange({
       model_name: selectedOption.modelName,
       model_provider: selectedOption.modelProvider,
@@ -1120,112 +1020,34 @@ function AgentModelSelect({
     })
   }
 
-  const placeholder = !workspaceId
-    ? "Select a workspace to load models"
-    : modelsLoading
-      ? "Loading models..."
-      : modelsError
-        ? "Failed to load models"
-        : "Select a model"
+  // Shown alone without a saved model, and beside one the catalog cannot check.
+  let catalogStatus: string | undefined
+  if (modelsLoading) catalogStatus = "Loading models..."
+  else if (modelsError) catalogStatus = "Failed to load models"
+
+  let placeholder = catalogStatus ?? "Select a model"
+  if (!workspaceId) placeholder = "Select a workspace to load models"
 
   return (
-    <Select
-      value={selectedModel?.optionValue ?? unavailableSelection?.optionValue}
-      onValueChange={handleChange}
+    <AgentModelCombobox
+      options={options}
+      value={{
+        catalogId: selection.catalog_id,
+        modelName: selection.model_name,
+        modelProvider: selection.model_provider,
+      }}
+      onChange={handleChange}
+      // Until the catalog arrives a saved model cannot be called unavailable.
+      loaded={models !== undefined}
+      unverifiedLabel={catalogStatus}
+      // Models saved before catalog ids existed carry only name and provider.
+      matchAnySource
       disabled={!workspaceId}
-    >
-      <SelectTrigger className="h-12 px-3 [&>svg]:shrink-0">
-        {selectedModel ? (
-          <div className="flex min-w-0 items-center gap-3 text-left">
-            <ProviderIcon
-              className="size-5 rounded-sm p-0.5"
-              providerId={selectedModel.iconId}
-            />
-            <div className="min-w-0 space-y-0.5">
-              <span className="block truncate text-sm font-medium text-foreground">
-                {selectedModel.modelName}
-              </span>
-              <span className="block truncate text-xs text-muted-foreground">
-                {`${selectedModel.sourceName} · ${selectedModel.modelProvider}`}
-              </span>
-            </div>
-          </div>
-        ) : unavailableSelection ? (
-          <div className="flex min-w-0 items-center gap-3 text-left">
-            <ProviderIcon
-              className="size-5 rounded-sm p-0.5"
-              providerId={unavailableSelection.iconId}
-            />
-            <div className="min-w-0 space-y-0.5">
-              <span className="block truncate text-sm font-medium text-foreground">
-                {unavailableSelection.modelName}
-              </span>
-              <span className="block truncate text-xs text-muted-foreground">
-                Unavailable in this workspace
-              </span>
-            </div>
-          </div>
-        ) : (
-          <SelectValue placeholder={placeholder} />
-        )}
-      </SelectTrigger>
-      <SelectContent>
-        {modelsLoading ? (
-          <SelectItem value="__loading" disabled>
-            Loading models...
-          </SelectItem>
-        ) : null}
-        {modelsError ? (
-          <SelectItem value="__error" disabled>
-            Failed to load models
-          </SelectItem>
-        ) : null}
-        {unavailableSelection ? (
-          <SelectItem value={unavailableSelection.optionValue}>
-            <div className="flex min-w-0 items-start gap-3 py-1">
-              <ProviderIcon
-                className="mt-0.5 size-5 rounded-sm p-0.5"
-                providerId={unavailableSelection.iconId}
-              />
-              <div className="min-w-0 space-y-1">
-                <span className="block truncate text-sm font-medium">
-                  {unavailableSelection.modelName}
-                </span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {`Unavailable in this workspace · ${unavailableSelection.modelProvider}`}
-                </span>
-              </div>
-            </div>
-          </SelectItem>
-        ) : null}
-        {!modelsLoading &&
-        !modelsError &&
-        workspaceId &&
-        options.length === 0 ? (
-          <SelectItem value="__empty" disabled>
-            No models found
-          </SelectItem>
-        ) : null}
-        {options.map((option) => (
-          <SelectItem key={option.optionValue} value={option.optionValue}>
-            <div className="flex min-w-0 items-start gap-3 py-1">
-              <ProviderIcon
-                className="mt-0.5 size-5 rounded-sm p-0.5"
-                providerId={option.iconId}
-              />
-              <div className="min-w-0 space-y-1">
-                <span className="block truncate text-sm font-medium">
-                  {option.modelName}
-                </span>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {`${option.sourceName} · ${option.modelProvider}`}
-                </span>
-              </div>
-            </div>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+      placeholder={placeholder}
+      unavailableLabel="Unavailable in this workspace"
+      triggerClassName="h-9 w-full"
+      contentClassName="w-[max(var(--radix-popover-trigger-width),24rem)]"
+    />
   )
 }
 
@@ -1263,6 +1085,10 @@ function MCPIntegrationField({
       }))
       .sort((a, b) => a.label.localeCompare(b.label))
   }, [mcpIntegrations])
+
+  if (typeof field.value === "string") {
+    return <ExpressionInput value={field.value} onChange={field.onChange} />
+  }
 
   const value = Array.isArray(field.value) ? (field.value as string[]) : []
 

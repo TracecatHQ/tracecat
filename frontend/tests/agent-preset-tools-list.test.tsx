@@ -3,10 +3,15 @@ import userEvent from "@testing-library/user-event"
 import type { ComponentProps } from "react"
 import { useForm } from "react-hook-form"
 import { AgentPresetToolsList } from "@/components/agents/agent-preset-tools-list"
+import { ToolSelectionList } from "@/components/tools/tool-selection-list"
 import { Form } from "@/components/ui/form"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import type { PresetToolFields } from "@/lib/agent-preset-tools"
-import { mcpIntegration, registryTool } from "./fixtures/agent-preset-tools"
+import { buildToolIndex, type PresetToolFields } from "@/lib/agent-preset-tools"
+import {
+  flatIdToolIndex,
+  mcpIntegration,
+  registryTool,
+} from "./fixtures/agent-preset-tools"
 
 const actions = [
   registryTool("tools.test.first", { display_group: "Test tools" }),
@@ -112,6 +117,29 @@ it("opens the picker from the Add tools button", async () => {
   expect(addTools).toHaveTextContent("Add tools")
   await user.click(addTools)
   expect(screen.getByRole("dialog")).toBeInTheDocument()
+})
+
+it("hides approval and MCP controls when controlled capabilities are off", async () => {
+  const user = userEvent.setup()
+  render(
+    <TooltipProvider>
+      <ToolSelectionList
+        value={{ ...defaults, mcpIntegrations: ["mcp-test"] }}
+        onChange={jest.fn()}
+        registryActions={actions}
+        mcpIntegrations={[mcpIntegration()]}
+        approvalsEnabled={false}
+        mcpEnabled={false}
+      />
+    </TooltipProvider>
+  )
+  await user.click(
+    screen.getByRole("button", { name: /Test tools tools.test/ })
+  )
+  expect(screen.queryByText("Ask")).not.toBeInTheDocument()
+  expect(screen.queryByText("Auto")).not.toBeInTheDocument()
+  expect(screen.queryByText("Other approval rules")).not.toBeInTheDocument()
+  expect(screen.queryByText("Test MCP")).not.toBeInTheDocument()
 })
 
 it("explains both approval modes on hover and still toggles", async () => {
@@ -579,3 +607,87 @@ it.each(["tool", "group"])(
     expect(values().toolApprovals).toEqual(defaults.toolApprovals)
   }
 )
+
+it("renders a caller-built index without registry or MCP data", async () => {
+  const user = userEvent.setup()
+  const onChange = jest.fn()
+  const value = {
+    actions: ["mcp.test-mcp.read", "tools.test.first", "mcp.other.gone"],
+    mcpIntegrations: [],
+  }
+  render(
+    <TooltipProvider>
+      <ToolSelectionList
+        index={flatIdToolIndex()}
+        value={value}
+        onChange={onChange}
+        approvalsEnabled={false}
+      />
+    </TooltipProvider>
+  )
+  // Per-tool MCP grants get the collapsible group registry namespaces get.
+  const group = screen.getByRole("button", { name: /Test MCP test-mcp/ })
+  expect(group).toHaveTextContent("1 of 3")
+  expect(group).toHaveAttribute("aria-expanded", "false")
+  expect(screen.queryByText("All tools")).not.toBeInTheDocument()
+  expect(
+    screen.getByRole("button", { name: /Tools test tools\.test/ })
+  ).toHaveTextContent("1 of 1")
+  expect(screen.getByText("Unavailable")).toBeInTheDocument()
+  expect(screen.getByText("mcp.other.gone")).toBeInTheDocument()
+
+  await user.click(group)
+  expect(screen.getByText("mcp.test-mcp.read")).toBeInTheDocument()
+  expect(screen.queryByText("mcp.test-mcp.write")).not.toBeInTheDocument()
+  expect(screen.queryByText("Ask")).not.toBeInTheDocument()
+  await user.click(
+    screen.getByRole("button", { name: "Remove mcp.test-mcp.read" })
+  )
+  // The entry is in the MCP section but is stored in, and removed from, actions.
+  expect(onChange).toHaveBeenCalledWith({
+    actions: ["tools.test.first", "mcp.other.gone"],
+    mcpIntegrations: [],
+  })
+})
+
+it("keeps the single All tools row for whole-integration entries of a passed index", async () => {
+  const user = userEvent.setup()
+  const onChange = jest.fn()
+  render(
+    <TooltipProvider>
+      <ToolSelectionList
+        index={buildToolIndex([], [mcpIntegration()])}
+        value={{ actions: [], mcpIntegrations: ["mcp-test"] }}
+        onChange={onChange}
+      />
+    </TooltipProvider>
+  )
+  expect(screen.getByText("Test MCP")).toBeInTheDocument()
+  expect(screen.getByText("All tools")).toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: /Test MCP test-mcp/ })).toBeNull()
+  await user.click(screen.getByRole("button", { name: "Remove Test MCP" }))
+  expect(onChange).toHaveBeenCalledWith({ actions: [], mcpIntegrations: [] })
+})
+
+it("writes only the changed field on a toggle", async () => {
+  const user = userEvent.setup()
+  const onWrite = jest.fn()
+  render(<TestForm onWrite={onWrite} />)
+  await user.click(
+    screen.getByRole("button", { name: /Test tools tools.test/ })
+  )
+  await user.click(
+    screen.getByRole("button", {
+      name: `Require approval for ${actions[1].action}`,
+    })
+  )
+  expect(onWrite).toHaveBeenCalledTimes(1)
+  expect(onWrite).toHaveBeenCalledWith(
+    "toolApprovals",
+    [
+      { tool: actions[0].action, allow: true },
+      { tool: actions[1].action, allow: true },
+    ],
+    { shouldDirty: true }
+  )
+})

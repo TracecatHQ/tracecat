@@ -9,6 +9,7 @@ import userEvent from "@testing-library/user-event"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { AgentToolPickerDialog } from "@/components/agents/agent-tool-picker-dialog"
+import { ToolPickerDialog } from "@/components/tools/tool-picker-dialog"
 import { Form } from "@/components/ui/form"
 import {
   buildToolIndex,
@@ -16,6 +17,7 @@ import {
   type ToolIndex,
 } from "@/lib/agent-preset-tools"
 import {
+  flatIdToolIndex,
   largeToolCatalog,
   mcpIntegration,
   registryTool,
@@ -119,6 +121,63 @@ it("virtualizes 1,500 actions with fewer than 40 mounted options", async () => {
   expect(screen.getAllByRole("option").length).toBeGreaterThan(0)
   expect(screen.getAllByRole("option").length).toBeLessThan(40)
   expect(screen.getByRole("combobox", { name: "Search tools" })).toHaveFocus()
+})
+
+it("keeps locked tools unselected and skips them in group selection", async () => {
+  const user = userEvent.setup()
+  const onChange = jest.fn()
+  const onLockedSelect = jest.fn()
+  const catalog = buildToolIndex([
+    registryTool("tools.locked.blocked", {
+      display_group: "Locked tools",
+      availability: { locked: true },
+    }),
+    registryTool("tools.locked.available"),
+  ])
+  render(
+    <ToolPickerDialog
+      index={catalog}
+      open
+      onOpenChange={jest.fn()}
+      value={defaults}
+      onChange={onChange}
+      onLockedSelect={onLockedSelect}
+    />
+  )
+  await user.click(await screen.findByRole("option", { name: /blocked/ }))
+  expect(onLockedSelect).toHaveBeenCalledWith(
+    expect.objectContaining({ key: "tools.locked.blocked" })
+  )
+  expect(screen.getByRole("option", { name: /blocked/ })).toHaveAttribute(
+    "aria-selected",
+    "false"
+  )
+  await user.click(screen.getByRole("button", { name: "Locked tools 2" }))
+  await user.click(
+    screen.getByRole("checkbox", { name: "Select all in Locked tools" })
+  )
+  await user.click(screen.getByRole("button", { name: "Done" }))
+  expect(onChange).toHaveBeenCalledWith({
+    ...defaults,
+    actions: ["tools.locked.available"],
+  })
+})
+
+it("hides MCP sources when the controlled picker disables MCP", () => {
+  render(
+    <ToolPickerDialog
+      index={index}
+      open
+      onOpenChange={jest.fn()}
+      value={defaults}
+      onChange={jest.fn()}
+      mcpEnabled={false}
+    />
+  )
+  expect(screen.queryByText("MCP servers")).not.toBeInTheDocument()
+  expect(
+    screen.queryByRole("option", { name: /Test MCP/ })
+  ).not.toBeInTheDocument()
 })
 
 it("searches across namespaces even while viewing one source", async () => {
@@ -553,4 +612,137 @@ it("keeps the limit count and approval when deselecting a skill-granted action",
   await user.click(screen.getByRole("button", { name: "Done" }))
   expect(values().actions).toEqual([])
   expect(values().toolApprovals).toEqual([rule])
+})
+
+it("lets a selected locked tool be removed and gates selecting it again", async () => {
+  const user = userEvent.setup()
+  const onChange = jest.fn()
+  const onLockedSelect = jest.fn()
+  const catalog = buildToolIndex([
+    registryTool("tools.locked.blocked", { availability: { locked: true } }),
+  ])
+  render(
+    <ToolPickerDialog
+      index={catalog}
+      open
+      onOpenChange={jest.fn()}
+      value={{ ...defaults, actions: ["tools.locked.blocked"] }}
+      onChange={onChange}
+      onLockedSelect={onLockedSelect}
+    />
+  )
+  const option = await screen.findByRole("option", { name: /blocked/ })
+  expect(option).toHaveAttribute("aria-selected", "true")
+  expect(option).toHaveAttribute("aria-disabled", "false")
+  await user.click(option)
+  expect(onLockedSelect).not.toHaveBeenCalled()
+  expect(option).toHaveAttribute("aria-selected", "false")
+  expect(option).toHaveAttribute("aria-disabled", "true")
+  await user.click(option)
+  expect(onLockedSelect).toHaveBeenCalledTimes(1)
+  expect(option).toHaveAttribute("aria-selected", "false")
+  await user.click(screen.getByRole("button", { name: "Done" }))
+  expect(onChange).toHaveBeenCalledWith({ ...defaults, actions: [] })
+})
+
+it("writes MCP-section entries to the field named by their target", async () => {
+  const user = userEvent.setup()
+  const onChange = jest.fn()
+  render(
+    <ToolPickerDialog
+      index={flatIdToolIndex()}
+      open
+      onOpenChange={jest.fn()}
+      value={{ actions: [], mcpIntegrations: [] }}
+      onChange={onChange}
+      approvalsEnabled={false}
+    />
+  )
+  expect(screen.getByText("MCP servers")).toBeInTheDocument()
+  await user.click(
+    await screen.findByRole("option", { name: /mcp\.test-mcp\.read/ })
+  )
+  await user.click(screen.getByRole("button", { name: "Done" }))
+  expect(onChange).toHaveBeenCalledWith({
+    actions: ["mcp.test-mcp.read"],
+    mcpIntegrations: [],
+  })
+})
+
+it("offers select-all for an MCP group of individually selectable tools", async () => {
+  const user = userEvent.setup()
+  const onChange = jest.fn()
+  render(
+    <ToolPickerDialog
+      index={flatIdToolIndex()}
+      open
+      onOpenChange={jest.fn()}
+      value={{ actions: ["tools.test.first"], mcpIntegrations: [] }}
+      onChange={onChange}
+      approvalsEnabled={false}
+    />
+  )
+  await user.click(screen.getByRole("button", { name: "Test MCP 3" }))
+  expect(screen.queryByRole("list", { name: "MCP tools" })).toBeNull()
+  expect(screen.getAllByRole("option")).toHaveLength(3)
+  await user.click(
+    screen.getByRole("checkbox", { name: "Select all in Test MCP" })
+  )
+  expect(screen.getByText("3 of 3 selected")).toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "Done" }))
+  expect(onChange).toHaveBeenCalledWith({
+    actions: [
+      "tools.test.first",
+      "mcp.test-mcp",
+      "mcp.test-mcp.read",
+      "mcp.test-mcp.write",
+    ],
+    mcpIntegrations: [],
+  })
+})
+
+it("groups digits in the source rail counts like the search placeholder", () => {
+  const catalog = buildToolIndex(largeToolCatalog(), [])
+  render(
+    <ToolPickerDialog
+      index={catalog}
+      open
+      onOpenChange={jest.fn()}
+      value={defaults}
+      onChange={jest.fn()}
+    />
+  )
+  const total = (1500).toLocaleString()
+  expect(screen.getByPlaceholderText(`Search ${total} tools`)).toBeVisible()
+  expect(
+    screen.getByRole("button", { name: `All tools ${total}` })
+  ).toBeInTheDocument()
+})
+
+it("returns focus to the element that opened the picker", async () => {
+  const user = userEvent.setup()
+  function Opener() {
+    const [open, setOpen] = useState(false)
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          Open picker
+        </button>
+        <ToolPickerDialog
+          index={index}
+          open={open}
+          onOpenChange={setOpen}
+          value={defaults}
+          onChange={jest.fn()}
+        />
+      </>
+    )
+  }
+  render(<Opener />)
+  const opener = screen.getByRole("button", { name: "Open picker" })
+  await user.click(opener)
+  expect(screen.getByRole("combobox", { name: "Search tools" })).toHaveFocus()
+  await user.keyboard("{Escape}")
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  await waitFor(() => expect(opener).toHaveFocus())
 })

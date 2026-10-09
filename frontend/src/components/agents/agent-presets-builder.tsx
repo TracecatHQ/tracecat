@@ -4,9 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import {
   AlertCircle,
   Box,
-  Check,
   ChevronRight,
-  ChevronsUpDown,
   Globe,
   Loader2,
   type LucideIcon,
@@ -40,8 +38,6 @@ import {
 } from "react-hook-form"
 import { z } from "zod"
 import type {
-  AgentCatalogRead,
-  AgentCustomProviderRead,
   AgentPresetCapability,
   AgentPresetCreate,
   AgentPresetRead,
@@ -53,6 +49,12 @@ import type {
   RegistryActionReadMinimal,
   SkillReadMinimal,
 } from "@/client"
+import {
+  AgentModelCombobox,
+  buildEnabledModelOptions,
+  type EnabledModelOption,
+  findEnabledModelOption,
+} from "@/components/agents/agent-model-combobox"
 import { AgentPresetDetailActions } from "@/components/agents/agent-preset-detail-actions"
 import { AgentPresetToolsList } from "@/components/agents/agent-preset-tools-list"
 import { AgentPresetVersionSelect } from "@/components/agents/agent-preset-version-select"
@@ -70,7 +72,6 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
-  Command,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
@@ -100,11 +101,6 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
 import {
   ResizableHandle,
   ResizablePanel,
@@ -175,6 +171,12 @@ const RESERVED_SUBAGENT_ALIASES = new Set([
   "task",
 ])
 const AGENT_PRESET_TAB_QUERY_PARAM = "tab"
+/**
+ * Subagents and Skills header row. No fixed height: the 28px button sets it, as
+ * in the Tools list header, with the same 8px gap above the divider.
+ */
+const LIST_PANEL_HEADER =
+  "flex items-center gap-2 border-b border-border/50 px-4 py-2"
 
 function AgentPresetLoadError({
   title,
@@ -1104,145 +1106,6 @@ function getAgentPresetSubmitLabel({
   return "Save changes"
 }
 
-type EnabledModelOption = {
-  catalogId: string
-  sourceId: string | null
-  modelName: string
-  modelProvider: string
-  iconId: string
-  displayName: string
-  label: string
-  metadata: string
-  sourceName: string
-  sourceType: string
-  baseUrl?: string | null
-}
-
-function getModelSelectionKey(selection: {
-  source_id?: string | null
-  model_provider?: string | null
-  model_name?: string | null
-}): string {
-  return `${selection.source_id ?? "platform"}::${selection.model_provider ?? ""}::${selection.model_name ?? ""}`
-}
-
-function buildEnabledModelOptions(
-  models: AgentCatalogRead[] | undefined,
-  providers: AgentCustomProviderRead[] | undefined
-): EnabledModelOption[] {
-  const providersById = new Map(
-    (providers ?? []).map((provider) => [provider.id, provider])
-  )
-
-  return (models ?? [])
-    .map((model) => {
-      const provider = model.custom_provider_id
-        ? (providersById.get(model.custom_provider_id) ?? null)
-        : null
-      const isCustomSource = model.custom_provider_id != null
-      const sourceName = isCustomSource
-        ? (provider?.display_name ?? "Custom")
-        : getProviderDisplayLabel(model.model_provider)
-      const sourceType = isCustomSource
-        ? "custom"
-        : model.organization_id
-          ? "organization"
-          : "platform"
-
-      return {
-        catalogId: model.id,
-        sourceId: model.custom_provider_id,
-        modelName: model.model_name,
-        modelProvider: model.model_provider,
-        iconId: getModelProviderIconId(model.model_provider),
-        displayName: model.model_name,
-        label: model.model_name,
-        metadata: model.model_provider,
-        sourceName,
-        sourceType,
-        baseUrl: provider?.base_url ?? null,
-      }
-    })
-    .sort((a, b) => {
-      const sourceComparison = a.sourceName.localeCompare(b.sourceName)
-      if (sourceComparison !== 0) {
-        return sourceComparison
-      }
-      return a.displayName.localeCompare(b.displayName)
-    })
-}
-
-function getProviderDisplayLabel(provider: string): string {
-  switch (provider) {
-    case "anthropic":
-      return "Anthropic"
-    case "azure_ai":
-      return "Azure AI"
-    case "azure_openai":
-      return "Azure OpenAI"
-    case "bedrock":
-      return "AWS Bedrock"
-    case "gemini":
-      return "Google Gemini"
-    case "mistral":
-      return "Mistral AI"
-    case "openai":
-      return "OpenAI"
-    case "vertex_ai":
-      return "Google Vertex AI"
-    case "custom-model-provider":
-      return "Custom"
-    default:
-      return provider
-        .split(/[_\s-]+/)
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(" ")
-  }
-}
-
-function findEnabledModelOption(
-  options: EnabledModelOption[],
-  selection: {
-    catalogId?: string | null
-    sourceId?: string | null
-    modelProvider?: string | null
-    modelName?: string | null
-    baseUrl?: string | null
-  }
-): EnabledModelOption | null {
-  if (selection.catalogId) {
-    const catalogMatch = options.find(
-      (option) => option.catalogId === selection.catalogId
-    )
-    if (catalogMatch) {
-      return catalogMatch
-    }
-  }
-
-  if (!selection.modelProvider || !selection.modelName) {
-    return null
-  }
-
-  const normalizedSourceId = selection.sourceId ?? null
-  const normalizedBaseUrl = normalizeOptional(selection.baseUrl)
-  return (
-    options.find(
-      (option) =>
-        option.sourceId === normalizedSourceId &&
-        option.modelProvider === selection.modelProvider &&
-        option.modelName === selection.modelName
-    ) ??
-    options.find(
-      (option) =>
-        option.modelProvider === selection.modelProvider &&
-        option.modelName === selection.modelName &&
-        normalizeOptional(option.baseUrl) === normalizedBaseUrl
-    ) ??
-    null
-  )
-}
-
 function syncFormModelSelection(
   form: UseFormReturn<AgentPresetFormValues>,
   option: EnabledModelOption,
@@ -2088,67 +1951,9 @@ export function AgentPresetConfigurationPanel({
   const baseUrl = form.watch("base_url")
   const thinkingEnabled = form.watch("enableThinking")
   const internetAccessEnabled = form.watch("enableInternetAccess")
-  const selectedModel = useMemo(
-    () =>
-      findEnabledModelOption(enabledModelOptions, {
-        catalogId,
-        sourceId,
-        modelProvider,
-        modelName,
-        baseUrl,
-      }),
-    [
-      baseUrl,
-      catalogId,
-      enabledModelOptions,
-      sourceId,
-      modelName,
-      modelProvider,
-    ]
-  )
-  const hasMissingEnabledModel =
-    enabledModelsLoaded && !selectedModel && Boolean(modelProvider || modelName)
-  const legacyModelLabel =
-    hasMissingEnabledModel && modelProvider && modelName
-      ? `${modelProvider} / ${modelName}`
-      : null
-  const [isModelPickerOpen, setIsModelPickerOpen] = useState(false)
-
-  function renderModelLabel() {
-    if (selectedModel)
-      return (
-        <span className="flex min-w-0 items-center gap-2">
-          <ProviderIcon
-            inline
-            providerId={selectedModel.iconId}
-            className="size-4 shrink-0 rounded-none bg-transparent p-0"
-          />
-          <span className="truncate" title={selectedModel.displayName}>
-            {selectedModel.displayName}
-          </span>
-          <span className="shrink-0 text-muted-foreground">
-            {selectedModel.sourceName}
-          </span>
-        </span>
-      )
-    if (legacyModelLabel)
-      return (
-        <span className="flex min-w-0 items-center gap-2">
-          <ProviderIcon
-            inline
-            providerId={getModelProviderIconId(modelProvider)}
-            className="size-4 shrink-0 rounded-none bg-transparent p-0"
-          />
-          <span className="truncate">{legacyModelLabel}</span>
-          <span className="shrink-0 text-muted-foreground">Legacy</span>
-        </span>
-      )
-    return enabledModelOptions.length ? "Select a model" : "No enabled models"
-  }
-
   return (
     <ScrollArea className="h-full [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full">
-      <div className="flex min-w-0 w-full flex-col gap-4 px-4 pt-4 pb-20 text-xs">
+      <div className="flex min-w-0 w-full flex-col gap-4 px-4 pt-4 pb-20 text-xs [--tool-list-inset:1rem]">
         <section className="min-w-0 w-full space-y-4">
           <div className="grid min-w-0 grid-cols-1 gap-4">
             <FormField
@@ -2156,115 +1961,42 @@ export function AgentPresetConfigurationPanel({
               name="model_name"
               render={({ field }) => (
                 <FormItem className="flex min-w-0 items-center gap-3 space-y-0">
-                  <FormLabel className="w-32 shrink-0 text-xs font-normal text-muted-foreground">
+                  <FormLabel
+                    className="w-32 shrink-0 text-xs font-normal text-muted-foreground"
+                    // A label click also clicks its control, which would open
+                    // the model list. Focus the trigger only.
+                    onClick={(event) => {
+                      event.preventDefault()
+                      document
+                        .getElementById(event.currentTarget.htmlFor)
+                        ?.focus()
+                    }}
+                  >
                     Model
                   </FormLabel>
-                  <Popover
-                    open={isModelPickerOpen}
-                    onOpenChange={setIsModelPickerOpen}
-                  >
-                    <FormControl>
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          role="combobox"
-                          aria-expanded={isModelPickerOpen}
-                          className={cn(
-                            "flex h-8 min-w-0 flex-1 items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-none focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-                            !selectedModel && "text-muted-foreground"
-                          )}
-                          disabled={
-                            isSaving || enabledModelOptions.length === 0
-                          }
-                        >
-                          {renderModelLabel()}
-                          <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
-                        </button>
-                      </PopoverTrigger>
-                    </FormControl>
-                    <PopoverContent
-                      align="start"
-                      className="w-[max(var(--radix-popover-trigger-width),32rem)] max-w-[calc(100vw-2rem)] p-0"
-                      sideOffset={4}
-                    >
-                      <Command
-                        filter={(value, search) => {
-                          const option = enabledModelOptions.find(
-                            (o) =>
-                              getModelSelectionKey({
-                                source_id: o.sourceId,
-                                model_provider: o.modelProvider,
-                                model_name: o.modelName,
-                              }) === value
-                          )
-                          if (!option) {
-                            return 0
-                          }
-                          const haystack =
-                            `${option.displayName} ${option.modelName} ${option.sourceName} ${option.modelProvider}`.toLowerCase()
-                          return haystack.includes(search.toLowerCase()) ? 1 : 0
-                        }}
-                      >
-                        <CommandInput placeholder="Search models..." />
-                        <CommandList>
-                          <CommandEmpty>
-                            No models match the search.
-                          </CommandEmpty>
-                          <CommandGroup>
-                            {enabledModelOptions.map((option) => {
-                              const optionKey = getModelSelectionKey({
-                                source_id: option.sourceId,
-                                model_provider: option.modelProvider,
-                                model_name: option.modelName,
-                              })
-                              const isSelected =
-                                optionKey ===
-                                (selectedModel
-                                  ? getModelSelectionKey({
-                                      source_id: selectedModel.sourceId,
-                                      model_provider:
-                                        selectedModel.modelProvider,
-                                      model_name: selectedModel.modelName,
-                                    })
-                                  : null)
-                              return (
-                                <CommandItem
-                                  key={optionKey}
-                                  value={optionKey}
-                                  onSelect={() => {
-                                    field.onChange(option.modelName)
-                                    syncFormModelSelection(form, option, true)
-                                    setIsModelPickerOpen(false)
-                                  }}
-                                  className="flex items-center gap-2"
-                                >
-                                  <ProviderIcon
-                                    providerId={option.iconId}
-                                    className="size-4 shrink-0 rounded-none bg-transparent p-0"
-                                  />
-                                  <span
-                                    className="min-w-0 truncate"
-                                    title={option.displayName}
-                                  >
-                                    {option.displayName}
-                                  </span>
-                                  <span className="shrink-0 text-[11px] text-muted-foreground">
-                                    {option.sourceName}
-                                  </span>
-                                  <Check
-                                    className={cn(
-                                      "ml-auto size-4 shrink-0",
-                                      isSelected ? "opacity-100" : "opacity-0"
-                                    )}
-                                  />
-                                </CommandItem>
-                              )
-                            })}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
+                  <FormControl>
+                    <AgentModelCombobox
+                      options={enabledModelOptions}
+                      value={{
+                        catalogId,
+                        sourceId,
+                        modelProvider,
+                        modelName,
+                        baseUrl,
+                      }}
+                      onChange={(option) => {
+                        field.onChange(option.modelName)
+                        syncFormModelSelection(form, option, true)
+                      }}
+                      loaded={enabledModelsLoaded}
+                      disabled={isSaving || enabledModelOptions.length === 0}
+                      placeholder={
+                        enabledModelOptions.length
+                          ? "Select a model"
+                          : "No enabled models"
+                      }
+                    />
+                  </FormControl>
                 </FormItem>
               )}
             />
@@ -2344,20 +2076,23 @@ export function AgentPresetConfigurationPanel({
             )}
           />
         </section>
-        <Separator />
-        <AgentPresetToolsList
-          registryActions={registryActions}
-          registryLoading={registryLoading}
-          mcpLoading={mcpLoading}
-          toolsLoadError={toolsLoadError}
-          mcpIntegrations={mcpIntegrations}
-          isSaving={isSaving}
-          maxTools={
-            maxTools ??
-            (savedSkillIds === undefined ? preview?.max_tools : undefined)
-          }
-          skillActions={skillActions}
-        />
+        {/* No gap under the separator: the list header pads itself. */}
+        <div className="min-w-0">
+          <Separator className="-mx-4 w-auto" />
+          <AgentPresetToolsList
+            registryActions={registryActions}
+            registryLoading={registryLoading}
+            mcpLoading={mcpLoading}
+            toolsLoadError={toolsLoadError}
+            mcpIntegrations={mcpIntegrations}
+            isSaving={isSaving}
+            maxTools={
+              maxTools ??
+              (savedSkillIds === undefined ? preview?.max_tools : undefined)
+            }
+            skillActions={skillActions}
+          />
+        </div>
       </div>
     </ScrollArea>
   )
@@ -2448,7 +2183,7 @@ export function AgentPresetSubagentsPanel({
 
   return (
     <div className="h-full overflow-auto pb-20 text-xs">
-      <div className="flex h-14 items-center gap-2 border-b border-border/50 px-4">
+      <div className={LIST_PANEL_HEADER}>
         <h3 className="font-medium">Subagents</h3>
         <span className="text-muted-foreground">{subagentFields.length}</span>
         <div className="ml-auto">
@@ -2614,7 +2349,7 @@ function AgentPresetSubagentRow({
       <div className="group relative flex min-w-0 items-center gap-2 pl-4 pr-3 hover:bg-muted/50">
         <button
           type="button"
-          className="after:absolute after:inset-0 after:content-[''] flex shrink-0 items-center gap-2 rounded-sm py-2.5 disabled:cursor-default disabled:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          className="after:absolute after:inset-0 after:content-[''] flex shrink-0 items-center gap-2 rounded-sm py-3.5 disabled:cursor-default disabled:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
           aria-label={`${presetName} ${alias}`}
           aria-expanded={expanded}
           aria-controls={expanded ? bodyId : undefined}
@@ -2875,7 +2610,7 @@ export function AgentPresetSkillsPanel({
 
   return (
     <div className="h-full overflow-auto pb-20 text-xs">
-      <div className="flex h-14 items-center gap-2 border-b border-border/50 px-4">
+      <div className={LIST_PANEL_HEADER}>
         <h3 className="font-medium">Skills</h3>
         <span className="text-muted-foreground">{skillFields.length}</span>
         <div className="ml-auto">
@@ -2963,7 +2698,7 @@ function AgentPresetSkillBindingRow({
   }
 
   return (
-    <div className="group flex h-9 min-w-0 items-center gap-3 border-b border-border/50 px-4 hover:bg-muted/50">
+    <div className="group flex h-11 min-w-0 items-center gap-3 border-b border-border/50 px-4 hover:bg-muted/50">
       <Pyramid className="size-4 shrink-0 text-primary" />
       <div className="min-w-0 flex-1">
         <HoverCard>

@@ -1,3 +1,4 @@
+import fuzzysort from "fuzzysort"
 import {
   isMap,
   isNode,
@@ -8,6 +9,13 @@ import {
   type YAMLMap,
 } from "yaml"
 import type { MCPIntegrationRead, RegistryActionReadMinimal } from "@/client"
+import {
+  buildToolIndex,
+  createToolIndex,
+  getToolGroupId,
+  type ToolEntry,
+  type ToolIndex,
+} from "@/lib/agent-preset-tools"
 import { isAgentToolSelectable } from "@/lib/agent-tools"
 
 /** Maximum number of tool declarations accepted by skill frontmatter. */
@@ -28,17 +36,6 @@ function isCanonicalToolId(value: string): boolean {
     value.length <= 255 &&
     pattern.exec(value)?.[0] === value
   )
-}
-
-/** Tool option shown in the Skills Studio frontmatter picker. */
-export interface SkillToolOption {
-  value: string
-  label: string
-  description?: string
-  group: string
-  kind: "registry" | "mcp-integration" | "mcp-tool"
-  tagLabel?: string
-  tagGroup?: string
 }
 
 /** Parsed `metadata.tools` state from raw skill frontmatter YAML. */
@@ -142,8 +139,13 @@ export function readSkillFrontmatterTools(
     }
   }
   // An absent catalog means availability is unknown, not that it is empty.
+  // Locked actions are in the catalogue but cannot be called.
   const registryIds = registryActions
-    ? new Set(registryActions.map((action) => action.action))
+    ? new Set(
+        registryActions
+          .filter((action) => !action.availability?.locked)
+          .map((action) => action.action)
+      )
     : undefined
   const integrationsBySlug = mcpIntegrations
     ? new Map(
@@ -152,7 +154,11 @@ export function readSkillFrontmatterTools(
     : undefined
   const unavailable = normalized.filter((value) => {
     if (!value.startsWith("mcp.")) {
-      return registryIds !== undefined && !registryIds.has(value)
+      // Same rule as the catalogue: actions agents cannot call are not offered.
+      return (
+        registryIds !== undefined &&
+        (!registryIds.has(value) || !isAgentToolSelectable(value))
+      )
     }
     if (!integrationsBySlug) return false
     const [, slug, toolName] = value.split(".")
@@ -296,23 +302,22 @@ function insertMappingEntry(
 }
 
 /**
- * Build canonical registry and MCP tool options for the frontmatter picker.
+ * Build the skill tools catalogue for the shared tools list and picker.
+ *
+ * Every entry is stored in `actions` under its canonical ID, so a selection is
+ * the flat `metadata.tools` list. Each MCP integration is a group with a
+ * whole-server entry plus one entry per tool; stdio integrations are granted
+ * whole.
  */
-export function buildSkillToolOptions(
+export function buildSkillToolIndex(
   registryActions: RegistryActionReadMinimal[],
   mcpIntegrations: MCPIntegrationRead[]
-): SkillToolOption[] {
-  const registryOptions = registryActions
-    .filter((action) => isAgentToolSelectable(action.action))
-    .map<SkillToolOption>((action) => ({
-      value: action.action,
-      label: action.default_title || action.action,
-      description: action.description,
-      group: action.display_group || action.namespace,
-      kind: "registry",
-      tagLabel: action.default_title || action.name,
-      tagGroup: action.display_group || action.namespace,
-    }))
+): ToolIndex {
+  const registry = buildToolIndex(registryActions)
+  const entries = [...registry.entries]
+  const groupTitles = new Map(
+    registry.groups.map((group) => [group.id, group.title])
+  )
 
   const nameCounts = new Map<string, number>()
   for (const integration of mcpIntegrations) {
@@ -321,48 +326,52 @@ export function buildSkillToolOptions(
       (nameCounts.get(integration.name) ?? 0) + 1
     )
   }
-  const mcpOptions = mcpIntegrations.flatMap<SkillToolOption>((integration) => {
-    const integrationLabel =
+  for (const integration of mcpIntegrations) {
+    function entry(key: string, title: string, description: string): ToolEntry {
+      return {
+        id: key,
+        key,
+        target: "actions",
+        title,
+        description,
+        defaultAsk: false,
+        locked: false,
+        namespace: integration.slug,
+        section: "mcp",
+        integration,
+        preparedTitle: fuzzysort.prepare(title),
+        preparedKey: fuzzysort.prepare(key),
+      }
+    }
+    const wholeServer: ToolEntry = {
+      ...entry(
+        `mcp.${integration.slug}`,
+        "All tools",
+        integration.description || `Allow every tool from ${integration.name}.`
+      ),
+      grantsGroup: true,
+    }
+    entries.push(wholeServer)
+    groupTitles.set(
+      getToolGroupId(wholeServer),
       (nameCounts.get(integration.name) ?? 0) > 1
         ? `${integration.name} (${integration.slug})`
         : integration.name
-    const integrationOption: SkillToolOption = {
-      value: `mcp.${integration.slug}`,
-      label: "All tools",
-      description:
-        integration.description || `Allow every tool from ${integration.name}.`,
-      group: integrationLabel,
-      kind: "mcp-integration",
-      tagLabel: "All tools",
-      tagGroup: integrationLabel,
+    )
+    if (integration.server_type === "stdio") continue
+    for (const tool of integration.tools ?? []) {
+      const key = `mcp.${integration.slug}.${tool.name}`
+      if (
+        tool.enabled !== false &&
+        tool.status !== "missing" &&
+        MCP_TOOL_NAME_RE.exec(tool.name)?.[0] === tool.name &&
+        isCanonicalToolId(key)
+      ) {
+        entries.push(entry(key, tool.name, tool.description ?? ""))
+      }
     }
-    if (integration.server_type === "stdio") {
-      return [integrationOption]
-    }
-    const toolOptions = (integration.tools ?? [])
-      .filter(
-        (tool) =>
-          tool.enabled !== false &&
-          tool.status !== "missing" &&
-          MCP_TOOL_NAME_RE.exec(tool.name)?.[0] === tool.name &&
-          isCanonicalToolId(`mcp.${integration.slug}.${tool.name}`)
-      )
-      .map<SkillToolOption>((tool) => ({
-        value: `mcp.${integration.slug}.${tool.name}`,
-        label: tool.name,
-        description: tool.description || undefined,
-        group: integrationLabel,
-        kind: "mcp-tool",
-        tagLabel: tool.name,
-        tagGroup: integrationLabel,
-      }))
-
-    return [integrationOption, ...toolOptions]
-  })
-
-  return [...registryOptions, ...mcpOptions].sort((left, right) =>
-    left.value.localeCompare(right.value)
-  )
+  }
+  return createToolIndex(entries, groupTitles)
 }
 
 function invalidToolsState(message: string): SkillFrontmatterToolsState {

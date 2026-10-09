@@ -24,10 +24,17 @@ const mockSetDefaultAgent = jest.fn()
 const mockUpdateAgentPreset = jest.fn()
 const mockUseScopeCheck = jest.fn<boolean, [string]>(() => true)
 const mockPush = jest.fn()
+const mockUseListMcpIntegrations = jest.fn()
 
 jest.mock("@/client", () => ({
   ...jest.requireActual("@/client"),
   agentFoldersGetFolder: jest.fn(),
+}))
+
+jest.mock("@/lib/hooks", () => ({
+  ...jest.requireActual("@/lib/hooks"),
+  useListMcpIntegrations: (...args: unknown[]) =>
+    mockUseListMcpIntegrations(...args),
 }))
 
 jest.mock("@/hooks/use-workspace", () => ({
@@ -151,6 +158,8 @@ describe("AgentsDashboard entitlement split", () => {
       folders: [],
       foldersIsLoading: false,
     })
+    mockUseListMcpIntegrations.mockReset()
+    mockUseListMcpIntegrations.mockReturnValue({ mcpIntegrations: undefined })
   })
 
   describe.each(["list", "folders"] as const)("%s row details", (view) => {
@@ -216,16 +225,104 @@ describe("AgentsDashboard entitlement split", () => {
       )
       expect(screen.queryByText(PRESET.model_provider)).not.toBeInTheDocument()
 
-      await userEvent.hover(sources.getByText("4 tools"))
-      expect(
-        await screen.findByRole(
-          "tooltip",
+      await userEvent.hover(sources.getByText("4 tools + 1 MCP"))
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      expect(screen.queryByRole("tooltip")).not.toBeInTheDocument()
+    })
+
+    it.each([
+      ["registry only", 3, [], "3 tools"],
+      ["registry and remote MCP", 3, ["remote"], "7 tools"],
+      ["only remote MCP", 0, ["remote"], "4 tools"],
+      ["a single remote MCP tool", 0, ["single"], "1 tool"],
+      ["only stdio MCP", 0, ["stdio-a"], "1 stdio MCP"],
+      ["registry and stdio MCP", 1, ["stdio-a"], "1 tool + 1 stdio MCP"],
+      ["several stdio MCP", 1, ["stdio-a", "stdio-b"], "1 tool + 2 stdio MCP"],
+      ["remote MCP without tools", 3, ["empty"], "3 tools + 1 MCP"],
+      ["remote MCP never discovered", 0, ["undiscovered"], "1 MCP"],
+      ["an integration that is not loaded", 2, ["missing"], "2 tools + 1 MCP"],
+      [
+        "every kind at once",
+        1,
+        ["remote", "empty", "stdio-a"],
+        "5 tools + 1 MCP + 1 stdio MCP",
+      ],
+    ])("counts tools for %s", (_name, toolCount, mcpSlugs, label) => {
+      const tool = (name: string, extra = {}) => ({ name, ...extra })
+      mockUseListMcpIntegrations.mockReturnValue({
+        mcpIntegrations: [
           {
-            name: "Registry tools. MCP tools are not counted.",
+            slug: "remote",
+            server_type: "http",
+            tools: [
+              tool("a"),
+              tool("b"),
+              tool("c"),
+              tool("d"),
+              tool("off", { enabled: false }),
+              tool("gone", { status: "missing" }),
+            ],
           },
-          { timeout: 2000 }
-        )
-      ).toBeInTheDocument()
+          { slug: "single", server_type: "http", tools: [tool("a")] },
+          { slug: "empty", server_type: "http", tools: [] },
+          { slug: "undiscovered", server_type: "http", tools: null },
+          { slug: "stdio-a", server_type: "stdio", tools: null },
+          { slug: "stdio-b", server_type: "stdio", tools: [tool("a")] },
+        ],
+      })
+      renderPreset({
+        tool_count: toolCount,
+        namespaces: toolCount > 0 ? ["tools.slack"] : [],
+        mcp_slugs: mcpSlugs,
+      })
+      const sources = within(screen.getByTestId("tool-sources"))
+      expect(sources.getByText(label)).toBeInTheDocument()
+      expect(sources.queryAllByRole("separator")).toHaveLength(
+        toolCount > 0 && mcpSlugs.length > 0 ? 1 : 0
+      )
+    })
+
+    it("loads MCP integrations only when a preset uses one", () => {
+      const { unmount } = renderPreset({
+        tool_count: 1,
+        namespaces: ["tools.slack"],
+        mcp_slugs: [],
+      })
+      expect(lastOptions(mockUseListMcpIntegrations)?.enabled).toBe(false)
+      unmount()
+      renderPreset({ tool_count: 1, namespaces: [], mcp_slugs: ["remote"] })
+      expect(lastOptions(mockUseListMcpIntegrations)?.enabled).toBe(true)
+    })
+
+    it("does not load MCP integrations without the integration read scope", () => {
+      mockUseScopeCheck.mockImplementation(
+        (scope) => scope !== "integration:read"
+      )
+      renderPreset({ tool_count: 1, namespaces: [], mcp_slugs: ["remote"] })
+      expect(lastOptions(mockUseListMcpIntegrations)?.enabled).toBe(false)
+    })
+
+    it("ignores cached MCP integrations without the integration read scope", () => {
+      mockUseScopeCheck.mockImplementation(
+        (scope) => scope !== "integration:read"
+      )
+      // A disabled query still returns data cached while the scope was held.
+      mockUseListMcpIntegrations.mockReturnValue({
+        mcpIntegrations: [
+          {
+            slug: "remote",
+            server_type: "http",
+            tools: [{ name: "a" }, { name: "b" }],
+          },
+        ],
+      })
+      renderPreset({
+        tool_count: 3,
+        namespaces: ["tools.slack"],
+        mcp_slugs: ["remote"],
+      })
+      const sources = within(screen.getByTestId("tool-sources"))
+      expect(sources.getByText("3 tools + 1 MCP")).toBeInTheDocument()
     })
 
     it("shows the provider slug in the model badge tooltip", async () => {
@@ -269,11 +366,12 @@ describe("AgentsDashboard entitlement split", () => {
       expect(sources.queryByRole("separator")).not.toBeInTheDocument()
     })
 
-    it("shows MCP-only presets without a registry tool count", () => {
+    it("shows MCP-only presets without a registry tool count or divider", () => {
       renderPreset({ tool_count: 0, namespaces: [], mcp_slugs: ["runreveal"] })
       const sources = within(screen.getByTestId("tool-sources"))
       expect(sources.getByLabelText("runreveal")).toBeInTheDocument()
-      expect(sources.queryByText("0 tools")).not.toBeInTheDocument()
+      expect(sources.queryByText(/0 tools/)).not.toBeInTheDocument()
+      expect(sources.queryByRole("separator")).not.toBeInTheDocument()
     })
 
     it.each([

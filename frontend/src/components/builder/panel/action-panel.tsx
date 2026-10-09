@@ -113,6 +113,13 @@ import {
   DEFAULT_ACTION_TIMEOUT_SECONDS,
   isAgentAction,
 } from "@/lib/action-timeout"
+import {
+  getActionFieldLabel,
+  getAgentToolsFolding,
+  getVisibleOptionalFields,
+  removeOptionalField,
+  withoutFoldedFields,
+} from "@/lib/agent-tools-folding"
 import type { RequestValidationError, TracecatApiError } from "@/lib/errors"
 import { useAction, useGetRegistryAction, useOrgAppSettings } from "@/lib/hooks"
 import {
@@ -213,7 +220,7 @@ const stringifyYaml = (obj: unknown | undefined) =>
   obj ? YAML.stringify(obj) : ""
 
 // Helper function to reconstruct YAML preserving original structure when possible
-const reconstructYamlFromForm = (
+export const reconstructYamlFromForm = (
   originalYaml: string,
   formChanges: Record<string, unknown>
 ) => {
@@ -475,6 +482,25 @@ function ActionPanelContent({
     }
   }, [action?.type, registryAction, required])
 
+  const actionProperties =
+    (registryAction?.interface?.expects?.properties as
+      | Record<string, unknown>
+      | undefined) ?? {}
+  const currentInputs =
+    (watchedValues as ActionFormSchema | undefined)?.inputs ?? {}
+  const toolsFolding = useMemo(
+    () => getAgentToolsFolding(actionProperties, currentInputs),
+    [actionProperties, currentInputs]
+  )
+  const displayedRequiredFields = withoutFoldedFields(
+    requiredFields,
+    toolsFolding
+  )
+  const displayedOptionalFields = withoutFoldedFields(
+    optionalFields,
+    toolsFolding
+  )
+
   // Track manually shown/hidden fields separately from fields with values
   const [manuallyVisibleFields, setManuallyVisibleFields] = useState<
     Set<string>
@@ -484,37 +510,27 @@ function ActionPanelContent({
   )
 
   // Compute visible optional fields: fields with values OR manually shown, MINUS manually hidden
-  const visibleOptionalFields = useMemo(() => {
-    const fieldsWithValues = new Set<string>()
-
-    // Add fields that have values in the current form inputs (draft),
-    // not just those persisted in the last saved YAML. This means that
-    // unsaved edits still keep optional fields visible while the user
-    // is actively configuring an action.
-    const currentInputs =
-      (watchedValues as ActionFormSchema | undefined)?.inputs ?? {}
-    if (optionalFields.length > 0 && currentInputs) {
-      optionalFields.forEach(([fieldName, fieldDefn]) => {
-        if (currentInputs[fieldName] !== undefined) {
-          fieldsWithValues.add(fieldName)
-        }
-        if (shouldShowOptionalFieldByDefault(fieldName, fieldDefn)) {
-          fieldsWithValues.add(fieldName)
-        }
-      })
-    }
-
-    // Combine: (fields with values + manually shown) - manually hidden
-    const visible = new Set([...fieldsWithValues, ...manuallyVisibleFields])
-    manuallyHiddenFields.forEach((field) => visible.delete(field))
-
-    return visible
-  }, [
-    optionalFields,
-    watchedValues,
-    manuallyVisibleFields,
-    manuallyHiddenFields,
-  ])
+  // Values come from the current form inputs (draft), not just the last
+  // saved YAML, so unsaved edits keep optional fields visible while the user
+  // is actively configuring an action.
+  const visibleOptionalFields = useMemo(
+    () =>
+      getVisibleOptionalFields({
+        optionalFields,
+        inputs: currentInputs,
+        folding: toolsFolding,
+        manuallyVisible: manuallyVisibleFields,
+        manuallyHidden: manuallyHiddenFields,
+        showByDefault: shouldShowOptionalFieldByDefault,
+      }),
+    [
+      optionalFields,
+      currentInputs,
+      toolsFolding,
+      manuallyVisibleFields,
+      manuallyHiddenFields,
+    ]
+  )
 
   // Reset manual visibility when action changes
   const prevActionIdRef = useRef(actionId)
@@ -968,7 +984,7 @@ function ActionPanelContent({
               <div className="w-full min-w-80 overflow-x-auto">
                 <TabsContent value="inputs">
                   <SectionErrorBoundary>
-                    <div className="mt-4 flex flex-col space-y-4 px-4">
+                    <div className="mt-4 flex flex-col space-y-4 px-4 [--tool-list-inset:1rem]">
                       {finalValErrors.length > 0 && (
                         <ValidationErrorView
                           validationErrors={finalValErrors}
@@ -1036,43 +1052,48 @@ function ActionPanelContent({
                       {inputMode === "form" && formModeEnabled && (
                         <>
                           {/* Required fields - always shown */}
-                          {requiredFields.map(([fieldName, fieldDefn]) => {
-                            const fullFieldName = `inputs.${fieldName}`
-                            const label = fieldName
-                              .replaceAll("_", " ")
-                              .replace(/^\w/, (c) => c.toUpperCase())
-                            if (!isTracecatJsonSchema(fieldDefn)) {
-                              // For non-TracecatJsonSchema, we can't extract type information
+                          {displayedRequiredFields.map(
+                            ([fieldName, fieldDefn]) => {
+                              const fullFieldName = `inputs.${fieldName}`
+                              const label = getActionFieldLabel(
+                                fieldName,
+                                toolsFolding
+                              )
+                              if (!isTracecatJsonSchema(fieldDefn)) {
+                                // For non-TracecatJsonSchema, we can't extract type information
+                                return (
+                                  <ControlledYamlField
+                                    key={fieldName}
+                                    label={label}
+                                    fieldName={fullFieldName}
+                                    info="Please sync your base actions repository to get the latest field schema."
+                                  />
+                                )
+                              }
+
                               return (
-                                <ControlledYamlField
+                                <PolymorphicField
                                   key={fieldName}
                                   label={label}
                                   fieldName={fullFieldName}
-                                  info="Please sync your base actions repository to get the latest field schema."
+                                  fieldDefn={fieldDefn}
+                                  actionProperties={actionProperties}
                                 />
                               )
                             }
-
-                            return (
-                              <PolymorphicField
-                                key={fieldName}
-                                label={label}
-                                fieldName={fullFieldName}
-                                fieldDefn={fieldDefn}
-                              />
-                            )
-                          })}
+                          )}
 
                           {/* Optional fields - only shown if in visibleOptionalFields */}
-                          {optionalFields
+                          {displayedOptionalFields
                             .filter(([fieldName]) =>
                               visibleOptionalFields.has(fieldName)
                             )
                             .map(([fieldName, fieldDefn]) => {
                               const fullFieldName = `inputs.${fieldName}`
-                              const label = fieldName
-                                .replaceAll("_", " ")
-                                .replace(/^\w/, (c) => c.toUpperCase())
+                              const label = getActionFieldLabel(
+                                fieldName,
+                                toolsFolding
+                              )
                               if (!isTracecatJsonSchema(fieldDefn)) {
                                 // For non-TracecatJsonSchema, we can't extract type information
                                 return (
@@ -1090,12 +1111,13 @@ function ActionPanelContent({
                                   label={label}
                                   fieldName={fullFieldName}
                                   fieldDefn={fieldDefn}
+                                  actionProperties={actionProperties}
                                 />
                               )
                             })}
 
                           {/* Add optional fields dropdown */}
-                          {optionalFields.length > 0 && (
+                          {displayedOptionalFields.length > 0 && (
                             <div className="mt-4">
                               <DropdownMenu>
                                 <DropdownMenuTrigger asChild>
@@ -1113,11 +1135,12 @@ function ActionPanelContent({
                                   collisionPadding={8}
                                   className="max-h-[var(--radix-dropdown-menu-content-available-height)] max-w-96 overflow-y-auto"
                                 >
-                                  {optionalFields.map(
+                                  {displayedOptionalFields.map(
                                     ([fieldName, fieldDefn]) => {
-                                      const label = fieldName
-                                        .replaceAll("_", " ")
-                                        .replace(/^\w/, (c) => c.toUpperCase())
+                                      const label = getActionFieldLabel(
+                                        fieldName,
+                                        toolsFolding
+                                      )
                                       const isVisible =
                                         visibleOptionalFields.has(fieldName)
                                       const description = isTracecatJsonSchema(
@@ -1164,10 +1187,12 @@ function ActionPanelContent({
                                               // Remove field from form state when hiding
                                               const currentInputs =
                                                 methods.getValues("inputs")
-                                              const {
-                                                [fieldName]: _removed,
-                                                ...remainingInputs
-                                              } = currentInputs
+                                              const remainingInputs =
+                                                removeOptionalField(
+                                                  currentInputs,
+                                                  fieldName,
+                                                  toolsFolding
+                                                )
                                               methods.setValue(
                                                 "inputs",
                                                 remainingInputs
