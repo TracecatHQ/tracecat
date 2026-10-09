@@ -6,12 +6,11 @@ import {
   ArrowLeftIcon,
   ArrowUpRight,
   BookMarkedIcon,
-  ChevronDownIcon,
+  CheckIcon,
   GitBranchIcon,
   GitCommitHorizontalIcon,
   GlobeIcon,
   LockIcon,
-  PencilIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { type FormEvent, type ReactNode, useState } from "react"
@@ -37,12 +36,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -57,7 +52,6 @@ import {
   getWorkspaceSyncDefaultBranch,
   withWorkspaceSyncConfiguredRef,
 } from "@/components/workspace-sync/branch-target-selector"
-import { getReviewRequestLabel } from "@/components/workspace-sync/push-target-policy"
 import {
   type ConfiguredGitProvider,
   type GitSyncProvidersState,
@@ -90,6 +84,14 @@ const ALL_PROVIDERS: VcsProvider[] = [
   "bitbucket_data_center",
 ]
 
+/** Short name of the organization credential each provider connects with. */
+const ACCESS_SOURCES: Record<VcsProvider, string> = {
+  github: "GitHub App",
+  gitlab: "GitLab token",
+  bitbucket: "Bitbucket token",
+  bitbucket_data_center: "Bitbucket Data Center token",
+}
+
 const SUBTITLE =
   "Push this workspace's workflows to Git and pull reviewed changes back."
 
@@ -104,6 +106,8 @@ interface GitSyncConnectionPanelProps {
   workspace: WorkspaceRead
   /** Shows connect, change and disconnect actions. Defaults to true. */
   canManageConnection?: boolean
+  /** Loads branches and commits, which need sync access. Defaults to true. */
+  canSync?: boolean
   onBack?: () => void
   onSaved?: () => void
 }
@@ -116,18 +120,19 @@ interface GitSyncConnectionPanelProps {
 export function GitSyncConnectionPanel({
   workspace,
   canManageConnection = true,
+  canSync = true,
   onBack,
   onSaved,
 }: GitSyncConnectionPanelProps) {
   const isConnected = Boolean(workspace.settings?.git_repo_url)
-  const [isEditing, setIsEditing] = useState(false)
-  const showRemoteLine = canManageConnection && (!isConnected || isEditing)
+  const provider = workspace.settings?.git_provider ?? "github"
+  const showRemoteLine = canManageConnection && !isConnected
   const providers = useGitSyncProviders({ enabled: showRemoteLine })
   const canManageOrgSettings = useScopeCheck("org:settings:update") === true
 
   let body: ReactNode = null
   if (!showRemoteLine) {
-    // Connected and not editing: the repository summary is the whole body.
+    // Connected: the repository sheet is the whole body.
   } else if (providers.kind === "loading") {
     body = <ConnectSkeleton />
   } else if (providers.kind === "known" && providers.providers.length === 0) {
@@ -138,13 +143,7 @@ export function GitSyncConnectionPanel({
         workspace={workspace}
         providers={providers}
         canManageOrgSettings={canManageOrgSettings}
-        onSaved={() => {
-          onSaved?.()
-          if (isConnected) {
-            setIsEditing(false)
-            onBack?.()
-          }
-        }}
+        onSaved={() => onSaved?.()}
       />
     )
   }
@@ -152,7 +151,7 @@ export function GitSyncConnectionPanel({
   return (
     <div className="min-h-0 flex-1 overflow-auto">
       <div className="mx-auto w-full max-w-[620px] space-y-8 px-6 pb-16 pt-16 md:pt-24">
-        {onBack && !isEditing && (
+        {onBack && (
           <Button
             type="button"
             variant="ghost"
@@ -170,7 +169,7 @@ export function GitSyncConnectionPanel({
           </h2>
           <p className="text-sm text-muted-foreground">
             {isConnected
-              ? `Pushes start from the branch below and open ${getReviewRequestLabel(workspace.settings?.git_provider ?? "github")}s into it. Pulls read its commits.`
+              ? `Shared by everyone in this workspace. Access uses the organization's ${ACCESS_SOURCES[provider]}.`
               : SUBTITLE}
           </p>
         </div>
@@ -178,8 +177,8 @@ export function GitSyncConnectionPanel({
           <ConnectedRepository
             workspace={workspace}
             canManageConnection={canManageConnection}
-            isEditing={isEditing}
-            onEditingChange={setIsEditing}
+            canSync={canSync}
+            onSaved={onSaved}
           />
         )}
         {body}
@@ -233,65 +232,38 @@ interface GitSyncConnectProps {
   onSaved: () => void
 }
 
-/** Provider choice, remote line, and repository list for one workspace. */
+/** Provider choice, repository field, and repository list for one workspace. */
 function GitSyncConnect({
   workspace,
   providers,
   canManageOrgSettings,
   onSaved,
 }: GitSyncConnectProps) {
-  const persistedUrl = workspace.settings?.git_repo_url || undefined
   const persistedProvider = workspace.settings?.git_provider ?? undefined
-  const orgConfigured = providers.kind === "known"
   const candidates = getCandidateProviders(
     providers,
     persistedProvider,
-    persistedUrl
+    undefined
   )
   const [provider, setProvider] = useState<VcsProvider | undefined>(() =>
-    getInitialProvider(providers, persistedProvider, persistedUrl)
+    getInitialProvider(providers, persistedProvider, undefined)
   )
-  const [input, setInput] = useState(() =>
-    getPrefill(persistedUrl, persistedProvider, candidates)
-  )
+  const [input, setInput] = useState("")
   const [hasAttempted, setHasAttempted] = useState(false)
   const { updateWorkspace, isUpdating } = useWorkspaceSettings(workspace.id)
-
-  const isGitHub = provider === "github"
-  const { repositories, repositoriesIsLoading, repositoriesError } =
-    useGitHubAppRepositories(workspace.id, { enabled: isGitHub })
-  const appRepositories = repositories ?? []
-  const repositoriesLoaded = Boolean(repositories) && !repositoriesError
-
-  if (!provider) {
-    return (
-      <ProviderCards
-        providers={candidates}
-        onSelect={(id) => setProvider(id)}
-      />
-    )
-  }
-
-  const candidate = candidates.find((entry) => entry.id === provider) ?? {
-    id: provider,
-  }
-  const target = getRemoteTarget(
-    candidate,
-    orgConfigured,
-    repositoriesLoaded ? appRepositories : []
-  )
-  const parsed = parseGitRemote(input, target)
-  const resolution = resolveConnection(parsed, {
+  const repository = useRepositoryInput({
+    workspaceId: workspace.id,
     provider,
-    repositories: appRepositories,
-    repositoriesLoaded,
+    candidates,
+    orgConfigured: providers.kind === "known",
     canManageOrgSettings,
+    input,
   })
+  const { resolution } = repository
   const error =
     hasAttempted && resolution.kind === "invalid"
       ? resolution.message
       : undefined
-  const canPickProvider = candidates.length > 1
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -310,92 +282,132 @@ function GitSyncConnect({
     onSaved()
   }
 
-  function handleProviderChange(id: VcsProvider) {
-    setProvider(id)
-    setHasAttempted(false)
-  }
-
   return (
     <div className="space-y-8">
-      <form onSubmit={handleSubmit} className="space-y-2.5">
-        <div className="flex items-center gap-2">
-          <div
-            className={cn(
-              "flex h-10 min-w-0 flex-1 items-center overflow-hidden rounded-lg border bg-background",
-              "focus-within:ring-1 focus-within:ring-inset focus-within:ring-ring",
-              error && "border-destructive"
-            )}
-          >
-            <HostSegment
-              provider={provider}
-              host={target.host}
-              candidates={canPickProvider ? candidates : undefined}
-              onChange={handleProviderChange}
-            />
-            <input
-              aria-label="Repository"
-              aria-invalid={Boolean(error)}
-              className="h-full min-w-0 flex-1 bg-transparent px-3 font-mono text-sm outline-none placeholder:text-muted-foreground/70"
-              placeholder={getPlaceholder(provider, target.host)}
-              value={input}
-              onChange={(event) => setInput(event.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </div>
-          <Button
-            type="submit"
-            className="h-10 shrink-0 px-4"
-            disabled={isUpdating || parsed.kind === "empty"}
-          >
-            {getSubmitLabel(Boolean(persistedUrl), isUpdating)}
-          </Button>
-        </div>
-        <div className="space-y-1.5 text-xs">
-          {error && (
-            <p
-              role="alert"
-              className="flex items-start gap-1.5 text-destructive"
-            >
-              <AlertCircleIcon className="mt-px size-3.5 shrink-0" />
-              <span>{error}</span>
-            </p>
-          )}
-          {parsed.kind === "ok" && (
-            <p className="text-muted-foreground">
-              Saved as{" "}
-              <code className="break-all font-mono text-foreground">
-                {resolution.kind === "ok"
-                  ? resolution.gitUrl
-                  : parsed.remote.gitUrl}
-              </code>
-            </p>
-          )}
-          <p className="text-muted-foreground">
-            {getAccessLine(provider, orgConfigured, appRepositories)}
-          </p>
-        </div>
-      </form>
-      <div className="border-t pt-6">
-        {isGitHub ? (
-          <AppRepositoryList
-            repositories={appRepositories}
-            isLoading={repositoriesIsLoading}
-            hasError={Boolean(repositoriesError) && !repositories?.length}
-            filter={parsed.kind === "ok" ? parsed.remote.path : input.trim()}
-            onSelect={(repository) => {
-              setInput(repository.full_name)
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <div className="space-y-1.5">
+          <Label htmlFor="git-sync-provider">Provider</Label>
+          <ProviderSelect
+            id="git-sync-provider"
+            candidates={candidates}
+            provider={provider}
+            onChange={(id) => {
+              setProvider(id)
               setHasAttempted(false)
             }}
           />
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            {getProviderHint(provider, target.host)}
-          </p>
-        )}
-      </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="git-sync-repository">Repository</Label>
+          <RepositoryField
+            id="git-sync-repository"
+            provider={provider}
+            host={repository.target?.host}
+            value={input}
+            parsed={repository.parsed}
+            error={error}
+            disabled={!provider}
+            onChange={setInput}
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            type="submit"
+            className="h-9 shrink-0 px-4"
+            disabled={
+              isUpdating || !provider || repository.parsed.kind === "empty"
+            }
+          >
+            {isUpdating ? "Connecting..." : "Connect"}
+          </Button>
+          {provider && (
+            <span className="text-xs text-muted-foreground">
+              {getAccessLine(provider, repository.appRepositories)}
+            </span>
+          )}
+        </div>
+      </form>
+      {provider === "github" && (
+        <div className="border-t pt-6">
+          <AppRepositoryList
+            repositories={repository.appRepositories}
+            isLoading={repository.repositoriesIsLoading}
+            hasError={repository.repositoriesHasError}
+            filter={
+              repository.parsed.kind === "ok"
+                ? repository.parsed.remote.path
+                : input.trim()
+            }
+            onSelect={(appRepository) => {
+              setInput(appRepository.full_name)
+              setHasAttempted(false)
+            }}
+          />
+        </div>
+      )}
     </div>
   )
+}
+
+/**
+ * Parses typed repository input for one provider and resolves the URL to
+ * save, checking GitHub input against the app's repositories.
+ */
+function useRepositoryInput({
+  workspaceId,
+  provider,
+  candidates,
+  orgConfigured,
+  canManageOrgSettings,
+  input,
+}: {
+  workspaceId: string
+  provider: VcsProvider | undefined
+  candidates: ConfiguredGitProvider[]
+  orgConfigured: boolean
+  canManageOrgSettings: boolean
+  input: string
+}) {
+  const { repositories, repositoriesIsLoading, repositoriesError } =
+    useGitHubAppRepositories(workspaceId, { enabled: provider === "github" })
+  const appRepositories = repositories ?? []
+  const repositoriesLoaded = Boolean(repositories) && !repositoriesError
+  const repositoriesHasError =
+    Boolean(repositoriesError) && !repositories?.length
+
+  if (!provider) {
+    return {
+      target: undefined,
+      parsed: { kind: "empty" } as GitRemoteParseResult,
+      resolution: { kind: "empty" } as ConnectionResolution,
+      appRepositories,
+      repositoriesIsLoading,
+      repositoriesHasError,
+    }
+  }
+  const candidate = candidates.find((entry) => entry.id === provider) ?? {
+    id: provider,
+  }
+  const target = getRemoteTarget(
+    candidate,
+    orgConfigured,
+    repositoriesLoaded ? appRepositories : []
+  )
+  const parsed = parseGitRemote(input, target)
+  const resolution = resolveConnection(parsed, {
+    provider,
+    repositories: appRepositories,
+    repositoriesLoaded,
+    canManageOrgSettings,
+  })
+  return {
+    target,
+    parsed,
+    resolution,
+    appRepositories,
+    repositoriesIsLoading,
+    repositoriesHasError,
+  }
 }
 
 /** Candidate list for the picker: configured providers, or all of them. */
@@ -540,159 +552,166 @@ function resolveConnection(
   return { kind: "ok", gitUrl: getAppRepositoryGitUrl(repository) }
 }
 
-function getSubmitLabel(isConnected: boolean, isUpdating: boolean) {
-  if (isUpdating) {
-    return isConnected ? "Saving..." : "Connecting..."
-  }
-  return isConnected ? "Save" : "Connect"
-}
-
-function getPlaceholder(provider: VcsProvider, host: string | undefined) {
+function getPlaceholder(provider: VcsProvider) {
   switch (provider) {
     case "github":
-      return "TracecatHQ/detections or a repository URL"
+      return "owner/repository"
     case "gitlab":
-      return `https://${host ?? "gitlab.example.com"}/group/project`
+      return "group/project"
     case "bitbucket":
-      return "workspace/repository or a repository URL"
+      return "workspace/repository"
     case "bitbucket_data_center":
-      return `https://${host ?? "bitbucket.example.com"}/projects/PROJECT/repos/repository`
+      return "https://bitbucket.example.com/projects/PROJECT/repos/repository"
   }
 }
 
 function getProviderHint(provider: VcsProvider, host: string | undefined) {
-  const source = host ?? GIT_PROVIDER_LABELS[provider]
-  if (provider === "gitlab") {
-    return `Paste the repository URL from ${source}. Nested groups work.`
+  // A bare path needs a known host, so without one only a full URL works.
+  if (!host) {
+    return `Paste the full repository URL from ${GIT_PROVIDER_LABELS[provider]}.`
   }
-  return `Paste the repository URL from ${source}.`
+  const source = host
+  switch (provider) {
+    case "gitlab":
+      return `Paste the project URL from ${source}, or type group/project. Nested groups work.`
+    case "bitbucket_data_center":
+      return `Paste the repository URL from ${source}.`
+    default:
+      return `Paste the repository URL from ${source}, or type ${getPlaceholder(provider)}.`
+  }
 }
 
 /** Access source for the provider, claiming only what the data supports. */
 function getAccessLine(
   provider: VcsProvider,
-  orgConfigured: boolean,
   repositories: GitHubAppRepository[]
 ) {
-  let source: string
-  switch (provider) {
-    case "github": {
-      const accounts = new Set(
-        repositories.map((repository) => repository.installation_account)
-      )
-      const [account] = accounts
-      if (accounts.size === 1 && account) {
-        return `Access through the GitHub App on ${account}, set up by your organization.`
-      }
-      source = "GitHub App"
-      break
+  if (provider === "github") {
+    const accounts = new Set(
+      repositories.map((repository) => repository.installation_account)
+    )
+    const [account] = accounts
+    if (accounts.size === 1 && account) {
+      return `Uses the GitHub App on ${account}.`
     }
-    case "gitlab":
-      source = "GitLab access token"
-      break
-    case "bitbucket":
-      source = "Bitbucket Cloud API token"
-      break
-    case "bitbucket_data_center":
-      source = "Bitbucket Data Center HTTP access token"
-      break
   }
-  if (orgConfigured) {
-    return `Access through the ${source}, set up by your organization.`
-  }
-  return `Access uses your organization's ${source}.`
+  return `Uses the organization's ${ACCESS_SOURCES[provider]}.`
 }
 
-function HostSegment({
-  provider,
-  host,
+/** Provider for the connection; read-only when only one is set up. */
+function ProviderSelect({
+  id,
   candidates,
+  provider,
   onChange,
 }: {
-  provider: VcsProvider
-  host: string | undefined
-  candidates: ConfiguredGitProvider[] | undefined
+  id: string
+  candidates: ConfiguredGitProvider[]
+  provider: VcsProvider | undefined
   onChange: (provider: VcsProvider) => void
 }) {
-  const content = (
-    <>
-      <VcsProviderLogo provider={provider} className="size-3.5" />
-      <span className="truncate">
-        {host ? `${host}/` : GIT_PROVIDER_LABELS[provider]}
-      </span>
-    </>
-  )
-  const className =
-    "flex h-full max-w-[45%] shrink-0 items-center gap-1.5 border-r bg-muted/50 px-3 font-mono text-xs text-muted-foreground"
-  if (!candidates) {
-    return <span className={className}>{content}</span>
-  }
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          aria-label={`Provider: ${GIT_PROVIDER_LABELS[provider]}. Change provider`}
-          className={cn(
-            className,
-            "hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-          )}
-        >
-          {content}
-          <ChevronDownIcon className="size-3 shrink-0" />
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-56">
+    <Select
+      value={provider}
+      onValueChange={(value) => onChange(value as VcsProvider)}
+      disabled={candidates.length <= 1}
+    >
+      <SelectTrigger
+        id={id}
+        className="h-10 [&>span]:flex [&>span]:items-center [&>span]:gap-2"
+      >
+        <SelectValue placeholder="Choose where the repository lives" />
+      </SelectTrigger>
+      <SelectContent>
         {candidates.map((candidate) => (
-          <DropdownMenuItem
-            key={candidate.id}
-            onSelect={() => onChange(candidate.id)}
-            className="gap-2"
-          >
-            <VcsProviderLogo provider={candidate.id} className="size-3.5" />
-            <span>{GIT_PROVIDER_LABELS[candidate.id]}</span>
-            {candidate.host && (
-              <span className="ml-auto font-mono text-xs text-muted-foreground">
-                {candidate.host}
-              </span>
-            )}
-          </DropdownMenuItem>
+          <SelectItem key={candidate.id} value={candidate.id}>
+            <span className="flex items-center gap-2">
+              <VcsProviderLogo provider={candidate.id} className="size-3.5" />
+              <span>{GIT_PROVIDER_LABELS[candidate.id]}</span>
+              {candidate.host && (
+                <span className="font-mono text-xs text-muted-foreground">
+                  {candidate.host}
+                </span>
+              )}
+            </span>
+          </SelectItem>
         ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      </SelectContent>
+    </Select>
   )
 }
 
-function ProviderCards({
-  providers,
-  onSelect,
+/**
+ * Repository input with one line under it: the parse error, what will be
+ * saved, or how to fill it in.
+ */
+function RepositoryField({
+  id,
+  provider,
+  host,
+  value,
+  parsed,
+  error,
+  disabled,
+  autoFocus,
+  onChange,
 }: {
-  providers: ConfiguredGitProvider[]
-  onSelect: (provider: VcsProvider) => void
+  id: string
+  provider: VcsProvider | undefined
+  host: string | undefined
+  value: string
+  parsed: GitRemoteParseResult
+  error: string | undefined
+  disabled?: boolean
+  autoFocus?: boolean
+  onChange: (value: string) => void
 }) {
+  let status: ReactNode = null
+  if (error) {
+    status = (
+      <p role="alert" className="flex items-start gap-1.5 text-destructive">
+        <AlertCircleIcon className="mt-px size-3.5 shrink-0" />
+        <span>{error}</span>
+      </p>
+    )
+  } else if (parsed.kind === "ok") {
+    status = (
+      <p className="flex items-center gap-1.5 text-muted-foreground">
+        <CheckIcon className="size-3.5 shrink-0 text-green-700 dark:text-green-500" />
+        <span>
+          <code className="font-mono text-foreground">
+            {parsed.remote.path}
+          </code>{" "}
+          on {parsed.remote.host}
+          {parsed.remote.ref && ` at ${parsed.remote.ref}`}
+        </span>
+      </p>
+    )
+  } else if (provider) {
+    status = (
+      <p className="text-muted-foreground">{getProviderHint(provider, host)}</p>
+    )
+  }
   return (
-    <div className="space-y-3">
-      <p className="text-sm font-medium">Where is the repository?</p>
-      <div className="grid gap-2 sm:grid-cols-2">
-        {providers.map((entry) => (
-          <button
-            key={entry.id}
-            type="button"
-            onClick={() => onSelect(entry.id)}
-            className="flex items-center gap-3 rounded-lg border px-3 py-3 text-left hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-          >
-            <VcsProviderLogo provider={entry.id} className="size-5" />
-            <span className="min-w-0 space-y-0.5">
-              <span className="block text-sm font-medium">
-                {GIT_PROVIDER_LABELS[entry.id]}
-              </span>
-              <span className="block truncate font-mono text-xs text-muted-foreground">
-                {entry.host ?? DEFAULT_GIT_HOSTS[entry.id] ?? "Host not set"}
-              </span>
-            </span>
-          </button>
-        ))}
-      </div>
+    <div className="space-y-1.5">
+      <Input
+        id={id}
+        aria-label="Repository"
+        aria-invalid={Boolean(error)}
+        className={cn(
+          "h-10 font-mono",
+          error && "border-destructive focus-visible:ring-destructive"
+        )}
+        placeholder={provider ? getPlaceholder(provider) : undefined}
+        value={value}
+        disabled={disabled}
+        autoFocus={autoFocus}
+        onFocus={(event) => event.currentTarget.select()}
+        onChange={(event) => onChange(event.target.value)}
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <div className="text-xs">{status}</div>
     </div>
   )
 }
@@ -784,21 +803,22 @@ function RepositoryVisibility({ isPrivate }: { isPrivate: boolean }) {
   )
 }
 
-/** Read-only connection sheet with change, disconnect and back actions. */
+/** Connection sheet with the repository editable in place, then disconnect. */
 function ConnectedRepository({
   workspace,
   canManageConnection,
-  isEditing,
-  onEditingChange,
+  canSync,
+  onSaved,
 }: {
   workspace: WorkspaceRead
   canManageConnection: boolean
-  isEditing: boolean
-  onEditingChange: (isEditing: boolean) => void
+  canSync: boolean
+  onSaved?: () => void
 }) {
   const gitRepoUrl = workspace.settings?.git_repo_url || undefined
   const repoName = getRepoDisplayName(gitRepoUrl)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [isEditingRepository, setIsEditingRepository] = useState(false)
   const queryClient = useQueryClient()
   const { updateWorkspace, isUpdating } = useWorkspaceSettings(workspace.id)
 
@@ -823,34 +843,25 @@ function ConnectedRepository({
       <ConnectionSheet
         workspace={workspace}
         canManageConnection={canManageConnection}
+        canSync={canSync}
+        repositoryEditor={
+          isEditingRepository ? (
+            <RepositoryEditor
+              workspace={workspace}
+              onDone={() => setIsEditingRepository(false)}
+              onSaved={onSaved}
+            />
+          ) : undefined
+        }
+        onEditRepository={
+          canManageConnection ? () => setIsEditingRepository(true) : undefined
+        }
       />
-      <div className="flex items-center gap-2">
-        {canManageConnection && isEditing && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => onEditingChange(false)}
-          >
-            Cancel
-          </Button>
-        )}
-        {canManageConnection && !isEditing && (
+      {canManageConnection && (
+        <div className="flex items-center gap-3">
           <Button
             type="button"
             variant="outline"
-            size="sm"
-            className="gap-1.5"
-            onClick={() => onEditingChange(true)}
-          >
-            <PencilIcon className="size-3.5" />
-            Change repository
-          </Button>
-        )}
-        {canManageConnection && (
-          <Button
-            type="button"
-            variant="ghost"
             size="sm"
             className="text-destructive hover:bg-destructive/10 hover:text-destructive"
             disabled={isUpdating}
@@ -858,8 +869,11 @@ function ConnectedRepository({
           >
             Disconnect
           </Button>
-        )}
-      </div>
+          <span className="text-xs text-muted-foreground">
+            Stops push and pull for this workspace.
+          </span>
+        </div>
+      )}
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -886,25 +900,142 @@ function ConnectedRepository({
   )
 }
 
-/** Provider, repository, branch and latest commit as rows. */
+/**
+ * Inline editor for the repository row. The provider stays as connected; the
+ * field starts on the current repository, selected so a paste replaces it.
+ */
+function RepositoryEditor({
+  workspace,
+  onDone,
+  onSaved,
+}: {
+  workspace: WorkspaceRead
+  onDone: () => void
+  onSaved?: () => void
+}) {
+  const persistedUrl = workspace.settings?.git_repo_url || undefined
+  const provider = workspace.settings?.git_provider ?? "github"
+  const providers = useGitSyncProviders({ enabled: true })
+  const canManageOrgSettings = useScopeCheck("org:settings:update") === true
+  const knownProviders =
+    providers.kind === "loading" ? ({ kind: "unknown" } as const) : providers
+  const candidates = getCandidateProviders(
+    knownProviders,
+    provider,
+    persistedUrl
+  )
+  const [input, setInput] = useState(() =>
+    getPrefill(persistedUrl, provider, candidates)
+  )
+  const [hasAttempted, setHasAttempted] = useState(false)
+  const queryClient = useQueryClient()
+  const { updateWorkspace, isUpdating } = useWorkspaceSettings(workspace.id)
+  const repository = useRepositoryInput({
+    workspaceId: workspace.id,
+    provider,
+    candidates,
+    orgConfigured: providers.kind === "known",
+    canManageOrgSettings,
+    input,
+  })
+  const { resolution } = repository
+  const error =
+    hasAttempted && resolution.kind === "invalid"
+      ? resolution.message
+      : undefined
+  const isUnchanged =
+    resolution.kind === "ok" && resolution.gitUrl === persistedUrl
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setHasAttempted(true)
+    if (resolution.kind !== "ok") {
+      return
+    }
+    if (isUnchanged) {
+      onDone()
+      return
+    }
+    try {
+      await updateWorkspace({
+        settings: { git_provider: provider, git_repo_url: resolution.gitUrl },
+      })
+    } catch {
+      // useWorkspaceSettings reports the failure with a toast.
+      return
+    }
+    await Promise.all(
+      SYNC_QUERY_KEYS.map((key) =>
+        queryClient.invalidateQueries({ queryKey: [key, workspace.id] })
+      )
+    )
+    onSaved?.()
+    onDone()
+  }
+
+  if (providers.kind === "loading") {
+    return <Skeleton className="h-10 w-full rounded-md" />
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-2.5 whitespace-normal">
+      <RepositoryField
+        id="git-sync-repository"
+        provider={provider}
+        host={repository.target?.host}
+        value={input}
+        parsed={repository.parsed}
+        error={error}
+        autoFocus
+        onChange={setInput}
+      />
+      <p className="text-xs text-muted-foreground">
+        Changing the repository clears any preview on this page.
+      </p>
+      <div className="flex gap-2">
+        <Button
+          type="submit"
+          size="sm"
+          disabled={isUpdating || repository.parsed.kind === "empty"}
+        >
+          {isUpdating ? "Saving..." : "Save"}
+        </Button>
+        <Button type="button" variant="outline" size="sm" onClick={onDone}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  )
+}
+
 function ConnectionSheet({
   workspace,
   canManageConnection,
+  canSync,
+  repositoryEditor,
+  onEditRepository,
 }: {
   workspace: WorkspaceRead
   canManageConnection: boolean
+  canSync: boolean
+  /** Replaces the repository value while it is being edited. */
+  repositoryEditor?: ReactNode
+  /** Shows "Change" on the repository row when set. */
+  onEditRepository?: () => void
 }) {
   const gitRepoUrl = workspace.settings?.git_repo_url || undefined
   const provider = workspace.settings?.git_provider ?? "github"
   const repoName = getRepoDisplayName(gitRepoUrl)
   const host = getGitSshHost(gitRepoUrl)
   const { repositories = [] } = useGitHubAppRepositories(workspace.id, {
-    enabled: provider === "github" && Boolean(gitRepoUrl),
+    enabled:
+      canManageConnection && provider === "github" && Boolean(gitRepoUrl),
   })
+  // Branch and commit routes need sync access, not connection access.
   const { branches, branchesIsLoading, branchesError } = useRepositoryBranches(
     workspace.id,
     {
-      enabled: Boolean(gitRepoUrl),
+      enabled: canSync && Boolean(gitRepoUrl),
       gitRepoUrl,
       provider,
       limit: 200,
@@ -916,8 +1047,35 @@ function ConnectionSheet({
     gitRepoUrl,
     provider,
     limit: 20,
-    enabled: Boolean(gitRepoUrl) && Boolean(baseBranch),
+    enabled: canSync && Boolean(gitRepoUrl) && Boolean(baseBranch),
   })
+
+  function renderBranch() {
+    if (!canSync) {
+      return (
+        <span className="font-mono">
+          {getWorkspaceSyncConfiguredRef(gitRepoUrl) ?? "Repository default"}
+        </span>
+      )
+    }
+    if (canManageConnection && gitRepoUrl && !branchesError) {
+      return (
+        <BranchSelect
+          workspaceId={workspace.id}
+          gitRepoUrl={gitRepoUrl}
+          branches={branches}
+          isLoading={branchesIsLoading}
+        />
+      )
+    }
+    return (
+      <BranchValue
+        isLoading={branchesIsLoading}
+        hasError={Boolean(branchesError)}
+        branch={baseBranch}
+      />
+    )
+  }
 
   return (
     <dl className="divide-y border-y text-sm">
@@ -927,34 +1085,42 @@ function ConnectionSheet({
       >
         {getProviderSource(provider, host, repositories)}
       </SheetRow>
-      <SheetRow icon={<BookMarkedIcon className="size-4" />} label="Repository">
-        <span className="font-mono">{repoName ?? gitRepoUrl}</span>
-      </SheetRow>
-      <SheetRow icon={<GitBranchIcon className="size-4" />} label="Branch">
-        {canManageConnection && gitRepoUrl && !branchesError ? (
-          <BranchSelect
-            workspaceId={workspace.id}
-            gitRepoUrl={gitRepoUrl}
-            branches={branches}
-            isLoading={branchesIsLoading}
-          />
-        ) : (
-          <BranchValue
-            isLoading={branchesIsLoading}
-            hasError={Boolean(branchesError)}
-            branch={baseBranch}
-          />
+      <SheetRow
+        icon={<BookMarkedIcon className="size-4" />}
+        label="Repository"
+        alignTop={Boolean(repositoryEditor)}
+      >
+        {repositoryEditor ?? (
+          <span className="flex items-center gap-3">
+            <span className="min-w-0 flex-1 truncate font-mono">
+              {repoName ?? gitRepoUrl}
+            </span>
+            {onEditRepository && (
+              <button
+                type="button"
+                className="shrink-0 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                onClick={onEditRepository}
+              >
+                Change
+              </button>
+            )}
+          </span>
         )}
       </SheetRow>
-      <SheetRow
-        icon={<GitCommitHorizontalIcon className="size-4" />}
-        label="Latest commit"
-      >
-        <LatestCommit
-          isLoading={commitsIsLoading || branchesIsLoading}
-          commit={commits?.[0]}
-        />
+      <SheetRow icon={<GitBranchIcon className="size-4" />} label="Branch">
+        {renderBranch()}
       </SheetRow>
+      {canSync && (
+        <SheetRow
+          icon={<GitCommitHorizontalIcon className="size-4" />}
+          label="Latest commit"
+        >
+          <LatestCommit
+            isLoading={commitsIsLoading || branchesIsLoading}
+            commit={commits?.[0]}
+          />
+        </SheetRow>
+      )}
     </dl>
   )
 }
@@ -962,15 +1128,28 @@ function ConnectionSheet({
 function SheetRow({
   icon,
   label,
+  alignTop = false,
   children,
 }: {
   icon: ReactNode
   label: string
+  /** Pins the label to the top when the value spans several lines. */
+  alignTop?: boolean
   children: ReactNode
 }) {
   return (
-    <div className="grid grid-cols-[160px_minmax(0,1fr)] items-center gap-4 py-3">
-      <dt className="flex items-center gap-2.5 text-muted-foreground">
+    <div
+      className={cn(
+        "grid grid-cols-[160px_minmax(0,1fr)] gap-4 py-3",
+        alignTop ? "items-start" : "items-center"
+      )}
+    >
+      <dt
+        className={cn(
+          "flex items-center gap-2.5 text-muted-foreground",
+          alignTop && "h-10"
+        )}
+      >
         <span className="flex size-5 items-center justify-center">{icon}</span>
         {label}
       </dt>

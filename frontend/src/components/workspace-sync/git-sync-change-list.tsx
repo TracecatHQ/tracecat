@@ -35,7 +35,9 @@ interface ChangeItem {
   key: string
   name: string
   path: string
-  diff: PullResourceDiff | undefined
+  /** One per changed file; a resource can span several files. */
+  diffs: PullResourceDiff[]
+  changeType: ChangeType | undefined
 }
 
 interface ChangeGroup {
@@ -137,8 +139,8 @@ export function GitSyncPreviewButton({
  */
 export function formatChangeCounts(diffs: PullResourceDiff[]): string | null {
   const counts = { added: 0, modified: 0, deleted: 0 }
-  for (const diff of diffs) {
-    counts[diff.change_type] += 1
+  for (const resourceDiffs of groupDiffsByResource(diffs).values()) {
+    counts[getResourceChangeType(resourceDiffs)] += 1
   }
   const parts = [
     counts.added && `${counts.added} new`,
@@ -146,6 +148,34 @@ export function formatChangeCounts(diffs: PullResourceDiff[]): string | null {
     counts.deleted && `${counts.deleted} deleted`,
   ].filter(Boolean)
   return parts.length > 0 ? parts.join(" · ") : null
+}
+
+/** Number of changed resources, counting a multi-file resource once. */
+export function countChangedResources(diffs: PullResourceDiff[]): number {
+  return groupDiffsByResource(diffs).size
+}
+
+function diffResourceKey(diff: PullResourceDiff): string {
+  return `${diff.resource_type}:${diff.source_id}`
+}
+
+function groupDiffsByResource(
+  diffs: PullResourceDiff[]
+): Map<string, PullResourceDiff[]> {
+  const byResource = new Map<string, PullResourceDiff[]>()
+  for (const diff of diffs) {
+    const key = diffResourceKey(diff)
+    byResource.set(key, [...(byResource.get(key) ?? []), diff])
+  }
+  return byResource
+}
+
+/** A resource is new or deleted only when every changed file agrees. */
+function getResourceChangeType(diffs: PullResourceDiff[]): ChangeType {
+  const [first] = diffs
+  return diffs.every((diff) => diff.change_type === first.change_type)
+    ? first.change_type
+    : "modified"
 }
 
 /** Full-width strip above the list for a blocked, failed, or stale state. */
@@ -301,14 +331,14 @@ function ChangeRow({
   isOpen: boolean
   onToggle: () => void
 }) {
-  const { diff } = item
+  const { diffs } = item
   const content = (
     <>
-      <ChangeIcon changeType={diff?.change_type} />
+      <ChangeIcon changeType={item.changeType} />
       <span
         className={cn(
           "w-56 shrink-0 truncate text-sm",
-          !diff && "text-muted-foreground"
+          diffs.length === 0 && "text-muted-foreground"
         )}
       >
         {item.name}
@@ -320,7 +350,7 @@ function ChangeRow({
   )
   const rowClassName = "flex h-10 w-full items-center gap-2.5 pl-[74px] pr-5"
 
-  if (!diff) {
+  if (diffs.length === 0) {
     return (
       <li className={cn(rowClassName, "border-t border-border/60")}>
         {content}
@@ -331,8 +361,6 @@ function ChangeRow({
     )
   }
 
-  const { additions, deletions } = countDiffLines(diff.diff)
-  const lineTotal = additions + deletions
   return (
     <li className="flex flex-col border-t border-border/60">
       <button
@@ -350,34 +378,56 @@ function ChangeRow({
           {isOpen ? "Hide diff" : "View diff"}
         </span>
       </button>
-      {isOpen && (
-        <div className="mb-2.5 ml-[74px] mr-5 overflow-hidden rounded-md border">
-          <div className="flex items-center gap-2 border-b bg-muted/40 px-2.5 py-1 font-mono text-[11px]">
-            {additions > 0 && (
-              <span className="text-green-700 dark:text-green-500">
-                +{additions}
-              </span>
-            )}
-            {deletions > 0 && (
-              <span className="text-red-700 dark:text-red-500">
-                −{deletions}
-              </span>
-            )}
-            <span className="text-muted-foreground">
-              {lineTotal === 1 ? "line" : "lines"}
-            </span>
-          </div>
-          <div className="max-h-80 overflow-auto">
-            <UnifiedDiff diff={diff.diff} />
-          </div>
-          {diff.truncated && (
-            <p className="border-t px-2.5 py-1 text-[11px] text-muted-foreground">
-              Diff truncated for preview.
-            </p>
-          )}
-        </div>
-      )}
+      {isOpen &&
+        diffs.map((diff) => (
+          <FileDiff
+            key={diff.source_path}
+            diff={diff}
+            showPath={diffs.length > 1}
+          />
+        ))}
     </li>
+  )
+}
+
+function FileDiff({
+  diff,
+  showPath,
+}: {
+  diff: PullResourceDiff
+  showPath: boolean
+}) {
+  const { additions, deletions } = countDiffLines(diff.diff)
+  const lineTotal = additions + deletions
+  return (
+    <div className="mb-2.5 ml-[74px] mr-5 overflow-hidden rounded-md border">
+      <div className="flex items-center gap-2 border-b bg-muted/40 px-2.5 py-1 font-mono text-[11px]">
+        {showPath && (
+          <span className="min-w-0 truncate text-foreground">
+            {diff.source_path}
+          </span>
+        )}
+        {additions > 0 && (
+          <span className="text-green-700 dark:text-green-500">
+            +{additions}
+          </span>
+        )}
+        {deletions > 0 && (
+          <span className="text-red-700 dark:text-red-500">−{deletions}</span>
+        )}
+        <span className="text-muted-foreground">
+          {lineTotal === 1 ? "line" : "lines"}
+        </span>
+      </div>
+      <div className="max-h-80 overflow-auto">
+        <UnifiedDiff diff={diff.diff} />
+      </div>
+      {diff.truncated && (
+        <p className="border-t px-2.5 py-1 text-[11px] text-muted-foreground">
+          Diff truncated for preview.
+        </p>
+      )}
+    </div>
   )
 }
 
@@ -408,10 +458,7 @@ function buildChangeGroups(
   resources: GitSyncPreviewResource[],
   diffs: PullResourceDiff[]
 ): ChangeGroup[] {
-  const diffByKey = new Map<string, PullResourceDiff>()
-  for (const diff of diffs) {
-    diffByKey.set(`${diff.resource_type}:${diff.source_id}`, diff)
-  }
+  const diffsByKey = groupDiffsByResource(diffs)
 
   const itemsByType = new Map<string, ChangeItem[]>()
   const seen = new Set<string>()
@@ -427,23 +474,29 @@ function buildChangeGroups(
     if (seen.has(key)) {
       continue
     }
+    const resourceDiffs = diffsByKey.get(key) ?? []
     add(resource.resource_type, {
       key,
       name: resource.name,
       path: resource.path,
-      diff: diffByKey.get(key),
+      diffs: resourceDiffs,
+      changeType:
+        resourceDiffs.length > 0
+          ? getResourceChangeType(resourceDiffs)
+          : undefined,
     })
   }
-  for (const diff of diffs) {
-    const key = `${diff.resource_type}:${diff.source_id}`
+  for (const [key, resourceDiffs] of diffsByKey) {
     if (seen.has(key)) {
       continue
     }
-    add(diff.resource_type, {
+    const [first] = resourceDiffs
+    add(first.resource_type, {
       key,
-      name: diff.title ?? diff.source_id,
-      path: diff.source_path,
-      diff,
+      name: first.title ?? first.source_id,
+      path: first.source_path,
+      diffs: resourceDiffs,
+      changeType: getResourceChangeType(resourceDiffs),
     })
   }
 
@@ -468,8 +521,8 @@ function buildChangeGroups(
 
 /** Changed rows first (new, modified, deleted), then by name. */
 function compareItems(left: ChangeItem, right: ChangeItem): number {
-  const leftOrder = left.diff ? CHANGE_META[left.diff.change_type].order : 3
-  const rightOrder = right.diff ? CHANGE_META[right.diff.change_type].order : 3
+  const leftOrder = left.changeType ? CHANGE_META[left.changeType].order : 3
+  const rightOrder = right.changeType ? CHANGE_META[right.changeType].order : 3
   if (leftOrder !== rightOrder) {
     return leftOrder - rightOrder
   }
@@ -479,8 +532,8 @@ function compareItems(left: ChangeItem, right: ChangeItem): number {
 function formatGroupSummary(items: ChangeItem[]): string {
   const counts = { added: 0, modified: 0, deleted: 0, unchanged: 0 }
   for (const item of items) {
-    if (item.diff) {
-      counts[item.diff.change_type] += 1
+    if (item.changeType) {
+      counts[item.changeType] += 1
     } else {
       counts.unchanged += 1
     }

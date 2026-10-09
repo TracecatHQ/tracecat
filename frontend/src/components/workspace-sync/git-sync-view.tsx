@@ -55,7 +55,7 @@ export function GitSyncView({
       <div className="flex h-full flex-col">
         <GitSyncHeader workspaceName={workspace.name} />
         {canManageConnection ? (
-          <GitSyncConnectionPanel workspace={workspace} />
+          <GitSyncConnectionPanel workspace={workspace} canSync={canSync} />
         ) : (
           <GitSyncConnectionEmptyState />
         )}
@@ -109,6 +109,9 @@ function GitSyncConnectedView({
     }
   )
   const repoDisplayName = getRepoDisplayName(gitRepoUrl)
+  // A new repository or branch remounts both composers, dropping any preview
+  // or chosen commit taken against the old one.
+  const connectionKey = `${provider}:${gitRepoUrl}:${baseBranch ?? ""}`
 
   function invalidateSyncQueries() {
     return Promise.all(
@@ -180,6 +183,7 @@ function GitSyncConnectedView({
           className="mt-0 flex-col data-[state=active]:flex data-[state=active]:flex-1"
         >
           <GitSyncPushTab
+            key={connectionKey}
             workspaceId={workspaceId}
             persistedGitUrl={gitRepoUrl}
             provider={provider}
@@ -196,6 +200,7 @@ function GitSyncConnectedView({
           className="mt-0 min-w-0 flex-col data-[state=active]:flex data-[state=active]:flex-1"
         >
           <GitSyncPullTab
+            key={connectionKey}
             workspaceId={workspaceId}
             workspaceName={workspace.name}
             provider={provider}

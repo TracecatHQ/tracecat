@@ -169,6 +169,10 @@ function repositoryInput() {
   return screen.getByRole("textbox", { name: "Repository" })
 }
 
+function providerSelect() {
+  return screen.getByRole("combobox", { name: "Provider" })
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
   mockUpdateWorkspace.mockResolvedValue(undefined)
@@ -183,18 +187,19 @@ describe("GitSyncConnectionPanel remote line", () => {
     expect(
       screen.getByRole("heading", { name: "Connect a repository" })
     ).toBeInTheDocument()
-    expect(screen.getByText("github.com/")).toBeInTheDocument()
+    // One provider: shown, but not a choice.
+    expect(providerSelect()).toHaveTextContent("GitHub")
+    expect(providerSelect()).toBeDisabled()
     expect(
-      screen.getByText(
-        "Access through the GitHub App on TracecatHQ, set up by your organization."
-      )
+      screen.getByText("Uses the GitHub App on TracecatHQ.")
     ).toBeInTheDocument()
 
-    await user.type(repositoryInput(), "TracecatHQ/detections{Enter}")
+    await user.type(repositoryInput(), "TracecatHQ/detections")
+    expect(repositoryInput().nextElementSibling).toHaveTextContent(
+      "TracecatHQ/detections on github.com"
+    )
+    await user.keyboard("{Enter}")
 
-    expect(
-      screen.getByText("git+ssh://git@github.com/TracecatHQ/detections.git")
-    ).toBeInTheDocument()
     await waitFor(() =>
       expect(mockUpdateWorkspace).toHaveBeenCalledWith({
         settings: {
@@ -315,15 +320,15 @@ describe("GitSyncConnectionPanel remote line", () => {
     expect(useGitHubAppRepositories).toHaveBeenCalledWith("workspace-1", {
       enabled: false,
     })
-    expect(screen.getByText("gitlab.example.com/")).toBeInTheDocument()
-    expect(repositoryInput()).toHaveAttribute(
-      "placeholder",
-      "https://gitlab.example.com/group/project"
-    )
+    expect(providerSelect()).toHaveTextContent("GitLabgitlab.example.com")
+    expect(repositoryInput()).toHaveAttribute("placeholder", "group/project")
     expect(
       screen.getByText(
-        "Paste the repository URL from gitlab.example.com. Nested groups work."
+        "Paste the project URL from gitlab.example.com, or type group/project. Nested groups work."
       )
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("Uses the organization's GitLab token.")
     ).toBeInTheDocument()
 
     await user.type(
@@ -363,13 +368,19 @@ describe("GitSyncConnectionPanel remote line", () => {
       />
     )
 
-    expect(screen.getByText("Where is the repository?")).toBeInTheDocument()
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: /GitLab/ }))
-    expect(screen.getByText("gitlab.example.com/")).toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: /Change provider/ })
-    ).toBeInTheDocument()
+    expect(providerSelect()).toHaveTextContent(
+      "Choose where the repository lives"
+    )
+    expect(providerSelect()).toBeEnabled()
+    expect(repositoryInput()).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled()
+
+    await user.click(providerSelect())
+    await user.click(await screen.findByRole("option", { name: /GitLab/ }))
+
+    expect(providerSelect()).toHaveTextContent("GitLabgitlab.example.com")
+    expect(repositoryInput()).toBeEnabled()
+    expect(repositoryInput()).toHaveAttribute("placeholder", "group/project")
   })
 
   it("lets viewers without provider status pick a provider explicitly", async () => {
@@ -380,16 +391,18 @@ describe("GitSyncConnectionPanel remote line", () => {
       />
     )
 
+    expect(providerSelect()).toHaveTextContent("GitHub")
     expect(
-      screen.getByText(
-        "Access through the GitHub App on TracecatHQ, set up by your organization."
-      )
+      screen.getByText("Uses the GitHub App on TracecatHQ.")
     ).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: /Change provider/ }))
-    await user.click(await screen.findByRole("menuitem", { name: /GitLab/ }))
+    await user.click(providerSelect())
+    await user.click(await screen.findByRole("option", { name: /GitLab/ }))
 
     expect(
-      screen.getByText("Access uses your organization's GitLab access token.")
+      screen.getByText("Uses the organization's GitLab token.")
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("Paste the full repository URL from GitLab.")
     ).toBeInTheDocument()
     await user.type(repositoryInput(), "group/project{Enter}")
     expect(screen.getByRole("alert")).toHaveTextContent(
@@ -442,8 +455,12 @@ describe("GitSyncConnectionPanel remote line", () => {
   it("prefills the full URL when the stored connection pins a ref", async () => {
     const user = userEvent.setup()
     const url = "git+ssh://git@github.com/TracecatHQ/detections.git@release"
-    render(<GitSyncConnectionPanel workspace={setup({ gitRepoUrl: url })} />)
-    await user.click(screen.getByRole("button", { name: "Change repository" }))
+    render(
+      <GitSyncConnectionPanel
+        workspace={setup({ gitRepoUrl: url, gitProvider: "github" })}
+      />
+    )
+    await user.click(screen.getByRole("button", { name: "Change" }))
     expect(repositoryInput()).toHaveValue(url)
   })
 })
@@ -462,19 +479,89 @@ describe("GitSyncConnectionPanel connected repository", () => {
       />
     )
 
+    expect(
+      screen.getByText(
+        "Shared by everyone in this workspace. Access uses the organization's GitHub App."
+      )
+    ).toBeInTheDocument()
     expect(screen.getByText("TracecatHQ/detections")).toBeInTheDocument()
     expect(screen.getByText("Branch").closest("div")).toHaveTextContent(
       "Branchmain"
     )
     expect(screen.queryByText("Pushes")).not.toBeInTheDocument()
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
-    expect(
-      screen.getByRole("button", { name: "Change repository" })
-    ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Change" })).toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Disconnect" })
     ).toBeInTheDocument()
+    expect(
+      screen.getByText("Stops push and pull for this workspace.")
+    ).toBeInTheDocument()
     expect(useGitSyncProviders).toHaveBeenLastCalledWith({ enabled: false })
+  })
+
+  it("changes the repository in its row and stays on the page", async () => {
+    const user = userEvent.setup()
+    const onSaved = jest.fn()
+    render(
+      <GitSyncConnectionPanel
+        workspace={setup({ gitRepoUrl: url, gitProvider: "github" })}
+        onSaved={onSaved}
+      />
+    )
+
+    await user.click(screen.getByRole("button", { name: "Change" }))
+    expect(repositoryInput()).toHaveValue("TracecatHQ/detections")
+    expect(repositoryInput()).toHaveFocus()
+    expect(
+      screen.getByText(
+        "Changing the repository clears any preview on this page."
+      )
+    ).toBeInTheDocument()
+
+    // Focus selected the prefill, so typing replaces it.
+    await user.keyboard("TracecatHQ/playbooks")
+    expect(repositoryInput()).toHaveValue("TracecatHQ/playbooks")
+    await user.click(screen.getByRole("button", { name: "Save" }))
+
+    await waitFor(() =>
+      expect(mockUpdateWorkspace).toHaveBeenCalledWith({
+        settings: {
+          git_provider: "github",
+          git_repo_url:
+            "git+ssh://git@github.com/TracecatHQ/playbooks.git@trunk",
+        },
+      })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    )
+    expect(onSaved).toHaveBeenCalled()
+    expect(
+      screen.getByRole("heading", { name: "Repository connection" })
+    ).toBeInTheDocument()
+  })
+
+  it("closes the row editor without saving on cancel or no change", async () => {
+    const user = userEvent.setup()
+    render(
+      <GitSyncConnectionPanel
+        workspace={setup({ gitRepoUrl: url, gitProvider: "github" })}
+      />
+    )
+
+    await user.click(screen.getByRole("button", { name: "Change" }))
+    await user.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    )
+
+    await user.click(screen.getByRole("button", { name: "Change" }))
+    await user.keyboard("TracecatHQ/playbooks")
+    await user.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
+    expect(screen.getByText("TracecatHQ/detections")).toBeInTheDocument()
+    expect(mockUpdateWorkspace).not.toHaveBeenCalled()
   })
 
   it("pins and unpins the sync branch through the URL ref", async () => {
@@ -556,7 +643,7 @@ describe("GitSyncConnectionPanel connected repository", () => {
     )
 
     expect(
-      screen.queryByRole("button", { name: "Change repository" })
+      screen.queryByRole("button", { name: "Change" })
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: "Disconnect" })
@@ -619,7 +706,7 @@ describe("GitSyncView connection", () => {
     expect(screen.getByRole("button", { name: "Connect" })).toBeInTheDocument()
   })
 
-  it("edits the connection with the same remote line and returns on save", async () => {
+  it("opens the connection from the header and goes back to changes", async () => {
     const user = userEvent.setup()
     render(
       <GitSyncView
@@ -638,26 +725,9 @@ describe("GitSyncView connection", () => {
     expect(
       screen.getByRole("heading", { name: "Repository connection" })
     ).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Change repository" }))
-    expect(repositoryInput()).toHaveValue("TracecatHQ/detections")
+    expect(screen.getByRole("button", { name: "Change" })).toBeInTheDocument()
 
-    await user.clear(repositoryInput())
-    await user.type(repositoryInput(), "TracecatHQ/playbooks")
-    await user.click(screen.getByRole("button", { name: "Save" }))
-
-    await waitFor(() =>
-      expect(mockUpdateWorkspace).toHaveBeenCalledWith({
-        settings: {
-          git_provider: "github",
-          git_repo_url:
-            "git+ssh://git@github.com/TracecatHQ/playbooks.git@trunk",
-        },
-      })
-    )
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("heading", { name: "Repository connection" })
-      ).not.toBeInTheDocument()
-    )
+    await user.click(screen.getByRole("button", { name: "Back to changes" }))
+    expect(screen.getByText("Push tab")).toBeInTheDocument()
   })
 })

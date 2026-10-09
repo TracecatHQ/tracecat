@@ -208,7 +208,7 @@ function validateRawRemote(
   if (
     target.hostIsKnown &&
     target.host &&
-    raw.host !== target.host &&
+    !hostMatchesTarget(raw.host, target) &&
     !skipHostCheck
   ) {
     return {
@@ -262,6 +262,14 @@ function describeExpectedInput(target: GitRemoteTarget): string {
     case "bitbucket_data_center":
       return "Enter PROJECT/repository or a Bitbucket Data Center repository URL."
   }
+}
+
+/** GitLab also accepts SSH aliases on subdomains, e.g. altssh.gitlab.com. */
+function hostMatchesTarget(host: string, target: GitRemoteTarget): boolean {
+  if (host === target.host) {
+    return true
+  }
+  return target.provider === "gitlab" && host.endsWith(`.${target.host}`)
 }
 
 function normalizeHost(host: string): string {

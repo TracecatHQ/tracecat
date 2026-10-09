@@ -41,6 +41,7 @@ import {
 import { toast } from "@/components/ui/use-toast"
 import { GitSyncActionBar } from "@/components/workspace-sync/git-sync-action-bar"
 import {
+  countChangedResources,
   formatChangeCounts,
   GitSyncChangeList,
   GitSyncNotice,
@@ -146,7 +147,7 @@ export function GitSyncPullTab({
   const isApplying = pullWorkflowsIsPending && pullAction === "apply"
   const showPreview = Boolean(pullPreview && pullPreviewMatchesSource)
   const changeCount = showPreview
-    ? (pullPreview?.resource_diffs?.length ?? 0)
+    ? countChangedResources(pullPreview?.resource_diffs ?? [])
     : 0
   const shortSha = effectivePullSha?.substring(0, 7)
 
@@ -542,7 +543,7 @@ function PullPreview({
     notice = (
       <GitSyncNotice tone="warning">
         <span className="flex items-center gap-3">
-          <span>{result.message}</span>
+          <span>{result.message || "Pull preview failed."}</span>
           {matchCount > 0 && chooseMatches}
         </span>
       </GitSyncNotice>
@@ -569,14 +570,17 @@ function PullPreview({
   return (
     <div className="flex min-w-0 flex-col">
       {notice}
-      <GitSyncChangeList
-        workspaceId={workspaceId}
-        direction="pull"
-        summary={summary}
-        resources={resources}
-        diffs={resourceDiffs}
-        fileCount={result.files?.length ?? resourceDiffs.length}
-      />
+      {/* A failed preview compared nothing, so "Already matches" would mislead. */}
+      {(result.success || resourceDiffs.length > 0) && (
+        <GitSyncChangeList
+          workspaceId={workspaceId}
+          direction="pull"
+          summary={summary}
+          resources={resources}
+          diffs={resourceDiffs}
+          fileCount={result.files?.length ?? resourceDiffs.length}
+        />
+      )}
       {result.diagnostics.length > 0 && (
         <PullDiagnostics diagnostics={result.diagnostics} />
       )}

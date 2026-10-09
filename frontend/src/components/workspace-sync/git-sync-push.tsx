@@ -20,10 +20,14 @@ import {
 import { Input } from "@/components/ui/input"
 import { ToastAction } from "@/components/ui/toast"
 import { toast } from "@/components/ui/use-toast"
-import { useWorkspaceSyncBranchTarget } from "@/components/workspace-sync/branch-target-selector"
+import {
+  useWorkspaceSyncBranchTarget,
+  writeLastPushBranch,
+} from "@/components/workspace-sync/branch-target-selector"
 import { GitSyncActionBar } from "@/components/workspace-sync/git-sync-action-bar"
 import { GitSyncBranchPicker } from "@/components/workspace-sync/git-sync-branch-picker"
 import {
+  countChangedResources,
   formatChangeCounts,
   GitSyncChangeList,
   GitSyncNotice,
@@ -76,6 +80,7 @@ export function GitSyncPushTab({
     useWorkspaceSyncBranchTarget({
       branches: repoBranches,
       newBranchPrefix: "sync/workspace",
+      rememberForWorkspaceId: workspaceId,
     })
 
   const targetBranch = branch.trim()
@@ -98,7 +103,9 @@ export function GitSyncPushTab({
   const reviewRequest = getReviewRequestLabel(provider)
   const reviewRequestShort = getReviewRequestAbbreviation(provider)
   const visiblePreview = previewedAt ? preview : undefined
-  const changeCount = visiblePreview?.resource_diffs?.length ?? 0
+  const changeCount = countChangedResources(
+    visiblePreview?.resource_diffs ?? []
+  )
   const pushDisabled =
     exportWorkspaceIsPending ||
     branchesIsLoading ||
@@ -127,6 +134,7 @@ export function GitSyncPushTab({
         create_pr: outcome.createPr,
         include_schedules: false,
       })
+      writeLastPushBranch(workspaceId, targetBranch)
       const prUrl = result.commit.pr_url
       toast({
         title: prUrl
