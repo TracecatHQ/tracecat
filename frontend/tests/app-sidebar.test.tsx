@@ -245,6 +245,17 @@ describe("AppSidebar", () => {
     expect(screen.queryByText("Requires upgrade")).not.toBeInTheDocument()
   })
 
+  it("hides Git Sync without sync or connection access", () => {
+    mockScopes = { "workspace:read": true }
+
+    render(<AppSidebar />)
+
+    expect(
+      screen.queryByRole("link", { name: "Git Sync" })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText("Requires upgrade")).not.toBeInTheDocument()
+  })
+
   it("only highlights MCP servers on the MCP servers page", () => {
     mockPathname = "/workspaces/workspace-1/mcp-servers"
     mockScopes = {

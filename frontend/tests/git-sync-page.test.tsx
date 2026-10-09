@@ -52,8 +52,10 @@ jest.mock("@/hooks/use-workspace-sync", () => ({
   useWorkspaceSyncExportPreview: jest.fn(),
 }))
 
+const mockInvalidateQueries = jest.fn()
+
 jest.mock("@/lib/query", () => ({
-  useQueryClient: () => ({ invalidateQueries: jest.fn() }),
+  useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
 }))
 
 jest.mock("@/components/ui/sidebar", () => ({
@@ -348,6 +350,12 @@ describe("GitSyncView connected", () => {
         expect.objectContaining({ title: "PR ready" })
       )
     )
+    // The push changed the remote, so branches and commits are refetched.
+    for (const key of ["workflow-sync-branches", "repository_commits"]) {
+      expect(mockInvalidateQueries).toHaveBeenCalledWith({
+        queryKey: [key, "workspace-1"],
+      })
+    }
     const toastOptions = jest.mocked(toast).mock.calls[0][0]
     render(
       <ToastProvider>
