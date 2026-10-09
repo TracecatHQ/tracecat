@@ -15,7 +15,7 @@ from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.auth.dependencies import (
     OrgActorRole,
     OrgUserRole,
-    WorkspaceUserPathRole,
+    WorkspaceActorRouteRole,
 )
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
@@ -208,7 +208,7 @@ async def delete_catalog_entry(
 @require_scope("agent:read")
 async def get_workspace_models(
     workspace_id: UUID,
-    role: WorkspaceUserPathRole,
+    role: WorkspaceActorRouteRole,
     session: AsyncDBSession,
 ) -> AgentCatalogListResponse:
     """Get models accessible to a workspace.

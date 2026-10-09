@@ -244,6 +244,7 @@ async def test_skill_scope_guards(endpoint: AsyncEndpoint, required_scope: str) 
     [
         agent_catalog_router.list_catalog,
         agent_catalog_router.get_catalog_entry,
+        agent_catalog_router.get_workspace_models,
     ],
 )
 async def test_agent_catalog_read_scope_guards(endpoint: AsyncEndpoint) -> None:
