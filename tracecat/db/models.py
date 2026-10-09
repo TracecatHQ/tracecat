@@ -64,6 +64,7 @@ from sqlalchemy.orm import (
 from tracecat import config
 from tracecat.agent.approvals.enums import ApprovalStatus
 from tracecat.agent.approvals.types import PersistedApprovalDecision
+from tracecat.agent.references.storage_types import ReferencePosition
 from tracecat.auth.schemas import UserRole
 from tracecat.auth.secrets import get_signing_secret
 from tracecat.authz.enums import ScimConnectionStatus, ScopeSource
@@ -3226,6 +3227,9 @@ class AgentSession(WorkspaceModel):
     """
 
     __tablename__ = "agent_session"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "id", name="uq_agent_session_workspace_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -4197,7 +4201,18 @@ class AgentPresetVersion(WorkspaceModel):
     """
 
     __tablename__ = "agent_preset_version"
-    __table_args__ = (UniqueConstraint("workspace_id", "preset_id", "version"),)
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "preset_id", "version"),
+        UniqueConstraint(
+            "workspace_id", "id", name="uq_agent_preset_version_workspace_id"
+        ),
+        CheckConstraint(
+            "reference_schema_version IS NULL OR reference_schema_version = 1",
+            name="ck_agent_preset_reference_schema_version",
+        ),
+    )
+
+    reference_schema_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -4599,6 +4614,11 @@ class SkillVersion(WorkspaceModel):
 
     __tablename__ = "skill_version"
     __table_args__ = (
+        UniqueConstraint("workspace_id", "id", name="uq_skill_version_workspace_id"),
+        CheckConstraint(
+            "reference_schema_version IS NULL OR reference_schema_version = 1",
+            name="ck_skill_reference_schema_version",
+        ),
         UniqueConstraint(
             "workspace_id",
             "skill_id",
@@ -4606,6 +4626,8 @@ class SkillVersion(WorkspaceModel):
             name="uq_skill_version_workspace_skill_version",
         ),
     )
+
+    reference_schema_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID,
@@ -6708,3 +6730,174 @@ class LegacyMembership(Base):
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         UUID, ForeignKey("workspace.id", ondelete="CASCADE"), primary_key=True
     )
+
+
+class SkillVersionReference(WorkspaceModel):
+    """Direct authored references; deleting a target must preserve its identity."""
+
+    __tablename__ = "skill_version_reference"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["workspace_id", "skill_version_id"],
+            ["skill_version.workspace_id", "skill_version.id"],
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "skill_version_id",
+            "source_path",
+            "target_key",
+            name="uq_skill_ref_source_target",
+        ),
+        Index("ix_skill_ref_reverse", "workspace_id", "kind", "target_id"),
+        Index("ix_skill_ref_source", "workspace_id", "skill_version_id"),
+        CheckConstraint(
+            "kind IN ('tool', 'mcp-server', 'mcp-tool', 'table', 'workflow', 'skill', 'agent')",
+            name="ck_skill_ref_kind",
+        ),
+        CheckConstraint(
+            "(kind = 'tool' AND action_key IS NOT NULL AND target_id IS NULL AND tool_name IS NULL) OR (kind = 'mcp-tool' AND target_id IS NOT NULL AND action_key IS NULL AND tool_name IS NOT NULL) OR (kind IN ('mcp-server', 'table', 'workflow', 'skill', 'agent') AND target_id IS NOT NULL AND action_key IS NULL AND tool_name IS NULL)",
+            name="ck_skill_ref_identity",
+        ),
+        CheckConstraint(
+            "action_key IS NULL OR (action_key ~ '^[a-z0-9_]+([.][a-z0-9_]+)+$' AND action_key NOT LIKE 'mcp.%')",
+            name="ck_skill_ref_action",
+        ),
+        CheckConstraint(
+            "tool_name IS NULL OR tool_name ~ '^[A-Za-z0-9_-]+$'",
+            name="ck_skill_ref_tool_name",
+        ),
+        CheckConstraint(
+            "target_key = 'tracecat-ref://v1/' || kind || '/' || CASE WHEN kind = 'tool' THEN action_key WHEN kind = 'mcp-tool' THEN target_id::text || '/' || tool_name ELSE target_id::text END",
+            name="ck_skill_ref_target_key",
+        ),
+        CheckConstraint("source_sha256 ~ '^[a-f0-9]{64}$'", name="ck_skill_ref_hash"),
+        CheckConstraint(
+            "jsonb_typeof(occurrences) = 'array' AND jsonb_array_length(occurrences) > 0",
+            name="ck_skill_ref_occurrences",
+        ),
+        CheckConstraint(
+            "source_path <> '' AND source_path NOT LIKE '/%' AND source_path !~ '(^|/)[.]{1,2}(/|$)' AND position('//' in source_path) = 0 AND right(source_path, 1) <> '/' AND position(chr(92) in source_path) = 0 AND source_path !~ '[[:cntrl:]]'",
+            name="ck_skill_ref_path",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, default=uuid.uuid4, unique=True)
+    skill_version_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    source_path: Mapped[str] = mapped_column(String(1024))
+    kind: Mapped[str] = mapped_column(String(32))
+    target_key: Mapped[str] = mapped_column(String(512))
+    target_id: Mapped[uuid.UUID | None] = mapped_column(UUID)
+    action_key: Mapped[str | None] = mapped_column(String(255))
+    tool_name: Mapped[str | None] = mapped_column(String(255))
+    occurrences: Mapped[list[ReferencePosition]] = mapped_column(JSONB)
+    source_sha256: Mapped[str] = mapped_column(String(64))
+
+
+class AgentPresetVersionReference(WorkspaceModel):
+    """Direct authored references; deleting a target must preserve its identity."""
+
+    __tablename__ = "agent_preset_version_reference"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["workspace_id", "preset_version_id"],
+            ["agent_preset_version.workspace_id", "agent_preset_version.id"],
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "preset_version_id",
+            "source_path",
+            "target_key",
+            name="uq_preset_ref_source_target",
+        ),
+        Index("ix_preset_ref_reverse", "workspace_id", "kind", "target_id"),
+        Index("ix_preset_ref_source", "workspace_id", "preset_version_id"),
+        CheckConstraint(
+            "kind IN ('tool', 'mcp-server', 'mcp-tool', 'table', 'workflow', 'skill', 'agent')",
+            name="ck_preset_ref_kind",
+        ),
+        CheckConstraint(
+            "(kind = 'tool' AND action_key IS NOT NULL AND target_id IS NULL AND tool_name IS NULL) OR (kind = 'mcp-tool' AND target_id IS NOT NULL AND action_key IS NULL AND tool_name IS NOT NULL) OR (kind IN ('mcp-server', 'table', 'workflow', 'skill', 'agent') AND target_id IS NOT NULL AND action_key IS NULL AND tool_name IS NULL)",
+            name="ck_preset_ref_identity",
+        ),
+        CheckConstraint(
+            "action_key IS NULL OR (action_key ~ '^[a-z0-9_]+([.][a-z0-9_]+)+$' AND action_key NOT LIKE 'mcp.%')",
+            name="ck_preset_ref_action",
+        ),
+        CheckConstraint(
+            "tool_name IS NULL OR tool_name ~ '^[A-Za-z0-9_-]+$'",
+            name="ck_preset_ref_tool_name",
+        ),
+        CheckConstraint(
+            "target_key = 'tracecat-ref://v1/' || kind || '/' || CASE WHEN kind = 'tool' THEN action_key WHEN kind = 'mcp-tool' THEN target_id::text || '/' || tool_name ELSE target_id::text END",
+            name="ck_preset_ref_target_key",
+        ),
+        CheckConstraint("source_sha256 ~ '^[a-f0-9]{64}$'", name="ck_preset_ref_hash"),
+        CheckConstraint(
+            "jsonb_typeof(occurrences) = 'array' AND jsonb_array_length(occurrences) > 0",
+            name="ck_preset_ref_occurrences",
+        ),
+        CheckConstraint(
+            "source_path <> '' AND source_path NOT LIKE '/%' AND source_path !~ '(^|/)[.]{1,2}(/|$)' AND position('//' in source_path) = 0 AND right(source_path, 1) <> '/' AND position(chr(92) in source_path) = 0 AND source_path !~ '[[:cntrl:]]'",
+            name="ck_preset_ref_path",
+        ),
+        CheckConstraint(
+            "source_path = 'instructions.md'", name="ck_preset_ref_instructions"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, default=uuid.uuid4, unique=True)
+    preset_version_id: Mapped[uuid.UUID] = mapped_column(UUID, nullable=False)
+    source_path: Mapped[str] = mapped_column(String(1024))
+    kind: Mapped[str] = mapped_column(String(32))
+    target_key: Mapped[str] = mapped_column(String(512))
+    target_id: Mapped[uuid.UUID | None] = mapped_column(UUID)
+    action_key: Mapped[str | None] = mapped_column(String(255))
+    tool_name: Mapped[str | None] = mapped_column(String(255))
+    occurrences: Mapped[list[ReferencePosition]] = mapped_column(JSONB)
+    source_sha256: Mapped[str] = mapped_column(String(64))
+
+
+class AgentReferenceRunSnapshot(WorkspaceModel):
+    """One selected graph per logical turn, retained until its session is deleted."""
+
+    __tablename__ = "agent_reference_run_snapshot"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["workspace_id", "session_id"],
+            ["agent_session.workspace_id", "agent_session.id"],
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "workspace_id", "logical_turn_id", name="uq_reference_snapshot_turn"
+        ),
+        Index("ix_reference_snapshot_session", "workspace_id", "session_id"),
+        CheckConstraint("schema_version = 1", name="ck_reference_snapshot_version"),
+        CheckConstraint(
+            "state IN ('resolved', 'ready')", name="ck_reference_snapshot_state"
+        ),
+        CheckConstraint(
+            "(state = 'resolved' AND final_object_key IS NULL AND final_sha256 IS NULL) OR (state = 'ready' AND final_object_key IS NOT NULL AND final_sha256 IS NOT NULL)",
+            name="ck_reference_snapshot_readiness",
+        ),
+        CheckConstraint(
+            "input_hash ~ '^[a-f0-9]{64}$' AND graph_sha256 ~ '^[a-f0-9]{64}$' AND (final_sha256 IS NULL OR final_sha256 ~ '^[a-f0-9]{64}$')",
+            name="ck_reference_snapshot_hashes",
+        ),
+        CheckConstraint(
+            "backend_id <> '' AND harness_type <> '' AND graph_object_key <> '' AND (final_object_key IS NULL OR final_object_key <> '')",
+            name="ck_reference_snapshot_keys",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, default=uuid.uuid4, unique=True)
+    logical_turn_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID)
+    backend_id: Mapped[str] = mapped_column(String(50))
+    harness_type: Mapped[str] = mapped_column(String(50))
+    input_hash: Mapped[str] = mapped_column(String(64))
+    state: Mapped[Literal["resolved", "ready"]] = mapped_column(String(16))
+    graph_object_key: Mapped[str] = mapped_column(Text)
+    graph_sha256: Mapped[str] = mapped_column(String(64))
+    final_object_key: Mapped[str | None] = mapped_column(Text)
+    final_sha256: Mapped[str | None] = mapped_column(String(64))
+    schema_version: Mapped[int] = mapped_column(Integer)
