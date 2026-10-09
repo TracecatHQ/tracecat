@@ -171,6 +171,12 @@ const RESERVED_SUBAGENT_ALIASES = new Set([
   "task",
 ])
 const AGENT_PRESET_TAB_QUERY_PARAM = "tab"
+/**
+ * Subagents and Skills header row. No fixed height: the 28px button sets it, as
+ * in the Tools list header, with the same 8px gap above the divider.
+ */
+const LIST_PANEL_HEADER =
+  "flex items-center gap-2 border-b border-border/50 px-4 py-2"
 
 function AgentPresetLoadError({
   title,
@@ -2174,7 +2180,7 @@ export function AgentPresetSubagentsPanel({
 
   return (
     <div className="h-full overflow-auto pb-20 text-xs">
-      <div className="flex h-14 items-center gap-2 border-b border-border/50 px-4">
+      <div className={LIST_PANEL_HEADER}>
         <h3 className="font-medium">Subagents</h3>
         <span className="text-muted-foreground">{subagentFields.length}</span>
         <div className="ml-auto">
@@ -2601,7 +2607,7 @@ export function AgentPresetSkillsPanel({
 
   return (
     <div className="h-full overflow-auto pb-20 text-xs">
-      <div className="flex h-14 items-center gap-2 border-b border-border/50 px-4">
+      <div className={LIST_PANEL_HEADER}>
         <h3 className="font-medium">Skills</h3>
         <span className="text-muted-foreground">{skillFields.length}</span>
         <div className="ml-auto">
