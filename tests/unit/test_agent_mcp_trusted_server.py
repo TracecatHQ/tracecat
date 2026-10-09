@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import jwt
 import pytest
 from fastmcp.exceptions import ToolError
+from pydantic import ValidationError
 from temporalio.exceptions import CancelledError as TemporalCancelledError
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
@@ -1219,10 +1220,18 @@ async def test_execute_registry_action_refuses_deferred_action(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "deferred_name", ["mcp__Jira__deleteIssue", "mcp.Jira.deleteIssue"]
+    ("server_name", "tool_name", "deferred_name"),
+    [
+        ("Jira", "deleteIssue", "mcp__Jira__deleteIssue"),
+        ("Jira", "deleteIssue", "mcp__tracecat-registry__mcp__Jira__deleteIssue"),
+        # Remote tool names may contain "__".
+        ("example", "a__b", "mcp__example__a__b"),
+    ],
 )
 async def test_execute_user_mcp_refuses_deferred_tool(
     monkeypatch: pytest.MonkeyPatch,
+    server_name: str,
+    tool_name: str,
     deferred_name: str,
 ) -> None:
     monkeypatch.setattr(
@@ -1231,19 +1240,98 @@ async def test_execute_user_mcp_refuses_deferred_tool(
         lambda _: pytest.fail("deferred tools must not reach the user MCP server"),
     )
     claims = _build_claims(
+        allowed_actions=[f"mcp__{server_name}__{tool_name}"],
         deferred_actions=[deferred_name],
         user_mcp_servers=[
-            UserMCPServerClaim(
-                name="Jira",
-                url="https://mcp.atlassian.com/v1/mcp",
-            )
+            UserMCPServerClaim(name=server_name, url="https://mcp.example.test/mcp")
         ],
     )
 
     with pytest.raises(
-        ToolError, match="^Tool 'mcp__Jira__deleteIssue' requires approval$"
+        ToolError,
+        match=f"^Tool 'mcp__{server_name}__{tool_name}' requires approval$",
     ):
-        await trusted_server._execute_user_mcp("Jira", "deleteIssue", {}, claims)
+        await trusted_server._execute_user_mcp(server_name, tool_name, {}, claims)
+
+
+def test_claims_reject_dotted_user_mcp_deferred_name() -> None:
+    """The dotted spelling of tool a__b is mcp.example.a.b, which is ambiguous."""
+    with pytest.raises(ValidationError, match="Ambiguous user MCP tool name"):
+        _build_claims(
+            allowed_actions=["mcp__example__a__b"],
+            deferred_actions=["mcp.example.a.b"],
+        )
+
+
+@pytest.mark.anyio
+async def test_token_scoped_mcp_rejects_signed_dotted_user_mcp_deferred_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A token deferring the dotted spelling fails verification, so nothing runs."""
+    monkeypatch.setattr("tracecat.config.TRACECAT__SERVICE_KEY", "test-service-key")
+    token = mint_mcp_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        allowed_actions=["mcp__example__a__b"],
+        user_mcp_servers=[
+            UserMCPServerClaim(name="example", url="https://mcp.example.test/mcp")
+        ],
+        registry_lock=RegistryLock(origins={}, actions={}),
+    )
+    # Minting rejects this name, so sign the claims directly.
+    payload = jwt.decode(token, options={"verify_signature": False})
+    payload["deferred_actions"] = ["mcp.example.a.b"]
+    token = jwt.encode(payload, get_service_key(), algorithm="HS256")
+
+    resolve_config = AsyncMock()
+    monkeypatch.setattr(trusted_server, "_resolve_user_mcp_config", resolve_config)
+    monkeypatch.setattr(
+        trusted_server,
+        "get_http_headers",
+        lambda include: {"authorization": f"Bearer {token}"},
+    )
+    mcp = trusted_server.TokenScopedFastMCP("test")
+
+    with pytest.raises(ToolError, match="^Authentication failed$"):
+        await mcp.call_tool("mcp__example__a__b", {})
+    resolve_config.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_token_scoped_mcp_refuses_cold_deferred_user_mcp_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A call refuses a deferred tool before building the catalog."""
+    monkeypatch.setattr("tracecat.config.TRACECAT__SERVICE_KEY", "test-service-key")
+    token = mint_mcp_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        allowed_actions=[],
+        deferred_actions=["mcp__example__a__b"],
+        user_mcp_servers=[
+            UserMCPServerClaim(name="example", url="https://mcp.example.test/mcp")
+        ],
+        registry_lock=RegistryLock(origins={}, actions={}),
+    )
+    resolve_config = AsyncMock()
+    discover = AsyncMock()
+    monkeypatch.setattr(trusted_server, "_resolve_user_mcp_config", resolve_config)
+    monkeypatch.setattr(trusted_server, "_get_cached_user_mcp_discovery", discover)
+    monkeypatch.setattr(
+        trusted_server,
+        "get_http_headers",
+        lambda include: {"authorization": f"Bearer {token}"},
+    )
+    mcp = trusted_server.TokenScopedFastMCP("test")
+
+    with pytest.raises(
+        ToolError, match="^Tool 'mcp__example__a__b' requires approval$"
+    ):
+        await mcp.call_tool("mcp__example__a__b", {})
+    resolve_config.assert_not_awaited()
+    discover.assert_not_awaited()
 
 
 @pytest.mark.anyio

@@ -214,7 +214,7 @@ def test_mcp_token_rejects_action_both_allowed_and_deferred(monkeypatch) -> None
         ("core.http_request", "core__http_request"),
         ("core.http_request", "mcp__tracecat-registry__core__http_request"),
         ("core.http_request", "mcp.tracecat_registry.core.http_request"),
-        ("mcp__Jira__deleteIssue", "mcp.Jira.deleteIssue"),
+        ("mcp__example__a__b", "mcp__tracecat-registry__mcp__example__a__b"),
     ],
 )
 def test_mcp_token_rejects_overlap_in_another_spelling(
@@ -244,14 +244,59 @@ def test_mcp_token_canonicalizes_deferred_actions(monkeypatch) -> None:
             "mcp__tracecat-registry__core__http_request",
             "core.http_request",
             "mcp__tracecat-registry__mcp__Jira__deleteIssue",
-            "mcp.Jira.deleteIssue",
+            "mcp__tracecat-registry__mcp__example__a__b",
         ],
         session_id=session_id,
         registry_lock=_registry_lock(),
     )
 
     claims = verify_mcp_token(token)
-    assert claims.deferred_actions == ["core.http_request", "mcp__Jira__deleteIssue"]
+    assert claims.deferred_actions == [
+        "core.http_request",
+        "mcp__Jira__deleteIssue",
+        "mcp__example__a__b",
+    ]
+
+
+@pytest.mark.parametrize("deferred_name", ["mcp.example.a.b", "mcp.Jira.deleteIssue"])
+def test_mcp_token_rejects_dotted_user_mcp_deferred_name(
+    monkeypatch, deferred_name: str
+) -> None:
+    """The dotted spelling replaces "__" with ".", so it cannot name one tool.
+
+    Remote tool a__b is listed as mcp__example__a__b, but its dotted spelling
+    mcp.example.a.b could also be tool a.b.
+    """
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+
+    with pytest.raises(ValueError, match="Ambiguous user MCP tool name"):
+        mint_mcp_token(
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            allowed_actions=["mcp__example__a__b"],
+            deferred_actions=[deferred_name],
+            session_id=session_id,
+            registry_lock=_registry_lock(),
+        )
+
+
+def test_mcp_token_with_dotted_user_mcp_deferred_name_fails_verification(
+    monkeypatch,
+) -> None:
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+    token = mint_mcp_token(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        allowed_actions=["mcp__example__a__b"],
+        session_id=session_id,
+        registry_lock=_registry_lock(),
+    )
+    payload = jwt.decode(token, options={"verify_signature": False})
+    payload["deferred_actions"] = ["mcp.example.a.b"]
+    signed = jwt.encode(payload, get_service_key(), algorithm="HS256")
+
+    with pytest.raises(ValueError, match="Invalid MCP token claims"):
+        verify_mcp_token(signed)
 
 
 def test_agent_otel_token_round_trips(monkeypatch) -> None:

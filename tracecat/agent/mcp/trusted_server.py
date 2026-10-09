@@ -53,6 +53,7 @@ from tracecat.agent.mcp.metadata import (
 from tracecat.agent.mcp.user_client import UserMCPClient
 from tracecat.agent.mcp.utils import (
     action_name_to_mcp_tool_name,
+    canonical_mcp_tool_name,
     fetch_tool_definitions,
     fetch_tool_definitions_for_lock,
     mcp_tool_name_to_action_name,
@@ -130,10 +131,11 @@ class TokenScopedFastMCP(FastMCP[None]):
         self._tool_cache: OrderedDict[str, list[Tool]] = OrderedDict()
 
     async def _tools_from_request(self) -> list[Tool]:
-        authorization = _authorization_header_from_request()
-        if authorization is None:
-            raise ToolError("Authentication failed")
-        claims = _claims_from_authorization_header(authorization)
+        return await self._tools_for(*_request_claims())
+
+    async def _tools_for(
+        self, authorization: str, claims: MCPTokenClaims
+    ) -> list[Tool]:
         if authorization in self._tool_cache:
             self._tool_cache.move_to_end(authorization)
             return self._tool_cache[authorization]
@@ -158,7 +160,16 @@ class TokenScopedFastMCP(FastMCP[None]):
         version: VersionSpec | None = None,
     ) -> Tool | None:
         del version
-        tools = await self._tools_from_request()
+        authorization, claims = _request_claims()
+        try:
+            action_name = canonical_mcp_tool_name(name)
+        except ValueError:
+            # Listed tool names never use the dotted user MCP spelling.
+            return None
+        # Refuse before the catalog build, which resolves user MCP
+        # credentials and runs remote discovery.
+        _refuse_deferred_action(action_name, claims)
+        tools = await self._tools_for(authorization, claims)
         return next((tool for tool in tools if tool.name == name), None)
 
 
@@ -300,6 +311,14 @@ def _claims_from_authorization_header(authorization: str | None) -> MCPTokenClai
 def _authorization_header_from_request() -> str | None:
     headers = get_http_headers(include={"authorization"})
     return headers.get("authorization")
+
+
+def _request_claims() -> tuple[str, MCPTokenClaims]:
+    """Return the request's authorization header and its verified claims."""
+    authorization = _authorization_header_from_request()
+    if authorization is None:
+        raise ToolError("Authentication failed")
+    return authorization, _claims_from_authorization_header(authorization)
 
 
 def _listed_action_names(claims: MCPTokenClaims) -> list[str]:

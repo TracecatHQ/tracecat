@@ -123,6 +123,7 @@ class MCPTokenClaims(BaseModel):
     to run them. The minting service executes approved calls itself with a
     separate token, so approval is enforced even if the holder is compromised.
     Names are stored in canonical form so every spelling of a tool is refused.
+    The ambiguous dotted user MCP spelling (``mcp.{server}.{tool}``) is rejected.
     """
     user_mcp_servers: list[UserMCPServerClaim] = Field(default_factory=list)
     """User-defined MCP server configurations for proxying tool calls."""
@@ -193,13 +194,13 @@ def mint_mcp_token(
 
     Raises:
         ValueError: If a tool is both deferred and allowed (as an action or
-            internal tool), in any spelling of its name
+            internal tool), in any spelling of its name, or a deferred name
+            uses the ambiguous dotted user MCP spelling
     """
     deferred_actions = deferred_actions or []
-    executable = {
-        canonical_mcp_tool_name(name)
-        for name in [*allowed_actions, *(allowed_internal_tools or [])]
-    }
+    # Execution authorizes a call only when its canonical name is allowed
+    # verbatim, so compare the raw allowed names with canonical deferred ones.
+    executable = {*allowed_actions, *(allowed_internal_tools or [])}
     if executable & {canonical_mcp_tool_name(name) for name in deferred_actions}:
         raise ValueError("An MCP tool cannot be both allowed and deferred")
     now = datetime.now(UTC)
