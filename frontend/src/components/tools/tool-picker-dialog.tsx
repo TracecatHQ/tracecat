@@ -50,9 +50,10 @@ export interface ToolPickerDialogProps {
   onLockedSelect?: (entry: ToolEntry) => void
 }
 
-// Catalogue rows share one grid: a fixed leading column for the checkbox or
-// the namespace icon, so both start on the same edge and titles line up.
-const LEAD = "flex w-6 shrink-0 items-center"
+// Catalogue rows share one grid: a leading column exactly as wide as the
+// checkbox, which the namespace icon tile matches, so every box in the column
+// shares its left edge, right edge and centre, and titles line up.
+const LEAD = "mr-2 flex w-4 shrink-0 items-center"
 
 type PickerRow =
   | {
@@ -739,9 +740,13 @@ export function ToolIcon({
   small = false,
 }: {
   entry: ToolEntry
+  /** Render the tile at the checkbox's size and radius, to share its column. */
   small?: boolean
 }) {
-  const className = cn("shrink-0 rounded border", small ? "size-5" : "size-6")
+  const className = cn(
+    "shrink-0 border",
+    small ? "size-4 rounded-sm p-px" : "size-6 rounded"
+  )
   if (entry.integration)
     return (
       <ProviderIcon
@@ -798,7 +803,9 @@ function GroupHeader({
           )}
         </span>
       </span>
-      <ToolIcon entry={group.entries[0]} />
+      <span className={LEAD}>
+        <ToolIcon entry={group.entries[0]} small />
+      </span>
       <span className="truncate font-medium">{group.title}</span>
       <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
         {group.namespace}
@@ -888,7 +895,7 @@ const SectionHeader = memo(function SectionHeader({
       className="flex h-11 items-center gap-3 border-b border-border/50 px-4 text-xs"
     >
       <span className={LEAD}>
-        {group && <ToolIcon entry={group.entries[0]} />}
+        {group && <ToolIcon entry={group.entries[0]} small />}
       </span>
       <span className="truncate font-medium">{title}</span>
       <span className="truncate font-mono text-[11px] text-muted-foreground">
