@@ -104,6 +104,9 @@ gen-client-ci:
 	pnpm -C frontend generate-client-ci
 	just lint-fix
 
+skill-library *args:
+	uv run python scripts/skill_library.py {{args}}
+
 gen-mcp-docs:
 	uv run python scripts/generate_mcp_docs.py
 

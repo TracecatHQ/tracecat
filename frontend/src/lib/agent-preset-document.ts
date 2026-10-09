@@ -109,6 +109,8 @@ export interface AgentPresetDocumentInput {
   subagents: AgentPresetSubagentEntry[]
   /** Attached skills with their version pins, sorted by name then version. */
   skills: AgentPresetSkillEntry[]
+  /** Attached Tracecat library skill slugs, deduplicated and sorted. */
+  librarySkills: string[]
   /** Retry budget. */
   retries: number
   /** Whether extended thinking is enabled. */
@@ -277,6 +279,7 @@ function agentPresetExecutionFieldsToDocumentInput(
     toolApprovals: normalizeToolApprovals(fields.tool_approvals),
     subagents,
     skills: normalizeSkills(skillBindings, skillNamesById),
+    librarySkills: sortStrings([...new Set(fields.library_skills ?? [])]),
     // `form.getValues()` returns raw input and `retries` is a `z.coerce.number()`
     // field, so mid-edit it can still be the string "3".
     retries: Number(fields.retries ?? DEFAULT_RETRIES),
@@ -404,6 +407,7 @@ export function buildAgentPresetVirtualFiles(input: AgentPresetDocumentInput): {
       name: skill.name,
       version: skill.version,
     })),
+    library_skills: input.librarySkills,
     runtime: {
       retries: input.retries,
       enable_thinking: input.enableThinking,

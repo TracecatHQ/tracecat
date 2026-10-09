@@ -1660,6 +1660,34 @@ class TestClaudeAgentRuntimeRun:
         assert agent_def.tools == []
         assert agent_def.mcpServers is None
 
+    def test_subagent_preloads_qualified_library_skills_without_tools(
+        self,
+        mock_socket_writer: MagicMock,
+        sample_init_payload: RuntimeInitPayload,
+    ) -> None:
+        child = SandboxSubagentConfig(
+            alias="analyst",
+            description="Use for phishing triage.",
+            prompt="Triage the report.",
+            config=sample_init_payload.config.model_copy(
+                update={"library_skills": ["phishing-triage"]}
+            ),
+            mcp_auth_token="child-mcp-token",
+        )
+        payload = replace(sample_init_payload, subagents=[child])
+        runtime = ClaudeAgentRuntime(
+            mock_socket_writer,
+            transport_factory=lambda _: MagicMock(),
+        )
+
+        definitions = runtime._build_agent_definitions(payload=payload)
+
+        assert definitions is not None
+        agent_def = definitions["analyst"]
+        assert agent_def.skills == ["tracecat:phishing-triage"]
+        assert agent_def.tools == []
+        assert "Skill" not in (agent_def.tools or [])
+
     @pytest.mark.anyio
     async def test_subagent_internet_policy_enables_runtime_internet_tools(
         self,

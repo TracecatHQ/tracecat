@@ -108,7 +108,8 @@ class CorrelatedSecretStores:
     requirements: list[SecretStoreMappingRequirement]
 
 
-class PreparedSnapshot(NamedTuple):
+@dataclass(frozen=True, slots=True)
+class PreparedSnapshot:
     """Snapshot with deployment-local references resolved, plus any diagnostics."""
 
     snapshot: WorkspaceRemoteSnapshot
@@ -116,3 +117,4 @@ class PreparedSnapshot(NamedTuple):
     catalog_mapping_requirements: list[CatalogMappingRequirement]
     mcp_integration_mapping_requirements: list[McpIntegrationMappingRequirement]
     secret_store_mapping_requirements: list[SecretStoreMappingRequirement]
+    library_skill_installs: list[str]

@@ -90,6 +90,7 @@ POST_RLS_WORKSPACE_SCOPED_TABLES = (
     "skill_version_file",
     "skill_version_tool",
     "skill_version_mcp_tool",
+    "skill_library_install",
     "agent_preset_skill",
     "agent_preset_version_skill",
     "workspace_sync_resource_mapping",

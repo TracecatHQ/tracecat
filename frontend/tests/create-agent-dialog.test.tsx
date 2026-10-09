@@ -302,6 +302,45 @@ describe("CreateAgentDialog", () => {
     })
   })
 
+  it("starts an agent from library skills and numbers a taken name", async () => {
+    const user = userEvent.setup()
+    setupMocks({
+      defaultModelSelection: {
+        catalog_id: "catalog-default",
+        model_name: "gpt-5.5",
+        model_provider: "openai",
+        custom_provider_id: null,
+      },
+    })
+    render(
+      <CreateAgentDialog
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        librarySkills={["alert-triage"]}
+        defaultName="Alert Triage 2"
+        takenSlugs={["alert-triage", "alert-triage-2", "triage-bot"]}
+      />
+    )
+
+    const name = screen.getByLabelText("Name")
+    expect(name).toHaveValue("Alert Triage 2")
+    expect(
+      screen.getByText(/starts with alert-triage attached/)
+    ).toBeInTheDocument()
+    await user.clear(name)
+    await user.type(name, "Triage Bot")
+    await user.click(screen.getByRole("button", { name: "Create agent" }))
+
+    await waitFor(() => {
+      expect(mockCreateAgentPreset).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Triage Bot 2",
+          library_skills: ["alert-triage"],
+        })
+      )
+    })
+  })
+
   it("does not move the preset into a folder without agent add-ons", async () => {
     const user = userEvent.setup()
     setupMocks({ defaultModelSelection: customDefaultSelection })

@@ -53,6 +53,13 @@ jest.mock("@/components/editor/codemirror/code-editor", () => ({
   ),
 }))
 jest.mock("@/hooks/use-skills", () => ({ useSkills: jest.fn() }))
+jest.mock("@/hooks/use-skill-library", () => ({
+  useSkillLibrary: () => ({
+    librarySkills: [],
+    librarySkillsIsLoading: false,
+    librarySkillsError: null,
+  }),
+}))
 
 const preset: AgentPresetReadMinimal = {
   id: "preset-example",
@@ -577,7 +584,9 @@ it("shows a skills loading error", () => {
     }),
   })
   render(<TestForm panel="skills" />)
-  expect(screen.getByText("Unable to load skills")).toBeInTheDocument()
+  expect(
+    screen.getByText("Unable to load workspace skills")
+  ).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Add skill" })).toBeDisabled()
 })
 

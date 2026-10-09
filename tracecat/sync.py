@@ -363,6 +363,9 @@ class PullResult:
     resources: list[SyncPreviewResource] | None = None
     """Optional displayable resources included in a pull preview."""
 
+    library_skill_installs: list[str] = field(default_factory=list)
+    """Library slugs to install in a preview, or newly installed by a successful pull."""
+
     catalog_mapping_requirements: list[CatalogMappingRequirement] | None = None
     """Target model choices required before this pull can be previewed or applied."""
 

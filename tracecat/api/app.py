@@ -54,6 +54,7 @@ from tracecat.agent.router import router as agent_router
 from tracecat.agent.router import workspace_router as agent_workspace_router
 from tracecat.agent.session.router import router as agent_session_router
 from tracecat.agent.skill.folders.router import router as skill_folders_router
+from tracecat.agent.skill.library.router import router as skill_library_router
 from tracecat.agent.skill.router import router as agent_skill_router
 from tracecat.agent.skill.tags.definitions_router import (
     router as skill_tag_definitions_router,
@@ -622,6 +623,7 @@ def create_app(**kwargs) -> FastAPI:
     _include_workspace_scoped_router(app, agent_tag_definitions_router)
     _include_workspace_scoped_router(app, agent_skill_router)
     _include_workspace_scoped_router(app, skill_folders_router)
+    _include_workspace_scoped_router(app, skill_library_router)
     _include_workspace_scoped_router(app, skill_tag_definitions_router)
     _include_workspace_scoped_router(app, skill_tags_router)
     _include_workspace_scoped_router(app, agent_session_router)

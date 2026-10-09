@@ -32,6 +32,7 @@ import {
   useMoveAgentPreset,
 } from "@/hooks/use-agent-presets"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { uniqueAgentPresetName } from "@/lib/agent-preset-name"
 import {
   useAgentDefaultModel,
   useUserScopes,
@@ -55,12 +56,21 @@ interface CreateAgentDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   currentPath?: string | null
+  /** Installed library skills to bind to the new agent. */
+  librarySkills?: string[]
+  /** Prefilled agent name. */
+  defaultName?: string
+  /** When set, a taken name is numbered instead of rejected. */
+  takenSlugs?: string[]
 }
 
 export function CreateAgentDialog({
   open,
   onOpenChange,
   currentPath,
+  librarySkills,
+  defaultName,
+  takenSlugs,
 }: CreateAgentDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -68,6 +78,9 @@ export function CreateAgentDialog({
         <CreateAgentDialogContent
           currentPath={currentPath}
           onOpenChange={onOpenChange}
+          librarySkills={librarySkills}
+          defaultName={defaultName}
+          takenSlugs={takenSlugs}
         />
       ) : null}
     </Dialog>
@@ -77,9 +90,15 @@ export function CreateAgentDialog({
 function CreateAgentDialogContent({
   currentPath,
   onOpenChange,
+  librarySkills,
+  defaultName,
+  takenSlugs,
 }: {
   currentPath?: string | null
   onOpenChange: (open: boolean) => void
+  librarySkills?: string[]
+  defaultName?: string
+  takenSlugs?: string[]
 }) {
   const workspaceId = useWorkspaceId()
   const router = useRouter()
@@ -140,7 +159,7 @@ function CreateAgentDialogContent({
   const methods = useForm<CreateAgentFormValues>({
     resolver: zodResolver(createAgentSchema),
     defaultValues: {
-      name: "",
+      name: defaultName ?? "",
       description: "",
     },
   })
@@ -152,12 +171,15 @@ function CreateAgentDialogContent({
 
     try {
       const preset = await createAgentPreset({
-        name: values.name,
+        name: takenSlugs
+          ? uniqueAgentPresetName(values.name, takenSlugs)
+          : values.name,
         model_provider: initialAgentModel.model_provider,
         model_name: initialAgentModel.model_name,
         catalog_id: initialAgentModel.id,
         base_url: initialAgentModelBaseUrl ?? undefined,
         description: values.description || undefined,
+        library_skills: librarySkills?.length ? librarySkills : undefined,
       })
       const targetFolderPath =
         foldersEnabled && currentPath && currentPath !== "/"
@@ -272,6 +294,9 @@ function CreateAgentDialogContent({
         <DialogDescription>
           Give the agent a name and optional description. You can change its
           model after creation.
+          {librarySkills?.length
+            ? ` It starts with ${librarySkills.join(", ")} attached.`
+            : null}
         </DialogDescription>
       </DialogHeader>
       <Form {...methods}>
