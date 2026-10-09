@@ -1,11 +1,14 @@
+import type { AgentPresetRead } from "@/client"
 import {
   AGENT_PRESET_PUBLISHING_FIELDS,
+  type AgentPresetReasoningFields,
   buildAgentPresetUpdatePayload,
   buildDuplicateAgentPresetPayload,
   buildDuplicateAgentSlug,
   buildSkillCommandItemValue,
   canSubmitAgentPresetForm,
   getAgentPresetErrorMessage,
+  readAgentPresetReasoningEffort,
 } from "@/lib/agent-presets"
 
 describe("getAgentPresetErrorMessage", () => {
@@ -99,6 +102,7 @@ describe("buildAgentPresetUpdatePayload", () => {
   it("omits unchanged skill bindings from preset updates", () => {
     const update = buildAgentPresetUpdatePayload(presetPayload, {
       skillsChanged: false,
+      reasoningEffortChanged: false,
     })
 
     expect(update).not.toHaveProperty("skills")
@@ -107,9 +111,63 @@ describe("buildAgentPresetUpdatePayload", () => {
   it("includes changed skill bindings in preset updates", () => {
     const update = buildAgentPresetUpdatePayload(presetPayload, {
       skillsChanged: true,
+      reasoningEffortChanged: false,
     })
 
     expect(update.skills).toEqual(presetPayload.skills)
+  })
+
+  it("sends the reasoning level only when the control changed", () => {
+    const payload = { ...presetPayload, reasoning_effort: null }
+
+    expect(
+      buildAgentPresetUpdatePayload(payload, {
+        skillsChanged: false,
+        reasoningEffortChanged: false,
+      })
+    ).not.toHaveProperty("reasoning_effort")
+    expect(
+      buildAgentPresetUpdatePayload(payload, {
+        skillsChanged: false,
+        reasoningEffortChanged: true,
+      }).reasoning_effort
+    ).toBeNull()
+  })
+})
+
+describe("readAgentPresetReasoningEffort", () => {
+  it.each<[AgentPresetReasoningFields, string | null]>([
+    [{ reasoning_effort: "high" }, "high"],
+    [{ reasoning_effort: null }, null],
+    // An explicit level, even null, wins over the legacy flag.
+    [{ reasoning_effort: null, enable_thinking: false }, null],
+    // Responses from API pods that predate reasoning levels.
+    [{ enable_thinking: false }, "off"],
+    [{ enable_thinking: true }, null],
+    [{}, null],
+  ])("reads %p as %p", (fields, expected) => {
+    expect(readAgentPresetReasoningEffort(fields)).toBe(expected)
+  })
+})
+
+describe("buildDuplicateAgentPresetPayload with a legacy preset", () => {
+  it("duplicates an off preset read from an older API pod as off", () => {
+    // API pods from before reasoning levels return only the legacy flag.
+    const legacyOffPreset: AgentPresetRead & AgentPresetReasoningFields = {
+      id: "preset-1",
+      workspace_id: "ws-1",
+      name: "Triage agent",
+      slug: "triage-agent",
+      model_name: "gpt-4o-mini",
+      model_provider: "openai",
+      enable_thinking: false,
+      created_at: "2026-03-13T12:00:00Z",
+      updated_at: "2026-03-13T12:00:00Z",
+    }
+
+    expect(
+      buildDuplicateAgentPresetPayload(legacyOffPreset, []).reasoning_effort
+    ).toBe("off")
   })
 })
 

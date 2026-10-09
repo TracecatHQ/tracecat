@@ -7,6 +7,7 @@ import type {
   OutputType,
   ReasoningEffort,
 } from "@/client"
+import { readAgentPresetReasoningEffort } from "@/lib/agent-presets"
 
 /**
  * Renders an agent preset as two virtual files, `instructions.md` and
@@ -284,7 +285,7 @@ function agentPresetExecutionFieldsToDocumentInput(
     // `form.getValues()` returns raw input and `retries` is a `z.coerce.number()`
     // field, so mid-edit it can still be the string "3".
     retries: Number(fields.retries ?? DEFAULT_RETRIES),
-    reasoningEffort: fields.reasoning_effort ?? null,
+    reasoningEffort: readAgentPresetReasoningEffort(fields),
     enableInternetAccess: fields.enable_internet_access ?? false,
   }
 }

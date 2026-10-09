@@ -9,6 +9,7 @@ import {
   agentPresetVersionToDocumentInput,
   buildAgentPresetVirtualFiles,
 } from "@/lib/agent-preset-document"
+import type { AgentPresetReasoningFields } from "@/lib/agent-presets"
 
 const LONG_BASE_URL =
   "https://gateway.example.com/very/long/path/segment/that/exceeds/the/default/yaml/line/width/for/folding/v1"
@@ -300,6 +301,18 @@ describe("buildAgentPresetVirtualFiles determinism", () => {
 })
 
 describe("buildAgentPresetVirtualFiles normalization", () => {
+  it("reads a version from an API pod that predates reasoning levels", () => {
+    // Older API pods omit reasoning_effort and return only the legacy flag.
+    const legacyOff: AgentPresetVersionRead & AgentPresetReasoningFields = {
+      ...buildVersion({ reasoning_effort: undefined }),
+      enable_thinking: false,
+    }
+
+    expect(
+      configLine(renderVersion(legacyOff).config, "reasoning_effort")
+    ).toBe("  reasoning_effort: off")
+  })
+
   it("coerces a mid-edit string retries value to a number", () => {
     const { config } = renderPayload(
       buildPayload({ retries: "3" as unknown as number })

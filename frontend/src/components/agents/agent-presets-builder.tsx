@@ -155,6 +155,7 @@ import {
   type AgentPresetFormMode,
   buildAgentPresetUpdatePayload,
   buildSkillCommandItemValue,
+  readAgentPresetReasoningEffort,
 } from "@/lib/agent-presets"
 import type { ModelInfo } from "@/lib/chat"
 import { getApiErrorDetail } from "@/lib/errors"
@@ -1382,6 +1383,9 @@ function AgentPresetForm({
       if (mode === "edit" && preset) {
         const updatePayload = buildAgentPresetUpdatePayload(payload, {
           skillsChanged: Boolean(form.formState.dirtyFields.skills),
+          reasoningEffortChanged: Boolean(
+            form.formState.dirtyFields.reasoningEffort
+          ),
         })
         const updated = await onUpdate(preset.id, updatePayload)
         form.reset(presetToFormValues(updated))
@@ -3405,7 +3409,10 @@ function AgentPresetBuilderChatPane({
   )
 }
 
-function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
+/** Convert a preset response to editor values. */
+export function presetToFormValues(
+  preset: AgentPresetRead
+): AgentPresetFormValues {
   const outputType =
     preset.output_type === null || preset.output_type === undefined
       ? null
@@ -3464,7 +3471,7 @@ function presetToFormValues(preset: AgentPresetRead): AgentPresetFormValues {
       ) ?? [],
     librarySkills: preset.library_skills ?? [],
     retries: preset.retries ?? DEFAULT_RETRIES,
-    reasoningEffort: preset.reasoning_effort ?? "default",
+    reasoningEffort: readAgentPresetReasoningEffort(preset) ?? "default",
     enableInternetAccess: preset.enable_internet_access ?? false,
   }
 }
