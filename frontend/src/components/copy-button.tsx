@@ -29,6 +29,7 @@ export function CopyButton({
           type="button"
           aria-label={tooltipMessage || "Copy"}
           variant="ghost"
+          aria-label={tooltipMessage || "Copy"}
           className={cn("group m-0 size-4 p-0", className)}
           onClick={(e) => {
             e.stopPropagation()
