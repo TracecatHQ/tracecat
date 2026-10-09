@@ -204,16 +204,6 @@ class WorkflowImportService(BaseWorkspaceService):
                     details={"validation_errors": e.errors()},
                 )
             )
-        except Exception as e:
-            diagnostics.append(
-                PullDiagnostic(
-                    workflow_path=workflow_path,
-                    workflow_title=getattr(remote_workflow.definition, "title", None),
-                    error_type="validation",
-                    message=f"Unexpected validation error: {str(e)}",
-                    details={"exception": str(e)},
-                )
-            )
 
         return diagnostics
 
@@ -264,7 +254,18 @@ class WorkflowImportService(BaseWorkspaceService):
                         if isinstance(action.args, dict)
                         else None
                     )
-                    if not alias:
+                    if alias is None or alias == "":
+                        continue
+                    if not isinstance(alias, str):
+                        diagnostics.append(
+                            PullDiagnostic(
+                                workflow_path=workflow_path,
+                                workflow_title=remote_workflow.definition.title,
+                                error_type="validation",
+                                message="Child workflow alias must be a string",
+                                details={"action_ref": action.ref},
+                            )
+                        )
                         continue
 
                     if await _is_alias_valid(alias):
@@ -287,7 +288,7 @@ class WorkflowImportService(BaseWorkspaceService):
                             },
                         )
                     )
-                except Exception as e:
+                except ValidationError as e:
                     diagnostics.append(
                         PullDiagnostic(
                             workflow_path=workflow_path,
@@ -321,7 +322,9 @@ class WorkflowImportService(BaseWorkspaceService):
         )
 
         wf_id = WorkflowUUID.new(remote_workflow.id)
-        if existing_workflow := await self.wf_mgmt.get_workflow(wf_id):
+        # Locked reads normalize legacy resources without committing, so the
+        # caller can atomically persist the import and its durable receipt.
+        if existing_workflow := await self.wf_mgmt.get_workflow(wf_id, for_update=True):
             await self._update_existing_workflow(
                 existing_workflow,
                 remote_workflow,
