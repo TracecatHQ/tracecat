@@ -1302,14 +1302,24 @@ async def test_token_scoped_mcp_rejects_signed_dotted_user_mcp_deferred_name(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("called_name", "error"),
+    [
+        ("mcp__example__a__b", "^Tool 'mcp__example__a__b' requires approval$"),
+        ("mcp.example.a.b", "^Ambiguous user MCP tool name 'mcp.example.a.b'"),
+    ],
+)
 async def test_token_scoped_mcp_refuses_cold_deferred_user_mcp_call_over_http(
     monkeypatch: pytest.MonkeyPatch,
+    called_name: str,
+    error: str,
 ) -> None:
     """A cold tools/call over HTTP refuses a deferred tool before the catalog build.
 
     The MCP SDK's call handler runs tools/list on a tool cache miss, so the
     refusal must come before that handler: no user MCP credentials are
-    resolved and no remote discovery runs.
+    resolved and no remote discovery runs. The ambiguous dotted spelling is
+    refused at the same point.
     """
     monkeypatch.setattr("tracecat.config.TRACECAT__SERVICE_KEY", "test-service-key")
     token = mint_mcp_token(
@@ -1349,10 +1359,8 @@ async def test_token_scoped_mcp_refuses_cold_deferred_user_mcp_call_over_http(
             url, headers={"Authorization": f"Bearer {token}"}
         )
         async with Client(transport) as client:
-            with pytest.raises(
-                ToolError, match="^Tool 'mcp__example__a__b' requires approval$"
-            ):
-                await client.call_tool("mcp__example__a__b", {})
+            with pytest.raises(ToolError, match=error):
+                await client.call_tool(called_name, {})
             resolve_config.assert_not_awaited()
             discover.assert_not_awaited()
 

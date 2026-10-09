@@ -324,13 +324,13 @@ def _authorization_header_from_request() -> str | None:
 
 
 def _refuse_deferred_call(tool_name: str) -> None:
-    """Refuse a call to a deferred tool using only the request's token."""
+    """Refuse a deferred or ambiguously named call using only the request's token."""
     claims = _claims_from_authorization_header(_authorization_header_from_request())
     try:
         action_name = canonical_mcp_tool_name(tool_name)
-    except ValueError:
-        # Deferred names never use the ambiguous dotted user MCP spelling.
-        return
+    except ValueError as e:
+        # Listed names never use the ambiguous dotted user MCP spelling.
+        raise ToolError(str(e)) from e
     _refuse_deferred_action(action_name, claims)
 
 
