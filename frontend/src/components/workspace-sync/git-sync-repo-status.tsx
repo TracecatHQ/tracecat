@@ -63,9 +63,12 @@ function ConnectionState({
   }
   if (hasError) {
     return (
-      <span className="flex shrink-0 items-center gap-1 text-destructive">
-        <AlertTriangleIcon className="size-3.5" />
-        Could not reach repository
+      <span
+        className="flex min-w-0 items-center gap-1 text-destructive"
+        title="Could not reach repository"
+      >
+        <AlertTriangleIcon className="size-3.5 shrink-0" />
+        <span className="truncate">Could not reach repository</span>
       </span>
     )
   }

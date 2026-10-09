@@ -121,19 +121,21 @@ export function useGitSyncProviders(options?: {
     return { kind: "unknown" }
   }
   const queries = [github, gitlab, bitbucket, bitbucketDataCenter]
-  if (queries.some((query) => query.isError)) {
-    return { kind: "unknown" }
-  }
   if (queries.some((query) => query.isLoading)) {
     return { kind: "loading" }
   }
-  return {
-    kind: "known",
-    providers: getConfiguredGitProviders({
-      github: github.data,
-      gitlab: gitlab.data,
-      bitbucket: bitbucket.data,
-      bitbucketDataCenter: bitbucketDataCenter.data,
-    }),
+  // Errored statuses read as undefined, so working providers stay listed.
+  const providers = getConfiguredGitProviders({
+    github: github.isError ? undefined : github.data,
+    gitlab: gitlab.isError ? undefined : gitlab.data,
+    bitbucket: bitbucket.isError ? undefined : bitbucket.data,
+    bitbucketDataCenter: bitbucketDataCenter.isError
+      ? undefined
+      : bitbucketDataCenter.data,
+  })
+  // With nothing confirmed and a failure, "none set up" may be false.
+  if (providers.length === 0 && queries.some((query) => query.isError)) {
+    return { kind: "unknown" }
   }
+  return { kind: "known", providers }
 }

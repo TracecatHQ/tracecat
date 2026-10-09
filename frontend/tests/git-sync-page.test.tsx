@@ -164,6 +164,8 @@ function renderWithTooltips(ui: ReactElement) {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  // clearAllMocks keeps queued Once values; drop any a failed test left behind.
+  mockPullWorkflows.mockReset()
   mockRefetchExportPreview.mockResolvedValue({ error: null })
 })
 
@@ -228,7 +230,7 @@ describe("GitSyncView connected", () => {
     const bar = screen.getByRole("group", { name: "Push actions" })
     expect(bar).toHaveTextContent(/^Into/)
     expect(
-      within(bar).getByRole("button", { name: "Branch" })
+      within(bar).getByRole("button", { name: /^Branch/ })
     ).toHaveTextContent(/^sync\/workspace-[0-9a-z]+new$/)
     expect(
       within(bar).getByRole("textbox", { name: "Commit message" })
@@ -365,19 +367,76 @@ describe("GitSyncView connected", () => {
       <GitSyncView workspace={setup()} canSync canManageConnection />
     )
 
-    await user.click(screen.getByRole("button", { name: "Branch" }))
+    await user.click(screen.getByRole("button", { name: /^Branch/ }))
     expect(screen.getByText("New branch from main")).toBeInTheDocument()
     const input = screen.getByLabelText("New branch from main")
     await user.clear(input)
     await user.type(input, "sync/oct-08")
     await user.click(screen.getByRole("button", { name: "Create" }))
 
-    expect(screen.getByRole("button", { name: "Branch" })).toHaveTextContent(
+    expect(screen.getByRole("button", { name: /^Branch/ })).toHaveTextContent(
       "sync/oct-08new"
     )
     expect(
       screen.getByRole("button", { name: "Push and open PR" })
     ).toBeEnabled()
+  })
+
+  it("explains an invalid branch name before creating it", async () => {
+    const user = userEvent.setup()
+    renderWithTooltips(
+      <GitSyncView workspace={setup()} canSync canManageConnection />
+    )
+
+    await user.click(screen.getByRole("button", { name: /^Branch/ }))
+    const input = screen.getByLabelText("New branch from main")
+    await user.clear(input)
+    await user.type(input, "sync..oct")
+
+    expect(
+      screen.getByText("Branch names can't contain .. or @{ or be @ alone.")
+    ).toBeInTheDocument()
+    expect(input).toHaveAttribute("aria-invalid", "true")
+    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled()
+  })
+
+  it("names the selected branch and commit for screen readers", async () => {
+    const user = userEvent.setup()
+    renderWithTooltips(
+      <GitSyncView workspace={setup()} canSync canManageConnection />
+    )
+
+    expect(
+      screen.getByRole("button", { name: /^Branch: sync\/workspace-/ })
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    expect(
+      screen.getByRole("combobox", {
+        name: "Commit 1c52757: Update detections",
+      })
+    ).toBeInTheDocument()
+  })
+
+  it("keeps push off until the default branch is known", () => {
+    const workspace = setup()
+    // Failed branch list and no pinned branch: main can't be recognized.
+    jest.mocked(useRepositoryBranches).mockReturnValue({
+      branches: undefined,
+      branchesIsLoading: false,
+      branchesError: new Error("unreachable"),
+    } as unknown as ReturnType<typeof useRepositoryBranches>)
+    renderWithTooltips(
+      <GitSyncView workspace={workspace} canSync canManageConnection />
+    )
+
+    const bar = screen.getByRole("group", { name: "Push actions" })
+    const pushButtons = within(bar)
+      .getAllByRole("button")
+      .filter((button) => /Push/.test(button.textContent ?? ""))
+    expect(pushButtons.length).toBeGreaterThan(0)
+    for (const button of pushButtons) {
+      expect(button).toBeDisabled()
+    }
   })
 
   it("blocks pushing to the default branch", async () => {
@@ -386,10 +445,10 @@ describe("GitSyncView connected", () => {
       <GitSyncView workspace={setup()} canSync canManageConnection />
     )
 
-    await user.click(screen.getByRole("button", { name: "Branch" }))
+    await user.click(screen.getByRole("button", { name: /^Branch/ }))
     await user.click(screen.getByRole("option", { name: /main/ }))
 
-    expect(screen.getByRole("button", { name: "Branch" })).toHaveTextContent(
+    expect(screen.getByRole("button", { name: /^Branch/ })).toHaveTextContent(
       "maindefault"
     )
     expect(
@@ -432,7 +491,7 @@ describe("GitSyncView connected", () => {
       />
     )
 
-    await user.click(screen.getByRole("button", { name: "Branch" }))
+    await user.click(screen.getByRole("button", { name: /^Branch/ }))
     await user.click(screen.getByRole("option", { name: /release/ }))
 
     await user.click(screen.getByRole("button", { name: "Push options" }))
@@ -504,18 +563,12 @@ describe("GitSyncView connected", () => {
     mockPullWorkflows
       .mockResolvedValueOnce(ambiguousPreview)
       .mockResolvedValueOnce(resolvedPreview)
+      // The apply result only counts; names come from the preview.
       .mockResolvedValueOnce({
         ...resolvedPreview,
         message: "Imported",
         resource_counts: { workflow: { found: 1, imported: 1 } },
-        resources: [
-          {
-            resource_type: "workflow",
-            source_id: "phishing-triage",
-            name: "Phishing triage",
-            path: "workflows/phishing-triage/definition.yml",
-          },
-        ],
+        resource_diffs: [],
       })
     renderWithTooltips(
       <GitSyncView workspace={setup()} canSync canManageConnection />
@@ -539,7 +592,7 @@ describe("GitSyncView connected", () => {
     await user.unhover(
       within(bar).getByRole("button", { name: "About overwriting schedules" })
     )
-    const commitField = within(bar).getByRole("combobox", { name: "Commit" })
+    const commitField = within(bar).getByRole("combobox", { name: /^Commit/ })
     expect(commitField).toHaveTextContent(
       "1c52757Update detections· about 2 hours agolatest"
     )
@@ -578,7 +631,7 @@ describe("GitSyncView connected", () => {
     expect(within(dialog).getByText("0 of 1 matched")).toBeInTheDocument()
 
     await user.click(
-      within(dialog).getByLabelText("Target model for shared-model")
+      within(dialog).getByLabelText(/^Target model for shared-model/)
     )
     await user.click(
       screen.getByRole("option", {

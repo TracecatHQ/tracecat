@@ -383,7 +383,7 @@ function ChangeRow({
           <FileDiff
             key={diff.source_path}
             diff={diff}
-            showPath={diffs.length > 1}
+            showPath={diffs.length > 1 || diff.source_path !== item.path}
           />
         ))}
     </li>
@@ -555,8 +555,14 @@ function countDiffLines(diff: string): {
 } {
   let additions = 0
   let deletions = 0
+  // File headers only come before the first hunk; later "+++ " lines are content.
+  let inHunk = false
   for (const line of diff.split("\n")) {
-    if (line.startsWith("+++ ") || line.startsWith("--- ")) {
+    if (line.startsWith("@@")) {
+      inHunk = true
+      continue
+    }
+    if (!inHunk) {
       continue
     }
     if (line.startsWith("+")) {

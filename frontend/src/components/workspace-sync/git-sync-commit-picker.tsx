@@ -75,7 +75,11 @@ export function GitSyncCommitPicker({
         <button
           type="button"
           role="combobox"
-          aria-label="Commit"
+          aria-label={
+            selected
+              ? `Commit ${selected.sha.substring(0, 7)}: ${getCommitTitle(selected)}`
+              : "Commit"
+          }
           aria-expanded={open}
           disabled={disabled}
           className={cn(
@@ -107,7 +111,7 @@ export function GitSyncCommitPicker({
       <PopoverContent
         align="start"
         side={side}
-        className="w-[var(--radix-popover-trigger-width)] min-w-80 p-0"
+        className="w-[var(--radix-popover-trigger-width)] min-w-[min(20rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] p-0"
       >
         <Command>
           <CommandInput placeholder="Search by message, author, or SHA" />

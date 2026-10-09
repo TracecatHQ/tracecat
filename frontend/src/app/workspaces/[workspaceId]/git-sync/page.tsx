@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowUpRight } from "lucide-react"
+import { AlertTriangleIcon, ArrowUpRight } from "lucide-react"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import { EntitlementRequiredEmptyState } from "@/components/entitlement-required-empty-state"
 import { CenteredSpinner } from "@/components/loading/spinner"
@@ -15,7 +15,11 @@ import { useWorkspaceDetails } from "@/hooks/use-workspace"
 
 export default function WorkspaceGitSyncPage() {
   const { workspace, workspaceLoading, workspaceError } = useWorkspaceDetails()
-  const { hasEntitlement, isLoading: entitlementsLoading } = useEntitlements()
+  const {
+    hasEntitlement,
+    hasEntitlementData,
+    isLoading: entitlementsLoading,
+  } = useEntitlements()
   const canSyncWorkspace = useScopeCheck("workspace_sync:sync")
   // Matches the connection's former settings gate and the workspace update API.
   const canManageConnection = useScopeCheck("workspace:update")
@@ -35,6 +39,29 @@ export default function WorkspaceGitSyncPage() {
           level="error"
           message="Error loading workspace info."
         />
+      </div>
+    )
+  }
+  // A failed plan lookup is not a missing plan; don't show the upgrade state.
+  if (!hasEntitlementData) {
+    return (
+      <div className="flex h-full flex-col">
+        <GitSyncHeader workspaceName={workspace.name} />
+        <div className="flex flex-1 items-center justify-center">
+          <EntitlementRequiredEmptyState
+            icon={<AlertTriangleIcon className="size-6" />}
+            title="Unable to check plan access"
+            description="Reload the page to try again."
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.location.reload()}
+            >
+              Reload
+            </Button>
+          </EntitlementRequiredEmptyState>
+        </div>
       </div>
     )
   }

@@ -227,7 +227,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         url: `${basePath}/git-sync`,
         icon: GitBranchIcon,
         isActive: pathname?.startsWith(`${basePath}/git-sync`),
-        visible: canOpenGitSync === true && gitSyncEnabled,
+        visible: canOpenGitSync === true,
+        // Stays visible without the entitlement so the page can offer the upgrade.
+        locked: entitlementsKnown && !gitSyncEnabled,
       },
     ],
     [

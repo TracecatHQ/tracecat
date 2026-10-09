@@ -52,8 +52,6 @@ interface RawRemote {
   port?: string
   segments: string[]
   ref?: string
-  /** True for ssh and scp-style input, which keeps its path verbatim. */
-  isSsh: boolean
 }
 
 /**
@@ -106,7 +104,6 @@ function toRawRemote(
       user: "git",
       host: normalizeHost(url.hostname),
       segments: webPathSegments(url.pathname, target.provider),
-      isSsh: false,
     }
   }
   if (value.includes("://") || /\s/.test(value)) {
@@ -114,23 +111,24 @@ function toRawRemote(
   }
   const segments = value.split("/").filter(Boolean)
   const [first] = segments
+  // GitLab group names may contain dots, so on a known GitLab host a dotted
+  // first segment is a group, not another host.
+  const dottedFirstIsGroup = target.provider === "gitlab" && target.hostIsKnown
   const firstIsHost =
     first !== undefined &&
     (normalizeHost(first) === target.host ||
-      (segments.length >= 3 && /[.:]/.test(first)))
+      (segments.length >= 3 && !dottedFirstIsGroup && /[.:]/.test(first)))
   if (firstIsHost) {
     return {
       user: "git",
       host: normalizeHost(first.split(":")[0]),
       segments: webPathSegments(segments.slice(1).join("/"), target.provider),
-      isSsh: false,
     }
   }
   return {
     user: "git",
     host: target.host,
     segments: webPathSegments(value, target.provider),
-    isSsh: false,
   }
 }
 
@@ -153,7 +151,6 @@ function splitSshPath({
     port,
     segments: stripGitSuffix(path).split("/").filter(Boolean),
     ref,
-    isSsh: true,
   }
 }
 
@@ -204,12 +201,11 @@ function validateRawRemote(
       message: `Paste the full repository URL from ${label}.`,
     }
   }
-  const skipHostCheck = target.provider === "bitbucket_data_center" && raw.isSsh
+  // Data Center SSH included: its transport requires the instance host exactly.
   if (
     target.hostIsKnown &&
     target.host &&
-    !hostMatchesTarget(raw.host, target) &&
-    !skipHostCheck
+    !hostMatchesTarget(raw.host, target)
   ) {
     return {
       kind: "invalid",

@@ -6,7 +6,10 @@ import { render, screen } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { AppSidebar } from "@/components/sidebar/app-sidebar"
 
-const mockUseScopeCheck = jest.fn<boolean | undefined, [string]>()
+const mockUseScopeCheck = jest.fn<
+  boolean | undefined,
+  [string | undefined, string[] | undefined]
+>()
 let mockPathname = "/workspaces/workspace-1/workflows"
 let mockScopes: Record<string, boolean | undefined> = {}
 let mockEntitlements: Record<string, boolean> = {}
@@ -19,7 +22,8 @@ jest.mock("next/navigation", () => ({
 }))
 
 jest.mock("@/components/auth/scope-guard", () => ({
-  useScopeCheck: (scope: string) => mockUseScopeCheck(scope),
+  useScopeCheck: (scope: string | undefined, anyOf?: string[]) =>
+    mockUseScopeCheck(scope, anyOf),
 }))
 
 jest.mock("@/components/locked-feature-modal", () => ({
@@ -154,7 +158,11 @@ describe("AppSidebar", () => {
     }
     mockEntitlementsIsLoading = false
     mockHasEntitlementData = true
-    mockUseScopeCheck.mockImplementation((scope) => mockScopes[scope] ?? false)
+    mockUseScopeCheck.mockImplementation((scope, anyOf) =>
+      scope
+        ? (mockScopes[scope] ?? false)
+        : (anyOf ?? []).some((candidate) => mockScopes[candidate])
+    )
   })
 
   it("hides Chat when the user can execute agents but cannot read them", () => {
@@ -213,6 +221,28 @@ describe("AppSidebar", () => {
 
     expect(screen.getByText("Chat")).toBeInTheDocument()
     expect(screen.getAllByText("Locked")).toHaveLength(1)
+  })
+
+  it("keeps Git Sync visible with a lock when the plan lacks it", () => {
+    mockScopes = { "workspace:update": true }
+
+    render(<AppSidebar />)
+
+    expect(screen.getByRole("link", { name: "Git Sync" })).toHaveAttribute(
+      "href",
+      "/workspaces/workspace-1/git-sync"
+    )
+    expect(screen.getByText("Requires upgrade")).toBeInTheDocument()
+  })
+
+  it("shows Git Sync without a lock when the plan includes it", () => {
+    mockScopes = { "workspace_sync:sync": true }
+    mockEntitlements = { git_sync: true }
+
+    render(<AppSidebar />)
+
+    expect(screen.getByRole("link", { name: "Git Sync" })).toBeInTheDocument()
+    expect(screen.queryByText("Requires upgrade")).not.toBeInTheDocument()
   })
 
   it("only highlights MCP servers on the MCP servers page", () => {

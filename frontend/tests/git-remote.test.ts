@@ -124,6 +124,14 @@ describe("parseGitRemote", () => {
     )
   })
 
+  it("reads a dotted first segment as a GitLab group on a known host", () => {
+    expectGitUrl(
+      "security.tools/platform/project",
+      gitlab,
+      "git+ssh://git@gitlab.example.com/security.tools/platform/project.git"
+    )
+  })
+
   it("keeps a GitLab SSH port", () => {
     expectGitUrl(
       "ssh://git@gitlab.example.com:2222/group/project.git",
@@ -193,12 +201,25 @@ describe("parseGitRemote", () => {
     )
   })
 
-  it("keeps a pasted Bitbucket Data Center git+ssh URL verbatim", () => {
+  it("keeps a pasted Bitbucket Data Center git+ssh URL on the instance host", () => {
     expectGitUrl(
-      "git+ssh://git@ssh.bitbucket.example.com/PROJ/detections.git",
+      "git+ssh://git@bitbucket.example.com/PROJ/detections.git",
       dataCenter,
-      "git+ssh://git@ssh.bitbucket.example.com/PROJ/detections.git"
+      "git+ssh://git@bitbucket.example.com/PROJ/detections.git"
     )
+  })
+
+  it("rejects a Bitbucket Data Center SSH URL on another host", () => {
+    expect(
+      parseGitRemote(
+        "git+ssh://git@ssh.bitbucket.example.com/PROJ/detections.git",
+        dataCenter
+      )
+    ).toEqual({
+      kind: "invalid",
+      message:
+        "ssh.bitbucket.example.com isn't set up for this organization. Bitbucket Data Center here is bitbucket.example.com.",
+    })
   })
 
   it("rejects a Bitbucket Data Center SSH port the backend refuses", () => {
