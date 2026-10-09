@@ -31,7 +31,6 @@
               "automations/tracecat-mcp",
               {
                 "group": "Core concepts",
-                "expanded": true,
                 "pages": [
                   "automations/workflows",
                   "automations/actions",
@@ -48,7 +47,6 @@
               },
               {
                 "group": "Triggers",
-                "expanded": true,
                 "pages": [
                   "automations/triggers/webhooks",
                   "automations/triggers/schedules",
@@ -61,22 +59,12 @@
               },
               {
                 "group": "Integrations",
-                "expanded": true,
                 "pages": [
                   "automations/integrations/prebuilt-credentials",
                   "automations/integrations/oauth-integrations",
                   "automations/integrations/mcp-integrations"
                 ]
               }
-            ]
-          },
-          {
-            "group": "Resolve cases",
-            "icon": "ticket-check",
-            "pages": [
-              "automations/cases",
-              "automations/cases/agent-mentions",
-              "automations/cases/tasks"
             ]
           },
           {
@@ -87,12 +75,12 @@
               "agents/ai-action",
               "agents/ai-agent",
               "agents/ai-preset-agent",
-              "agents/human-in-the-loop",
-              "agents/channels",
               "agents/llm-providers",
               "agents/custom-llm-providers",
               "agents/skills",
-              "agents/secrets-variables"
+              "agents/secrets-variables",
+              "agents/human-in-the-loop",
+              "agents/channels"
             ]
           },
           {
@@ -104,55 +92,22 @@
               "custom-actions/yaml-template",
               "custom-actions/local-development"
             ]
-          },
+          }
+        ]
+      },
+      {
+        "tab": "Case Management",
+        "groups": [
           {
-            "group": "Self-hosting",
-            "icon": "server",
+            "group": "Case management",
+            "icon": "ticket-check",
             "pages": [
-              "self-hosting/docker-compose",
-              "self-hosting/scaling",
-              "self-hosting/aws-fargate",
-              "self-hosting/kubernetes",
-              "self-hosting/air-gapped",
-              "self-hosting/temporal-retention",
-              "self-hosting/architecture",
-              "self-hosting/pgvector",
-              "self-hosting/tls",
-              "self-hosting/environment-variables",
-              "self-hosting/security"
-            ]
-          },
-          {
-            "group": "Manage platform",
-            "icon": "settings",
-            "pages": [
-              "manage-platform/users",
-              "manage-platform/rbac",
-              "manage-platform/custom-roles",
-              "manage-platform/service-accounts",
-              "manage-platform/ip-allowlist",
-              "manage-platform/git-sync"
-            ]
-          },
-          {
-            "group": "Authentication",
-            "icon": "shield",
-            "pages": [
-              "authentication/basic",
-              "authentication/saml",
-              "authentication/oidc",
-              "authentication/scim"
-            ]
-          },
-          {
-            "group": "Security",
-            "icon": "shield-check",
-            "pages": [
-              "security/architecture",
-              "audit-logs/platform",
-              "audit-logs/organization",
-              "audit-logs/agents",
-              "audit-logs/mcp-access"
+              "automations/cases",
+              "automations/cases/custom-fields",
+              "automations/cases/agent-mentions",
+              "automations/cases/tasks",
+              "automations/cases/durations",
+              "automations/cases/linked-tables"
             ]
           }
         ]
@@ -365,6 +320,71 @@
               "cheatsheets/transformations",
               "cheatsheets/aggregate-and-search",
               "cheatsheets/workflow-metadata"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Self-hosting",
+        "groups": [
+          {
+            "group": "Self-hosting",
+            "icon": "server",
+            "pages": [
+              "self-hosting/docker-compose",
+              "self-hosting/scaling",
+              "self-hosting/aws-fargate",
+              "self-hosting/kubernetes",
+              "self-hosting/air-gapped",
+              "self-hosting/temporal-retention",
+              "self-hosting/architecture",
+              "self-hosting/pgvector",
+              "self-hosting/tls",
+              "self-hosting/environment-variables",
+              "self-hosting/security"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Admin",
+        "groups": [
+          {
+            "group": "Manage platform",
+            "icon": "settings",
+            "pages": [
+              "manage-platform/users",
+              "manage-platform/rbac",
+              "manage-platform/ip-allowlist",
+              "manage-platform/custom-roles",
+              "manage-platform/service-accounts",
+              "manage-platform/git-sync"
+            ]
+          },
+          {
+            "group": "Authentication",
+            "icon": "shield",
+            "pages": [
+              "authentication/basic",
+              "authentication/saml",
+              "authentication/oidc",
+              "authentication/scim"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Security",
+        "groups": [
+          {
+            "group": "Security",
+            "icon": "shield-check",
+            "pages": [
+              "security/architecture",
+              "audit-logs/platform",
+              "audit-logs/organization",
+              "audit-logs/agents",
+              "audit-logs/mcp-access"
             ]
           }
         ]
