@@ -142,7 +142,7 @@ export function OrganizationSidebar({
       locked: false,
     },
     {
-      title: "Git sync",
+      title: "Git providers",
       url: "/organization/vcs",
       icon: GitBranchIcon,
       isActive: pathname?.includes("/organization/vcs"),

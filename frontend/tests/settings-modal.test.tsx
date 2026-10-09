@@ -10,7 +10,6 @@ import type { SettingsSection } from "@/components/settings/settings-modal-conte
 const mockSetOpen = jest.fn()
 const mockSetActiveSection = jest.fn()
 const mockLogout = jest.fn()
-const mockUseEntitlements = jest.fn()
 const mockUseUserScopes = jest.fn()
 const mockUseWorkspaceManager = jest.fn()
 const mockClearLastWorkspaceId = jest.fn()
@@ -19,7 +18,6 @@ const mockWorkspaceSettingsContainer = jest.fn()
 let mockScopes = ["*"]
 let mockContextWorkspaceId: string | undefined = "workspace-123"
 let mockLastWorkspaceId: string | undefined
-let mockHasGitSync = false
 let mockOpen = true
 let mockActiveSection: SettingsSection = "profile"
 let mockWorkspaces = [{ id: "workspace-123", name: "Workspace 123" }]
@@ -91,16 +89,6 @@ jest.mock("@/hooks/use-auth", () => ({
   }),
 }))
 
-jest.mock("@/hooks/use-entitlements", () => ({
-  useEntitlements: () => {
-    mockUseEntitlements()
-    return {
-      hasEntitlement: (entitlement: string) =>
-        mockHasGitSync && entitlement === "git_sync",
-    }
-  },
-}))
-
 jest.mock("@/lib/hooks", () => ({
   useUserScopes: (workspaceId?: string, options?: { enabled?: boolean }) => {
     mockUseUserScopes(workspaceId, options)
@@ -132,7 +120,6 @@ describe("SettingsModal workspace navigation", () => {
     mockScopes = ["*"]
     mockContextWorkspaceId = "workspace-123"
     mockLastWorkspaceId = undefined
-    mockHasGitSync = false
     mockOpen = true
     mockActiveSection = "profile"
     mockWorkspaces = [{ id: "workspace-123", name: "Workspace 123" }]
@@ -150,7 +137,10 @@ describe("SettingsModal workspace navigation", () => {
       screen.getByRole("button", { name: "Workflows" })
     ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Files" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Git sync" })).toBeInTheDocument()
+    // Git sync lives on its own workspace page, not in settings.
+    expect(
+      screen.queryByRole("button", { name: /git sync/i })
+    ).not.toBeInTheDocument()
   })
 
   it("hides workspace settings sections without workspace update access", () => {
@@ -171,7 +161,7 @@ describe("SettingsModal workspace navigation", () => {
       screen.queryByRole("button", { name: "Files" })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "Git sync" })
+      screen.queryByRole("button", { name: /git sync/i })
     ).not.toBeInTheDocument()
     expect(screen.getByText("Profile content")).toBeInTheDocument()
   })
@@ -195,7 +185,7 @@ describe("SettingsModal workspace navigation", () => {
       screen.queryByRole("button", { name: "Files" })
     ).not.toBeInTheDocument()
     expect(
-      screen.queryByRole("button", { name: "Git sync" })
+      screen.queryByRole("button", { name: /git sync/i })
     ).not.toBeInTheDocument()
     expect(screen.getByText("Profile content")).toBeInTheDocument()
   })
@@ -261,14 +251,13 @@ describe("SettingsModal workspace navigation", () => {
     expect(screen.queryByText("Profile content")).not.toBeInTheDocument()
   })
 
-  it("does not run workspace or entitlement hooks while closed", () => {
+  it("does not run workspace hooks while closed", () => {
     mockOpen = false
 
     render(<SettingsModal />)
 
     expect(mockUseWorkspaceManager).not.toHaveBeenCalled()
     expect(mockUseUserScopes).not.toHaveBeenCalled()
-    expect(mockUseEntitlements).not.toHaveBeenCalled()
     expect(mockWorkspaceSettingsContainer).not.toHaveBeenCalled()
   })
 })
