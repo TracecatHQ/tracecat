@@ -259,6 +259,28 @@ async def test_create_user_rejects_duplicate_email(
 
 
 @pytest.mark.anyio
+async def test_create_user_rejects_case_variant_duplicate_email(
+    session: AsyncSession,
+    platform_role: PlatformRole,
+) -> None:
+    service = AdminUserService(session, role=platform_role)
+    await service.create_user(
+        AdminUserCreate(
+            email="first.last@example.com",
+            password="this-is-a-strong-password",
+        )
+    )
+
+    with pytest.raises(ValueError, match="already exists"):
+        await service.create_user(
+            AdminUserCreate(
+                email="First.Last@example.com",
+                password="this-is-a-strong-password",
+            )
+        )
+
+
+@pytest.mark.anyio
 async def test_delete_user_clears_sessions_and_memberships(
     session: AsyncSession,
     platform_role: PlatformRole,
