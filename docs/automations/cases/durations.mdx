@@ -1,21 +1,74 @@
 ---
 title: "Case durations"
-description: "Track elapsed time between case events, such as time to triage or time to resolution."
+description: "Measure elapsed time between case events, such as time to triage or time to resolution, and read the results from workflows."
 sidebarTitle: "Durations"
 icon: "lock"
 ---
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise Edition</Badge>
 
-Durations track elapsed time between case events.
-You can use them to measure intervals such as time to triage, time to assign, or time to resolution.
+Durations measure the time between two case events, such as `Time to triage` from case creation until the status changes to `In progress`.
+Tracecat calculates every duration on every case and shows it in the case header.
 
-![Case duration](/img/cases/case-duration.png)
+![Durations on a case](/img/cases/case-fields-panel.png)
 
-Durations help you understand how cases move through your process.
-They are useful when you want operational reporting or workflow triggers based on how long a case has been in a given state.
+## Create a duration
+
+1. Go to `Cases` and open the durations view from the header toolbar.
+2. Select `Add duration`.
+3. Enter a name and an optional description.
+4. Configure the `From event` that starts the clock and the `To event` that stops it.
+
+![Create a duration](/img/cases/case-duration.png)
+
+The durations view lists each duration with its start and end events.
+
+![Durations list](/img/cases/durations-list.png)
+
+## Configure events
+
+Each event has an event type, optional filters, and an occurrence.
+
+| Event type | Filter |
+| --- | --- |
+| `Case created`, `Case updated`, `Case closed`, `Case reopened`, `Case viewed` | None |
+| `Priority changed`, `Severity changed`, `Status changed` | New value, such as status `In progress` |
+| `Assignee changed` | None |
+| `Tag added`, `Tag removed` | Tag |
+| `Custom field changed` | Custom field |
+| `Dropdown value changed` | Dropdown and option, such as `Escalation tier` → `Tier 2` |
+| `Comment added`, `Comment deleted`, `Comment reply added`, `Comment reply deleted` | None |
+
+Occurrence picks which matching event anchors the duration:
+
+- `First seen` uses the earliest matching event. Use it for first-response metrics such as time to triage.
+- `Last seen` uses the most recent matching event. Use it when an event can repeat, such as time from the last reopen to close.
+
+A duration starts once its `From event` happens and finishes once its `To event` happens.
+Until then, the case header shows the time elapsed so far.
+
+## Example durations
+
+| Duration | From | To |
+| --- | --- | --- |
+| Time to triage | `Case created`, first seen | `Status changed` to `In progress`, first seen |
+| Time to assign | `Case created`, first seen | `Assignee changed`, first seen |
+| Time to escalate | `Case created`, first seen | `Dropdown value changed` to `Tier 2`, first seen |
+| Time to resolve | `Case created`, first seen | `Case closed`, last seen |
+
+## Read durations from workflows
+
+Use `core.cases.get_case_metrics` to read durations for one or more cases as time-series data for reporting.
+
+```yaml
+- ref: case_metrics
+  action: core.cases.get_case_metrics
+  args:
+    case_ids:
+      - ${{ TRIGGER.case_id }}
+```
 
 ## Related pages
 
-- See [Case management](/automations/cases) for an overview of case features.
-- See [Cases](/automations/core-actions/case-actions/cases) to read case metrics from workflows.
+- See [Dropdowns](/automations/cases/dropdowns) to create the classifications you measure with `Dropdown value changed`.
+- See [Cases](/automations/core-actions/case-actions/cases) for the `get_case_metrics` output format.

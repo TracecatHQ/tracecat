@@ -102,12 +102,27 @@
             "group": "Case management",
             "icon": "ticket-check",
             "pages": [
-              "automations/cases",
+              "automations/cases"
+            ]
+          },
+          {
+            "group": "Build cases",
+            "icon": "blocks",
+            "pages": [
               "automations/cases/custom-fields",
-              "automations/cases/agent-mentions",
+              "automations/cases/dropdowns",
+              "automations/cases/closure-requirements",
+              "automations/cases/durations"
+            ]
+          },
+          {
+            "group": "Resolve cases",
+            "icon": "circle-check-big",
+            "pages": [
               "automations/cases/tasks",
-              "automations/cases/durations",
-              "automations/cases/linked-tables"
+              "automations/cases/agent-mentions",
+              "automations/cases/linked-tables",
+              "automations/cases/workflow-triggers"
             ]
           }
         ]

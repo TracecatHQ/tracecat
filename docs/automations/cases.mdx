@@ -6,48 +6,48 @@ description: "Track and resolve Tracecat cases: triage alerts, run agents and wo
 Cases give you a shared place to triage, investigate, and resolve work.
 You can use them to keep status, evidence, comments, and follow-up work together in one record.
 
-## Features
+## Build cases
+
+Shape the case record so every case captures the data your team needs.
 
 <CardGroup cols={2}>
-  <Card
-    title="Cases"
-    icon="layers"
-  >
-    Create, update, search, assign, tag, and delete cases.
+  <Card title="Custom fields" icon="braces" href="/automations/cases/custom-fields">
+    Store ticket IDs, affected hosts, verdicts, and notes on every case.
   </Card>
-  <Card
-    title="Comments"
-    icon="message-square"
-  >
-    Add comments, replies, and thread lookups.
-  </Card>
-  <Card
-    title="Attachments"
-    icon="paperclip"
-  >
-    Upload, list, download, and delete case attachments.
-  </Card>
-  <Card
-    title="Tasks"
-    icon="list-check"
-  >
+  <Card title="Dropdowns" icon="list" href="/automations/cases/dropdowns">
     <Badge icon="lock" color="blue" size="lg" shape="pill">EE</Badge>
-    Add todo items with attachable workflows.
+    Add colored classifications that become case list filters.
   </Card>
-  <Card
-    title="Linked tables"
-    icon="between-horizontal-end"
-    href="/automations/cases/linked-tables"
-  >
+  <Card title="Closure requirements" icon="flag" href="/automations/cases/closure-requirements">
     <Badge icon="lock" color="blue" size="lg" shape="pill">EE</Badge>
-    Link structured data to cases.
+    Require fields and dropdowns before a case is closed or resolved.
   </Card>
-  <Card
-    title="Metrics"
-    icon="timer"
-  >
+  <Card title="Durations" icon="timer" href="/automations/cases/durations">
     <Badge icon="lock" color="blue" size="lg" shape="pill">EE</Badge>
-    Track custom case metrics.
+    Measure time to triage, time to resolve, and other intervals.
+  </Card>
+</CardGroup>
+
+## Resolve cases
+
+Work a case to closure with analysts, agents, and workflows.
+
+<CardGroup cols={2}>
+  <Card title="Case tasks" icon="list-check" href="/automations/cases/tasks">
+    <Badge icon="lock" color="blue" size="lg" shape="pill">EE</Badge>
+    Assign follow-up work and start workflows from tasks.
+  </Card>
+  <Card title="Agent mentions" icon="at-sign" href="/automations/cases/agent-mentions">
+    <Badge icon="lock" color="blue" size="lg" shape="pill">EE</Badge>
+    Mention a preset agent in a comment to investigate the case.
+  </Card>
+  <Card title="Linked tables" icon="between-horizontal-end" href="/automations/cases/linked-tables">
+    <Badge icon="lock" color="blue" size="lg" shape="pill">EE</Badge>
+    Link indicators, assets, and detections from tables.
+  </Card>
+  <Card title="Workflow triggers" icon="workflow" href="/automations/cases/workflow-triggers">
+    <Badge icon="lock" color="blue" size="lg" shape="pill">EE</Badge>
+    Run workflows on case events, from tasks, or with `/` commands.
   </Card>
 </CardGroup>
 
@@ -59,17 +59,7 @@ Your workflows can create or update a case, attach evidence, add comments, and m
 - Track the current owner, severity, priority, and status in one place
 - Add comments and replies so analysts and workflows share the same timeline
 - Store evidence as attachments instead of passing large blobs between actions
-- Link structured rows, tasks, and metrics to keep investigation context organized
-
-## Trigger workflows
-
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
-
-- Type `/` in a case comment and select a published workflow. See [Comment triggers](/automations/triggers/comment-triggers) to run it from the comment.
-- Set a workflow on a case task and start it from the task. See [Case tasks](/automations/cases/tasks) for task setup and [Task triggers](/automations/triggers/task-triggers) for the trigger payload.
-- Run a workflow automatically when a case event occurs. See [Case triggers](/automations/triggers/case-triggers) to select events and tag filters.
-
-An agent can also call a workflow as a tool. When you need fixed order, deterministic branching, or guaranteed steps, use `/` or start the workflow from a task instead of asking an agent to run it.
+- Link structured rows, tasks, and durations to keep investigation context organized
 
 ## Trigger agents
 
@@ -77,7 +67,9 @@ An agent can also call a workflow as a tool. When you need fixed order, determin
 
 <Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
 
-Type `@` in a comment to have a preset agent investigate the case and reply in the thread. See [Mention agents in case comments](/automations/cases/agent-mentions) to configure access and follow the run.
+Type `@` in a comment to have a preset agent investigate the case and reply in the thread. See [Agent mentions](/automations/cases/agent-mentions) to configure access and follow the run.
+
+An agent can also call a workflow as a tool. When you need fixed order, deterministic branching, or guaranteed steps, run the workflow from a [workflow trigger](/automations/cases/workflow-triggers) instead.
 
 ### Use the in-case copilot
 
@@ -107,38 +99,6 @@ You can use them to label incidents by team, detection source, campaign, environ
 
 Tags work well when you want lightweight organization across many cases.
 You can also set tags from workflows with `core.cases.create_case` and `core.cases.update_case`.
-
-## Custom fields
-
-Custom fields store case-specific data that does not fit into the default case properties, such as ticket IDs, affected systems, or triage notes.
-See [Custom fields and dropdowns](/automations/cases/custom-fields) for field types and how workflows read and update them.
-
-## Dropdowns
-
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
-
-Dropdowns add custom top-level case filters with a fixed set of options, such as queue, business unit, or incident type.
-See [Custom fields and dropdowns](/automations/cases/custom-fields#dropdowns) to set them up.
-
-## Durations
-
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
-
-Durations track elapsed time between case events, such as time to triage or time to resolution.
-See [Case durations](/automations/cases/durations) for details.
-
-## Tasks
-
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
-
-See [Case tasks](/automations/cases/tasks) to assign follow-up work, track completion, and start workflows from a task.
-
-## Linked tables
-
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
-
-Link table rows to a case to attach structured evidence such as indicators, assets, or external detections.
-See [Linked tables](/automations/cases/linked-tables) to link and unlink rows and for per-case limits.
 
 ## Case actions
 

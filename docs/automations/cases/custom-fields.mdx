@@ -1,35 +1,74 @@
 ---
-title: "Custom fields and dropdowns"
-description: "Store case-specific data with custom fields and add custom case filters with dropdowns."
-sidebarTitle: "Custom fields"
+title: "Custom fields"
+description: "Store workspace-specific data on every case, such as ticket IDs, affected hosts, verdicts, and analyst notes."
 ---
 
-## Custom fields
+Custom fields store case data that does not fit the built-in properties.
+Every case in the workspace shows the same set of fields under `Fields` in the case side panel, and your workflows read and write them by reference.
 
-Custom fields let you store case-specific data that does not fit into the default case properties.
-You can use them for values such as ticket IDs, affected systems, request metadata, or triage notes.
+![Custom fields on a case](/img/cases/case-fields-panel.png)
 
-![Case custom field](/img/cases/case-custom-field.png)
+## Create a field
 
-Use custom fields when you need flexible structured data on a case.
-Your workflows can read and update them through the `fields` input on case actions.
+1. Go to `Cases` and open the custom fields view from the header toolbar.
+2. Select `Add field`.
+3. Enter a `Name`. Tracecat derives the field reference from the name and shows it under the input, such as `Analyst verdict` → `analyst_verdict`.
+4. Choose a `Data type`.
+5. For `Select` and `Multi-select`, add the allowed `Options`.
+6. Optionally set a default value.
 
-Case custom fields use the same storage type family as tables: `TEXT`, `INTEGER`, `NUMERIC`, `BOOLEAN`, `DATE`, `TIMESTAMPTZ`, `JSONB`, `SELECT`, and `MULTI_SELECT`.
-In the case field picker, raw `JSONB` is currently surfaced through the case-only `URL` kind, and the picker also exposes `Long text`, which is layered on top of `TEXT`.
+![Custom fields list](/img/cases/custom-fields-list.png)
 
-## Dropdowns
+![Add a custom field](/img/cases/case-custom-field.png)
 
-<Badge icon="lock" color="blue" size="lg" shape="pill">Enterprise</Badge>
+## Data types
 
-Dropdowns add custom top-level case filters alongside built-in filters such as status, priority, and severity.
-You can use them to add workspace-specific classifications such as queue, business unit, incident type, or escalation path.
+| Data type | Stores | Example |
+| --- | --- | --- |
+| `Text` | Single-line text | `SEC-1042` |
+| `Long text` | Multi-line text, expandable in the side panel | Analyst notes |
+| `Integer` | Whole numbers | `3` |
+| `Number` | Decimal numbers | `7.5` |
+| `Boolean` | `true` or `false` | `true` |
+| `Date` | Calendar date | `2026-10-09` |
+| `Date and time` | Date and time with time zone | `2026-10-09T01:48:00Z` |
+| `JSON` | Any JSON value | `{"host": "build-02"}` |
+| `URL` | A link with an optional label | `{"url": "https://mail.example.com/msg/1042", "label": "Original email"}` |
+| `Select` | One value from a fixed list | `True positive` |
+| `Multi-select` | Several values from a fixed list | `["Execution", "Persistence"]` |
 
-![Case dropdown](/img/cases/case-dropdown.png)
+`Long text` is stored as `TEXT` and `URL` is stored as `JSONB`; the data type only changes how the case UI renders the value.
+Use a [dropdown](/automations/cases/dropdowns) instead of a `Select` field when you want the values to appear as a case list filter with colors and icons.
 
-Unlike free-form fields, dropdowns give you a fixed set of options.
-This makes them useful when you want consistent filtering, routing, and reporting across your case queue.
+## Edit values on a case
+
+Open a case and edit values under `Fields` in the side panel.
+Select `View all fields` to see every field, including empty ones.
+Field values persist when the case changes status.
+
+## Read and write fields from workflows
+
+Pass a `fields` object keyed by field reference to `core.cases.create_case` or `core.cases.update_case`.
+`update_case` only changes the keys you pass.
+
+```yaml
+- ref: update_case
+  action: core.cases.update_case
+  args:
+    case_id: ${{ TRIGGER.case_id }}
+    fields:
+      ticket_id: SEC-1042
+      affected_host: ${{ ACTIONS.lookup_host.result.hostname }}
+      blocked_iocs: 3
+      mitre_tactics:
+        - Initial access
+```
+
+Tracecat rejects keys that do not match an existing field reference.
+To start a workflow when a field changes, select `fields_changed` in a [case trigger](/automations/cases/workflow-triggers).
 
 ## Related pages
 
-- See [Case management](/automations/cases) for an overview of case features.
+- See [Dropdowns](/automations/cases/dropdowns) to add colored, filterable classifications to cases.
+- See [Closure requirements](/automations/cases/closure-requirements) to require a field before a case is closed or resolved.
 - See [Cases](/automations/core-actions/case-actions/cases) for the case action inputs that read and update fields.
