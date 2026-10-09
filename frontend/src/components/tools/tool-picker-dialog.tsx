@@ -50,6 +50,10 @@ export interface ToolPickerDialogProps {
   onLockedSelect?: (entry: ToolEntry) => void
 }
 
+// Catalogue rows share one grid: a fixed leading column for the checkbox or
+// the namespace icon, so both start on the same edge and titles line up.
+const LEAD = "flex w-6 shrink-0 items-center"
+
 type PickerRow =
   | {
       kind: "header"
@@ -634,6 +638,7 @@ function PickerBody({
                   key={tool.name}
                   className="flex h-10 items-center gap-3 px-4 text-xs"
                 >
+                  <span aria-hidden="true" className={LEAD} />
                   <span className="truncate">{tool.name}</span>
                   <span className="truncate text-muted-foreground">
                     {tool.description}
@@ -774,20 +779,24 @@ function GroupHeader({
   else if (grant && selectable.length === 0) summary = ""
   return (
     <div className="flex h-11 shrink-0 items-center gap-3 border-b px-4 text-xs">
-      <span className="relative flex shrink-0">
-        <Checkbox
-          className={checked === "indeterminate" ? "[&_svg]:hidden" : undefined}
-          aria-label={`Select all in ${group.title}`}
-          checked={checked}
-          onCheckedChange={onToggle}
-          disabled={disabled || (selectable.length === 0 && !grant)}
-        />
-        {checked === "indeterminate" && (
-          <Minus
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 m-auto size-3"
+      <span className={LEAD}>
+        <span className="relative flex">
+          <Checkbox
+            className={
+              checked === "indeterminate" ? "[&_svg]:hidden" : undefined
+            }
+            aria-label={`Select all in ${group.title}`}
+            checked={checked}
+            onCheckedChange={onToggle}
+            disabled={disabled || (selectable.length === 0 && !grant)}
           />
-        )}
+          {checked === "indeterminate" && (
+            <Minus
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 m-auto size-3"
+            />
+          )}
+        </span>
       </span>
       <ToolIcon entry={group.entries[0]} />
       <span className="truncate font-medium">{group.title}</span>
@@ -833,19 +842,27 @@ const ToolOption = memo(function ToolOption({
         covered && "cursor-default"
       )}
     >
-      <CheckIndicator
-        checked={selected || covered}
-        disabled={covered}
-        className={covered ? undefined : "opacity-100"}
-      />
-      {entry.locked && (
-        <LockKeyhole
-          aria-label="Locked"
-          className="size-3.5 shrink-0 text-muted-foreground"
+      <span className={LEAD}>
+        <CheckIndicator
+          checked={selected || covered}
+          disabled={covered}
+          className={covered ? undefined : "opacity-100"}
         />
+      </span>
+      {showIcon && (
+        <span className={LEAD}>
+          <ToolIcon entry={entry} small />
+        </span>
       )}
-      {showIcon && <ToolIcon entry={entry} small />}
-      <span className="w-1/4 min-w-0 truncate">{entry.title}</span>
+      <span className="flex w-1/4 min-w-0 items-center gap-1.5">
+        <span className="truncate">{entry.title}</span>
+        {entry.locked && (
+          <LockKeyhole
+            aria-label="Locked"
+            className="size-3.5 shrink-0 text-muted-foreground"
+          />
+        )}
+      </span>
       <span className="w-1/3 min-w-0 truncate font-mono text-[11px] text-muted-foreground">
         {entry.target === "mcpIntegrations" && entry.integration
           ? entry.integration.slug
@@ -870,7 +887,9 @@ const SectionHeader = memo(function SectionHeader({
       role="presentation"
       className="flex h-11 items-center gap-3 border-b border-border/50 px-4 text-xs"
     >
-      {group && <ToolIcon entry={group.entries[0]} />}
+      <span className={LEAD}>
+        {group && <ToolIcon entry={group.entries[0]} />}
+      </span>
       <span className="truncate font-medium">{title}</span>
       <span className="truncate font-mono text-[11px] text-muted-foreground">
         {group?.namespace}

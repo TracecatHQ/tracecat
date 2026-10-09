@@ -536,7 +536,7 @@ export function EditorPanel({
                   minSize={26}
                   className={cn(toolsBeside && "min-w-[280px]")}
                 >
-                  <div className="h-full overflow-auto p-4">
+                  <div className="h-full overflow-auto p-4 [--tool-list-inset:1rem]">
                     <SkillToolsPanel
                       workspaceId={skill.workspace_id}
                       frontmatter={splitFrontmatter.frontmatter}

@@ -40,6 +40,7 @@ import type {
   AgentPresetDirectoryItem,
   AgentTagRead,
   ApprovalRead,
+  MCPIntegrationRead,
 } from "@/client"
 import {
   agentPresetsAddPresetTag,
@@ -154,6 +155,7 @@ import {
 } from "@/lib/agents"
 import type { TracecatApiError } from "@/lib/errors"
 import { executionId as splitExecutionId } from "@/lib/event-history"
+import { useListMcpIntegrations } from "@/lib/hooks"
 import { useQueryClient } from "@/lib/query"
 import { cn, reconstructActionType, shortTimeAgo } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -1640,10 +1642,54 @@ function ToolSourceTiles({
   )
 }
 
+type McpIntegrationsBySlug = Map<string, MCPIntegrationRead>
+
+const NO_MCP_INTEGRATIONS: McpIntegrationsBySlug = new Map()
+
+function pluralize(count: number, singular: string): string {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`
+}
+
+/**
+ * Label a preset's tool total: registry tools plus the tools of its remote MCP
+ * integrations. Integrations whose tools cannot be counted are listed after
+ * it instead: stdio servers, and remote ones with no known tools (not loaded
+ * or not discovered yet).
+ */
+function getToolCountLabel(
+  toolCount: number,
+  mcpSlugs: string[],
+  mcpBySlug: McpIntegrationsBySlug
+): string {
+  let tools = toolCount
+  let stdio = 0
+  let uncounted = 0
+  for (const slug of mcpSlugs) {
+    const integration = mcpBySlug.get(slug)
+    if (integration?.server_type === "stdio") {
+      stdio += 1
+      continue
+    }
+    const count =
+      integration?.tools?.filter(
+        (tool) => tool.enabled !== false && tool.status !== "missing"
+      ).length ?? 0
+    if (count > 0) tools += count
+    else uncounted += 1
+  }
+  const parts: string[] = []
+  if (tools > 0) parts.push(pluralize(tools, "tool"))
+  if (uncounted > 0) parts.push(`${uncounted} MCP`)
+  if (stdio > 0) parts.push(`${stdio} stdio MCP`)
+  return parts.join(" + ")
+}
+
 const AgentToolSources = memo(function AgentToolSources({
   summary,
+  mcpBySlug,
 }: {
   summary: AgentPresetDirectoryItem["tool_summary"]
+  mcpBySlug: McpIntegrationsBySlug
 }) {
   const {
     tool_count: toolCount = 0,
@@ -1676,11 +1722,13 @@ const AgentToolSources = memo(function AgentToolSources({
       />
       {mcpSlugs.length > 0 ? (
         <>
-          <span
-            role="separator"
-            aria-orientation="vertical"
-            className="mx-1 h-3.5 w-px bg-border"
-          />
+          {namespaces.length > 0 ? (
+            <span
+              role="separator"
+              aria-orientation="vertical"
+              className="mx-1 h-3.5 w-px bg-border"
+            />
+          ) : null}
           <ToolSourceTiles
             groups={mcpSlugs.map((slug) => [slug])}
             renderIcon={(slug) => (
@@ -1692,18 +1740,9 @@ const AgentToolSources = memo(function AgentToolSources({
           />
         </>
       ) : null}
-      {toolCount > 0 ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="ml-1.5 whitespace-nowrap text-[11px] text-muted-foreground">
-              {toolCount} {toolCount === 1 ? "tool" : "tools"}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>
-            Registry tools. MCP tools are not counted.
-          </TooltipContent>
-        </Tooltip>
-      ) : null}
+      <span className="ml-1.5 whitespace-nowrap text-[11px] text-muted-foreground">
+        {getToolCountLabel(toolCount, mcpSlugs, mcpBySlug)}
+      </span>
     </div>
   )
 })
@@ -1723,8 +1762,10 @@ function AgentCatalogRow({
   canDuplicateAgent,
   organizationEnabled = true,
   defaultAgentActions,
+  mcpBySlug,
 }: {
   item: AgentDirectoryItem
+  mcpBySlug: McpIntegrationsBySlug
   onOpenPreset: (presetId: string) => void
   onOpenFolder: (path: string) => void
   setSelectedItem: (item: AgentDirectoryItem) => void
@@ -1819,7 +1860,10 @@ function AgentCatalogRow({
             <MousePointerClickIcon className="size-4 shrink-0 text-primary" />
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <span className={ROW_NAME_COLUMN_CLASS}>{item.name}</span>
-              <AgentToolSources summary={item.tool_summary} />
+              <AgentToolSources
+                summary={item.tool_summary}
+                mcpBySlug={mcpBySlug}
+              />
               <div className="ml-auto flex shrink-0 items-center gap-2">
                 <div className="flex shrink-0 items-center gap-1">
                   <Tooltip>
@@ -2273,6 +2317,26 @@ export function AgentsDashboard() {
     entitlementsLoading ||
     (view === "folders" ? directoryItemsIsLoading : presetsIsLoading)
   const error = view === "folders" ? directoryItemsError : presetsError
+  // Tool counts include the tools of attached MCP integrations, which the
+  // preset summary only names by slug.
+  const hasMcpSources = visibleItems.some(
+    (item) => item.type === "preset" && item.tool_summary?.mcp_slugs?.length
+  )
+  const { mcpIntegrations } = useListMcpIntegrations(workspaceId, undefined, {
+    enabled: hasMcpSources,
+  })
+  const mcpBySlug = useMemo(
+    () =>
+      mcpIntegrations
+        ? new Map(
+            mcpIntegrations.map((integration) => [
+              integration.slug,
+              integration,
+            ])
+          )
+        : NO_MCP_INTEGRATIONS,
+    [mcpIntegrations]
+  )
 
   return (
     <TooltipProvider>
@@ -2317,6 +2381,7 @@ export function AgentsDashboard() {
                 <AgentCatalogRow
                   key={`${item.type}-${item.id}`}
                   item={item}
+                  mcpBySlug={mcpBySlug}
                   onOpenPreset={handleOpenPreset}
                   onOpenFolder={handleOpenFolder}
                   setSelectedItem={setSelectedItem}

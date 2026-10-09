@@ -984,7 +984,7 @@ function ActionPanelContent({
               <div className="w-full min-w-80 overflow-x-auto">
                 <TabsContent value="inputs">
                   <SectionErrorBoundary>
-                    <div className="mt-4 flex flex-col space-y-4 px-4">
+                    <div className="mt-4 flex flex-col space-y-4 px-4 [--tool-list-inset:1rem]">
                       {finalValErrors.length > 0 && (
                         <ValidationErrorView
                           validationErrors={finalValErrors}

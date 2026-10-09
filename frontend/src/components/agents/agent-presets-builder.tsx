@@ -1947,7 +1947,7 @@ export function AgentPresetConfigurationPanel({
   const internetAccessEnabled = form.watch("enableInternetAccess")
   return (
     <ScrollArea className="h-full [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!w-full [&_[data-radix-scroll-area-viewport]>div]:!min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!max-w-full">
-      <div className="flex min-w-0 w-full flex-col gap-4 px-4 pt-4 pb-20 text-xs">
+      <div className="flex min-w-0 w-full flex-col gap-4 px-4 pt-4 pb-20 text-xs [--tool-list-inset:1rem]">
         <section className="min-w-0 w-full space-y-4">
           <div className="grid min-w-0 grid-cols-1 gap-4">
             <FormField
@@ -2070,7 +2070,7 @@ export function AgentPresetConfigurationPanel({
             )}
           />
         </section>
-        <Separator />
+        <Separator className="-mx-4 w-auto" />
         <AgentPresetToolsList
           registryActions={registryActions}
           registryLoading={registryLoading}

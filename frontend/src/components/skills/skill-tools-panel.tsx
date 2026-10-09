@@ -3,6 +3,8 @@
 import { useCallback, useMemo, useRef, useState } from "react"
 import { LockedFeatureModal } from "@/components/locked-feature-modal"
 import {
+  TOOL_LIST_BLEED,
+  TOOL_LIST_INSET,
   ToolSelectionList,
   ToolSelectionRow,
 } from "@/components/tools/tool-selection-list"
@@ -14,6 +16,7 @@ import {
   readSkillFrontmatterTools,
   updateSkillFrontmatterTools,
 } from "@/lib/skill-tools"
+import { cn } from "@/lib/utils"
 
 const EMPTY_KEYS: string[] = []
 
@@ -115,8 +118,13 @@ export function SkillToolsPanel({
       {editable && loadError && toolsState.tools.length > 0 && (
         // Without a catalogue the list hides its rows. Keep declared IDs
         // visible and removable, without calling them unavailable.
-        <div>
-          <h4 className="py-3 text-xs text-muted-foreground">
+        <div className={TOOL_LIST_BLEED}>
+          <h4
+            className={cn(
+              "py-3 text-xs text-muted-foreground",
+              TOOL_LIST_INSET
+            )}
+          >
             Existing tool IDs are preserved.
           </h4>
           {toolsState.tools.map((tool) => (

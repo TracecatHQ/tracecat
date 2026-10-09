@@ -43,6 +43,17 @@ const FOCUS =
   "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
 const REVEAL =
   "opacity-0 disabled:opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+/**
+ * Stretches a rows container to the edges of the surrounding panel. The panel
+ * sets `--tool-list-inset` to its own horizontal padding; unset, rows stay
+ * within their container.
+ */
+export const TOOL_LIST_BLEED = "-mx-[var(--tool-list-inset,0px)]"
+/** Pads a full-width row's content back to the panel's horizontal padding. */
+export const TOOL_LIST_INSET = "px-[var(--tool-list-inset,0px)]"
+// Tool rows start under their group's icon, past the chevron and its gap.
+const NESTED_INSET =
+  "pl-[calc(var(--tool-list-inset,0px)+1.375rem)] pr-[var(--tool-list-inset,0px)]"
 const EMPTY_ACTIONS: RegistryActionReadMinimal[] = []
 const EMPTY_INTEGRATIONS: MCPIntegrationRead[] = []
 
@@ -78,7 +89,12 @@ export interface ToolSelectionListProps {
   onLockedSelect?: (entry: ToolEntry) => void
 }
 
-/** Controlled selected-tools list with an integrated picker, in stored order. */
+/**
+ * Controlled selected-tools list with an integrated picker, in stored order.
+ *
+ * Set `--tool-list-inset` on a padded ancestor (for example
+ * `[--tool-list-inset:1rem]` next to `px-4`) to make rows span its full width.
+ */
 export const ToolSelectionList = memo(function ToolSelectionList({
   index: providedIndex,
   registryActions = EMPTY_ACTIONS,
@@ -349,7 +365,12 @@ export const ToolSelectionList = memo(function ToolSelectionList({
         <p className="py-3 text-xs text-muted-foreground">No matching tools</p>
       )}
       {ready && (
-        <div className="divide-y divide-border/50">
+        <div
+          className={cn(
+            "divide-y divide-border/50 border-y border-border/50 empty:hidden",
+            TOOL_LIST_BLEED
+          )}
+        >
           {toolGroups.map((group) => {
             const allowed = group.entries.filter((entry) =>
               selected.has(entry.key)
@@ -382,7 +403,11 @@ export const ToolSelectionList = memo(function ToolSelectionList({
                           return next
                         })
                       }
-                      className="flex h-10 w-full min-w-0 items-center gap-2 rounded px-1 py-2 text-left outline-none hover:bg-muted/50 data-[state=open]:bg-muted/70 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+                      className={cn(
+                        "flex h-10 w-full min-w-0 items-center gap-2 py-2 text-left outline-none hover:bg-muted/50 data-[state=open]:bg-muted/70",
+                        TOOL_LIST_INSET,
+                        FOCUS
+                      )}
                     >
                       {isExpanded ? (
                         <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
@@ -486,8 +511,13 @@ export const ToolSelectionList = memo(function ToolSelectionList({
             return (
               <Item
                 key={id}
-                className="group flex-nowrap gap-2 rounded-none border-0 h-10 px-1 py-0 hover:bg-muted/50"
+                className={cn(
+                  "group h-10 flex-nowrap gap-2 rounded-none border-0 py-0 hover:bg-muted/50",
+                  TOOL_LIST_INSET
+                )}
               >
+                {/* Keeps the icon in the same column as the group icons. */}
+                <span aria-hidden="true" className="size-3.5 shrink-0" />
                 <ProviderIcon
                   providerId={getMcpProviderIconId(
                     integration?.slug ?? "custom"
@@ -521,7 +551,12 @@ export const ToolSelectionList = memo(function ToolSelectionList({
           })}
           {visibleSkillKeys.length > 0 && (
             <div>
-              <h4 className="py-3 text-xs text-muted-foreground">
+              <h4
+                className={cn(
+                  "py-3 text-xs text-muted-foreground",
+                  TOOL_LIST_INSET
+                )}
+              >
                 From skills
               </h4>
               {visibleSkillKeys.map((key) => (
@@ -543,7 +578,12 @@ export const ToolSelectionList = memo(function ToolSelectionList({
           )}
           {visibleUnavailable.length > 0 && (
             <div>
-              <h4 className="py-3 text-xs text-muted-foreground">
+              <h4
+                className={cn(
+                  "py-3 text-xs text-muted-foreground",
+                  TOOL_LIST_INSET
+                )}
+              >
                 Unavailable
               </h4>
               {visibleUnavailable.map((key) => (
@@ -558,7 +598,12 @@ export const ToolSelectionList = memo(function ToolSelectionList({
           )}
           {approvalsEnabled && visibleOtherRules.length > 0 && (
             <div>
-              <h4 className="py-3 text-xs text-muted-foreground">
+              <h4
+                className={cn(
+                  "py-3 text-xs text-muted-foreground",
+                  TOOL_LIST_INSET
+                )}
+              >
                 Other approval rules
               </h4>
               {visibleOtherRules.map((rule) => (
@@ -611,7 +656,12 @@ export function ToolSelectionRow({
   showIcon?: boolean
 }) {
   return (
-    <Item className="group h-[34px] flex-nowrap gap-2 rounded-none border-0 py-0 pl-7 pr-1 hover:bg-muted/50">
+    <Item
+      className={cn(
+        "group h-[34px] flex-nowrap gap-2 rounded-none border-0 py-0 hover:bg-muted/50",
+        NESTED_INSET
+      )}
+    >
       {showIcon &&
         getIcon(tool, { className: "size-5 shrink-0 rounded border" })}
       {title && <span className="w-32 shrink-0 truncate text-xs">{title}</span>}
