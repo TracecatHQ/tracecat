@@ -114,9 +114,6 @@ jobs:
           sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
           sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-
       - name: Log in to Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
@@ -139,20 +136,24 @@ jobs:
             type=match,pattern=nightly-(.*),group=0
             type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
+      # Layers and cache mounts persist on a Blacksmith sticky disk, so there
+      # is no registry cache to import or export. Do not add
+      # docker/setup-buildx-action to this job: its buildkitd makes this step
+      # fall back to an uncached local builder.
       - name: Set up Docker builder
-        uses: useblacksmith/setup-docker-builder@78f41686563c732ccc097f7baac2f092f67538f0 # v1
+        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+        with:
+          cache-key: Dockerfile-${{ matrix.platform_tag }}
 
       - name: Build and push by digest
         id: build
-        uses: useblacksmith/build-push-action@30c71162f16ea2c27c3e21523255d209b8b538c1 # v2
+        uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
         with:
           context: .
           target: production
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=ghcr.io/tracecathq/tracecat,push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=registry,ref=ghcr.io/tracecathq/tracecat:buildcache-${{ matrix.platform_tag }}
-          cache-to: type=registry,ref=ghcr.io/tracecathq/tracecat:buildcache-${{ matrix.platform_tag }},mode=max,ignore-error=true
 
       - name: Export digest
         run: |
@@ -248,18 +249,11 @@ jobs:
         fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
         github.triggering_actor || github.actor
       )
-    runs-on: ${{ matrix.runner }}
+    # The Next.js bundle is platform independent, so one amd64 runner compiles
+    # it once (see frontend/Dockerfile.prod) and only the small runner stage is
+    # built per platform. arm64 runner-stage steps run under QEMU.
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: blacksmith-8vcpu-ubuntu-2404
-            platform: linux/amd64
-            platform_tag: linux-amd64
-          - runner: blacksmith-8vcpu-ubuntu-2404-arm
-            platform: linux/arm64
-            platform_tag: linux-arm64
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -271,8 +265,11 @@ jobs:
           sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
           sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      # Register arm64 emulation before the builder starts its buildkitd.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+        with:
+          platforms: arm64
 
       - name: Log in to Container registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -296,12 +293,16 @@ jobs:
             type=match,pattern=nightly-(.*),group=0
             type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
+      # Do not add docker/setup-buildx-action to this job: its buildkitd makes
+      # this step fall back to an uncached local builder.
       - name: Set up Docker builder
-        uses: useblacksmith/setup-docker-builder@78f41686563c732ccc097f7baac2f092f67538f0 # v1
+        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2.2.0
+        with:
+          cache-key: frontend/Dockerfile.prod
+          platforms: linux/amd64,linux/arm64
 
-      - name: Build and push by digest
-        id: build
-        uses: useblacksmith/build-push-action@30c71162f16ea2c27c3e21523255d209b8b538c1 # v2
+      - name: Build and push
+        uses: useblacksmith/build-push-action@9b0579bbec7a6cad2f171596c57e7ac1e7658850 # v2.3.0
         env:
           NEXT_PUBLIC_API_URL: http://localhost:8000
           NEXT_PUBLIC_APP_ENV: production
@@ -311,7 +312,7 @@ jobs:
         with:
           context: frontend
           file: frontend/Dockerfile.prod
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64,linux/arm64
           build-args: |
             NEXT_PUBLIC_API_URL=${{ env.NEXT_PUBLIC_API_URL }}
             NEXT_PUBLIC_APP_ENV=${{ env.NEXT_PUBLIC_APP_ENV }}
@@ -319,94 +320,11 @@ jobs:
             NEXT_SERVER_API_URL=${{ env.NEXT_SERVER_API_URL }}
             NODE_ENV=${{ env.NODE_ENV }}
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,name=ghcr.io/tracecathq/tracecat-ui,push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=registry,ref=ghcr.io/tracecathq/tracecat-ui:buildcache-${{ matrix.platform_tag }}
-          cache-to: type=registry,ref=ghcr.io/tracecathq/tracecat-ui:buildcache-${{ matrix.platform_tag }},mode=max,ignore-error=true
-
-      - name: Export digest
-        run: |
-          mkdir -p /tmp/digests
-          digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"
-
-      - name: Upload digest
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: ui-digests-${{ matrix.platform_tag }}
-          path: /tmp/digests/*
-          if-no-files-found: error
-          retention-days: 1
-
-  merge-ui:
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      packages: write
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      github.actor == 'github-actions[bot]' ||
-      contains(
-        fromJSON(vars.TRUSTED_CI_ACTORS_JSON || '[]'),
-        github.triggering_actor || github.actor
-      )
-    needs: [validate, build-and-push-ui]
-    runs-on: blacksmith-8vcpu-ubuntu-2404
-    steps:
-      - name: Download digests
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          path: /tmp/digests
-          pattern: ui-digests-*
-          merge-multiple: true
-
-      - name: Disable IPv6 (Blacksmith VMs lack IPv6 routing)
-        run: |
-          sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
-          sudo sysctl -w net.ipv6.conf.default.disable_ipv6=1
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-
-      - name: Log in to Container registry
-        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
-        with:
-          images: ghcr.io/tracecathq/tracecat-ui
-          flavor: latest=false
-          tags: |
-            type=sha
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=nightly-{{date 'YYYYMMDD'}}-{{sha}},enable=${{ github.event_name == 'schedule' }}
-            type=match,pattern=nightly-(.*),group=0
-            type=raw,value=${{ needs.validate.outputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
-
-      - name: Create manifest list and push
-        working-directory: /tmp/digests
-        run: |
-          args=()
-          while IFS= read -r tag; do
-            args+=(-t "$tag")
-          done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
-          for digest in *; do
-            args+=("ghcr.io/tracecathq/tracecat-ui@sha256:$digest")
-          done
-          docker buildx imagetools create "${args[@]}"
-
-      - name: Inspect image
-        run: |
-          docker buildx imagetools inspect ghcr.io/tracecathq/tracecat-ui:${{ steps.meta.outputs.version }}
+          tags: ${{ steps.meta.outputs.tags }}
+          push: true
 
   promote-latest:
-    needs: [validate, merge-api, merge-ui]
+    needs: [validate, merge-api, build-and-push-ui]
     if: needs.validate.outputs.latest == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
