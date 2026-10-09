@@ -225,9 +225,11 @@ function WorkspaceSyncResourceManifest({
         <span className="text-xs font-semibold">
           Included in this {direction}
         </span>
-        <span className="font-mono text-xs text-muted-foreground">
-          {fileCount} {fileCount === 1 ? "file" : "files"}
-        </span>
+        {fileCount > 0 && (
+          <span className="font-mono text-xs text-muted-foreground">
+            {fileCount} {fileCount === 1 ? "file" : "files"}
+          </span>
+        )}
       </div>
       <ul className="max-h-56 divide-y overflow-y-auto">
         {groups.map((group) => {

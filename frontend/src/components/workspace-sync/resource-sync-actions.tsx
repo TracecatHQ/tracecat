@@ -111,13 +111,31 @@ export function WorkspaceResourceSyncActions({
   const baseBranch = getWorkspaceSyncBaseBranch(gitRepoUrl, repoBranches)
   const targetBranch = exportBranch.trim()
   const compareRef = isCreatingBranch ? baseBranch : targetBranch || undefined
-  const { preview, previewIsLoading, previewError, refetchPreview } =
-    useWorkspaceSyncExportPreview(workspaceId, {
+  const pushOutcome = getWorkspaceSyncPushOutcome({
+    mode: "pull-request",
+    targetBranch,
+    defaultBranch: baseBranch,
+    isCreatingBranch,
+  })
+  const {
+    preview,
+    previewOperationId,
+    previewDiffCount,
+    previewIsLoading,
+    previewError,
+    refetchPreview,
+  } = useWorkspaceSyncExportPreview(workspaceId, {
+    push: {
+      message: exportMessage,
+      branch: targetBranch,
+      create_pr: pushOutcome.createPr,
+      pr_base_branch: baseBranch,
       resources: resourceRefs,
-      compareRef,
-      provider,
-      enabled: false,
-    })
+      include_schedules: false,
+    },
+    compareRef,
+    provider,
+  })
   const [previewRequested, setPreviewRequested] = useState(false)
   const visiblePreview = previewRequested ? preview : undefined
   const visiblePreviewIsLoading = previewRequested && previewIsLoading
@@ -126,12 +144,6 @@ export function WorkspaceResourceSyncActions({
   // types the button requested.
   const totalResourceCount =
     getWorkspaceSyncPreviewResourceTotal(visiblePreview)
-  const pushOutcome = getWorkspaceSyncPushOutcome({
-    mode: "pull-request",
-    targetBranch,
-    defaultBranch: baseBranch,
-    isCreatingBranch,
-  })
   const pushWarning = getWorkspaceSyncPushWarning({
     outcome: pushOutcome,
     defaultBranch: baseBranch,
@@ -145,6 +157,9 @@ export function WorkspaceResourceSyncActions({
     ? (getApiErrorDetail(previewError) ?? "Request failed")
     : undefined
   const exportDisabled =
+    !previewOperationId ||
+    previewIsLoading ||
+    !previewRequested ||
     !gitRepoUrl ||
     exportWorkspaceIsPending ||
     branchesIsLoading ||
@@ -164,7 +179,14 @@ export function WorkspaceResourceSyncActions({
 
   useEffect(() => {
     setPreviewRequested(false)
-  }, [compareRef, provider])
+  }, [
+    baseBranch,
+    compareRef,
+    exportMessage,
+    provider,
+    pushOutcome.createPr,
+    targetBranch,
+  ])
 
   if (!canPushWorkspaceSync) {
     return null
@@ -176,13 +198,8 @@ export function WorkspaceResourceSyncActions({
     }
 
     try {
-      const result = await exportWorkspace({
-        message: exportMessage,
-        branch: targetBranch,
-        create_pr: pushOutcome.createPr,
-        include_schedules: false,
-        resources: resourceRefs,
-      })
+      if (exportDisabled || !previewOperationId) return
+      const result = await exportWorkspace({ operationId: previewOperationId })
       const prUrl = result.commit.pr_url
       toast({
         title: prUrl ? `${reviewRequestTitle} ready` : "Push complete",
@@ -251,6 +268,9 @@ export function WorkspaceResourceSyncActions({
             />
 
             <PushResourcePreview
+              workspaceId={workspaceId}
+              operationId={previewOperationId}
+              diffCount={previewDiffCount}
               preview={visiblePreview}
               isLoading={visiblePreviewIsLoading}
               compareRef={compareRef}

@@ -9,6 +9,7 @@ import {
 } from "lucide-react"
 import { useState } from "react"
 import type { VcsProvider, WorkspaceRead } from "@/client"
+import { useScopeCheck } from "@/components/auth/scope-guard"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -16,6 +17,7 @@ import { getWorkspaceSyncBaseBranch } from "@/components/workspace-sync/branch-t
 import { WorkspaceSyncConnectionForm } from "@/components/workspace-sync/connection-form"
 import { WorkspaceSyncPullTab } from "@/components/workspace-sync/pull-tab"
 import { WorkspaceSyncPushTab } from "@/components/workspace-sync/push-tab"
+import { SyncOperationHistory } from "@/components/workspace-sync/sync-operation-history"
 import {
   useRepositoryBranches,
   useRepositoryCommits,
@@ -40,6 +42,10 @@ interface WorkspaceSyncSettingsProps {
 export function WorkspaceSyncSettings({
   workspace,
 }: WorkspaceSyncSettingsProps) {
+  const canViewSyncHistory = useScopeCheck(undefined, [
+    "workspace_sync:sync",
+    "workflow:sync",
+  ])
   const persistedGitUrl = workspace.settings?.git_repo_url || undefined
   const persistedProvider: VcsProvider =
     workspace.settings?.git_provider ?? "github"
@@ -165,6 +171,9 @@ export function WorkspaceSyncSettings({
             />
           </TabsContent>
         </Tabs>
+      )}
+      {canViewSyncHistory && (
+        <SyncOperationHistory workspaceId={workspace.id} />
       )}
     </div>
   )

@@ -1,18 +1,50 @@
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import type { PullResult } from "@/client"
+import { useState } from "react"
+import type { PullResult, SyncOperationRead } from "@/client"
 import { WorkspaceSyncPullTab } from "@/components/workspace-sync/pull-tab"
 
 const mockPullWorkflows = jest.fn()
 
 jest.mock("@/hooks/use-workspace-sync", () => ({
-  useWorkflowSync: () => ({
-    pullWorkflows: mockPullWorkflows,
-    pullWorkflowsIsPending: false,
-  }),
+  useWorkflowSync: function useMockWorkflowSync() {
+    const [previewOperation, setPreviewOperation] =
+      useState<SyncOperationRead>()
+    return {
+      pullWorkflows: async (options: {
+        dry_run?: boolean
+        commit_sha: string
+      }) => {
+        const result: PullResult = await mockPullWorkflows(options)
+        if (options.dry_run) {
+          setPreviewOperation({
+            id: "operation-test",
+            direction: "pull",
+            status: result.success ? "ready" : "failed",
+            stage: "awaiting_confirmation",
+            created_at: "2026-01-01T00:00:00Z",
+            expires_at: "2099-01-01T00:00:00Z",
+            can_retry: false,
+            diff_count: 0,
+            inputs: {
+              id: "operation-test",
+              direction: "pull",
+              pull: { commit_sha: options.commit_sha },
+            },
+          })
+        }
+        return result
+      },
+      previewOperation,
+      pullWorkflowsIsPending: false,
+    }
+  },
 }))
 
 jest.mock("@/components/ui/use-toast", () => ({ toast: jest.fn() }))
+jest.mock("@/components/workspace-sync/sync-operation-diffs", () => ({
+  OperationDiffs: () => null,
+}))
 
 const COMMIT_SHA = "a".repeat(40)
 

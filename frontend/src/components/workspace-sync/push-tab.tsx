@@ -27,6 +27,7 @@ import {
   WorkspaceSyncPushWarning,
 } from "@/components/workspace-sync/push-target-policy"
 import { PushResourcePreview } from "@/components/workspace-sync/resource-diff-review"
+import { SyncOperationPollingError } from "@/hooks/use-sync-operation"
 import {
   useWorkspaceSyncExport,
   useWorkspaceSyncExportPreview,
@@ -79,15 +80,29 @@ export function WorkspaceSyncPushTab({
   const exportCompareRef = isCreatingBranch
     ? baseBranch
     : targetBranch || undefined
+  const pushOutcome = getWorkspaceSyncPushOutcome({
+    mode: "pull-request",
+    targetBranch,
+    defaultBranch: baseBranch,
+    isCreatingBranch,
+  })
   const {
     preview: exportPreview,
+    previewOperationId,
+    previewDiffCount,
     previewIsLoading: exportPreviewIsLoading,
     previewError: exportPreviewError,
     refetchPreview: refetchExportPreview,
   } = useWorkspaceSyncExportPreview(workspaceId, {
+    push: {
+      message: exportMessage,
+      branch: targetBranch,
+      create_pr: pushOutcome.createPr,
+      pr_base_branch: baseBranch,
+      include_schedules: false,
+    },
     compareRef: exportCompareRef,
     provider,
-    enabled: false,
   })
   const visibleExportPreview = exportPreviewRequested
     ? exportPreview
@@ -97,12 +112,6 @@ export function WorkspaceSyncPushTab({
   const exportPreviewErrorMessage = exportPreviewError
     ? (getApiErrorDetail(exportPreviewError) ?? "Request failed")
     : undefined
-  const pushOutcome = getWorkspaceSyncPushOutcome({
-    mode: "pull-request",
-    targetBranch,
-    defaultBranch: baseBranch,
-    isCreatingBranch,
-  })
   const pushWarning = getWorkspaceSyncPushWarning({
     outcome: pushOutcome,
     defaultBranch: baseBranch,
@@ -114,6 +123,9 @@ export function WorkspaceSyncPushTab({
       ? "Merge request"
       : "Pull request"
   const exportDisabled =
+    !previewOperationId ||
+    exportPreviewIsLoading ||
+    !exportPreviewRequested ||
     exportWorkspaceIsPending ||
     branchesIsLoading ||
     (!hasBranches && !isCreatingBranch) ||
@@ -123,16 +135,20 @@ export function WorkspaceSyncPushTab({
 
   useEffect(() => {
     setExportPreviewRequested(false)
-  }, [exportCompareRef, persistedGitUrl, provider])
+  }, [
+    exportCompareRef,
+    persistedGitUrl,
+    provider,
+    exportMessage,
+    targetBranch,
+    baseBranch,
+    pushOutcome.createPr,
+  ])
 
   async function onExport() {
     try {
-      const result = await exportWorkspace({
-        message: exportMessage,
-        branch: targetBranch,
-        create_pr: pushOutcome.createPr,
-        include_schedules: false,
-      })
+      if (exportDisabled || !previewOperationId) return
+      const result = await exportWorkspace({ operationId: previewOperationId })
       toast({
         title: result.commit.pr_url
           ? `${reviewRequestTitle} ready`
@@ -157,7 +173,10 @@ export function WorkspaceSyncPushTab({
       })
     } catch (error) {
       toast({
-        title: "Push failed",
+        title:
+          error instanceof SyncOperationPollingError
+            ? "Sync status unavailable"
+            : "Push failed",
         description: getApiErrorDetail(error) ?? "Request failed",
         variant: "destructive",
       })
@@ -204,6 +223,9 @@ export function WorkspaceSyncPushTab({
       </div>
 
       <PushResourcePreview
+        workspaceId={workspaceId}
+        operationId={previewOperationId}
+        diffCount={previewDiffCount}
         preview={visibleExportPreview}
         isLoading={visibleExportPreviewIsLoading}
         compareRef={exportCompareRef}

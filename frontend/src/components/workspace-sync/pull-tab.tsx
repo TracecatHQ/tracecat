@@ -40,6 +40,8 @@ import {
   getWorkspaceSyncResourceLabel,
   workspaceSyncResourceCountEntries,
 } from "@/components/workspace-sync/resource-metadata"
+import { OperationDiffs } from "@/components/workspace-sync/sync-operation-diffs"
+import { SyncOperationPollingError } from "@/hooks/use-sync-operation"
 import { useWorkflowSync } from "@/hooks/use-workspace-sync"
 import { getApiErrorDetail } from "@/lib/errors"
 import { cn } from "@/lib/utils"
@@ -63,7 +65,8 @@ export function WorkspaceSyncPullTab({
   commitsIsLoading,
   commitsError,
 }: WorkspaceSyncPullTabProps) {
-  const { pullWorkflows, pullWorkflowsIsPending } = useWorkflowSync(workspaceId)
+  const { pullWorkflows, pullWorkflowsIsPending, previewOperation } =
+    useWorkflowSync(workspaceId)
 
   const [selectedCommitSha, setSelectedCommitSha] = useState<string | null>(
     null
@@ -132,7 +135,9 @@ export function WorkspaceSyncPullTab({
     pullPreviewOptions?.mcpMappingsKey === mcpMappingsKey &&
     pullPreviewOptions?.storeMappingsKey === storeMappingsKey
   const canApplyPull =
-    pullPreviewMatchesSelection && pullPreview?.success === true
+    pullPreviewMatchesSelection &&
+    pullPreview?.success === true &&
+    previewOperation?.status === "ready"
 
   const resetPullPreview = useCallback(() => {
     setPullPreview(null)
@@ -200,7 +205,10 @@ export function WorkspaceSyncPullTab({
       })
     } catch (error) {
       toast({
-        title: "Pull preview failed",
+        title:
+          error instanceof SyncOperationPollingError
+            ? "Sync status unavailable"
+            : "Pull preview failed",
         description: getApiErrorDetail(error) ?? "Request failed",
         variant: "destructive",
       })
@@ -263,7 +271,10 @@ export function WorkspaceSyncPullTab({
       })
     } catch (error) {
       toast({
-        title: "Pull operation failed",
+        title:
+          error instanceof SyncOperationPollingError
+            ? "Sync status unavailable"
+            : "Pull operation failed",
         description: getApiErrorDetail(error) ?? "Request failed",
         variant: "destructive",
       })
@@ -340,21 +351,31 @@ export function WorkspaceSyncPullTab({
         checked above.
       </SyncWarning>
 
-      {pullPreview && pullPreviewMatchesSource && (
-        <PullPreviewSummary
-          result={pullPreview}
-          catalogMappingRequirements={catalogMappingRequirements}
-          catalogMappings={catalogMappings}
-          onCatalogMappingChange={handleCatalogMappingChange}
-          mcpMappingRequirements={mcpMappingRequirements}
-          mcpMappings={mcpMappings}
-          onMcpMappingChange={handleMcpMappingChange}
-          storeMappingRequirements={storeMappingRequirements}
-          storeMappings={storeMappings}
-          onStoreMappingChange={handleStoreMappingChange}
-          mappingsMatchPreview={pullPreviewMatchesSelection}
-          disabled={pullWorkflowsIsPending}
-        />
+      {pullPreview &&
+        pullPreviewMatchesSource &&
+        previewOperation?.status !== "expired" && (
+          <PullPreviewSummary
+            workspaceId={workspaceId}
+            operationId={previewOperation?.id}
+            diffCount={previewOperation?.diff_count}
+            result={pullPreview}
+            catalogMappingRequirements={catalogMappingRequirements}
+            catalogMappings={catalogMappings}
+            onCatalogMappingChange={handleCatalogMappingChange}
+            mcpMappingRequirements={mcpMappingRequirements}
+            mcpMappings={mcpMappings}
+            onMcpMappingChange={handleMcpMappingChange}
+            storeMappingRequirements={storeMappingRequirements}
+            storeMappings={storeMappings}
+            onStoreMappingChange={handleStoreMappingChange}
+            mappingsMatchPreview={pullPreviewMatchesSelection}
+            disabled={pullWorkflowsIsPending}
+          />
+        )}
+      {previewOperation?.status === "expired" && pullPreviewMatchesSource && (
+        <p className="text-sm text-muted-foreground">
+          Preview expired. Preview these changes again before applying.
+        </p>
       )}
       {pullResult && <PullResultSummary result={pullResult} />}
       {!(pullPreview && pullPreviewMatchesSource) && !pullResult && (
@@ -452,6 +473,9 @@ function PullEmptyState() {
  * per-resource file diffs.
  */
 function PullPreviewSummary({
+  workspaceId,
+  operationId,
+  diffCount,
   result,
   catalogMappingRequirements,
   catalogMappings,
@@ -465,6 +489,9 @@ function PullPreviewSummary({
   mappingsMatchPreview,
   disabled,
 }: {
+  workspaceId: string
+  operationId?: string
+  diffCount?: number
   result: PullResult
   catalogMappingRequirements: CatalogMappingRequirement[]
   catalogMappings: Record<string, string>
@@ -509,22 +536,24 @@ function PullPreviewSummary({
         <SummaryMetric label="found" value={totalFound} />
         <SummaryMetric
           label="changes"
-          value={resourceDiffs.length}
-          emphasize={resourceDiffs.length > 0}
+          value={diffCount ?? resourceDiffs.length}
+          emphasize={(diffCount ?? resourceDiffs.length) > 0}
         />
         <SummaryMetric
           label="issues"
           value={result.diagnostics.length}
           emphasize={result.diagnostics.length > 0}
         />
-        <div className="ml-auto flex flex-wrap gap-1.5">
-          <Badge variant="secondary" className="font-normal">
-            {addedCount} added
-          </Badge>
-          <Badge variant="secondary" className="font-normal">
-            {modifiedCount} modified
-          </Badge>
-        </div>
+        {!operationId && (
+          <div className="ml-auto flex flex-wrap gap-1.5">
+            <Badge variant="secondary" className="font-normal">
+              {addedCount} added
+            </Badge>
+            <Badge variant="secondary" className="font-normal">
+              {modifiedCount} modified
+            </Badge>
+          </div>
+        )}
       </div>
 
       {!result.success && (
@@ -571,7 +600,15 @@ function PullPreviewSummary({
 
       <PullResourceManifest result={result} />
 
-      <ResourceDiffSection diffs={resourceDiffs} />
+      {operationId ? (
+        <OperationDiffs
+          workspaceId={workspaceId}
+          operationId={operationId}
+          count={diffCount ?? 0}
+        />
+      ) : (
+        <ResourceDiffSection diffs={resourceDiffs} />
+      )}
 
       {result.diagnostics.length > 0 && (
         <PullDiagnostics diagnostics={result.diagnostics} />
