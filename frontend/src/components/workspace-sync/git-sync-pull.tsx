@@ -20,6 +20,7 @@ import type {
   McpIntegrationMappingRequirement,
   PullResourceDiff,
   PullResult,
+  SecretStoreMappingRequirement,
   VcsProvider,
 } from "@/client"
 import { Badge } from "@/components/ui/badge"
@@ -52,8 +53,11 @@ import { GitSyncCommitPicker } from "@/components/workspace-sync/git-sync-commit
 import {
   CatalogMappingRequirements,
   catalogMappingSelections,
+  LEAVE_UNLINKED,
   McpIntegrationMappingRequirements,
   mcpIntegrationMappingSelections,
+  SecretStoreMappingRequirements,
+  secretStoreMappingSelections,
 } from "@/components/workspace-sync/mapping-requirements-card"
 import {
   getWorkspaceSyncResourceAbbr,
@@ -102,12 +106,17 @@ export function GitSyncPullTab({
   const [mcpMappingRequirements, setMcpMappingRequirements] = useState<
     McpIntegrationMappingRequirement[]
   >([])
+  const [storeMappings, setStoreMappings] = useState<Record<string, string>>({})
+  const [storeMappingRequirements, setStoreMappingRequirements] = useState<
+    SecretStoreMappingRequirement[]
+  >([])
   const [pullPreview, setPullPreview] = useState<PullResult | null>(null)
   const [pullPreviewOptions, setPullPreviewOptions] = useState<{
     commitSha: string
     syncSchedules: boolean
     catalogMappingsKey: string | null
     mcpMappingsKey: string | null
+    storeMappingsKey: string | null
   } | null>(null)
   const [pullResult, setPullResult] = useState<PullResult | null>(null)
   const [pulledAt, setPulledAt] = useState<Date | null>(null)
@@ -130,17 +139,26 @@ export function GitSyncPullTab({
     () => JSON.stringify(selectedMcpMappings),
     [selectedMcpMappings]
   )
+  const selectedStoreMappings = useMemo(
+    () => secretStoreMappingSelections(storeMappings),
+    [storeMappings]
+  )
+  const storeMappingsKey = useMemo(
+    () => JSON.stringify(selectedStoreMappings),
+    [selectedStoreMappings]
+  )
   const pullPreviewMatchesSource =
     Boolean(effectivePullSha) &&
     pullPreviewOptions !== null &&
     pullPreviewOptions.commitSha === effectivePullSha &&
     pullPreviewOptions.syncSchedules === syncSchedules
-  // Both selection sets must match what the backend last validated. Changing
-  // either one invalidates the preview until it is re-run.
+  // Every selection set must match what the backend last validated. Changing
+  // any one invalidates the preview until it is re-run.
   const pullPreviewMatchesSelection =
     pullPreviewMatchesSource &&
     pullPreviewOptions?.catalogMappingsKey === catalogMappingsKey &&
-    pullPreviewOptions?.mcpMappingsKey === mcpMappingsKey
+    pullPreviewOptions?.mcpMappingsKey === mcpMappingsKey &&
+    pullPreviewOptions?.storeMappingsKey === storeMappingsKey
   const canApplyPull =
     pullPreviewMatchesSelection && pullPreview?.success === true
   const isPreviewing = pullWorkflowsIsPending && pullAction === "preview"
@@ -170,6 +188,8 @@ export function GitSyncPullTab({
     setCatalogMappingRequirements([])
     setMcpMappings({})
     setMcpMappingRequirements([])
+    setStoreMappings({})
+    setStoreMappingRequirements([])
   }, [effectivePullSha, provider, resetPullPreview])
 
   useEffect(() => {
@@ -179,6 +199,7 @@ export function GitSyncPullTab({
   async function handlePreviewPull(matches?: {
     catalog: Record<string, string>
     mcp: Record<string, string>
+    store: Record<string, string>
   }) {
     if (!effectivePullSha) {
       return
@@ -189,6 +210,9 @@ export function GitSyncPullTab({
     const mcpSelections = matches
       ? mcpIntegrationMappingSelections(matches.mcp)
       : selectedMcpMappings
+    const storeSelections = matches
+      ? secretStoreMappingSelections(matches.store)
+      : selectedStoreMappings
 
     setPullAction("preview")
     setPullPreview(null)
@@ -200,6 +224,7 @@ export function GitSyncPullTab({
         sync_schedules: syncSchedules,
         catalog_mappings: catalogSelections,
         mcp_integration_mappings: mcpSelections,
+        secret_store_mappings: storeSelections,
       })
       setPullPreview(result)
       // A preview with matches stops listing them; keep them so the page can
@@ -214,11 +239,18 @@ export function GitSyncPullTab({
       setMcpMappingRequirements((previous) =>
         nextMcp.length > 0 || mcpSelections.length === 0 ? nextMcp : previous
       )
+      const nextStore = result.secret_store_mapping_requirements ?? []
+      setStoreMappingRequirements((previous) =>
+        nextStore.length > 0 || storeSelections.length === 0
+          ? nextStore
+          : previous
+      )
       setPullPreviewOptions({
         commitSha: effectivePullSha,
         syncSchedules,
         catalogMappingsKey: JSON.stringify(catalogSelections),
         mcpMappingsKey: JSON.stringify(mcpSelections),
+        storeMappingsKey: JSON.stringify(storeSelections),
       })
     } catch (error) {
       toast({
@@ -244,6 +276,7 @@ export function GitSyncPullTab({
         sync_schedules: syncSchedules,
         catalog_mappings: selectedCatalogMappings,
         mcp_integration_mappings: selectedMcpMappings,
+        secret_store_mappings: selectedStoreMappings,
       })
       if (result.success) {
         setPullResult(result)
@@ -254,11 +287,16 @@ export function GitSyncPullTab({
         setCatalogMappingRequirements([])
         setMcpMappings({})
         setMcpMappingRequirements([])
+        setStoreMappings({})
+        setStoreMappingRequirements([])
       } else {
         setPullPreview(result)
         setCatalogMappingRequirements(result.catalog_mapping_requirements ?? [])
         setMcpMappingRequirements(
           result.mcp_integration_mapping_requirements ?? []
+        )
+        setStoreMappingRequirements(
+          result.secret_store_mapping_requirements ?? []
         )
         setPullPreviewOptions({
           commitSha: effectivePullSha,
@@ -267,6 +305,7 @@ export function GitSyncPullTab({
           // invalidates the prior preview even if the selections are unchanged.
           catalogMappingsKey: null,
           mcpMappingsKey: null,
+          storeMappingsKey: null,
         })
       }
       toast({
@@ -287,13 +326,11 @@ export function GitSyncPullTab({
     }
   }
 
-  function handleSaveMatches(
-    catalog: Record<string, string>,
-    mcp: Record<string, string>
-  ) {
-    setCatalogMappings(catalog)
-    setMcpMappings(mcp)
-    void handlePreviewPull({ catalog, mcp })
+  function handleSaveMatches(matches: MatchDrafts) {
+    setCatalogMappings(matches.catalog)
+    setMcpMappings(matches.mcp)
+    setStoreMappings(matches.store)
+    void handlePreviewPull(matches)
   }
 
   return (
@@ -313,6 +350,8 @@ export function GitSyncPullTab({
             catalogMappings={catalogMappings}
             mcpMappingRequirements={mcpMappingRequirements}
             mcpMappings={mcpMappings}
+            storeMappingRequirements={storeMappingRequirements}
+            storeMappings={storeMappings}
             onSaveMatches={handleSaveMatches}
             disabled={pullWorkflowsIsPending}
           />
@@ -465,6 +504,8 @@ function PullPreview({
   catalogMappings,
   mcpMappingRequirements,
   mcpMappings,
+  storeMappingRequirements,
+  storeMappings,
   onSaveMatches,
   disabled,
   summary,
@@ -476,13 +517,13 @@ function PullPreview({
   catalogMappings: Record<string, string>
   mcpMappingRequirements: McpIntegrationMappingRequirement[]
   mcpMappings: Record<string, string>
-  onSaveMatches: (
-    catalog: Record<string, string>,
-    mcp: Record<string, string>
-  ) => void
+  storeMappingRequirements: SecretStoreMappingRequirement[]
+  storeMappings: Record<string, string>
+  onSaveMatches: (matches: MatchDrafts) => void
   disabled: boolean
   summary: string
 }) {
+  // Secret stores are optional, so they never count toward a blocked pull.
   const matchCount =
     catalogMappingRequirements.length + mcpMappingRequirements.length
   const unmatchedCount =
@@ -493,6 +534,11 @@ function PullPreview({
       (requirement) => !mcpMappings[requirement.source_mcp_integration_id]
     ).length
   const [matchesOpen, setMatchesOpen] = useState(unmatchedCount > 0)
+  const linkedStoreCount = storeMappingRequirements.filter((requirement) => {
+    const target = storeMappings[requirement.source_store]
+    return Boolean(target) && target !== LEAVE_UNLINKED
+  }).length
+  const librarySkillInstalls = result.library_skill_installs ?? []
   const resourceDiffs = result.resource_diffs ?? []
   const resources =
     result.resources ??
@@ -570,6 +616,39 @@ function PullPreview({
   return (
     <div className="flex min-w-0 flex-col">
       {notice}
+      {storeMappingRequirements.length > 0 && (
+        <div
+          role="status"
+          className="flex items-center gap-2 border-b px-5 py-2.5 text-xs text-muted-foreground"
+        >
+          <InfoIcon className="size-3.5 shrink-0" />
+          <span>
+            Secret stores: {linkedStoreCount} of{" "}
+            {storeMappingRequirements.length} linked. Unlinked secrets import
+            without a store and can be linked later in Credentials.
+          </span>
+          <button
+            type="button"
+            className="text-foreground underline underline-offset-2"
+            onClick={() => setMatchesOpen(true)}
+          >
+            Choose stores
+          </button>
+        </div>
+      )}
+      {librarySkillInstalls.length > 0 && (
+        <div
+          role="status"
+          className="flex items-center gap-2 border-b px-5 py-2.5 text-xs text-muted-foreground"
+        >
+          <InfoIcon className="size-3.5 shrink-0" />
+          <span>
+            Pulling installs {librarySkillInstalls.length}{" "}
+            {librarySkillInstalls.length === 1 ? "skill" : "skills"} from the
+            skills library: {librarySkillInstalls.join(", ")}.
+          </span>
+        </div>
+      )}
       {/* A failed preview compared nothing, so "Already matches" would mislead. */}
       {(result.success || resourceDiffs.length > 0) && (
         <GitSyncChangeList
@@ -584,7 +663,7 @@ function PullPreview({
       {result.diagnostics.length > 0 && (
         <PullDiagnostics diagnostics={result.diagnostics} />
       )}
-      {matchCount > 0 && (
+      {matchCount + storeMappingRequirements.length > 0 && (
         <MatchesDialog
           open={matchesOpen}
           onOpenChange={setMatchesOpen}
@@ -593,10 +672,12 @@ function PullPreview({
           catalogMappings={catalogMappings}
           mcpMappingRequirements={mcpMappingRequirements}
           mcpMappings={mcpMappings}
+          storeMappingRequirements={storeMappingRequirements}
+          storeMappings={storeMappings}
           disabled={disabled}
-          onSave={(catalog, mcp) => {
+          onSave={(matches) => {
             setMatchesOpen(false)
-            onSaveMatches(catalog, mcp)
+            onSaveMatches(matches)
           }}
         />
       )}
@@ -604,9 +685,16 @@ function PullPreview({
   )
 }
 
+/** Draft match choices for one pull, keyed by source reference. */
+interface MatchDrafts {
+  catalog: Record<string, string>
+  mcp: Record<string, string>
+  store: Record<string, string>
+}
+
 /**
- * Chooses what each unmatched model or MCP integration in the commit uses in
- * this workspace. Edits a draft; saving runs the preview again.
+ * Chooses what each unmatched model, MCP integration or secret store in the
+ * commit uses in this workspace. Edits a draft; saving runs the preview again.
  */
 function MatchesDialog({
   open,
@@ -616,6 +704,8 @@ function MatchesDialog({
   catalogMappings,
   mcpMappingRequirements,
   mcpMappings,
+  storeMappingRequirements,
+  storeMappings,
   disabled,
   onSave,
 }: {
@@ -626,11 +716,14 @@ function MatchesDialog({
   catalogMappings: Record<string, string>
   mcpMappingRequirements: McpIntegrationMappingRequirement[]
   mcpMappings: Record<string, string>
+  storeMappingRequirements: SecretStoreMappingRequirement[]
+  storeMappings: Record<string, string>
   disabled: boolean
-  onSave: (catalog: Record<string, string>, mcp: Record<string, string>) => void
+  onSave: (matches: MatchDrafts) => void
 }) {
   const [catalogDraft, setCatalogDraft] = useState(catalogMappings)
   const [mcpDraft, setMcpDraft] = useState(mcpMappings)
+  const [storeDraft, setStoreDraft] = useState(storeMappings)
   const total =
     catalogMappingRequirements.length + mcpMappingRequirements.length
   const matched =
@@ -646,8 +739,9 @@ function MatchesDialog({
     if (open) {
       setCatalogDraft(catalogMappings)
       setMcpDraft(mcpMappings)
+      setStoreDraft(storeMappings)
     }
-  }, [open, catalogMappings, mcpMappings])
+  }, [open, catalogMappings, mcpMappings, storeMappings])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -658,9 +752,11 @@ function MatchesDialog({
             : "Matches for this pull"}
         </DialogTitle>
         <DialogDescription className="-mt-2">
-          This commit uses models or MCP integrations that Tracecat can&apos;t
-          match to {workspaceName} on its own. Choose what each should use here.
-          The choice applies to every preset version and workflow action listed.
+          {total > 0
+            ? `This commit uses references that Tracecat can't match to ${workspaceName} on its own. Choose what each should use here.`
+            : `This commit uses secret stores that Tracecat can't match to ${workspaceName} on its own.`}
+          {storeMappingRequirements.length > 0 &&
+            " Secret stores are optional: unlinked secrets import without a store."}
         </DialogDescription>
         <div className="divide-y border-y">
           {catalogMappingRequirements.length > 0 && (
@@ -683,10 +779,20 @@ function MatchesDialog({
               disabled={disabled}
             />
           )}
+          {storeMappingRequirements.length > 0 && (
+            <SecretStoreMappingRequirements
+              requirements={storeMappingRequirements}
+              selections={storeDraft}
+              onChange={(source, target) =>
+                setStoreDraft((current) => ({ ...current, [source]: target }))
+              }
+              disabled={disabled}
+            />
+          )}
         </div>
         <DialogFooter className="items-center sm:justify-between">
           <span className="text-xs text-muted-foreground">
-            {matched} of {total} matched
+            {total > 0 ? `${matched} of ${total} matched` : "Optional"}
           </span>
           <div className="flex gap-2">
             <Button
@@ -701,7 +807,13 @@ function MatchesDialog({
               type="button"
               size="sm"
               disabled={remaining > 0 || disabled}
-              onClick={() => onSave(catalogDraft, mcpDraft)}
+              onClick={() =>
+                onSave({
+                  catalog: catalogDraft,
+                  mcp: mcpDraft,
+                  store: storeDraft,
+                })
+              }
             >
               Save and preview again
             </Button>
@@ -805,6 +917,15 @@ function PullResultSummary({
             ` · ${pulledAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`}
         </span>
       </div>
+      {(result.library_skill_installs ?? []).length > 0 && (
+        <div className="flex items-center gap-2 border-b px-5 py-2.5 text-xs text-muted-foreground">
+          <InfoIcon className="size-3.5 shrink-0" />
+          <span>
+            Installed from the skills library:{" "}
+            {(result.library_skill_installs ?? []).join(", ")}.
+          </span>
+        </div>
+      )}
       {result.diagnostics.length > 0 && (
         <PullDiagnostics diagnostics={result.diagnostics} />
       )}
