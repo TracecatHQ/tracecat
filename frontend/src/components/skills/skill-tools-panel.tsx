@@ -95,11 +95,13 @@ export function SkillToolsPanel({
   )
 
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      {/* The list has its own "Tools N" header; without it, show no count. */}
-      {!editable && <h3 className="text-xs font-medium">Tools</h3>}
+    <div className="flex min-w-0 flex-col">
       {!toolsState.valid && (
-        <p className="text-xs text-destructive">{toolsState.message}</p>
+        <div className="space-y-2 pt-4">
+          {/* The list has its own "Tools N" header; without it, show no count. */}
+          {!editable && <h3 className="text-xs font-medium">Tools</h3>}
+          <p className="text-xs text-destructive">{toolsState.message}</p>
+        </div>
       )}
       {editable && (
         <ToolSelectionList
@@ -118,7 +120,7 @@ export function SkillToolsPanel({
       {editable && loadError && toolsState.tools.length > 0 && (
         // Without a catalogue the list hides its rows. Keep declared IDs
         // visible and removable, without calling them unavailable.
-        <div className={TOOL_LIST_BLEED}>
+        <div className={cn("mt-2", TOOL_LIST_BLEED)}>
           <h4
             className={cn(
               "py-3 text-xs text-muted-foreground",

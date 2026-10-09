@@ -281,8 +281,18 @@ export const ToolSelectionList = memo(function ToolSelectionList({
   }
 
   return (
-    <section className="min-w-0 space-y-2">
-      <div className="flex items-center gap-2">
+    <section className="min-w-0">
+      {/* The header owns its padding and divider, so it is centred in its band
+          wherever the list is placed. Under a field label, the label's gap is
+          the space above. */}
+      <div
+        className={cn(
+          "flex items-center gap-2 border-b border-border/50",
+          hideTitle ? "pb-2" : "py-2",
+          TOOL_LIST_BLEED,
+          TOOL_LIST_INSET
+        )}
+      >
         {!hideTitle && <h3 className="text-xs font-medium">Tools</h3>}
         {/* Nothing can be counted until the catalogue has loaded. */}
         {ready && (
@@ -318,7 +328,13 @@ export const ToolSelectionList = memo(function ToolSelectionList({
         </Button>
       </div>
       {searchOpen && (
-        <div className="flex items-center gap-2">
+        <div
+          className={cn(
+            "flex h-11 items-center gap-2 border-b border-border/50",
+            TOOL_LIST_BLEED,
+            TOOL_LIST_INSET
+          )}
+        >
           <Search className="size-4 text-muted-foreground" />
           <Input
             autoFocus
@@ -331,7 +347,13 @@ export const ToolSelectionList = memo(function ToolSelectionList({
         </div>
       )}
       {namespaces.length > 0 && (
-        <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+        <div
+          className={cn(
+            "flex min-w-0 items-center gap-2 border-b border-border/50 py-2 text-xs text-muted-foreground",
+            TOOL_LIST_BLEED,
+            TOOL_LIST_INSET
+          )}
+        >
           <span className="truncate" title={blockedNotice}>
             {blockedNotice}
           </span>
@@ -367,7 +389,7 @@ export const ToolSelectionList = memo(function ToolSelectionList({
       {ready && (
         <div
           className={cn(
-            "divide-y divide-border/50 border-y border-border/50 empty:hidden",
+            "divide-y divide-border/50 border-b border-border/50 empty:hidden",
             TOOL_LIST_BLEED
           )}
         >

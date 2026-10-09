@@ -2076,20 +2076,23 @@ export function AgentPresetConfigurationPanel({
             )}
           />
         </section>
-        <Separator className="-mx-4 w-auto" />
-        <AgentPresetToolsList
-          registryActions={registryActions}
-          registryLoading={registryLoading}
-          mcpLoading={mcpLoading}
-          toolsLoadError={toolsLoadError}
-          mcpIntegrations={mcpIntegrations}
-          isSaving={isSaving}
-          maxTools={
-            maxTools ??
-            (savedSkillIds === undefined ? preview?.max_tools : undefined)
-          }
-          skillActions={skillActions}
-        />
+        {/* No gap under the separator: the list header pads itself. */}
+        <div className="min-w-0">
+          <Separator className="-mx-4 w-auto" />
+          <AgentPresetToolsList
+            registryActions={registryActions}
+            registryLoading={registryLoading}
+            mcpLoading={mcpLoading}
+            toolsLoadError={toolsLoadError}
+            mcpIntegrations={mcpIntegrations}
+            isSaving={isSaving}
+            maxTools={
+              maxTools ??
+              (savedSkillIds === undefined ? preview?.max_tools : undefined)
+            }
+            skillActions={skillActions}
+          />
+        </div>
       </div>
     </ScrollArea>
   )
