@@ -2238,6 +2238,61 @@ class TestCasesService:
                 short_id="CASE-ABCD",
             )
 
+    async def test_search_cases_search_term_matches_case_ids(
+        self, cases_service: CasesService, session: AsyncSession
+    ) -> None:
+        """search_term should match case UUIDs and unpadded or 5+ digit short IDs."""
+        target_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Target case",
+                description="Target description",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        other_case = await cases_service.create_case(
+            CaseCreate(
+                summary="Other case",
+                description="Other description",
+                status=CaseStatus.NEW,
+                priority=CasePriority.MEDIUM,
+                severity=CaseSeverity.LOW,
+            )
+        )
+        target_case.case_number = 12345
+        await session.commit()
+        assert target_case.short_id == "CASE-12345"
+
+        params = CursorPaginationParams(limit=20, cursor=None, reverse=False)
+        for term in (
+            str(target_case.id),
+            str(target_case.id).upper(),
+            f"  {target_case.id.hex}  ",
+            "CASE-12345",
+            "case-12345",
+            "12345",
+            "CASE-012345",
+        ):
+            response = await cases_service.search_cases(params=params, search_term=term)
+            result_ids = {item.id for item in response.items}
+            assert result_ids == {target_case.id}, term
+
+        other_response = await cases_service.search_cases(
+            params=params, search_term=f"CASE-{other_case.case_number}"
+        )
+        assert {item.id for item in other_response.items} == {other_case.id}
+
+        overflow_response = await cases_service.search_cases(
+            params=params, search_term="9999999999"
+        )
+        assert overflow_response.items == []
+
+        partial_uuid_response = await cases_service.search_cases(
+            params=params, search_term=str(target_case.id)[:8]
+        )
+        assert target_case.id not in {item.id for item in partial_uuid_response.items}
+
     async def test_get_search_case_aggregates_applies_enum_filters(
         self, cases_service: CasesService, session: AsyncSession
     ) -> None:

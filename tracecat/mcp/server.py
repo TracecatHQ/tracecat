@@ -6142,8 +6142,8 @@ async def search_cases(
         workspace_id: The workspace ID.
         limit: Maximum items per page.
         cursor: Cursor for pagination.
-        search_term: Text to search for in case summary, description, or
-            short ID.
+        search_term: Text to search for in case summary, description, short
+            ID, or case UUID.
         short_id: Search by exact case short ID (e.g. ``42`` or
             ``CASE-0042``).
         status: Comma-separated case statuses to filter by. Values: new,
