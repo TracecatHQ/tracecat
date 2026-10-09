@@ -1,0 +1,70 @@
+diff --git a/monitor.cc b/monitor.cc
+index a3e2aaa..c3c8f5a 100644
+--- a/monitor.cc
++++ b/monitor.cc
+@@ -109,6 +109,7 @@ struct ThreadCtx {
+ 	periodicCb_t periodics[MAX_PERIODICS];
+ 	size_t periodics_count = 0;
+ 	bool stop_requested = false;
++	bool launch_failed = false;
+ 
+ 	void reset() {
+ 		nsj = nullptr;
+@@ -126,6 +127,7 @@ struct ThreadCtx {
+ 		fd_handlers_count = 0;
+ 		periodics_count = 0;
+ 		stop_requested = false;
++		launch_failed = false;
+ 	}
+ };
+ 
+@@ -338,7 +340,8 @@ void cleanUpAndExit() {
+ }
+ 
+ void killAndExit() {
+-	if (current_ctx.pidfd >= 0) {
++	/* MSG_TAG_ERROR makes the child exit 255; do not replace it with SIGKILL. */
++	if (current_ctx.pidfd >= 0 && !current_ctx.launch_failed) {
+ 		util::syscall(__NR_pidfd_send_signal, current_ctx.pidfd, SIGKILL, 0, 0);
+ 	}
+ 	cleanUpAndExit();
+@@ -368,6 +371,7 @@ static void ipcFdCb(int ipc_fd, uint32_t events, void* /* data */) {
+ 			LOG_D("IPC msg 0x%08x from fd=%d", id, ipc_fd);
+ 			if (id == monitor::MSG_TAG_ERROR) {
+ 				LOG_W("Child reported error (execve failed)");
++				current_ctx.launch_failed = true;
+ 				current_ctx.stop_requested = true;
+ 			}
+ 		} else {
+@@ -482,6 +486,7 @@ static bool receiveChildFds(int ipc_fd, nsj_t* nsj, pid_t pid, int pidfd) {
+ 
+ 		case monitor::MSG_TAG_ERROR:
+ 			LOG_W("Child failed to launch");
++			current_ctx.launch_failed = true;
+ 			goto cleanup;
+ 
+ 		default:
+@@ -602,7 +607,9 @@ static void monitorThread(MonitorArgs args) {
+ 	run();
+ 
+ 	/* -- Phase 5: kill child (harmless if already dead) and clean up -- */
+-	util::syscall(__NR_pidfd_send_signal, current_ctx.pidfd, SIGKILL, 0, 0);
++	if (!current_ctx.launch_failed) {
++		util::syscall(__NR_pidfd_send_signal, current_ctx.pidfd, SIGKILL, 0, 0);
++	}
+ 	cleanUpAndExit();
+ }
+ 
+diff --git a/subproc.cc b/subproc.cc
+index e96cab4..6f7d865 100644
+--- a/subproc.cc
++++ b/subproc.cc
+@@ -526,7 +526,7 @@ pid_t runChild(
+ 		newProc(nsj, netfd, fd_in, fd_out, fd_err, child_fd);
+ 		(void)util::sendMsg(child_fd, monitor::MSG_TAG_ERROR);
+ 		LOG_E("Launching child process failed");
+-		pause();
++		/* Preserve launch failure instead of waiting for a monitor SIGKILL. */
+ 		_exit(0xff);
+ 	}
+ 	close(child_fd);
