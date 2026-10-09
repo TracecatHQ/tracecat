@@ -20233,6 +20233,10 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
       }
     }
     get: {
@@ -20308,6 +20312,10 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
       }
     }
   }
@@ -20335,6 +20343,10 @@ export type $OpenApiTs = {
          * Validation Error
          */
         422: HTTPValidationError
+        /**
+         * Service Unavailable
+         */
+        503: SyncOperationError
       }
     }
   }

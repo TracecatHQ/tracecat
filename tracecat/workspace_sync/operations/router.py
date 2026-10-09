@@ -1,5 +1,6 @@
 """Fast operation-oriented API for durable workspace Git synchronization."""
 
+import asyncio
 import uuid
 from typing import Annotated
 
@@ -9,6 +10,7 @@ from tracecat.auth.dependencies import WorkspaceActorRouteRole
 from tracecat.auth.schemas import ScopeDeniedResponse
 from tracecat.authz.controls import check_scopes, require_scope
 from tracecat.db.dependencies import AsyncDBSession
+from tracecat.db.models import WorkspaceSyncOperation
 from tracecat.exceptions import TracecatNotFoundError
 from tracecat.pagination import Page, PageParams, PaginationError
 from tracecat.sync import PullResourceDiff
@@ -20,7 +22,10 @@ from tracecat.workspace_sync.operations.schemas import (
 )
 from tracecat.workspace_sync.operations.service import SyncOperationService
 from tracecat.workspace_sync.operations.storage import read_diff, read_diff_page
-from tracecat.workspace_sync.operations.types import SyncOperationConflictError
+from tracecat.workspace_sync.operations.types import (
+    SyncOperationConflictError,
+    SyncOperationStartError,
+)
 
 router = APIRouter(
     prefix="/workflows/sync/operations",
@@ -32,10 +37,26 @@ router = APIRouter(
 )
 
 
+async def _start_operation(
+    service: SyncOperationService, operation: WorkspaceSyncOperation
+) -> SyncOperationRead:
+    """Return acceptance only after Temporal confirms this phase started."""
+    try:
+        async with asyncio.timeout(5):
+            await service.start_workflow(operation)
+    except (SyncOperationStartError, TimeoutError):
+        pass
+    else:
+        return service.read(operation)
+    raise HTTPException(
+        503, "Unable to confirm Git sync startup. Retry the same operation."
+    )
+
+
 @router.post(
     "",
     status_code=202,
-    responses={code: {"model": SyncOperationError} for code in (400, 409)},
+    responses={code: {"model": SyncOperationError} for code in (400, 409, 503)},
 )
 @require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
 async def create_sync_operation(
@@ -54,7 +75,7 @@ async def create_sync_operation(
         operation = await service.create(params)
     except SyncOperationConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return service.read(operation)
+    return await _start_operation(service, operation)
 
 
 @router.get("", responses={400: {"model": SyncOperationError}})
@@ -79,7 +100,7 @@ async def list_sync_operations(
 async def get_sync_operation(
     role: WorkspaceActorRouteRole, session: AsyncDBSession, operation_id: uuid.UUID
 ) -> SyncOperationRead:
-    """Poll durable progress and repair a lost Temporal dispatch response."""
+    """Poll durable progress without starting or mutating the operation."""
     service = SyncOperationService(session, role)
     try:
         operation = await service.get(operation_id)
@@ -91,7 +112,7 @@ async def get_sync_operation(
 @router.post(
     "/{operation_id}/apply",
     status_code=202,
-    responses={409: {"model": SyncOperationError}},
+    responses={code: {"model": SyncOperationError} for code in (409, 503)},
 )
 @require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
 async def apply_sync_operation(
@@ -105,13 +126,13 @@ async def apply_sync_operation(
         raise HTTPException(404, "Sync operation not found") from exc
     except SyncOperationConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return service.read(operation)
+    return await _start_operation(service, operation)
 
 
 @router.post(
     "/{operation_id}/retry",
     status_code=202,
-    responses={409: {"model": SyncOperationError}},
+    responses={code: {"model": SyncOperationError} for code in (409, 503)},
 )
 @require_scope("workspace_sync:sync", "workflow:sync", require_all=False)
 async def retry_sync_operation(
@@ -125,7 +146,7 @@ async def retry_sync_operation(
         raise HTTPException(404, "Sync operation not found") from exc
     except SyncOperationConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
-    return service.read(operation)
+    return await _start_operation(service, operation)
 
 
 @router.get(

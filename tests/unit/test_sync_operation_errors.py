@@ -1,5 +1,6 @@
 """HTTP errors for inaccessible operations and invalid diff cursors."""
 
+import asyncio
 import base64
 import uuid
 from typing import get_args
@@ -19,6 +20,79 @@ from tracecat.pagination import PageParams
 from tracecat.workspace_sync.operations import router, storage
 from tracecat.workspace_sync.operations.schemas import SyncOperationCreate
 from tracecat.workspace_sync.operations.service import SyncOperationService
+from tracecat.workspace_sync.operations.types import SyncOperationStartError
+
+
+@pytest.fixture(autouse=True)
+def mock_workflow_start(monkeypatch):
+    """Keep HTTP unit tests isolated from live Temporal queues."""
+    monkeypatch.setattr(SyncOperationService, "start_workflow", AsyncMock())
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("phase", ["preview", "apply", "retry"])
+async def test_api_waits_for_start_and_retries_same_operation(
+    session, svc_role, monkeypatch, phase
+):
+    """An ambiguous start must return 503 and retain the same phase/attempt."""
+    inputs = push_inputs()
+    service = SyncOperationService(session, svc_role)
+    if phase != "preview":
+        operation = await service.create(inputs)
+        operation.status = "ready" if phase == "apply" else "failed"
+        await session.commit()
+
+    starts: list[tuple[uuid.UUID, str, int]] = []
+
+    async def start(_service, operation):
+        starts.append((operation.id, operation.status, operation.attempt))
+        # The recorded request is committed before network startup begins.
+        assert not _service.session.in_transaction()
+        if len(starts) == 1:
+            raise SyncOperationStartError("Synthetic start failure")
+
+    monkeypatch.setattr(SyncOperationService, "start_workflow", start)
+    app = FastAPI()
+    app.include_router(router.router)
+    app.dependency_overrides[get_async_session] = lambda: session
+    role_dependency = get_args(WorkspaceActorRouteRole)[1].dependency
+    app.dependency_overrides[role_dependency] = lambda: svc_role
+    url = "/workflows/sync/operations"
+    payload = inputs.model_dump(mode="json")
+    if phase != "preview":
+        url += f"/{inputs.id}/{'apply' if phase == 'apply' else 'retry'}"
+        payload = None
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        failed = await client.post(url, json=payload)
+        assert failed.status_code == 503
+        assert failed.json() == {
+            "detail": "Unable to confirm Git sync startup. Retry the same operation."
+        }
+        accepted = await client.post(url, json=payload)
+        assert accepted.status_code == 202
+        assert accepted.json()["id"] == str(inputs.id)
+    assert starts[0] == starts[1]
+    assert starts[0][2] == (1 if phase == "retry" else 0)
+
+
+@pytest.mark.anyio
+async def test_api_bounds_connection_startup(session, svc_role, monkeypatch):
+    """A slow initial connection cannot leave the API waiting indefinitely."""
+    real_timeout = asyncio.timeout
+    monkeypatch.setattr(router.asyncio, "timeout", lambda _: real_timeout(0.01))
+
+    async def unavailable(_service, _operation):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(SyncOperationService, "start_workflow", unavailable)
+    with pytest.raises(router.HTTPException) as failure:
+        await router.create_sync_operation(
+            role=svc_role, session=session, params=push_inputs()
+        )
+    assert failure.value.status_code == 503
+    assert failure.value.__context__ is None
 
 
 @pytest.mark.anyio
