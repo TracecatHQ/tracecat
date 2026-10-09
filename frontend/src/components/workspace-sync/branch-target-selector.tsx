@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { GitBranchInfo } from "@/client"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -74,9 +74,32 @@ export function getWorkspaceSyncBaseBranch(
   )
 }
 
+function lastPushBranchStorageKey(workspaceId: string): string {
+  return `tracecat:git-sync:last-push-branch:${workspaceId}`
+}
+
+function readLastPushBranch(workspaceId: string): string | null {
+  try {
+    return window.localStorage.getItem(lastPushBranchStorageKey(workspaceId))
+  } catch {
+    return null
+  }
+}
+
+/** Remembers, in this browser, the branch a workspace last pushed to. */
+export function writeLastPushBranch(workspaceId: string, branch: string): void {
+  try {
+    window.localStorage.setItem(lastPushBranchStorageKey(workspaceId), branch)
+  } catch {
+    // Blocked storage only loses the convenience.
+  }
+}
+
 interface UseWorkspaceSyncBranchTargetOptions {
   branches: GitBranchInfo[] | undefined
   newBranchPrefix: string
+  /** Starts on this workspace's last pushed branch while it still exists. */
+  rememberForWorkspaceId?: string
 }
 
 /**
@@ -85,16 +108,32 @@ interface UseWorkspaceSyncBranchTargetOptions {
 export function useWorkspaceSyncBranchTarget({
   branches,
   newBranchPrefix,
+  rememberForWorkspaceId,
 }: UseWorkspaceSyncBranchTargetOptions) {
   const [branch, setBranch] = useState(() =>
     buildRandomSyncBranchName(newBranchPrefix)
   )
   const [isCreatingBranch, setIsCreatingBranch] = useState(true)
+  // Set once restored or once the user picks, so a choice is never replaced.
+  const settledRef = useRef(false)
   const hasBranches = (branches?.length ?? 0) > 0
   const defaultBranch = getWorkspaceSyncDefaultBranch(branches)
 
+  useEffect(() => {
+    if (settledRef.current || !rememberForWorkspaceId || !branches) {
+      return
+    }
+    settledRef.current = true
+    const last = readLastPushBranch(rememberForWorkspaceId)
+    if (last && branches.some((candidate) => candidate.name === last)) {
+      setIsCreatingBranch(false)
+      setBranch(last)
+    }
+  }, [branches, rememberForWorkspaceId])
+
   const selectBranch = useCallback(
     (value: string) => {
+      settledRef.current = true
       if (value === CREATE_NEW_BRANCH_VALUE) {
         setIsCreatingBranch(true)
         setBranch(buildRandomSyncBranchName(newBranchPrefix))
@@ -107,6 +146,7 @@ export function useWorkspaceSyncBranchTarget({
   )
 
   const createBranch = useCallback((name: string) => {
+    settledRef.current = true
     setIsCreatingBranch(true)
     setBranch(name)
   }, [])
