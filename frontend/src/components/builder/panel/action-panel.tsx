@@ -25,7 +25,6 @@ import type React from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { FormProvider, useForm, useWatch } from "react-hook-form"
 import type { ImperativePanelHandle } from "react-resizable-panels"
-import YAML from "yaml"
 import { z } from "zod"
 import {
   $JoinStrategy,
@@ -128,6 +127,10 @@ import {
   type TracecatJsonSchema,
 } from "@/lib/schema"
 import { cn, slugifyActionRef } from "@/lib/utils"
+import {
+  parseYaml as parsePyYaml,
+  stringifyYaml as stringifyPyYaml,
+} from "@/lib/yaml"
 import { useWorkflowBuilder } from "@/providers/builder"
 import { useWorkflow } from "@/providers/workflow"
 import { useWorkspaceId } from "@/providers/workspace-id"
@@ -215,9 +218,9 @@ enum SaveState {
 }
 // Helper function to safely parse YAML
 const parseYaml = (str: string | undefined) =>
-  str ? YAML.parse(str) : undefined
+  str ? parsePyYaml(str) : undefined
 const stringifyYaml = (obj: unknown | undefined) =>
-  obj ? YAML.stringify(obj) : ""
+  obj ? stringifyPyYaml(obj) : ""
 
 // Helper function to reconstruct YAML preserving original structure when possible
 export const reconstructYamlFromForm = (
@@ -257,13 +260,13 @@ export const reconstructYamlFromForm = (
       }
     })
 
-    return YAML.stringify(updated, {
+    return stringifyPyYaml(updated, {
       indent: 2,
       lineWidth: -1, // Don't wrap lines
     })
   } catch (_error) {
     // Fallback to clean YAML if original is unparseable.
-    return YAML.stringify(formChanges)
+    return stringifyPyYaml(formChanges)
   }
 }
 
