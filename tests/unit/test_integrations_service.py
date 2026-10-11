@@ -252,6 +252,37 @@ class TestIntegrationService:
         assert retrieved.provider_id == provider_key.id
         assert retrieved.grant_type == provider_key.grant_type
 
+    async def test_store_integration_expires_at_is_utc_aware(
+        self,
+        integration_service: IntegrationService,
+    ) -> None:
+        """Test that expires_at is calculated in UTC, not naive local time.
+
+        Regression test for #3202: datetime.now() without UTC caused tokens
+        to be instantly expired on non-UTC servers.
+        """
+        provider_key = ProviderKey(
+            id="test_utc_expiry",
+            grant_type=OAuthGrantType.AUTHORIZATION_CODE,
+        )
+        expires_in = 3600  # 1 hour
+
+        before = datetime.now(UTC)
+        integration = await integration_service.store_integration(
+            provider_key=provider_key,
+            access_token=SecretStr("test_token"),
+            expires_in=expires_in,
+        )
+        after = datetime.now(UTC)
+
+        assert integration.expires_at is not None
+        # expires_at must be timezone-aware (not naive)
+        assert integration.expires_at.tzinfo is not None
+        # expires_at should be approximately now + expires_in
+        expected_min = before + timedelta(seconds=expires_in)
+        expected_max = after + timedelta(seconds=expires_in)
+        assert expected_min <= integration.expires_at <= expected_max
+
     async def test_update_existing_integration(
         self,
         integration_service: IntegrationService,
