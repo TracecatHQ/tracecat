@@ -1378,7 +1378,10 @@ export function useLastExecution({
   }
 }
 
-export function useSchedules(workflowId: string) {
+export function useSchedules(
+  workflowId: string,
+  options?: { refetchInterval?: number }
+) {
   const queryClient = useQueryClient()
   const workspaceId = useWorkspaceId()
   // Fetch schedules
@@ -1395,6 +1398,8 @@ export function useSchedules(workflowId: string) {
         workflowId,
       })
     },
+    refetchInterval: options?.refetchInterval ?? 5000,
+    refetchIntervalInBackground: false,
   })
 
   // Create schedules
