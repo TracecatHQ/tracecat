@@ -189,7 +189,13 @@ export function CreateTableDialog({
             : typeof apiError.body?.detail === "object"
               ? JSON.stringify(apiError.body.detail)
               : error.message
-        if (
+        if (error.status === 403) {
+          form.setError("root", {
+            type: "manual",
+            message:
+              "You don't have permission to create tables in this workspace.",
+          })
+        } else if (
           detail?.toLowerCase().includes("column") &&
           detail?.includes("already exists")
         ) {
@@ -380,6 +386,11 @@ export function CreateTableDialog({
                 Add column
               </Button>
             </div>
+            {form.formState.errors.root && (
+              <p role="alert" className="text-sm text-destructive">
+                {form.formState.errors.root.message}
+              </p>
+            )}
             <DialogFooter>
               <Button type="submit" disabled={createTableIsPending}>
                 Create table
