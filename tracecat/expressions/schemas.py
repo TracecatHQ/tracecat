@@ -35,8 +35,18 @@ class ExpectedField(BaseModel):
 
     @model_serializer(mode="plain")
     def _serialize(self) -> dict[str, Any]:
-        """Serialize model, omitting 'default' field when it's UNSET."""
-        data = {k: getattr(self, k) for k in self.model_fields if k != "default"}
+        """Serialize model, omitting unset optional metadata.
+
+        Keep ``default`` special so an explicit ``default: null`` still
+        round-trips distinctly from no default.
+        """
+        data: dict[str, Any] = {"type": self.type}
+        if self.description is not None:
+            data["description"] = self.description
         if self.has_default():
             data["default"] = self.default
+        if self.enum is not None:
+            data["enum"] = self.enum
+        if self.optional is not None:
+            data["optional"] = self.optional
         return data

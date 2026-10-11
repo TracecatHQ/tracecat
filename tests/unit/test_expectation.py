@@ -120,6 +120,34 @@ def test_dynamic_model_with_optional_field_omitted():
     assert model_instance_no_optional.optional_with_default == 1
 
 
+def test_expected_field_serialization_omits_unset_metadata():
+    field = ExpectedField(type="str")
+
+    assert field.model_dump() == {"type": "str"}
+
+
+def test_expected_field_serialization_preserves_explicit_default_null():
+    field = ExpectedField(type="str", default=None)
+
+    assert field.model_dump() == {"type": "str", "default": None}
+
+
+def test_dynamic_model_with_optional_field_metadata_omitted():
+    schema = {
+        "cursor": {
+            "type": "str",
+            "description": "Pagination cursor.",
+            "optional": True,
+        },
+    }
+
+    DynamicModel = create_expectation_model(schema)
+
+    model_instance: Any = DynamicModel()
+    assert model_instance.cursor is None
+    assert "cursor" not in DynamicModel.model_json_schema().get("required", [])
+
+
 # Test with invalid data
 def test_dynamic_model_with_invalid_data():
     schema = {
@@ -302,6 +330,49 @@ def test_validate_schema_with_enum(status, priority):
     # Test default priority
     model_instance_default: Any = model(status=status)
     assert model_instance_default.priority == "low"
+
+
+def test_validate_schema_with_enum_metadata():
+    schema: dict[str, Any] = {
+        "object_type": {
+            "type": "str",
+            "description": "Type of object to analyze.",
+            "enum": ["url", "hash", "file"],
+            "default": "url",
+        },
+    }
+
+    model = create_expectation_model(schema)
+
+    model_instance: Any = model(object_type="hash")
+    assert model_instance.object_type == "hash"
+    model_instance_default: Any = model()
+    assert model_instance_default.object_type == "url"
+    assert model.model_json_schema()["properties"]["object_type"]["enum"] == [
+        "url",
+        "hash",
+        "file",
+    ]
+
+    with pytest.raises(ValidationError):
+        model(object_type="domain")
+
+
+def test_validate_schema_with_nullable_enum_metadata():
+    schema: dict[str, Any] = {
+        "status": {
+            "type": "str | None",
+            "enum": ["triggered", "acknowledged", "resolved"],
+            "default": None,
+        },
+    }
+
+    model = create_expectation_model(schema)
+
+    model_instance: Any = model(status=None)
+    assert model_instance.status is None
+    model_instance_default: Any = model()
+    assert model_instance_default.status is None
 
 
 @pytest.mark.parametrize(
