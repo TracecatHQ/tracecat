@@ -301,6 +301,10 @@ class AgentActivities:
                 description=tool.description,
                 parameters_json_schema=tool.parameters_json_schema,
             )
+            # MCP definitions drop the tool's approval flag. Record the registry
+            # default here; an explicit rule already overrode it during build.
+            if tool.requires_approval:
+                effective_tool_approvals.setdefault(tool.name, True)
 
         # Add internal tools for builder assistant
         allowed_internal_tools: list[str] | None = None

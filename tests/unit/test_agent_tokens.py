@@ -155,6 +155,150 @@ def test_mcp_token_accepts_mixed_legacy_and_refs_user_mcp_servers(monkeypatch) -
     ]
 
 
+def test_mcp_token_round_trips_deferred_actions(monkeypatch) -> None:
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+
+    token = mint_mcp_token(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        allowed_actions=["core.http_request"],
+        deferred_actions=["core.cases.delete_case", "mcp__Jira__deleteIssue"],
+        session_id=session_id,
+        registry_lock=_registry_lock(),
+    )
+
+    claims = verify_mcp_token(token)
+    assert claims.allowed_actions == ["core.http_request"]
+    assert claims.deferred_actions == [
+        "core.cases.delete_case",
+        "mcp__Jira__deleteIssue",
+    ]
+
+
+def test_mcp_token_without_deferred_actions_claim_still_verifies(monkeypatch) -> None:
+    """Tokens signed before the deferred_actions claim existed defer nothing."""
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+    token = mint_mcp_token(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        allowed_actions=["core.http_request"],
+        session_id=session_id,
+        registry_lock=_registry_lock(),
+    )
+    payload = jwt.decode(token, options={"verify_signature": False})
+    del payload["deferred_actions"]
+    legacy = jwt.encode(payload, get_service_key(), algorithm="HS256")
+
+    claims = verify_mcp_token(legacy)
+    assert claims.allowed_actions == ["core.http_request"]
+    assert claims.deferred_actions == []
+
+
+def test_mcp_token_rejects_action_both_allowed_and_deferred(monkeypatch) -> None:
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+
+    with pytest.raises(ValueError, match="both allowed and deferred"):
+        mint_mcp_token(
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            allowed_actions=["core.http_request"],
+            deferred_actions=["core.http_request"],
+            session_id=session_id,
+            registry_lock=_registry_lock(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("allowed_name", "deferred_name"),
+    [
+        ("core.http_request", "core__http_request"),
+        ("core.http_request", "mcp__tracecat-registry__core__http_request"),
+        ("core.http_request", "mcp.tracecat_registry.core.http_request"),
+        ("mcp__example__a__b", "mcp__tracecat-registry__mcp__example__a__b"),
+    ],
+)
+def test_mcp_token_rejects_overlap_in_another_spelling(
+    monkeypatch, allowed_name: str, deferred_name: str
+) -> None:
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+
+    with pytest.raises(ValueError, match="both allowed and deferred"):
+        mint_mcp_token(
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            allowed_actions=[allowed_name],
+            deferred_actions=[deferred_name],
+            session_id=session_id,
+            registry_lock=_registry_lock(),
+        )
+
+
+def test_mcp_token_canonicalizes_deferred_actions(monkeypatch) -> None:
+    """Deferred names decode in the form execution checks calls under."""
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+    token = mint_mcp_token(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        allowed_actions=[],
+        deferred_actions=[
+            "mcp__tracecat-registry__core__http_request",
+            "core.http_request",
+            "mcp__tracecat-registry__mcp__Jira__deleteIssue",
+            "mcp__tracecat-registry__mcp__example__a__b",
+        ],
+        session_id=session_id,
+        registry_lock=_registry_lock(),
+    )
+
+    claims = verify_mcp_token(token)
+    assert claims.deferred_actions == [
+        "core.http_request",
+        "mcp__Jira__deleteIssue",
+        "mcp__example__a__b",
+    ]
+
+
+@pytest.mark.parametrize("deferred_name", ["mcp.example.a.b", "mcp.Jira.deleteIssue"])
+def test_mcp_token_rejects_dotted_user_mcp_deferred_name(
+    monkeypatch, deferred_name: str
+) -> None:
+    """The dotted spelling replaces "__" with ".", so it cannot name one tool.
+
+    Remote tool a__b is listed as mcp__example__a__b, but its dotted spelling
+    mcp.example.a.b could also be tool a.b.
+    """
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+
+    with pytest.raises(ValueError, match="Ambiguous user MCP tool name"):
+        mint_mcp_token(
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            allowed_actions=["mcp__example__a__b"],
+            deferred_actions=[deferred_name],
+            session_id=session_id,
+            registry_lock=_registry_lock(),
+        )
+
+
+def test_mcp_token_with_dotted_user_mcp_deferred_name_fails_verification(
+    monkeypatch,
+) -> None:
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+    token = mint_mcp_token(
+        workspace_id=workspace_id,
+        organization_id=organization_id,
+        allowed_actions=["mcp__example__a__b"],
+        session_id=session_id,
+        registry_lock=_registry_lock(),
+    )
+    payload = jwt.decode(token, options={"verify_signature": False})
+    payload["deferred_actions"] = ["mcp.example.a.b"]
+    signed = jwt.encode(payload, get_service_key(), algorithm="HS256")
+
+    with pytest.raises(ValueError, match="Invalid MCP token claims"):
+        verify_mcp_token(signed)
+
+
 def test_agent_otel_token_round_trips(monkeypatch) -> None:
     monkeypatch.setattr(config, "TRACECAT__SERVICE_KEY", "test-service-key")
 
@@ -231,3 +375,18 @@ def _agent_otel_payload(
         "organization_id": str(uuid.uuid4()),
         "session_id": str(uuid.uuid4()),
     }
+
+
+def test_mcp_token_rejects_internal_tool_both_allowed_and_deferred(monkeypatch) -> None:
+    workspace_id, organization_id, session_id = _setup_service_key(monkeypatch)
+
+    with pytest.raises(ValueError, match="both allowed and deferred"):
+        mint_mcp_token(
+            workspace_id=workspace_id,
+            organization_id=organization_id,
+            allowed_actions=[],
+            allowed_internal_tools=["internal.builder.update_preset"],
+            deferred_actions=["internal.builder.update_preset"],
+            session_id=session_id,
+            registry_lock=_registry_lock(),
+        )

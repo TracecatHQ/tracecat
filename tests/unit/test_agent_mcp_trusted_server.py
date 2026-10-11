@@ -3,8 +3,13 @@ import uuid
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
+import jwt
 import pytest
+from fastmcp import Client
+from fastmcp.client.transports import StreamableHttpTransport
 from fastmcp.exceptions import ToolError
+from fastmcp.utilities.tests import run_server_async
+from pydantic import ValidationError
 from temporalio.exceptions import CancelledError as TemporalCancelledError
 
 from tracecat.agent.common.types import MCPHttpServerConfig, MCPToolDefinition
@@ -12,7 +17,13 @@ from tracecat.agent.mcp import trusted_server
 from tracecat.agent.mcp.metadata import PROXY_TOOL_CALL_ID_KEY, PROXY_TOOL_METADATA_KEY
 from tracecat.agent.mcp.user_client import UserMCPClient, UserMCPDiscoveryResult
 from tracecat.agent.preset.service import AgentPresetService
-from tracecat.agent.tokens import MCPTokenClaims, UserMCPServerClaim
+from tracecat.agent.tokens import (
+    MCPTokenClaims,
+    UserMCPServerClaim,
+    mint_mcp_token,
+    verify_mcp_token,
+)
+from tracecat.auth.secrets import get_service_key
 from tracecat.exceptions import BuiltinRegistryHasNoSelectionError
 from tracecat.registry.lock.types import RegistryLock
 
@@ -25,6 +36,7 @@ def clear_user_mcp_discovery_cache() -> None:
 def _build_claims(
     *,
     allowed_actions: list[str] | None = None,
+    deferred_actions: list[str] | None = None,
     allowed_internal_tools: list[str] | None = None,
     user_mcp_servers: list[UserMCPServerClaim] | None = None,
     registry_lock: RegistryLock | None = None,
@@ -36,6 +48,7 @@ def _build_claims(
         parent_agent_workflow_id="agent/00000000-0000-0000-0000-000000000003",
         parent_agent_run_id="run-123",
         allowed_actions=allowed_actions or ["core.http_request"],
+        deferred_actions=deferred_actions or [],
         allowed_internal_tools=allowed_internal_tools or [],
         user_mcp_servers=user_mcp_servers or [],
         registry_lock=registry_lock,
@@ -1118,3 +1131,441 @@ async def test_token_scoped_mcp_call_requires_bearer_auth(
 
     with pytest.raises(ToolError, match="Authentication failed"):
         await trusted_server.mcp.call_tool("core__cases__list_cases", {})
+
+
+@pytest.mark.anyio
+async def test_build_token_scoped_tools_lists_deferred_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_fetch_tool_definitions(
+        action_names: list[str],
+    ) -> dict[str, MCPToolDefinition]:
+        assert action_names == ["core.cases.list_cases", "core.cases.delete_case"]
+        return {
+            name: MCPToolDefinition(
+                name=name,
+                description=name,
+                parameters_json_schema={"type": "object"},
+            )
+            for name in action_names
+        }
+
+    class _FakeUserMCPClient:
+        parse_user_mcp_tool_name = staticmethod(UserMCPClient.parse_user_mcp_tool_name)
+
+        def __init__(self, configs: list[dict[str, Any]]) -> None:
+            self.configs = configs
+
+        async def discover_tools_detailed(self) -> UserMCPDiscoveryResult:
+            return UserMCPDiscoveryResult(
+                definitions={
+                    name: MCPToolDefinition(
+                        name=name,
+                        description=name,
+                        parameters_json_schema={"type": "object"},
+                    )
+                    for name in (
+                        "mcp__Jira__getIssue",
+                        "mcp__Jira__deleteIssue",
+                        "mcp__Jira__listProjects",
+                    )
+                },
+                failed_servers={},
+            )
+
+    monkeypatch.setattr(
+        trusted_server,
+        "fetch_tool_definitions",
+        fake_fetch_tool_definitions,
+    )
+    monkeypatch.setattr(trusted_server, "UserMCPClient", _FakeUserMCPClient)
+
+    claims = _build_claims(
+        allowed_actions=["core.cases.list_cases", "mcp__Jira__getIssue"],
+        deferred_actions=["core.cases.delete_case", "mcp__Jira__deleteIssue"],
+        user_mcp_servers=[
+            UserMCPServerClaim(
+                name="Jira",
+                url="https://mcp.atlassian.com/v1/mcp",
+            )
+        ],
+    )
+
+    build = await trusted_server._build_token_scoped_tools(claims)
+
+    assert [tool.name for tool in build.tools] == [
+        "core__cases__list_cases",
+        "core__cases__delete_case",
+        "mcp__Jira__getIssue",
+        "mcp__Jira__deleteIssue",
+    ]
+    assert build.cacheable
+
+
+@pytest.mark.anyio
+async def test_execute_registry_action_refuses_deferred_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    execute_action = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(trusted_server, "execute_action", execute_action)
+
+    with pytest.raises(
+        ToolError, match="^Tool 'core.cases.delete_case' requires approval$"
+    ):
+        await trusted_server._execute_registry_action(
+            "core.cases.delete_case",
+            {},
+            _build_claims(deferred_actions=["core.cases.delete_case"]),
+        )
+
+    execute_action.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("server_name", "tool_name", "deferred_name"),
+    [
+        ("Jira", "deleteIssue", "mcp__Jira__deleteIssue"),
+        ("Jira", "deleteIssue", "mcp__tracecat-registry__mcp__Jira__deleteIssue"),
+        # Remote tool names may contain "__".
+        ("example", "a__b", "mcp__example__a__b"),
+    ],
+)
+async def test_execute_user_mcp_refuses_deferred_tool(
+    monkeypatch: pytest.MonkeyPatch,
+    server_name: str,
+    tool_name: str,
+    deferred_name: str,
+) -> None:
+    monkeypatch.setattr(
+        trusted_server,
+        "UserMCPClient",
+        lambda _: pytest.fail("deferred tools must not reach the user MCP server"),
+    )
+    claims = _build_claims(
+        allowed_actions=[f"mcp__{server_name}__{tool_name}"],
+        deferred_actions=[deferred_name],
+        user_mcp_servers=[
+            UserMCPServerClaim(name=server_name, url="https://mcp.example.test/mcp")
+        ],
+    )
+
+    with pytest.raises(
+        ToolError,
+        match=f"^Tool 'mcp__{server_name}__{tool_name}' requires approval$",
+    ):
+        await trusted_server._execute_user_mcp(server_name, tool_name, {}, claims)
+
+
+def test_claims_reject_dotted_user_mcp_deferred_name() -> None:
+    """The dotted spelling of tool a__b is mcp.example.a.b, which is ambiguous."""
+    with pytest.raises(ValidationError, match="Ambiguous user MCP tool name"):
+        _build_claims(
+            allowed_actions=["mcp__example__a__b"],
+            deferred_actions=["mcp.example.a.b"],
+        )
+
+
+@pytest.mark.anyio
+async def test_token_scoped_mcp_rejects_signed_dotted_user_mcp_deferred_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A token deferring the dotted spelling fails verification, so nothing runs."""
+    monkeypatch.setattr("tracecat.config.TRACECAT__SERVICE_KEY", "test-service-key")
+    token = mint_mcp_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        allowed_actions=["mcp__example__a__b"],
+        user_mcp_servers=[
+            UserMCPServerClaim(name="example", url="https://mcp.example.test/mcp")
+        ],
+        registry_lock=RegistryLock(origins={}, actions={}),
+    )
+    # Minting rejects this name, so sign the claims directly.
+    payload = jwt.decode(token, options={"verify_signature": False})
+    payload["deferred_actions"] = ["mcp.example.a.b"]
+    token = jwt.encode(payload, get_service_key(), algorithm="HS256")
+
+    resolve_config = AsyncMock()
+    monkeypatch.setattr(trusted_server, "_resolve_user_mcp_config", resolve_config)
+    monkeypatch.setattr(
+        trusted_server,
+        "get_http_headers",
+        lambda include: {"authorization": f"Bearer {token}"},
+    )
+    mcp = trusted_server.TokenScopedFastMCP("test")
+
+    with pytest.raises(ToolError, match="^Authentication failed$"):
+        await mcp.call_tool("mcp__example__a__b", {})
+    resolve_config.assert_not_awaited()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("called_name", "error"),
+    [
+        ("mcp__example__a__b", "^Tool 'mcp__example__a__b' requires approval$"),
+        ("mcp.example.a.b", "^Ambiguous user MCP tool name 'mcp.example.a.b'"),
+    ],
+)
+async def test_token_scoped_mcp_refuses_cold_deferred_user_mcp_call_over_http(
+    monkeypatch: pytest.MonkeyPatch,
+    called_name: str,
+    error: str,
+) -> None:
+    """A cold tools/call over HTTP refuses a deferred tool before the catalog build.
+
+    The MCP SDK's call handler runs tools/list on a tool cache miss, so the
+    refusal must come before that handler: no user MCP credentials are
+    resolved and no remote discovery runs. The ambiguous dotted spelling is
+    refused at the same point.
+    """
+    monkeypatch.setattr("tracecat.config.TRACECAT__SERVICE_KEY", "test-service-key")
+    token = mint_mcp_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        allowed_actions=[],
+        deferred_actions=["mcp__example__a__b"],
+        user_mcp_servers=[
+            UserMCPServerClaim(name="example", url="https://mcp.example.test/mcp")
+        ],
+        registry_lock=RegistryLock(origins={}, actions={}),
+    )
+    config: MCPHttpServerConfig = {
+        "type": "http",
+        "name": "example",
+        "url": "https://mcp.example.test/mcp",
+    }
+    resolve_config = AsyncMock(return_value=config)
+    discover = AsyncMock(
+        return_value={
+            "mcp__example__a__b": MCPToolDefinition(
+                name="mcp__example__a__b",
+                description="a__b",
+                parameters_json_schema={"type": "object"},
+            )
+        }
+    )
+    monkeypatch.setattr(
+        trusted_server, "fetch_tool_definitions_for_lock", AsyncMock(return_value={})
+    )
+    monkeypatch.setattr(trusted_server, "_resolve_user_mcp_config", resolve_config)
+    monkeypatch.setattr(trusted_server, "_get_cached_user_mcp_discovery", discover)
+
+    async with run_server_async(trusted_server.TokenScopedFastMCP("test")) as url:
+        transport = StreamableHttpTransport(
+            url, headers={"Authorization": f"Bearer {token}"}
+        )
+        async with Client(transport) as client:
+            with pytest.raises(ToolError, match=error):
+                await client.call_tool(called_name, {})
+            resolve_config.assert_not_awaited()
+            discover.assert_not_awaited()
+
+            # The same token's listing does reach both, so the mocks are live.
+            assert [tool.name for tool in await client.list_tools()] == [
+                "mcp__example__a__b"
+            ]
+            resolve_config.assert_awaited_once()
+            discover.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_token_scoped_mcp_lists_but_refuses_deferred_action(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deferred action is visible to the token holder but never executes."""
+    monkeypatch.setattr("tracecat.config.TRACECAT__SERVICE_KEY", "test-service-key")
+    lock = RegistryLock(
+        origins={"tracecat_registry": "test-version"},
+        actions={
+            "core.cases.list_cases": "tracecat_registry",
+            "core.cases.delete_case": "tracecat_registry",
+        },
+    )
+    token = mint_mcp_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        allowed_actions=["core.cases.list_cases"],
+        deferred_actions=["core.cases.delete_case"],
+        registry_lock=lock,
+    )
+
+    async def fake_fetch_tool_definitions_for_lock(
+        action_names: list[str],
+        registry_lock: RegistryLock,
+        organization_id: uuid.UUID,
+    ) -> dict[str, MCPToolDefinition]:
+        del registry_lock, organization_id
+        return {
+            name: MCPToolDefinition(
+                name=name,
+                description=name,
+                parameters_json_schema={"type": "object"},
+            )
+            for name in action_names
+        }
+
+    execute_action = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(
+        trusted_server,
+        "fetch_tool_definitions_for_lock",
+        fake_fetch_tool_definitions_for_lock,
+    )
+    monkeypatch.setattr(trusted_server, "execute_action", execute_action)
+    monkeypatch.setattr(
+        trusted_server,
+        "get_http_headers",
+        lambda include: {"authorization": f"Bearer {token}"},
+    )
+    mcp = trusted_server.TokenScopedFastMCP("test")
+
+    assert [tool.name for tool in await mcp.list_tools()] == [
+        "core__cases__list_cases",
+        "core__cases__delete_case",
+    ]
+    with pytest.raises(ToolError, match="requires approval"):
+        await mcp.call_tool("core__cases__delete_case", {})
+    execute_action.assert_not_awaited()
+
+    await mcp.call_tool("core__cases__list_cases", {})
+    execute_action.assert_awaited_once()
+
+
+@pytest.mark.anyio
+async def test_execute_internal_refuses_deferred_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    handler = AsyncMock(return_value={"updated": True})
+    monkeypatch.setitem(
+        trusted_server.INTERNAL_TOOL_HANDLERS, "internal.builder.update_preset", handler
+    )
+    claims = _build_claims(deferred_actions=["internal.builder.update_preset"])
+
+    assert trusted_server._internal_tool_names(claims) == [
+        "internal.builder.update_preset"
+    ]
+    with pytest.raises(
+        ToolError, match="^Tool 'internal.builder.update_preset' requires approval$"
+    ):
+        await trusted_server._execute_internal(
+            "internal.builder.update_preset", {}, claims
+        )
+    handler.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_token_scoped_mcp_refuses_deferred_internal_tool_also_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Deferral wins even in a signed token that also allows the internal tool."""
+    monkeypatch.setattr("tracecat.config.TRACECAT__SERVICE_KEY", "test-service-key")
+    token = mint_mcp_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        allowed_actions=[],
+        allowed_internal_tools=["internal.builder.update_preset"],
+        registry_lock=RegistryLock(origins={}, actions={}),
+    )
+    # Minting rejects this overlap, so sign the claims directly.
+    payload = jwt.decode(token, options={"verify_signature": False})
+    payload["deferred_actions"] = ["internal.builder.update_preset"]
+    token = jwt.encode(payload, get_service_key(), algorithm="HS256")
+
+    async def no_registry_definitions(
+        action_names: list[str],
+        registry_lock: RegistryLock,
+        organization_id: uuid.UUID,
+    ) -> dict[str, MCPToolDefinition]:
+        del action_names, registry_lock, organization_id
+        return {}
+
+    handler = AsyncMock(return_value={"updated": True})
+    monkeypatch.setitem(
+        trusted_server.INTERNAL_TOOL_HANDLERS, "internal.builder.update_preset", handler
+    )
+    monkeypatch.setattr(
+        trusted_server,
+        "fetch_tool_definitions_for_lock",
+        no_registry_definitions,
+    )
+    monkeypatch.setattr(
+        trusted_server,
+        "get_http_headers",
+        lambda include: {"authorization": f"Bearer {token}"},
+    )
+    mcp = trusted_server.TokenScopedFastMCP("test")
+
+    assert [tool.name for tool in await mcp.list_tools()] == [
+        "internal__builder__update_preset"
+    ]
+    with pytest.raises(ToolError, match="requires approval"):
+        await mcp.call_tool("internal__builder__update_preset", {})
+    handler.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_token_scoped_mcp_refuses_deferred_action_in_another_spelling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deferred name matches every spelling of the tool it names."""
+    monkeypatch.setattr("tracecat.config.TRACECAT__SERVICE_KEY", "test-service-key")
+    token = mint_mcp_token(
+        workspace_id=uuid.uuid4(),
+        organization_id=uuid.uuid4(),
+        session_id=uuid.uuid4(),
+        allowed_actions=["core.http_request"],
+        registry_lock=RegistryLock(
+            origins={"tracecat_registry": "test-version"},
+            actions={"core.http_request": "tracecat_registry"},
+        ),
+    )
+    # Minting rejects this overlap, so sign the claims directly.
+    payload = jwt.decode(token, options={"verify_signature": False})
+    payload["deferred_actions"] = ["mcp__tracecat-registry__core__http_request"]
+    token = jwt.encode(payload, get_service_key(), algorithm="HS256")
+
+    async def fake_fetch_tool_definitions_for_lock(
+        action_names: list[str],
+        registry_lock: RegistryLock,
+        organization_id: uuid.UUID,
+    ) -> dict[str, MCPToolDefinition]:
+        del registry_lock, organization_id
+        return {
+            name: MCPToolDefinition(
+                name=name,
+                description=name,
+                parameters_json_schema={"type": "object"},
+            )
+            for name in action_names
+        }
+
+    execute_action = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(
+        trusted_server,
+        "fetch_tool_definitions_for_lock",
+        fake_fetch_tool_definitions_for_lock,
+    )
+    monkeypatch.setattr(trusted_server, "execute_action", execute_action)
+    monkeypatch.setattr(
+        trusted_server,
+        "get_http_headers",
+        lambda include: {"authorization": f"Bearer {token}"},
+    )
+    mcp = trusted_server.TokenScopedFastMCP("test")
+
+    assert [tool.name for tool in await mcp.list_tools()] == ["core__http_request"]
+    with pytest.raises(ToolError, match="requires approval"):
+        await mcp.call_tool("core__http_request", {})
+    # Approved-call execution routes unlisted spellings straight to the executor.
+    with pytest.raises(ToolError, match="requires approval"):
+        await trusted_server.call_token_scoped_tool(
+            "mcp__tracecat-registry__core__http_request",
+            {},
+            verify_mcp_token(token),
+        )
+    execute_action.assert_not_awaited()

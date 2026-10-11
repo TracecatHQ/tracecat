@@ -43,6 +43,22 @@ def is_tracecat_registry_server_name(server_name: str) -> bool:
     )
 
 
+def strip_tracecat_registry_server_prefix(tool_name: str) -> str:
+    """Drop a leading built-in registry server segment from a tool name.
+
+    Example: mcp__tracecat-registry__core__http_request -> core__http_request
+    """
+    if tool_name.startswith("mcp__"):
+        parts = tool_name.split("__", 2)
+        if len(parts) == 3 and is_tracecat_registry_server_name(parts[1]):
+            return parts[2]
+    if tool_name.startswith("mcp."):
+        parts = tool_name.split(".", 2)
+        if len(parts) == 3 and is_tracecat_registry_server_name(parts[1]):
+            return parts[2]
+    return tool_name
+
+
 # Lone surrogates cannot cross JSON serialization.
 _SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
 
@@ -189,6 +205,39 @@ def normalize_mcp_tool_name(mcp_tool_name: str) -> str:
 
     # Other tool names returned as-is
     return mcp_tool_name
+
+
+def canonical_mcp_tool_name(tool_name: str) -> str:
+    """Return the name the trusted MCP server authorizes a tool call under.
+
+    Drops a registry server prefix, keeps user MCP tools as
+    ``mcp__{server}__{tool}``, and turns registry and internal tools into
+    dotted action names. Every accepted spelling of one tool therefore maps
+    to the same name.
+
+    Example: mcp__tracecat-registry__core__http_request -> core.http_request
+
+    Raises:
+        ValueError: If the name uses the dotted user MCP spelling
+            ``mcp.{server}.{tool}``. That spelling replaces ``__`` with
+            ``.``, so ``mcp.example.a.b`` could be tool ``a__b`` or ``a.b``.
+    """
+    routed = strip_tracecat_registry_server_prefix(tool_name)
+    if _is_user_mcp_name(routed.split("__", 2)):
+        return routed
+    if _is_user_mcp_name(routed.split(".", 2)):
+        raise ValueError(
+            f"Ambiguous user MCP tool name {tool_name!r}: use mcp__{{server}}__{{tool}}"
+        )
+    return normalize_mcp_tool_name(mcp_tool_name_to_action_name(routed))
+
+
+def _is_user_mcp_name(parts: list[str]) -> bool:
+    return (
+        len(parts) == 3
+        and parts[0] == "mcp"
+        and not is_tracecat_registry_server_name(parts[1])
+    )
 
 
 async def fetch_tool_definitions(
