@@ -76,10 +76,18 @@ from tracecat.settings.service import get_setting_from_bypass_session
 
 
 class InvalidEmailException(FastAPIUsersException):
-    """Exception raised on registration with an invalid email."""
+    """Exception raised on registration with an invalid email.
+
+    The message is deliberately generic and also covers duplicate accounts:
+    revealing that an email is already registered would enable account
+    enumeration.
+    """
 
     def __init__(self) -> None:
-        super().__init__("Please enter a valid email address.")
+        super().__init__(
+            "Please enter a valid email address. "
+            "If you already have an account, sign in instead."
+        )
 
 
 class PermissionsException(FastAPIUsersException):
