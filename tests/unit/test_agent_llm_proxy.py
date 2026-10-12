@@ -2529,3 +2529,152 @@ def test_rate_limit_wait_falls_back_to_jittered_backoff(
     assert 1.0 <= _rate_limit_wait(_rate_limited_retry_state(1, retry_after)) <= 1.5
     assert 4.0 <= _rate_limit_wait(_rate_limited_retry_state(3, retry_after)) <= 4.5
     assert _rate_limit_wait(_rate_limited_retry_state(10, retry_after)) == 20.0
+
+
+_DROPPED_CONNECTION_ERRORS = [
+    pytest.param(
+        httpx.RemoteProtocolError,
+        "Server disconnected without sending a response.",
+        id="remote-protocol-error",
+    ),
+    pytest.param(httpx.ReadError, "", id="read-error"),
+]
+
+
+async def _forward_with_dropped_connections(
+    tmp_path: Path,
+    *,
+    error_type: type[httpx.TransportError],
+    message: str,
+    failures: int,
+    direct: bool = False,
+) -> tuple[int, str, list[LLMProxyError]]:
+    errors: list[LLMProxyError] = []
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls <= failures:
+            raise error_type(message, request=request)
+        return httpx.Response(
+            200,
+            headers={"Content-Type": "application/json"},
+            json={"ok": True},
+        )
+
+    direct_routes = (
+        {
+            "customer-alias": LLMRoute(
+                base_url="https://customer-litellm.example",
+                model_provider="custom-model-provider",
+            )
+        }
+        if direct
+        else None
+    )
+    socket_proxy = LLMSocketProxy(
+        socket_path=tmp_path / "llm.sock",
+        routing_plan=_routing_plan(direct_routes=direct_routes),
+        on_error=errors.append,
+    )
+    socket_proxy._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    socket_proxy._direct_client = socket_proxy._client
+    writer = _FakeWriter()
+    model = b'"model":"customer-alias",' if direct else b""
+
+    try:
+        await socket_proxy._forward_request(
+            {
+                "method": "POST",
+                "path": "/v1/messages",
+                "headers": {
+                    "Content-Type": "application/json",
+                    "Authorization": "Bearer llm-token",
+                },
+                "body": b"{"
+                + model
+                + b'"messages":[{"role":"user","content":"hello"}]}',
+            },
+            cast(asyncio.StreamWriter, writer),
+        )
+    finally:
+        await socket_proxy._client.aclose()
+
+    return calls, writer.buffer.decode("utf-8"), errors
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("error_type", "message"), _DROPPED_CONNECTION_ERRORS)
+async def test_forward_request_retries_managed_connection_dropped_before_headers(
+    tmp_path: Path,
+    error_type: type[httpx.TransportError],
+    message: str,
+) -> None:
+    calls, response_text, errors = await _forward_with_dropped_connections(
+        tmp_path, error_type=error_type, message=message, failures=1
+    )
+
+    assert calls == 2
+    assert response_text.startswith("HTTP/1.1 200 OK")
+    assert errors == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("error_type", "message"), _DROPPED_CONNECTION_ERRORS)
+async def test_forward_request_retries_managed_connection_drop_only_once(
+    tmp_path: Path,
+    error_type: type[httpx.TransportError],
+    message: str,
+) -> None:
+    calls, response_text, errors = await _forward_with_dropped_connections(
+        tmp_path, error_type=error_type, message=message, failures=2
+    )
+
+    assert calls == 2
+    assert response_text.startswith("HTTP/1.1 502")
+    assert len(errors) == 1
+    assert errors[0].classification.kind is RuntimeErrorKind.AGENT_EXECUTOR_UNCLASSIFIED
+    assert errors[0].classification.cause_type == error_type.__name__
+
+
+@pytest.mark.anyio
+async def test_forward_request_does_not_retry_direct_connection_drop(
+    tmp_path: Path,
+) -> None:
+    calls, response_text, errors = await _forward_with_dropped_connections(
+        tmp_path,
+        error_type=httpx.RemoteProtocolError,
+        message="Server disconnected without sending a response.",
+        failures=1,
+        direct=True,
+    )
+
+    assert calls == 1
+    assert response_text.startswith("HTTP/1.1 502")
+    assert len(errors) == 1
+
+
+@pytest.mark.anyio
+async def test_start_expires_managed_connections_before_gateway_keepalive(
+    monkeypatch: pytest.MonkeyPatch,
+    short_socket_path: Path,
+) -> None:
+    created: list[dict[str, object]] = []
+    real_client = httpx.AsyncClient
+
+    def make_client(**kwargs: object) -> httpx.AsyncClient:
+        created.append(kwargs)
+        return real_client(**kwargs)  # pyright: ignore[reportArgumentType]
+
+    monkeypatch.setattr(httpx, "AsyncClient", make_client)
+    proxy = LLMSocketProxy(short_socket_path, _routing_plan())
+    await proxy.start()
+    try:
+        limits = created[0]["limits"]
+        assert isinstance(limits, httpx.Limits)
+        # LiteLLM runs uvicorn with its default 5s keep-alive timeout.
+        assert limits.keepalive_expiry is not None
+        assert limits.keepalive_expiry < 5.0
+    finally:
+        await proxy.stop()
