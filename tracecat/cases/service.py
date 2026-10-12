@@ -113,6 +113,7 @@ from tracecat.cases.schemas import (
     CaseUpdate,
     _normalize_case_field_read_type,
 )
+from tracecat.cases.sorting import case_relationship_sort_key
 from tracecat.cases.tags.schemas import CaseTagRead
 from tracecat.cases.tags.service import CaseTagsService
 from tracecat.cases.triggers.publisher import publish_case_event_payload
@@ -575,7 +576,14 @@ class CasesService(BaseWorkspaceService):
         updated_before: datetime | None = None,
         updated_after: datetime | None = None,
         order_by: Literal[
-            "created_at", "updated_at", "priority", "severity", "status", "tasks"
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+            "assignee",
+            "tags",
         ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,
@@ -600,6 +608,10 @@ class CasesService(BaseWorkspaceService):
         can enable ``promote_exact_match`` to place the referenced case before
         ordinary text matches. Only view filters may be bypassed, and counts
         retain their filtered-population meaning.
+
+        Assignees sort by lowercased stored email. Tags sort by the minimum
+        lowercased, trimmed workspace-owned tag name. Missing values come last
+        in either direction; UUID breaks ties in the requested direction.
 
         ``include_count`` defaults to True to preserve the exact
         ``total_estimate`` used by API/workflow callers. Clients that fetch
@@ -729,6 +741,8 @@ class CasesService(BaseWorkspaceService):
         elif sort_column == "status":
             enum_sort_values = CASE_STATUS_SORT_ORDER
             sort_attr = _enum_sort_expr(Case.status, enum_sort_values)
+        elif sort_column in ("assignee", "tags"):
+            sort_attr = case_relationship_sort_key(self.workspace_id, sort_column)
         else:
             sort_attr = getattr(Case, sort_column)
 
@@ -743,9 +757,9 @@ class CasesService(BaseWorkspaceService):
                 ordering = (sort_attr.desc(),)
         else:
             if sort_direction == "asc":
-                ordering = (sort_attr.asc(), Case.id.asc())
+                ordering = (sort_attr.asc().nulls_last(), Case.id.asc())
             else:
-                ordering = (sort_attr.desc(), Case.id.desc())
+                ordering = (sort_attr.desc().nulls_last(), Case.id.desc())
 
         if exact_match is not None:
             ordering = (
@@ -1000,7 +1014,14 @@ class CasesService(BaseWorkspaceService):
         cursor: str | None = None,
         reverse: bool = False,
         order_by: Literal[
-            "created_at", "updated_at", "priority", "severity", "status", "tasks"
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+            "assignee",
+            "tags",
         ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,

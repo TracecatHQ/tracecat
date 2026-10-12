@@ -65,6 +65,34 @@ async def test_aggregate_cases_uses_exact_gateway_path(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("order_by", ["assignee", "tags"])
+async def test_relationship_sort_uses_gateway_query(
+    monkeypatch: pytest.MonkeyPatch,
+    order_by: str,
+) -> None:
+    """The SDK forwards case sort keys on the existing gateway protocol."""
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.url.params["order_by"] == order_by
+        assert request.url.params["sort"] == "asc"
+        return httpx.Response(200, json={"items": [], "has_more": False})
+
+    def create_transport(*, uds: str) -> httpx.MockTransport:
+        return httpx.MockTransport(handle)
+
+    monkeypatch.setattr(httpx, "AsyncHTTPTransport", create_transport)
+    client = TracecatClient(action_gateway_socket="/tmp/synthetic-case-sort.sock")
+    await client.cases.list_cases(order_by=order_by, sort="asc")
+    await client.cases.search_cases(order_by=order_by, sort="asc")
+    assert [request.url.path for request in requests] == [
+        "/internal/cases",
+        "/internal/cases/search",
+    ]
+
+
+@pytest.mark.anyio
 async def test_create_case_serializes_dropdown_uuid_values(
     cases_client: CasesClient, mock_tracecat_client: MagicMock
 ) -> None:

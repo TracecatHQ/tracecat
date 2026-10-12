@@ -214,7 +214,9 @@ class CasesClient:
             limit: Maximum items per page.
             cursor: Pagination cursor.
             reverse: Reverse pagination direction.
-            order_by: Column to order by.
+            order_by: created_at, updated_at, priority, severity, status, tasks,
+                assignee, or tags. Assignee uses lowercase email; tags uses the
+                first normalized tag alphabetically. Missing values sort last.
             sort: Sort direction.
             include_payload: Return the full payload without a non-empty selector.
             payload_fields: Literal top-level keys to return. Includes the subset
@@ -278,6 +280,10 @@ class CasesClient:
         preserve object nesting and contain 1 to 32 literal keys each. Arrays are
         selected whole. Empty or unset selectors keep the flag's behavior.
         An empty string in the selector selects the literal empty key.
+
+        order_by accepts created_at, updated_at, priority, severity, status,
+        tasks, assignee, and tags. Assignee uses lowercase email; tags uses the
+        first normalized tag alphabetically. Missing values sort last.
         """
         params: dict[str, Any] = {"limit": limit}
         if is_set(cursor):

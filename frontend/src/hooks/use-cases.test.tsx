@@ -11,18 +11,18 @@ import {
 import { CancelablePromise } from "@/client/core/CancelablePromise"
 import { useCases } from "@/hooks/use-cases"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
+import { WorkspaceIdProvider } from "@/providers/workspace-id"
 
 jest.mock("@/client", () => ({
   casesSearchCases: jest.fn(),
   casesSearchCaseAggregates: jest.fn(),
 }))
 
-jest.mock("@/providers/workspace-id", () => ({
-  useWorkspaceId: () => "workspace-test",
-}))
-
 const searchCases = jest.mocked(casesSearchCases)
 const searchAggregates = jest.mocked(casesSearchCaseAggregates)
+
+const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
+const OTHER_WORKSPACE_ID = "22222222-2222-4222-8222-222222222222"
 
 const CASE: CaseReadMinimal = {
   id: "00000000-0000-4000-8000-000000000042",
@@ -42,12 +42,22 @@ function setup(
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   })
 ) {
+  let workspaceId = WORKSPACE_ID
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    <QueryClientProvider client={client}>
+      <WorkspaceIdProvider workspaceId={workspaceId}>
+        {children}
+      </WorkspaceIdProvider>
+    </QueryClientProvider>
   )
+  const hook = renderHook(() => useCases({ autoRefresh: false }), { wrapper })
   return {
-    ...renderHook(() => useCases({ autoRefresh: false }), { wrapper }),
+    ...hook,
     client,
+    changeWorkspace(nextWorkspaceId: string) {
+      workspaceId = nextWorkspaceId
+      hook.rerender()
+    },
   }
 }
 
@@ -212,6 +222,7 @@ it("applies a cleared search immediately", async () => {
     expect.objectContaining({ searchTerm: "phishing", cursor: undefined })
   )
 })
+
 describe("case search aggregate counts", () => {
   it("opts out of row counts on initial and continuation pages and uses only aggregate totals", async () => {
     let resolveCounts!: (value: CasesSearchCaseAggregatesResponse) => void
@@ -331,5 +342,142 @@ describe("case search aggregate counts", () => {
     expect(result.current.isCountsError).toBe(true)
     expect(result.current.totalFilteredCaseEstimate).toBeNull()
     expect(result.current.stageCounts).toBeNull()
+  })
+})
+
+describe("case search ordering", () => {
+  it.each(["assignee", "tags"] as const)(
+    "requests global %s order and preserves it across loaded pages",
+    async (field) => {
+      const first: CaseReadMinimal = {
+        ...CASE,
+        assignee: {
+          id: "00000000-0000-4000-8000-000000000001",
+          email: "zulu@sorting.example.com",
+          role: "basic",
+          settings: {},
+        },
+        tags: [
+          {
+            id: "synthetic-tag-zulu",
+            name: "Zulu",
+            ref: "synthetic-zulu",
+            color: null,
+          },
+          {
+            id: "synthetic-tag-alpha",
+            name: "Alpha",
+            ref: "synthetic-alpha",
+            color: null,
+          },
+        ],
+      }
+      const second: CaseReadMinimal = {
+        ...CASE,
+        id: "00000000-0000-4000-8000-000000000043",
+        assignee: null,
+        tags: [
+          {
+            id: "synthetic-tag-bravo",
+            name: "Bravo",
+            ref: "synthetic-bravo",
+            color: null,
+          },
+        ],
+      }
+      jest.mocked(casesSearchCases).mockImplementation((request) =>
+        resolved<CasesSearchCasesResponse>({
+          items: request.cursor ? [second] : [first],
+          has_more: !request.cursor,
+          next_cursor: request.cursor ? null : "synthetic-sort-cursor",
+          total_estimate: null,
+        })
+      )
+      const { result } = setup()
+      await advance()
+      act(() => result.current.setSortBy({ field, direction: "asc" }))
+      await advance()
+      expect(result.current.cases).toEqual([first])
+      expect(casesSearchCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          orderBy: field,
+          sort: "asc",
+          includeCount: false,
+          cursor: undefined,
+        })
+      )
+      act(() => result.current.fetchNextPage())
+      await advance()
+      expect(result.current.cases).toEqual([first, second])
+      expect(casesSearchCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          orderBy: field,
+          sort: "asc",
+          includeCount: false,
+          cursor: "synthetic-sort-cursor",
+        })
+      )
+    }
+  )
+
+  it("keeps a single active sort when switching fields and clearing", async () => {
+    const { result } = setup()
+    await advance()
+    act(() => result.current.setPrioritySortDirection("asc"))
+    act(() => result.current.setAssigneeSortDirection("desc"))
+    expect(result.current.filters.sortBy).toEqual({
+      field: "assignee",
+      direction: "desc",
+    })
+    expect(result.current.filters.prioritySortDirection).toBeNull()
+    expect(result.current.filters.assigneeSortDirection).toBe("desc")
+    act(() => result.current.setTagSortDirection("asc"))
+    expect(result.current.filters.sortBy).toEqual({
+      field: "tags",
+      direction: "asc",
+    })
+    expect(result.current.filters.assigneeSortDirection).toBeNull()
+    expect(result.current.filters.tagSortDirection).toBe("asc")
+    act(() => result.current.setSeveritySortDirection("desc"))
+    expect(result.current.filters.tagSortDirection).toBeNull()
+    expect(result.current.filters.sortBy).toEqual({
+      field: "severity",
+      direction: "desc",
+    })
+    act(() => result.current.setSeveritySortDirection(null))
+    expect(result.current.filters.sortBy).toEqual({
+      field: "updated_at",
+      direction: "desc",
+    })
+    expect(result.current.filters.prioritySortDirection).toBeNull()
+    expect(result.current.filters.severitySortDirection).toBeNull()
+    expect(result.current.filters.assigneeSortDirection).toBeNull()
+    expect(result.current.filters.tagSortDirection).toBeNull()
+  })
+
+  it("normalizes competing persisted flags to the previous effective order", async () => {
+    window.localStorage.setItem(
+      `${WORKSPACE_ID}:cases-filters:v1`,
+      JSON.stringify({
+        sortBy: { field: "priority", direction: "desc" },
+        prioritySortDirection: "desc",
+        severitySortDirection: "asc",
+        assigneeSortDirection: "asc",
+        tagSortDirection: "desc",
+      })
+    )
+    const { result } = setup()
+    await advance()
+    expect(result.current.filters.sortBy).toEqual({
+      field: "assignee",
+      direction: "asc",
+    })
+    expect(result.current.filters.assigneeSortDirection).toBe("asc")
+    expect(result.current.filters.tagSortDirection).toBeNull()
+    expect(result.current.filters.prioritySortDirection).toBeNull()
+    expect(result.current.filters.severitySortDirection).toBeNull()
+    expect(casesSearchCases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ orderBy: "assignee", sort: "asc" })
+    )
   })
 })

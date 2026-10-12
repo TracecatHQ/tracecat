@@ -3681,7 +3681,8 @@ async def test_set_case_dropdown_value_not_entitled(monkeypatch):
 
 @pytest.mark.anyio
 @pytest.mark.usefixtures("resolved_workspace")
-async def test_search_cases(monkeypatch):
+@pytest.mark.parametrize("order_by", [None, "assignee", "tags"])
+async def test_search_cases(monkeypatch, order_by):
     case_id = uuid.uuid4()
     now = datetime.now(UTC)
 
@@ -3729,11 +3730,13 @@ async def test_search_cases(monkeypatch):
         status="new,in_progress",
         priority="critical",
         search_term="phishing",
+        order_by=order_by,
     )
     payload = _payload(result)
     assert len(payload["items"]) == 1
     assert payload["items"][0]["summary"] == "Phishing alert"
     assert captured["search_term"] == "phishing"
+    assert captured["order_by"] == order_by
     # Verify enum parsing for comma-separated values
     assert len(captured["status"]) == 2
     assert len(captured["priority"]) == 1

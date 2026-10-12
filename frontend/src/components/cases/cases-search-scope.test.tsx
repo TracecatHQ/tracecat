@@ -267,6 +267,42 @@ describe("exact-first case search UI", () => {
     )
   })
 
+  it("offers usable relationship sorting in All cases and shows the actual selected field", async () => {
+    const user = userEvent.setup()
+    setup()
+    await user.click(
+      await screen.findByRole("button", { name: "Search all cases" })
+    )
+    const sortControl = screen.getByRole("combobox", {
+      name: "Case sort field",
+    })
+    expect(sortControl).not.toBeDisabled()
+    fireEvent.keyDown(sortControl, { key: "ArrowDown" })
+    await user.click(await screen.findByRole("option", { name: /^Assignee/ }))
+    expect(sortControl).toHaveTextContent("Assignee")
+    await waitFor(() =>
+      expect(casesSearchCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orderBy: "assignee", sort: "desc" })
+      )
+    )
+    fireEvent.keyDown(sortControl, { key: "ArrowDown" })
+    await user.click(await screen.findByRole("option", { name: /^Tags/ }))
+    expect(sortControl).toHaveTextContent("Tags")
+    await user.click(screen.getByRole("button", { name: "Sort descending" }))
+    await waitFor(() =>
+      expect(casesSearchCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orderBy: "tags", sort: "asc" })
+      )
+    )
+    await user.click(screen.getByRole("button", { name: "Reset" }))
+    expect(sortControl).toHaveTextContent("Updated")
+    await waitFor(() =>
+      expect(casesSearchCases).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orderBy: "updated_at", sort: "desc" })
+      )
+    )
+  })
+
   it("shows the exact match before ordinary matches without duplicating it", async () => {
     const other = {
       ...CASE,
