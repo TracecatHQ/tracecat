@@ -601,7 +601,7 @@ export function CasesHeader({
           </div>
           <Input
             type="text"
-            placeholder="Search cases..."
+            placeholder="Search by summary or ID..."
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             className={cn(

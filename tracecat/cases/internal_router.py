@@ -272,7 +272,7 @@ async def search_cases(
     reverse: bool = Query(False, description="Reverse pagination direction"),
     search_term: str | None = Query(
         None,
-        description="Text to search for in case summary, description, or short ID",
+        description="Text to search for in case summary, description, short ID, or case UUID",
     ),
     short_id: str | None = Query(
         None,

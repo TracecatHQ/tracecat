@@ -210,6 +210,7 @@ def _is_field_value_empty(value: Any) -> bool:
 CASE_PRIORITY_SORT_ORDER = tuple(priority.value for priority in CasePriority)
 CASE_SEVERITY_SORT_ORDER = tuple(severity.value for severity in CaseSeverity)
 CASE_STATUS_SORT_ORDER = tuple(status.value for status in CaseStatus)
+MAX_CASE_NUMBER = 2**31 - 1
 SHORT_ID_PATTERN = re.compile(r"^(?:CASE-)?(\d{1,10})$", re.IGNORECASE)
 
 
@@ -419,16 +420,28 @@ class CasesService(BaseWorkspaceService):
                 raise ValueError("Search term cannot contain null bytes")
 
             search_pattern = func.concat("%", search_term, "%")
+            case_number_text = cast(Case.case_number, sa.String)
             short_id_expr = func.concat(
-                "CASE-", func.lpad(cast(Case.case_number, sa.String), 4, "0")
+                "CASE-",
+                func.lpad(
+                    case_number_text,
+                    func.greatest(4, func.length(case_number_text)),
+                    "0",
+                ),
             )
-            filters.append(
-                or_(
-                    Case.summary.ilike(search_pattern),
-                    Case.description.ilike(search_pattern),
-                    short_id_expr.ilike(search_pattern),
-                )
-            )
+            search_conditions: list[Any] = [
+                Case.summary.ilike(search_pattern),
+                Case.description.ilike(search_pattern),
+                short_id_expr.ilike(search_pattern),
+            ]
+            case_number = parse_case_short_id(search_term)
+            if case_number is not None and case_number <= MAX_CASE_NUMBER:
+                search_conditions.append(Case.case_number == case_number)
+            try:
+                search_conditions.append(Case.id == uuid.UUID(search_term.strip()))
+            except ValueError:
+                pass
+            filters.append(or_(*search_conditions))
 
         if short_id:
             normalized_short_id = short_id.strip().upper()

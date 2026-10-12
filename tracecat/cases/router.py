@@ -374,7 +374,7 @@ async def search_cases(
     reverse: bool = Query(False, description="Reverse pagination direction"),
     search_term: str | None = Query(
         None,
-        description="Text to search for in case summary, description, or short ID",
+        description="Text to search for in case summary, description, short ID, or case UUID",
     ),
     short_id: str | None = Query(
         None,
@@ -541,7 +541,7 @@ async def search_case_aggregates(
     session: AsyncDBSession,
     search_term: str | None = Query(
         None,
-        description="Text to search for in case summary, description, or short ID",
+        description="Text to search for in case summary, description, short ID, or case UUID",
     ),
     status: list[CaseStatus] | None = Query(None, description="Filter by case status"),
     priority: list[CasePriority] | None = Query(
