@@ -621,6 +621,19 @@ function AgentExecuteRequiredNotice() {
   )
 }
 
+/** Shown when creating a chat session failed, with a way to try again. */
+function ChatCreateFailedNotice({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-xs text-muted-foreground">
+      <AlertCircle className="size-5 text-amber-500" />
+      <p>Couldn't start a chat.</p>
+      <Button type="button" size="sm" variant="outline" onClick={onRetry}>
+        Try again
+      </Button>
+    </div>
+  )
+}
+
 function AgentPresetChatPane({
   preset,
   workspaceId,
@@ -840,6 +853,10 @@ function AgentPresetChatPane({
           </Alert>
         </div>
       )
+    }
+
+    if (createChatFailed && !activeChatId) {
+      return <ChatCreateFailedNotice onRetry={() => void handleCreateChat()} />
     }
 
     if (
@@ -3294,6 +3311,10 @@ function AgentPresetBuilderChatPane({
           </Alert>
         </div>
       )
+    }
+
+    if (createChatFailed && !activeChatId) {
+      return <ChatCreateFailedNotice onRetry={() => void handleCreateChat()} />
     }
 
     if (!activeChatId) {

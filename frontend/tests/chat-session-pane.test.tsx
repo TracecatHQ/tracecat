@@ -15,6 +15,7 @@ import type {
 } from "@/client"
 import { useScopeCheck } from "@/components/auth/scope-guard"
 import {
+  AGENT_EXECUTE_REQUIRED_MESSAGE,
   ChatSessionPane,
   MessagePart,
 } from "@/components/chat/chat-session-pane"
@@ -889,6 +890,63 @@ describe("ChatSessionPane", () => {
         ],
       })
     )
+  })
+
+  it("blocks sending and approving without agent:execute", () => {
+    const sendMessage = jest.fn().mockResolvedValue(undefined)
+    mockUseScopeCheck.mockImplementation((scope) => scope !== "agent:execute")
+    mockUseVercelChat.mockReturnValue({
+      sendMessage,
+      setMessages: jest.fn(),
+      regenerate: jest.fn(),
+      messages: [
+        {
+          id: "msg-approval",
+          role: "assistant",
+          parts: [
+            {
+              type: "data-approval-request",
+              data: [
+                {
+                  tool_call_id: "tc-1",
+                  tool_name: "core__cases__list_cases",
+                  args: { limit: 100 },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      status: "ready",
+      lastError: null,
+      clearError: jest.fn(),
+      // biome-ignore lint/suspicious/noExplicitAny: mock return type needs flexibility for testing
+    } as any)
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <ChatSessionPane
+            chat={createChatFixture()}
+            workspaceId="workspace-1"
+            entityType="case"
+            entityId="case-1"
+            modelInfo={{ name: "gpt-4o-mini", provider: "openai" }}
+            pendingMessage="Queued message"
+          />
+        </TooltipProvider>
+      </QueryClientProvider>
+    )
+
+    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled()
+    expect(screen.getByText(AGENT_EXECUTE_REQUIRED_MESSAGE)).toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText(AGENT_EXECUTE_REQUIRED_MESSAGE)
+    ).toBeDisabled()
+    expect(
+      screen.queryByRole("button", { name: "Retry" })
+    ).not.toBeInTheDocument()
+    expect(sendMessage).not.toHaveBeenCalled()
   })
 
   it("submits selected approval decisions without requiring the full batch", async () => {

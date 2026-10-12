@@ -7,6 +7,7 @@ import { useFeatureFlag } from "@/hooks/use-feature-flags"
 import { QueryClient, QueryClientProvider } from "@/lib/query"
 
 jest.mock("@/components/chat/chat-session-pane", () => ({
+  AGENT_EXECUTE_REQUIRED_MESSAGE: "agent:execute required",
   ChatSessionPane: ({
     mcpEnabled,
     onBeforeSend,
@@ -455,5 +456,51 @@ describe("ChatInterface backend selection", () => {
     expect(onChatSelect).toHaveBeenCalledWith("chat-1")
     expect(screen.getByTestId("chat-session-pane")).toBeInTheDocument()
     expect(mockCreateChat).not.toHaveBeenCalled()
+  })
+})
+
+describe("ChatInterface agent:execute gating", () => {
+  beforeEach(() => {
+    mockUseScopeCheck.mockReset()
+  })
+
+  it("does not auto-create and shows the reason without agent:execute", async () => {
+    setScopeResult("agent:execute", false)
+    renderChat({ surface: "regular" })
+
+    expect(
+      await screen.findByText("agent:execute required")
+    ).toBeInTheDocument()
+    expect(mockCreateChat).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "New chat" })).toBeDisabled()
+  })
+
+  it("auto-creates a chat with agent:execute", async () => {
+    setScopeResult("agent:execute", true)
+    renderChat({ surface: "regular" })
+
+    await waitFor(() => expect(mockCreateChat).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText("agent:execute required")).not.toBeInTheDocument()
+  })
+
+  it("waits while scopes load, then auto-creates once the scope resolves", async () => {
+    setScopeResult("agent:execute", undefined)
+    const view = renderChat({ surface: "regular" })
+
+    // Loading scopes disable nothing and show no denial.
+    expect(mockCreateChat).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "New chat" })).toBeEnabled()
+    expect(screen.queryByText("agent:execute required")).not.toBeInTheDocument()
+
+    setScopeResult("agent:execute", true)
+    view.rerender(
+      <ChatInterface
+        entityId="workspace-1"
+        entityType="copilot"
+        surface="regular"
+      />
+    )
+
+    await waitFor(() => expect(mockCreateChat).toHaveBeenCalledTimes(1))
   })
 })
