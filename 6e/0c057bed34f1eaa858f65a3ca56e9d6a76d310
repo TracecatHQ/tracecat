@@ -1,0 +1,32 @@
+frontend/tests/chat-interface.test.tsx
+  s_7f6729d1c18d55::t_30144d6f208ae9 10,461-504
+  s_7f6729d1c18d55::t_42321a1507cc4d 505-506
+frontend/src/components/chat/chat-session-pane.tsx
+  s_7f6729d1c18d55::t_26c8ce824edb5a 79,399-401,499-500,512,546-550,1270-1272,1424-1425,2200,2205-2207,2523-2525
+  s_7f6729d1c18d55::t_2fc0f6f67f057c 1273-1275
+frontend/tests/chat-session-pane.test.tsx
+  s_7f6729d1c18d55::t_b82e3c9e00613a 18
+  s_7f6729d1c18d55::t_30144d6f208ae9 895-949
+  s_7f6729d1c18d55::t_8601e8e88907a6 950-951
+frontend/src/components/chat/chat-interface.tsx
+  s_7f6729d1c18d55::t_26c8ce824edb5a 208-209,283,318,326,517-521,549-553,805-814
+frontend/src/components/agents/agent-presets-builder.tsx
+  s_7f6729d1c18d55::t_26c8ce824edb5a 624-636,858-861,3316-3317
+  s_7f6729d1c18d55::t_0424641e7fabad 3318-3319
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6e0c057bed34f1eaa858f65a3ca56e9d6a76d310",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
