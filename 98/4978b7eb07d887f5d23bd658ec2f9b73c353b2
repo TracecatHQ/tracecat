@@ -1,0 +1,61 @@
+frontend/src/components/forms/form-preview-pane.tsx
+  s_7f6729d1c18d55::t_f4e0620254c82b 5,21,27-30,54-55,57-59,66-67,69-70,83,85-86,100-107,127
+frontend/src/lib/forms/workflow-id.test.ts
+  s_7f6729d1c18d55::t_06b4a50f6c44c6 1-39,42
+frontend/src/components/forms/forms-dashboard.test.tsx
+  s_7f6729d1c18d55::t_eb5b8936a5aea6 105
+frontend/src/hooks/use-forms.ts
+  s_7f6729d1c18d55::t_8b8f198f882792 4
+  s_7f6729d1c18d55::t_0b9253a827518a 22
+  s_7f6729d1c18d55::t_84ce29f77779bc 57-58
+  s_7f6729d1c18d55::t_ed885831eb1c2e 207-226
+  s_7f6729d1c18d55::t_ff05d63e930a66 47
+  s_7f6729d1c18d55::t_9ba94fd7230ba9 206,227-229
+frontend/src/lib/forms/workflow-id.ts
+  s_7f6729d1c18d55::t_8206122854d112 3-40
+frontend/src/components/forms/form-config-tab.tsx
+  s_7f6729d1c18d55::t_084c3e3d722175 239
+  s_7f6729d1c18d55::t_d826ff73b2f352 15
+frontend/src/components/forms/form-activity-tab.tsx
+  s_7f6729d1c18d55::t_d8f310daf1cc15 37
+  s_7f6729d1c18d55::t_e2fadf1a122447 155,159
+  s_7f6729d1c18d55::t_4c7dfe1cc0a0a0 252-260
+  s_7f6729d1c18d55::t_12f70912c43092 283,288-289,291
+  s_7f6729d1c18d55::t_274672402b6024 359
+  s_7f6729d1c18d55::t_9da1639327fd11 12-18
+  s_7f6729d1c18d55::t_be5d72f28d2a2c 50-80,91-99,103-119
+  s_7f6729d1c18d55::t_74e6b5e841c6be 120
+frontend/src/components/forms/form-detail.tsx
+  s_7f6729d1c18d55::t_5290009d7a71f8 29
+  s_7f6729d1c18d55::t_1b23ab3a0e9ca0 108
+  s_7f6729d1c18d55::t_a912d633007921 120-121
+  s_7f6729d1c18d55::t_d42fcaeba5148b 58-67
+  s_7f6729d1c18d55::t_e456d6c7b9baef 43-44
+frontend/src/components/forms/form-detail.test.tsx
+  s_7f6729d1c18d55::t_8c70a4a1be6dc2 44
+  s_7f6729d1c18d55::t_b9c6ae48f7d326 621,623,635-641,644-662
+  s_7f6729d1c18d55::t_46a2a1ed4a7c8a 220-221
+  s_7f6729d1c18d55::t_357444fb1c56d6 738-749
+  s_7f6729d1c18d55::t_549cbad33e3c5f 673-688
+  s_7f6729d1c18d55::t_a945a3ac20db38 83
+  s_7f6729d1c18d55::t_1372892e761997 21
+frontend/src/components/forms/forms-dashboard.tsx
+  s_7f6729d1c18d55::t_7e32482d7731f6 100
+  s_7f6729d1c18d55::t_0d1731674fe767 42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "984978b7eb07d887f5d23bd658ec2f9b73c353b2",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
