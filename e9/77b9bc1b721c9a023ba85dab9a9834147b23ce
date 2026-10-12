@@ -1,0 +1,35 @@
+tests/unit/test_route_scope_guards.py
+  s_7f6729d1c18d55::t_c550b54da79f2d 677
+frontend/src/client/types.gen.ts
+  s_7f6729d1c18d55::t_b377859073c506 15752-15758,23101-23109,23111
+  s_7f6729d1c18d55::t_cee13a40887abb 23110,23112-23115
+tracecat/forms/router.py
+  s_7f6729d1c18d55::t_c240cc98579376 219-243
+  s_7f6729d1c18d55::t_d6a2116228e008 24
+frontend/src/client/services.gen.ts
+  s_7f6729d1c18d55::t_b377859073c506 481-482,11230-11248
+  s_7f6729d1c18d55::t_b3d34a5c0f8cd8 11249-11258
+tests/unit/test_forms_detail_access.py
+  s_7f6729d1c18d55::t_6616d26f418c82 111,113
+  s_7f6729d1c18d55::t_0b3f03311b789d 112
+  s_7f6729d1c18d55::t_1946aef5e95f92 83-110,114-135
+  s_7f6729d1c18d55::t_7565d71c8b323a 7,13,16
+tracecat/forms/service.py
+  s_7f6729d1c18d55::t_a88dbc0c8e84a3 565-578
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e977b9bc1b721c9a023ba85dab9a9834147b23ce",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
