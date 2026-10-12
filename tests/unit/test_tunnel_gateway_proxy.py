@@ -356,16 +356,17 @@ async def test_http_forward_rejects_malformed_uris(
 
 
 @pytest.mark.parametrize(
-    ("managed", "host", "expected"),
+    ("managed", "host", "uses_alias"),
     [
-        (True, "splunk.corp", managed_alias(TUNNEL_ID, "splunk.corp")),
-        (True, "10.0.0.5", "10.0.0.5"),
-        (False, "splunk.corp", "splunk.corp"),
+        (True, "splunk.corp", True),
+        (True, "10.0.0.5", False),
+        (False, "splunk.corp", False),
     ],
 )
 async def test_managed_gateway_dials_per_tunnel_alias(
-    monkeypatch: pytest.MonkeyPatch, managed: bool, host: str, expected: str
+    monkeypatch: pytest.MonkeyPatch, managed: bool, host: str, uses_alias: bool
 ) -> None:
+    expected = managed_alias(TUNNEL_ID, host) if uses_alias else host
     dialed: list[str] = []
 
     async def _open_connection(dial_host: str, port: int) -> None:
