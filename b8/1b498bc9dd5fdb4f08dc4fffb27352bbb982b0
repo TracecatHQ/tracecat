@@ -1,0 +1,29 @@
+tracecat/db/tenant_rls.py
+  s_7f6729d1c18d55::t_e08ee43f34ac88 100
+tests/unit/test_form_models.py
+  s_7f6729d1c18d55::t_30cc9c68de7a51 106-115
+  s_7f6729d1c18d55::t_7e34da35a5d53e 217-241
+  s_7f6729d1c18d55::t_4efa0c40081478 1,13,24-37
+  s_7f6729d1c18d55::t_699f43ef69fe1f 261-262
+  s_7f6729d1c18d55::t_d7031d49ff775b 216
+tracecat/db/models.py
+  s_7f6729d1c18d55::t_3e6bc1adf58ea9 1685-1746
+alembic/versions/c9e3a7b42d56_add_form_file_table.py
+  s_7f6729d1c18d55::t_0de02e71c0d775 1-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b81b498bc9dd5fdb4f08dc4fffb27352bbb982b0",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
