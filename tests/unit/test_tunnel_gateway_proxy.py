@@ -10,6 +10,7 @@ from tracecat_ee.tunnels.gateway.proxy import (
     GatewayConfig,
     start_gateway,
 )
+from tracecat_ee.tunnels.pangolin import managed_alias
 from tracecat_ee.tunnels.tokens import generate_gateway_key, mint_tunnel_token
 
 pytestmark = pytest.mark.anyio
@@ -348,3 +349,19 @@ async def test_http_forward_rejects_malformed_uris(
     status, _, writer = await _request(http_gateway_port, request.encode())
     assert status.startswith(b"HTTP/1.1 400")
     writer.close()
+
+
+def test_managed_gateway_dials_per_tunnel_alias() -> None:
+    tunnel_id = uuid.uuid4()
+    env = {
+        "TRACECAT_TUNNEL_ID": str(tunnel_id),
+        "TRACECAT_TUNNEL_WORKSPACE_ID": str(uuid.uuid4()),
+        "TRACECAT_TUNNEL_GATEWAY_KEY": "k",
+        "TRACECAT_TUNNEL_ALLOWED_TARGETS": '[{"host": "splunk.corp", "ports": [8089]}]',
+        "TRACECAT_TUNNEL_MANAGED": "true",
+    }
+    managed = GatewayConfig.from_env(env)
+    assert managed.dial_host("splunk.corp") == managed_alias(tunnel_id, "splunk.corp")
+    assert managed.dial_host("10.0.0.5") == "10.0.0.5"
+    env.pop("TRACECAT_TUNNEL_MANAGED")
+    assert GatewayConfig.from_env(env).dial_host("splunk.corp") == "splunk.corp"

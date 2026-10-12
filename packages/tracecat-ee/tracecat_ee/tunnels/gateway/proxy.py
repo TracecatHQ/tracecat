@@ -36,6 +36,7 @@ from urllib.parse import urlsplit
 from pydantic import TypeAdapter, ValidationError
 
 from tracecat.logger import logger
+from tracecat_ee.tunnels.pangolin import managed_alias
 from tracecat_ee.tunnels.schemas import TunnelTarget
 from tracecat_ee.tunnels.tokens import TunnelTokenError, verify_tunnel_token
 
@@ -63,6 +64,7 @@ class GatewayConfig:
     workspace_id: uuid.UUID
     gateway_key: str = field(repr=False)
     allowed_targets: frozenset[tuple[str, int]]
+    managed: bool = False
     host: str = "0.0.0.0"
     port: int = 8080
     header_timeout: float = 10.0
@@ -81,6 +83,7 @@ class GatewayConfig:
                 workspace_id=uuid.UUID(env["TRACECAT_TUNNEL_WORKSPACE_ID"]),
                 gateway_key=env["TRACECAT_TUNNEL_GATEWAY_KEY"],
                 allowed_targets=parse_allowed_targets(targets),
+                managed=env.get("TRACECAT_TUNNEL_MANAGED", "false").lower() == "true",
                 host=env.get("TRACECAT_TUNNEL_GATEWAY_HOST", "0.0.0.0"),
                 port=int(env.get("TRACECAT_TUNNEL_GATEWAY_PORT", "8080")),
             )
@@ -88,6 +91,12 @@ class GatewayConfig:
             raise ValueError(f"Missing gateway setting {exc.args[0]}") from exc
         except (ValidationError, json.JSONDecodeError) as exc:
             raise ValueError("TRACECAT_TUNNEL_ALLOWED_TARGETS is invalid") from exc
+
+    def dial_host(self, host: str) -> str:
+        """Managed domain targets resolve through their per-tunnel Pangolin alias."""
+        if self.managed:
+            return managed_alias(self.tunnel_id, host) or host
+        return host
 
 
 def parse_allowed_targets(targets: list[TunnelTarget]) -> frozenset[tuple[str, int]]:
@@ -294,7 +303,8 @@ class TunnelGateway:
 
             try:
                 upstream_reader, upstream_writer = await asyncio.wait_for(
-                    asyncio.open_connection(host, port), cfg.connect_timeout
+                    asyncio.open_connection(cfg.dial_host(host), port),
+                    cfg.connect_timeout,
                 )
             except TimeoutError as exc:
                 raise _ProxyError(
