@@ -103,6 +103,7 @@ import {
   useUpdateChat,
   useVercelChat,
 } from "@/hooks/use-chat"
+import { useFormsAccess } from "@/hooks/use-forms-access"
 import { useMentions } from "@/hooks/use-mentions"
 import { useOverflowBadges } from "@/hooks/use-overflow-badges"
 import {
@@ -129,6 +130,7 @@ import { findAgentMention, type MentionRange } from "@/lib/mentions"
 import { useQueryClient } from "@/lib/query"
 import { getSubagentSessionId, SUBAGENT_TOOL_NAME } from "@/lib/subagent-stream"
 import { cn } from "@/lib/utils"
+import { useChatPageContext } from "@/providers/chat-page-context"
 import type { ChatSurface } from "@/types/chat-surface"
 import { ARTIFACT_DATA_PART_TYPE } from "@/types/workspace-chat-artifacts"
 
@@ -339,6 +341,8 @@ export function ChatSessionPane({
   resume = true,
 }: ChatSessionPaneProps) {
   const queryClient = useQueryClient()
+  const pageContext = useChatPageContext()
+  const formsAccess = useFormsAccess()
   const promptInputContainerRef = useRef<HTMLDivElement>(null)
   const promptTextareaFocusedRef = useRef(false)
   const shouldRestoreInputFocusRef = useRef(false)
@@ -429,6 +433,7 @@ export function ChatSessionPane({
     messages: uiMessages,
     modelInfo,
     onData,
+    pageContext,
     resume,
   })
   const subagentStreamContext = useMemo(
@@ -1276,6 +1281,7 @@ export function ChatSessionPane({
                   mcpEnabled={sessionMcpEnabled}
                   disabled={inputDisabled || isUpdatingTools}
                   surface={surface}
+                  formsEnabled={formsAccess === "enabled"}
                   mcpIntegrationsHref={`/workspaces/${workspaceId}/mcp-servers`}
                 />
               )}

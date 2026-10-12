@@ -122,6 +122,9 @@ jest.mock("@/hooks/use-entitlements", () => ({
     hasEntitlementData: true,
   })),
 }))
+jest.mock("@/hooks/use-forms-access", () => ({
+  useFormsAccess: () => "hidden",
+}))
 jest.mock("@/hooks/use-agent-presets", () => ({
   useAgentPresets: jest.fn(() => ({
     presets: [],

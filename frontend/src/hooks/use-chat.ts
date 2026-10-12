@@ -28,6 +28,7 @@ import {
   agentSessionsListSessions,
   agentSessionsRemoveSessionArtifact,
   agentSessionsUpdateSession,
+  type ChatPageContext,
   type ContinueRunRequest,
   type VercelChatRequest,
 } from "@/client"
@@ -588,6 +589,7 @@ export function useVercelChat({
   messages,
   modelInfo,
   onData,
+  pageContext,
   resume = true,
 }: {
   chatId?: string
@@ -595,6 +597,8 @@ export function useVercelChat({
   messages: UIMessage[]
   modelInfo?: ModelInfo
   onData?: ChatOnDataCallback<UIMessage>
+  /** The object the page around a docked chat shows, sent with each turn. */
+  pageContext?: ChatPageContext | null
   /**
    * Reconnect to the live event stream on mount. Defaults to true. Set to
    * false for terminal sessions whose history is already seeded from the DB:
@@ -668,6 +672,7 @@ export function useVercelChat({
         }
         const baseUrl = (modelInfo as { baseUrl?: string | null })?.baseUrl
         if (baseUrl != null) body.base_url = baseUrl
+        if (pageContext) body.page_context = pageContext
         return { body }
       },
     }),

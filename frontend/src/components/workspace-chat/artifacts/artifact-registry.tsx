@@ -3,6 +3,7 @@
 import {
   Bell,
   BlocksIcon,
+  ClipboardListIcon,
   FileText,
   KeyRound,
   LayersIcon,
@@ -12,6 +13,7 @@ import {
   WorkflowIcon,
 } from "lucide-react"
 import type { ComponentType } from "react"
+import { formKeys } from "@/hooks/use-forms"
 import { tableSearchKey } from "@/hooks/use-table-search"
 import { invalidateCaseActivityQueries } from "@/lib/cases/invalidation"
 import { caseHref } from "@/lib/cases/urls"
@@ -120,6 +122,25 @@ export const ARTIFACT_REGISTRY = {
       })
       queryClient.invalidateQueries({
         queryKey: ["agent-preset-versions", workspaceId, artifact.id],
+      })
+    },
+  },
+  form: {
+    label: "Forms",
+    singularLabel: "Form",
+    icon: ClipboardListIcon,
+    href: (artifact, workspaceId) =>
+      `/workspaces/${workspaceId}/forms/${artifact.id}`,
+    invalidateQueries: (queryClient, workspaceId, artifact) => {
+      // `exact` matters: the detail key is a prefix of the rendered form's
+      // key, and refetching that on an open requester page records a view.
+      queryClient.invalidateQueries({
+        queryKey: formKeys.detail(workspaceId, artifact.id),
+        exact: true,
+      })
+      queryClient.invalidateQueries({ queryKey: formKeys.list(workspaceId) })
+      queryClient.invalidateQueries({
+        queryKey: formKeys.submissions(workspaceId, artifact.id),
       })
     },
   },

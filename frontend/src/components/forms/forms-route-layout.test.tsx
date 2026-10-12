@@ -2,13 +2,17 @@ import { render, screen } from "@testing-library/react"
 import type { ReactNode } from "react"
 import { FormsRouteLayout } from "@/components/forms/forms-route-layout"
 import { useFormsAccess } from "@/hooks/use-forms-access"
+import { useChatPageContext } from "@/providers/chat-page-context"
 
 const notFound = jest.fn(() => {
   throw new Error("NEXT_NOT_FOUND")
 })
 
+const mockParams: { formId?: string } = {}
+
 jest.mock("next/navigation", () => ({
   notFound: () => notFound(),
+  useParams: () => mockParams,
 }))
 
 jest.mock("@/hooks/use-forms-access", () => ({
@@ -23,16 +27,23 @@ jest.mock("@/components/workspaces/workspace-collection-route-layout", () => ({
 
 const mockUseFormsAccess = jest.mocked(useFormsAccess)
 
+function PageContextProbe() {
+  const pageContext = useChatPageContext()
+  return <output>{JSON.stringify(pageContext)}</output>
+}
+
 function renderLayout() {
   return render(
     <FormsRouteLayout>
       <p>Forms page</p>
+      <PageContextProbe />
     </FormsRouteLayout>
   )
 }
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockParams.formId = undefined
 })
 
 describe("FormsRouteLayout", () => {
@@ -78,5 +89,32 @@ describe("FormsRouteLayout", () => {
       screen.getByText("Forms page")
     )
     expect(screen.queryByText("Forms aren't available")).not.toBeInTheDocument()
+  })
+
+  it("gives the docked chat the open form as page context", () => {
+    mockUseFormsAccess.mockReturnValue("enabled")
+    mockParams.formId = "form-1"
+
+    renderLayout()
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      '{"kind":"form","id":"form-1"}'
+    )
+  })
+
+  it("gives no page context on the forms list", () => {
+    mockUseFormsAccess.mockReturnValue("enabled")
+
+    renderLayout()
+
+    expect(screen.getByRole("status")).toHaveTextContent("null")
+  })
+})
+
+describe("useChatPageContext", () => {
+  it("is empty outside a provider, so other pages send nothing", () => {
+    render(<PageContextProbe />)
+
+    expect(screen.getByRole("status")).toHaveTextContent("null")
   })
 })
