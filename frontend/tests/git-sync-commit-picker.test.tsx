@@ -33,4 +33,21 @@ describe("GitSyncCommitPicker", () => {
     ).toHaveTextContent("bbbbbbbNot in recent commits")
     expect(screen.queryByText("Pick a commit")).not.toBeInTheDocument()
   })
+
+  it("keeps a selected commit visible when the list comes back empty", () => {
+    render(
+      <GitSyncCommitPicker
+        commits={[]}
+        commitSha={"b".repeat(40)}
+        isLoading={false}
+        hasError={false}
+        onSelectCommit={jest.fn()}
+      />
+    )
+
+    expect(
+      screen.getByRole("combobox", { name: "Commit bbbbbbb" })
+    ).toBeInTheDocument()
+    expect(screen.queryByText("No commits yet.")).not.toBeInTheDocument()
+  })
 })

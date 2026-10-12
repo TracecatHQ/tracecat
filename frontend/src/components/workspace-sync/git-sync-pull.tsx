@@ -233,23 +233,40 @@ export function GitSyncPullTab({
         secret_store_mappings: storeSelections,
       })
       setPullPreview(result)
-      // A preview with matches stops listing them; keep them so the page can
-      // say what was matched and reopen the choices.
-      const nextCatalog = result.catalog_mapping_requirements ?? []
-      const nextMcp = result.mcp_integration_mapping_requirements ?? []
+      // A preview stops listing requirements the selections resolved; keep
+      // those rows so the page can say what was matched and reopen them.
+      const catalogKeys = new Set(
+        catalogSelections.map((selection) => selection.source_catalog_id)
+      )
       setCatalogMappingRequirements((previous) =>
-        nextCatalog.length > 0 || catalogSelections.length === 0
-          ? nextCatalog
-          : previous
+        mergeRequirements(
+          previous,
+          result.catalog_mapping_requirements ?? [],
+          catalogKeys,
+          (requirement) => requirement.source_catalog_id
+        )
+      )
+      const mcpKeys = new Set(
+        mcpSelections.map((selection) => selection.source_mcp_integration_id)
       )
       setMcpMappingRequirements((previous) =>
-        nextMcp.length > 0 || mcpSelections.length === 0 ? nextMcp : previous
+        mergeRequirements(
+          previous,
+          result.mcp_integration_mapping_requirements ?? [],
+          mcpKeys,
+          (requirement) => requirement.source_mcp_integration_id
+        )
       )
-      const nextStore = result.secret_store_mapping_requirements ?? []
+      const storeKeys = new Set(
+        storeSelections.map((selection) => selection.source_store)
+      )
       setStoreMappingRequirements((previous) =>
-        nextStore.length > 0 || storeSelections.length === 0
-          ? nextStore
-          : previous
+        mergeRequirements(
+          previous,
+          result.secret_store_mapping_requirements ?? [],
+          storeKeys,
+          (requirement) => requirement.source_store
+        )
       )
       setPullPreviewOptions({
         commitSha: effectivePullSha,
@@ -1032,4 +1049,29 @@ function getPullResultTotals(result: PullResult): {
     found: entries.reduce((total, [, count]) => total + count.found, 0),
     imported: entries.reduce((total, [, count]) => total + count.imported, 0),
   }
+}
+
+/**
+ * Latest requirements, plus earlier rows the current selections resolved,
+ * in their original order.
+ */
+function mergeRequirements<T>(
+  previous: T[],
+  next: T[],
+  selectedKeys: Set<string>,
+  keyOf: (requirement: T) => string
+): T[] {
+  const nextByKey = new Map(
+    next.map((requirement) => [keyOf(requirement), requirement])
+  )
+  const merged = previous.flatMap((requirement) => {
+    const key = keyOf(requirement)
+    const updated = nextByKey.get(key)
+    if (updated) {
+      nextByKey.delete(key)
+      return [updated]
+    }
+    return selectedKeys.has(key) ? [requirement] : []
+  })
+  return [...merged, ...nextByKey.values()]
 }

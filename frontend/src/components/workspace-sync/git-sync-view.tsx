@@ -110,9 +110,9 @@ function GitSyncConnectedView({
     }
   )
   const repoDisplayName = getRepoDisplayName(gitRepoUrl)
-  // A new repository or branch remounts both composers, dropping any preview
-  // or chosen commit taken against the old one.
-  const connectionKey = `${provider}:${gitRepoUrl}:${baseBranch ?? ""}`
+  // A new repository or pinned branch (part of the URL) remounts both
+  // composers. The discovered default is left out so loading it keeps drafts.
+  const connectionKey = `${provider}:${gitRepoUrl}`
 
   function invalidateSyncQueries() {
     return Promise.all(

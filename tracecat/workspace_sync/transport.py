@@ -951,12 +951,13 @@ class GitHubWorkspaceSyncTransport(BaseWorkspaceSyncTransport):
             raw_branches = await asyncio.to_thread(
                 lambda: list(itertools.islice(branches_paginated, limit))
             )
+            names = [branch_obj.name for branch_obj in raw_branches]
+            # Branches list alphabetically, so the default can fall past the limit.
+            if repo.default_branch not in names:
+                names = [repo.default_branch, *names[: limit - 1]]
             return [
-                GitBranchInfo(
-                    name=branch_obj.name,
-                    is_default=branch_obj.name == repo.default_branch,
-                )
-                for branch_obj in raw_branches
+                GitBranchInfo(name=name, is_default=name == repo.default_branch)
+                for name in names
             ]
         except GithubException as e:
             raise GitHubAppError(f"GitHub API error: {e.status} - {e.data}") from e

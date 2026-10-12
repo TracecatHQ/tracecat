@@ -83,7 +83,7 @@ export function GitSyncPushTab({
 
   // Scoped to the repository so a reconnect never restores another repo's branch.
   const rememberScope = `${workspaceId}:${persistedGitUrl}`
-  const { branch, isCreatingBranch, selectBranch, createBranch, hasBranches } =
+  const { branch, isCreatingBranch, selectBranch, createBranch } =
     useWorkspaceSyncBranchTarget({
       branches: repoBranches,
       newBranchPrefix: "sync/workspace",
@@ -118,12 +118,14 @@ export function GitSyncPushTab({
   const changeCount = countChangedResources(
     visiblePreview?.resource_diffs ?? []
   )
-  // Without the base branch, a push to the default branch can't be blocked.
+  // Pushes to the repository default are blocked by name, so stay off until
+  // the branch list says which branch that is.
+  const defaultKnown = repoBranches?.some((candidate) => candidate.is_default)
   const pushDisabled =
     exportWorkspaceIsPending ||
     branchesIsLoading ||
     !baseBranch ||
-    (!hasBranches && !isCreatingBranch) ||
+    !defaultKnown ||
     isBlocked ||
     targetBranch === "" ||
     message.trim() === ""

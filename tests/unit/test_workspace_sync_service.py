@@ -2256,6 +2256,40 @@ async def test_github_read_files_uses_commit_tree_sha(
     assert MANIFEST_FILENAME in snapshot.files
 
 
+@pytest.mark.anyio
+async def test_github_list_branches_includes_default_beyond_limit(
+    workspace_sync_service: WorkspaceSyncService,
+) -> None:
+    repo = Mock()
+    repo.default_branch = "main"
+    # Mock(name=...) names the mock itself, so set the attribute instead.
+    repo.get_branches.return_value = [
+        SimpleNamespace(name=name) for name in ("a", "b", "c")
+    ]
+    gh = Mock()
+    gh.get_repo.return_value = repo
+    gh_service = AsyncMock()
+    gh_service.get_github_client_for_repo.return_value = gh
+
+    transport = GitHubWorkspaceSyncTransport(
+        session=workspace_sync_service.session,
+        role=workspace_sync_service.role,
+    )
+    with patch(
+        "tracecat.workspace_sync.transport.GitHubAppService",
+        return_value=gh_service,
+    ):
+        branches = await transport.list_branches(
+            url=GitUrl(host="github.com", org="TracecatHQ", repo="sync"),
+            limit=2,
+        )
+
+    assert [(b.name, b.is_default) for b in branches] == [
+        ("main", True),
+        ("a", False),
+    ]
+
+
 _ARCHIVE_URL = "https://codeload.github.com/TracecatHQ/sync/legacy.tar.gz/archive"
 _ARCHIVE_GIT_URL = GitUrl(host="github.com", org="TracecatHQ", repo="sync")
 

@@ -512,6 +512,34 @@ describe("GitSyncView connected", () => {
     }
   })
 
+  it.each([
+    ["the branch list fails", undefined],
+    [
+      "no listed branch is the default",
+      [{ name: "release", is_default: false }],
+    ],
+  ])("keeps push off with a pinned branch when %s", (_case, branches) => {
+    const workspace = setup({ gitRepoUrl: `${REPO_URL}@release` })
+    // The pin names the base, but not the repository default.
+    jest.mocked(useRepositoryBranches).mockReturnValue({
+      branches,
+      branchesIsLoading: false,
+      branchesError: branches ? null : new Error("unreachable"),
+    } as unknown as ReturnType<typeof useRepositoryBranches>)
+    renderWithTooltips(
+      <GitSyncView workspace={workspace} canSync canManageConnection />
+    )
+
+    const bar = screen.getByRole("group", { name: "Push actions" })
+    const pushButtons = within(bar)
+      .getAllByRole("button")
+      .filter((button) => /Push/.test(button.textContent ?? ""))
+    expect(pushButtons.length).toBeGreaterThan(0)
+    for (const button of pushButtons) {
+      expect(button).toBeDisabled()
+    }
+  })
+
   it("blocks pushing to the default branch", async () => {
     const user = userEvent.setup()
     renderWithTooltips(
@@ -950,6 +978,62 @@ describe("GitSyncView connected", () => {
         "Installed from the skills library: triage-notes."
       )
     ).toBeInTheDocument()
+  })
+
+  it("keeps a linked store listed while another stays unresolved", async () => {
+    const user = userEvent.setup()
+    const store = (name: string) => ({
+      source_store: name,
+      reason: "unresolved" as const,
+      message: "No store with this name is authorized for this workspace.",
+      candidates: [
+        { store_id: "store-target", name: "target-production", region: null },
+      ],
+      affected_secrets: [
+        { secret_name: `${name}_api`, environment: "default", path: name },
+      ],
+    })
+    const preview: PullResult = {
+      success: true,
+      commit_sha: LATEST_SHA,
+      workflows_found: 0,
+      workflows_imported: 0,
+      diagnostics: [],
+      message: "Dry run completed",
+      resource_diffs: [],
+      secret_store_mapping_requirements: [store("store-a"), store("store-b")],
+    }
+    mockPullWorkflows.mockResolvedValueOnce(preview).mockResolvedValueOnce({
+      ...preview,
+      // Linking store-a resolves it, so the backend lists only store-b.
+      secret_store_mapping_requirements: [store("store-b")],
+    })
+    renderWithTooltips(
+      <GitSyncView workspace={setup()} canSync canManageConnection />
+    )
+
+    await user.click(screen.getByRole("tab", { name: "Pull" }))
+    await user.click(screen.getByRole("button", { name: "Preview" }))
+    await user.click(
+      await screen.findByRole("button", { name: "Choose stores" })
+    )
+    const dialog = await screen.findByRole("dialog", {
+      name: "Matches for this pull",
+    })
+    await user.click(within(dialog).getByLabelText("Target store for store-a"))
+    await user.click(screen.getByRole("option", { name: "target-production" }))
+    await user.click(
+      within(dialog).getByRole("button", { name: "Save and preview again" })
+    )
+
+    await waitFor(() => expect(mockPullWorkflows).toHaveBeenCalledTimes(2))
+    expect(
+      await screen.findByText(/Secret stores: 1 of 2 linked/)
+    ).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Choose stores" }))
+    expect(
+      await screen.findByLabelText("Target store for store-a")
+    ).toHaveTextContent("target-production")
   })
 
   it("clears the push preview after a pull", async () => {

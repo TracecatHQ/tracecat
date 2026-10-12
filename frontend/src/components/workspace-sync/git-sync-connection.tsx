@@ -536,9 +536,6 @@ function resolveConnection(
 }
 
 function getProviderHint(provider: VcsProvider, host: string | undefined) {
-  if (provider === "github") {
-    return "Pick a repository below, or paste its SSH clone URL."
-  }
   return `Paste the SSH clone URL from ${host ?? GIT_PROVIDER_LABELS[provider]}.`
 }
 

@@ -58,7 +58,8 @@ export function GitSyncCommitPicker({
       </p>
     )
   }
-  if (!commits?.length) {
+  // A selected commit stays visible even if a refresh empties the list.
+  if (!commits?.length && !commitSha) {
     return (
       <p className="flex h-8 items-center text-xs text-muted-foreground">
         No commits yet.
@@ -66,8 +67,9 @@ export function GitSyncCommitPicker({
     )
   }
 
-  const selectedIndex = commits.findIndex((commit) => commit.sha === commitSha)
-  const selected = commits[selectedIndex]
+  const list = commits ?? []
+  const selectedIndex = list.findIndex((commit) => commit.sha === commitSha)
+  const selected = list[selectedIndex]
   // A refresh can push the chosen commit out of the list; keep it visible.
   const missingSha = selected ? undefined : commitSha?.substring(0, 7)
   const fallback = missingSha ? (
@@ -135,7 +137,7 @@ export function GitSyncCommitPicker({
             <CommandEmpty className="py-4 text-center text-xs text-muted-foreground">
               No matching commits
             </CommandEmpty>
-            {commits.map((commit, index) => (
+            {list.map((commit, index) => (
               <CommandItem
                 key={commit.sha}
                 value={commit.sha}
