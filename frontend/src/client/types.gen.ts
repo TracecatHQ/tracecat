@@ -3866,6 +3866,30 @@ export type CursorPaginatedResponse_FormReadMinimal_ = {
   total_estimate?: number | null
 }
 
+export type CursorPaginatedResponse_FormSubmissionRead_ = {
+  items: Array<FormSubmissionRead>
+  /**
+   * Cursor for next page
+   */
+  next_cursor?: string | null
+  /**
+   * Cursor for previous page
+   */
+  prev_cursor?: string | null
+  /**
+   * Whether more items exist
+   */
+  has_more?: boolean
+  /**
+   * Whether previous items exist
+   */
+  has_previous?: boolean
+  /**
+   * Estimated total count from table statistics
+   */
+  total_estimate?: number | null
+}
+
 export type CursorPaginatedResponse_FormUserRead_ = {
   items: Array<FormUserRead>
   /**
@@ -5357,6 +5381,57 @@ export type FormResolved = {
  * Whether a form accepts submissions.
  */
 export type FormStatus = "online" | "offline"
+
+export type FormSubmissionCreate = {
+  /**
+   * Answers keyed by field name.
+   */
+  values?: {
+    [key: string]: unknown
+  }
+  /**
+   * The definition_version of the form the requester filled in. If set and stale, the submission is rejected with form_changed.
+   */
+  definition_version?: number | null
+}
+
+export type FormSubmissionRead = {
+  id: string
+  form_id: string
+  reference: string
+  answers: {
+    [key: string]: unknown
+  }
+  submitted_by?: FormActorRead | null
+  definition_version: number
+  /**
+   * Null without form:submission:read.
+   */
+  wf_exec_id?: string | null
+  /**
+   * Null without form:submission:read, or if it is not known.
+   */
+  run_status?:
+    | "RUNNING"
+    | "COMPLETED"
+    | "FAILED"
+    | "CANCELED"
+    | "TERMINATED"
+    | "CONTINUED_AS_NEW"
+    | "TIMED_OUT"
+    | null
+  submitted_at: string
+}
+
+/**
+ * What a requester gets back. Carries no run fields.
+ */
+export type FormSubmissionReceipt = {
+  id: string
+  reference: string
+  submitted_at: string
+  success_message?: string | null
+}
 
 export type FormTextBlock = {
   type: "text"
@@ -15666,6 +15741,48 @@ export type FormsSearchFormUsersData = {
 
 export type FormsSearchFormUsersResponse = CursorPaginatedResponse_FormUserRead_
 
+export type FormsSubmitFormData = {
+  formId: string
+  requestBody: FormSubmissionCreate
+  workspaceId: string
+}
+
+export type FormsSubmitFormResponse = FormSubmissionReceipt
+
+export type FormsListFormSubmissionsData = {
+  cursor?: string | null
+  formId: string
+  limit?: number
+  /**
+   * Only submissions at or after this time.
+   */
+  submittedAfter?: string | null
+  /**
+   * Only submissions before this time.
+   */
+  submittedBefore?: string | null
+  workspaceId: string
+}
+
+export type FormsListFormSubmissionsResponse =
+  CursorPaginatedResponse_FormSubmissionRead_
+
+export type FormsGetFormSubmissionData = {
+  formId: string
+  submissionId: string
+  workspaceId: string
+}
+
+export type FormsGetFormSubmissionResponse = FormSubmissionRead
+
+export type FormsDeleteFormSubmissionData = {
+  formId: string
+  submissionId: string
+  workspaceId: string
+}
+
+export type FormsDeleteFormSubmissionResponse = void
+
 export type FormsListIntakeFormsData = {
   cursor?: string | null
   limit?: number
@@ -22981,6 +23098,70 @@ export type $OpenApiTs = {
          * Successful Response
          */
         200: CursorPaginatedResponse_FormUserRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/forms/{form_id}/submissions": {
+    post: {
+      req: FormsSubmitFormData
+      res: {
+        /**
+         * Successful Response
+         */
+        201: FormSubmissionReceipt
+        /**
+         * Conflict
+         */
+        409: FormErrorResponse
+        /**
+         * Unprocessable Entity
+         */
+        422: FormErrorResponse
+        /**
+         * Service Unavailable
+         */
+        503: FormErrorResponse
+      }
+    }
+    get: {
+      req: FormsListFormSubmissionsData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: CursorPaginatedResponse_FormSubmissionRead_
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+  }
+  "/workspaces/{workspace_id}/forms/{form_id}/submissions/{submission_id}": {
+    get: {
+      req: FormsGetFormSubmissionData
+      res: {
+        /**
+         * Successful Response
+         */
+        200: FormSubmissionRead
+        /**
+         * Validation Error
+         */
+        422: HTTPValidationError
+      }
+    }
+    delete: {
+      req: FormsDeleteFormSubmissionData
+      res: {
+        /**
+         * Successful Response
+         */
+        204: void
         /**
          * Validation Error
          */

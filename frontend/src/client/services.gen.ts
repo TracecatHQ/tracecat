@@ -460,10 +460,16 @@ import type {
   FormsCreateFormResponse,
   FormsDeleteFormData,
   FormsDeleteFormResponse,
+  FormsDeleteFormSubmissionData,
+  FormsDeleteFormSubmissionResponse,
   FormsGetFormData,
   FormsGetFormResponse,
+  FormsGetFormSubmissionData,
+  FormsGetFormSubmissionResponse,
   FormsListFormActivityData,
   FormsListFormActivityResponse,
+  FormsListFormSubmissionsData,
+  FormsListFormSubmissionsResponse,
   FormsListFormsData,
   FormsListFormsResponse,
   FormsListIntakeFormsData,
@@ -476,6 +482,8 @@ import type {
   FormsRenderFormResponse,
   FormsSearchFormUsersData,
   FormsSearchFormUsersResponse,
+  FormsSubmitFormData,
+  FormsSubmitFormResponse,
   FormsUpdateFormData,
   FormsUpdateFormResponse,
   FormsValidateFormData,
@@ -11297,6 +11305,125 @@ export const formsSearchFormUsers = (
       search: data.search,
       limit: data.limit,
       cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Submit Form
+ * Submit a form. Starts the form's workflow with the answers as inputs.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns FormSubmissionReceipt Successful Response
+ * @throws ApiError
+ */
+export const formsSubmitForm = (
+  data: FormsSubmitFormData
+): CancelablePromise<FormsSubmitFormResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/submissions",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      409: "Conflict",
+      422: "Unprocessable Entity",
+      503: "Service Unavailable",
+    },
+  })
+}
+
+/**
+ * List Form Submissions
+ * List a form's submissions with answers, submitter and run status.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.workspaceId
+ * @param data.submittedAfter Only submissions at or after this time.
+ * @param data.submittedBefore Only submissions before this time.
+ * @param data.limit
+ * @param data.cursor
+ * @returns CursorPaginatedResponse_FormSubmissionRead_ Successful Response
+ * @throws ApiError
+ */
+export const formsListFormSubmissions = (
+  data: FormsListFormSubmissionsData
+): CancelablePromise<FormsListFormSubmissionsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/submissions",
+    path: {
+      form_id: data.formId,
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      submitted_after: data.submittedAfter,
+      submitted_before: data.submittedBefore,
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Form Submission
+ * Get a submission: the caller's own, or any with form:submission:read.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.submissionId
+ * @param data.workspaceId
+ * @returns FormSubmissionRead Successful Response
+ * @throws ApiError
+ */
+export const formsGetFormSubmission = (
+  data: FormsGetFormSubmissionData
+): CancelablePromise<FormsGetFormSubmissionResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/submissions/{submission_id}",
+    path: {
+      form_id: data.formId,
+      submission_id: data.submissionId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Form Submission
+ * Delete a submission. The workflow run it started is not affected.
+ * @param data The data for the request.
+ * @param data.formId
+ * @param data.submissionId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const formsDeleteFormSubmission = (
+  data: FormsDeleteFormSubmissionData
+): CancelablePromise<FormsDeleteFormSubmissionResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/forms/{form_id}/submissions/{submission_id}",
+    path: {
+      form_id: data.formId,
+      submission_id: data.submissionId,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

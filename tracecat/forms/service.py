@@ -62,7 +62,7 @@ from tracecat.forms.schemas import (
     FormValidateResponse,
 )
 from tracecat.forms.types import ResolveResult
-from tracecat.identifiers import WorkspaceID
+from tracecat.identifiers import OrganizationID, WorkspaceID
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import CursorPaginatedResponse, Page, PageParams, paginate
 from tracecat.service import BaseOrgService, BaseWorkspaceService
@@ -71,7 +71,7 @@ from tracecat.workspaces.service import WorkspaceService
 
 # The fastapi-users base types these columns as plain values, so queries go
 # through the table.
-_USERS = User.__table__
+USERS = User.__table__
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +132,7 @@ def _preview(
     )
 
 
-def _page_response[T](page: Page[T]) -> CursorPaginatedResponse[T]:
+def page_response[T](page: Page[T]) -> CursorPaginatedResponse[T]:
     return CursorPaginatedResponse(
         items=page.items,
         next_cursor=page.next_cursor,
@@ -142,7 +142,7 @@ def _page_response[T](page: Page[T]) -> CursorPaginatedResponse[T]:
     )
 
 
-def _actor(
+def actor_read(
     user_id: uuid.UUID | None,
     email: str | None,
     first_name: str | None,
@@ -163,6 +163,32 @@ def _actor(
             type="service_account", id=service_account_id, name=service_account_name
         )
     return None
+
+
+def org_users(organization_id: OrganizationID) -> Select[Any]:
+    """Select the active members of an organization, as the ``user`` widget
+    sees them: ID, email, first name and last name."""
+    return (
+        select(USERS.c.id, USERS.c.email, USERS.c.first_name, USERS.c.last_name)
+        .join(
+            OrganizationMembership,
+            and_(
+                OrganizationMembership.user_id == USERS.c.id,
+                OrganizationMembership.organization_id == organization_id,
+            ),
+        )
+        .where(USERS.c.is_active.is_(True))
+    )
+
+
+def user_read(values: tuple[object, ...]) -> FormUserRead:
+    """Build a user from a row of ``org_users``."""
+    return FormUserRead(
+        user_id=cast(uuid.UUID, values[0]),
+        email=cast(str, values[1]),
+        first_name=cast(str | None, values[2]),
+        last_name=cast(str | None, values[3]),
+    )
 
 
 def _escape_like(value: str) -> str:
@@ -357,7 +383,7 @@ class FormsService(BaseWorkspaceService):
             order_by=(Form.created_at.desc(), Form.surrogate_id.desc()),
             row_factory=to_read,
         )
-        return _page_response(result)
+        return page_response(result)
 
     async def read_form(self, form: Form) -> FormRead:
         """Build the builder view of a form: config, issues, URL and counts."""
@@ -557,13 +583,13 @@ class FormsService(BaseWorkspaceService):
                 FormEvent.submission_id,
                 FormEvent.created_at,
                 FormEvent.user_id,
-                _USERS.c.email,
-                _USERS.c.first_name,
-                _USERS.c.last_name,
+                USERS.c.email,
+                USERS.c.first_name,
+                USERS.c.last_name,
                 FormEvent.service_account_id,
                 ServiceAccount.name,
             )
-            .outerjoin(_USERS, _USERS.c.id == FormEvent.user_id)
+            .outerjoin(USERS, USERS.c.id == FormEvent.user_id)
             .outerjoin(
                 ServiceAccount, ServiceAccount.id == FormEvent.service_account_id
             )
@@ -585,7 +611,7 @@ class FormsService(BaseWorkspaceService):
                     else None
                 ),
                 created_at=cast(datetime, values[3]),
-                actor=_actor(
+                actor=actor_read(
                     cast(uuid.UUID | None, values[4]),
                     cast(str | None, values[5]),
                     cast(str | None, values[6]),
@@ -602,26 +628,9 @@ class FormsService(BaseWorkspaceService):
             order_by=(FormEvent.created_at.desc(), FormEvent.surrogate_id.desc()),
             row_factory=to_read,
         )
-        return _page_response(result)
+        return page_response(result)
 
     # ----- User widget -----
-
-    def _org_users(self) -> Select[Any]:
-        """Active members of the organization, as the ``user`` widget sees them.
-
-        Selects ID, email, first name and last name.
-        """
-        return (
-            select(_USERS.c.id, _USERS.c.email, _USERS.c.first_name, _USERS.c.last_name)
-            .join(
-                OrganizationMembership,
-                and_(
-                    OrganizationMembership.user_id == _USERS.c.id,
-                    OrganizationMembership.organization_id == self.organization_id,
-                ),
-            )
-            .where(_USERS.c.is_active.is_(True))
-        )
 
     async def search_users(
         self, form: Form, page: PageParams, *, search: str | None = None
@@ -639,23 +648,15 @@ class FormsService(BaseWorkspaceService):
         ):
             raise TracecatNotFoundError("This form has no user field")
 
-        statement = self._org_users()
+        statement = org_users(self.organization_id)
         if search:
             pattern = f"%{_escape_like(search)}%"
             statement = statement.where(
                 or_(
-                    _USERS.c.email.ilike(pattern, escape="\\"),
-                    _USERS.c.first_name.ilike(pattern, escape="\\"),
-                    _USERS.c.last_name.ilike(pattern, escape="\\"),
+                    USERS.c.email.ilike(pattern, escape="\\"),
+                    USERS.c.first_name.ilike(pattern, escape="\\"),
+                    USERS.c.last_name.ilike(pattern, escape="\\"),
                 )
-            )
-
-        def to_read(values: tuple[object, ...]) -> FormUserRead:
-            return FormUserRead(
-                user_id=cast(uuid.UUID, values[0]),
-                email=cast(str, values[1]),
-                first_name=cast(str | None, values[2]),
-                last_name=cast(str | None, values[3]),
             )
 
         # Email is unique, so it is a total ordering on its own.
@@ -663,10 +664,10 @@ class FormsService(BaseWorkspaceService):
             self.session,
             statement,
             page=page,
-            order_by=(_USERS.c.email.asc(),),
-            row_factory=to_read,
+            order_by=(USERS.c.email.asc(),),
+            row_factory=user_read,
         )
-        return _page_response(users)
+        return page_response(users)
 
 
 class FormsIntakeService(BaseOrgService):
@@ -766,7 +767,7 @@ class FormsIntakeService(BaseOrgService):
                 order_by=(Form.created_at.desc(), Form.surrogate_id.desc()),
                 row_factory=to_read,
             )
-        return _page_response(forms)
+        return page_response(forms)
 
     async def list_submissions(
         self, page: PageParams
@@ -817,4 +818,4 @@ class FormsIntakeService(BaseOrgService):
                 ),
                 row_factory=to_read,
             )
-        return _page_response(submissions)
+        return page_response(submissions)

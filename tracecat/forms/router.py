@@ -1,6 +1,7 @@
 """Workspace routes for forms."""
 
 import uuid
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -21,12 +22,16 @@ from tracecat.forms.schemas import (
     FormRead,
     FormReadMinimal,
     FormResolved,
+    FormSubmissionCreate,
+    FormSubmissionRead,
+    FormSubmissionReceipt,
     FormUpdate,
     FormUserRead,
     FormValidateRequest,
     FormValidateResponse,
 )
 from tracecat.forms.service import FormsService
+from tracecat.forms.submissions import FormSubmissionsService
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import CursorPaginatedResponse, PageParams, PaginationError
 
@@ -248,3 +253,98 @@ async def search_form_users(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
     except FormError as e:
         raise form_http_error(e) from e
+
+
+@router.post(
+    "/{form_id}/submissions",
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        409: {"model": FormErrorResponse},
+        422: {"model": FormErrorResponse},
+        503: {"model": FormErrorResponse},
+    },
+)
+@require_scope("form:read", "form:submit")
+async def submit_form(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    form_id: uuid.UUID,
+    params: FormSubmissionCreate,
+) -> FormSubmissionReceipt:
+    """Submit a form. Starts the form's workflow with the answers as inputs."""
+    form = await get_form_or_404(FormsService(session, role), form_id)
+    try:
+        return await FormSubmissionsService(session, role).submit(form, params)
+    except FormError as e:
+        raise form_http_error(e) from e
+
+
+@router.get("/{form_id}/submissions")
+@require_scope("form:submission:read")
+async def list_form_submissions(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    form_id: uuid.UUID,
+    page: PageQuery,
+    submitted_after: datetime | None = Query(
+        default=None, description="Only submissions at or after this time."
+    ),
+    submitted_before: datetime | None = Query(
+        default=None, description="Only submissions before this time."
+    ),
+) -> CursorPaginatedResponse[FormSubmissionRead]:
+    """List a form's submissions with answers, submitter and run status."""
+    form = await get_form_or_404(FormsService(session, role), form_id)
+    try:
+        return await FormSubmissionsService(session, role).list_submissions(
+            form,
+            page,
+            submitted_after=submitted_after,
+            submitted_before=submitted_before,
+        )
+    except PaginationError as e:
+        raise invalid_cursor_error(e) from e
+
+
+@router.get("/{form_id}/submissions/{submission_id}")
+@require_scope("form:read")
+async def get_form_submission(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    form_id: uuid.UUID,
+    submission_id: uuid.UUID,
+) -> FormSubmissionRead:
+    """Get a submission: the caller's own, or any with form:submission:read."""
+    form = await get_form_or_404(FormsService(session, role), form_id)
+    submission = await FormSubmissionsService(session, role).read_submission(
+        form, submission_id
+    )
+    if submission is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found"
+        )
+    return submission
+
+
+@router.delete(
+    "/{form_id}/submissions/{submission_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+@require_scope("form:submission:delete")
+async def delete_form_submission(
+    *,
+    role: WorkspaceActorRouteRole,
+    session: AsyncDBSession,
+    form_id: uuid.UUID,
+    submission_id: uuid.UUID,
+) -> None:
+    """Delete a submission. The workflow run it started is not affected."""
+    form = await get_form_or_404(FormsService(session, role), form_id)
+    service = FormSubmissionsService(session, role)
+    if (submission := await service.get_submission(form, submission_id)) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Submission not found"
+        )
+    await service.delete_submission(submission)

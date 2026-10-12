@@ -13401,6 +13401,69 @@ export const $CursorPaginatedResponse_FormReadMinimal_ = {
   title: "CursorPaginatedResponse[FormReadMinimal]",
 } as const
 
+export const $CursorPaginatedResponse_FormSubmissionRead_ = {
+  properties: {
+    items: {
+      items: {
+        $ref: "#/components/schemas/FormSubmissionRead",
+      },
+      type: "array",
+      title: "Items",
+    },
+    next_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Next Cursor",
+      description: "Cursor for next page",
+    },
+    prev_cursor: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Prev Cursor",
+      description: "Cursor for previous page",
+    },
+    has_more: {
+      type: "boolean",
+      title: "Has More",
+      description: "Whether more items exist",
+      default: false,
+    },
+    has_previous: {
+      type: "boolean",
+      title: "Has Previous",
+      description: "Whether previous items exist",
+      default: false,
+    },
+    total_estimate: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Total Estimate",
+      description: "Estimated total count from table statistics",
+    },
+  },
+  type: "object",
+  required: ["items"],
+  title: "CursorPaginatedResponse[FormSubmissionRead]",
+} as const
+
 export const $CursorPaginatedResponse_FormUserRead_ = {
   properties: {
     items: {
@@ -17788,6 +17851,152 @@ export const $FormStatus = {
   enum: ["online", "offline"],
   title: "FormStatus",
   description: "Whether a form accepts submissions.",
+} as const
+
+export const $FormSubmissionCreate = {
+  properties: {
+    values: {
+      additionalProperties: true,
+      type: "object",
+      title: "Values",
+      description: "Answers keyed by field name.",
+    },
+    definition_version: {
+      anyOf: [
+        {
+          type: "integer",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Definition Version",
+      description:
+        "The definition_version of the form the requester filled in. If set and stale, the submission is rejected with form_changed.",
+    },
+  },
+  type: "object",
+  title: "FormSubmissionCreate",
+} as const
+
+export const $FormSubmissionRead = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    form_id: {
+      type: "string",
+      format: "uuid",
+      title: "Form Id",
+    },
+    reference: {
+      type: "string",
+      title: "Reference",
+    },
+    answers: {
+      additionalProperties: true,
+      type: "object",
+      title: "Answers",
+    },
+    submitted_by: {
+      anyOf: [
+        {
+          $ref: "#/components/schemas/FormActorRead",
+        },
+        {
+          type: "null",
+        },
+      ],
+    },
+    definition_version: {
+      type: "integer",
+      title: "Definition Version",
+    },
+    wf_exec_id: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Wf Exec Id",
+      description: "Null without form:submission:read.",
+    },
+    run_status: {
+      anyOf: [
+        {
+          type: "string",
+          enum: [
+            "RUNNING",
+            "COMPLETED",
+            "FAILED",
+            "CANCELED",
+            "TERMINATED",
+            "CONTINUED_AS_NEW",
+            "TIMED_OUT",
+          ],
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Run Status",
+      description: "Null without form:submission:read, or if it is not known.",
+    },
+    submitted_at: {
+      type: "string",
+      format: "date-time",
+      title: "Submitted At",
+    },
+  },
+  type: "object",
+  required: [
+    "id",
+    "form_id",
+    "reference",
+    "answers",
+    "definition_version",
+    "submitted_at",
+  ],
+  title: "FormSubmissionRead",
+} as const
+
+export const $FormSubmissionReceipt = {
+  properties: {
+    id: {
+      type: "string",
+      format: "uuid",
+      title: "Id",
+    },
+    reference: {
+      type: "string",
+      title: "Reference",
+    },
+    submitted_at: {
+      type: "string",
+      format: "date-time",
+      title: "Submitted At",
+    },
+    success_message: {
+      anyOf: [
+        {
+          type: "string",
+        },
+        {
+          type: "null",
+        },
+      ],
+      title: "Success Message",
+    },
+  },
+  type: "object",
+  required: ["id", "reference", "submitted_at"],
+  title: "FormSubmissionReceipt",
+  description: "What a requester gets back. Carries no run fields.",
 } as const
 
 export const $FormTextBlock = {

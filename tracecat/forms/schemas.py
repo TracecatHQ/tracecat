@@ -36,6 +36,7 @@ from tracecat.forms.enums import (
 from tracecat.forms.images import decode_image_data_uri, image_data_uri_size
 from tracecat.identifiers import WorkspaceID
 from tracecat.identifiers.workflow import AnyWorkflowID, WorkflowUUID
+from tracecat.workflow.executions.enums import WorkflowExecutionStatusLiteral
 
 # ----- Form config -----
 
@@ -390,6 +391,48 @@ class FormUserRead(Schema):
     email: str
     first_name: str | None = None
     last_name: str | None = None
+
+
+# ----- Submissions -----
+
+
+class FormSubmissionCreate(Schema):
+    values: dict[str, Any] = Field(
+        default_factory=dict, description="Answers keyed by field name."
+    )
+    definition_version: int | None = Field(
+        default=None,
+        description=(
+            "The definition_version of the form the requester filled in. "
+            "If set and stale, the submission is rejected with form_changed."
+        ),
+    )
+
+
+class FormSubmissionReceipt(Schema):
+    """What a requester gets back. Carries no run fields."""
+
+    id: uuid.UUID
+    reference: str
+    submitted_at: datetime
+    success_message: str | None = None
+
+
+class FormSubmissionRead(Schema):
+    id: uuid.UUID
+    form_id: uuid.UUID
+    reference: str
+    answers: dict[str, Any]
+    submitted_by: FormActorRead | None = None
+    definition_version: int
+    wf_exec_id: str | None = Field(
+        default=None, description="Null without form:submission:read."
+    )
+    run_status: WorkflowExecutionStatusLiteral | None = Field(
+        default=None,
+        description="Null without form:submission:read, or if it is not known.",
+    )
+    submitted_at: datetime
 
 
 # ----- Requester API -----

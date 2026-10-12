@@ -1,0 +1,141 @@
+"""Checks on submitted form values that need no database.
+
+The server re-evaluates everything a client is expected to do: which fields
+are visible, which are required and which choices are allowed.
+"""
+
+from collections.abc import Mapping, Sequence
+from datetime import date, datetime
+from typing import Any
+
+from tracecat.forms.enums import FormFieldErrorCode, FormWidget
+from tracecat.forms.schemas import FormBlock, FormFieldBlock, FormFieldError
+from tracecat.forms.types import CheckedValues
+
+
+def _equals(value: Any, expected: Any) -> bool:
+    """Compare a controller's value with a ``visible_if`` value.
+
+    Python treats ``True == 1``. A toggle must not satisfy a number rule.
+    """
+    if isinstance(value, bool) or isinstance(expected, bool):
+        return value is expected
+    return value == expected
+
+
+def visible_fields(
+    blocks: Sequence[FormBlock], values: Mapping[str, Any]
+) -> list[FormFieldBlock]:
+    """Return the fields a requester with these values sees, in block order.
+
+    A conditional field is visible while its controller equals the rule's
+    value. A controller the requester left out counts as its default.
+    """
+    fields = [block for block in blocks if isinstance(block, FormFieldBlock)]
+    by_name = {field.name: field for field in fields}
+    visible: list[FormFieldBlock] = []
+    for field in fields:
+        rule = field.visible_if
+        if rule is None:
+            visible.append(field)
+            continue
+        if (controller := by_name.get(rule.field)) is None:
+            continue
+        if _equals(values.get(rule.field, controller.default), rule.equals):
+            visible.append(field)
+    return visible
+
+
+def _is_empty(value: Any) -> bool:
+    """Whether a value counts as not filled in. ``False`` is a valid toggle."""
+    return value is None or value == "" or value == []
+
+
+def _is_iso_date(value: Any) -> bool:
+    if not isinstance(value, str) or len(value) != 10:
+        return False
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_iso_datetime(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _check_value(field: FormFieldBlock, value: Any) -> FormFieldError | None:
+    def error(code: FormFieldErrorCode, message: str) -> FormFieldError:
+        return FormFieldError(field=field.name, code=code, message=message)
+
+    if field.multiple != isinstance(value, list):
+        expected = "a list" if field.multiple else "a single value"
+        return error(FormFieldErrorCode.INVALID_VALUE, f"Expected {expected}")
+    items = value if field.multiple else [value]
+
+    if field.options is not None:
+        allowed = {option.value for option in field.options}
+        if any(not isinstance(item, str) or item not in allowed for item in items):
+            return error(FormFieldErrorCode.INVALID_OPTION, "Choose one of the options")
+    if field.widget is FormWidget.DATE and not all(map(_is_iso_date, items)):
+        return error(FormFieldErrorCode.INVALID_DATE, "Enter a date as YYYY-MM-DD")
+    if field.widget is FormWidget.DATETIME and not all(map(_is_iso_datetime, items)):
+        return error(
+            FormFieldErrorCode.INVALID_DATE, "Enter a date and time in ISO 8601 format"
+        )
+    return None
+
+
+def check_values(
+    blocks: Sequence[FormBlock], values: Mapping[str, Any]
+) -> CheckedValues:
+    """Check submitted values against a resolved form.
+
+    Rejects keys that are not fields of the form, drops values of fields the
+    requester cannot see, and checks required fields, option membership and
+    date formats on the rest. Types are checked later against the workflow's
+    input schema.
+
+    Args:
+        blocks: The resolved form's blocks.
+        values: Values keyed by field name, as submitted.
+
+    Returns:
+        The visible fields, the values to keep, and any errors.
+    """
+    known = {block.name for block in blocks if isinstance(block, FormFieldBlock)}
+    errors = [
+        FormFieldError(
+            field=name,
+            code=FormFieldErrorCode.UNKNOWN_FIELD,
+            message="This is not a field of the form",
+        )
+        for name in values
+        if name not in known
+    ]
+    visible = visible_fields(blocks, values)
+    kept: dict[str, Any] = {}
+    for field in visible:
+        value = values.get(field.name)
+        if _is_empty(value):
+            if field.required:
+                errors.append(
+                    FormFieldError(
+                        field=field.name,
+                        code=FormFieldErrorCode.REQUIRED,
+                        message="This field is required",
+                    )
+                )
+            continue
+        if (error := _check_value(field, value)) is not None:
+            errors.append(error)
+            continue
+        kept[field.name] = value
+    return CheckedValues(visible=visible, values=kept, errors=errors)

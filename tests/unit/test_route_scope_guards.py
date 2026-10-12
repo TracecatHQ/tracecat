@@ -676,10 +676,20 @@ async def test_mcp_create_scope_guards(endpoint: AsyncEndpoint) -> None:
         (forms_router.render_form, "form:read"),
         (forms_router.list_form_activity, "form:submission:read"),
         (forms_router.search_form_users, "form:read"),
+        (forms_router.list_form_submissions, "form:submission:read"),
+        (forms_router.get_form_submission, "form:read"),
+        (forms_router.delete_form_submission, "form:submission:delete"),
     ],
 )
 async def test_form_scope_guards(endpoint: AsyncEndpoint, required_scope: str) -> None:
     await _assert_endpoint_requires_scope(endpoint, required_scope)
+
+
+@pytest.mark.anyio
+async def test_submit_form_requires_form_read_and_form_submit() -> None:
+    await _assert_endpoint_requires_all_scopes(
+        forms_router.submit_form, ("form:read", "form:submit")
+    )
 
 
 @pytest.mark.anyio
