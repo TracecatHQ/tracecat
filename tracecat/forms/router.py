@@ -7,7 +7,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from tracecat.auth.dependencies import WorkspaceActorRouteRole
-from tracecat.authz.controls import require_scope
+from tracecat.auth.types import Role
+from tracecat.authz.controls import has_scope, require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.db.models import Form
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
@@ -79,6 +80,19 @@ async def get_form_or_404(service: FormsService, form_id: uuid.UUID) -> Form:
     return form
 
 
+def require_config_access(role: Role) -> None:
+    """Hide a form's raw config from requesters.
+
+    ``form:read`` alone is what an intake-only requester holds. They get the
+    resolved form from ``/render`` and nothing else, so the detail route
+    answers 404 unless the caller builds forms or reads submissions.
+    """
+    scopes = role.scopes or frozenset()
+    if has_scope(scopes, "form:update") or has_scope(scopes, "form:submission:read"):
+        return
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form not found")
+
+
 @router.get("")
 @require_scope("form:read")
 async def list_forms(
@@ -146,7 +160,12 @@ async def get_form(
     session: AsyncDBSession,
     form_id: uuid.UUID,
 ) -> FormRead:
-    """Get a form's config, its issues, its URL and its counts."""
+    """Get a form's config, its issues, its URL and its counts.
+
+    Needs form:update or form:submission:read on top of form:read; other
+    callers get 404.
+    """
+    require_config_access(role)
     service = FormsService(session, role)
     form = await get_form_or_404(service, form_id)
     try:

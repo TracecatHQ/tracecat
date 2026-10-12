@@ -11146,6 +11146,9 @@ export const formsValidateForm = (
 /**
  * Get Form
  * Get a form's config, its issues, its URL and its counts.
+ *
+ * Needs form:update or form:submission:read on top of form:read; other
+ * callers get 404.
  * @param data The data for the request.
  * @param data.formId
  * @param data.workspaceId
