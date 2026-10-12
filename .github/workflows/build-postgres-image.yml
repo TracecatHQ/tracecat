@@ -100,6 +100,7 @@ jobs:
       contents: read
       packages: write
     strategy:
+      fail-fast: false
       matrix:
         variant: [trixie, bookworm]
     steps:
@@ -126,9 +127,6 @@ jobs:
           suffix=""
           if [[ "$VARIANT" == bookworm ]]; then suffix="-bookworm"; fi
           [[ "$image" =~ ^ghcr.io/tracecathq/tracecat-postgres:[1-9][0-9]*$suffix$ ]]
-          # The workflow concurrency group serializes trusted main publishers.
-          # Only a confirmed missing manifest permits a new revision to publish.
-          bash scripts/postgres/check-unpublished-image.sh "$image"
           refs=()
           for arch in amd64 arm64; do
             artifact="/tmp/postgres-images/postgres-$VARIANT-$arch"
@@ -141,4 +139,6 @@ jobs:
             digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$tag")
             refs+=("$digest")
           done
-          docker buildx imagetools create -t "$image" "${refs[@]}"
+          # Main publishers are serialized by the workflow concurrency group.
+          # Compare against these exact tested artifacts before touching the tag.
+          bash scripts/postgres/publish-manifest.sh "$image" "${refs[@]}"
