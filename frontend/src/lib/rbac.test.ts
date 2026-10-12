@@ -2,8 +2,10 @@ import type { ScopeRead } from "@/client"
 import {
   abbreviateName,
   abbreviateRoleName,
+  getCategoryPermissionLevel,
   getCategoryScopes,
   getScopesForLevel,
+  LEVEL_ACTIONS,
   organizationTier,
   RESOURCE_CATEGORIES,
   rolesForAssignmentEdit,
@@ -37,6 +39,92 @@ describe("RESOURCE_CATEGORIES", () => {
     expect(
       getScopesForLevel(integrations.resources, [integrationReadScope], "read")
     ).toEqual([integrationReadScope.id])
+  })
+})
+
+describe("forms category", () => {
+  // Resource and action as seeded in tracecat/authz/seeding.py.
+  function platformScope(resource: string, action: string): ScopeRead {
+    return {
+      ...integrationReadScope,
+      id: `${resource}:${action}`,
+      name: `${resource}:${action}`,
+      resource,
+      action,
+    }
+  }
+  const scopes = [
+    platformScope("form", "read"),
+    platformScope("form", "create"),
+    platformScope("form", "update"),
+    platformScope("form", "delete"),
+    platformScope("form", "submit"),
+    platformScope("form:submission", "read"),
+    platformScope("form:submission", "delete"),
+    platformScope("workflow", "read"),
+    platformScope("workflow", "execute"),
+  ]
+  const forms = RESOURCE_CATEGORIES.forms
+
+  it("covers form and submission scopes and nothing else", () => {
+    expect(forms).toMatchObject({ label: "Forms", resources: ["form"] })
+    expect(
+      getCategoryScopes(forms.resources, scopes).map((scope) => scope.id)
+    ).toEqual([
+      "form:read",
+      "form:create",
+      "form:update",
+      "form:delete",
+      "form:submit",
+      "form:submission:read",
+      "form:submission:delete",
+    ])
+  })
+
+  it.each([
+    ["read", ["form:read", "form:submission:read"]],
+    [
+      "write",
+      ["form:read", "form:create", "form:update", "form:submission:read"],
+    ],
+    ["execute", ["form:read", "form:submit", "form:submission:read"]],
+    [
+      "admin",
+      [
+        "form:read",
+        "form:create",
+        "form:update",
+        "form:delete",
+        "form:submit",
+        "form:submission:read",
+        "form:submission:delete",
+      ],
+    ],
+  ] as const)("maps the %s level to its scopes", (level, expected) => {
+    const selected = getScopesForLevel(forms.resources, scopes, level)
+
+    expect(selected).toEqual(expected)
+    // The level reads back from the scopes it selects.
+    expect(
+      getCategoryPermissionLevel(forms.resources, scopes, new Set(selected))
+    ).toBe(level)
+  })
+
+  it("grants form:submit at Execute and Admin only", () => {
+    expect(LEVEL_ACTIONS.execute).toContain("submit")
+    expect(LEVEL_ACTIONS.admin).toContain("submit")
+    expect(LEVEL_ACTIONS.read).not.toContain("submit")
+    expect(LEVEL_ACTIONS.write).not.toContain("submit")
+  })
+
+  it("leaves the workflows Execute level as it was", () => {
+    expect(
+      getScopesForLevel(
+        RESOURCE_CATEGORIES.workflows.resources,
+        scopes,
+        "execute"
+      )
+    ).toEqual(["workflow:read", "workflow:execute"])
   })
 })
 
