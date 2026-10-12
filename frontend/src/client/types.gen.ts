@@ -16248,7 +16248,7 @@ export type CasesListCasesData = {
    */
   limit?: number
   /**
-   * Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
+   * Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks, assignee, tags). Default: created_at
    */
   orderBy?:
     | "created_at"
@@ -16257,6 +16257,8 @@ export type CasesListCasesData = {
     | "severity"
     | "status"
     | "tasks"
+    | "assignee"
+    | "tags"
     | null
   /**
    * Reverse pagination direction
@@ -16332,7 +16334,7 @@ export type CasesSearchCasesData = {
    */
   matchNone?: boolean
   /**
-   * Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
+   * Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks, assignee, tags). Default: created_at
    */
   orderBy?:
     | "created_at"
@@ -16341,6 +16343,8 @@ export type CasesSearchCasesData = {
     | "severity"
     | "status"
     | "tasks"
+    | "assignee"
+    | "tags"
     | null
   /**
    * Return only the sub-cases of this parent case
@@ -16725,6 +16729,8 @@ export type CasesListLinkedCasesData = {
     | "severity"
     | "status"
     | "tasks"
+    | "assignee"
+    | "tags"
     | null
   reverse?: boolean
   rowId: string

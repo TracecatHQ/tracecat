@@ -210,7 +210,9 @@ class CasesClient:
             limit: Maximum items per page.
             cursor: Pagination cursor.
             reverse: Reverse pagination direction.
-            order_by: Column to order by.
+            order_by: created_at, updated_at, priority, severity, status, tasks,
+                assignee, or tags. Assignee uses lowercase email; tags uses the
+                first normalized tag alphabetically. Missing values sort last.
             sort: Sort direction.
 
         Returns:
@@ -254,7 +256,12 @@ class CasesClient:
         include_rows: bool | Unset = UNSET,
         include_payload: bool | Unset = UNSET,
     ) -> types.CaseListResponse:
-        """Search cases with filtering and pagination."""
+        """Search cases with filtering and pagination.
+
+        order_by accepts created_at, updated_at, priority, severity, status,
+        tasks, assignee, and tags. Assignee uses lowercase email; tags uses the
+        first normalized tag alphabetically. Missing values sort last.
+        """
         params: dict[str, Any] = {"limit": limit}
         if is_set(cursor):
             params["cursor"] = cursor

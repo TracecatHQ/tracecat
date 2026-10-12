@@ -6658,7 +6658,9 @@ async def list_cases(
         limit: Maximum items per page.
         cursor: Cursor for pagination.
         order_by: Column to order by. One of: created_at, updated_at,
-            priority, severity, status, tasks.
+            priority, severity, status, tasks, assignee, tags. Assignee uses
+            lowercase email; tags uses the first normalized tag alphabetically.
+            Missing assignees and tags sort last in either direction.
         sort: Sort direction. One of: asc, desc.
 
     Returns a paginated JSON array of case objects.
@@ -6715,7 +6717,9 @@ async def search_cases(
         severity: Comma-separated case severities to filter by. Values:
             unknown, informational, low, medium, high, critical, fatal, other.
         order_by: Column to order by. One of: created_at, updated_at,
-            priority, severity, status, tasks.
+            priority, severity, status, tasks, assignee, tags. Assignee uses
+            lowercase email; tags uses the first normalized tag alphabetically.
+            Missing assignees and tags sort last in either direction.
         sort: Sort direction. One of: asc, desc.
 
     Returns a paginated JSON array of case objects.

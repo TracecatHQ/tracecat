@@ -11915,7 +11915,7 @@ export const formsListIntakeSubmissions = (
  * @param data.limit Maximum items per page
  * @param data.cursor Cursor for pagination
  * @param data.reverse Reverse pagination direction
- * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
+ * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks, assignee, tags). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @param data.includeRows Include linked table rows
  * @param data.fieldIds Include only the requested custom field IDs
@@ -12003,7 +12003,7 @@ export const casesCreateCase = (
  * @param data.updatedAfter Return cases updated at or after this timestamp
  * @param data.updatedBefore Return cases updated at or before this timestamp
  * @param data.assigneeId Filter by assignee ID or 'unassigned'
- * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks). Default: created_at
+ * @param data.orderBy Column name to order by (e.g. created_at, updated_at, priority, severity, status, tasks, assignee, tags). Default: created_at
  * @param data.sort Direction to sort (asc or desc)
  * @param data.includeRows Include linked table rows
  * @param data.fieldIds Include only the requested custom field IDs

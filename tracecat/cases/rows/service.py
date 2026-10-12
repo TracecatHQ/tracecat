@@ -752,7 +752,14 @@ class CaseTableRowsService(BaseWorkspaceService):
         params: CursorPaginationParams,
         exclude_case_id: uuid.UUID | None = None,
         order_by: Literal[
-            "created_at", "updated_at", "priority", "severity", "status", "tasks"
+            "created_at",
+            "updated_at",
+            "priority",
+            "severity",
+            "status",
+            "tasks",
+            "assignee",
+            "tags",
         ]
         | None = None,
         sort: Literal["asc", "desc"] | None = None,

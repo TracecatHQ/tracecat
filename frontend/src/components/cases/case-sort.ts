@@ -1,12 +1,9 @@
 "use client"
 
-export type CaseSortField =
-  | "updated_at"
-  | "created_at"
-  | "priority"
-  | "severity"
-  | "status"
-  | "tasks"
+import type { CasesSearchCasesData } from "@/client"
+
+/** Case ordering choices supported by the generated search contract. */
+export type CaseSortField = NonNullable<CasesSearchCasesData["orderBy"]>
 
 export interface CaseSortValue {
   field: CaseSortField
