@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronDown, ChevronUp, Maximize2, X } from "lucide-react"
+import { Maximize2, X } from "lucide-react"
 import Link from "next/link"
 import { useCallback, useEffect, useRef } from "react"
 import type { CaseReadMinimal } from "@/client"
@@ -228,33 +228,11 @@ export function CaseSidePanel({
           {caseId && <CasePanelView caseId={caseId} embedded />}
         </div>
         <DrawerFooter className="flex-row items-center justify-between gap-2 border-t px-3 py-2">
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              onClick={goPrevious}
-              disabled={!previousCase}
-              aria-label="Previous case"
-            >
-              <ChevronUp className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-7"
-              onClick={goNext}
-              disabled={!nextCase}
-              aria-label="Next case"
-            >
-              <ChevronDown className="size-3.5" />
-            </Button>
-            <span className="ml-1 flex items-center gap-1 text-xs text-muted-foreground">
-              <Kbd aria-hidden>↑</Kbd>
-              <Kbd aria-hidden>↓</Kbd>
-              <span>to navigate</span>
-            </span>
-          </div>
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            <Kbd>↑</Kbd>
+            <Kbd>↓</Kbd>
+            <span>to navigate</span>
+          </span>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {foundIndex >= 0 && (
               <span className="tabular-nums">
@@ -263,7 +241,7 @@ export function CaseSidePanel({
               </span>
             )}
             <span className="flex items-center gap-1">
-              <Kbd aria-hidden>Esc</Kbd>
+              <Kbd>Esc</Kbd>
               <span>to close</span>
             </span>
           </div>
