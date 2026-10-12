@@ -508,13 +508,99 @@ describe("FormRenderer", () => {
         screen.getByLabelText("Quote", { selector: "input" }),
         pdf()
       )
-      expect(await screen.findByText("Upload failed")).toBeInTheDocument()
+      // The server's reason is shown on the file.
+      expect(await screen.findByText("Too large")).toBeInTheDocument()
       await user.click(submitButton())
 
       expect(
         await screen.findByText("Remove the files that failed to upload")
       ).toBeInTheDocument()
       expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    it("rejects a file the field does not take without uploading it", async () => {
+      const uploadFile = jest.fn().mockResolvedValue({ id: "file-1" })
+      const { onSubmit } = renderForm({ form: fileForm, uploadFile })
+      // Dropping bypasses the picker's own accept filter.
+      const user = userEvent.setup({ applyAccept: false })
+
+      await user.upload(
+        screen.getByLabelText("Quote", { selector: "input" }),
+        new File(["x"], "notes.txt", { type: "text/plain" })
+      )
+
+      expect(
+        await screen.findByText("This field takes .pdf")
+      ).toBeInTheDocument()
+      expect(uploadFile).not.toHaveBeenCalled()
+      await user.click(submitButton())
+      expect(
+        await screen.findByText("Remove the files that failed to upload")
+      ).toBeInTheDocument()
+      expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    it("rejects a file over the field's size limit without uploading it", async () => {
+      const uploadFile = jest.fn()
+      const { user } = renderForm({
+        uploadFile,
+        form: resolvedForm({
+          blocks: [
+            fieldBlock({
+              name: "quote",
+              label: "Quote",
+              widget: "file",
+              config: { max_files: 1, max_file_size: 3 },
+            }),
+          ],
+        }),
+      })
+
+      await user.upload(
+        screen.getByLabelText("Quote", { selector: "input" }),
+        new File(["xxxx"], "quote.pdf", { type: "application/pdf" })
+      )
+
+      expect(
+        await screen.findByText("Files can be at most 3 Bytes")
+      ).toBeInTheDocument()
+      expect(uploadFile).not.toHaveBeenCalled()
+    })
+
+    it("keeps a list field to max_files", async () => {
+      const uploadFile = jest
+        .fn()
+        .mockResolvedValueOnce({ id: "file-1" })
+        .mockResolvedValueOnce({ id: "file-2" })
+      const { user, onSubmit } = renderForm({
+        uploadFile,
+        form: resolvedForm({
+          blocks: [
+            fieldBlock({
+              name: "photos",
+              label: "Photos",
+              widget: "file",
+              multiple: true,
+              config: { max_files: 2 },
+            }),
+          ],
+        }),
+      })
+
+      await user.upload(
+        screen.getByLabelText("Photos", { selector: "input" }),
+        ["a.pdf", "b.pdf", "c.pdf"].map(
+          (name) => new File(["x"], name, { type: "application/pdf" })
+        )
+      )
+
+      expect(uploadFile).toHaveBeenCalledTimes(2)
+      expect(screen.queryByText("c.pdf")).not.toBeInTheDocument()
+      expect(screen.getByText("Choose files")).toBeDisabled()
+      await user.click(submitButton())
+      await waitFor(() =>
+        expect(onSubmit).toHaveBeenCalledWith({ photos: ["file-1", "file-2"] })
+      )
     })
   })
 

@@ -19,6 +19,7 @@ import {
   getFormLoadFailure,
   isFormOfflineError,
 } from "@/lib/forms/errors"
+import { uploadFormFile } from "@/lib/forms/files"
 import type { FormValues } from "@/lib/forms/visibility"
 import { useUserScopes } from "@/lib/hooks"
 
@@ -111,6 +112,7 @@ export function RequesterForm({ formId }: { formId: string }) {
           // Unknown scopes do not block the form: the server decides.
           canSubmit={userScopes ? canSubmitForms(userScopes.scopes) : true}
           onSubmit={handleSubmit}
+          uploadFile={uploadFormFile}
           submitterEmail={user?.email}
         />
       </div>

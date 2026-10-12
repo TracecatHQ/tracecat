@@ -8,6 +8,7 @@ import {
   type FormWidgetProps,
 } from "@/components/forms/widgets/types"
 import { Button } from "@/components/ui/button"
+import { checkFormFile } from "@/lib/forms/files"
 import type { FormFileItem } from "@/lib/forms/visibility"
 import { cn, formatFileSize } from "@/lib/utils"
 
@@ -21,19 +22,25 @@ function describeLimits(accept: string[], maxFiles: number): string {
   return accept.length > 0 ? `${accept.join(", ")}. ${count}.` : `${count}.`
 }
 
-const STATUS_LABELS: Partial<Record<FormFileItem["status"], string>> = {
-  uploading: "Uploading...",
-  failed: "Upload failed",
+function statusLabel(item: FormFileItem): string | null {
+  if (item.status === "uploading") {
+    return "Uploading..."
+  }
+  if (item.status === "failed") {
+    return item.error ?? "Upload failed"
+  }
+  return null
 }
 
 /**
  * File picker with a drop zone and a list of picked files.
  *
- * Picking files only changes form state. An upload happens only when the
- * form runs live and the renderer was given `runtime.uploadFile`; each file
- * then moves from `uploading` to `uploaded` or `failed`. Without an uploader
- * files stay `selected`, nothing is sent for the field, and the server's
- * answer for it is shown as the field error.
+ * A picked file is first checked against the field's `accept` and size
+ * limit; one that fails is listed as `failed` with the reason and is never
+ * sent. The rest upload only when the form runs live and the renderer was
+ * given `runtime.uploadFile`: each moves from `uploading` to `uploaded` or
+ * `failed`, and a failure shows the server's reason. In preview, and without
+ * an uploader, files stay `selected` and nothing leaves the browser.
  */
 export function FileWidget({
   id,
@@ -79,20 +86,28 @@ export function FileWidget({
     if (picked.length === 0) {
       return
     }
-    const added = picked.map((file) => ({
-      file,
-      item: {
+    const added = picked.map((file) => {
+      const error = checkFormFile(file, field.config)
+      const item: FormFileItem = {
         key: `file-${++nextFileKey}`,
         name: file.name,
         size: file.size,
         status: upload ? "uploading" : "selected",
-      } satisfies FormFileItem,
-    }))
+      }
+      if (error) {
+        item.status = "failed"
+        item.error = error
+      }
+      return { file, item }
+    })
     commit([...kept, ...added.map(({ item }) => item)])
     if (!upload) {
       return
     }
     for (const { file, item } of added) {
+      if (item.status !== "uploading") {
+        continue
+      }
       upload({
         workspaceId: runtime.workspaceId,
         formId: runtime.formId,
@@ -176,7 +191,7 @@ export function FileWidget({
             <li
               key={item.key}
               className={cn(
-                "flex h-11 items-center gap-2.5 rounded-md border pl-3 pr-1.5 text-sm",
+                "flex min-h-11 items-center gap-2.5 rounded-md border py-1 pl-3 pr-1.5 text-sm",
                 item.status === "failed" && "border-destructive"
               )}
             >
@@ -185,16 +200,16 @@ export function FileWidget({
               <span className={cn(formStyles.help, "shrink-0")}>
                 {formatFileSize(item.size)}
               </span>
-              {STATUS_LABELS[item.status] && (
+              {statusLabel(item) && (
                 <span
+                  role={item.status === "failed" ? "alert" : "status"}
                   className={cn(
                     formStyles.help,
-                    "shrink-0",
+                    "min-w-0",
                     item.status === "failed" && "text-destructive"
                   )}
-                  title={item.error}
                 >
-                  {STATUS_LABELS[item.status]}
+                  {statusLabel(item)}
                 </span>
               )}
               <Button

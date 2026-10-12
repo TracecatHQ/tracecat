@@ -4,6 +4,7 @@ import { format } from "date-fns"
 import {
   BotIcon,
   ChevronRightIcon,
+  DownloadIcon,
   EyeIcon,
   InboxIcon,
   type LucideIcon,
@@ -31,9 +32,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { toast } from "@/components/ui/use-toast"
 import UserAvatar from "@/components/user-avatar"
 import { useFormSubmissions } from "@/hooks/use-forms"
 import { executionId } from "@/lib/event-history"
+import { downloadFormFile, getFileAnswers } from "@/lib/forms/files"
 import { capitalizeFirst, cn, formatFileSize, shortTimeAgo } from "@/lib/utils"
 
 function actorName(actor: FormActorRead | null | undefined): string {
@@ -116,6 +119,58 @@ export function getFieldLabels(
     }
   }
   return labels
+}
+
+/**
+ * One answer of a submission. Files are buttons that download them; anything
+ * else is text.
+ */
+function Answer({
+  value,
+  workspaceId,
+  formId,
+}: {
+  value: unknown
+  workspaceId: string
+  formId: string
+}) {
+  const files = getFileAnswers(value)
+  if (!files) {
+    return formatAnswer(value)
+  }
+
+  async function download(fileId: string) {
+    try {
+      await downloadFormFile({ workspaceId, formId, fileId })
+    } catch {
+      toast({
+        title: "Could not download the file",
+        description: "It may have been deleted. Reload and try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  return (
+    <ul className="flex flex-col items-start gap-1">
+      {files.map((file) => (
+        <li key={file.id} className="max-w-full">
+          <button
+            type="button"
+            onClick={() => download(file.id)}
+            aria-label={`Download ${file.name}`}
+            className="flex max-w-full items-center gap-1.5 rounded-sm text-left underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          >
+            <DownloadIcon className="size-3 shrink-0 text-muted-foreground" />
+            <span className="truncate">{file.name}</span>
+            <span className="shrink-0 text-muted-foreground">
+              {formatFileSize(file.size)}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 function StatTile({
@@ -260,7 +315,11 @@ function SubmissionRow({
                 {labels[key] ?? key}
               </dt>
               <dd className="mt-0.5 whitespace-pre-wrap break-words">
-                {formatAnswer(value)}
+                <Answer
+                  value={value}
+                  workspaceId={workspaceId}
+                  formId={submission.form_id}
+                />
               </dd>
             </div>
           ))}

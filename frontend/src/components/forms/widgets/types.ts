@@ -3,9 +3,9 @@ import type { FormFieldBlock } from "@/client"
 /**
  * Uploads one file of a `file` field and resolves to its file ID.
  *
- * This is the only seam between the `file` widget and the network. The
- * backend has no upload route yet, so nothing passes one today and picked
- * files stay local.
+ * This is the only seam between the `file` widget and the network. The live
+ * requester page passes `uploadFormFile`; a preview passes nothing, so picked
+ * files stay local. A rejection's message is shown on the file.
  */
 export type FormFileUploader = (args: {
   workspaceId: string

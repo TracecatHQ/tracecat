@@ -16,6 +16,7 @@ import {
   type FormSubmissionRead,
   type FormsValidateFormData,
   type FormValidateResponse,
+  formsDownloadFormFile,
   formsGetForm,
   formsListFormSubmissions,
   formsPreviewForm,
@@ -39,6 +40,7 @@ jest.mock("next/navigation", () => ({
 }))
 
 jest.mock("@/client", () => ({
+  formsDownloadFormFile: jest.fn(),
   formsGetForm: jest.fn(),
   formsListFormSubmissions: jest.fn(),
   formsPreviewForm: jest.fn(),
@@ -745,8 +747,45 @@ describe("FormDetail", () => {
       expect(answerOf("manager")).toHaveTextContent(
         "Daniel Reyes (daniel.reyes@example.com)"
       )
-      expect(answerOf("quote")).toHaveTextContent("quote.pdf (2 KB)")
+      expect(answerOf("quote")).toHaveTextContent("quote.pdf2 KB")
       expect(answerOf("extras")).toHaveTextContent('"colour": "silver"')
+    })
+
+    it("downloads a submitted file from its answer", async () => {
+      jest.mocked(formsDownloadFormFile).mockResolvedValue({
+        download_url:
+          "https://storage.example.com/forms/a/b/file-1?signature=x",
+        file_name: "quote.pdf",
+        content_type: "application/pdf",
+      })
+      const clicked: string[] = []
+      const click = jest
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(function (this: HTMLAnchorElement) {
+          clicked.push(this.href)
+        })
+      const { user } = renderDetail()
+
+      await user.click(
+        await screen.findByRole("button", {
+          name: "Show answers of FRM-8F3K2A1C",
+        })
+      )
+      await user.click(
+        await screen.findByRole("button", { name: "Download quote.pdf" })
+      )
+
+      await waitFor(() =>
+        expect(clicked).toEqual([
+          "https://storage.example.com/forms/a/b/file-1?signature=x",
+        ])
+      )
+      expect(formsDownloadFormFile).toHaveBeenCalledWith({
+        workspaceId: "workspace-1",
+        formId: "form-1",
+        fileId: "file-1",
+      })
+      click.mockRestore()
     })
 
     it("shows no run for a submission the server sent without one", async () => {
