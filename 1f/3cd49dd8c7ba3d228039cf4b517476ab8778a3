@@ -1,0 +1,30 @@
+tests/unit/test_rbac_scopes.py
+  s_7f6729d1c18d55::t_d6bad643028a66 333-335,337-341
+tests/unit/test_agent_org_read_routes.py
+  s_7f6729d1c18d55::t_878c5c336f2438 1-14,16-20,22-24,27-30,35-57,86-106,108-180
+  s_7f6729d1c18d55::t_dd712a3567e380 21,25-26,31-34,58-70,74-85,107
+  s_7f6729d1c18d55::t_4463f07cf470fc 15
+  s_7f6729d1c18d55::t_74f7aa11942fdc 71-73
+tracecat/authz/service.py
+  s_7f6729d1c18d55::t_4aca0c42f51bc2 82-86,97
+  s_7f6729d1c18d55::t_1051f14c1fae50 115
+tests/unit/test_rbac_service.py
+  s_7f6729d1c18d55::t_f5fd9e008d5155 1788-1791,1793-1864
+  s_7f6729d1c18d55::t_dd712a3567e380 1792
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1f3cd49dd8c7ba3d228039cf4b517476ab8778a3",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
