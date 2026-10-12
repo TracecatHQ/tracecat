@@ -3005,11 +3005,15 @@ layout:
 ```
 - Entries: `field`, `heading`, `text` (markdown), `notice`, `divider: true`.
   Field keys: `label`, `help`, `placeholder`, `widget`, `options`,
-  `visible_if`, `autofill`, `hidden`.
+  `visible_if`, `autofill`, `hidden`, `accept`, `max_files`.
 - Widgets (first is the default): `str`: text, long_text, select, cards, date,
   datetime. `int`/`float`: number. `bool`: toggle. `enum[...]`: select, cards.
   `list[enum]`: multi_select, cards. `list[str]`: tags, multi_select, cards.
-  `datetime`: datetime, date. `dict`/`list[dict]`: user (no default).
+  `datetime`: datetime, date. `dict`/`list[dict]`: user, file (no default).
+- `file` takes `accept` (`[".pdf", "image/*"]`) and `max_files` (1 to 10; above
+  1 needs `list[dict]`). The input gets
+  `{id, name, content_type, size, sha256}`; read the bytes with
+  `core.forms.download_file`.
 - `options` decorate an `enum[...]` input's values; for `str` and `list[str]`
   they define the allowed values.
 - `visible_if` needs an earlier, unconditional scalar field. A field with
@@ -6105,7 +6109,8 @@ async def update_form(
     presentation. Inputs left out of `layout` are appended in schema order
     with a default widget, so an empty config is a working form. Read the
     "Form Trigger" section of `tracecat://platform/dsl-reference` for the
-    layout entries, widgets and rules.
+    layout entries, widgets and rules. A `file` widget lets people upload
+    files; it takes `accept` and `max_files`.
 
     Args:
         workspace_id: The workspace ID.

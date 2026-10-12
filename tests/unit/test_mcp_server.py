@@ -12173,9 +12173,10 @@ def test_mcp_instruction_named_placeholders_are_all_rendered() -> None:
 
 
 def test_dsl_reference_text_stays_within_context_budget() -> None:
-    # Raised from 15500 for the "Form Trigger" section. The form config has no
-    # other on-demand reference a client can read without network access.
-    assert len(mcp_server._DSL_REFERENCE_TEXT) <= 17600
+    # Raised from 15500 for the "Form Trigger" section, then by 300 for its
+    # `file` widget. The form config has no other on-demand reference a client
+    # can read without network access.
+    assert len(mcp_server._DSL_REFERENCE_TEXT) <= 17900
 
 
 @pytest.mark.anyio
@@ -13187,6 +13188,6 @@ def test_dsl_reference_describes_the_form_trigger() -> None:
     for widget in mcp_server.FormConfig.model_json_schema()["$defs"]["FormWidget"][
         "enum"
     ]:
-        # File uploads are documented when they ship.
-        if widget != "file":
-            assert widget in reference
+        assert widget in reference
+    for key in ("accept", "max_files", "core.forms.download_file"):
+        assert key in reference

@@ -135,3 +135,19 @@ class FormsClient:
             TracecatNotFoundError: If the submission does not exist.
         """
         await self._client.delete(f"/forms/submissions/{submission_id}")
+
+    async def download_file(self, file_id: str) -> dict[str, Any]:
+        """Download a file a form submission carries.
+
+        Args:
+            file_id: The ``id`` of a file object in a submission's answers.
+
+        Returns:
+            dict with ``id``, ``name``, ``content_type``, ``size``, ``sha256``
+            and ``content_base64``.
+
+        Raises:
+            TracecatNotFoundError: If the file does not exist or no submission
+                has claimed it.
+        """
+        return await self._client.get(f"/forms/files/{file_id}/download")

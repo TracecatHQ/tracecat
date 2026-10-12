@@ -15,6 +15,7 @@ from tracecat_registry.core import forms as core_forms
 from tracecat_registry.sdk.client import TracecatClient
 from tracecat_registry.sdk.forms import FormsClient
 
+FILE_ID = "7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b"
 FORM_ID = "0b0c8f8e-0d0b-4d3a-9a57-3d0f2a3e6b11"
 SUBMISSION_ID = "5f2d1f4a-9c1e-4c77-8a43-6a1f0d1b2c3d"
 WORKFLOW_ID = "wf_4itKqkgCZrLhgYiq5L211X"
@@ -26,6 +27,7 @@ ACTIONS: dict[str, Callable[..., Any]] = {
     "list_submissions": core_forms.list_submissions,
     "get_submission": core_forms.get_submission,
     "delete_submission": core_forms.delete_submission,
+    "download_file": core_forms.download_file,
 }
 
 
@@ -46,8 +48,9 @@ def test_action_is_registered_under_core_forms_behind_the_entitlement(
     assert kwargs["required_entitlements"] == ["forms"]
 
 
-def test_file_download_is_left_for_the_file_uploads_milestone() -> None:
-    assert not hasattr(core_forms, "download_file")
+def test_update_form_documents_the_file_widget_keys() -> None:
+    for key in ("file", "`accept`", "`max_files`"):
+        assert key in core_forms._CONFIG_DOC
 
 
 # ----- Actions delegate to the SDK -----
@@ -119,6 +122,15 @@ async def test_get_and_delete_submission_delegate(forms_sdk: MagicMock) -> None:
     assert await core_forms.delete_submission(submission_id=SUBMISSION_ID) is None
     forms_sdk.get_submission.assert_awaited_once_with(SUBMISSION_ID)
     forms_sdk.delete_submission.assert_awaited_once_with(SUBMISSION_ID)
+
+
+@pytest.mark.anyio
+async def test_download_file_delegates(forms_sdk: MagicMock) -> None:
+    content = {"id": FILE_ID, "name": "quote.pdf", "content_base64": "JVBERg=="}
+    forms_sdk.download_file = AsyncMock(return_value=content)
+
+    assert await core_forms.download_file(file_id=FILE_ID) == content
+    forms_sdk.download_file.assert_awaited_once_with(FILE_ID)
 
 
 # ----- SDK paths -----
@@ -203,6 +215,12 @@ async def test_submission_paths(forms_client: FormsClient, http: MagicMock) -> N
 
     http.get.assert_awaited_once_with(f"/forms/submissions/{SUBMISSION_ID}")
     http.delete.assert_awaited_once_with(f"/forms/submissions/{SUBMISSION_ID}")
+
+
+@pytest.mark.anyio
+async def test_download_file_path(forms_client: FormsClient, http: MagicMock) -> None:
+    await forms_client.download_file(FILE_ID)
+    http.get.assert_awaited_once_with(f"/forms/files/{FILE_ID}/download")
 
 
 @pytest.mark.anyio

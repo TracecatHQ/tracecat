@@ -17,8 +17,10 @@ from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatConflictError, TracecatNotFoundError
 from tracecat.forms.dependencies import require_forms_enabled_for_executor
 from tracecat.forms.exceptions import FormError
+from tracecat.forms.files import FormFilesService
 from tracecat.forms.router import form_http_error, get_form_or_404, invalid_cursor_error
 from tracecat.forms.schemas import (
+    FormFileContent,
     FormRead,
     FormReadMinimal,
     FormSubmissionRead,
@@ -93,6 +95,23 @@ async def delete_submission(
     if (submission := await service.get_submission(form, submission_id)) is None:
         raise _submission_not_found()
     await service.delete_submission(submission)
+
+
+@router.get("/files/{file_id}/download")
+@require_scope("form:submission:read")
+async def download_file(
+    *,
+    role: ExecutorWorkspaceRole,
+    session: AsyncDBSession,
+    file_id: uuid.UUID,
+) -> FormFileContent:
+    """Download a file a submission has claimed, with its content in base64."""
+    content = await FormFilesService(session, role).read_content(file_id)
+    if content is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="File not found"
+        )
+    return content
 
 
 @router.put("/workflows/{workflow_id}")

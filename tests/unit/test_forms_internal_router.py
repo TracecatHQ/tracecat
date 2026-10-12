@@ -1,5 +1,7 @@
 """Tests for the internal forms routes that back the core.forms actions."""
 
+import base64
+import hashlib
 import uuid
 from typing import Any, cast, get_args
 from unittest.mock import AsyncMock, patch
@@ -17,7 +19,7 @@ from tracecat.auth.dependencies import ExecutorWorkspaceRole
 from tracecat.auth.types import Role
 from tracecat.authz.scopes import SERVICE_PRINCIPAL_SCOPES
 from tracecat.db.engine import get_async_session
-from tracecat.db.models import Form, FormSubmission, Workflow, Workspace
+from tracecat.db.models import Form, FormFile, FormSubmission, Workflow, Workspace
 from tracecat.executor.action_gateway.app import create_app
 from tracecat.executor.action_gateway.policy import (
     enforce_agent_script_gateway_access,
@@ -29,6 +31,7 @@ from tracecat.forms.enums import FormStatus
 from tracecat.forms.schemas import FormConfig, FormUpdate
 from tracecat.identifiers.workflow import WorkflowUUID
 from tracecat.pagination import PageParams
+from tracecat.storage import blob
 
 pytestmark = [pytest.mark.usefixtures("db"), pytest.mark.anyio]
 
@@ -44,6 +47,7 @@ EXPECTED_ROUTES = {
     ("GET", "/internal/forms/{form_id}/submissions"),
     ("GET", "/internal/forms/submissions/{submission_id}"),
     ("DELETE", "/internal/forms/submissions/{submission_id}"),
+    ("GET", "/internal/forms/files/{file_id}/download"),
 }
 
 
@@ -316,3 +320,65 @@ async def test_submissions_of_another_workspace_are_not_found(
             await call(role=other_role, session=session, submission_id=submission_id)
         assert exc_info.value.status_code == 404
     assert await _stored(session, submission_id)
+
+
+# ----- Files -----
+
+
+async def test_download_file_serves_claimed_files_only(
+    session: AsyncSession,
+    executor_role: Role,
+    workflow: Workflow,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    form = await create_form(session, workflow)
+    submission = await _submission(session, form)
+    content = b"%PDF-1.4 synthetic"
+
+    async def file(submission_id: uuid.UUID | None) -> FormFile:
+        row = FormFile(
+            workspace_id=form.workspace_id,
+            form_id=form.id,
+            submission_id=submission_id,
+            field="quote",
+            name="quote.pdf",
+            content_type="application/pdf",
+            size=len(content),
+            sha256=hashlib.sha256(content).hexdigest(),
+        )
+        session.add(row)
+        await session.commit()
+        return row
+
+    claimed, pending = await file(submission.id), await file(None)
+    keys: list[str] = []
+
+    async def download_file(
+        key: str, bucket: str, *, redact_log_identifiers: bool = False
+    ) -> bytes:
+        keys.append(key)
+        return content
+
+    monkeypatch.setattr(blob, "download_file", download_file)
+
+    downloaded = await internal_router.download_file(
+        role=executor_role, session=session, file_id=claimed.id
+    )
+
+    assert base64.b64decode(downloaded.content_base64) == content
+    assert downloaded.model_dump(exclude={"content_base64"}) == {
+        "id": claimed.id,
+        "name": "quote.pdf",
+        "content_type": "application/pdf",
+        "size": len(content),
+        "sha256": hashlib.sha256(content).hexdigest(),
+    }
+    assert keys == [f"forms/{form.workspace_id}/{form.id}/{claimed.id}"]
+
+    for file_id in (pending.id, uuid.uuid4()):
+        with pytest.raises(HTTPException) as exc_info:
+            await internal_router.download_file(
+                role=executor_role, session=session, file_id=file_id
+            )
+        assert exc_info.value.status_code == 404
+    assert len(keys) == 1

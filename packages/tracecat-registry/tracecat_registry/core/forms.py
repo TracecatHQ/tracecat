@@ -22,6 +22,9 @@ _CONFIG_DOC = (
     "(`[{value, label, description}]`), `visible_if` (`{field, equals}`), "
     "`autofill` (requester, requester.user_id, requester.email, "
     "requester.first_name, requester.last_name, submission.id) or `hidden`. "
+    "A `file` field may add `accept` (extensions or MIME types, e.g. "
+    '`[".pdf", "image/*"]`) and `max_files` (1 to 10; more than 1 needs a '
+    "`list[dict]` input). "
     "Workflow inputs left out of `layout` are appended in schema order. Omit "
     "`config` to leave it unchanged."
 )
@@ -144,7 +147,8 @@ async def get_submission(
     display_group="Forms",
     description=(
         "Delete a form submission and its stored answers. The workflow run it "
-        "started keeps its own copy of the inputs."
+        "started keeps its own copy of the inputs. Files uploaded with the "
+        "submission are deleted too."
     ),
     namespace="core.forms",
     required_entitlements=["forms"],
@@ -154,3 +158,26 @@ async def delete_submission(
 ) -> None:
     """Delete a submission."""
     await ctx.forms.aio.delete_submission(submission_id)
+
+
+@registry.register(
+    default_title="Download form file",
+    display_group="Forms",
+    description=(
+        "Download a file uploaded with a form submission. File integrity is "
+        "verified via SHA256."
+    ),
+    namespace="core.forms",
+    required_entitlements=["forms"],
+)
+async def download_file(
+    file_id: Annotated[
+        str,
+        Doc(
+            "The file ID: the `id` of the file object a `file` field puts in "
+            "the workflow's inputs."
+        ),
+    ],
+) -> dict[str, Any]:
+    """Download a file as ``{id, name, content_type, size, sha256, content_base64}``."""
+    return await ctx.forms.aio.download_file(file_id)
