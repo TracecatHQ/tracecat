@@ -1,0 +1,48 @@
+frontend/src/components/forms/form-config-editor.test.tsx
+  s_7f6729d1c18d55::t_532de72edb4949 1-2,4-17,26-105,107-133,148-183,185-199,201,203-236,238-239
+  s_7f6729d1c18d55::t_4eec25c676c5ce 200,202
+  s_7f6729d1c18d55::t_074e82267af2be 106
+  s_7f6729d1c18d55::t_f631eb87ee7008 184
+  s_7f6729d1c18d55::t_f7a2f3bac61c5c 3,20-22,134-147,237
+  s_7f6729d1c18d55::t_e264f3b8e4336d 18-19,23-25
+frontend/src/components/forms/insert-image-button.tsx
+  s_7f6729d1c18d55::t_fab5eaa2c3de00 11
+  s_7f6729d1c18d55::t_6a498ac2efbc60 1-10,12-95
+frontend/src/components/forms/form-config-editor.tsx
+  s_7f6729d1c18d55::t_4eb80f9acc9c85 1-182
+frontend/src/components/forms/form-config-tab.tsx
+  s_7f6729d1c18d55::t_60b4dc8181cac3 1-251
+frontend/src/app/workspaces/[workspaceId]/forms/[formId]/page.tsx
+  s_7f6729d1c18d55::t_40d9b8adb8dc71 1-9
+frontend/src/components/forms/form-detail.tsx
+  s_7f6729d1c18d55::t_d9a4a7ec11f2ad 1-161
+frontend/src/components/forms/form-detail.test.tsx
+  s_7f6729d1c18d55::t_3043a7e7618e06 12,17,166-178,189,306-307,447-448,450,515-517
+  s_7f6729d1c18d55::t_6a7e6a4a1902b5 1-11,13-16,18-156,161-165,179-188,190-258,262-305,308-446,449,451-505,507-509,511-514,518-736
+  s_7f6729d1c18d55::t_54d126271545da 157-160
+  s_7f6729d1c18d55::t_d401f526e23e29 506,510
+  s_7f6729d1c18d55::t_f7a2f3bac61c5c 259-261
+frontend/src/components/forms/form-preview-pane.tsx
+  s_7f6729d1c18d55::t_2202814d09259e 1-143
+frontend/src/components/forms/form-activity-tab.tsx
+  s_7f6729d1c18d55::t_947393ee8dd9b0 130-131
+  s_7f6729d1c18d55::t_794dffbc14ad80 1-31,33-129,132-150,155-325
+  s_7f6729d1c18d55::t_f2279a30b41907 32
+  s_7f6729d1c18d55::t_610740983b65a8 151-154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b92594d9520d24c22c31c1f3d776e739c8420f5b",
+  "prompts": {},
+  "sessions": {
+    "s_7f6729d1c18d55": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0469cd20-a5e1-40d1-9758-3f37753f1f4b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Chris Lo <46541035+topher-lo@users.noreply.github.com>"
+    }
+  }
+}
