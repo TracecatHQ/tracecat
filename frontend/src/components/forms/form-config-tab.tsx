@@ -12,6 +12,7 @@ import { toast } from "@/components/ui/use-toast"
 import type { FormConfigCheck, FormConfigDraft } from "@/hooks/use-form-config"
 import { useUpdateForm } from "@/hooks/use-forms"
 import { getFormConfigIssues, getFormErrorDetail } from "@/lib/forms/errors"
+import { formWorkflowHref } from "@/lib/forms/workflow-id"
 import {
   type FormConfigProblem,
   locateFormIssues,
@@ -235,7 +236,7 @@ export function FormConfigTab({
         <WorkflowIcon className="size-3.5 flex-none" />
         <span className="flex-none">Inputs from</span>
         <Link
-          href={`/workspaces/${form.workspace_id}/workflows/${form.workflow_id}`}
+          href={formWorkflowHref(form.workspace_id, form.workflow_id)}
           className="truncate font-medium text-foreground hover:underline"
         >
           {form.workflow_title}

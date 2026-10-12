@@ -9,8 +9,13 @@ import {
   type LucideIcon,
 } from "lucide-react"
 import Link from "next/link"
-import { useState } from "react"
-import type { FormActorRead, FormRead, FormSubmissionRead } from "@/client"
+import { useMemo, useState } from "react"
+import type {
+  FormActorRead,
+  FormPreview,
+  FormRead,
+  FormSubmissionRead,
+} from "@/client"
 import { getExecutionStatusIcon } from "@/components/executions/nav"
 import { CenteredSpinner } from "@/components/loading/spinner"
 import { Button } from "@/components/ui/button"
@@ -29,7 +34,7 @@ import {
 import UserAvatar from "@/components/user-avatar"
 import { useFormSubmissions } from "@/hooks/use-forms"
 import { executionId } from "@/lib/event-history"
-import { capitalizeFirst, cn, shortTimeAgo } from "@/lib/utils"
+import { capitalizeFirst, cn, formatFileSize, shortTimeAgo } from "@/lib/utils"
 
 function actorName(actor: FormActorRead | null | undefined): string {
   if (!actor) {
@@ -42,7 +47,37 @@ function actorName(actor: FormActorRead | null | undefined): string {
   return fullName || actor.email || "Unknown"
 }
 
-/** Show an answer as text: scalars as they are, anything else as JSON. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/** A `user` answer as the server expands it: "Name (email)". */
+function formatUserAnswer(value: Record<string, unknown>): string | null {
+  if (typeof value.user_id !== "string" || typeof value.email !== "string") {
+    return null
+  }
+  const name = [value.first_name, value.last_name]
+    .filter((part) => typeof part === "string" && part)
+    .join(" ")
+  return name ? `${name} (${value.email})` : value.email
+}
+
+/** A `file` answer as the server expands it: "name (size)". */
+function formatFileAnswer(value: Record<string, unknown>): string | null {
+  if (
+    typeof value.id !== "string" ||
+    typeof value.name !== "string" ||
+    typeof value.size !== "number"
+  ) {
+    return null
+  }
+  return `${value.name} (${formatFileSize(value.size)})`
+}
+
+/**
+ * Show an answer as text: scalars as they are, people as name and email,
+ * files as name and size, lists one item per line, anything else as JSON.
+ */
 export function formatAnswer(value: unknown): string {
   if (value === null || value === undefined || value === "") {
     return "-"
@@ -53,7 +88,34 @@ export function formatAnswer(value: unknown): string {
   if (typeof value === "string" || typeof value === "number") {
     return String(value)
   }
+  if (Array.isArray(value)) {
+    return value.length === 0 ? "-" : value.map(formatAnswer).join("\n")
+  }
+  if (isRecord(value)) {
+    const text = formatUserAnswer(value) ?? formatFileAnswer(value)
+    if (text) {
+      return text
+    }
+  }
   return JSON.stringify(value, null, 2)
+}
+
+/**
+ * Map each input name to the label its field shows on the form.
+ *
+ * Hidden and autofill inputs have no field in a preview, so they are absent
+ * and the caller falls back to the input name.
+ */
+export function getFieldLabels(
+  preview: Pick<FormPreview, "blocks"> | null | undefined
+): Record<string, string> {
+  const labels: Record<string, string> = {}
+  for (const block of preview?.blocks ?? []) {
+    if (block.type === "field") {
+      labels[block.name] = block.label
+    }
+  }
+  return labels
 }
 
 function StatTile({
@@ -90,9 +152,11 @@ function runHref(workspaceId: string, wfExecId: string): string | null {
 function SubmissionRow({
   submission,
   workspaceId,
+  labels,
 }: {
   submission: FormSubmissionRead
   workspaceId: string
+  labels: Record<string, string>
 }) {
   const [open, setOpen] = useState(false)
   const actor = submission.submitted_by
@@ -185,8 +249,15 @@ function SubmissionRow({
           )}
           {answers.map(([key, value]) => (
             <div key={key} className="min-w-0">
-              <dt className="truncate font-mono text-[11px] text-muted-foreground">
-                {key}
+              <dt
+                title={key}
+                className={cn(
+                  "truncate text-[11px] text-muted-foreground",
+                  // An input with no field on the form shows its raw name.
+                  !labels[key] && "font-mono"
+                )}
+              >
+                {labels[key] ?? key}
               </dt>
               <dd className="mt-0.5 whitespace-pre-wrap break-words">
                 {formatAnswer(value)}
@@ -209,11 +280,15 @@ function SubmissionRow({
 export function FormActivityTab({
   form,
   canReadSubmissions,
+  preview,
 }: {
   form: FormRead
   /** Whether the caller holds `form:submission:read`. */
   canReadSubmissions: boolean
+  /** The form's preview, for the labels answers are shown under. */
+  preview?: FormPreview | null
 }) {
+  const labels = useMemo(() => getFieldLabels(preview), [preview])
   const {
     submissions,
     submissionsIsLoading,
@@ -281,6 +356,7 @@ export function FormActivityTab({
               key={submission.id}
               submission={submission}
               workspaceId={form.workspace_id}
+              labels={labels}
             />
           ))}
         </ul>

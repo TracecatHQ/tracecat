@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/resizable"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useFormConfigCheck, useFormConfigDraft } from "@/hooks/use-form-config"
-import { useFormDetail } from "@/hooks/use-forms"
+import { useFormDetail, useSavedFormPreview } from "@/hooks/use-forms"
 import { getFormLoadFailure } from "@/lib/forms/errors"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -40,7 +40,8 @@ function FormDetailBody({ form }: { form: FormRead }) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const canEdit = useScopeCheck("form:update") === true
+  const canEditScope = useScopeCheck("form:update")
+  const canEdit = canEditScope === true
   const canReadSubmissions = useScopeCheck("form:submission:read") === true
   const tab: FormDetailTab =
     searchParams?.get("tab") === "activity" ? "activity" : "config"
@@ -54,6 +55,16 @@ function FormDetailBody({ form }: { form: FormRead }) {
     text: draft.text,
     enabled: canEdit,
   })
+  // A viewer cannot run that check, so they get the saved config's preview.
+  // Only a known missing scope asks for it, not one that is still loading.
+  const saved = useSavedFormPreview(
+    {
+      workspaceId: form.workspace_id,
+      formId: form.id,
+      updatedAt: form.updated_at,
+    },
+    { enabled: canEditScope === false }
+  )
 
   function selectTab(next: string) {
     const params = new URLSearchParams(searchParams?.toString())
@@ -94,6 +105,7 @@ function FormDetailBody({ form }: { form: FormRead }) {
             <FormActivityTab
               form={form}
               canReadSubmissions={canReadSubmissions}
+              preview={canEdit ? check.preview : saved.preview}
             />
           </TabsContent>
         </Tabs>
@@ -105,6 +117,8 @@ function FormDetailBody({ form }: { form: FormRead }) {
           check={check}
           isDirty={draft.isDirty}
           canEdit={canEdit}
+          savedPreview={saved.preview}
+          savedPreviewFailed={saved.previewFailed}
         />
       </ResizablePanel>
     </ResizablePanelGroup>

@@ -1,5 +1,43 @@
 const BASE62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 const SHORT_PREFIX = "wf_"
+/** The backend pads the base62 part to the longest a UUID can need. */
+const SHORT_SUFFIX_LENGTH = 22
+
+/**
+ * Convert a workflow UUID to its short ID (`wf_` plus base62), the format
+ * the workflow API returns and every workflow link in the app uses.
+ *
+ * Mirrors `WorkflowUUID.short()` on the backend. Returns `null` for anything
+ * that is not a UUID.
+ */
+export function workflowUuidToShortId(uuid: string): string | null {
+  const hex = uuid.replace(/-/g, "")
+  if (!/^[0-9a-f]{32}$/i.test(hex)) {
+    return null
+  }
+  const base = BigInt(BASE62.length)
+  let value = BigInt(`0x${hex}`)
+  let suffix = ""
+  while (value > BigInt(0)) {
+    suffix = BASE62[Number(value % base)] + suffix
+    value = value / base
+  }
+  return `${SHORT_PREFIX}${suffix.padStart(SHORT_SUFFIX_LENGTH, "0")}`
+}
+
+/**
+ * Link to the builder of the workflow a form starts.
+ *
+ * Forms carry the workflow's UUID; the builder route is addressed by the
+ * short ID like every other workflow link.
+ */
+export function formWorkflowHref(
+  workspaceId: string,
+  workflowUuid: string
+): string {
+  const workflowId = workflowUuidToShortId(workflowUuid) ?? workflowUuid
+  return `/workspaces/${workspaceId}/workflows/${workflowId}`
+}
 
 /**
  * Convert a short workflow ID (`wf_` plus base62) to its UUID.

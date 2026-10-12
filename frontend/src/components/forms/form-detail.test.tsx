@@ -18,6 +18,7 @@ import {
   type FormValidateResponse,
   formsGetForm,
   formsListFormSubmissions,
+  formsPreviewForm,
   formsUpdateForm,
   formsValidateForm,
 } from "@/client"
@@ -40,6 +41,7 @@ jest.mock("next/navigation", () => ({
 jest.mock("@/client", () => ({
   formsGetForm: jest.fn(),
   formsListFormSubmissions: jest.fn(),
+  formsPreviewForm: jest.fn(),
   formsSearchFormUsers: jest.fn(),
   formsUpdateForm: jest.fn(),
   formsValidateForm: jest.fn(),
@@ -78,6 +80,7 @@ const getForm = jest.mocked(formsGetForm)
 const updateForm = jest.mocked(formsUpdateForm)
 const validateForm = jest.mocked(formsValidateForm)
 const listSubmissions = jest.mocked(formsListFormSubmissions)
+const previewForm = jest.mocked(formsPreviewForm)
 
 const SAVED_YAML = "title: Laptop request\nlayout:\n  - field: model\n"
 
@@ -214,7 +217,8 @@ describe("FormDetail", () => {
       screen.getByRole("link", { name: "Provision laptop v4" })
     ).toHaveAttribute(
       "href",
-      "/workspaces/workspace-1/workflows/00000000-0000-4000-8000-000000000001"
+      // The builder is addressed by the workflow's short ID.
+      "/workspaces/workspace-1/workflows/wf_000000001vGeH72LxVtxKh"
     )
     expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument()
   })
@@ -614,8 +618,9 @@ describe("FormDetail", () => {
       scopes = new Set(["form:read", "form:submission:read"])
     })
 
-    it("is read-only, with the saved issues and no preview request", async () => {
+    it("is read-only, with the saved issues and the saved config's preview", async () => {
       getForm.mockResolvedValue(formRead({ issues: [WIDGET_ISSUE] }))
+      previewForm.mockResolvedValue(preview("Laptop request"))
 
       renderDetail()
 
@@ -627,9 +632,34 @@ describe("FormDetail", () => {
       expect(
         screen.getByRole("region", { name: "Problems" })
       ).toHaveTextContent("cards does not accept a bool input")
-      expect(within(previewPane()).getByText("No preview")).toBeInTheDocument()
+      expect(await previewTitle("Laptop request")).toBeInTheDocument()
+      expect(within(previewPane()).getByLabelText("Model")).toBeInTheDocument()
+      expect(previewForm).toHaveBeenCalledWith({
+        workspaceId: "workspace-1",
+        formId: "form-1",
+      })
+      // The live check needs form:update, so it is never asked for.
       expect(validateForm).not.toHaveBeenCalled()
     })
+
+    it("says so when the saved preview cannot be loaded", async () => {
+      previewForm.mockRejectedValue(apiError(500, "Internal error"))
+
+      renderDetail()
+
+      expect(
+        await within(
+          await screen.findByRole("region", { name: "Preview" })
+        ).findByText("No preview")
+      ).toBeInTheDocument()
+    })
+  })
+
+  it("asks for no saved preview from a caller who can edit", async () => {
+    renderDetail()
+
+    await previewTitle("Laptop request")
+    expect(previewForm).not.toHaveBeenCalled()
   })
 
   describe("activity tab", () => {
@@ -640,7 +670,22 @@ describe("FormDetail", () => {
       answers: {
         model: "mbp14",
         ship_to_home: true,
-        manager: { user_id: "user-2", email: "daniel.reyes@example.com" },
+        manager: {
+          user_id: "user-2",
+          email: "daniel.reyes@example.com",
+          first_name: "Daniel",
+          last_name: "Reyes",
+        },
+        quote: [
+          {
+            id: "file-1",
+            name: "quote.pdf",
+            content_type: "application/pdf",
+            size: 2048,
+            sha256: "0".repeat(64),
+          },
+        ],
+        extras: { colour: "silver" },
       },
       submitted_by: {
         type: "user",
@@ -690,11 +735,18 @@ describe("FormDetail", () => {
         screen.getByRole("button", { name: "Show answers of FRM-8F3K2A1C" })
       )
 
-      expect(screen.getByText("mbp14")).toBeInTheDocument()
-      expect(screen.getByText("Yes")).toBeInTheDocument()
-      expect(
-        screen.getByText(/"email": "daniel.reyes@example.com"/)
-      ).toBeInTheDocument()
+      // An answer sits under its field's label, or under the input name
+      // when the form shows no field for it.
+      const answerOf = (term: string) =>
+        screen.getByText(term, { selector: "dt" }).nextElementSibling
+      await waitFor(() => expect(answerOf("Model")).toHaveTextContent("mbp14"))
+      expect(answerOf("ship_to_home")).toHaveTextContent("Yes")
+      // People and files read as text, not JSON.
+      expect(answerOf("manager")).toHaveTextContent(
+        "Daniel Reyes (daniel.reyes@example.com)"
+      )
+      expect(answerOf("quote")).toHaveTextContent("quote.pdf (2 KB)")
+      expect(answerOf("extras")).toHaveTextContent('"colour": "silver"')
     })
 
     it("shows no run for a submission the server sent without one", async () => {

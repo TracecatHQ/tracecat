@@ -1,6 +1,7 @@
 import {
   type ApiError,
   type FormCreate,
+  type FormPreview,
   type FormRead,
   type FormReadMinimal,
   type FormResolved,
@@ -18,6 +19,7 @@ import {
   formsGetForm,
   formsListFormSubmissions,
   formsListForms,
+  formsPreviewForm,
   formsRenderForm,
   formsSearchFormUsers,
   formsSubmitForm,
@@ -42,7 +44,7 @@ const EMPTY_SUBMISSIONS: readonly FormSubmissionRead[] = []
 /**
  * Query keys of the workspace-scoped form queries.
  *
- * `detail` is a prefix of `rendered` and `users`. Pass `exact: true` when
+ * `detail` is a prefix of `rendered`, `preview` and `users`. Pass `exact: true` when
  * invalidating it, or an open requester page re-renders its form and records
  * another view.
  */
@@ -52,6 +54,8 @@ export const formKeys = {
     ["form", workspaceId, formId] as const,
   rendered: (workspaceId: string, formId: string) =>
     ["form", workspaceId, formId, "render"] as const,
+  preview: (workspaceId: string, formId: string, updatedAt: string) =>
+    ["form", workspaceId, formId, "preview", updatedAt] as const,
   users: (workspaceId: string, formId: string, search: string) =>
     ["form", workspaceId, formId, "users", search] as const,
   submissions: (workspaceId: string, formId: string) =>
@@ -196,6 +200,30 @@ export function useFormDetail(
     form: query.data,
     formIsLoading: query.isLoading,
     formError: query.error,
+  }
+}
+
+/**
+ * The saved config of a form as the blocks a client renders, for a builder
+ * who cannot edit it and so cannot run the check behind the live preview.
+ *
+ * Works for an offline form and records no view. `updatedAt` is the form's
+ * `updated_at`: the preview is fetched again when the form changes.
+ */
+export function useSavedFormPreview(
+  { workspaceId, formId, updatedAt }: FormScope & { updatedAt: string },
+  options: { enabled?: boolean } = {}
+) {
+  const query = useQuery<FormPreview, ApiError>({
+    queryKey: formKeys.preview(workspaceId, formId, updatedAt),
+    queryFn: () => formsPreviewForm({ workspaceId, formId }),
+    enabled: (options.enabled ?? true) && Boolean(workspaceId && formId),
+    retry: false,
+    meta: { suppressErrorToast: true },
+  })
+  return {
+    preview: query.data ?? null,
+    previewFailed: query.isError,
   }
 }
 

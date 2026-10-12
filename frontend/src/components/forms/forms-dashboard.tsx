@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/tooltip"
 import { toast } from "@/components/ui/use-toast"
 import { useForms } from "@/hooks/use-forms"
+import { formWorkflowHref } from "@/lib/forms/workflow-id"
 import { cn, shortTimeAgo } from "@/lib/utils"
 import { useWorkspaceId } from "@/providers/workspace-id"
 
@@ -96,7 +97,7 @@ function FormRow({
           {form.title}
         </Link>
         <Link
-          href={`/workspaces/${workspaceId}/workflows/${form.workflow_id}`}
+          href={formWorkflowHref(workspaceId, form.workflow_id)}
           className="flex w-fit max-w-full items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
         >
           <WorkflowIcon className="size-3 flex-none" />

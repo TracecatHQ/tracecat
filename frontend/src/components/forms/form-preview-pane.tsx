@@ -2,7 +2,7 @@
 
 import { EyeOffIcon, TriangleAlertIcon } from "lucide-react"
 import { type ReactNode, useMemo } from "react"
-import type { FormRead, FormResolved } from "@/client"
+import type { FormPreview, FormRead, FormResolved } from "@/client"
 import { FormRenderer } from "@/components/forms/form-renderer"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -18,12 +18,16 @@ import { cn } from "@/lib/utils"
 /** Props of {@link FormPreviewPane}. */
 export interface FormPreviewPaneProps {
   form: FormRead
-  /** Result of checking the editor's text. Holds the preview to show. */
+  /** Result of checking the editor's text. Holds the preview an editor sees. */
   check: FormConfigCheck
   /** Whether the editor holds unsaved edits. */
   isDirty: boolean
   /** Whether the caller holds `form:update`. The check needs it. */
   canEdit: boolean
+  /** Preview of the saved config, for a caller who cannot edit. */
+  savedPreview?: FormPreview | null
+  /** Whether loading {@link savedPreview} failed. */
+  savedPreviewFailed?: boolean
 }
 
 function PreviewMessage({
@@ -47,20 +51,23 @@ function PreviewMessage({
 }
 
 /**
- * A read-only preview of the config in the editor, as a requester would
- * see it. Submitting it validates and confirms without sending anything.
+ * A read-only preview of the form as a requester would see it. Submitting
+ * it validates and confirms without sending anything.
  *
- * While the config has errors, the last good preview stays on screen,
- * dimmed, so the author keeps their bearings while they type.
+ * An editor sees the config in the editor: while it has errors, the last
+ * good preview stays on screen, dimmed, so the author keeps their bearings
+ * while they type. A caller who cannot edit sees the saved config.
  */
 export function FormPreviewPane({
   form,
   check,
   isDirty,
   canEdit,
+  savedPreview = null,
+  savedPreviewFailed = false,
 }: FormPreviewPaneProps) {
-  const preview = check.preview
-  // The validate route returns no IDs, and the renderer's `user` and `file`
+  const preview = canEdit ? check.preview : savedPreview
+  // The preview routes return no IDs, and the renderer's `user` and `file`
   // widgets need the form's.
   const resolved = useMemo<FormResolved | null>(
     () =>
@@ -73,18 +80,10 @@ export function FormPreviewPane({
       },
     [preview, form.id, form.workspace_id, form.workflow_id, form.status]
   )
-  const isStale = check.hasErrors || check.checkFailed
+  const isStale = canEdit && (check.hasErrors || check.checkFailed)
 
-  let body: ReactNode
-  if (!canEdit) {
-    body = (
-      <PreviewMessage
-        icon={<EyeOffIcon className="size-5" />}
-        title="No preview"
-        description="The preview is available to people who can edit forms. Open the form to see it as a requester."
-      />
-    )
-  } else if (resolved) {
+  let body: ReactNode = null
+  if (resolved) {
     body = (
       <div
         className={cn("transition-opacity", isStale && "opacity-50")}
@@ -98,6 +97,14 @@ export function FormPreviewPane({
         />
       </div>
     )
+  } else if (savedPreviewFailed) {
+    body = (
+      <PreviewMessage
+        icon={<EyeOffIcon className="size-5" />}
+        title="No preview"
+        description="The preview could not be loaded. Reload the page to try again."
+      />
+    )
   } else if (isStale) {
     body = (
       <PreviewMessage
@@ -110,8 +117,6 @@ export function FormPreviewPane({
         }
       />
     )
-  } else {
-    body = null
   }
 
   return (
@@ -119,7 +124,7 @@ export function FormPreviewPane({
       <header className="flex h-9 flex-none items-center gap-2 border-b px-3 text-xs font-medium">
         <span>Preview</span>
         <span className="flex-1" />
-        {canEdit && resolved && isStale && (
+        {resolved && isStale && (
           <span className="truncate font-normal text-muted-foreground">
             {check.checkFailed
               ? "Couldn't check the config"

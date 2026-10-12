@@ -102,7 +102,7 @@ describe("FormsDashboard", () => {
       laptop.getByRole("link", { name: "Provision laptop" })
     ).toHaveAttribute(
       "href",
-      "/workspaces/workspace-1/workflows/00000000-0000-4000-8000-000000000001"
+      "/workspaces/workspace-1/workflows/wf_000000001vGeH72LxVtxKh"
     )
     expect(laptop.getByText("Online")).toBeInTheDocument()
     expect(laptop.getByText("42 submissions")).toBeInTheDocument()
