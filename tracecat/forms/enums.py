@@ -18,3 +18,104 @@ class FormEventType(StrEnum):
 
     FORM_VIEWED = "form_viewed"
     FORM_SUBMITTED = "form_submitted"
+
+
+class FormWidget(StrEnum):
+    """Input controls a form field can render as."""
+
+    TEXT = "text"
+    LONG_TEXT = "long_text"
+    NUMBER = "number"
+    TOGGLE = "toggle"
+    SELECT = "select"
+    MULTI_SELECT = "multi_select"
+    CARDS = "cards"
+    TAGS = "tags"
+    DATE = "date"
+    DATETIME = "datetime"
+    USER = "user"
+    FILE = "file"
+
+
+class FormInputKind(StrEnum):
+    """Workflow input types as the widget registry sees them."""
+
+    STR = "str"
+    INT = "int"
+    FLOAT = "float"
+    BOOL = "bool"
+    DATETIME = "datetime"
+    ENUM = "enum"
+    LIST_STR = "list[str]"
+    LIST_ENUM = "list[enum]"
+    DICT = "dict"
+    LIST_DICT = "list[dict]"
+    ANY = "any"
+    UNSUPPORTED = "unsupported"
+    """Any other type: duration, None, other lists and unions."""
+
+
+class FormNoticeTone(StrEnum):
+    INFO = "info"
+    SUCCESS = "success"
+    WARNING = "warning"
+    DANGER = "danger"
+
+
+class FormAutofillSource(StrEnum):
+    """Values the server fills in on submit."""
+
+    REQUESTER = "requester"
+    REQUESTER_USER_ID = "requester.user_id"
+    REQUESTER_EMAIL = "requester.email"
+    REQUESTER_FIRST_NAME = "requester.first_name"
+    REQUESTER_LAST_NAME = "requester.last_name"
+    SUBMISSION_ID = "submission.id"
+
+
+class FormIssueSeverity(StrEnum):
+    ERROR = "error"
+    WARNING = "warning"
+
+
+class FormIssueCode(StrEnum):
+    """Problems the resolver finds in a form config."""
+
+    UNKNOWN_FIELD = "unknown_field"
+    DUPLICATE_FIELD = "duplicate_field"
+    INCOMPATIBLE_WIDGET = "incompatible_widget"
+    NO_WIDGET_FOR_TYPE = "no_widget_for_type"
+    UNSUPPORTED_WIDGET_OPTION = "unsupported_widget_option"
+    OPTIONS_REQUIRED = "options_required"
+    OPTIONS_NOT_SUPPORTED = "options_not_supported"
+    OPTION_NOT_IN_ENUM = "option_not_in_enum"
+    CONDITIONAL_FIELD_REQUIRED = "conditional_field_required"
+    VISIBLE_IF_UNKNOWN_FIELD = "visible_if_unknown_field"
+    VISIBLE_IF_INVALID_CONTROLLER = "visible_if_invalid_controller"
+    VISIBLE_IF_INVALID_VALUE = "visible_if_invalid_value"
+    AUTOFILL_TYPE_MISMATCH = "autofill_type_mismatch"
+    UNRENDERED_OPTIONAL_INPUT = "unrendered_optional_input"
+
+
+class FormErrorCode(StrEnum):
+    """Machine-readable failures of a forms request."""
+
+    FORM_CONFIG_INVALID = "form_config_invalid"
+    FORM_WORKFLOW_UNPUBLISHED = "form_workflow_unpublished"
+    FORM_OFFLINE = "form_offline"
+    FORM_UNAVAILABLE = "form_unavailable"
+    FORM_CHANGED = "form_changed"
+    FORM_VALIDATION_ERROR = "form_validation_error"
+    WORKFLOW_START_FAILED = "workflow_start_failed"
+
+
+class FormFieldErrorCode(StrEnum):
+    """Why a submitted value was rejected."""
+
+    REQUIRED = "required"
+    UNKNOWN_FIELD = "unknown_field"
+    INVALID_VALUE = "invalid_value"
+    INVALID_OPTION = "invalid_option"
+    INVALID_DATE = "invalid_date"
+    INVALID_USER = "invalid_user"
+    FILE_UPLOADS_UNAVAILABLE = "file_uploads_unavailable"
