@@ -27,7 +27,11 @@ from tracecat.dsl.client import get_temporal_client
 from tracecat.exceptions import TracecatException
 from tracecat.identifiers import OrganizationID
 from tracecat.logger import logger
-from tracecat.observability.sentry import capture_auth_pool_exhaustion
+from tracecat.observability.sentry import (
+    capture_api_exception,
+    capture_auth_pool_exhaustion,
+)
+from tracecat.observability.types import AlertPriority
 from tracecat.query.errors import (
     TracecatQueryOverflowError,
     TracecatQueryTimeoutError,
@@ -40,6 +44,14 @@ _SEARCH_ATTRIBUTE_TYPES: dict[str, IndexedValueType.ValueType] = {
     attr.value: IndexedValueType.INDEXED_VALUE_TYPE_KEYWORD
     for attr in TemporalSearchAttr
 }
+
+_TRANSIENT_TEMPORAL_RPC_STATUSES = frozenset(
+    {
+        RPCStatusCode.DEADLINE_EXCEEDED,
+        RPCStatusCode.RESOURCE_EXHAUSTED,
+        RPCStatusCode.UNAVAILABLE,
+    }
+)
 
 
 async def generic_exception_handler(request: Request, exc: Exception) -> Response:
@@ -101,6 +113,36 @@ def auth_pool_exhausted_exception_handler(
                 "message": (
                     "Authentication database capacity is temporarily unavailable. "
                     "Please retry."
+                ),
+            }
+        },
+    )
+
+
+async def temporal_rpc_exception_handler(request: Request, exc: Exception) -> Response:
+    """Return a retryable 503 for transient Temporal faults without paging.
+
+    Other RPC failures re-raise to the generic handler and stay urgent.
+    """
+    if not (
+        isinstance(exc, RPCError) and exc.status in _TRANSIENT_TEMPORAL_RPC_STATUSES
+    ):
+        raise exc
+    capture_api_exception(exc, priority=AlertPriority.LOW, level="warning")
+    logger.warning(
+        "Temporal temporarily unavailable",
+        rpc_status=exc.status.name,
+        path=request.url.path,
+        method=request.method,
+        role=ctx_role.get(),
+    )
+    return ORJSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={
+            "detail": {
+                "code": "temporal_unavailable",
+                "message": (
+                    "The workflow service is temporarily unavailable. Please retry."
                 ),
             }
         },

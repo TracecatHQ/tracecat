@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
+from temporalio.service import RPCError, RPCStatusCode
 
 from tracecat.api.app import (
     _install_scim_exception_handlers,
@@ -16,8 +17,10 @@ from tracecat.api.app import (
     create_app as create_api_app,
 )
 from tracecat.api.common import (
+    generic_exception_handler,
     query_overflow_exception_handler,
     query_timeout_exception_handler,
+    temporal_rpc_exception_handler,
     tracecat_exception_handler,
 )
 from tracecat.exceptions import (
@@ -183,6 +186,41 @@ def test_query_error_response_contract(
         "code": expected_code,
         "message": str(exc),
     }
+
+
+@pytest.mark.parametrize(
+    ("rpc_status", "expected_status"),
+    [
+        (RPCStatusCode.DEADLINE_EXCEEDED, 503),
+        (RPCStatusCode.UNAVAILABLE, 503),
+        (RPCStatusCode.RESOURCE_EXHAUSTED, 503),
+        (RPCStatusCode.INTERNAL, 500),
+        (RPCStatusCode.NOT_FOUND, 500),
+    ],
+)
+def test_temporal_rpc_errors_map_transient_faults_to_503(
+    rpc_status: RPCStatusCode, expected_status: int
+) -> None:
+    app = FastAPI()
+    app.add_exception_handler(Exception, generic_exception_handler)
+    app.add_exception_handler(RPCError, temporal_rpc_exception_handler)
+
+    async def boom() -> None:
+        raise RPCError("downstream duration timeout", rpc_status, b"")
+
+    app.add_api_route("/boom", boom, methods=["GET"])
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/boom")
+
+    assert response.status_code == expected_status
+    if expected_status == 503:
+        assert response.json()["detail"]["code"] == "temporal_unavailable"
+    assert "downstream duration timeout" not in response.text
+
+
+def test_temporal_rpc_handler_is_registered_in_both_api_apps() -> None:
+    for app in (create_api_app(), create_action_gateway_app()):
+        assert app.exception_handlers[RPCError] is temporal_rpc_exception_handler
 
 
 def test_query_error_handlers_are_registered_in_both_api_apps() -> None:
