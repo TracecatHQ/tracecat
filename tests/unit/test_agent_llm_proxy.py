@@ -2187,11 +2187,22 @@ async def test_stop_cancels_stream_before_closing_client(
             client_closed.set()
 
     client = httpx.AsyncClient(transport=Transport())
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: client)
+    client_kwargs: list[dict[str, object]] = []
+
+    def make_client(**kwargs: object) -> httpx.AsyncClient:
+        client_kwargs.append(kwargs)
+        return client
+
+    monkeypatch.setattr(httpx, "AsyncClient", make_client)
     proxy = LLMSocketProxy(short_socket_path, _routing_plan(), errors.append)
     await proxy.start()
     reader, writer = await asyncio.open_unix_connection(proxy.socket_path)
     try:
+        # Managed connections must expire before LiteLLM's 5s uvicorn keep-alive.
+        limits = client_kwargs[0]["limits"]
+        assert isinstance(limits, httpx.Limits)
+        assert limits.keepalive_expiry is not None
+        assert limits.keepalive_expiry < 5.0
         writer.write(b"POST /v1/messages HTTP/1.1\r\nContent-Length: 0\r\n\r\n")
         await writer.drain()
         await asyncio.wait_for(reading.wait(), timeout=2)
