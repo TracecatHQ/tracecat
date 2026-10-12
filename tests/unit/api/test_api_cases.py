@@ -1322,6 +1322,42 @@ async def test_search_cases_forwards_include_payload(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("path", "method"), [("/cases", "list_cases"), ("/cases/search", "search_cases")]
+)
+@pytest.mark.parametrize("include_count", [None, True, False])
+async def test_case_pages_forward_count_control_with_legacy_default(
+    client: TestClient,
+    test_admin_role: Role,
+    path: str,
+    method: str,
+    include_count: bool | None,
+) -> None:
+    with patch.object(cases_router, "CasesService") as MockService:
+        mock_svc = AsyncMock()
+        response = CursorPaginatedResponse[CaseReadMinimal](
+            items=[], total_estimate=0 if include_count is not False else None
+        )
+        mock_svc.list_cases.return_value = response
+        mock_svc.search_cases.return_value = response
+        MockService.return_value = mock_svc
+        params = {"workspace_id": str(test_admin_role.workspace_id)}
+        if include_count is not None:
+            params["include_count"] = str(include_count).lower()
+        result = client.get(path, params=params)
+        assert result.status_code == status.HTTP_200_OK
+        called_method = (
+            mock_svc.list_cases if method == "list_cases" else mock_svc.search_cases
+        )
+        assert called_method.call_args.kwargs["include_count"] is (
+            include_count is not False
+        )
+        assert result.json()["total_estimate"] == (
+            0 if include_count is not False else None
+        )
+
+
+@pytest.mark.anyio
 async def test_search_cases_accepts_frontend_unassigned_sentinel(
     client: TestClient,
     test_admin_role: Role,

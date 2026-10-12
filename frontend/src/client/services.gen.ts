@@ -11923,6 +11923,7 @@ export const formsListIntakeSubmissions = (
  * @param data.fieldIds Include only the requested custom field IDs
  * @param data.includeDurations Include case duration values
  * @param data.includePayload Include case payload
+ * @param data.includeCount Include the exact filtered total_estimate for compatibility. Set false when fetching aggregate counts separately; total_estimate will be null.
  * @param data.hierarchy Return every case, or only top-level cases without a parent.
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
  * @throws ApiError
@@ -11946,6 +11947,7 @@ export const casesListCases = (
       field_ids: data.fieldIds,
       include_durations: data.includeDurations,
       include_payload: data.includePayload,
+      include_count: data.includeCount,
       hierarchy: data.hierarchy,
     },
     errors: {
@@ -12009,6 +12011,7 @@ export const casesCreateCase = (
  * @param data.fieldIds Include only the requested custom field IDs
  * @param data.includeDurations Include case duration values
  * @param data.includePayload Include case payload
+ * @param data.includeCount Include the exact filtered total_estimate for compatibility. Set false on all pages when fetching aggregate counts separately; total_estimate will be null.
  * @param data.hierarchy Return every case, or only top-level cases without a parent.
  * @param data.parentId Return only the sub-cases of this parent case
  * @returns CursorPaginatedResponse_CaseReadMinimal_ Successful Response
@@ -12048,6 +12051,7 @@ export const casesSearchCases = (
       field_ids: data.fieldIds,
       include_durations: data.includeDurations,
       include_payload: data.includePayload,
+      include_count: data.includeCount,
       hierarchy: data.hierarchy,
       parent_id: data.parentId,
     },
