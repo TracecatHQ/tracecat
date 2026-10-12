@@ -21,6 +21,8 @@ import { Button } from "@/components/ui/button"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
 import { useEntitlements } from "@/hooks/use-entitlements"
+import { useFormsAccess } from "@/hooks/use-forms-access"
+import { getIntakeRedirect } from "@/lib/forms/access"
 import { useWorkspaceManager } from "@/lib/hooks"
 import { getWorkspaceLandingPath } from "@/lib/workspace-navigation"
 import { AgentPresetDetailProvider } from "@/providers/agent-preset-detail"
@@ -89,12 +91,6 @@ export default function WorkspaceLayout({
     }
     return undefined
   }, [getLastWorkspaceId, workspaces])
-
-  useEffect(() => {
-    if (workspaceId && requestedWorkspaceExists) {
-      setLastWorkspaceId(workspaceId)
-    }
-  }, [requestedWorkspaceExists, setLastWorkspaceId, workspaceId])
 
   const fallbackWorkspaceId = useMemo(() => {
     if (!workspaces || workspaces.length === 0) {
@@ -174,6 +170,12 @@ export default function WorkspaceLayout({
   return (
     <WorkspaceIdProvider workspaceId={selectedWorkspaceId}>
       <ScopeProvider>
+        {workspaceId && (
+          <LastWorkspaceWriter
+            workspaceId={workspaceId}
+            setLastWorkspaceId={setLastWorkspaceId}
+          />
+        )}
         {workflowId ? (
           <WorkflowView
             workspaceId={selectedWorkspaceId}
@@ -201,10 +203,50 @@ export default function WorkspaceLayout({
   )
 }
 
+/**
+ * Remember the workspace in the URL as the last one viewed, but only for a
+ * user who holds `workspace:read` there. An intake-only user is sent on to
+ * `/forms`; remembering that workspace would send them there on every visit,
+ * even when they build in another one.
+ */
+function LastWorkspaceWriter({
+  workspaceId,
+  setLastWorkspaceId,
+}: {
+  workspaceId: string
+  setLastWorkspaceId: (id?: string) => void
+}) {
+  const canReadWorkspace = useScopeCheck("workspace:read")
+
+  useEffect(() => {
+    if (canReadWorkspace === true) {
+      setLastWorkspaceId(workspaceId)
+    }
+  }, [canReadWorkspace, setLastWorkspaceId, workspaceId])
+
+  return null
+}
+
 function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   const params = useParams<{ workflowId?: string }>()
+  const router = useRouter()
   const canReadWorkspace = useScopeCheck("workspace:read")
+  const canReadForms = useScopeCheck("form:read")
+  const formsAccess = useFormsAccess()
   const pathname = usePathname()
+  const intakePath = getIntakeRedirect({
+    canReadWorkspace,
+    canReadForms,
+    formsAccess,
+    pathname,
+  })
+
+  useEffect(() => {
+    if (intakePath) {
+      router.replace(intakePath)
+    }
+  }, [intakePath, router])
+
   const isWorkflowBuilder = !!params?.workflowId
   const isCasesPage = Boolean(pathname?.match(/\/cases(\/|$)/))
   const isInboxPage = pathname?.includes("/inbox")
@@ -217,6 +259,11 @@ function WorkspaceChildren({ children }: { children: React.ReactNode }) {
   }
 
   if (canReadWorkspace === false) {
+    // An intake-only user is on their way to `/forms`. Hold the spinner
+    // while the Forms flag loads too, so access denied does not flash.
+    if (intakePath || (canReadForms === true && formsAccess === "loading")) {
+      return <CenteredSpinner />
+    }
     return <WorkspaceAccessDenied />
   }
 

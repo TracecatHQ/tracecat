@@ -14,6 +14,38 @@ import {
 } from "@/components/ui/dropdown-menu"
 import UserAvatar from "@/components/user-avatar"
 import { useAuth, useAuthActions } from "@/hooks/use-auth"
+import { useReadableWorkspaces } from "@/hooks/use-readable-workspaces"
+
+/**
+ * "Open workspace" items of the account menu, one per workspace where the
+ * user holds `workspace:read`.
+ *
+ * A user who is intake-only in one workspace and a builder in another lands
+ * here from the intake redirect; these items are their way back. Mounted
+ * only while the menu is open, so a requester page asks nothing about
+ * workspaces until then.
+ */
+function RequesterWorkspaceItems() {
+  const workspaces = useReadableWorkspaces()
+  if (workspaces.length === 0) {
+    return null
+  }
+  return (
+    <>
+      <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+        Open workspace
+      </DropdownMenuLabel>
+      {workspaces.map((workspace) => (
+        <DropdownMenuItem key={workspace.id} className="text-sm" asChild>
+          <Link href={`/workspaces/${workspace.id}`}>
+            <span className="truncate">{workspace.name}</span>
+          </Link>
+        </DropdownMenuItem>
+      ))}
+      <DropdownMenuSeparator />
+    </>
+  )
+}
 
 /**
  * Top bar of the requester pages: the logo, a title that links back to the
@@ -57,6 +89,7 @@ export function RequesterTopBar({ title }: { title: string }) {
               </span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            <RequesterWorkspaceItems />
             <DropdownMenuItem className="text-sm" onSelect={() => logout()}>
               <LogOutIcon className="mr-2 size-4" />
               Sign out
