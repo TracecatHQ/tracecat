@@ -19,6 +19,7 @@ def test_resolve_oss_default_entitlements_fresh_install() -> None:
     assert entitlements.watchtower is False
     assert entitlements.agent_channels is False
     assert entitlements.semantic_search is False
+    assert entitlements.tunnels is False
 
 
 def test_resolve_oss_default_entitlements_maps_legacy_feature_flags() -> None:
@@ -36,6 +37,7 @@ def test_resolve_oss_default_entitlements_maps_legacy_feature_flags() -> None:
     assert entitlements.watchtower is False
     assert entitlements.agent_channels is False
     assert entitlements.semantic_search is False
+    assert entitlements.tunnels is False
 
 
 def test_resolve_oss_default_entitlements_maps_legacy_agent_channels_flag() -> None:
@@ -60,6 +62,7 @@ def test_resolve_oss_default_entitlements_normalizes_and_ignores_unknown() -> No
     assert entitlements.watchtower is False
     assert entitlements.agent_channels is False
     assert entitlements.semantic_search is False
+    assert entitlements.tunnels is False
 
 
 def test_get_legacy_feature_flags_env_reads_tracecat_feature_flags(

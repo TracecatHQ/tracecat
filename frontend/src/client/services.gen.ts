@@ -935,6 +935,16 @@ import type {
   TriggersUpdateCaseTriggerResponse,
   TriggersUpdateWebhookData,
   TriggersUpdateWebhookResponse,
+  TunnelsCreateTunnelData,
+  TunnelsCreateTunnelResponse,
+  TunnelsDeleteTunnelData,
+  TunnelsDeleteTunnelResponse,
+  TunnelsGetTunnelData,
+  TunnelsGetTunnelResponse,
+  TunnelsListTunnelsData,
+  TunnelsListTunnelsResponse,
+  TunnelsUpdateTunnelData,
+  TunnelsUpdateTunnelResponse,
   UpdateCatalogEntryData,
   UpdateCatalogEntryResponse,
   UpdateCustomProviderData,
@@ -3997,6 +4007,139 @@ export const variablesDeleteVariableById = (
     url: "/workspaces/{workspace_id}/variables/{variable_id}",
     path: {
       variable_id: data.variableId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * List Tunnels
+ * List tunnels in the workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.limit
+ * @param data.cursor
+ * @returns Page_TunnelRead_ Successful Response
+ * @throws ApiError
+ */
+export const tunnelsListTunnels = (
+  data: TunnelsListTunnelsData
+): CancelablePromise<TunnelsListTunnelsResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/tunnels",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    query: {
+      limit: data.limit,
+      cursor: data.cursor,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Create Tunnel
+ * Create a tunnel in the workspace.
+ * @param data The data for the request.
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TunnelRead Successful Response
+ * @throws ApiError
+ */
+export const tunnelsCreateTunnel = (
+  data: TunnelsCreateTunnelData
+): CancelablePromise<TunnelsCreateTunnelResponse> => {
+  return __request(OpenAPI, {
+    method: "POST",
+    url: "/workspaces/{workspace_id}/tunnels",
+    path: {
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Get Tunnel
+ * Get a tunnel in the workspace.
+ * @param data The data for the request.
+ * @param data.tunnelId
+ * @param data.workspaceId
+ * @returns TunnelRead Successful Response
+ * @throws ApiError
+ */
+export const tunnelsGetTunnel = (
+  data: TunnelsGetTunnelData
+): CancelablePromise<TunnelsGetTunnelResponse> => {
+  return __request(OpenAPI, {
+    method: "GET",
+    url: "/workspaces/{workspace_id}/tunnels/{tunnel_id}",
+    path: {
+      tunnel_id: data.tunnelId,
+      workspace_id: data.workspaceId,
+    },
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Update Tunnel
+ * Update a tunnel. Sending `client_secret` rotates the stored secret.
+ * @param data The data for the request.
+ * @param data.tunnelId
+ * @param data.workspaceId
+ * @param data.requestBody
+ * @returns TunnelRead Successful Response
+ * @throws ApiError
+ */
+export const tunnelsUpdateTunnel = (
+  data: TunnelsUpdateTunnelData
+): CancelablePromise<TunnelsUpdateTunnelResponse> => {
+  return __request(OpenAPI, {
+    method: "PATCH",
+    url: "/workspaces/{workspace_id}/tunnels/{tunnel_id}",
+    path: {
+      tunnel_id: data.tunnelId,
+      workspace_id: data.workspaceId,
+    },
+    body: data.requestBody,
+    mediaType: "application/json",
+    errors: {
+      422: "Validation Error",
+    },
+  })
+}
+
+/**
+ * Delete Tunnel
+ * Delete a tunnel from the workspace.
+ * @param data The data for the request.
+ * @param data.tunnelId
+ * @param data.workspaceId
+ * @returns void Successful Response
+ * @throws ApiError
+ */
+export const tunnelsDeleteTunnel = (
+  data: TunnelsDeleteTunnelData
+): CancelablePromise<TunnelsDeleteTunnelResponse> => {
+  return __request(OpenAPI, {
+    method: "DELETE",
+    url: "/workspaces/{workspace_id}/tunnels/{tunnel_id}",
+    path: {
+      tunnel_id: data.tunnelId,
       workspace_id: data.workspaceId,
     },
     errors: {
