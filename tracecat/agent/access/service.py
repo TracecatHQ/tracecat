@@ -118,11 +118,22 @@ class AgentModelAccessService(BaseOrgService):
         workspace_id: UUID | None = None,
         cursor_params: CursorPaginationParams | None = None,
     ) -> tuple[list[AgentModelAccessRead], str | None]:
-        """List enabled models with cursor pagination."""
+        """List enabled models with cursor pagination.
+
+        Args:
+            workspace_id: Limit the list to organization-level rows and this
+                workspace's rows. Without it, every row is listed.
+            cursor_params: Cursor and page size.
+        """
         params = cursor_params or CursorPaginationParams(limit=50)
         conditions = [AgentModelAccess.organization_id == self.organization_id]
         if workspace_id is not None:
-            conditions.append(AgentModelAccess.workspace_id == workspace_id)
+            conditions.append(
+                sa.or_(
+                    AgentModelAccess.workspace_id.is_(None),
+                    AgentModelAccess.workspace_id == workspace_id,
+                )
+            )
 
         stmt = (
             select(AgentModelAccess)

@@ -10,6 +10,7 @@ import {
   type AgentCustomProviderRead,
   type AgentGetProviderCredentialConfigResponse,
   type AgentGetProvidersStatusResponse,
+  type AgentModelAccessRead,
   type AgentSessionsListSessionsData,
   type AgentSessionsListSessionsResponse,
   type AgentSettingsRead,
@@ -140,7 +141,9 @@ import {
   invitationsCreateInvitation,
   invitationsResendInvitation,
   invitationsRevokeInvitation,
+  listCatalog,
   listCustomProviders,
+  listEnabledModels,
   type MCPIntegrationCreate,
   type MCPIntegrationRead,
   type MCPIntegrationTestConnectionRequest,
@@ -5830,14 +5833,16 @@ export function useAgentSessions(
 
 const AGENT_MODEL_PAGE_SIZE = 100
 
+// The org-level agent reads below take an optional workspace ID. Workspace
+// pages pass it so that roles assigned on the workspace pass the scope check.
+
 async function fetchAllProvidersPaginated(
-  workspaceId: string
+  workspaceId?: string
 ): Promise<AgentCustomProviderRead[]> {
   const items: AgentCustomProviderRead[] = []
   let cursor: string | undefined
 
   do {
-    // The workspace ID lets workspace-assigned roles pass the scope check.
     const response = await listCustomProviders({
       cursor,
       limit: AGENT_MODEL_PAGE_SIZE,
@@ -5857,6 +5862,44 @@ async function fetchAllWorkspaceAgentModels(
   // pagination); org enablement caps the list naturally.
   const response = await getWorkspaceModels({ workspaceId })
   return response.items
+}
+
+async function fetchAllOrgCatalogEntries(
+  workspaceId?: string
+): Promise<AgentCatalogRead[]> {
+  const items: AgentCatalogRead[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await listCatalog({
+      cursor,
+      limit: AGENT_MODEL_PAGE_SIZE,
+      workspaceId,
+    })
+    items.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return items
+}
+
+async function fetchAllOrgEnabledAccessRows(
+  workspaceId?: string
+): Promise<AgentModelAccessRead[]> {
+  const items: AgentModelAccessRead[] = []
+  let cursor: string | undefined
+
+  do {
+    const response = await listEnabledModels({
+      cursor,
+      limit: AGENT_MODEL_PAGE_SIZE,
+      workspaceId,
+    })
+    items.push(...response.items)
+    cursor = response.next_cursor ?? undefined
+  } while (cursor)
+
+  return items
 }
 
 /**
@@ -5900,6 +5943,60 @@ export function useWorkspaceAgentModels(
     providersError,
     modelsLoading: modelsLoading || providersLoading,
     modelsError: modelsError ?? providersError,
+  }
+}
+
+/**
+ * Fetch the AI models that are enabled at the organization level (i.e.
+ * AgentModelAccess rows with workspace_id === null), joined against the
+ * full catalog. Use this for org-wide pickers like the default model
+ * setting.
+ */
+export function useOrgAgentModels(workspaceId?: string) {
+  const {
+    data: catalogEntries,
+    isLoading: catalogLoading,
+    error: catalogError,
+  } = useQuery<AgentCatalogRead[], ApiError>({
+    queryKey: ["organization", "agent-catalog", workspaceId],
+    queryFn: async () => fetchAllOrgCatalogEntries(workspaceId),
+    retry: retryHandler,
+  })
+
+  const {
+    data: accessRows,
+    isLoading: accessLoading,
+    error: accessError,
+  } = useQuery<AgentModelAccessRead[], ApiError>({
+    queryKey: ["organization", "agent-model-access", workspaceId],
+    queryFn: async () => fetchAllOrgEnabledAccessRows(workspaceId),
+    retry: retryHandler,
+  })
+
+  const {
+    data: providers,
+    isLoading: providersLoading,
+    error: providersError,
+  } = useQuery<AgentCustomProviderRead[], ApiError>({
+    queryKey: ["organization", "agent-providers", workspaceId],
+    queryFn: async () => fetchAllProvidersPaginated(workspaceId),
+    retry: retryHandler,
+  })
+
+  const orgEnabledCatalogIds = new Set(
+    (accessRows ?? [])
+      .filter((row) => row.workspace_id === null)
+      .map((row) => row.catalog_id)
+  )
+  const models = (catalogEntries ?? []).filter((entry) =>
+    orgEnabledCatalogIds.has(entry.id)
+  )
+
+  return {
+    models,
+    providers,
+    modelsLoading: catalogLoading || accessLoading || providersLoading,
+    modelsError: catalogError ?? accessError ?? providersError,
   }
 }
 
@@ -6135,8 +6232,7 @@ export function useChatReadiness(
 ) {
   const { defaultModel, defaultModelSelection, defaultModelLoading } =
     useAgentDefaultModel(workspaceId)
-  const { models, providers, modelsLoading } =
-    useWorkspaceAgentModels(workspaceId)
+  const { models, providers, modelsLoading } = useOrgAgentModels(workspaceId)
   const modelOverride = options?.modelOverride
 
   const loading = defaultModelLoading || modelsLoading

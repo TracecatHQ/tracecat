@@ -5225,6 +5225,7 @@ export const agentSetDefaultModelSelection = (
  * @param data.modelName
  * @param data.cursor
  * @param data.limit
+ * @param data.workspaceId
  * @returns AgentCatalogListResponse Successful Response
  * @throws ApiError
  */
@@ -5239,6 +5240,7 @@ export const listCatalog = (
       model_name: data.modelName,
       cursor: data.cursor,
       limit: data.limit,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",
@@ -5391,10 +5393,15 @@ export const enableModel = (
 /**
  * List Enabled Models
  * List enabled models with pagination.
+ *
+ * The `workspace_id` query parameter is read by the role dependency. With
+ * it, the caller's roles on that workspace apply and the list holds the
+ * organization-level rows plus that workspace's rows. Without it, every
+ * row in the organization is listed.
  * @param data The data for the request.
- * @param data.workspaceId
  * @param data.cursor
  * @param data.limit
+ * @param data.workspaceId
  * @returns AgentModelAccessListResponse Successful Response
  * @throws ApiError
  */
@@ -5405,9 +5412,9 @@ export const listEnabledModels = (
     method: "GET",
     url: "/organization/agent-model-access",
     query: {
-      workspace_id: data.workspaceId,
       cursor: data.cursor,
       limit: data.limit,
+      workspace_id: data.workspaceId,
     },
     errors: {
       422: "Validation Error",

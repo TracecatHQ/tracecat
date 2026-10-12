@@ -170,6 +170,17 @@ OrgActorRole = Annotated[
 ]
 """Dependency for a user or service-account role at the organization level."""
 
+OrgActorOptionalWorkspaceRole = Annotated[
+    Role,
+    RoleACL(
+        allow_user=True,
+        allow_service=False,
+        allow_api_key=True,
+        require_workspace="optional",
+    ),
+]
+"""`OrgUserOptionalWorkspaceRole` that also accepts service-account API keys."""
+
 OrganizationServiceAccountRole = Annotated[
     Role,
     RoleACL(

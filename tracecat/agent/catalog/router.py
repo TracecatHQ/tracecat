@@ -13,6 +13,7 @@ from tracecat.agent.catalog.schemas import (
 )
 from tracecat.agent.catalog.service import AgentCatalogService
 from tracecat.auth.dependencies import (
+    OrgActorOptionalWorkspaceRole,
     OrgActorRole,
     OrgUserRole,
     WorkspaceActorRouteRole,
@@ -31,7 +32,7 @@ router = APIRouter()
 )
 @require_scope("agent:read")
 async def list_catalog(
-    role: OrgActorRole,
+    role: OrgActorOptionalWorkspaceRole,
     session: AsyncDBSession,
     provider: str | None = Query(None),
     model_name: str | None = Query(None),

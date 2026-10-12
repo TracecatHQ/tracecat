@@ -10,7 +10,7 @@ from tracecat.agent.access.schemas import (
     AgentModelAccessRead,
 )
 from tracecat.agent.access.service import AgentModelAccessService
-from tracecat.auth.dependencies import OrgUserRole
+from tracecat.auth.dependencies import OrgUserOptionalWorkspaceRole, OrgUserRole
 from tracecat.authz.controls import require_scope
 from tracecat.db.dependencies import AsyncDBSession
 from tracecat.exceptions import TracecatNotFoundError, TracecatValidationError
@@ -54,18 +54,23 @@ async def enable_model(
 )
 @require_scope("agent:read")
 async def list_enabled_models(
-    role: OrgUserRole,
+    role: OrgUserOptionalWorkspaceRole,
     session: AsyncDBSession,
-    workspace_id: UUID | None = Query(None),
     cursor: str | None = Query(None),
     limit: int = Query(50, ge=1, le=100),
 ) -> AgentModelAccessListResponse:
-    """List enabled models with pagination."""
+    """List enabled models with pagination.
+
+    The `workspace_id` query parameter is read by the role dependency. With
+    it, the caller's roles on that workspace apply and the list holds the
+    organization-level rows plus that workspace's rows. Without it, every
+    row in the organization is listed.
+    """
     service = AgentModelAccessService(session=session, role=role)
     try:
         params = CursorPaginationParams(cursor=cursor, limit=limit)
         items, next_cursor = await service.list_enabled_models(
-            workspace_id=workspace_id,
+            workspace_id=role.workspace_id,
             cursor_params=params,
         )
         return AgentModelAccessListResponse(

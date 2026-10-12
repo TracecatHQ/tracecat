@@ -14,6 +14,7 @@ from tracecat.api.app import app as api_app
 from tracecat.auth.credentials import AuthenticatedUserOnly, SuperuserRole
 from tracecat.auth.dependencies import (
     ExecutorWorkspaceRole,
+    OrgActorOptionalWorkspaceRole,
     OrgActorRole,
     OrganizationServiceAccountRole,
     OrgUserOnlyRole,
@@ -94,6 +95,7 @@ def _test_client(
         ExecutorWorkspaceRole,
         SuperuserRole,
         AuthenticatedUserOnly,
+        OrgActorOptionalWorkspaceRole,
         OrgActorRole,
         OrganizationServiceAccountRole,
         OrgUserOnlyRole,

@@ -12,10 +12,12 @@ from fastapi.testclient import TestClient
 from temporalio.client import WorkflowExecutionStatus
 
 from tracecat.agent import router as agent_router
+from tracecat.agent.access import router as agent_access_router
 from tracecat.agent.catalog import router as agent_catalog_router
 from tracecat.agent.catalog.schemas import AgentCatalogRead
 from tracecat.agent.provider import router as agent_provider_router
 from tracecat.auth.dependencies import (
+    OrgActorOptionalWorkspaceRole,
     OrgUserOptionalWorkspaceRole,
     WorkspaceActorRouteRole,
     WorkspaceUserRouteRole,
@@ -559,22 +561,25 @@ def test_org_agent_reads_used_by_workspace_pages_take_optional_workspace() -> No
         agent_router.get_default_model,
         agent_router.get_default_model_selection,
         agent_provider_router.list_custom_providers,
+        agent_access_router.list_enabled_models,
     ]
 
     for endpoint in endpoints:
         role = get_type_hints(endpoint, include_extras=True)["role"]
         assert role == OrgUserOptionalWorkspaceRole
 
+    # The catalog list keeps accepting service-account API keys.
+    catalog_role = get_type_hints(
+        agent_catalog_router.list_catalog, include_extras=True
+    )["role"]
+    assert catalog_role == OrgActorOptionalWorkspaceRole
+
 
 def test_agent_catalog_read_routes_accept_org_actors() -> None:
-    endpoints = [
-        agent_catalog_router.list_catalog,
-        agent_catalog_router.get_catalog_entry,
+    role = get_type_hints(agent_catalog_router.get_catalog_entry, include_extras=True)[
+        "role"
     ]
-
-    for endpoint in endpoints:
-        role = get_type_hints(endpoint, include_extras=True)["role"]
-        assert role == agent_catalog_router.OrgActorRole
+    assert role == agent_catalog_router.OrgActorRole
 
 
 def test_workspace_agent_models_route_accepts_workspace_actors() -> None:

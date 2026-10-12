@@ -13248,6 +13248,7 @@ export type ListCatalogData = {
   limit?: number
   modelName?: string | null
   provider?: string | null
+  workspaceId?: string | null
 }
 
 export type ListCatalogResponse = AgentCatalogListResponse

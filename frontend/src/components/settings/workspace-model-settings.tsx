@@ -110,7 +110,9 @@ function getProviderDisplayLabel(provider: string): string {
   }
 }
 
-async function fetchAllCatalogEntries(): Promise<AgentCatalogRead[]> {
+async function fetchAllCatalogEntries(
+  workspaceId: string
+): Promise<AgentCatalogRead[]> {
   const items: AgentCatalogRead[] = []
   let cursor: string | undefined
 
@@ -118,6 +120,7 @@ async function fetchAllCatalogEntries(): Promise<AgentCatalogRead[]> {
     const response = await listCatalog({
       cursor,
       limit: CURSOR_PAGE_SIZE,
+      workspaceId,
     })
     items.push(...response.items)
     cursor = response.next_cursor ?? undefined
@@ -126,7 +129,9 @@ async function fetchAllCatalogEntries(): Promise<AgentCatalogRead[]> {
   return items
 }
 
-async function fetchAllEnabledAccessRows(): Promise<AgentModelAccessRead[]> {
+async function fetchAllEnabledAccessRows(
+  workspaceId: string
+): Promise<AgentModelAccessRead[]> {
   const items: AgentModelAccessRead[] = []
   let cursor: string | undefined
 
@@ -134,6 +139,7 @@ async function fetchAllEnabledAccessRows(): Promise<AgentModelAccessRead[]> {
     const response = await listEnabledModels({
       cursor,
       limit: CURSOR_PAGE_SIZE,
+      workspaceId,
     })
     items.push(...response.items)
     cursor = response.next_cursor ?? undefined
@@ -142,7 +148,9 @@ async function fetchAllEnabledAccessRows(): Promise<AgentModelAccessRead[]> {
   return items
 }
 
-async function fetchAllProviders(): Promise<AgentCustomProviderRead[]> {
+async function fetchAllProviders(
+  workspaceId: string
+): Promise<AgentCustomProviderRead[]> {
   const items: AgentCustomProviderRead[] = []
   let cursor: string | undefined
 
@@ -150,6 +158,7 @@ async function fetchAllProviders(): Promise<AgentCustomProviderRead[]> {
     const response = await listCustomProviders({
       cursor,
       limit: CURSOR_PAGE_SIZE,
+      workspaceId,
     })
     items.push(...response.items)
     cursor = response.next_cursor ?? undefined
@@ -195,8 +204,8 @@ export function WorkspaceModelSettings({
     isLoading: catalogEntriesLoading,
     error: catalogEntriesError,
   } = useQuery<AgentCatalogRead[], ApiError>({
-    queryKey: ["organization", "agent-catalog"],
-    queryFn: fetchAllCatalogEntries,
+    queryKey: ["organization", "agent-catalog", workspace.id],
+    queryFn: async () => fetchAllCatalogEntries(workspace.id),
     retry: retryHandler,
   })
 
@@ -205,8 +214,8 @@ export function WorkspaceModelSettings({
     isLoading: enabledAccessRowsLoading,
     error: enabledAccessRowsError,
   } = useQuery<AgentModelAccessRead[], ApiError>({
-    queryKey: ["organization", "agent-model-access"],
-    queryFn: fetchAllEnabledAccessRows,
+    queryKey: ["organization", "agent-model-access", workspace.id],
+    queryFn: async () => fetchAllEnabledAccessRows(workspace.id),
     retry: retryHandler,
   })
 
@@ -215,8 +224,8 @@ export function WorkspaceModelSettings({
     isLoading: customProvidersLoading,
     error: customProvidersError,
   } = useQuery<AgentCustomProviderRead[], ApiError>({
-    queryKey: ["organization", "agent-providers"],
-    queryFn: fetchAllProviders,
+    queryKey: ["organization", "agent-providers", workspace.id],
+    queryFn: async () => fetchAllProviders(workspace.id),
     retry: retryHandler,
   })
 
